@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import nodemailer from 'nodemailer'
+import nodemailer, { Transporter } from 'nodemailer'
+import SMTPTransport from 'nodemailer/lib/smtp-transport'
 
 // Helper function to escape HTML and prevent XSS
 function escapeHtml(text: string): string {
@@ -50,7 +51,7 @@ export async function POST(request: NextRequest) {
     const smtpPort = parseInt(process.env.SMTP_PORT || '465')
     const smtpSecure = process.env.SMTP_SECURE === 'true' || (process.env.SMTP_SECURE === undefined && smtpPort === 465)
     
-    const transporter = nodemailer.createTransport({
+    const transporter: Transporter<SMTPTransport.SentMessageInfo> = nodemailer.createTransport({
       host: smtpHost,
       port: smtpPort,
       secure: smtpSecure, // true for SSL (port 465), false for TLS (port 587)
@@ -68,7 +69,7 @@ export async function POST(request: NextRequest) {
       socketTimeout: 5000, // 5 seconds max for socket operations
       // Don't wait for connection to close
       pool: false,
-    })
+    } as SMTPTransport.Options)
 
     // Escape user input to prevent XSS attacks
     const safeName = escapeHtml(name.trim())
