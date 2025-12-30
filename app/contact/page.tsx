@@ -12,6 +12,7 @@ export default function Contact() {
 
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [submitStatus, setSubmitStatus] = useState<'idle' | 'success' | 'error'>('idle')
+  const [errorMessage, setErrorMessage] = useState<string>('')
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     setFormData({
@@ -25,17 +26,47 @@ export default function Contact() {
     setIsSubmitting(true)
     setSubmitStatus('idle')
 
-    // Simulate form submission (no backend)
-    setTimeout(() => {
-      setIsSubmitting(false)
-      setSubmitStatus('success')
-      setFormData({ name: '', email: '', phone: '', message: '' })
-      
-      // Reset success message after 5 seconds
+    try {
+      const response = await fetch('/api/contact', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(formData),
+      })
+
+      const data = await response.json()
+
+      if (response.ok) {
+        setSubmitStatus('success')
+        setErrorMessage('')
+        setFormData({ name: '', email: '', phone: '', message: '' })
+        
+        // Reset success message after 5 seconds
+        setTimeout(() => {
+          setSubmitStatus('idle')
+        }, 5000)
+      } else {
+        setSubmitStatus('error')
+        setErrorMessage(data.error || 'Something went wrong. Please try again later.')
+        // Reset error message after 8 seconds
+        setTimeout(() => {
+          setSubmitStatus('idle')
+          setErrorMessage('')
+        }, 8000)
+      }
+    } catch (error) {
+      console.error('Error submitting form:', error)
+      setSubmitStatus('error')
+      setErrorMessage('Network error. Please check your connection and try again.')
+      // Reset error message after 8 seconds
       setTimeout(() => {
         setSubmitStatus('idle')
-      }, 5000)
-    }, 1000)
+        setErrorMessage('')
+      }, 8000)
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   return (
@@ -127,7 +158,7 @@ export default function Contact() {
                 )}
                 {submitStatus === 'error' && (
                   <div className="p-4 bg-red-50 border border-red-200 rounded-lg text-red-800">
-                    Something went wrong. Please try again later.
+                    {errorMessage || 'Something went wrong. Please try again later.'}
                   </div>
                 )}
                 <button
