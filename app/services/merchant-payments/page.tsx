@@ -53,14 +53,29 @@ export default function MerchantPayments() {
 
   return (
     <div className="bg-white">
+      {/* Breadcrumb Navigation */}
+      <AnimatedSection>
+        <section className="section-padding bg-white border-b border-gray-200">
+          <div className="max-w-7xl mx-auto">
+            <nav className="flex items-center space-x-2 text-sm">
+              <Link href="/" className="text-gray-600 hover:text-primary-600 transition-colors">Home</Link>
+              <span className="text-gray-400">/</span>
+              <Link href="/services" className="text-gray-600 hover:text-primary-600 transition-colors">Services</Link>
+              <span className="text-gray-400">/</span>
+              <span className="text-gray-900 font-medium">Aadhaar Pay</span>
+            </nav>
+          </div>
+        </section>
+      </AnimatedSection>
+
       <AnimatedSection>
         <section className="section-padding bg-gradient-to-br from-primary-50/30 via-secondary-50/20 to-accent-50/20">
           <div className="max-w-7xl mx-auto">
             <div className="text-center max-w-4xl mx-auto">
               <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold text-gray-900 mb-6 leading-tight">
-                Merchant Payments
+                Aadhaar Pay
                 <span className="block text-3xl md:text-4xl mt-2 bg-gradient-to-r from-primary-600 to-secondary-600 bg-clip-text text-transparent">
-                  Aadhaar Pay Services
+                  Secure Payment Services
                 </span>
               </h1>
               <p className="text-xl text-gray-700 mb-8 leading-relaxed">

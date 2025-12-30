@@ -21,6 +21,15 @@ export default function HowItWorks() {
         'Get account approval',
       ],
       icon: '📝',
+      rightContent: {
+        title: 'Quick Approval Process',
+        highlights: [
+          'Fast document verification',
+          'Automated KYC processing',
+          '24-48 hour approval time',
+          'Dedicated onboarding support',
+        ],
+      },
     },
     {
       number: '2',
@@ -33,6 +42,15 @@ export default function HowItWorks() {
         'Test in sandbox environment',
       ],
       icon: '🔌',
+      rightContent: {
+        title: 'Developer Resources',
+        highlights: [
+          'RESTful API architecture',
+          'SDKs for multiple languages',
+          'Comprehensive documentation',
+          'Sandbox for testing',
+        ],
+      },
     },
     {
       number: '3',
@@ -45,6 +63,15 @@ export default function HowItWorks() {
         'Monitor transactions in dashboard',
       ],
       icon: '🚀',
+      rightContent: {
+        title: 'Launch Support',
+        highlights: [
+          'Production environment setup',
+          'Real-time transaction monitoring',
+          '24/7 technical support',
+          'Performance analytics dashboard',
+        ],
+      },
     },
   ]
 
@@ -116,11 +143,22 @@ export default function HowItWorks() {
                         ))}
                       </ul>
                     </div>
-                    <div className={`bg-gradient-to-br from-primary-100 to-secondary-100 rounded-2xl p-8 lg:p-12 ${index % 2 === 1 ? 'lg:order-1' : ''}`}>
-                      <div className="text-center">
-                        <div className="text-7xl mb-6">{step.icon}</div>
-                        <h3 className="text-2xl font-bold text-gray-900 mb-4">{step.title}</h3>
-                        <p className="text-gray-700">{step.description}</p>
+                    <div className={`bg-gradient-to-br from-primary-50 to-secondary-50 rounded-2xl p-8 lg:p-12 border border-primary-100 ${index % 2 === 1 ? 'lg:order-1' : ''}`}>
+                      <div className="flex items-center space-x-6">
+                        <div className="flex-shrink-0 text-5xl">{step.icon}</div>
+                        <div className="flex-1">
+                          <h3 className="text-2xl font-bold text-gray-900 mb-4">{step.rightContent.title}</h3>
+                          <ul className="space-y-3">
+                            {step.rightContent.highlights.map((highlight, hIndex) => (
+                              <li key={hIndex} className="flex items-start">
+                                <svg className="w-5 h-5 text-primary-600 mr-3 mt-1 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                </svg>
+                                <span className="text-gray-700">{highlight}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
                       </div>
                     </div>
                   </div>

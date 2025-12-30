@@ -4,50 +4,69 @@ import AnimatedCard from '@/components/AnimatedCard'
 import Link from 'next/link'
 
 export const metadata: Metadata = {
-  title: 'Mini-ATM Services - Cash Withdrawal Solutions | Same Day Solution',
-  description: 'Choose from a wide range of Mini-ATM, POS, and WPOS devices. Help customers withdraw cash and make merchant payments using debit/credit cards.',
+  title: 'LIC Bill Payment - Life Insurance Premium Payments | Same Day Solution',
+  description: 'Help your customers pay their LIC premium payments conveniently at your shop. Secure, fast, and reliable LIC bill payment services.',
 }
 
-export default function MiniATM() {
+export default function LICPaymentService() {
   const features = [
     {
-      title: 'Mini-ATM, POS & WPOS',
-      description: 'Choose from our extensive range of Mini-ATM, POS (Point of Sale), and WPOS (Wireless Point of Sale) devices, all branded and certified for secure transactions.',
-      icon: '🏧',
+      title: 'All LIC Policies',
+      description: 'Accept premium payments for all types of LIC policies including term insurance, endowment plans, and ULIPs.',
+      icon: '🛡️',
     },
     {
-      title: 'Card-Based Transactions',
-      description: 'Enable cash withdrawal and merchant payments using debit and credit cards from all major banks through our POS and WPOS solutions.',
+      title: 'Instant Confirmation',
+      description: 'Get instant payment confirmation and receipts. Real-time status updates for all LIC premium payments.',
+      icon: '⚡',
+    },
+    {
+      title: 'Multiple Payment Modes',
+      description: 'Accept payments through cash, cards, UPI, and other digital payment methods.',
       icon: '💳',
     },
     {
-      title: 'Easy Setup',
-      description: 'Quick and easy installation process with comprehensive training and support.',
-      icon: '⚙️',
-    },
-    {
-      title: 'Real-Time Settlement',
-      description: 'Fast settlement of transactions with real-time reporting and monitoring.',
-      icon: '💰',
+      title: 'Policy Information',
+      description: 'Help customers check their policy details, premium due dates, and payment history.',
+      icon: '📋',
     },
   ]
 
   const benefits = [
     {
-      title: 'Increased Footfall',
-      description: 'Attract more customers to your shop by offering convenient cash withdrawal services.',
+      title: 'Customer Trust',
+      description: 'Build trust with your customers by helping them maintain their life insurance coverage. They\'ll appreciate the convenience of paying premiums at your shop.',
     },
     {
-      title: 'Additional Revenue',
-      description: 'Earn commissions on every transaction, creating a new revenue stream for your business.',
+      title: 'Regular Footfall',
+      description: 'LIC premium payments are recurring, bringing customers back to your shop regularly. This increases your overall footfall and sales opportunities.',
     },
     {
-      title: 'Customer Convenience',
-      description: 'Provide essential banking services to your customers right at your location.',
+      title: 'Service Fees',
+      description: 'Earn service fees on every LIC premium payment. Regular customers mean regular income for your business.',
     },
     {
-      title: 'Branded Equipment',
-      description: 'Get professionally branded Mini-ATM equipment that enhances your shop\'s credibility.',
+      title: 'Community Service',
+      description: 'Help your community stay financially protected by making insurance premium payments accessible and convenient.',
+    },
+  ]
+
+  const paymentTypes = [
+    {
+      title: 'Term Insurance Premiums',
+      description: 'Accept payments for term life insurance policies that provide pure life coverage.',
+    },
+    {
+      title: 'Endowment Plans',
+      description: 'Process premium payments for endowment policies that combine insurance and savings.',
+    },
+    {
+      title: 'ULIP Premiums',
+      description: 'Handle premium payments for Unit Linked Insurance Plans that offer investment benefits.',
+    },
+    {
+      title: 'Health Insurance',
+      description: 'Accept premium payments for LIC health insurance policies and riders.',
     },
   ]
 
@@ -62,7 +81,7 @@ export default function MiniATM() {
               <span className="text-gray-400">/</span>
               <Link href="/services" className="text-gray-600 hover:text-primary-600 transition-colors">Services</Link>
               <span className="text-gray-400">/</span>
-              <span className="text-gray-900 font-medium">Mini-ATM, POS & WPOS</span>
+              <span className="text-gray-900 font-medium">LIC Bill Payment</span>
             </nav>
           </div>
         </section>
@@ -73,18 +92,18 @@ export default function MiniATM() {
           <div className="max-w-7xl mx-auto">
             <div className="text-center max-w-4xl mx-auto">
               <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold text-gray-900 mb-6 leading-tight">
-                Mini-ATM Services
+                LIC Bill Payment
                 <span className="block text-3xl md:text-4xl mt-2 bg-gradient-to-r from-primary-600 to-secondary-600 bg-clip-text text-transparent">
-                  Cash Withdrawal Made Easy
+                  Secure Premium Payments
                 </span>
               </h1>
               <p className="text-xl text-gray-700 mb-8 leading-relaxed">
-                Choose from a wide range of Mini-ATM, POS, and WPOS devices. Help your customers withdraw cash and make 
-                merchant payments using their debit/credit cards. Transform your shop into a banking service point.
+                Help your customers stay protected by making their LIC premium payments easy and convenient. 
+                They can pay their insurance premiums right at your shop, ensuring their family's financial security stays intact.
               </p>
               <div className="flex flex-col sm:flex-row gap-4 justify-center">
                 <Link href="/contact" className="btn-primary">
-                  Get Mini-ATM
+                  Start LIC Payments
                 </Link>
                 <Link href="/partner" className="btn-secondary">
                   Become a Partner
@@ -101,38 +120,39 @@ export default function MiniATM() {
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
               <div>
                 <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-6">
-                  What are Mini-ATM, POS & WPOS?
+                  Why Offer LIC Bill Payment Services?
                 </h2>
                 <p className="text-lg text-gray-700 mb-4 leading-relaxed">
-                  Mini-ATM is a portable device that enables cash withdrawal and payment transactions using 
-                  debit and credit cards. POS (Point of Sale) devices allow you to accept card payments at your 
-                  shop, while WPOS (Wireless Point of Sale) offers the same functionality wirelessly for added convenience.
+                  Life Insurance Corporation (LIC) is one of India's most trusted insurance providers, with millions 
+                  of policyholders across the country. Many people find it inconvenient to visit LIC offices or 
+                  remember premium due dates.
                 </p>
                 <p className="text-lg text-gray-700 mb-4 leading-relaxed">
-                  With our Mini-ATM, POS, and WPOS services, you can offer comprehensive banking and payment services 
-                  to your customers, helping them withdraw cash and make payments without visiting a bank branch or ATM.
+                  By offering LIC premium payment services at your shop, you provide a valuable service to your 
+                  community while creating a steady revenue stream. Your customers will appreciate the convenience 
+                  of paying their insurance premiums while running other errands.
                 </p>
                 <p className="text-lg text-gray-700 leading-relaxed">
-                  Our branded devices are secure, easy to use, and come with comprehensive 
-                  training and support to help you get started quickly.
+                  This service not only helps customers maintain their life insurance coverage but also brings them 
+                  back to your shop regularly, increasing your overall business opportunities.
                 </p>
               </div>
               <div className="bg-gradient-to-br from-primary-100 to-secondary-100 rounded-2xl p-8 lg:p-12">
                 <div className="text-center">
-                  <div className="text-7xl mb-6">🏧</div>
-                  <h3 className="text-2xl font-bold text-gray-900 mb-4">Banking at Your Doorstep</h3>
+                  <div className="text-7xl mb-6">🛡️</div>
+                  <h3 className="text-2xl font-bold text-gray-900 mb-4">Protect What Matters</h3>
                   <p className="text-gray-700 mb-6">
-                    Bring banking services to your customers. With Mini-ATM, you can offer cash withdrawal 
-                    and payment services right from your shop.
+                    Help your customers maintain their life insurance coverage. Every premium payment ensures 
+                    their family's financial security.
                   </p>
                   <div className="grid grid-cols-2 gap-4 text-center">
                     <div>
-                      <div className="text-3xl font-bold text-primary-600">24/7</div>
-                      <div className="text-sm text-gray-600">Service</div>
+                      <div className="text-3xl font-bold text-primary-600">Secure</div>
+                      <div className="text-sm text-gray-600">Payments</div>
                     </div>
                     <div>
-                      <div className="text-3xl font-bold text-secondary-600">Secure</div>
-                      <div className="text-sm text-gray-600">Transactions</div>
+                      <div className="text-3xl font-bold text-secondary-600">Instant</div>
+                      <div className="text-sm text-gray-600">Confirmation</div>
                     </div>
                   </div>
                 </div>
@@ -170,6 +190,28 @@ export default function MiniATM() {
           <div className="max-w-7xl mx-auto">
             <div className="text-center mb-12">
               <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-4">
+                LIC Policy Types Supported
+              </h2>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+              {paymentTypes.map((type, index) => (
+                <AnimatedCard key={index} delay={index * 0.1}>
+                  <div className="card">
+                    <h3 className="text-xl font-bold text-gray-900 mb-3">{type.title}</h3>
+                    <p className="text-gray-700 leading-relaxed">{type.description}</p>
+                  </div>
+                </AnimatedCard>
+              ))}
+            </div>
+          </div>
+        </section>
+      </AnimatedSection>
+
+      <AnimatedSection delay={0.5}>
+        <section className="section-padding bg-gray-50">
+          <div className="max-w-7xl mx-auto">
+            <div className="text-center mb-12">
+              <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-4">
                 Benefits for Your Business
               </h2>
             </div>
@@ -187,14 +229,14 @@ export default function MiniATM() {
         </section>
       </AnimatedSection>
 
-      <AnimatedSection delay={0.5}>
+      <AnimatedSection delay={0.6}>
         <section className="section-padding bg-gradient-to-r from-primary-600 to-secondary-600">
           <div className="max-w-4xl mx-auto text-center">
             <h2 className="text-3xl md:text-4xl font-bold text-white mb-6">
-              Start Offering Mini-ATM Services
+              Start Offering LIC Bill Payment Services
             </h2>
             <p className="text-xl text-white/90 mb-8">
-              Join our network of partners offering Mini-ATM services. Get started today with our easy setup process.
+              Help your customers protect their families while building a steady revenue stream for your business.
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
               <Link href="/contact" className="bg-white text-primary-600 px-8 py-3 rounded-lg font-semibold hover:bg-gray-100 transition-all duration-300 shadow-lg">

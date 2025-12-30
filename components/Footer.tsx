@@ -28,7 +28,9 @@ export default function Footer() {
               Aapke Har Transaction Ka Saathi
             </p>
             <div className="mt-4">
-              <p className="text-sm text-gray-400 mb-4">Email: info@samedaysolution.com</p>
+              <p className="text-sm text-gray-400 mb-2">Email: info@samedaysolution.in</p>
+              <p className="text-sm text-gray-400 mb-2">Phone: +91-8130053898</p>
+              <p className="text-sm text-gray-400 mb-4">Address: TF-11B, 3rd Floor, Eros Metro Mall, Dwarka Sector-14, New Delhi-110078</p>
               <div>
                 <h5 className="text-white font-semibold mb-3 text-sm">Follow Us</h5>
                 <div className="flex space-x-4">

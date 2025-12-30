@@ -53,6 +53,21 @@ export default function CashManagement() {
 
   return (
     <div className="bg-white">
+      {/* Breadcrumb Navigation */}
+      <AnimatedSection>
+        <section className="section-padding bg-white border-b border-gray-200">
+          <div className="max-w-7xl mx-auto">
+            <nav className="flex items-center space-x-2 text-sm">
+              <Link href="/" className="text-gray-600 hover:text-primary-600 transition-colors">Home</Link>
+              <span className="text-gray-400">/</span>
+              <Link href="/services" className="text-gray-600 hover:text-primary-600 transition-colors">Services</Link>
+              <span className="text-gray-400">/</span>
+              <span className="text-gray-900 font-medium">Cash Management</span>
+            </nav>
+          </div>
+        </section>
+      </AnimatedSection>
+
       <AnimatedSection>
         <section className="section-padding bg-gradient-to-br from-primary-50/30 via-secondary-50/20 to-accent-50/20">
           <div className="max-w-7xl mx-auto">

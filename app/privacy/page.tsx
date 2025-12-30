@@ -178,7 +178,7 @@ export default function Privacy() {
                 <li><strong>Right to Opt-Out:</strong> You can opt-out of marketing communications at any time</li>
               </ul>
               <p className="text-gray-700 leading-relaxed mt-4">
-                To exercise these rights, please contact us at privacy@samedaysolution.com or through our Grievance Policy.
+                To exercise these rights, please contact us at privacy@samedaysolution.in or through our Grievance Policy.
               </p>
             </div>
 
@@ -227,9 +227,9 @@ export default function Privacy() {
               <div className="bg-gray-50 p-6 rounded-lg">
                 <p className="text-gray-700 mb-2"><strong>Grievance Officer</strong></p>
                 <p className="text-gray-700 mb-2">Same Day Solution Pvt. Ltd.</p>
-                <p className="text-gray-700 mb-2">Email: grievance@samedaysolution.com</p>
-                <p className="text-gray-700 mb-2">Phone: [Contact Number]</p>
-                <p className="text-gray-700">Address: [Registered Office Address], Delhi, India</p>
+                <p className="text-gray-700 mb-2">Email: grievance@samedaysolution.in</p>
+                <p className="text-gray-700 mb-2">Phone: +91-8130053898</p>
+                <p className="text-gray-700">Address: TF-11B, 3rd Floor, Eros Metro Mall, Dwarka Sector-14, New Delhi-110078</p>
                 <p className="text-gray-700 mt-4 text-sm">
                   <strong>Response Time:</strong> We will respond to your grievance within 30 days from the date of receipt.
                 </p>
@@ -243,9 +243,9 @@ export default function Privacy() {
               </p>
               <div className="bg-gray-50 p-6 rounded-lg">
                 <p className="text-gray-700 mb-2"><strong>Same Day Solution Pvt. Ltd.</strong></p>
-                <p className="text-gray-700 mb-2">Email: privacy@samedaysolution.com</p>
-                <p className="text-gray-700 mb-2">Phone: [Contact Number]</p>
-                <p className="text-gray-700">Address: [Registered Office Address], Delhi, India</p>
+                <p className="text-gray-700 mb-2">Email: privacy@samedaysolution.in</p>
+                <p className="text-gray-700 mb-2">Phone: +91-8130053898</p>
+                <p className="text-gray-700">Address: TF-11B, 3rd Floor, Eros Metro Mall, Dwarka Sector-14, New Delhi-110078</p>
               </div>
             </div>
           </div>

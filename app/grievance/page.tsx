@@ -59,9 +59,9 @@ export default function Grievance() {
               <div className="bg-gray-50 p-6 rounded-lg">
                 <p className="text-gray-700 mb-2"><strong>Grievance Officer</strong></p>
                 <p className="text-gray-700 mb-2">Same Day Solution Pvt. Ltd.</p>
-                <p className="text-gray-700 mb-2">Email: grievance@samedaysolution.com</p>
-                <p className="text-gray-700 mb-2">Phone: [Contact Number]</p>
-                <p className="text-gray-700">Address: [Registered Office Address], Delhi, India</p>
+                <p className="text-gray-700 mb-2">Email: grievance@samedaysolution.in</p>
+                <p className="text-gray-700 mb-2">Phone: +91-8130053898</p>
+                <p className="text-gray-700">Address: TF-11B, 3rd Floor, Eros Metro Mall, Dwarka Sector-14, New Delhi-110078</p>
                 <p className="text-gray-700 mt-4 text-sm">
                   <strong>Response Time:</strong> Within 30 days from the date of receipt of grievance
                 </p>
@@ -92,7 +92,7 @@ export default function Grievance() {
                 <strong>4.1 Online:</strong> You can file a grievance through:
               </p>
               <ul className="list-disc pl-6 space-y-2 text-gray-700 mb-4">
-                <li>Email: grievance@samedaysolution.com</li>
+                <li>Email: grievance@samedaysolution.in</li>
                 <li>Contact form on our website</li>
                 <li>Customer support portal (if available)</li>
               </ul>
@@ -153,7 +153,7 @@ export default function Grievance() {
                 If you are not satisfied with the resolution provided by our Grievance Officer, you may:
               </p>
               <ul className="list-disc pl-6 space-y-2 text-gray-700 mb-4">
-                <li><strong>Level 1:</strong> Escalate to the Senior Management by emailing management@samedaysolution.com</li>
+                <li><strong>Level 1:</strong> Escalate to the Senior Management by emailing management@samedaysolution.in</li>
                 <li><strong>Level 2:</strong> File a complaint with the Consumer Disputes Redressal Commission under the Consumer Protection Act, 2019</li>
                 <li><strong>Level 3:</strong> Approach the appropriate regulatory authority, such as RBI (if applicable) or other relevant authorities</li>
                 <li><strong>Level 4:</strong> Seek legal recourse through courts of competent jurisdiction in Delhi, India</li>
@@ -220,9 +220,9 @@ export default function Grievance() {
               <div className="bg-gray-50 p-6 rounded-lg">
                 <p className="text-gray-700 mb-2"><strong>Grievance Officer</strong></p>
                 <p className="text-gray-700 mb-2">Same Day Solution Pvt. Ltd.</p>
-                <p className="text-gray-700 mb-2">Email: grievance@samedaysolution.com</p>
-                <p className="text-gray-700 mb-2">Phone: [Contact Number]</p>
-                <p className="text-gray-700 mb-2">Address: [Registered Office Address], Delhi, India</p>
+                <p className="text-gray-700 mb-2">Email: grievance@samedaysolution.in</p>
+                <p className="text-gray-700 mb-2">Phone: +91-8130053898</p>
+                <p className="text-gray-700 mb-2">Address: TF-11B, 3rd Floor, Eros Metro Mall, Dwarka Sector-14, New Delhi-110078</p>
                 <p className="text-gray-700 mt-4">
                   <strong>Business Hours:</strong> Monday to Friday, 9:00 AM to 6:00 PM IST
                 </p>

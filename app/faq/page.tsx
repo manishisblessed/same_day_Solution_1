@@ -22,7 +22,7 @@ export default function FAQ() {
         },
         {
           q: 'What services do you offer?',
-          a: 'We offer a comprehensive range of fintech services including AEPS (Aadhaar Enabled Payment System), DMT (Domestic Money Transfer), Bill Payments, Mobile Recharge, KYC & Onboarding, and API integration services. Visit our Services page to learn more about each service.',
+          a: 'We offer a comprehensive range of fintech services including Banking & Payments, Mini-ATM/POS/WPOS, AEPS Services, Aadhaar Pay, Domestic Money Transfer, Utility Bill Payments, Mobile Recharge, Travel Services, Cash Management, LIC Bill Payment, and Insurance services. Visit our Services page to learn more about each service.',
         },
         {
           q: 'Is your platform secure?',
@@ -52,32 +52,32 @@ export default function FAQ() {
       ],
     },
     {
-      category: 'DMT Services',
+      category: 'Domestic Money Transfer',
       questions: [
         {
-          q: 'What is DMT?',
-          a: 'DMT (Domestic Money Transfer) is a service that allows you to transfer money from one bank account to another within India. We support multiple transfer methods including IMPS, NEFT, RTGS, and UPI.',
+          q: 'What is Domestic Money Transfer?',
+          a: 'Domestic Money Transfer (DMT) is a service that allows you to transfer money from one bank account to another within India. We support multiple transfer methods including IMPS, NEFT, RTGS, and UPI for instant and secure money transfers.',
         },
         {
           q: 'How long does a money transfer take?',
           a: 'Transfer time depends on the method chosen: IMPS transfers are instant (within seconds), NEFT transfers are processed in batches (usually within 2 hours), RTGS is real-time for high-value transfers, and UPI transfers are instant.',
         },
         {
-          q: 'What are the transaction fees for DMT?',
-          a: 'Transaction fees vary based on the transfer method and amount. Please contact our sales team for detailed fee structure.',
+          q: 'What are the transaction fees for Domestic Money Transfer?',
+          a: 'Transaction fees vary based on the transfer method and amount. Please contact our sales team for detailed fee structure and competitive rates.',
         },
         {
           q: 'Can I transfer money to any bank in India?',
-          a: 'Yes, our DMT services support transfers to all major banks in India. We have partnerships with multiple banks and payment networks to ensure wide coverage.',
+          a: 'Yes, our Domestic Money Transfer services support transfers to all major banks in India. We have partnerships with multiple banks and payment networks to ensure wide coverage and reliable transfers.',
         },
       ],
     },
     {
-      category: 'Bill Payments',
+      category: 'Utility Bill Payments',
       questions: [
         {
-          q: 'Which bills can I pay through your platform?',
-          a: 'You can pay various utility bills including electricity, water, gas, internet, DTH, insurance premiums, credit card bills, loan EMIs, and more. We support all major billers across India.',
+          q: 'Which utility bills can I pay through your platform?',
+          a: 'You can pay various utility bills including electricity, water, gas, internet, DTH, and other utility services. We support all major utility providers across India. Note: LIC premium payments and insurance payments are handled through separate services.',
         },
         {
           q: 'How do I pay bills?',
@@ -89,7 +89,112 @@ export default function FAQ() {
         },
         {
           q: 'Can I set up automatic bill payments?',
-          a: 'Yes, we offer auto-pay functionality that allows you to set up automatic bill payments. You can schedule payments for recurring bills and never miss a due date.',
+          a: 'Yes, we offer auto-pay functionality that allows you to set up automatic bill payments. You can schedule payments for recurring utility bills and never miss a due date.',
+        },
+      ],
+    },
+    {
+      category: 'Aadhaar Pay',
+      questions: [
+        {
+          q: 'What is Aadhaar Pay?',
+          a: 'Aadhaar Pay is a secure payment service that allows customers to make payments using their Aadhaar number and fingerprint authentication. No debit card or PIN is required - just Aadhaar and biometric verification.',
+        },
+        {
+          q: 'How secure is Aadhaar Pay?',
+          a: 'Aadhaar Pay is highly secure as all transactions are authenticated through UIDAI (Unique Identification Authority of India). Each transaction requires biometric verification, making it one of the most secure payment methods available.',
+        },
+        {
+          q: 'What are the transaction limits for Aadhaar Pay?',
+          a: 'Transaction limits for Aadhaar Pay vary based on bank policies and account type. Generally, limits range from ₹10,000 to ₹50,000 per transaction, subject to bank and regulatory guidelines.',
+        },
+        {
+          q: 'Do customers need a bank account for Aadhaar Pay?',
+          a: 'Yes, customers need to have their Aadhaar linked to their bank account. The bank account must be linked with Aadhaar at the bank branch for Aadhaar Pay to work.',
+        },
+      ],
+    },
+    {
+      category: 'Mini-ATM, POS & WPOS',
+      questions: [
+        {
+          q: 'What is the difference between Mini-ATM, POS, and WPOS?',
+          a: 'Mini-ATM is a portable device for cash withdrawal using debit/credit cards. POS (Point of Sale) is a wired device for accepting card payments at your shop. WPOS (Wireless Point of Sale) is a wireless version of POS that offers mobility and flexibility.',
+        },
+        {
+          q: 'How do I get Mini-ATM, POS, or WPOS devices?',
+          a: 'You can get these devices through our partnership program. We provide branded, certified devices with comprehensive training and support. Contact our sales team to learn about device options and pricing.',
+        },
+        {
+          q: 'What are the transaction fees for card payments?',
+          a: 'Transaction fees vary based on the device type, transaction volume, and payment method (debit/credit card). Please contact our sales team for detailed fee structure and competitive rates.',
+        },
+        {
+          q: 'How quickly are settlements processed?',
+          a: 'Settlements for Mini-ATM, POS, and WPOS transactions are typically processed on T+1 basis (next business day). Premium plans may offer same-day or instant settlement options.',
+        },
+      ],
+    },
+    {
+      category: 'LIC Bill Payment & Insurance',
+      questions: [
+        {
+          q: 'Can I pay LIC premiums through your platform?',
+          a: 'Yes, you can pay LIC premiums for all types of policies including term insurance, endowment plans, and ULIPs. Premium payments are processed instantly with immediate confirmation.',
+        },
+        {
+          q: 'What insurance services do you offer?',
+          a: 'We offer comprehensive insurance services including health insurance, life insurance, vehicle insurance, and property insurance. You can purchase new policies, renew existing ones, and manage your insurance portfolio.',
+        },
+        {
+          q: 'How do I check my LIC policy details?',
+          a: 'You can check LIC policy details, premium due dates, and payment history through our platform. Our system provides real-time access to policy information.',
+        },
+        {
+          q: 'Are insurance premium payments instant?',
+          a: 'Yes, most insurance premium payments are processed instantly. You will receive immediate confirmation and the premium is credited to your policy account in real-time.',
+        },
+      ],
+    },
+    {
+      category: 'Travel Services',
+      questions: [
+        {
+          q: 'What travel services can I book?',
+          a: 'You can book bus tickets, flight tickets, and hotel reservations through our platform. We support all major travel operators and booking services across India.',
+        },
+        {
+          q: 'How do I book travel tickets?',
+          a: 'Simply select the travel service (bus/flight/hotel), enter travel details, choose your preferred option, and complete the payment. You will receive instant booking confirmation.',
+        },
+        {
+          q: 'Can I cancel or modify travel bookings?',
+          a: 'Cancellation and modification policies vary based on the travel operator and booking type. Please check the specific terms at the time of booking. Our support team can assist with cancellations.',
+        },
+        {
+          q: 'Do you offer railway ticket booking?',
+          a: 'Currently, we offer bus tickets, flight bookings, and hotel reservations. Railway ticket booking services are not available at this time.',
+        },
+      ],
+    },
+    {
+      category: 'Cash Management',
+      questions: [
+        {
+          q: 'What is Cash Management service?',
+          a: 'Cash Management service allows you to collect loan installments from customers on behalf of micro-finance companies and other lenders. Customers can pay their loan installments at your shop instead of visiting branch offices.',
+        },
+        {
+          q: 'Which lenders are supported?',
+          a: 'We support various micro-finance companies and product finance companies. The list of supported lenders is available in your merchant dashboard. Contact our support team for the complete list.',
+        },
+        {
+          q: 'How are loan installments processed?',
+          a: 'Loan installments are processed in real-time. Once a customer makes a payment, it is immediately credited to the lender\'s account, and you receive confirmation along with commission.',
+        },
+        {
+          q: 'What documents are required for Cash Management?',
+          a: 'You need to complete KYC verification and provide business registration documents. Additional documentation may be required based on the lenders you wish to partner with.',
         },
       ],
     },

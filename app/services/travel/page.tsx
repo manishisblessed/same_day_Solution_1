@@ -5,16 +5,11 @@ import Link from 'next/link'
 
 export const metadata: Metadata = {
   title: 'Travel Services - Ticket Booking & Travel Solutions | Same Day Solution',
-  description: 'Make your shop the travel hub of your area. Offer railway tickets, bus tickets, flight bookings, and hotel reservations.',
+  description: 'Make your shop the travel hub of your area. Offer bus tickets, flight bookings, and hotel reservations.',
 }
 
 export default function TravelServices() {
   const services = [
-    {
-      title: 'Railway Tickets',
-      description: 'Book IRCTC railway tickets for your customers. No need to stand in long queues at railway stations.',
-      icon: '🚂',
-    },
     {
       title: 'Bus Tickets',
       description: 'Book bus tickets for intercity and interstate travel through various bus operators.',
@@ -53,6 +48,21 @@ export default function TravelServices() {
 
   return (
     <div className="bg-white">
+      {/* Breadcrumb Navigation */}
+      <AnimatedSection>
+        <section className="section-padding bg-white border-b border-gray-200">
+          <div className="max-w-7xl mx-auto">
+            <nav className="flex items-center space-x-2 text-sm">
+              <Link href="/" className="text-gray-600 hover:text-primary-600 transition-colors">Home</Link>
+              <span className="text-gray-400">/</span>
+              <Link href="/services" className="text-gray-600 hover:text-primary-600 transition-colors">Services</Link>
+              <span className="text-gray-400">/</span>
+              <span className="text-gray-900 font-medium">Travel Services</span>
+            </nav>
+          </div>
+        </section>
+      </AnimatedSection>
+
       <AnimatedSection>
         <section className="section-padding bg-gradient-to-br from-primary-50/30 via-secondary-50/20 to-accent-50/20">
           <div className="max-w-7xl mx-auto">
@@ -64,9 +74,8 @@ export default function TravelServices() {
                 </span>
               </h1>
               <p className="text-xl text-gray-700 mb-8 leading-relaxed">
-                Make your shop the travel hub of your area. Now customers do not need to stand in long queues at 
-                railway station or travel to a travel agency for ticket bookings. You can offer all tickets and 
-                hotel bookings right from your shop.
+                Make your shop the travel hub of your area. Now customers do not need to travel to a travel agency 
+                for ticket bookings. You can offer bus tickets, flight bookings, and hotel reservations right from your shop.
               </p>
               <div className="flex flex-col sm:flex-row gap-4 justify-center">
                 <Link href="/contact" className="btn-primary">
@@ -91,11 +100,11 @@ export default function TravelServices() {
                 </h2>
                 <p className="text-lg text-gray-700 mb-4 leading-relaxed">
                   With our travel services, you can offer comprehensive travel booking solutions to your customers. 
-                  From railway and bus tickets to flight bookings and hotel reservations - everything is available 
+                  From bus tickets to flight bookings and hotel reservations - everything is available 
                   at your shop.
                 </p>
                 <p className="text-lg text-gray-700 mb-4 leading-relaxed">
-                  Your customers no longer need to visit railway stations, bus terminals, or travel agencies. 
+                  Your customers no longer need to visit bus terminals or travel agencies. 
                   They can book all their travel needs from your convenient location, saving time and effort.
                 </p>
                 <p className="text-lg text-gray-700 leading-relaxed">
@@ -108,7 +117,7 @@ export default function TravelServices() {
                   <div className="text-7xl mb-6">✈️</div>
                   <h3 className="text-2xl font-bold text-gray-900 mb-4">Complete Travel Solutions</h3>
                   <p className="text-gray-700 mb-6">
-                    Offer railway, bus, flight, and hotel bookings - all from your shop. 
+                    Offer bus tickets, flight bookings, and hotel reservations - all from your shop. 
                     Become the go-to travel booking center in your area.
                   </p>
                   <div className="grid grid-cols-2 gap-4 text-center">

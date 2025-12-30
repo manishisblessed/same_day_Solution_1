@@ -68,7 +68,27 @@ export default function Refund() {
                 <li>The transaction was unauthorized</li>
               </ul>
 
-              <h3 className="text-xl font-semibold text-gray-900 mb-3 mt-6">3.2 DMT (Money Transfer) Services</h3>
+              <h3 className="text-xl font-semibold text-gray-900 mb-3 mt-6">3.2 Aadhaar Pay Services</h3>
+              <p className="text-gray-700 leading-relaxed mb-4">
+                Aadhaar Pay transaction fees are non-refundable once the payment is processed. Refunds may be considered if:
+              </p>
+              <ul className="list-disc pl-6 space-y-2 text-gray-700 mb-6">
+                <li>The payment failed due to technical error but amount was debited</li>
+                <li>Duplicate payment occurred due to system malfunction</li>
+                <li>The payment was unauthorized or fraudulent</li>
+              </ul>
+
+              <h3 className="text-xl font-semibold text-gray-900 mb-3 mt-6">3.3 Mini-ATM, POS & WPOS Services</h3>
+              <p className="text-gray-700 leading-relaxed mb-4">
+                Cash withdrawal and card payment transaction fees are non-refundable. However, refunds may be considered if:
+              </p>
+              <ul className="list-disc pl-6 space-y-2 text-gray-700 mb-6">
+                <li>Cash withdrawal failed but amount was debited from customer account</li>
+                <li>Duplicate transaction occurred due to device or system error</li>
+                <li>Transaction was processed but cash was not dispensed due to technical fault</li>
+              </ul>
+
+              <h3 className="text-xl font-semibold text-gray-900 mb-3 mt-6">3.4 Domestic Money Transfer Services</h3>
               <p className="text-gray-700 leading-relaxed mb-4">
                 Money transfer transaction fees are non-refundable. However, if a transfer fails after deduction of fees, we will:
               </p>
@@ -78,7 +98,7 @@ export default function Refund() {
                 <li>Investigate and resolve disputes within 15 business days</li>
               </ul>
 
-              <h3 className="text-xl font-semibold text-gray-900 mb-3 mt-6">3.3 Bill Payment Services</h3>
+              <h3 className="text-xl font-semibold text-gray-900 mb-3 mt-6">3.5 Utility Bill Payments</h3>
               <p className="text-gray-700 leading-relaxed mb-4">
                 Bill payment transaction fees are non-refundable. Refunds for bill payments may be considered only if:
               </p>
@@ -88,14 +108,54 @@ export default function Refund() {
                 <li>The payment was made to an incorrect account due to system error</li>
               </ul>
 
-              <h3 className="text-xl font-semibold text-gray-900 mb-3 mt-6">3.4 Mobile Recharge Services</h3>
+              <h3 className="text-xl font-semibold text-gray-900 mb-3 mt-6">3.6 LIC Bill Payment</h3>
+              <p className="text-gray-700 leading-relaxed mb-4">
+                LIC premium payment fees are non-refundable. Refunds may be considered if:
+              </p>
+              <ul className="list-disc pl-6 space-y-2 text-gray-700 mb-6">
+                <li>The premium payment was made but not credited to LIC due to our error</li>
+                <li>Duplicate payment occurred due to technical error</li>
+                <li>Payment was made to incorrect policy number due to system error</li>
+              </ul>
+
+              <h3 className="text-xl font-semibold text-gray-900 mb-3 mt-6">3.7 Mobile Recharge Services</h3>
               <p className="text-gray-700 leading-relaxed mb-4">
                 Recharge transaction fees are non-refundable. Recharge amounts may be refunded only if:
               </p>
-              <ul className="list-disc pl-6 space-y-2 text-gray-700">
+              <ul className="list-disc pl-6 space-y-2 text-gray-700 mb-6">
                 <li>The recharge failed but the amount was debited</li>
                 <li>Duplicate recharge occurred due to technical error</li>
                 <li>The recharge was not activated within 24 hours due to our error</li>
+              </ul>
+
+              <h3 className="text-xl font-semibold text-gray-900 mb-3 mt-6">3.8 Travel Services</h3>
+              <p className="text-gray-700 leading-relaxed mb-4">
+                Travel booking fees and commissions are generally non-refundable. However, refunds may be considered if:
+              </p>
+              <ul className="list-disc pl-6 space-y-2 text-gray-700 mb-6">
+                <li>Booking failed but payment was processed due to our error</li>
+                <li>Duplicate booking occurred due to system error</li>
+                <li>Booking was cancelled by the service provider and refund is applicable as per their policy</li>
+              </ul>
+
+              <h3 className="text-xl font-semibold text-gray-900 mb-3 mt-6">3.9 Insurance Services</h3>
+              <p className="text-gray-700 leading-relaxed mb-4">
+                Insurance premium payment fees are non-refundable. Premium refunds are subject to insurance company policies. However, we may consider refunding our service fees if:
+              </p>
+              <ul className="list-disc pl-6 space-y-2 text-gray-700 mb-6">
+                <li>Premium payment failed but amount was debited due to our error</li>
+                <li>Duplicate payment occurred due to technical error</li>
+                <li>Payment was made to incorrect policy due to system error</li>
+              </ul>
+
+              <h3 className="text-xl font-semibold text-gray-900 mb-3 mt-6">3.10 Cash Management Services</h3>
+              <p className="text-gray-700 leading-relaxed mb-4">
+                Loan installment collection fees are non-refundable once the collection is processed. Refunds may be considered if:
+              </p>
+              <ul className="list-disc pl-6 space-y-2 text-gray-700">
+                <li>Collection was processed but not credited to the lender due to our error</li>
+                <li>Duplicate collection occurred due to system error</li>
+                <li>Collection was made for incorrect loan account due to technical error</li>
               </ul>
             </div>
 
@@ -209,9 +269,9 @@ export default function Refund() {
               <div className="bg-gray-50 p-6 rounded-lg">
                 <p className="text-gray-700 mb-2"><strong>Refund Department</strong></p>
                 <p className="text-gray-700 mb-2">Same Day Solution Pvt. Ltd.</p>
-                <p className="text-gray-700 mb-2">Email: refunds@samedaysolution.com</p>
-                <p className="text-gray-700 mb-2">Phone: [Contact Number]</p>
-                <p className="text-gray-700">Address: [Registered Office Address], Delhi, India</p>
+                <p className="text-gray-700 mb-2">Email: refunds@samedaysolution.in</p>
+                <p className="text-gray-700 mb-2">Phone: +91-8130053898</p>
+                <p className="text-gray-700">Address: TF-11B, 3rd Floor, Eros Metro Mall, Dwarka Sector-14, New Delhi-110078</p>
                 <p className="text-gray-700 mt-4 text-sm">
                   <strong>Business Hours:</strong> Monday to Friday, 9:00 AM to 6:00 PM IST
                 </p>

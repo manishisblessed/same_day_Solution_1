@@ -71,7 +71,7 @@ export default function Partner() {
     },
     {
       title: 'Multiple Services',
-      description: 'Offer a wide range of services including banking, payments, bill payments, travel, and government services.',
+      description: 'Offer a wide range of services including banking, payments, bill payments, travel, insurance, and LIC payments.',
       icon: '🎯',
     },
     {
@@ -194,11 +194,11 @@ export default function Partner() {
                 { name: 'Banking & Payments', icon: '🏦' },
                 { name: 'Mini-ATM Services', icon: '🏧' },
                 { name: 'Aadhaar Pay', icon: '👆' },
-                { name: 'Doorstep Banking', icon: '🚪' },
                 { name: 'Travel Services', icon: '✈️' },
-                { name: 'Bill Payments', icon: '📄' },
+                { name: 'Utility Bill Payments', icon: '📄' },
                 { name: 'Cash Management', icon: '💰' },
-                { name: 'Government Services', icon: '🏛️' },
+                { name: 'LIC Bill Payment', icon: '🛡️' },
+                { name: 'Insurance', icon: '🏥' },
               ].map((service, index) => (
                 <AnimatedCard key={index} delay={index * 0.05}>
                   <div className="card text-center">

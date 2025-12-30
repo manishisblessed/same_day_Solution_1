@@ -193,9 +193,9 @@ export default function Terms() {
               </p>
               <div className="bg-gray-50 p-6 rounded-lg">
                 <p className="text-gray-700 mb-2"><strong>Same Day Solution Pvt. Ltd.</strong></p>
-                <p className="text-gray-700 mb-2">Email: legal@samedaysolution.com</p>
-                <p className="text-gray-700 mb-2">Phone: [Contact Number]</p>
-                <p className="text-gray-700">Address: [Registered Office Address], Delhi, India</p>
+                <p className="text-gray-700 mb-2">Email: legal@samedaysolution.in</p>
+                <p className="text-gray-700 mb-2">Phone: +91-8130053898</p>
+                <p className="text-gray-700">Address: TF-11B, 3rd Floor, Eros Metro Mall, Dwarka Sector-14, New Delhi-110078</p>
               </div>
             </div>
 
