@@ -173,6 +173,17 @@ export default function Footer() {
 
         <div className="border-t border-gray-800 mt-8 pt-8 text-center text-sm text-gray-500">
           <p>&copy; {new Date().getFullYear()} Same Day Solution Pvt. Ltd. All rights reserved.</p>
+          <p className="mt-2">
+            Made by{' '}
+            <a
+              href="https://www.shahworks.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-primary-400 hover:text-primary-300 transition-colors"
+            >
+              Shah Works
+            </a>
+          </p>
         </div>
       </div>
     </footer>

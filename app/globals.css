@@ -48,6 +48,15 @@
   .section-padding {
     @apply py-16 px-4 sm:px-6 lg:px-8;
   }
+
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
   
   .gradient-text {
     @apply bg-gradient-to-r from-primary-600 via-primary-500 to-secondary-500 bg-clip-text text-transparent;

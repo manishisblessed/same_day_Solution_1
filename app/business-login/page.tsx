@@ -1,17 +1,32 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
+import { useAuth } from '@/contexts/AuthContext'
 import AnimatedSection from '@/components/AnimatedSection'
 import AnimatedCard from '@/components/AnimatedCard'
 import Link from 'next/link'
+import { AlertCircle } from 'lucide-react'
 
 export default function BusinessLogin() {
+  const { user, login } = useAuth()
+  const router = useRouter()
   const [userType, setUserType] = useState<'retailer' | 'distributor' | 'master-distributor' | null>(null)
   const [formData, setFormData] = useState({
-    username: '',
+    email: '',
     password: '',
     rememberMe: false,
   })
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    if (user) {
+      if (user.role === 'retailer') router.push('/dashboard/retailer')
+      else if (user.role === 'distributor') router.push('/dashboard/distributor')
+      else if (user.role === 'master_distributor') router.push('/dashboard/master-distributor')
+    }
+  }, [user, router])
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value, type, checked } = e.target
@@ -21,10 +36,23 @@ export default function BusinessLogin() {
     })
   }
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    // Handle login logic here
-    console.log('Login attempt:', { userType, ...formData })
+    setError('')
+    setLoading(true)
+
+    try {
+      const role = userType === 'master-distributor' ? 'master_distributor' : userType
+      await login(formData.email, formData.password, role!)
+      
+      if (userType === 'retailer') router.push('/dashboard/retailer')
+      else if (userType === 'distributor') router.push('/dashboard/distributor')
+      else if (userType === 'master-distributor') router.push('/dashboard/master-distributor')
+    } catch (err: any) {
+      setError(err.message || 'Invalid credentials')
+    } finally {
+      setLoading(false)
+    }
   }
 
   const userTypes = [
@@ -114,20 +142,27 @@ export default function BusinessLogin() {
                       </button>
                     </div>
 
+                    {error && (
+                      <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2 text-red-700">
+                        <AlertCircle className="w-5 h-5" />
+                        <span className="text-sm">{error}</span>
+                      </div>
+                    )}
+
                     <form onSubmit={handleSubmit} className="space-y-6">
                       <div>
-                        <label htmlFor="username" className="block text-sm font-medium text-gray-700 mb-2">
-                          Username / Partner ID
+                        <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2">
+                          Email Address
                         </label>
                         <input
-                          type="text"
-                          id="username"
-                          name="username"
+                          type="email"
+                          id="email"
+                          name="email"
                           required
-                          value={formData.username}
+                          value={formData.email}
                           onChange={handleChange}
                           className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none transition-all"
-                          placeholder="Enter your username or partner ID"
+                          placeholder="Enter your email address"
                         />
                       </div>
 
@@ -168,9 +203,10 @@ export default function BusinessLogin() {
 
                       <button
                         type="submit"
+                        disabled={loading}
                         className="w-full btn-primary"
                       >
-                        Sign In
+                        {loading ? 'Signing in...' : 'Sign In'}
                       </button>
                     </form>
 
