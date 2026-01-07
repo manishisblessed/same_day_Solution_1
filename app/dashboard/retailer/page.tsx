@@ -9,12 +9,14 @@ import RetailerHeader from '@/components/RetailerHeader'
 import { 
   TrendingUp, DollarSign, Users, Activity, 
   ShoppingCart, CreditCard, ArrowUpRight, Menu,
-  RefreshCw, Settings, X, Check, AlertCircle, Eye
+  RefreshCw, Settings, X, Check, AlertCircle, Eye, Receipt, Wallet
 } from 'lucide-react'
+import TransactionsTable from '@/components/TransactionsTable'
+import BBPSPayment from '@/components/BBPSPayment'
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
 import { motion, AnimatePresence } from 'framer-motion'
 
-type TabType = 'dashboard' | 'services' | 'transactions' | 'customers' | 'reports' | 'settings'
+type TabType = 'dashboard' | 'services' | 'bbps' | 'transactions' | 'customers' | 'reports' | 'settings'
 
 function RetailerDashboardContent() {
   const { user, loading: authLoading } = useAuth()
@@ -24,7 +26,7 @@ function RetailerDashboardContent() {
   
   const getInitialTab = (): TabType => {
     const tab = searchParams.get('tab')
-    if (tab && ['dashboard', 'services', 'transactions', 'customers', 'reports', 'settings'].includes(tab)) {
+    if (tab && ['dashboard', 'services', 'bbps', 'transactions', 'customers', 'reports', 'settings'].includes(tab)) {
       return tab as TabType
     }
     return 'dashboard'
@@ -37,6 +39,7 @@ function RetailerDashboardContent() {
     totalRevenue: 0,
     activeCustomers: 0,
     commissionEarned: 0,
+    walletBalance: 0,
   })
   const [recentTransactions, setRecentTransactions] = useState<any[]>([])
   const [chartData, setChartData] = useState<any[]>([])
@@ -49,7 +52,7 @@ function RetailerDashboardContent() {
 
   useEffect(() => {
     const tab = searchParams.get('tab')
-    if (tab && ['dashboard', 'services', 'transactions', 'customers', 'reports', 'settings'].includes(tab)) {
+    if (tab && ['dashboard', 'services', 'bbps', 'transactions', 'customers', 'reports', 'settings'].includes(tab)) {
       if (tab !== activeTab) {
         setActiveTab(tab as TabType)
       }
@@ -72,12 +75,26 @@ function RetailerDashboardContent() {
         .eq('email', user.email)
         .single()
 
+      // Fetch wallet balance
+      let walletBalance = 0
+      if (user.partner_id) {
+        try {
+          const { data: balance } = await supabase.rpc('get_wallet_balance', {
+            p_retailer_id: user.partner_id
+          })
+          walletBalance = balance || 0
+        } catch (error) {
+          console.error('Error fetching wallet balance:', error)
+        }
+      }
+
       // Mock data for demo
       setStats({
         totalTransactions: 1247,
         totalRevenue: 245680,
         activeCustomers: 342,
         commissionEarned: 2456.80,
+        walletBalance,
       })
 
       setRecentTransactions([
@@ -168,6 +185,7 @@ function RetailerDashboardContent() {
               {[
                 { id: 'dashboard' as TabType, label: 'Dashboard', icon: Activity },
                 { id: 'services' as TabType, label: 'Services', icon: ShoppingCart },
+                { id: 'bbps' as TabType, label: 'BBPS Payments', icon: Receipt },
                 { id: 'transactions' as TabType, label: 'Transactions', icon: CreditCard },
                 { id: 'customers' as TabType, label: 'Customers', icon: Users },
                 { id: 'reports' as TabType, label: 'Reports', icon: TrendingUp },
@@ -194,7 +212,8 @@ function RetailerDashboardContent() {
           {/* Tab Content */}
           {activeTab === 'dashboard' && <DashboardTab stats={stats} chartData={chartData} recentTransactions={recentTransactions} />}
           {activeTab === 'services' && <ServicesTab />}
-          {activeTab === 'transactions' && <TransactionsTab transactions={recentTransactions} />}
+          {activeTab === 'bbps' && <BBPSTab />}
+          {activeTab === 'transactions' && <TransactionsTable role="retailer" autoPoll={true} pollInterval={10000} />}
           {activeTab === 'customers' && <CustomersTab />}
           {activeTab === 'reports' && <ReportsTab chartData={chartData} stats={stats} />}
         </div>
@@ -212,7 +231,7 @@ function DashboardTab({ stats, chartData, recentTransactions }: { stats: any, ch
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.2 }}
-        className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4 w-full"
+        className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-4 w-full"
       >
         <StatCard
           label="Total Transactions"
@@ -241,6 +260,13 @@ function DashboardTab({ stats, chartData, recentTransactions }: { stats: any, ch
           icon={TrendingUp}
           gradient="from-orange-500 to-orange-600"
           delay={0.3}
+        />
+        <StatCard
+          label="Wallet Balance"
+          value={`₹${stats.walletBalance.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+          icon={Wallet}
+          gradient="from-purple-500 to-purple-600"
+          delay={0.4}
         />
       </motion.div>
 
@@ -339,6 +365,19 @@ function DashboardTab({ stats, chartData, recentTransactions }: { stats: any, ch
         </div>
       </motion.div>
     </>
+  )
+}
+
+// BBPS Tab Component
+function BBPSTab() {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="space-y-4"
+    >
+      <BBPSPayment />
+    </motion.div>
   )
 }
 

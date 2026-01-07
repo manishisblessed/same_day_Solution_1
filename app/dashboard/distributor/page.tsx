@@ -7,8 +7,9 @@ import { supabase } from '@/lib/supabase/client'
 import { 
   TrendingUp, DollarSign, Users, Activity, 
   LogOut, Package, Network, BarChart3,
-  ArrowUpRight, ArrowDownRight, UserPlus
+  ArrowUpRight, ArrowDownRight, UserPlus, Receipt
 } from 'lucide-react'
+import TransactionsTable from '@/components/TransactionsTable'
 import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
 import AnimatedSection from '@/components/AnimatedSection'
 
@@ -235,8 +236,16 @@ export default function DistributorDashboard() {
           </AnimatedSection>
         </div>
 
-        {/* Retailers List */}
+        {/* Transactions */}
         <AnimatedSection delay={0.3}>
+          <div className="card">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">POS Transactions</h3>
+            <TransactionsTable role="distributor" autoPoll={true} pollInterval={10000} />
+          </div>
+        </AnimatedSection>
+
+        {/* Retailers List */}
+        <AnimatedSection delay={0.4}>
           <div className="card">
             <div className="flex items-center justify-between mb-6">
               <h3 className="text-lg font-semibold text-gray-900">Top Retailers</h3>

@@ -11,11 +11,12 @@ import {
   Users, Package, Crown, TrendingUp, Activity,
   X, Check, AlertCircle, Menu, ArrowUpDown, 
   ChevronLeft, ChevronRight, FileSpreadsheet, FileText,
-  MoreVertical, Eye, RefreshCw, Settings, CreditCard, MapPin, Calendar
+  MoreVertical, Eye, RefreshCw, Settings, CreditCard, MapPin, Calendar, Receipt
 } from 'lucide-react'
+import TransactionsTable from '@/components/TransactionsTable'
 import { motion, AnimatePresence } from 'framer-motion'
 
-type TabType = 'retailers' | 'distributors' | 'master-distributors' | 'services' | 'pos-machines'
+type TabType = 'retailers' | 'distributors' | 'master-distributors' | 'services' | 'pos-machines' | 'transactions'
 type SortField = 'name' | 'email' | 'partner_id' | 'created_at' | 'status'
 type SortDirection = 'asc' | 'desc'
 
@@ -28,7 +29,7 @@ function AdminDashboardContent() {
   // Initialize activeTab from URL or default to 'retailers'
   const getInitialTab = (): TabType => {
     const tab = searchParams.get('tab')
-    if (tab && ['retailers', 'distributors', 'master-distributors', 'pos-machines', 'services'].includes(tab)) {
+    if (tab && ['retailers', 'distributors', 'master-distributors', 'pos-machines', 'services', 'transactions'].includes(tab)) {
       return tab as TabType
     }
     return 'retailers'
@@ -54,7 +55,7 @@ function AdminDashboardContent() {
   // Sync activeTab with URL query params
   useEffect(() => {
     const tab = searchParams.get('tab')
-    if (tab && ['retailers', 'distributors', 'master-distributors', 'pos-machines', 'services'].includes(tab)) {
+    if (tab && ['retailers', 'distributors', 'master-distributors', 'pos-machines', 'services', 'transactions'].includes(tab)) {
       if (tab !== activeTab) {
         setActiveTab(tab as TabType)
       }
@@ -64,7 +65,7 @@ function AdminDashboardContent() {
   // Sync activeTab with URL query params
   useEffect(() => {
     const tab = searchParams.get('tab')
-    if (tab && ['retailers', 'distributors', 'master-distributors', 'pos-machines', 'services'].includes(tab)) {
+    if (tab && ['retailers', 'distributors', 'master-distributors', 'pos-machines', 'services', 'transactions'].includes(tab)) {
       if (tab !== activeTab) {
         setActiveTab(tab as TabType)
       }
@@ -406,6 +407,7 @@ function AdminDashboardContent() {
                 { id: 'distributors' as TabType, label: 'Distributors', icon: Package },
                 { id: 'master-distributors' as TabType, label: 'Master Distributors', icon: Crown },
                 { id: 'pos-machines' as TabType, label: 'POS Machines', icon: CreditCard },
+                { id: 'transactions' as TabType, label: 'Transactions', icon: Receipt },
                 { id: 'services' as TabType, label: 'Services', icon: Activity },
               ].map((tab) => (
                 <button
@@ -434,7 +436,9 @@ function AdminDashboardContent() {
           </motion.div>
 
           {/* Conditional Content Based on Tab */}
-          {activeTab === 'services' ? (
+          {activeTab === 'transactions' ? (
+            <TransactionsTable role="admin" autoPoll={true} pollInterval={10000} />
+          ) : activeTab === 'services' ? (
             <ServicesManagementTab />
           ) : activeTab === 'pos-machines' ? (
             <POSMachinesTab
