@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { cookies } from 'next/headers'
 import { getCurrentUserServer } from '@/lib/auth-server'
 import { getBillersByCategory } from '@/services/bbps'
 
@@ -7,19 +8,21 @@ export const dynamic = 'force-dynamic'
 
 export async function GET(request: NextRequest) {
   try {
+    // Get cookies from request
+    const cookieStore = await cookies()
+    const cookieHeader = request.headers.get('cookie')
+    
     // Get current user (server-side)
-    const user = await getCurrentUserServer()
+    const user = await getCurrentUserServer(cookieStore)
     if (!user) {
-      console.error('BBPS Billers API: User not authenticated')
-      console.error('Request headers:', {
-        cookie: request.headers.get('cookie') ? 'Present' : 'Missing',
-        authorization: request.headers.get('authorization') ? 'Present' : 'Missing',
+      console.error('BBPS Billers API: User not authenticated', {
+        cookiesPresent: !!cookieHeader,
+        cookieCount: cookieHeader ? cookieHeader.split(';').length : 0,
       })
       return NextResponse.json(
         { 
           error: 'Unauthorized',
-          message: 'Please log in to access this feature. If you are logged in, try refreshing the page.',
-          debug: process.env.NODE_ENV === 'development' ? 'Session cookie may not be passed correctly' : undefined
+          message: 'Please log in to access this feature. If you are logged in, try refreshing the page or logging in again.',
         },
         { status: 401 }
       )

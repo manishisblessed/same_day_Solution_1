@@ -1,13 +1,20 @@
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { AuthUser } from '@/types/database.types'
+import { ReadonlyRequestCookies } from 'next/dist/server/web/spec-extension/adapters/request-cookies'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 
-export async function getCurrentUserServer(): Promise<AuthUser | null> {
+/**
+ * Get current user from server-side (for API routes)
+ * Supports both direct cookie access and request-based cookie access
+ */
+export async function getCurrentUserServer(requestCookies?: ReadonlyRequestCookies): Promise<AuthUser | null> {
   try {
-    const cookieStore = await cookies()
+    // Use provided cookies or get from next/headers
+    const cookieStore = requestCookies || await cookies()
+    
     const supabase = createServerClient(
       supabaseUrl,
       supabaseAnonKey,
@@ -33,7 +40,15 @@ export async function getCurrentUserServer(): Promise<AuthUser | null> {
 
     const { data: { user }, error } = await supabase.auth.getUser()
     
-    if (error || !user) return null
+    if (error) {
+      console.error('Supabase auth error:', error.message)
+      return null
+    }
+    
+    if (!user) {
+      console.error('No user found in Supabase session')
+      return null
+    }
 
     // Check which table the user belongs to
     const [retailer, distributor, masterDistributor, admin] = await Promise.all([
@@ -80,8 +95,10 @@ export async function getCurrentUserServer(): Promise<AuthUser | null> {
     }
 
     return null
-  } catch (error) {
+  } catch (error: any) {
+    console.error('Error in getCurrentUserServer:', error?.message || error)
     return null
   }
 }
+
 

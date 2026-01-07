@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { cookies } from 'next/headers'
 import { getCurrentUserServer } from '@/lib/auth-server'
 import { createClient } from '@supabase/supabase-js'
 
@@ -7,11 +8,25 @@ const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 
 export async function GET(request: NextRequest) {
   try {
+    // Get cookies from request headers (for API routes)
+    const cookieStore = await cookies()
+    const cookieHeader = request.headers.get('cookie')
+    
+    // Log for debugging (remove in production if needed)
+    if (!cookieHeader) {
+      console.error('Wallet Balance API: No cookies in request')
+    }
+    
     // Get current user (server-side)
-    const user = await getCurrentUserServer()
+    const user = await getCurrentUserServer(cookieStore)
     if (!user || !user.partner_id) {
+      console.error('Wallet Balance API: User not authenticated', {
+        hasUser: !!user,
+        hasPartnerId: !!user?.partner_id,
+        cookiesPresent: !!cookieHeader,
+      })
       return NextResponse.json(
-        { error: 'Unauthorized' },
+        { error: 'Unauthorized', message: 'Please log in to access this feature' },
         { status: 401 }
       )
     }
