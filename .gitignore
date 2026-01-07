@@ -74,3 +74,4 @@ logs
 *.temp
 .cache/
 
+ecosystem.config.js
