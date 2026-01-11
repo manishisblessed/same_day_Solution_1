@@ -3,20 +3,31 @@
  * Shared utilities for BBPS API operations
  */
 
-import { getBBPSBaseUrl, getBBPSPartnerId, getBBPSConsumerKey, getBBPSConsumerSecret } from './config'
+import { getBBPSBaseUrl, getBBPSPartnerId, getBBPSConsumerKey, getBBPSConsumerSecret, getBBPSAuthToken } from './config'
 
 /**
  * Generate BBPS authentication headers
  * Required for all SparkUpTech BBPS API requests
  * Headers match vendor API requirements: partnerid, consumerKey, consumerSecret
+ * 
+ * @param includeAuthToken - Whether to include Authorization Bearer token (required for payRequest)
  */
-export function getBBPSHeaders(): Record<string, string> {
-  return {
+export function getBBPSHeaders(includeAuthToken: boolean = false): Record<string, string> {
+  const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     'partnerid': getBBPSPartnerId(),
     'consumerKey': getBBPSConsumerKey(),
     'consumerSecret': getBBPSConsumerSecret(),
   }
+  
+  if (includeAuthToken) {
+    const authToken = getBBPSAuthToken()
+    if (authToken) {
+      headers['Authorization'] = `Bearer ${authToken}`
+    }
+  }
+  
+  return headers
 }
 
 /**

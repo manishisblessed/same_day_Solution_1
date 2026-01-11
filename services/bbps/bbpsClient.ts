@@ -24,6 +24,8 @@ export interface BBPSRequestOptions {
   body?: any
   reqId?: string
   billerId?: string
+  baseUrl?: string // Optional custom base URL (for payRequest which uses different base)
+  includeAuthToken?: boolean // Whether to include Authorization Bearer token
 }
 
 /**
@@ -65,9 +67,9 @@ export class BBPSClient {
   async request<T = any>(
     requestOptions: BBPSRequestOptions
   ): Promise<BBPSClientResponse<T>> {
-    const { method, endpoint, body, reqId, billerId } = requestOptions
+    const { method, endpoint, body, reqId, billerId, baseUrl, includeAuthToken } = requestOptions
     const requestId = reqId || this.generateReqId()
-    const url = `${this.baseUrl}${endpoint}`
+    const url = `${baseUrl || this.baseUrl}${endpoint}`
 
     // Validate credentials (skip in mock mode)
     if (!isMockMode()) {
@@ -96,7 +98,7 @@ export class BBPSClient {
       const timeoutId = setTimeout(() => controller.abort(), this.options.timeout)
 
       // Prepare request
-      const headers = getBBPSHeaders()
+      const headers = getBBPSHeaders(includeAuthToken || false)
       const fetchOptions: RequestInit = {
         method,
         headers,

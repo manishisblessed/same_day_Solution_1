@@ -1,148 +1,208 @@
-# Same Day Solution Pvt. Ltd. - Fintech Website
+# Same Day Solution Pvt. Ltd. - Fintech Platform
 
-A modern, clean, and responsive fintech website built with Next.js, TypeScript, and Tailwind CSS.
+A comprehensive fintech platform built with Next.js, TypeScript, and Tailwind CSS, featuring BBPS (Bharat Bill Payment System) integration, payment processing, and multi-role user management.
 
-## Features
+## 🚀 Features
 
-- 🚀 **Next.js 14** with App Router
-- 💅 **Tailwind CSS** for styling
-- 📱 **Fully Responsive** (desktop, tablet, mobile)
-- 🔍 **SEO-friendly** structure with meta tags
-- 🎨 **Modern UI/UX** with professional fintech design
-- ⚡ **Fast Performance** with optimized components
+- **Modern Tech Stack**: Next.js 14 with App Router, TypeScript, Tailwind CSS
+- **BBPS Integration**: Complete Bharat Bill Payment System integration with multiple biller categories
+- **Payment Processing**: Razorpay integration for secure transactions
+- **Multi-Role System**: Admin, Master Distributor, Distributor, and Retailer roles
+- **Wallet System**: Integrated wallet for transactions and balance management
+- **Responsive Design**: Fully responsive across desktop, tablet, and mobile
+- **SEO Optimized**: Comprehensive meta tags and SEO-friendly structure
+- **Secure Authentication**: Supabase-based authentication with role-based access control
 
-## Pages
-
-- **Home** - Hero section, services overview, why choose us, and trust & security
-- **About Us** - Company introduction, mission, vision, and core values
-- **Services** - Detailed service pages (Payments, Lending, Merchant Services, APIs, KYC)
-- **Compliance & Security** - Security measures and compliance information
-- **Contact** - Contact form and company information
-
-## Getting Started
-
-### Prerequisites
+## 📋 Prerequisites
 
 - Node.js 18+ 
 - npm or yarn
+- Supabase account (for authentication and database)
+- BBPS API credentials (for bill payment services)
+- Razorpay account (for payment processing)
 
-### Installation
+## 🛠️ Installation
 
-1. Install dependencies:
+1. **Clone the repository:**
+```bash
+git clone <repository-url>
+cd same_day_solution
+```
+
+2. **Install dependencies:**
 ```bash
 npm install
 ```
 
-2. Set up environment variables for email functionality:
-   Create a `.env.local` file in the root directory with the following variables:
-   
-   **For Titan Mail (GoDaddy) - Recommended:**
-   ```env
-   SMTP_HOST=smtpout.secureserver.net
-   SMTP_PORT=465
-   SMTP_SECURE=true
-   SMTP_USER=info@samedaysolution.in
-   SMTP_PASSWORD=your-email-password
-   SMTP_FROM=info@samedaysolution.in
-   ```
-   
-   **For Gmail:**
-   ```env
-   SMTP_HOST=smtp.gmail.com
-   SMTP_PORT=587
-   SMTP_SECURE=false
-   SMTP_USER=your-email@gmail.com
-   SMTP_PASSWORD=your-app-password
-   SMTP_FROM=your-email@gmail.com
-   ```
-   
-   **Note:** 
-   - For Titan Mail: Use your email account password
-   - For Gmail: You'll need to use an "App Password" instead of your regular password. Generate one at: https://myaccount.google.com/apppasswords
+3. **Set up environment variables:**
+   Create a `.env.local` file in the root directory:
 
-3. Run the development server:
+```env
+# Supabase Configuration
+NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
+SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
+
+# BBPS API Configuration
+BBPS_API_BASE_URL=https://api.sparkuptech.in/api/ba
+BBPS_PARTNER_ID=your_partner_id
+BBPS_CONSUMER_KEY=your_consumer_key
+BBPS_CONSUMER_SECRET=your_consumer_secret
+USE_BBPS_MOCK=false
+
+# Razorpay Configuration
+RAZORPAY_KEY_ID=your_razorpay_key_id
+RAZORPAY_KEY_SECRET=your_razorpay_key_secret
+RAZORPAY_WEBHOOK_SECRET=your_webhook_secret
+
+# Email Configuration (SMTP)
+SMTP_HOST=smtpout.secureserver.net
+SMTP_PORT=465
+SMTP_SECURE=true
+SMTP_USER=info@samedaysolution.in
+SMTP_PASSWORD=your_email_password
+SMTP_FROM=info@samedaysolution.in
+
+# Application URL
+NEXT_PUBLIC_APP_URL=http://localhost:3000
+```
+
+4. **Set up the database:**
+   - Run the SQL schemas in your Supabase database:
+     - `supabase-schema.sql` (main schema)
+     - `supabase-schema-bbps.sql` (BBPS tables)
+     - `supabase-schema-razorpay.sql` (Razorpay tables)
+
+5. **Create an admin user:**
+```bash
+npm run create-admin
+```
+
+6. **Run the development server:**
 ```bash
 npm run dev
 ```
 
-4. Open [http://localhost:3000](http://localhost:3000) in your browser.
+7. **Open [http://localhost:3000](http://localhost:3000)** in your browser.
 
-### Build for Production
-
-```bash
-npm run build
-npm start
-```
-
-## Project Structure
+## 📁 Project Structure
 
 ```
-same_day/
-├── app/                    # Next.js App Router pages
-│   ├── about/             # About Us page
-│   ├── services/          # Services page
-│   ├── compliance/        # Compliance & Security page
-│   ├── contact/           # Contact page
-│   ├── layout.tsx         # Root layout
-│   ├── page.tsx           # Home page
-│   └── globals.css        # Global styles
-├── app/
-│   └── api/
-│       └── contact/       # Contact form API endpoint
-│           └── route.ts   # Email sending handler
-├── components/            # Reusable components
-│   ├── Header.tsx         # Navigation header
-│   ├── Footer.tsx         # Footer component
-│   ├── Hero.tsx           # Hero section
-│   └── ServiceCard.tsx    # Service card component
-├── public/                # Static assets
-│   └── LOGO_Same_Day.jpeg # Company logo
-└── package.json           # Dependencies
+same_day_solution/
+├── app/                    # Next.js App Router
+│   ├── api/               # API routes
+│   │   ├── admin/        # Admin API endpoints
+│   │   ├── bbps/         # BBPS API endpoints
+│   │   ├── razorpay/     # Razorpay webhooks
+│   │   ├── wallet/       # Wallet operations
+│   │   └── transactions/ # Transaction management
+│   ├── admin/            # Admin dashboard
+│   ├── dashboard/        # User dashboards (retailer, distributor, etc.)
+│   ├── services/         # Service pages
+│   └── ...              # Other pages
+├── components/           # Reusable React components
+├── contexts/            # React contexts (Auth, etc.)
+├── hooks/               # Custom React hooks
+├── lib/                 # Utility libraries
+│   ├── bbps/           # BBPS service integration
+│   ├── razorpay/       # Razorpay integration
+│   └── supabase/       # Supabase client setup
+├── services/            # Business logic services
+│   └── bbps/           # BBPS service implementations
+├── types/               # TypeScript type definitions
+├── public/              # Static assets
+└── scripts/            # Utility scripts
 ```
 
-## Design Theme
+## 🔧 Available Scripts
 
-The website uses a professional fintech color scheme:
-- **Primary Colors**: Orange/Red gradients (matching logo)
-- **Secondary Colors**: Green gradients (matching logo)
-- **Accent Colors**: Teal/Blue for highlights
-- **Background**: Clean white with subtle gradients
+- `npm run dev` - Start development server
+- `npm run build` - Build for production
+- `npm run start` - Start production server
+- `npm run lint` - Run ESLint
+- `npm run create-admin` - Create an admin user
 
-## Customization
+## 🌐 Deployment
 
-### Colors
+### AWS Amplify (Frontend)
 
-Edit `tailwind.config.ts` to customize the color scheme.
+1. Connect your GitHub repository to AWS Amplify
+2. Set environment variables in Amplify console
+3. Deploy automatically on push to main branch
 
-### Content
+### EC2 (Backend API)
 
-All content is in the page components. Edit the respective files in the `app/` directory to update content.
+1. Set up EC2 instance with Node.js
+2. Configure Nginx as reverse proxy
+3. Set up PM2 for process management
+4. Configure environment variables
+5. Set up SSL with Let's Encrypt
 
-### Logo
+### CloudFront Configuration
 
-Replace `public/LOGO_Same_Day.jpeg` with your logo file (keep the same filename or update references in `components/Header.tsx` and `components/Footer.tsx`).
+- Configure CloudFront to route `/api/*` to EC2
+- Route `/*` to AWS Amplify for frontend
+- Set cache policies appropriately
 
-## Contact Form Email Setup
+## 🔐 Security
 
-The contact form sends emails to `info@samedaysolution.in` when users submit the form. To enable this functionality:
+- All API keys and secrets are stored in environment variables
+- Never commit `.env.local` or any files containing credentials
+- Use Supabase Row Level Security (RLS) for database access
+- Implement proper authentication and authorization checks
+- Use HTTPS in production
 
-1. Create a `.env.local` file in the root directory
-2. Add your SMTP configuration (see Getting Started section above)
-3. The form will automatically send emails when submitted
+## 📚 Key Integrations
 
-**Email Service Options:**
-- **Titan Mail (GoDaddy)** - Default configuration: `smtpout.secureserver.net` on port 465 with SSL
-- **Gmail**: Use SMTP settings with an App Password
-- **Outlook/Office 365**: Use SMTP settings with your account credentials
-- **Custom SMTP**: Configure with your email provider's SMTP settings
+### BBPS (Bharat Bill Payment System)
+- Biller categories and listing
+- Bill fetching and payment
+- Transaction status tracking
+- Complaint registration and tracking
 
-## Notes
+### Razorpay
+- Payment gateway integration
+- Webhook handling
+- Transaction management
 
-- All content is static/dummy content - replace with actual company information
-- No hardcoded regulatory claims (RBI approval, etc.) as per requirements
-- SEO meta tags are included in all pages
+### Supabase
+- User authentication
+- Database management
+- Row Level Security
 
-## License
+## 🧪 Testing
+
+The application includes:
+- BBPS API integration tests
+- Transaction flow testing
+- User role-based access testing
+
+## 📝 Environment Variables
+
+See `.env.example` (if available) or refer to the Installation section above for required environment variables.
+
+## 🤝 Contributing
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add some amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+## 📄 License
 
 This project is proprietary software for Same Day Solution Pvt. Ltd.
 
+## 📞 Support
+
+For support, email info@samedaysolution.in or visit [https://www.samedaysolution.in](https://www.samedaysolution.in)
+
+## 🙏 Acknowledgments
+
+- Next.js team for the amazing framework
+- Supabase for authentication and database services
+- Tailwind CSS for the utility-first CSS framework
+
+---
+
+**Built with ❤️ by Same Day Solution Pvt. Ltd.**

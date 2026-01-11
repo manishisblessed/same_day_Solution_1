@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserServer } from '@/lib/auth-server'
 import { createClient } from '@supabase/supabase-js'
 import { payRequest, generateAgentTransactionId } from '@/services/bbps'
+import { paiseToRupees } from '@/lib/bbps/currency'
+import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -10,42 +12,52 @@ const supabase = createClient(supabaseUrl, supabaseServiceKey || process.env.NEX
 
 export const dynamic = 'force-dynamic'
 
+export async function OPTIONS(request: NextRequest) {
+  const response = handleCorsPreflight(request)
+  return response || new NextResponse(null, { status: 204 })
+}
+
 export async function POST(request: NextRequest) {
   try {
     // Get current user (server-side)
     const user = await getCurrentUserServer()
     if (!user || !user.partner_id) {
-      return NextResponse.json(
+      const response = NextResponse.json(
         { error: 'Unauthorized' },
         { status: 401 }
       )
+      return addCorsHeaders(request, response)
     }
 
     // Only retailers can pay bills
     if (user.role !== 'retailer') {
-      return NextResponse.json(
+      const response = NextResponse.json(
         { error: 'Forbidden: Only retailers can access this endpoint' },
         { status: 403 }
       )
+      return addCorsHeaders(request, response)
     }
 
     const body = await request.json()
-    const { biller_id, consumer_number, amount, biller_name, consumer_name, due_date, bill_date, bill_number, additional_info } = body
+    const { biller_id, consumer_number, amount, biller_name, consumer_name, due_date, bill_date, bill_number, additional_info, biller_category } = body
 
     if (!biller_id || !consumer_number || !amount) {
-      return NextResponse.json(
+      const response = NextResponse.json(
         { error: 'biller_id, consumer_number, and amount are required' },
         { status: 400 }
       )
+      return addCorsHeaders(request, response)
     }
 
     // Validate amount
-    const billAmount = parseFloat(amount)
-    if (isNaN(billAmount) || billAmount <= 0) {
-      return NextResponse.json(
+    // IMPORTANT: Amount from frontend is in paise (as returned by BBPS Fetch Bill API)
+    const billAmountInPaise = parseFloat(amount)
+    if (isNaN(billAmountInPaise) || billAmountInPaise <= 0) {
+      const response = NextResponse.json(
         { error: 'Invalid amount' },
         { status: 400 }
       )
+      return addCorsHeaders(request, response)
     }
 
     // Check wallet balance
@@ -62,12 +74,14 @@ export async function POST(request: NextRequest) {
     }
 
     const walletBalance = balanceData || 0
-    if (walletBalance < billAmount) {
+    // Convert paise to rupees for comparison (wallet balance is in rupees)
+    const billAmountInRupees = paiseToRupees(billAmountInPaise)
+    if (walletBalance < billAmountInRupees) {
       return NextResponse.json(
         { 
           error: 'Insufficient wallet balance',
           wallet_balance: walletBalance,
-          required_amount: billAmount,
+          required_amount: billAmountInRupees, // Return in rupees for user-friendly display
         },
         { status: 400 }
       )
@@ -77,6 +91,7 @@ export async function POST(request: NextRequest) {
     const agentTransactionId = generateAgentTransactionId(user.partner_id)
 
     // Create BBPS transaction record
+    // Store amount in rupees in database (for consistency with wallet which is in rupees)
     const { data: bbpsTransaction, error: txError } = await supabase
       .from('bbps_transactions')
       .insert({
@@ -85,8 +100,8 @@ export async function POST(request: NextRequest) {
         biller_name,
         consumer_number,
         consumer_name,
-        bill_amount: billAmount,
-        amount_paid: billAmount,
+        bill_amount: billAmountInRupees, // Store in rupees in database
+        amount_paid: billAmountInRupees, // Store in rupees in database
         agent_transaction_id: agentTransactionId,
         status: 'pending',
         due_date: due_date || null,
@@ -106,11 +121,12 @@ export async function POST(request: NextRequest) {
     }
 
     // Debit wallet first (before making payment)
+    // Wallet operations use rupees, so convert from paise
     try {
       const { data: debitId, error: debitError } = await supabase.rpc('debit_wallet_bbps', {
         p_retailer_id: user.partner_id,
         p_transaction_id: bbpsTransaction.id,
-        p_amount: billAmount,
+        p_amount: billAmountInRupees, // Wallet uses rupees
         p_description: `BBPS Payment - ${biller_name || biller_id} - Consumer: ${consumer_number}`,
         p_reference_id: agentTransactionId,
       })
@@ -149,12 +165,13 @@ export async function POST(request: NextRequest) {
     }
 
     // Prepare additional_info with billerResponse for payRequest API
+    // IMPORTANT: Pay Request API expects amount in paise - do NOT convert
     const paymentAdditionalInfo = {
       ...(additional_info || {}),
       billerResponse: {
         responseCode: '000',
         responseMessage: 'Bill fetched successfully',
-        billAmount: billAmount.toString(),
+        billAmount: billAmountInPaise.toString(), // Keep in paise for API
         dueDate: due_date,
         billDate: bill_date,
         billNumber: bill_number,
@@ -170,13 +187,41 @@ export async function POST(request: NextRequest) {
       }
     ]
 
+    // Extract billerAdhoc from metadata (from biller info or additional_info)
+    // billerAdhoc should be "true" (string) for adhoc billers, "false" otherwise
+    const billerAdhoc = additional_info?.metadata?.billerAdhoc || 
+                        additional_info?.billerAdhoc || 
+                        'false' // Default to false if not found
+    
+    // Convert to string format expected by API ("true" or "false")
+    const billerAdhocString = String(billerAdhoc).toLowerCase() === 'true' ? 'true' : 'false'
+
+    // Extract sub_service_name from biller category
+    // Use the category from request body, or try to extract from additional_info
+    const subServiceName = biller_category || 
+                          additional_info?.metadata?.billerCategory || 
+                          additional_info?.category || 
+                          'BBPS Bill payment' // Default fallback
+
+    // Extract paymentInfo from additional_info if available
+    const paymentInfo = additional_info?.paymentInfo || [
+      {
+        infoName: 'Remarks',
+        infoValue: 'Received'
+      }
+    ]
+
     // Make payment to BBPS API using new service
+    // IMPORTANT: Pay Request API expects amount in paise - send billAmountInPaise (not converted)
     const paymentResponse = await payRequest({
       billerId: biller_id,
       consumerNumber: consumer_number,
-      amount: billAmount,
+      amount: billAmountInPaise, // Send in paise to BBPS API
       agentTransactionId: agentTransactionId,
       inputParams,
+      subServiceName, // Use extracted category (e.g., "Credit Card")
+      billerAdhoc: billerAdhocString, // Use extracted billerAdhoc ("true" or "false")
+      paymentInfo, // Use extracted paymentInfo
       additionalInfo: paymentAdditionalInfo,
       billerResponse: paymentAdditionalInfo.billerResponse,
     })
@@ -197,12 +242,13 @@ export async function POST(request: NextRequest) {
       updateData.error_message = paymentResponse.error_message
       
       // If payment failed, refund the wallet
+      // Wallet uses rupees, so use billAmountInRupees
       if (paymentResponse.success === false) {
         try {
           await supabase.rpc('refund_wallet_bbps', {
             p_retailer_id: user.partner_id,
             p_transaction_id: bbpsTransaction.id,
-            p_amount: billAmount,
+            p_amount: billAmountInRupees, // Wallet uses rupees
             p_description: `BBPS Payment Refund - ${paymentResponse.error_message || 'Payment failed'}`,
             p_reference_id: agentTransactionId,
           })
@@ -218,7 +264,7 @@ export async function POST(request: NextRequest) {
       .update(updateData)
       .eq('id', bbpsTransaction.id)
 
-    return NextResponse.json({
+    const response = NextResponse.json({
       success: paymentResponse.success,
       transaction_id: bbpsTransaction.id,
       agent_transaction_id: agentTransactionId,
@@ -227,14 +273,17 @@ export async function POST(request: NextRequest) {
       payment_status: updateData.payment_status,
       error_code: paymentResponse.error_code,
       error_message: paymentResponse.error_message,
-      wallet_balance: walletBalance - billAmount,
+      wallet_balance: walletBalance - billAmountInRupees, // Wallet uses rupees
     })
+    
+    return addCorsHeaders(request, response)
   } catch (error: any) {
     console.error('Error paying bill:', error)
-    return NextResponse.json(
-      { error: error.message || 'Failed to pay bill' },
+    const response = NextResponse.json(
+      { error: 'Failed to pay bill' },
       { status: 500 }
     )
+    return addCorsHeaders(request, response)
   }
 }
 

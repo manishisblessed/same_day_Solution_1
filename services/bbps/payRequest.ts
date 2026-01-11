@@ -7,7 +7,7 @@
 
 import { bbpsClient } from './bbpsClient'
 import { generateReqId, logBBPSApiCall, logBBPSApiError } from './helpers'
-import { isMockMode } from './config'
+import { isMockMode, getBBPSBaseUrl } from './config'
 import { BBPSPaymentRequest, BBPSPaymentResponse } from './types'
 import { getMockPayRequest } from './mocks/payRequest'
 
@@ -89,10 +89,10 @@ export async function payRequest(
     subServiceName = 'BBPS Bill payment',
     initChannel = 'AGT',
     mac = '01-23-45-67-89-ab',
-    custConvFee = '0.00',
-    billerAdhoc = '0.00',
+    custConvFee = '0',
+    billerAdhoc = 'false', // API expects "true" or "false" as string
     paymentInfo = [],
-    paymentMode = 'Wallet',
+    paymentMode = 'Cash', // Default to Cash as per API documentation
     quickPay = 'Y',
     splitPay = 'N',
     additionalInfo = {},
@@ -140,8 +140,8 @@ export async function payRequest(
         },
       ]
 
-    // Prepare request body
-    const requestBody = {
+    // Prepare request body (matching API specification)
+    const requestBody: any = {
       name,
       sub_service_name: subServiceName,
       initChannel,
@@ -155,18 +155,32 @@ export async function payRequest(
       paymentMode,
       quickPay,
       splitPay,
-      additionalInfo,
-      billerResponse,
       reqId,
     }
+    
+    // Note: additionalInfo and billerResponse are not in the API spec
+    // but may be needed for internal tracking - keeping them optional
+    if (additionalInfo && Object.keys(additionalInfo).length > 0) {
+      requestBody.additionalInfo = additionalInfo
+    }
+    if (billerResponse && Object.keys(billerResponse).length > 0) {
+      requestBody.billerResponse = billerResponse
+    }
 
+    // PayRequest uses different base URL: https://api.sparkuptech.in/api (not /api/ba)
+    // Extract base URL and remove /ba if present
+    const baseUrl = getBBPSBaseUrl()
+    const payRequestBaseUrl = baseUrl.replace('/ba', '') || 'https://api.sparkuptech.in/api'
+    
     // Make API request
     const response = await bbpsClient.request<BBPSPayRequestResponse>({
       method: 'POST',
-      endpoint: '/bbps/payRequest',
+      endpoint: '/payRequest',
       body: requestBody,
       reqId,
       billerId,
+      baseUrl: payRequestBaseUrl,
+      includeAuthToken: true, // PayRequest requires Authorization Bearer token
     })
 
     const apiResponse = response.data

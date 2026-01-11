@@ -74,4 +74,60 @@ logs
 *.temp
 .cache/
 
+# PM2 and deployment configs (may contain sensitive info)
 ecosystem.config.js
+ec2.config.js
+*.config.js
+
+# Deployment scripts and server configs
+*.sh
+nginx-config*.conf
+nginx-config*.txt
+
+# Documentation files (deployment-specific, not needed in repo)
+*-SETUP.md
+*-DEPLOYMENT.md
+*-QUICK*.md
+*-FIX*.md
+*-TESTING*.md
+*-GUIDE.md
+*-CHECKLIST.md
+*-REFERENCE.md
+*-SUMMARY.md
+*-READY.md
+*-ERROR.md
+*-ROUTING.md
+*-CACHE*.md
+*-DOMAIN*.md
+*-NGINX*.md
+*-CLOUDFRONT*.md
+*-VERIFICATION*.md
+*-TROUBLESHOOTING*.md
+*-PRODUCTION*.md
+*-UAT*.md
+*-BACKEND*.md
+*-SERVER*.md
+*-HEALTH*.md
+*-BBPS*.md
+*-RAZORPAY*.md
+*-AUTH*.md
+*-ADMIN*.md
+*-ARCHITECTURE.md
+*-SAFETY*.md
+*-HOW-TO*.md
+*-DISABLE*.md
+*-ENABLE*.md
+*-CHECK*.md
+*-VERIFY*.md
+*-CREATE*.md
+*-UPDATE*.md
+*-FIND*.md
+*-SETUP*.md
+
+# SQL files (may contain sensitive schema info)
+*.sql
+
+# Test files
+src/test/
+*.test.js
+*.test.ts

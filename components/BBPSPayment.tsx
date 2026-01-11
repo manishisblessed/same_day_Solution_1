@@ -6,6 +6,8 @@ import {
   AlertCircle, RefreshCw, FileText, Clock, MessageSquare, History
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
+import { paiseToRupees, formatPaiseAsRupees } from '@/lib/bbps/currency'
+import { getApiUrl } from '@/lib/api-client'
 
 interface BBPSBiller {
   biller_id: string
@@ -18,6 +20,39 @@ interface BBPSBiller {
   amount_exactness?: 'EXACT' | 'INEXACT' | 'ANY'
   support_bill_fetch?: boolean
   support_partial_payment?: boolean
+  metadata?: {
+    billerInputParams?: {
+      paramInfo?: Array<{
+        paramName: string
+        dataType?: string
+        isOptional?: string
+        minLength?: string
+        maxLength?: string
+        regEx?: string
+        visibility?: string
+      }>
+    }
+    paramInfo?: Array<{
+      paramName: string
+      dataType?: string
+      isOptional?: string
+      minLength?: string
+      maxLength?: string
+      regEx?: string
+      visibility?: string
+    }>
+    [key: string]: any
+  }
+}
+
+interface InputParam {
+  paramName: string
+  paramValue: string
+  dataType?: string
+  isOptional?: string
+  minLength?: string
+  maxLength?: string
+  regEx?: string
 }
 
 interface BillDetails {
@@ -64,11 +99,14 @@ export default function BBPSPayment() {
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedBiller, setSelectedBiller] = useState<BBPSBiller | null>(null)
   const [consumerNumber, setConsumerNumber] = useState('')
+  const [inputParams, setInputParams] = useState<Record<string, string>>({})
+  const [inputParamFields, setInputParamFields] = useState<InputParam[]>([])
   const [loadingBill, setLoadingBill] = useState(false)
   const [billDetails, setBillDetails] = useState<BillDetails | null>(null)
   const [paying, setPaying] = useState(false)
   const [paymentResult, setPaymentResult] = useState<PaymentResult | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [infoMessage, setInfoMessage] = useState<string | null>(null)
   const [checkingStatus, setCheckingStatus] = useState(false)
   const [transactionStatus, setTransactionStatus] = useState<TransactionStatus | null>(null)
   const [showComplaintForm, setShowComplaintForm] = useState(false)
@@ -110,10 +148,63 @@ export default function BBPSPayment() {
     }
   }, [searchQuery, billers])
 
+  // Extract input parameters when biller is selected
+  useEffect(() => {
+    if (selectedBiller) {
+      // Get input parameters from metadata - check multiple possible locations
+      // Priority: billerInputParams.paramInfo > paramInfo > direct on biller
+      const paramInfo = 
+        selectedBiller.metadata?.billerInputParams?.paramInfo || 
+        selectedBiller.metadata?.paramInfo ||
+        (selectedBiller.metadata as any)?.billerInputParams?.paramInfo ||
+        (selectedBiller.metadata as any)?.paramInfo ||
+        (selectedBiller as any)?.billerInputParams?.paramInfo ||
+        (selectedBiller as any)?.paramInfo ||
+        []
+      
+      console.log('Selected biller:', {
+        biller_id: selectedBiller.biller_id,
+        biller_name: selectedBiller.biller_name,
+        hasMetadata: !!selectedBiller.metadata,
+        metadataKeys: selectedBiller.metadata ? Object.keys(selectedBiller.metadata) : [],
+        billerInputParams: selectedBiller.metadata?.billerInputParams,
+        paramInfo: selectedBiller.metadata?.paramInfo,
+      })
+      console.log('Extracted paramInfo:', paramInfo)
+      
+      if (paramInfo && Array.isArray(paramInfo) && paramInfo.length > 0) {
+        // Use dynamic input parameters
+        const fields = paramInfo.map((p: any) => ({
+          paramName: p.paramName,
+          paramValue: '',
+          dataType: p.dataType,
+          isOptional: p.isOptional,
+          minLength: p.minLength,
+          maxLength: p.maxLength,
+          regEx: p.regEx,
+        }))
+        console.log('✅ Setting inputParamFields:', fields)
+        setInputParamFields(fields)
+        setInputParams({})
+        setConsumerNumber('') // Clear consumer number when using dynamic params
+      } else {
+        // Use default consumer number field
+        console.log('⚠️ No input params found, using default consumer number field')
+        console.log('Biller metadata structure:', JSON.stringify(selectedBiller.metadata, null, 2))
+        setInputParamFields([])
+        setInputParams({})
+      }
+    } else {
+      setInputParamFields([])
+      setInputParams({})
+      setConsumerNumber('')
+    }
+  }, [selectedBiller])
+
   const fetchWalletBalance = async () => {
     try {
       setLoadingBalance(true)
-      const response = await fetch('/api/wallet/balance')
+      const response = await fetch(getApiUrl('/api/wallet/balance'))
       const data = await response.json()
       if (data.success) {
         setWalletBalance(data.balance)
@@ -127,7 +218,7 @@ export default function BBPSPayment() {
 
   const fetchCategories = async () => {
     try {
-      const response = await fetch('/api/bbps/categories')
+      const response = await fetch(getApiUrl('/api/bbps/categories'))
       const data = await response.json()
       if (data.success) {
         const cats = data.categories || []
@@ -154,12 +245,75 @@ export default function BBPSPayment() {
     try {
       setLoadingBillers(true)
       setError(null)
-      const url = `/api/bbps/billers?category=${encodeURIComponent(category)}`
-      const response = await fetch(url)
+      setInfoMessage(null)
+      // Use billers-by-category endpoint to get full biller details including inputParams
+      const response = await fetch(getApiUrl('/api/bbps/billers-by-category'), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          fieldValue: category,
+          paymentChannelName1: 'AGT',
+          paymentChannelName2: '',
+          paymentChannelName3: '',
+        }),
+      })
       const data = await response.json()
       
-      if (data.success) {
-        const billersList = data.billers || []
+      if (data.success && data.data) {
+        // The service already returns properly formatted BBPSBiller objects with metadata
+        // Use them directly, but ensure metadata is preserved
+        const billersList: BBPSBiller[] = (data.data || []).map((biller: any) => {
+          // If biller already has the correct structure (from service), use it
+          if (biller.biller_id && biller.metadata) {
+            return biller as BBPSBiller
+          }
+          
+          // Otherwise, transform from API response format
+          return {
+            biller_id: biller.billerId || biller.biller_id || '',
+            biller_name: biller.billerName || biller.biller_name || '',
+            category: biller.billerCategory || biller.category || category,
+            category_name: biller.billerCategory || biller.category_name || category,
+            biller_alias: biller.billerAlias || biller.biller_alias,
+            is_active: biller.is_active !== false,
+            support_bill_fetch: biller.support_bill_fetch !== false,
+            support_partial_payment: biller.support_partial_payment || false,
+            amount_exactness: biller.amount_exactness,
+            metadata: {
+              // Preserve existing metadata if present
+              ...(biller.metadata || {}),
+              // Ensure billerInputParams and paramInfo are at the top level of metadata
+              billerInputParams: biller.billerInputParams || biller.metadata?.billerInputParams,
+              paramInfo: biller.paramInfo || biller.metadata?.paramInfo,
+              // Include other important fields
+              _id: biller._id,
+              billerId: biller.billerId,
+              billerName: biller.billerName,
+              billerCategory: biller.billerCategory,
+              billerPaymentModes: biller.billerPaymentModes,
+              billerPaymentChannels: biller.billerPaymentChannels,
+              // Include all other biller properties
+              ...Object.fromEntries(
+                Object.entries(biller).filter(([key]) => 
+                  !['billerId', 'biller_id', 'billerName', 'biller_name', 'billerCategory', 'category', 'category_name'].includes(key)
+                )
+              ),
+            },
+          } as BBPSBiller
+        })
+        
+        console.log('Fetched billers with metadata:', billersList.map(b => ({
+          biller_id: b.biller_id,
+          biller_name: b.biller_name,
+          hasMetadata: !!b.metadata,
+          hasBillerInputParams: !!b.metadata?.billerInputParams,
+          hasParamInfo: !!b.metadata?.paramInfo,
+          billerInputParams: b.metadata?.billerInputParams,
+          paramInfo: b.metadata?.paramInfo,
+        })))
+        
         setBillers(billersList)
         setFilteredBillers(billersList)
         
@@ -167,7 +321,7 @@ export default function BBPSPayment() {
           setError(`No billers found for category: ${category}`)
         }
       } else {
-        setError(data.error || 'Failed to fetch billers')
+        setError(data.error || data.msg || 'Failed to fetch billers')
       }
     } catch (error: any) {
       console.error('Error fetching billers:', error)
@@ -178,34 +332,138 @@ export default function BBPSPayment() {
   }
 
   const fetchBill = async () => {
-    if (!selectedBiller || !consumerNumber.trim()) {
-      setError('Please select a biller and enter consumer number')
+    if (!selectedBiller) {
+      setError('Please select a biller')
       return
+    }
+
+    // Check if this biller requires input parameters but they're not available
+    const requiresInputParams = selectedBiller.metadata?.billerInputParams?.paramInfo || 
+                                selectedBiller.metadata?.paramInfo ||
+                                (selectedBiller.metadata as any)?.billerInputParams?.paramInfo ||
+                                (selectedBiller.metadata as any)?.paramInfo
+    
+    if (requiresInputParams && requiresInputParams.length > 0 && inputParamFields.length === 0) {
+      setError('Input Parameters not found. Please refresh the page and try again.')
+      console.error('Biller requires input params but they were not extracted:', {
+        biller: selectedBiller,
+        metadata: selectedBiller.metadata,
+        requiresInputParams,
+      })
+      return
+    }
+
+    // Validate inputs based on whether we're using dynamic params or consumer number
+    if (inputParamFields.length > 0) {
+      // Validate all dynamic input parameters
+      const missingParams = inputParamFields.filter(field => {
+        const value = inputParams[field.paramName] || ''
+        return field.isOptional !== 'true' && !value.trim()
+      })
+      
+      if (missingParams.length > 0) {
+        setError(`Please fill in all required fields: ${missingParams.map(p => p.paramName).join(', ')}`)
+        return
+      }
+
+      // Validate format for each field
+      for (const field of inputParamFields) {
+        const value = inputParams[field.paramName] || ''
+        if (value.trim()) {
+          // Check min/max length
+          if (field.minLength && value.length < parseInt(field.minLength)) {
+            setError(`${field.paramName} must be at least ${field.minLength} characters`)
+            return
+          }
+          if (field.maxLength && value.length > parseInt(field.maxLength)) {
+            setError(`${field.paramName} must be at most ${field.maxLength} characters`)
+            return
+          }
+          // Check regex pattern if provided
+          if (field.regEx && field.dataType === 'NUMERIC') {
+            const regex = new RegExp(field.regEx)
+            if (!regex.test(value)) {
+              setError(`${field.paramName} format is invalid`)
+              return
+            }
+          }
+        }
+      }
+    } else {
+      // Validate consumer number
+      if (!consumerNumber.trim()) {
+        setError('Please enter consumer number')
+        return
+      }
     }
 
     try {
       setLoadingBill(true)
       setError(null)
+      setInfoMessage(null)
+      setInfoMessage(null)
       setBillDetails(null)
       setPaymentResult(null)
       setTransactionStatus(null)
 
-      const response = await fetch('/api/bbps/bill/fetch', {
+      // Build request body
+      const requestBody: any = {
+        biller_id: selectedBiller.biller_id,
+      }
+
+      // Add input_params if using dynamic parameters
+      if (inputParamFields.length > 0) {
+        requestBody.input_params = inputParamFields.map(field => ({
+          paramName: field.paramName,
+          paramValue: inputParams[field.paramName] || '',
+        }))
+        // Use first param value as consumer_number for backward compatibility
+        requestBody.consumer_number = inputParams[inputParamFields[0].paramName] || ''
+      } else {
+        // Use consumer number for regular billers
+        requestBody.consumer_number = consumerNumber.trim()
+      }
+
+      console.log('Sending fetch bill request:', requestBody)
+      
+      const response = await fetch(getApiUrl('/api/bbps/bill/fetch'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          biller_id: selectedBiller.biller_id,
-          consumer_number: consumerNumber.trim(),
-        }),
+        body: JSON.stringify(requestBody),
       })
 
       const data = await response.json()
+      
+      console.log('Fetch bill response:', { status: response.status, data })
+      
+      // Check if this is an informational message (not an error)
+      const message = data.error || data.message || 'Failed to fetch bill details'
+      const isInfoMessage = data.messageType === 'info' || 
+                           message.toLowerCase().includes('no bill due') ||
+                           message.toLowerCase().includes('payment received') ||
+                           message.toLowerCase().includes('already paid')
+      
+      if (!response.ok) {
+        if (isInfoMessage) {
+          console.log('Fetch bill info:', message)
+          setInfoMessage(message)
+        } else {
+          console.error('Fetch bill error:', message)
+          setError(message)
+        }
+        return
+      }
+      
+      // Handle successful response
       if (data.success && data.bill) {
         setBillDetails(data.bill)
+      } else if (isInfoMessage) {
+        // Even if success is false, if it's an info message, show it as info
+        setInfoMessage(message)
       } else {
-        setError(data.error || 'Failed to fetch bill details')
+        setError(message)
       }
     } catch (error: any) {
       console.error('Error fetching bill:', error)
@@ -223,10 +481,11 @@ export default function BBPSPayment() {
     try {
       setPaying(true)
       setError(null)
+      setInfoMessage(null)
       setPaymentResult(null)
       setTransactionStatus(null)
 
-      const response = await fetch('/api/bbps/bill/pay', {
+      const response = await fetch(getApiUrl('/api/bbps/bill/pay'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -234,6 +493,7 @@ export default function BBPSPayment() {
         body: JSON.stringify({
           biller_id: selectedBiller.biller_id,
           biller_name: selectedBiller.biller_name,
+          biller_category: selectedBiller.category || selectedBiller.category_name || selectedCategory,
           consumer_number: consumerNumber.trim(),
           amount: billDetails.bill_amount,
           consumer_name: billDetails.consumer_name,
@@ -271,8 +531,9 @@ export default function BBPSPayment() {
     try {
       setCheckingStatus(true)
       setError(null)
+      setInfoMessage(null)
 
-      const response = await fetch('/api/bbps/transaction-status', {
+      const response = await fetch(getApiUrl('/api/bbps/transaction-status'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -306,8 +567,9 @@ export default function BBPSPayment() {
     try {
       setSubmittingComplaint(true)
       setError(null)
+      setInfoMessage(null)
 
-      const response = await fetch('/api/bbps/complaint/register', {
+      const response = await fetch(getApiUrl('/api/bbps/complaint/register'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -323,6 +585,7 @@ export default function BBPSPayment() {
       const data = await response.json()
       if (data.success) {
         setError(null)
+      setInfoMessage(null)
         setShowComplaintForm(false)
         setComplaintDescription('')
         alert(`Complaint registered successfully! Complaint ID: ${data.complaint_id}`)
@@ -407,6 +670,30 @@ export default function BBPSPayment() {
               </button>
             </div>
           </motion.div>
+
+          {/* Info Message (Success/Info) */}
+          <AnimatePresence>
+            {infoMessage && (
+              <motion.div
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4 flex items-start gap-3"
+              >
+                <CheckCircle className="w-5 h-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <p className="text-sm font-medium text-green-800 dark:text-green-200">Information</p>
+                  <p className="text-sm text-green-700 dark:text-green-300 mt-1">{infoMessage}</p>
+                </div>
+                <button
+                  onClick={() => setInfoMessage(null)}
+                  className="text-green-600 dark:text-green-400 hover:text-green-800 dark:hover:text-green-200"
+                >
+                  <XCircle className="w-5 h-5" />
+                </button>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
           {/* Error Message */}
           <AnimatePresence>
@@ -599,6 +886,7 @@ export default function BBPSPayment() {
                     setBillDetails(null)
                     setPaymentResult(null)
                     setError(null)
+      setInfoMessage(null)
                     setBillers([])
                     setFilteredBillers([])
                   }}
@@ -650,6 +938,7 @@ export default function BBPSPayment() {
                       setBillDetails(null)
                       setPaymentResult(null)
                       setError(null)
+      setInfoMessage(null)
                     }}
                     className={`p-3 rounded-lg border-2 text-left transition-all ${
                       selectedBiller?.biller_id === biller.biller_id
@@ -667,7 +956,7 @@ export default function BBPSPayment() {
             )}
           </div>
 
-          {/* Consumer Number Input */}
+          {/* Consumer Details Input */}
           {selectedBiller && (
             <motion.div
               initial={{ opacity: 0, y: 20 }}
@@ -676,21 +965,65 @@ export default function BBPSPayment() {
             >
               <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Enter Consumer Details</h3>
               <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    Consumer Number *
-                  </label>
-                  <input
-                    type="text"
-                    value={consumerNumber}
-                    onChange={(e) => setConsumerNumber(e.target.value)}
-                    placeholder="Enter consumer number"
-                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  />
-                </div>
+                {inputParamFields.length > 0 ? (
+                  // Dynamic input fields based on biller parameters
+                  inputParamFields.map((field, index) => (
+                    <div key={index}>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                        {field.paramName} {field.isOptional !== 'true' && '*'}
+                        {field.minLength && field.maxLength && (
+                          <span className="text-xs text-gray-500 ml-2">
+                            ({field.minLength}-{field.maxLength} {field.dataType === 'NUMERIC' ? 'digits' : 'characters'})
+                          </span>
+                        )}
+                      </label>
+                      <input
+                        type={field.dataType === 'NUMERIC' ? 'tel' : 'text'}
+                        value={inputParams[field.paramName] || ''}
+                        onChange={(e) => {
+                          let value = e.target.value
+                          // For numeric fields, only allow digits
+                          if (field.dataType === 'NUMERIC') {
+                            value = value.replace(/\D/g, '')
+                            // Enforce max length
+                            if (field.maxLength && value.length > parseInt(field.maxLength)) {
+                              value = value.slice(0, parseInt(field.maxLength))
+                            }
+                          }
+                          setInputParams(prev => ({
+                            ...prev,
+                            [field.paramName]: value,
+                          }))
+                        }}
+                        placeholder={`Enter ${field.paramName.toLowerCase()}`}
+                        maxLength={field.maxLength ? parseInt(field.maxLength) : undefined}
+                        className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      />
+                    </div>
+                  ))
+                ) : (
+                  // Default consumer number field
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      Consumer Number *
+                    </label>
+                    <input
+                      type="text"
+                      value={consumerNumber}
+                      onChange={(e) => setConsumerNumber(e.target.value)}
+                      placeholder="Enter consumer number"
+                      className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  </div>
+                )}
                 <button
                   onClick={fetchBill}
-                  disabled={!consumerNumber.trim() || loadingBill}
+                  disabled={
+                    loadingBill || 
+                    (inputParamFields.length > 0 
+                      ? inputParamFields.some(field => field.isOptional !== 'true' && !inputParams[field.paramName]?.trim())
+                      : !consumerNumber.trim())
+                  }
                   className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                 >
                   {loadingBill ? (
@@ -746,13 +1079,14 @@ export default function BBPSPayment() {
                   <div className="flex justify-between items-center">
                     <span className="text-lg font-medium text-gray-900 dark:text-white">Amount to Pay:</span>
                     <span className="text-2xl font-bold text-green-600 dark:text-green-400">
-                      ₹{billDetails.bill_amount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      {/* Convert paise to rupees for display only */}
+                      {formatPaiseAsRupees(billDetails.bill_amount)}
                     </span>
                   </div>
                 </div>
                 <button
                   onClick={payBill}
-                  disabled={paying || (walletBalance !== null && walletBalance < billDetails.bill_amount)}
+                  disabled={paying || (walletBalance !== null && walletBalance < paiseToRupees(billDetails.bill_amount))}
                   className="w-full px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center gap-2 font-semibold mt-4"
                 >
                   {paying ? (
@@ -760,7 +1094,7 @@ export default function BBPSPayment() {
                       <Loader2 className="w-5 h-5 animate-spin" />
                       Processing Payment...
                     </>
-                  ) : walletBalance !== null && walletBalance < billDetails.bill_amount ? (
+                  ) : walletBalance !== null && walletBalance < paiseToRupees(billDetails.bill_amount) ? (
                     <>
                       <AlertCircle className="w-5 h-5" />
                       Insufficient Balance
@@ -772,9 +1106,10 @@ export default function BBPSPayment() {
                     </>
                   )}
                 </button>
-                {walletBalance !== null && walletBalance < billDetails.bill_amount && (
+                {walletBalance !== null && walletBalance < paiseToRupees(billDetails.bill_amount) && (
                   <p className="text-sm text-red-600 dark:text-red-400 text-center mt-2">
-                    Required: ₹{billDetails.bill_amount.toLocaleString('en-IN')} | Available: ₹{walletBalance.toLocaleString('en-IN')}
+                    {/* Convert paise to rupees for display - wallet balance is already in rupees */}
+                    Required: {formatPaiseAsRupees(billDetails.bill_amount)} | Available: ₹{walletBalance.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </p>
                 )}
               </div>

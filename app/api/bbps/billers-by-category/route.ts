@@ -1,9 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserServer } from '@/lib/auth-server'
 import { getBillersByCategoryAndChannel } from '@/services/bbps'
+import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
 
 // Mark this route as dynamic
 export const dynamic = 'force-dynamic'
+
+export async function OPTIONS(request: NextRequest) {
+  const response = handleCorsPreflight(request)
+  return response || new NextResponse(null, { status: 204 })
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -15,7 +21,7 @@ export async function POST(request: NextRequest) {
         cookie: request.headers.get('cookie') ? 'Present' : 'Missing',
         authorization: request.headers.get('authorization') ? 'Present' : 'Missing',
       })
-      return NextResponse.json(
+      const response = NextResponse.json(
         { 
           error: 'Unauthorized',
           message: 'Please log in to access this feature. If you are logged in, try refreshing the page.',
@@ -23,16 +29,18 @@ export async function POST(request: NextRequest) {
         },
         { status: 401 }
       )
+      return addCorsHeaders(request, response)
     }
 
     // Only RETAILER role can access BBPS APIs
     // Normalize role to uppercase for comparison
     const userRole = user.role?.toUpperCase()
     if (userRole !== 'RETAILER') {
-      return NextResponse.json(
+      const response = NextResponse.json(
         { error: 'Forbidden: Only retailers can access this endpoint' },
         { status: 403 }
       )
+      return addCorsHeaders(request, response)
     }
 
     // Parse request body
@@ -40,10 +48,11 @@ export async function POST(request: NextRequest) {
     const { fieldValue, paymentChannelName1, paymentChannelName2, paymentChannelName3 } = body
 
     if (!fieldValue) {
-      return NextResponse.json(
+      const response = NextResponse.json(
         { error: 'fieldValue (category) parameter is required' },
         { status: 400 }
       )
+      return addCorsHeaders(request, response)
     }
 
     console.log(`Fetching billers for category: ${fieldValue}, payment channels: ${paymentChannelName1}, ${paymentChannelName2}, ${paymentChannelName3}, user: ${user.email}`)
@@ -55,22 +64,25 @@ export async function POST(request: NextRequest) {
       paymentChannelName3,
     })
 
-    return NextResponse.json({
+    const response = NextResponse.json({
       success: true,
       msg: 'Detail Fetched',
       data: billers,
       count: billers.length,
     })
+    
+    return addCorsHeaders(request, response)
   } catch (error: any) {
     console.error('Error fetching BBPS billers by category:', error)
-    return NextResponse.json(
+    const response = NextResponse.json(
       { 
         success: false,
-        error: error.message || 'Failed to fetch billers',
+        error: 'Failed to fetch billers',
         details: process.env.NODE_ENV === 'development' ? error.stack : undefined
       },
       { status: 500 }
     )
+    return addCorsHeaders(request, response)
   }
 }
 

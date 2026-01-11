@@ -32,6 +32,14 @@ export function getBBPSConsumerSecret(): string {
 }
 
 /**
+ * Get BBPS Authorization Bearer Token from environment
+ * Required for payRequest endpoint
+ */
+export function getBBPSAuthToken(): string {
+  return process.env.BBPS_AUTH_TOKEN || ''
+}
+
+/**
  * Check if mock mode is enabled
  * Uses USE_BBPS_MOCK environment variable
  * Defaults to LIVE (false) if not set
