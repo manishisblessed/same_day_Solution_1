@@ -31,33 +31,63 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // Only retailers have wallets
-    if (user.role !== 'retailer') {
+    // All roles (retailer, distributor, master_distributor) have wallets
+    if (!['retailer', 'distributor', 'master_distributor'].includes(user.role)) {
       return NextResponse.json(
-        { error: 'Forbidden: Only retailers have wallets' },
+        { error: 'Forbidden: Invalid user role' },
         { status: 403 }
       )
     }
 
     const supabase = createClient(supabaseUrl, supabaseAnonKey)
 
-    // Get wallet balance
-    const { data: balance, error } = await supabase.rpc('get_wallet_balance', {
-      p_retailer_id: user.partner_id
+    // Get wallet balance using new function (supports all roles)
+    // Fallback to old function for retailers if new function doesn't exist
+    let balance = 0
+    let error = null
+    
+    const { data: newBalance, error: newError } = await supabase.rpc('get_wallet_balance_v2', {
+      p_user_id: user.partner_id,
+      p_wallet_type: 'primary'
     })
+
+    if (newError) {
+      // If new function doesn't exist, try old function for retailers
+      if (user.role === 'retailer') {
+        const { data: oldBalance, error: oldError } = await supabase.rpc('get_wallet_balance', {
+          p_retailer_id: user.partner_id
+        })
+        if (!oldError) {
+          balance = oldBalance || 0
+        } else {
+          error = oldError
+        }
+      } else {
+        error = newError
+      }
+    } else {
+      balance = newBalance || 0
+    }
 
     if (error) {
       console.error('Error fetching wallet balance:', error)
-      return NextResponse.json(
-        { error: 'Failed to fetch wallet balance' },
-        { status: 500 }
-      )
+      // Return 0 instead of error to prevent dashboard blocking
+      return NextResponse.json({
+        success: true,
+        balance: 0,
+        user_id: user.partner_id,
+        user_role: user.role,
+        wallet_type: 'primary',
+        warning: 'Wallet function not available, returning 0'
+      })
     }
 
     return NextResponse.json({
       success: true,
       balance: balance || 0,
-      retailer_id: user.partner_id,
+      user_id: user.partner_id,
+      user_role: user.role,
+      wallet_type: 'primary'
     })
   } catch (error: any) {
     console.error('Error in wallet balance API:', error)

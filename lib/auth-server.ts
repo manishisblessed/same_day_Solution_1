@@ -51,14 +51,15 @@ export async function getCurrentUserServer(requestCookies?: ReadonlyRequestCooki
     }
 
     // Check which table the user belongs to
+    // Use maybeSingle() instead of single() to avoid 406 errors when user doesn't belong to a table
     const [retailer, distributor, masterDistributor, admin] = await Promise.all([
-      supabase.from('retailers').select('*').eq('email', user.email!).single(),
-      supabase.from('distributors').select('*').eq('email', user.email!).single(),
-      supabase.from('master_distributors').select('*').eq('email', user.email!).single(),
-      supabase.from('admin_users').select('*').eq('email', user.email!).single(),
+      supabase.from('retailers').select('*').eq('email', user.email!).maybeSingle(),
+      supabase.from('distributors').select('*').eq('email', user.email!).maybeSingle(),
+      supabase.from('master_distributors').select('*').eq('email', user.email!).maybeSingle(),
+      supabase.from('admin_users').select('*').eq('email', user.email!).maybeSingle(),
     ])
 
-    if (retailer.data) {
+    if (retailer.data && !retailer.error) {
       return {
         id: user.id,
         email: user.email!,
@@ -67,7 +68,7 @@ export async function getCurrentUserServer(requestCookies?: ReadonlyRequestCooki
         name: retailer.data.name,
       }
     }
-    if (distributor.data) {
+    if (distributor.data && !distributor.error) {
       return {
         id: user.id,
         email: user.email!,
@@ -76,7 +77,7 @@ export async function getCurrentUserServer(requestCookies?: ReadonlyRequestCooki
         name: distributor.data.name,
       }
     }
-    if (masterDistributor.data) {
+    if (masterDistributor.data && !masterDistributor.error) {
       return {
         id: user.id,
         email: user.email!,
@@ -85,7 +86,7 @@ export async function getCurrentUserServer(requestCookies?: ReadonlyRequestCooki
         name: masterDistributor.data.name,
       }
     }
-    if (admin.data) {
+    if (admin.data && !admin.error) {
       return {
         id: user.id,
         email: user.email!,

@@ -8,6 +8,11 @@ A comprehensive fintech platform built with Next.js, TypeScript, and Tailwind CS
 - **BBPS Integration**: Complete Bharat Bill Payment System integration with multiple biller categories
 - **Payment Processing**: Razorpay integration for secure transactions
 - **Multi-Role System**: Admin, Master Distributor, Distributor, and Retailer roles
+- **Admin Features**: 
+  - Sub-admin management with department-based permissions
+  - Admin impersonation (login as any user)
+  - Password reset for any user
+  - Wallet push/pull operations
 - **Wallet System**: Integrated wallet for transactions and balance management
 - **Responsive Design**: Fully responsive across desktop, tablet, and mobile
 - **SEO Optimized**: Comprehensive meta tags and SEO-friendly structure
@@ -68,10 +73,13 @@ NEXT_PUBLIC_APP_URL=http://localhost:3000
 ```
 
 4. **Set up the database:**
-   - Run the SQL schemas in your Supabase database:
+   - Run the SQL migration files in your Supabase database in this order:
      - `supabase-schema.sql` (main schema)
      - `supabase-schema-bbps.sql` (BBPS tables)
      - `supabase-schema-razorpay.sql` (Razorpay tables)
+     - `supabase-schema-wallet-ledger-integration.sql` (Wallet and ledger system)
+     - `supabase-admin-sub-admin-impersonation-migration.sql` (Admin system)
+     - `supabase-multiple-departments-migration.sql` (Sub-admin departments)
 
 5. **Create an admin user:**
 ```bash

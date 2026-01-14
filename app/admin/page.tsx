@@ -11,7 +11,8 @@ import {
   Users, Package, Crown, TrendingUp, Activity,
   X, Check, AlertCircle, Menu, ArrowUpDown, 
   ChevronLeft, ChevronRight, FileSpreadsheet, FileText,
-  MoreVertical, Eye, RefreshCw, Settings, CreditCard, MapPin, Calendar, Receipt
+  MoreVertical, RefreshCw, Settings, CreditCard, MapPin, Calendar, Receipt,
+  ArrowUpCircle, ArrowDownCircle, Wallet, LogIn, Key, Eye, EyeOff
 } from 'lucide-react'
 import TransactionsTable from '@/components/TransactionsTable'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -21,7 +22,7 @@ type SortField = 'name' | 'email' | 'partner_id' | 'created_at' | 'status'
 type SortDirection = 'asc' | 'desc'
 
 function AdminDashboardContent() {
-  const { user, loading: authLoading } = useAuth()
+  const { user, loading: authLoading, impersonate } = useAuth()
   const router = useRouter()
   const searchParams = useSearchParams()
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -38,6 +39,24 @@ function AdminDashboardContent() {
   const [activeTab, setActiveTab] = useState<TabType>(getInitialTab())
   const [showModal, setShowModal] = useState(false)
   const [editingItem, setEditingItem] = useState<any>(null)
+  const [showWalletModal, setShowWalletModal] = useState(false)
+  const [walletAction, setWalletAction] = useState<'push' | 'pull'>('push')
+  const [selectedWalletUser, setSelectedWalletUser] = useState<any>(null)
+  const [currentBalance, setCurrentBalance] = useState<number | null>(null)
+  const [loadingBalance, setLoadingBalance] = useState(false)
+  const [walletFormData, setWalletFormData] = useState({
+    amount: '',
+    fund_category: 'cash' as 'cash' | 'online' | 'aeps',
+    wallet_type: 'primary' as 'primary' | 'aeps',
+    remarks: ''
+  })
+  const [showPasswordResetModal, setShowPasswordResetModal] = useState(false)
+  const [selectedUserForReset, setSelectedUserForReset] = useState<any>(null)
+  const [newPassword, setNewPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false)
+  const [resettingPassword, setResettingPassword] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive' | 'suspended'>('all')
   const [sortField, setSortField] = useState<SortField>('created_at')
@@ -86,6 +105,32 @@ function AdminDashboardContent() {
       fetchData()
     }
   }, [activeTab, user])
+
+  // Fetch wallet balance when modal opens or wallet type changes
+  const fetchWalletBalance = async (userId: string, walletType: 'primary' | 'aeps' = 'primary') => {
+    if (!userId) return
+    setLoadingBalance(true)
+    try {
+      const { data, error } = await supabase.rpc('get_wallet_balance_v2', {
+        p_user_id: userId,
+        p_wallet_type: walletType
+      })
+      if (error) throw error
+      setCurrentBalance(data || 0)
+    } catch (error) {
+      console.error('Error fetching wallet balance:', error)
+      setCurrentBalance(0)
+    } finally {
+      setLoadingBalance(false)
+    }
+  }
+
+  // Fetch balance when modal opens
+  useEffect(() => {
+    if (showWalletModal && selectedWalletUser) {
+      fetchWalletBalance(selectedWalletUser.partner_id, walletFormData.wallet_type)
+    }
+  }, [showWalletModal, selectedWalletUser])
 
   const fetchData = async () => {
     if (activeTab === 'services') {
@@ -665,6 +710,79 @@ function AdminDashboardContent() {
                         <td className="px-2 sm:px-3 py-2 whitespace-nowrap text-xs font-medium">
                           <div className="flex items-center gap-0.5 sm:gap-1">
                             <button
+                              onClick={async () => {
+                                setSelectedWalletUser(item)
+                                setWalletAction('push')
+                                setWalletFormData({ amount: '', fund_category: 'cash', wallet_type: 'primary', remarks: '' })
+                                setShowWalletModal(true)
+                                // Balance will be fetched by useEffect when modal opens
+                              }}
+                              className="p-1 sm:p-1.5 text-green-600 hover:bg-green-50 dark:hover:bg-green-900/20 rounded transition-colors"
+                              title="Push Balance"
+                            >
+                              <ArrowUpCircle className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
+                            </button>
+                            <button
+                              onClick={async () => {
+                                setSelectedWalletUser(item)
+                                setWalletAction('pull')
+                                setWalletFormData({ amount: '', fund_category: 'cash', wallet_type: 'primary', remarks: '' })
+                                setShowWalletModal(true)
+                                // Balance will be fetched by useEffect when modal opens
+                              }}
+                              className="p-1 sm:p-1.5 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors"
+                              title="Pull Balance"
+                            >
+                              <ArrowDownCircle className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
+                            </button>
+                            <button
+                              onClick={async () => {
+                                try {
+                                  const userRole = activeTab === 'retailers' ? 'retailer' : 
+                                                  activeTab === 'distributors' ? 'distributor' : 
+                                                  'master_distributor'
+                                  // Call impersonate API directly to open in new tab
+                                  const response = await fetch('/api/admin/impersonate', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ user_id: item.partner_id, user_role: userRole })
+                                  })
+                                  const data = await response.json()
+                                  if (!response.ok) {
+                                    throw new Error(data.error || 'Failed to login as user')
+                                  }
+                                  if (data.success && data.redirect_url) {
+                                    // Store impersonation data
+                                    if (data.impersonation_token) {
+                                      localStorage.setItem('impersonation_token', data.impersonation_token)
+                                      localStorage.setItem('impersonation_session_id', data.user.impersonation_session_id || '')
+                                    }
+                                    sessionStorage.setItem('impersonated_user', JSON.stringify(data.user))
+                                    // Open in new tab
+                                    window.open(data.redirect_url, '_blank')
+                                  }
+                                } catch (error: any) {
+                                  alert(error.message || 'Failed to login as user')
+                                }
+                              }}
+                              className="p-1 sm:p-1.5 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded transition-colors"
+                              title="Login As (Opens in new tab)"
+                            >
+                              <LogIn className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => {
+                                setSelectedUserForReset(item)
+                                setNewPassword('')
+                                setConfirmPassword('')
+                                setShowPasswordResetModal(true)
+                              }}
+                              className="p-1 sm:p-1.5 text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-900/20 rounded transition-colors"
+                              title="Reset Password"
+                            >
+                              <Key className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
+                            </button>
+                            <button
                               onClick={() => {
                                 setEditingItem(item)
                                 setShowModal(true)
@@ -739,6 +857,292 @@ function AdminDashboardContent() {
         </div>
       </div>
 
+      {/* Wallet Action Modal */}
+      {showWalletModal && selectedWalletUser && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-md w-full p-6"
+          >
+            <h3 className="text-xl font-bold mb-4 text-gray-900 dark:text-white">
+              {walletAction === 'push' ? 'Push Balance' : 'Pull Balance'}
+            </h3>
+            <div className="mb-4 space-y-2">
+              <p className="text-sm text-gray-600 dark:text-gray-400">User: {selectedWalletUser.name}</p>
+              <p className="text-sm text-gray-600 dark:text-gray-400">Partner ID: {selectedWalletUser.partner_id}</p>
+              <p className="text-sm text-gray-600 dark:text-gray-400">Type: {selectedWalletUser.user_type || activeTab.replace('-', ' ')}</p>
+              <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Current Balance ({walletFormData.wallet_type === 'primary' ? 'Primary' : 'AEPS'}):</span>
+                  {loadingBalance ? (
+                    <span className="text-sm text-gray-500 dark:text-gray-400">Loading...</span>
+                  ) : (
+                    <span className="text-lg font-bold text-green-600 dark:text-green-400">
+                      ₹{currentBalance !== null ? currentBalance.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0.00'}
+                    </span>
+                  )}
+                </div>
+                {walletFormData.amount && !isNaN(parseFloat(walletFormData.amount)) && (
+                  <div className="mt-2 flex items-center justify-between">
+                    <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                      {walletAction === 'push' ? 'After Push' : 'After Pull'}:
+                    </span>
+                    <span className={`text-lg font-bold ${
+                      walletAction === 'push' ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'
+                    }`}>
+                      ₹{((currentBalance || 0) + (walletAction === 'push' ? 1 : -1) * parseFloat(walletFormData.amount)).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">Amount (₹)</label>
+                <input
+                  type="number"
+                  value={walletFormData.amount}
+                  onChange={(e) => setWalletFormData({ ...walletFormData, amount: e.target.value })}
+                  className="w-full px-4 py-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                  placeholder="Enter amount"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">Fund Category</label>
+                <select
+                  value={walletFormData.fund_category}
+                  onChange={(e) => setWalletFormData({ ...walletFormData, fund_category: e.target.value as any })}
+                  className="w-full px-4 py-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                >
+                  <option value="cash">Cash</option>
+                  <option value="online">Online</option>
+                  <option value="aeps">AEPS</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">Wallet Type</label>
+                <select
+                  value={walletFormData.wallet_type}
+                  onChange={async (e) => {
+                    const newWalletType = e.target.value as 'primary' | 'aeps'
+                    setWalletFormData({ ...walletFormData, wallet_type: newWalletType })
+                    // Fetch balance for the new wallet type
+                    await fetchWalletBalance(selectedWalletUser.partner_id, newWalletType)
+                  }}
+                  className="w-full px-4 py-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                >
+                  <option value="primary">Primary</option>
+                  <option value="aeps">AEPS</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">Remarks</label>
+                <textarea
+                  value={walletFormData.remarks}
+                  onChange={(e) => setWalletFormData({ ...walletFormData, remarks: e.target.value })}
+                  className="w-full px-4 py-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                  rows={3}
+                  placeholder="Enter remarks..."
+                />
+              </div>
+              <div className="flex gap-3">
+                <button
+                  onClick={async () => {
+                    try {
+                      const endpoint = walletAction === 'push' ? '/api/admin/wallet/push' : '/api/admin/wallet/pull'
+                      const userRole = selectedWalletUser.user_type || 
+                        (activeTab === 'retailers' ? 'retailer' : 
+                         activeTab === 'distributors' ? 'distributor' : 
+                         'master_distributor')
+                      
+                      const response = await fetch(endpoint, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                          user_id: selectedWalletUser.partner_id,
+                          user_role: userRole,
+                          wallet_type: walletFormData.wallet_type,
+                          fund_category: walletFormData.fund_category,
+                          amount: parseFloat(walletFormData.amount),
+                          remarks: walletFormData.remarks
+                        })
+                      })
+
+                      const data = await response.json()
+                      if (data.success) {
+                        // Update the current balance with the response
+                        if (data.after_balance !== undefined) {
+                          setCurrentBalance(data.after_balance)
+                        }
+                        alert(data.message || 'Action completed successfully!')
+                        setShowWalletModal(false)
+                        setSelectedWalletUser(null)
+                        setWalletFormData({ amount: '', fund_category: 'cash', wallet_type: 'primary', remarks: '' })
+                        setCurrentBalance(null)
+                        fetchData()
+                      } else {
+                        alert(data.error || 'Action failed')
+                      }
+                    } catch (error) {
+                      console.error('Wallet action error:', error)
+                      alert('Failed to perform action')
+                    }
+                  }}
+                  className={`flex-1 py-2 px-4 rounded-lg text-white ${
+                    walletAction === 'push' 
+                      ? 'bg-green-600 hover:bg-green-700' 
+                      : 'bg-red-600 hover:bg-red-700'
+                  }`}
+                >
+                  {walletAction === 'push' ? 'Push Balance' : 'Pull Balance'}
+                </button>
+                <button
+                  onClick={() => {
+                    setShowWalletModal(false)
+                    setSelectedWalletUser(null)
+                    setWalletFormData({ amount: '', fund_category: 'cash', wallet_type: 'primary', remarks: '' })
+                    setCurrentBalance(null)
+                  }}
+                  className="flex-1 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 py-2 px-4 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
+      {/* Password Reset Modal */}
+      {showPasswordResetModal && selectedUserForReset && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-md w-full p-6"
+          >
+            <h3 className="text-xl font-bold mb-4 text-gray-900 dark:text-white">
+              Reset Password
+            </h3>
+            <div className="mb-4 space-y-2">
+              <p className="text-sm text-gray-600 dark:text-gray-400">User: {selectedUserForReset.name}</p>
+              <p className="text-sm text-gray-600 dark:text-gray-400">Partner ID: {selectedUserForReset.partner_id}</p>
+              <p className="text-sm text-gray-600 dark:text-gray-400">Email: {selectedUserForReset.email}</p>
+              <p className="text-sm text-gray-600 dark:text-gray-400">Type: {selectedUserForReset.user_type || activeTab.replace('-', ' ')}</p>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">New Password *</label>
+                <div className="relative">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    className="w-full px-4 py-2 pr-10 border rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                    placeholder="Enter new password (min. 8 characters)"
+                    minLength={8}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                  >
+                    {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                  </button>
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">Confirm Password *</label>
+                <div className="relative">
+                  <input
+                    type={showConfirmPassword ? 'text' : 'password'}
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    className="w-full px-4 py-2 pr-10 border rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                    placeholder="Confirm new password"
+                    minLength={8}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                  >
+                    {showConfirmPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                  </button>
+                </div>
+              </div>
+              <div className="flex gap-3">
+                <button
+                  onClick={async () => {
+                    if (!newPassword || !confirmPassword) {
+                      alert('Please fill in both password fields')
+                      return
+                    }
+                    if (newPassword.length < 8) {
+                      alert('Password must be at least 8 characters long')
+                      return
+                    }
+                    if (newPassword !== confirmPassword) {
+                      alert('Passwords do not match')
+                      return
+                    }
+
+                    setResettingPassword(true)
+                    try {
+                      const userRole = activeTab === 'retailers' ? 'retailer' : 
+                                      activeTab === 'distributors' ? 'distributor' : 
+                                      'master_distributor'
+                      
+                      const response = await fetch('/api/admin/reset-password', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                          user_id: selectedUserForReset.partner_id,
+                          user_role: userRole,
+                          new_password: newPassword
+                        })
+                      })
+
+                      const data = await response.json()
+                      if (data.success) {
+                        alert(data.message || 'Password reset successfully!')
+                        setShowPasswordResetModal(false)
+                        setSelectedUserForReset(null)
+                        setNewPassword('')
+                        setConfirmPassword('')
+                      } else {
+                        alert(data.error || 'Failed to reset password')
+                      }
+                    } catch (error: any) {
+                      console.error('Password reset error:', error)
+                      alert(error.message || 'Failed to reset password')
+                    } finally {
+                      setResettingPassword(false)
+                    }
+                  }}
+                  disabled={resettingPassword}
+                  className="flex-1 py-2 px-4 rounded-lg text-white bg-purple-600 hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {resettingPassword ? 'Resetting...' : 'Reset Password'}
+                </button>
+                <button
+                  onClick={() => {
+                    setShowPasswordResetModal(false)
+                    setSelectedUserForReset(null)
+                    setNewPassword('')
+                    setConfirmPassword('')
+                  }}
+                  className="flex-1 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 py-2 px-4 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
       {/* Modal */}
       {showModal && (
         activeTab === 'pos-machines' ? (
@@ -779,19 +1183,99 @@ function AdminDashboardContent() {
 
 // Services Management Component
 function ServicesManagementTab() {
-  const services = [
-    { id: 'banking-payments', name: 'Banking & Payments', icon: '🏦', status: 'active', transactions: 1250, revenue: '₹45,000' },
-    { id: 'mini-atm', name: 'Mini-ATM, POS & WPOS', icon: '🏧', status: 'active', transactions: 890, revenue: '₹32,500' },
-    { id: 'aeps', name: 'AEPS Services', icon: '👆', status: 'active', transactions: 2100, revenue: '₹78,000' },
-    { id: 'merchant-payments', name: 'Aadhaar Pay', icon: '💳', status: 'active', transactions: 1560, revenue: '₹58,200' },
-    { id: 'dmt', name: 'Domestic Money Transfer', icon: '💸', status: 'active', transactions: 3200, revenue: '₹125,000' },
-    { id: 'bill-payments', name: 'Utility Bill Payments', icon: '📄', status: 'active', transactions: 4500, revenue: '₹95,000' },
-    { id: 'recharge', name: 'Mobile Recharge', icon: '📱', status: 'active', transactions: 6800, revenue: '₹145,000' },
-    { id: 'travel', name: 'Travel Services', icon: '✈️', status: 'active', transactions: 320, revenue: '₹28,500' },
-    { id: 'cash-management', name: 'Cash Management', icon: '💰', status: 'active', transactions: 580, revenue: '₹42,000' },
-    { id: 'lic-payment', name: 'LIC Bill Payment', icon: '🛡️', status: 'active', transactions: 750, revenue: '₹35,000' },
-    { id: 'insurance', name: 'Insurance', icon: '🏥', status: 'active', transactions: 420, revenue: '₹52,000' },
-  ]
+  const [services, setServices] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    fetchServicesData()
+  }, [])
+
+  const fetchServicesData = async () => {
+    setLoading(true)
+    try {
+      // Fetch real transaction data from database
+      const [bbpsData, aepsData, settlementData] = await Promise.all([
+        supabase
+          .from('bbps_transactions')
+          .select('bill_amount, created_at, status')
+          .eq('status', 'success'),
+        supabase
+          .from('aeps_transactions')
+          .select('amount, created_at, status')
+          .eq('status', 'success'),
+        supabase
+          .from('settlements')
+          .select('amount, created_at, status')
+          .eq('status', 'success')
+      ])
+
+      const bbpsTransactions = bbpsData.data || []
+      const aepsTransactions = aepsData.data || []
+      const settlementTransactions = settlementData.data || []
+
+      // Calculate real statistics
+      const bbpsCount = bbpsTransactions.length
+      const bbpsRevenue = bbpsTransactions.reduce((sum, t) => sum + parseFloat(t.bill_amount?.toString() || '0'), 0)
+
+      const aepsCount = aepsTransactions.length
+      const aepsRevenue = aepsTransactions.reduce((sum, t) => sum + parseFloat(t.amount?.toString() || '0'), 0)
+
+      const settlementCount = settlementTransactions.length
+      const settlementRevenue = settlementTransactions.reduce((sum, t) => sum + parseFloat(t.amount?.toString() || '0'), 0)
+
+      // Build services array with real data
+      const servicesList = [
+        { 
+          id: 'bbps', 
+          name: 'BBPS (Bill Payments)', 
+          icon: '📄', 
+          status: 'active', 
+          transactions: bbpsCount, 
+          revenue: `₹${bbpsRevenue.toLocaleString('en-IN', { maximumFractionDigits: 0 })}` 
+        },
+        { 
+          id: 'aeps', 
+          name: 'AEPS Services', 
+          icon: '👆', 
+          status: 'active', 
+          transactions: aepsCount, 
+          revenue: `₹${aepsRevenue.toLocaleString('en-IN', { maximumFractionDigits: 0 })}` 
+        },
+        { 
+          id: 'settlement', 
+          name: 'Settlement', 
+          icon: '💰', 
+          status: 'active', 
+          transactions: settlementCount, 
+          revenue: `₹${settlementRevenue.toLocaleString('en-IN', { maximumFractionDigits: 0 })}` 
+        },
+        { 
+          id: 'pos', 
+          name: 'POS Transactions', 
+          icon: '💳', 
+          status: 'active', 
+          transactions: 0, 
+          revenue: '₹0' 
+        },
+      ]
+
+      setServices(servicesList)
+    } catch (error) {
+      console.error('Error fetching services data:', error)
+      // Fallback to empty services if error
+      setServices([])
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary-600"></div>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-3">
@@ -869,7 +1353,12 @@ function ServicesManagementTab() {
           </div>
           <div>
             <p className="text-xs text-gray-600 dark:text-gray-400 mb-1">Total Revenue</p>
-            <p className="text-lg sm:text-xl font-bold text-green-600 dark:text-green-400">₹6.8L</p>
+            <p className="text-lg sm:text-xl font-bold text-green-600 dark:text-green-400">
+              ₹{services.reduce((sum, s) => {
+                const revenueStr = s.revenue.replace('₹', '').replace(/,/g, '')
+                return sum + parseFloat(revenueStr || '0')
+              }, 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+            </p>
           </div>
         </div>
       </motion.div>

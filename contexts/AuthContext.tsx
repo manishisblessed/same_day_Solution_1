@@ -10,6 +10,8 @@ interface AuthContextType {
   login: (email: string, password: string, role: string) => Promise<void>
   logout: () => Promise<void>
   refreshUser: () => Promise<void>
+  impersonate: (userId: string, userRole: 'retailer' | 'distributor' | 'master_distributor') => Promise<void>
+  endImpersonation: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -24,10 +26,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const checkUser = async () => {
     try {
-      const currentUser = await getCurrentUser()
+      // Add timeout to prevent hanging
+      const timeoutPromise = new Promise((resolve) => 
+        setTimeout(() => resolve(null), 10000)
+      )
+      
+      const currentUser = await Promise.race([
+        getCurrentUser(),
+        timeoutPromise
+      ]) as AuthUser | null
+      
       setUser(currentUser)
     } catch (error) {
       console.error('Error checking user:', error)
+      setUser(null)
     } finally {
       setLoading(false)
     }
@@ -62,8 +74,63 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(currentUser)
   }
 
+  const impersonate = async (userId: string, userRole: 'retailer' | 'distributor' | 'master_distributor') => {
+    setLoading(true)
+    try {
+      const response = await fetch('/api/admin/impersonate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: userId, user_role: userRole })
+      })
+
+      const data = await response.json()
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to impersonate user')
+      }
+
+      if (data.success && data.user) {
+        // Store impersonation token in localStorage
+        if (data.impersonation_token) {
+          localStorage.setItem('impersonation_token', data.impersonation_token)
+          localStorage.setItem('impersonation_session_id', data.user.impersonation_session_id || '')
+        }
+        // Store user data in sessionStorage for the new tab
+        sessionStorage.setItem('impersonated_user', JSON.stringify(data.user))
+        // Open dashboard in a new tab
+        if (data.redirect_url) {
+          window.open(data.redirect_url, '_blank')
+        }
+      }
+    } catch (error: any) {
+      throw error
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const endImpersonation = async () => {
+    setLoading(true)
+    try {
+      const sessionId = localStorage.getItem('impersonation_session_id')
+      if (sessionId) {
+        await fetch(`/api/admin/impersonate?session_id=${sessionId}`, {
+          method: 'DELETE'
+        })
+        localStorage.removeItem('impersonation_token')
+        localStorage.removeItem('impersonation_session_id')
+      }
+      // Refresh to get back to admin
+      await refreshUser()
+      window.location.href = '/admin'
+    } catch (error) {
+      console.error('Error ending impersonation:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout, refreshUser }}>
+    <AuthContext.Provider value={{ user, loading, login, logout, refreshUser, impersonate, endImpersonation }}>
       {children}
     </AuthContext.Provider>
   )

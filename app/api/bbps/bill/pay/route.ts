@@ -76,12 +76,25 @@ export async function POST(request: NextRequest) {
     const walletBalance = balanceData || 0
     // Convert paise to rupees for comparison (wallet balance is in rupees)
     const billAmountInRupees = paiseToRupees(billAmountInPaise)
-    if (walletBalance < billAmountInRupees) {
+    
+    // Calculate BBPS charge based on amount slabs
+    const { data: chargeData, error: chargeError } = await supabase.rpc('calculate_transaction_charge', {
+      p_amount: billAmountInRupees,
+      p_transaction_type: 'bbps'
+    })
+    const bbpsCharge = chargeData || 20 // Default to ₹20 if calculation fails
+    
+    // Total amount needed (bill + charge)
+    const totalAmountNeeded = billAmountInRupees + bbpsCharge
+    
+    if (walletBalance < totalAmountNeeded) {
       return NextResponse.json(
         { 
           error: 'Insufficient wallet balance',
           wallet_balance: walletBalance,
-          required_amount: billAmountInRupees, // Return in rupees for user-friendly display
+          bill_amount: billAmountInRupees,
+          charge: bbpsCharge,
+          required_amount: totalAmountNeeded,
         },
         { status: 400 }
       )
@@ -120,14 +133,14 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Debit wallet first (before making payment)
+    // Debit wallet first (before making payment) - includes charge
     // Wallet operations use rupees, so convert from paise
     try {
       const { data: debitId, error: debitError } = await supabase.rpc('debit_wallet_bbps', {
         p_retailer_id: user.partner_id,
         p_transaction_id: bbpsTransaction.id,
-        p_amount: billAmountInRupees, // Wallet uses rupees
-        p_description: `BBPS Payment - ${biller_name || biller_id} - Consumer: ${consumer_number}`,
+        p_amount: totalAmountNeeded, // Wallet uses rupees - includes bill amount + charge
+        p_description: `BBPS Payment - ${biller_name || biller_id} - Consumer: ${consumer_number} (Charge: ₹${bbpsCharge})`,
         p_reference_id: agentTransactionId,
       })
 

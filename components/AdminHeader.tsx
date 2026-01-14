@@ -56,8 +56,21 @@ export default function AdminHeader() {
   }
 
   const handleLogout = async () => {
-    await logout()
-    router.push('/admin/login')
+    try {
+      // Close the menu first
+      setIsUserMenuOpen(false)
+      
+      // Clear any cached data
+      localStorage.removeItem('adminDarkMode')
+      
+      // Logout and wait for it to complete
+      await logout()
+    } catch (error) {
+      console.error('Logout error:', error)
+    } finally {
+      // Force a hard redirect to ensure all state is cleared
+      window.location.href = '/admin/login'
+    }
   }
 
   return (

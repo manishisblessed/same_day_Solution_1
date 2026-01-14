@@ -51,8 +51,21 @@ export default function RetailerHeader() {
   }
 
   const handleLogout = async () => {
-    await logout()
-    router.push('/business-login')
+    try {
+      // Close the menu first
+      setIsUserMenuOpen(false)
+      
+      // Clear any cached data
+      localStorage.removeItem('retailerDarkMode')
+      
+      // Logout and wait for it to complete
+      await logout()
+    } catch (error) {
+      console.error('Logout error:', error)
+    } finally {
+      // Force a hard redirect to ensure all state is cleared
+      window.location.href = '/business-login'
+    }
   }
 
   return (
@@ -196,8 +209,10 @@ export default function RetailerHeader() {
                     className="absolute right-0 mt-2 w-56 bg-white dark:bg-gray-800 rounded-xl shadow-2xl border border-gray-200 dark:border-gray-700 overflow-hidden"
                   >
                     <div className="p-4 border-b border-gray-200 dark:border-gray-700">
-                      <p className="font-semibold text-gray-900 dark:text-white">{user?.email || 'Retailer User'}</p>
-                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Partner ID: {user?.partner_id || 'N/A'}</p>
+                      <p className="font-semibold text-gray-900 dark:text-white">{user?.name || user?.email || 'Retailer User'}</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                        Partner ID: {user?.partner_id || 'N/A'}
+                      </p>
                     </div>
                     <div className="py-2">
                       <button

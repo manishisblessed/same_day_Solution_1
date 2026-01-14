@@ -1,6 +1,7 @@
 export type UserRole = 'retailer' | 'distributor' | 'master_distributor' | 'admin'
 
 export interface Retailer {
+  retailer_mdr_rate?: number // MDR rate charged to retailer (e.g., 0.02 for 2%)
   id: string
   partner_id: string
   name: string
@@ -35,6 +36,9 @@ export interface Distributor {
   master_distributor_id?: string
   status: 'active' | 'inactive' | 'suspended'
   commission_rate?: number
+  approved_mdr_rate?: number // MDR rate approved by master distributor (e.g., 0.015 for 1.5%)
+  mdr_approved_by?: string // Master distributor partner_id who approved
+  mdr_approved_at?: string // Timestamp when MDR was approved
   created_at: string
   updated_at: string
 }
@@ -53,6 +57,9 @@ export interface MasterDistributor {
   gst_number?: string
   status: 'active' | 'inactive' | 'suspended'
   commission_rate?: number
+  approved_mdr_rate?: number // MDR rate approved by company/admin (e.g., 0.01 for 1%)
+  mdr_approved_by?: string // Admin user ID who approved
+  mdr_approved_at?: string // Timestamp when MDR was approved
   created_at: string
   updated_at: string
 }
@@ -71,6 +78,9 @@ export interface AuthUser {
   role: UserRole
   partner_id?: string
   name?: string
+  is_impersonated?: boolean
+  original_admin_id?: string
+  impersonation_session_id?: string
 }
 
 export interface POSMachine {

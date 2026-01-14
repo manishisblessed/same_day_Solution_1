@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation'
 import Link from 'next/link'
 import { 
   LayoutDashboard, ShoppingCart, Activity, 
-  Settings, TrendingUp, Users, CreditCard, X, Menu, Zap
+  Settings, TrendingUp, CreditCard, X, Menu, Zap
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 
@@ -21,7 +21,6 @@ const sidebarItems: SidebarItem[] = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, href: '/dashboard/retailer' },
   { id: 'services', label: 'Services', icon: Activity, href: '/dashboard/retailer?tab=services' },
   { id: 'transactions', label: 'Transactions', icon: ShoppingCart, href: '/dashboard/retailer?tab=transactions' },
-  { id: 'customers', label: 'Customers', icon: Users, href: '/dashboard/retailer?tab=customers' },
   { id: 'reports', label: 'Reports', icon: TrendingUp, href: '/dashboard/retailer?tab=reports' },
   { id: 'settings', label: 'Settings', icon: Settings, href: '/dashboard/retailer?tab=settings' },
 ]

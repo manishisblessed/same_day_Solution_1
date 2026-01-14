@@ -51,8 +51,21 @@ export default function MasterDistributorHeader() {
   }
 
   const handleLogout = async () => {
-    await logout()
-    router.push('/business-login')
+    try {
+      // Close the menu first
+      setIsUserMenuOpen(false)
+      
+      // Clear any cached data
+      localStorage.removeItem('masterDistributorDarkMode')
+      
+      // Logout and wait for it to complete
+      await logout()
+    } catch (error) {
+      console.error('Logout error:', error)
+    } finally {
+      // Force a hard redirect to ensure all state is cleared
+      window.location.href = '/business-login'
+    }
   }
 
   return (

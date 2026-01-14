@@ -85,6 +85,7 @@ nginx-config*.conf
 nginx-config*.txt
 
 # Documentation files (deployment-specific, not needed in repo)
+# Exclude deployment and setup guides, but keep important feature documentation
 *-SETUP.md
 *-DEPLOYMENT.md
 *-QUICK*.md
@@ -93,7 +94,6 @@ nginx-config*.txt
 *-GUIDE.md
 *-CHECKLIST.md
 *-REFERENCE.md
-*-SUMMARY.md
 *-READY.md
 *-ERROR.md
 *-ROUTING.md
@@ -108,13 +108,6 @@ nginx-config*.txt
 *-BACKEND*.md
 *-SERVER*.md
 *-HEALTH*.md
-*-BBPS*.md
-*-RAZORPAY*.md
-*-AUTH*.md
-*-ADMIN*.md
-*-ARCHITECTURE.md
-*-SAFETY*.md
-*-HOW-TO*.md
 *-DISABLE*.md
 *-ENABLE*.md
 *-CHECK*.md
@@ -122,10 +115,25 @@ nginx-config*.txt
 *-CREATE*.md
 *-UPDATE*.md
 *-FIND*.md
-*-SETUP*.md
 
-# SQL files (may contain sensitive schema info)
-*.sql
+# Keep important feature documentation (explicitly allow these)
+!API-CONTRACTS.md
+!ARCHITECTURE.md
+!ADMIN-CAPABILITIES-COMPLETE.md
+!ADMIN-IMPERSONATION-SUBADMIN-FEATURES.md
+!DISTRIBUTOR-FEATURES-IMPLEMENTATION.md
+!MDR-COMMISSION-SYSTEM.md
+!REAL-TIME-LEDGER-AND-REPORTS-IMPLEMENTATION.md
+!RETAILER-SERVICES-COMPLETE.md
+!RAZORPAY-INTEGRATION.md
+!BBPS-INTEGRATION.md
+!WALLET-IMPLEMENTATION-SUMMARY.md
+!WORKING-SCHEDULE-REVIEW.md
+!SAFETY-FEATURES.md
+!CONTRIBUTING.md
+
+# SQL files - Keep migration files but exclude temporary fix files
+fix-add-ledger-entry-amount.sql
 
 # Test files
 src/test/

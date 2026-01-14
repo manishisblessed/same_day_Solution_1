@@ -205,6 +205,29 @@ export async function creditWalletForTransaction(transactionId: string): Promise
       return false
     }
 
+    // Calculate and distribute commissions to distributor and master distributor
+    if (transaction.distributor_id || transaction.master_distributor_id) {
+      try {
+        const { error: commissionError } = await supabase.rpc('process_transaction_commission', {
+          p_transaction_id: transactionId,
+          p_transaction_type: 'pos',
+          p_gross_amount: transaction.gross_amount,
+          p_retailer_id: transaction.retailer_id,
+          p_distributor_id: transaction.distributor_id || null,
+          p_master_distributor_id: transaction.master_distributor_id || null
+        })
+
+        if (commissionError) {
+          console.error('Error processing commission:', commissionError)
+          // Don't fail the transaction if commission calculation fails
+          // Log for manual review
+        }
+      } catch (error) {
+        console.error('Error in commission calculation:', error)
+        // Don't fail the transaction if commission calculation fails
+      }
+    }
+
     return true
   } catch (error: any) {
     console.error('Error in creditWalletForTransaction:', error)
@@ -318,6 +341,7 @@ export async function getWalletLedger(
     return []
   }
 }
+
 
 
 
