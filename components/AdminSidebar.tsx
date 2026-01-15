@@ -6,7 +6,7 @@ import Link from 'next/link'
 import { 
   LayoutDashboard, Users, Package, Crown, 
   BarChart3, Settings, FileText, TrendingUp,
-  Activity, Zap, X, Menu, CreditCard
+  Activity, Zap, X, Menu, CreditCard, Receipt
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 
@@ -24,6 +24,7 @@ const sidebarItems: SidebarItem[] = [
   { id: 'distributors', label: 'Distributors', icon: Package, href: '/admin?tab=distributors' },
   { id: 'master-distributors', label: 'Master Distributors', icon: Crown, href: '/admin?tab=master-distributors' },
   { id: 'pos-machines', label: 'POS Machines', icon: CreditCard, href: '/admin?tab=pos-machines' },
+  { id: 'razorpay-transactions', label: 'Razorpay Transactions', icon: Receipt, href: '/admin/razorpay-transactions' },
   { id: 'services', label: 'Services', icon: Activity, href: '/admin?tab=services' },
   { id: 'settings', label: 'Settings', icon: Settings, href: '/admin/settings' },
 ]
