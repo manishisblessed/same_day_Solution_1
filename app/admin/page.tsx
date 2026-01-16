@@ -1607,6 +1607,24 @@ function PartnerModal({
             }),
           })
 
+          // Check if response is JSON before parsing
+          const contentType = response.headers.get('content-type')
+          if (!contentType || !contentType.includes('application/json')) {
+            // Handle non-JSON responses (e.g., HTML error pages from timeouts)
+            const text = await response.text()
+            console.error('Non-JSON response received:', text.substring(0, 200))
+            
+            if (response.status === 504) {
+              throw new Error('Request timeout. The server took too long to respond. Please try again.')
+            } else if (response.status >= 500) {
+              throw new Error('Server error. Please try again later or contact support.')
+            } else if (response.status === 404) {
+              throw new Error('API endpoint not found. Please refresh the page and try again.')
+            } else {
+              throw new Error('Unexpected response format. Please refresh the page and try again.')
+            }
+          }
+
           const result = await response.json()
           if (!response.ok) {
             throw new Error(result.error || 'Failed to create user')

@@ -18,8 +18,23 @@ export const dynamic = 'force-dynamic'
  */
 export async function POST(request: NextRequest) {
   try {
-    // Check admin authentication
-    const admin = await getCurrentUserServer()
+    // Check admin authentication with timeout
+    const authPromise = getCurrentUserServer()
+    const authTimeoutPromise = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error('Authentication timeout')), 10000)
+    )
+    
+    let admin
+    try {
+      admin = await Promise.race([authPromise, authTimeoutPromise]) as any
+    } catch (authError: any) {
+      console.error('[Create User API] Authentication error or timeout:', authError)
+      return NextResponse.json(
+        { error: 'Authentication failed or timed out. Please try again.' },
+        { status: 401 }
+      )
+    }
+
     if (!admin || admin.role !== 'admin') {
       return NextResponse.json(
         { error: 'Unauthorized: Admin access required' },
@@ -28,11 +43,29 @@ export async function POST(request: NextRequest) {
     }
 
     // Check admin permissions (super_admin or sub_admin with 'users' department)
-    const { data: adminData, error: adminError } = await supabaseAdmin
+    // Use timeout for database query
+    const adminQueryPromise = supabaseAdmin
       .from('admin_users')
       .select('id, admin_type, department, departments, is_active')
       .eq('email', admin.email)
       .single()
+    
+    const adminQueryTimeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('Database query timeout')), 15000)
+    )
+    
+    let adminQueryResult
+    try {
+      adminQueryResult = await Promise.race([adminQueryPromise, adminQueryTimeoutPromise]) as any
+    } catch (queryError: any) {
+      console.error('[Create User API] Admin query timeout or error:', queryError)
+      return NextResponse.json(
+        { error: 'Database query timed out. Please try again.' },
+        { status: 504 }
+      )
+    }
+    
+    const { data: adminData, error: adminError } = adminQueryResult
 
     if (adminError || !adminData) {
       console.error('[Create User API] Error fetching admin data:', adminError)
@@ -100,12 +133,29 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Create auth user
-    const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
+    // Create auth user with timeout
+    const createUserPromise = supabaseAdmin.auth.admin.createUser({
       email,
       password,
       email_confirm: true,
     })
+    
+    const createUserTimeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('Create user timeout')), 15000)
+    )
+    
+    let authResult
+    try {
+      authResult = await Promise.race([createUserPromise, createUserTimeoutPromise]) as any
+    } catch (createError: any) {
+      console.error('[Create User API] Create user timeout or error:', createError)
+      return NextResponse.json(
+        { error: 'Failed to create user account. Please try again.' },
+        { status: 504 }
+      )
+    }
+    
+    const { data: authData, error: authError } = authResult
 
     if (authError) {
       return NextResponse.json(
@@ -124,12 +174,29 @@ export async function POST(request: NextRequest) {
         )
       }
       
-      // Verify master distributor exists and is active
-      const { data: masterDist, error: masterError } = await supabaseAdmin
+      // Verify master distributor exists and is active (with timeout)
+      const masterDistQueryPromise = supabaseAdmin
         .from('master_distributors')
         .select('id, partner_id, status')
         .eq('partner_id', userData.master_distributor_id)
         .single()
+      
+      const masterDistTimeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Query timeout')), 10000)
+      )
+      
+      let masterDistResult
+      try {
+        masterDistResult = await Promise.race([masterDistQueryPromise, masterDistTimeoutPromise]) as any
+      } catch (queryError: any) {
+        await supabaseAdmin.auth.admin.deleteUser(authData.user.id)
+        return NextResponse.json(
+          { error: 'Database query timed out. Please try again.' },
+          { status: 504 }
+        )
+      }
+      
+      const { data: masterDist, error: masterError } = masterDistResult
 
       if (masterError || !masterDist) {
         await supabaseAdmin.auth.admin.deleteUser(authData.user.id)
@@ -157,12 +224,29 @@ export async function POST(request: NextRequest) {
         )
       }
 
-      // Verify distributor exists and is active
-      const { data: distributor, error: distError } = await supabaseAdmin
+      // Verify distributor exists and is active (with timeout)
+      const distributorQueryPromise = supabaseAdmin
         .from('distributors')
         .select('id, partner_id, status, master_distributor_id')
         .eq('partner_id', userData.distributor_id)
         .single()
+      
+      const distributorTimeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Query timeout')), 10000)
+      )
+      
+      let distributorResult
+      try {
+        distributorResult = await Promise.race([distributorQueryPromise, distributorTimeoutPromise]) as any
+      } catch (queryError: any) {
+        await supabaseAdmin.auth.admin.deleteUser(authData.user.id)
+        return NextResponse.json(
+          { error: 'Database query timed out. Please try again.' },
+          { status: 504 }
+        )
+      }
+      
+      const { data: distributor, error: distError } = distributorResult
 
       if (distError || !distributor) {
         await supabaseAdmin.auth.admin.deleteUser(authData.user.id)
@@ -185,13 +269,30 @@ export async function POST(request: NextRequest) {
         userData.master_distributor_id = distributor.master_distributor_id
       }
 
-      // Verify master distributor exists if provided
+      // Verify master distributor exists if provided (with timeout)
       if (userData.master_distributor_id) {
-        const { data: masterDist, error: masterError } = await supabaseAdmin
+        const masterDistQueryPromise2 = supabaseAdmin
           .from('master_distributors')
           .select('id, partner_id, status')
           .eq('partner_id', userData.master_distributor_id)
           .single()
+        
+        const masterDistTimeoutPromise2 = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Query timeout')), 10000)
+        )
+        
+        let masterDistResult2
+        try {
+          masterDistResult2 = await Promise.race([masterDistQueryPromise2, masterDistTimeoutPromise2]) as any
+        } catch (queryError: any) {
+          await supabaseAdmin.auth.admin.deleteUser(authData.user.id)
+          return NextResponse.json(
+            { error: 'Database query timed out. Please try again.' },
+            { status: 504 }
+          )
+        }
+        
+        const { data: masterDist, error: masterError } = masterDistResult2
 
         if (masterError || !masterDist) {
           await supabaseAdmin.auth.admin.deleteUser(authData.user.id)
@@ -212,12 +313,31 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Insert into appropriate table
-    const { data: tableData, error: tableError } = await supabaseAdmin
+    // Insert into appropriate table (with timeout)
+    const insertPromise = supabaseAdmin
       .from(tableName)
       .insert([userData])
       .select()
       .single()
+    
+    const insertTimeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('Insert timeout')), 15000)
+    )
+    
+    let insertResult
+    try {
+      insertResult = await Promise.race([insertPromise, insertTimeoutPromise]) as any
+    } catch (insertError: any) {
+      // Rollback: delete auth user if insert fails
+      await supabaseAdmin.auth.admin.deleteUser(authData.user.id)
+      console.error('[Create User API] Insert timeout or error:', insertError)
+      return NextResponse.json(
+        { error: 'Failed to save user data. Please try again.' },
+        { status: 504 }
+      )
+    }
+    
+    const { data: tableData, error: tableError } = insertResult
 
     if (tableError) {
       // Rollback: delete auth user if table insert fails
