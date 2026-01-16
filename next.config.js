@@ -2,7 +2,22 @@
 const nextConfig = {
   images: {
     formats: ['image/avif', 'image/webp'],
+    // Allow images from the same domain
+    remotePatterns: [],
+    // Configure image domains
+    domains: [],
+    // Enable image optimization (default)
+    unoptimized: false,
   },
+  // Disable strict mode in production if causing issues
+  reactStrictMode: true,
+  // Ensure proper static generation
+  generateBuildId: async () => {
+    // Use git commit hash or timestamp for build ID
+    return process.env.BUILD_ID || `build-${Date.now()}`
+  },
+  // Ensure proper trailing slash handling
+  trailingSlash: false,
 }
 
 module.exports = nextConfig
