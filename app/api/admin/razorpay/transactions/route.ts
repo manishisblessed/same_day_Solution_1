@@ -39,30 +39,53 @@ export async function GET(request: NextRequest) {
     })
 
     // Validate environment variables early with detailed logging
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+    // Try multiple ways to access env vars (Amplify might use different methods)
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 
+                       process.env.SUPABASE_URL ||
+                       (process.env as any).NEXT_PUBLIC_SUPABASE_URL
     
-    console.log('[Razorpay Transactions API] Environment check:', {
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || 
+                               (process.env as any).SUPABASE_SERVICE_ROLE_KEY
+    
+    // Log all environment info for debugging
+    const envInfo = {
       hasSupabaseUrl: !!supabaseUrl,
       hasServiceKey: !!supabaseServiceKey,
       supabaseUrlLength: supabaseUrl?.length || 0,
       serviceKeyLength: supabaseServiceKey?.length || 0,
       nodeEnv: process.env.NODE_ENV,
-    })
+      nextPhase: process.env.NEXT_PHASE,
+      amplifyEnv: process.env.AMPLIFY_ENV,
+      // Check if we can see any env vars at all
+      totalEnvVars: Object.keys(process.env).length,
+      hasSupabaseInKeys: Object.keys(process.env).some(k => k.includes('SUPABASE')),
+    }
+    
+    console.error('[Razorpay Transactions API] Environment check:', envInfo)
     
     if (!supabaseUrl || !supabaseServiceKey) {
       const missingVars = []
       if (!supabaseUrl) missingVars.push('NEXT_PUBLIC_SUPABASE_URL')
       if (!supabaseServiceKey) missingVars.push('SUPABASE_SERVICE_ROLE_KEY')
       
-      console.error('[Razorpay Transactions API] Missing environment variables:', missingVars)
+      console.error('[Razorpay Transactions API] Missing environment variables:', {
+        missing: missingVars,
+        envInfo,
+        allEnvKeys: Object.keys(process.env).filter(k => k.includes('SUPABASE') || k.includes('NEXT_PUBLIC')).slice(0, 10),
+      })
+      
       return NextResponse.json(
         { 
           error: 'Server configuration error. Please contact support.',
           details: {
             message: `Missing environment variables: ${missingVars.join(', ')}`,
-            hint: 'Please verify these are set in AWS Amplify environment variables and redeploy.',
-            missingVariables: missingVars
+            hint: 'Please verify these are set in AWS Amplify environment variables and redeploy. Visit /api/test-env to check all environment variables.',
+            missingVariables: missingVars,
+            debug: {
+              nodeEnv: process.env.NODE_ENV,
+              totalEnvVars: Object.keys(process.env).length,
+              hasAnySupabaseVars: Object.keys(process.env).some(k => k.includes('SUPABASE')),
+            }
           }
         },
         { status: 500 }
