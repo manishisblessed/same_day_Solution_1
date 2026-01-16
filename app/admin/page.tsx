@@ -1420,6 +1420,18 @@ function PartnerModal({
     master_distributor_id: '',
     status: 'active' as 'active' | 'inactive' | 'suspended',
     commission_rate: '',
+    // New document fields
+    aadhar_number: '',
+    aadhar_attachment: null as File | null,
+    aadhar_attachment_url: '',
+    pan_number: '',
+    pan_attachment: null as File | null,
+    pan_attachment_url: '',
+    udhyam_number: '',
+    udhyam_attachment: null as File | null,
+    udhyam_certificate_url: '',
+    gst_attachment: null as File | null,
+    gst_certificate_url: '',
   })
   const [loading, setLoading] = useState(false)
   const [masterDistributors, setMasterDistributors] = useState<any[]>([])
@@ -1494,6 +1506,18 @@ function PartnerModal({
         master_distributor_id: item.master_distributor_id || '',
         status: item.status || 'active',
         commission_rate: item.commission_rate?.toString() || '',
+        // New document fields
+        aadhar_number: item.aadhar_number || '',
+        aadhar_attachment: null,
+        aadhar_attachment_url: item.aadhar_attachment_url || '',
+        pan_number: item.pan_number || '',
+        pan_attachment: null,
+        pan_attachment_url: item.pan_attachment_url || '',
+        udhyam_number: item.udhyam_number || '',
+        udhyam_attachment: null,
+        udhyam_certificate_url: item.udhyam_certificate_url || '',
+        gst_attachment: null,
+        gst_certificate_url: item.gst_certificate_url || '',
       })
     } else {
       // Reset form when creating new
@@ -1512,6 +1536,18 @@ function PartnerModal({
         master_distributor_id: '',
         status: 'active',
         commission_rate: '',
+        // New document fields
+        aadhar_number: '',
+        aadhar_attachment: null,
+        aadhar_attachment_url: '',
+        pan_number: '',
+        pan_attachment: null,
+        pan_attachment_url: '',
+        udhyam_number: '',
+        udhyam_attachment: null,
+        udhyam_certificate_url: '',
+        gst_attachment: null,
+        gst_certificate_url: '',
       })
     }
   }, [item])
@@ -1546,6 +1582,23 @@ function PartnerModal({
           return
         }
       }
+
+      // Validate document requirements
+      if (!formData.aadhar_number || !formData.aadhar_attachment) {
+        alert('AADHAR Number and AADHAR Attachment are mandatory')
+        return
+      }
+      if (!formData.pan_number || !formData.pan_attachment) {
+        alert('PAN Number and PAN Attachment are mandatory')
+        return
+      }
+      // At least one of UDHYAM or GST must be provided
+      const hasUdhyam = formData.udhyam_number && formData.udhyam_attachment
+      const hasGst = formData.gst_number && formData.gst_attachment
+      if (!hasUdhyam && !hasGst) {
+        alert('Either UDHYAM Number with Certificate or GST Number with Certificate must be provided')
+        return
+      }
     }
 
     setLoading(true)
@@ -1554,6 +1607,93 @@ function PartnerModal({
       const tableName = type === 'retailers' ? 'retailers' : 
                        type === 'distributors' ? 'distributors' : 
                        'master_distributors'
+
+      // Upload documents if new files are provided
+      let aadharUrl = formData.aadhar_attachment_url
+      let panUrl = formData.pan_attachment_url
+      let udhyamUrl = formData.udhyam_certificate_url
+      let gstUrl = formData.gst_certificate_url
+
+      if (!item) {
+        // Upload new documents for new partners
+        const partnerId = generatePartnerId()
+        
+        if (formData.aadhar_attachment) {
+          const aadharFormData = new FormData()
+          aadharFormData.append('file', formData.aadhar_attachment)
+          aadharFormData.append('documentType', 'aadhar')
+          aadharFormData.append('partnerId', partnerId)
+          
+          const aadharResponse = await fetch('/api/admin/upload-document', {
+            method: 'POST',
+            body: aadharFormData,
+          })
+          
+          if (!aadharResponse.ok) {
+            const error = await aadharResponse.json()
+            throw new Error(error.error || 'Failed to upload AADHAR document')
+          }
+          const aadharResult = await aadharResponse.json()
+          aadharUrl = aadharResult.url
+        }
+
+        if (formData.pan_attachment) {
+          const panFormData = new FormData()
+          panFormData.append('file', formData.pan_attachment)
+          panFormData.append('documentType', 'pan')
+          panFormData.append('partnerId', partnerId)
+          
+          const panResponse = await fetch('/api/admin/upload-document', {
+            method: 'POST',
+            body: panFormData,
+          })
+          
+          if (!panResponse.ok) {
+            const error = await panResponse.json()
+            throw new Error(error.error || 'Failed to upload PAN document')
+          }
+          const panResult = await panResponse.json()
+          panUrl = panResult.url
+        }
+
+        if (formData.udhyam_attachment) {
+          const udhyamFormData = new FormData()
+          udhyamFormData.append('file', formData.udhyam_attachment)
+          udhyamFormData.append('documentType', 'udhyam')
+          udhyamFormData.append('partnerId', partnerId)
+          
+          const udhyamResponse = await fetch('/api/admin/upload-document', {
+            method: 'POST',
+            body: udhyamFormData,
+          })
+          
+          if (!udhyamResponse.ok) {
+            const error = await udhyamResponse.json()
+            throw new Error(error.error || 'Failed to upload UDHYAM certificate')
+          }
+          const udhyamResult = await udhyamResponse.json()
+          udhyamUrl = udhyamResult.url
+        }
+
+        if (formData.gst_attachment) {
+          const gstFormData = new FormData()
+          gstFormData.append('file', formData.gst_attachment)
+          gstFormData.append('documentType', 'gst')
+          gstFormData.append('partnerId', partnerId)
+          
+          const gstResponse = await fetch('/api/admin/upload-document', {
+            method: 'POST',
+            body: gstFormData,
+          })
+          
+          if (!gstResponse.ok) {
+            const error = await gstResponse.json()
+            throw new Error(error.error || 'Failed to upload GST certificate')
+          }
+          const gstResult = await gstResponse.json()
+          gstUrl = gstResult.url
+        }
+      }
 
       const partnerData: any = {
         name: formData.name,
@@ -1567,6 +1707,14 @@ function PartnerModal({
         gst_number: formData.gst_number || null,
         status: formData.status,
         commission_rate: formData.commission_rate ? parseFloat(formData.commission_rate) : null,
+        // New document fields
+        aadhar_number: formData.aadhar_number || null,
+        aadhar_attachment_url: aadharUrl || null,
+        pan_number: formData.pan_number || null,
+        pan_attachment_url: panUrl || null,
+        udhyam_number: formData.udhyam_number || null,
+        udhyam_certificate_url: udhyamUrl || null,
+        gst_certificate_url: gstUrl || null,
       }
 
       if (type === 'retailers') {
@@ -1877,6 +2025,153 @@ function PartnerModal({
                 onChange={(e) => setFormData({ ...formData, pincode: e.target.value })}
                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
               />
+            </div>
+          </div>
+
+          {/* Document Fields Section */}
+          <div className="mt-6 pt-6 border-t border-gray-200 dark:border-gray-700">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Document Details</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
+              {/* AADHAR Number */}
+              <div className="md:col-span-2">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  AADHAR Number *
+                  <span className="text-xs text-red-500 ml-1">(Mandatory)</span>
+                </label>
+                <input
+                  type="text"
+                  required={!item}
+                  value={formData.aadhar_number}
+                  onChange={(e) => setFormData({ ...formData, aadhar_number: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+                  placeholder="Enter 12-digit AADHAR number"
+                />
+              </div>
+              {/* AADHAR Attachment */}
+              <div className="md:col-span-2">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  AADHAR Attachment *
+                  <span className="text-xs text-red-500 ml-1">(Mandatory)</span>
+                </label>
+                <input
+                  type="file"
+                  required={!item}
+                  accept="image/*,application/pdf"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0] || null
+                    setFormData({ ...formData, aadhar_attachment: file })
+                  }}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-primary-50 file:text-primary-700 hover:file:bg-primary-100"
+                />
+                {formData.aadhar_attachment_url && !formData.aadhar_attachment && (
+                  <p className="text-xs text-gray-500 mt-1">Current: <a href={formData.aadhar_attachment_url} target="_blank" rel="noopener noreferrer" className="text-primary-600 hover:underline">View existing document</a></p>
+                )}
+              </div>
+
+              {/* PAN Number */}
+              <div className="md:col-span-2">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  PAN Number *
+                  <span className="text-xs text-red-500 ml-1">(Mandatory)</span>
+                </label>
+                <input
+                  type="text"
+                  required={!item}
+                  value={formData.pan_number}
+                  onChange={(e) => setFormData({ ...formData, pan_number: e.target.value.toUpperCase() })}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+                  placeholder="Enter PAN number (e.g., ABCDE1234F)"
+                  maxLength={10}
+                />
+              </div>
+              {/* PAN Attachment */}
+              <div className="md:col-span-2">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  PAN Attachment *
+                  <span className="text-xs text-red-500 ml-1">(Mandatory)</span>
+                </label>
+                <input
+                  type="file"
+                  required={!item}
+                  accept="image/*,application/pdf"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0] || null
+                    setFormData({ ...formData, pan_attachment: file })
+                  }}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-primary-50 file:text-primary-700 hover:file:bg-primary-100"
+                />
+                {formData.pan_attachment_url && !formData.pan_attachment && (
+                  <p className="text-xs text-gray-500 mt-1">Current: <a href={formData.pan_attachment_url} target="_blank" rel="noopener noreferrer" className="text-primary-600 hover:underline">View existing document</a></p>
+                )}
+              </div>
+
+              {/* UDHYAM Number */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  UDHYAM Number
+                  <span className="text-xs text-gray-500 dark:text-gray-400 ml-1">(Optional, but one of UDHYAM or GST required)</span>
+                </label>
+                <input
+                  type="text"
+                  value={formData.udhyam_number}
+                  onChange={(e) => setFormData({ ...formData, udhyam_number: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+                  placeholder="Enter UDHYAM registration number"
+                />
+              </div>
+              {/* UDHYAM Certificate */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  UDHYAM Certificate
+                  <span className="text-xs text-gray-500 dark:text-gray-400 ml-1">(Optional)</span>
+                </label>
+                <input
+                  type="file"
+                  accept="image/*,application/pdf"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0] || null
+                    setFormData({ ...formData, udhyam_attachment: file })
+                  }}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-primary-50 file:text-primary-700 hover:file:bg-primary-100"
+                />
+                {formData.udhyam_certificate_url && !formData.udhyam_attachment && (
+                  <p className="text-xs text-gray-500 mt-1">Current: <a href={formData.udhyam_certificate_url} target="_blank" rel="noopener noreferrer" className="text-primary-600 hover:underline">View existing document</a></p>
+                )}
+              </div>
+
+              {/* GST Number */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  GST Number
+                  <span className="text-xs text-gray-500 dark:text-gray-400 ml-1">(Optional, but one of UDHYAM or GST required)</span>
+                </label>
+                <input
+                  type="text"
+                  value={formData.gst_number}
+                  onChange={(e) => setFormData({ ...formData, gst_number: e.target.value.toUpperCase() })}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+                  placeholder="Enter GST number"
+                />
+              </div>
+              {/* GST Certificate */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  GST Certificate
+                  <span className="text-xs text-gray-500 dark:text-gray-400 ml-1">(Optional)</span>
+                </label>
+                <input
+                  type="file"
+                  accept="image/*,application/pdf"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0] || null
+                    setFormData({ ...formData, gst_attachment: file })
+                  }}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-primary-50 file:text-primary-700 hover:file:bg-primary-100"
+                />
+                {formData.gst_certificate_url && !formData.gst_attachment && (
+                  <p className="text-xs text-gray-500 mt-1">Current: <a href={formData.gst_certificate_url} target="_blank" rel="noopener noreferrer" className="text-primary-600 hover:underline">View existing document</a></p>
+                )}
+              </div>
             </div>
           </div>
 

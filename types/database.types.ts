@@ -294,3 +294,33 @@ export interface BBPSBiller {
   updated_at: string
 }
 
+// Razorpay POS Transaction Types (Phase 1)
+export interface RazorpayPOSTransaction {
+  id: string
+  txn_id: string
+  status: string
+  display_status: 'SUCCESS' | 'FAILED' | 'PENDING'
+  amount: number
+  payment_mode: string | null
+  device_serial: string | null
+  tid: string | null
+  merchant_name: string | null
+  transaction_time: string | null
+  created_at: string
+  updated_at: string
+  raw_data?: Record<string, any>
+}
+
+// POS Device Mapping Types (Phase 2)
+export interface POSDeviceMapping {
+  id: string
+  device_serial: string
+  tid: string | null
+  retailer_id: string | null
+  distributor_id: string | null
+  master_distributor_id: string | null
+  status: 'ACTIVE' | 'INACTIVE'
+  created_at: string
+  updated_at: string
+}
+

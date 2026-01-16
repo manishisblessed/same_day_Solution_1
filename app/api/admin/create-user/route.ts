@@ -353,8 +353,10 @@ export async function POST(request: NextRequest) {
       user: tableData,
     })
   } catch (error: any) {
+    console.error('[Create User API] Unexpected error:', error)
+    console.error('[Create User API] Error stack:', error.stack)
     return NextResponse.json(
-      { error: error.message || 'Failed to create user' },
+      { error: error.message || 'Failed to create user. Please check the console for details.' },
       { status: 500 }
     )
   }
