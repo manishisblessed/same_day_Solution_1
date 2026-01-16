@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useRouter } from 'next/navigation'
 import AdminSidebar from '@/components/AdminSidebar'
@@ -41,6 +41,7 @@ export default function RazorpayTransactionsPage() {
   const [page, setPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
   const [total, setTotal] = useState(0)
+  const [autoRefresh, setAutoRefresh] = useState(true)
   const limit = 20
 
   // Redirect if not admin
@@ -51,14 +52,33 @@ export default function RazorpayTransactionsPage() {
   }, [user, authLoading, router])
 
   // Fetch transactions
-  const fetchTransactions = async () => {
+  const fetchTransactions = useCallback(async (silent = false) => {
     if (!user || user.role !== 'admin') return
 
-    setLoading(true)
+    if (!silent) {
+      setLoading(true)
+    }
     setError(null)
 
     try {
       const response = await fetch(`/api/admin/razorpay/transactions?page=${page}&limit=${limit}`)
+      
+      // Check if response is JSON before parsing
+      const contentType = response.headers.get('content-type')
+      if (!contentType || !contentType.includes('application/json')) {
+        // Handle non-JSON responses (e.g., HTML error pages from timeouts)
+        const text = await response.text()
+        console.error('Non-JSON response received:', text.substring(0, 200))
+        
+        if (response.status === 504) {
+          throw new Error('Request timeout. The server took too long to respond. Please try again.')
+        } else if (response.status >= 500) {
+          throw new Error('Server error. Please try again later or contact support.')
+        } else {
+          throw new Error('Unexpected response format. Please refresh the page.')
+        }
+      }
+
       const result = await response.json()
 
       if (!response.ok) {
@@ -72,13 +92,34 @@ export default function RazorpayTransactionsPage() {
       console.error('Error fetching transactions:', err)
       setError(err.message || 'Failed to load transactions')
     } finally {
-      setLoading(false)
+      if (!silent) {
+        setLoading(false)
+      }
     }
-  }
+  }, [user, page, limit])
 
+  // Initial fetch and auto-refresh polling
   useEffect(() => {
+    if (!user || user.role !== 'admin') return
+
+    // Initial fetch
     fetchTransactions()
-  }, [page, user])
+
+    // Set up auto-refresh polling (every 10 seconds)
+    let pollInterval: NodeJS.Timeout | null = null
+    if (autoRefresh) {
+      pollInterval = setInterval(() => {
+        fetchTransactions(true) // Silent refresh (no loading spinner)
+      }, 10000) // 10 seconds
+    }
+
+    // Cleanup
+    return () => {
+      if (pollInterval) {
+        clearInterval(pollInterval)
+      }
+    }
+  }, [fetchTransactions, autoRefresh, user])
 
   // Format date
   const formatDate = (dateString: string | null) => {
@@ -162,14 +203,28 @@ export default function RazorpayTransactionsPage() {
                 View all Razorpay POS transaction notifications
               </p>
             </div>
-            <button
-              onClick={fetchTransactions}
-              disabled={loading}
-              className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-              Refresh
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setAutoRefresh(!autoRefresh)}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
+                  autoRefresh
+                    ? 'bg-green-600 text-white hover:bg-green-700'
+                    : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
+                }`}
+                title={autoRefresh ? 'Auto-refresh enabled (every 10s)' : 'Auto-refresh disabled'}
+              >
+                <div className={`w-2 h-2 rounded-full ${autoRefresh ? 'bg-white animate-pulse' : 'bg-gray-500'}`} />
+                <span className="text-sm">{autoRefresh ? 'Auto-refresh ON' : 'Auto-refresh OFF'}</span>
+              </button>
+              <button
+                onClick={() => fetchTransactions()}
+                disabled={loading}
+                className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+                Refresh
+              </button>
+            </div>
           </div>
 
           {/* Error Message */}
