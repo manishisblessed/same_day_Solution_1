@@ -2,12 +2,19 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserServer } from '@/lib/auth-server'
 import { createClient } from '@supabase/supabase-js'
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
-
-const supabase = createClient(supabaseUrl, supabaseServiceKey)
-
 export const dynamic = 'force-dynamic'
+
+// Helper function to get Supabase client with validation
+function getSupabaseClient() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+
+  if (!supabaseUrl || !supabaseServiceKey) {
+    throw new Error('Missing Supabase environment variables. Please configure NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY')
+  }
+
+  return createClient(supabaseUrl, supabaseServiceKey)
+}
 
 /**
  * Admin-only API to fetch Razorpay POS transactions
@@ -30,6 +37,20 @@ export async function GET(request: NextRequest) {
         cookie: request.headers.get('cookie') ? 'present' : 'missing',
       }
     })
+
+    // Validate environment variables early
+    try {
+      getSupabaseClient()
+    } catch (envError: any) {
+      console.error('[Razorpay Transactions API] Environment variable error:', envError.message)
+      return NextResponse.json(
+        { 
+          error: 'Server configuration error. Please contact support.',
+          details: process.env.NODE_ENV === 'development' ? envError.message : undefined
+        },
+        { status: 500 }
+      )
+    }
 
     // Check admin authentication with timeout
     const authPromise = getCurrentUserServer()
@@ -74,6 +95,9 @@ export async function GET(request: NextRequest) {
         { status: 400 }
       )
     }
+
+    // Get Supabase client
+    const supabase = getSupabaseClient()
 
     // Build query - Admin sees ALL transactions (no filtering by mapping)
     // Use a timeout for the query

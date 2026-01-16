@@ -25,6 +25,8 @@ export default function Header() {
               height={60}
               className="object-contain"
               style={{ width: "auto", height: "auto" }}
+              unoptimized
+              priority
             />
             <div className="hidden sm:block">
               <h1 className="text-base sm:text-lg md:text-lg lg:text-2xl font-bold text-gray-900">Same Day Solution</h1>

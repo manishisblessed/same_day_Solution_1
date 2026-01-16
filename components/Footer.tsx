@@ -16,6 +16,8 @@ export default function Footer() {
                 height={50}
                 className="object-contain"
                 style={{ width: "auto", height: "auto" }}
+                unoptimized
+                priority
               />
               <div>
                 <h3 className="text-white font-bold text-lg">Same Day Solution</h3>
