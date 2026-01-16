@@ -21,10 +21,9 @@ export default function Header() {
             <Image
               src="/LOGO_Same_Day.jpeg"
               alt="Same Day Solution Pvt. Ltd."
-              width={60}
-              height={60}
-              className="object-contain"
-              style={{ width: "auto", height: "auto" }}
+              width={52}
+              height={52}
+              className="object-contain w-[52px] h-[52px]"
               unoptimized
               priority
             />

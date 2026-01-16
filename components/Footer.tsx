@@ -12,10 +12,9 @@ export default function Footer() {
               <Image
                 src="/LOGO_Same_Day.jpeg"
                 alt="Same Day Solution Pvt. Ltd."
-                width={50}
-                height={50}
-                className="object-contain"
-                style={{ width: "auto", height: "auto" }}
+                width={44}
+                height={44}
+                className="object-contain w-11 h-11"
                 unoptimized
                 priority
               />

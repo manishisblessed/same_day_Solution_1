@@ -38,15 +38,53 @@ export async function GET(request: NextRequest) {
       }
     })
 
-    // Validate environment variables early
-    try {
-      getSupabaseClient()
-    } catch (envError: any) {
-      console.error('[Razorpay Transactions API] Environment variable error:', envError.message)
+    // Validate environment variables early with detailed logging
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+    
+    console.log('[Razorpay Transactions API] Environment check:', {
+      hasSupabaseUrl: !!supabaseUrl,
+      hasServiceKey: !!supabaseServiceKey,
+      supabaseUrlLength: supabaseUrl?.length || 0,
+      serviceKeyLength: supabaseServiceKey?.length || 0,
+      nodeEnv: process.env.NODE_ENV,
+    })
+    
+    if (!supabaseUrl || !supabaseServiceKey) {
+      const missingVars = []
+      if (!supabaseUrl) missingVars.push('NEXT_PUBLIC_SUPABASE_URL')
+      if (!supabaseServiceKey) missingVars.push('SUPABASE_SERVICE_ROLE_KEY')
+      
+      console.error('[Razorpay Transactions API] Missing environment variables:', missingVars)
       return NextResponse.json(
         { 
           error: 'Server configuration error. Please contact support.',
-          details: process.env.NODE_ENV === 'development' ? envError.message : undefined
+          details: {
+            message: `Missing environment variables: ${missingVars.join(', ')}`,
+            hint: 'Please verify these are set in AWS Amplify environment variables and redeploy.',
+            missingVariables: missingVars
+          }
+        },
+        { status: 500 }
+      )
+    }
+    
+    // Try to create Supabase client
+    let supabase
+    try {
+      supabase = getSupabaseClient()
+    } catch (envError: any) {
+      console.error('[Razorpay Transactions API] Supabase client creation error:', {
+        error: envError.message,
+        stack: envError.stack
+      })
+      return NextResponse.json(
+        { 
+          error: 'Server configuration error. Please contact support.',
+          details: {
+            message: envError.message,
+            hint: 'Failed to initialize Supabase client. Check environment variable values.'
+          }
         },
         { status: 500 }
       )
@@ -95,9 +133,6 @@ export async function GET(request: NextRequest) {
         { status: 400 }
       )
     }
-
-    // Get Supabase client
-    const supabase = getSupabaseClient()
 
     // Build query - Admin sees ALL transactions (no filtering by mapping)
     // Use a timeout for the query
