@@ -92,6 +92,7 @@ export interface POSMachine {
   master_distributor_id?: string
   machine_type: 'POS' | 'WPOS' | 'Mini-ATM'
   status: 'active' | 'inactive' | 'maintenance' | 'damaged' | 'returned'
+  inventory_status?: 'in_stock' | 'received_from_bank' | 'assigned_to_master_distributor' | 'assigned_to_distributor' | 'assigned_to_retailer' | 'damaged_from_bank'
   delivery_date?: string
   installation_date?: string
   location?: string

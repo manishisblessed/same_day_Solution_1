@@ -77,7 +77,10 @@ logs
 # PM2 and deployment configs (may contain sensitive info)
 ecosystem.config.js
 ec2.config.js
-*.config.js
+# Allow important config files (next.config.js, postcss.config.js, tailwind.config.ts)
+!next.config.js
+!postcss.config.js
+!tailwind.config.ts
 
 # Deployment scripts and server configs
 *.sh

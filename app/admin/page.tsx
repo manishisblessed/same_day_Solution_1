@@ -12,7 +12,8 @@ import {
   X, Check, AlertCircle, Menu, ArrowUpDown, 
   ChevronLeft, ChevronRight, FileSpreadsheet, FileText,
   MoreVertical, RefreshCw, Settings, CreditCard, MapPin, Calendar, Receipt,
-  ArrowUpCircle, ArrowDownCircle, Wallet, LogIn, Key, Eye, EyeOff
+  ArrowUpCircle, ArrowDownCircle, Wallet, LogIn, Key, Eye, EyeOff, ZoomIn, ZoomOut, RotateCw, Image as ImageIcon,
+  Upload, FileSpreadsheet as FileSpreadsheetIcon
 } from 'lucide-react'
 import TransactionsTable from '@/components/TransactionsTable'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -1405,6 +1406,7 @@ function PartnerModal({
   onClose: () => void
   onSuccess: () => void
 }) {
+  const [currentStep, setCurrentStep] = useState(1) // 1: Basic Details, 2: Documents (only for new partners)
   const [formData, setFormData] = useState({
     name: '',
     email: '',
@@ -1418,7 +1420,7 @@ function PartnerModal({
     gst_number: '',
     distributor_id: '',
     master_distributor_id: '',
-    status: 'active' as 'active' | 'inactive' | 'suspended',
+    status: 'inactive' as 'active' | 'inactive' | 'suspended' | 'pending_verification',
     commission_rate: '',
     // New document fields
     aadhar_number: '',
@@ -1434,9 +1436,13 @@ function PartnerModal({
     gst_certificate_url: '',
   })
   const [loading, setLoading] = useState(false)
+  const [uploadingDocs, setUploadingDocs] = useState(false)
   const [masterDistributors, setMasterDistributors] = useState<any[]>([])
   const [distributors, setDistributors] = useState<any[]>([])
   const [loadingParents, setLoadingParents] = useState(false)
+  const [viewingDocument, setViewingDocument] = useState<{ url: string; type: string; name: string } | null>(null)
+  const [imageZoom, setImageZoom] = useState(1)
+  const [imageRotation, setImageRotation] = useState(0)
 
   // Fetch parent entities based on type
   useEffect(() => {
@@ -1504,7 +1510,7 @@ function PartnerModal({
         gst_number: item.gst_number || '',
         distributor_id: item.distributor_id || '',
         master_distributor_id: item.master_distributor_id || '',
-        status: item.status || 'active',
+        status: item.status || 'inactive',
         commission_rate: item.commission_rate?.toString() || '',
         // New document fields
         aadhar_number: item.aadhar_number || '',
@@ -1519,6 +1525,7 @@ function PartnerModal({
         gst_attachment: null,
         gst_certificate_url: item.gst_certificate_url || '',
       })
+      setCurrentStep(1) // Reset to step 1 for edits (single form)
     } else {
       // Reset form when creating new
       setFormData({
@@ -1534,7 +1541,7 @@ function PartnerModal({
         gst_number: '',
         distributor_id: '',
         master_distributor_id: '',
-        status: 'active',
+        status: 'pending_verification', // Default to pending_verification for new partners
         commission_rate: '',
         // New document fields
         aadhar_number: '',
@@ -1549,6 +1556,7 @@ function PartnerModal({
         gst_attachment: null,
         gst_certificate_url: '',
       })
+      setCurrentStep(1) // Start at step 1 for new partners
     }
   }, [item])
 
@@ -1557,11 +1565,85 @@ function PartnerModal({
     return `${prefix}${Date.now().toString().slice(-8)}`
   }
 
+  const getFileType = (url: string): 'image' | 'pdf' | 'unknown' => {
+    const extension = url.split('.').pop()?.toLowerCase()
+    if (['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(extension || '')) {
+      return 'image'
+    }
+    if (extension === 'pdf') {
+      return 'pdf'
+    }
+    return 'unknown'
+  }
+
+  const openDocumentViewer = (url: string, name: string) => {
+    const fileType = getFileType(url)
+    setViewingDocument({ url, type: fileType, name })
+    setImageZoom(1)
+    setImageRotation(0)
+  }
+
+  const handleDownload = (url: string, filename: string) => {
+    const link = document.createElement('a')
+    link.href = url
+    link.download = filename
+    link.target = '_blank'
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+  }
+
+  const handleStep1Next = (e: React.FormEvent) => {
+    e.preventDefault()
+    // Validate basic fields
+    if (!formData.name || !formData.email || !formData.phone || (!item && !formData.password)) {
+      alert('Please fill all required fields')
+      return
+    }
+    // Validate hierarchy requirements
+    if (type === 'distributors' && !formData.master_distributor_id) {
+      alert('Master Distributor is required to create a Distributor')
+      return
+    }
+    if (type === 'retailers') {
+      if (!formData.distributor_id) {
+        alert('Distributor is required to create a Retailer')
+        return
+      }
+      if (!formData.master_distributor_id) {
+        alert('Master Distributor is required to create a Retailer')
+        return
+      }
+    }
+    setCurrentStep(2)
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     
-    // Validate hierarchy requirements
-    if (!item) { // Only validate on create, not edit
+    // For new partners, validate documents in step 2
+    if (!item) {
+      // For new partners, validate documents in step 2
+      // Validate document requirements
+      if (!formData.aadhar_number || !formData.aadhar_attachment) {
+        alert('AADHAR Number and AADHAR Attachment are mandatory')
+        return
+      }
+      if (!formData.pan_number || !formData.pan_attachment) {
+        alert('PAN Number and PAN Attachment are mandatory')
+        return
+      }
+      // At least one of UDHYAM or GST must be provided
+      const hasUdhyam = formData.udhyam_number && formData.udhyam_attachment
+      const hasGst = formData.gst_number && formData.gst_attachment
+      if (!hasUdhyam && !hasGst) {
+        alert('Either UDHYAM Number with Certificate or GST Number with Certificate must be provided')
+        return
+      }
+    }
+    
+    // Validate hierarchy requirements (for edits)
+    if (item) {
       if (type === 'distributors' && !formData.master_distributor_id) {
         alert('Master Distributor is required to create a Distributor')
         return
@@ -1582,26 +1664,12 @@ function PartnerModal({
           return
         }
       }
-
-      // Validate document requirements
-      if (!formData.aadhar_number || !formData.aadhar_attachment) {
-        alert('AADHAR Number and AADHAR Attachment are mandatory')
-        return
-      }
-      if (!formData.pan_number || !formData.pan_attachment) {
-        alert('PAN Number and PAN Attachment are mandatory')
-        return
-      }
-      // At least one of UDHYAM or GST must be provided
-      const hasUdhyam = formData.udhyam_number && formData.udhyam_attachment
-      const hasGst = formData.gst_number && formData.gst_attachment
-      if (!hasUdhyam && !hasGst) {
-        alert('Either UDHYAM Number with Certificate or GST Number with Certificate must be provided')
-        return
-      }
     }
 
     setLoading(true)
+    if (!item) {
+      setUploadingDocs(true)
+    }
 
     try {
       const tableName = type === 'retailers' ? 'retailers' : 
@@ -1617,6 +1685,7 @@ function PartnerModal({
       if (!item) {
         // Upload new documents for new partners
         const partnerId = generatePartnerId()
+        setUploadingDocs(true)
         
         if (formData.aadhar_attachment) {
           const aadharFormData = new FormData()
@@ -1705,7 +1774,7 @@ function PartnerModal({
         state: formData.state || null,
         pincode: formData.pincode || null,
         gst_number: formData.gst_number || null,
-        status: formData.status,
+        status: !item ? 'pending_verification' : formData.status, // New partners go to pending_verification
         commission_rate: formData.commission_rate ? parseFloat(formData.commission_rate) : null,
         // New document fields
         aadhar_number: formData.aadhar_number || null,
@@ -1715,6 +1784,7 @@ function PartnerModal({
         udhyam_number: formData.udhyam_number || null,
         udhyam_certificate_url: udhyamUrl || null,
         gst_certificate_url: gstUrl || null,
+        verification_status: !item ? 'pending' : undefined, // Set verification status for new partners
       }
 
       if (type === 'retailers') {
@@ -1792,6 +1862,7 @@ function PartnerModal({
       alert(error.message || 'Failed to save')
     } finally {
       setLoading(false)
+      setUploadingDocs(false)
     }
   }
 
@@ -1804,16 +1875,30 @@ function PartnerModal({
       >
         <div className="p-4 sm:p-6 border-b border-gray-200 dark:border-gray-700">
           <div className="flex items-center justify-between">
-            <h2 className="text-lg sm:text-xl md:text-2xl font-bold text-gray-900 dark:text-white">
-              {item ? 'Edit' : 'Add'} {type === 'retailers' ? 'Retailer' : type === 'distributors' ? 'Distributor' : 'Master Distributor'}
-            </h2>
+            <div>
+              <h2 className="text-lg sm:text-xl md:text-2xl font-bold text-gray-900 dark:text-white">
+                {item ? 'Edit' : 'Add'} {type === 'retailers' ? 'Retailer' : type === 'distributors' ? 'Distributor' : 'Master Distributor'}
+              </h2>
+              {!item && (
+                <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                  Step {currentStep} of 2: {currentStep === 1 ? 'Basic Details' : 'Document Upload'}
+                </p>
+              )}
+            </div>
             <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 p-1">
               <X className="w-5 h-5 sm:w-6 sm:h-6" />
             </button>
           </div>
+          {!item && (
+            <div className="mt-4 flex gap-2">
+              <div className={`flex-1 h-2 rounded ${currentStep >= 1 ? 'bg-yellow-600' : 'bg-gray-200 dark:bg-gray-700'}`}></div>
+              <div className={`flex-1 h-2 rounded ${currentStep >= 2 ? 'bg-yellow-600' : 'bg-gray-200 dark:bg-gray-700'}`}></div>
+            </div>
+          )}
         </div>
 
-        <form onSubmit={handleSubmit} className="p-4 sm:p-6 space-y-3 sm:space-y-4">
+        {!item && currentStep === 1 ? (
+          <form onSubmit={handleStep1Next} className="p-4 sm:p-6 space-y-3 sm:space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Name *</label>
@@ -1982,15 +2067,6 @@ function PartnerModal({
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">GST Number</label>
-              <input
-                type="text"
-                value={formData.gst_number}
-                onChange={(e) => setFormData({ ...formData, gst_number: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
-              />
-            </div>
-            <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Address</label>
               <input
                 type="text"
@@ -2010,12 +2086,49 @@ function PartnerModal({
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">State</label>
-              <input
-                type="text"
+              <select
                 value={formData.state}
                 onChange={(e) => setFormData({ ...formData, state: e.target.value })}
                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
-              />
+              >
+                <option value="">Select State</option>
+                <option value="Andhra Pradesh">Andhra Pradesh</option>
+                <option value="Arunachal Pradesh">Arunachal Pradesh</option>
+                <option value="Assam">Assam</option>
+                <option value="Bihar">Bihar</option>
+                <option value="Chhattisgarh">Chhattisgarh</option>
+                <option value="Goa">Goa</option>
+                <option value="Gujarat">Gujarat</option>
+                <option value="Haryana">Haryana</option>
+                <option value="Himachal Pradesh">Himachal Pradesh</option>
+                <option value="Jharkhand">Jharkhand</option>
+                <option value="Karnataka">Karnataka</option>
+                <option value="Kerala">Kerala</option>
+                <option value="Madhya Pradesh">Madhya Pradesh</option>
+                <option value="Maharashtra">Maharashtra</option>
+                <option value="Manipur">Manipur</option>
+                <option value="Meghalaya">Meghalaya</option>
+                <option value="Mizoram">Mizoram</option>
+                <option value="Nagaland">Nagaland</option>
+                <option value="Odisha">Odisha</option>
+                <option value="Punjab">Punjab</option>
+                <option value="Rajasthan">Rajasthan</option>
+                <option value="Sikkim">Sikkim</option>
+                <option value="Tamil Nadu">Tamil Nadu</option>
+                <option value="Telangana">Telangana</option>
+                <option value="Tripura">Tripura</option>
+                <option value="Uttar Pradesh">Uttar Pradesh</option>
+                <option value="Uttarakhand">Uttarakhand</option>
+                <option value="West Bengal">West Bengal</option>
+                <option value="Andaman and Nicobar Islands">Andaman and Nicobar Islands</option>
+                <option value="Chandigarh">Chandigarh</option>
+                <option value="Dadra and Nagar Haveli and Daman and Diu">Dadra and Nagar Haveli and Daman and Diu</option>
+                <option value="Delhi">Delhi</option>
+                <option value="Jammu and Kashmir">Jammu and Kashmir</option>
+                <option value="Ladakh">Ladakh</option>
+                <option value="Lakshadweep">Lakshadweep</option>
+                <option value="Puducherry">Puducherry</option>
+              </select>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Pincode</label>
@@ -2028,10 +2141,410 @@ function PartnerModal({
             </div>
           </div>
 
-          {/* Document Fields Section */}
-          <div className="mt-6 pt-6 border-t border-gray-200 dark:border-gray-700">
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Document Details</h3>
+          <div className="flex flex-col sm:flex-row justify-end gap-2 sm:gap-3 pt-4 border-t border-gray-200 dark:border-gray-700">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 order-2 sm:order-1"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="btn-primary order-1 sm:order-2"
+            >
+              Next: Upload Documents
+            </button>
+          </div>
+        </form>
+        ) : !item && currentStep === 2 ? (
+          <form onSubmit={handleSubmit} className="p-4 sm:p-6 space-y-3 sm:space-y-4">
+            <div className="mb-4">
+              <h4 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Document Details</h4>
+              <p className="text-sm text-gray-600 dark:text-gray-400">Please upload all required documents for verification.</p>
+            </div>
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
+              {/* AADHAR Number */}
+              <div className="md:col-span-2">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  AADHAR Number *
+                  <span className="text-xs text-red-500 ml-1">(Mandatory)</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={formData.aadhar_number}
+                  onChange={(e) => setFormData({ ...formData, aadhar_number: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+                  placeholder="Enter 12-digit AADHAR number"
+                />
+              </div>
+              {/* AADHAR Attachment */}
+              <div className="md:col-span-2">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  AADHAR Attachment *
+                  <span className="text-xs text-red-500 ml-1">(Mandatory)</span>
+                </label>
+                <input
+                  type="file"
+                  required
+                  accept="image/*,application/pdf"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0] || null
+                    setFormData({ ...formData, aadhar_attachment: file })
+                  }}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-yellow-50 file:text-yellow-700 hover:file:bg-yellow-100"
+                />
+              </div>
+
+              {/* PAN Number */}
+              <div className="md:col-span-2">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  PAN Number *
+                  <span className="text-xs text-red-500 ml-1">(Mandatory)</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={formData.pan_number}
+                  onChange={(e) => setFormData({ ...formData, pan_number: e.target.value.toUpperCase() })}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+                  placeholder="Enter PAN number (e.g., ABCDE1234F)"
+                  maxLength={10}
+                />
+              </div>
+              {/* PAN Attachment */}
+              <div className="md:col-span-2">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  PAN Attachment *
+                  <span className="text-xs text-red-500 ml-1">(Mandatory)</span>
+                </label>
+                <input
+                  type="file"
+                  required
+                  accept="image/*,application/pdf"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0] || null
+                    setFormData({ ...formData, pan_attachment: file })
+                  }}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-yellow-50 file:text-yellow-700 hover:file:bg-yellow-100"
+                />
+              </div>
+
+              {/* UDHYAM Number */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  UDHYAM Number
+                  <span className="text-xs text-gray-500 dark:text-gray-400 ml-1">(Optional, but one of UDHYAM or GST required)</span>
+                </label>
+                <input
+                  type="text"
+                  value={formData.udhyam_number}
+                  onChange={(e) => setFormData({ ...formData, udhyam_number: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+                  placeholder="Enter UDHYAM registration number"
+                />
+              </div>
+              {/* UDHYAM Certificate */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  UDHYAM Certificate
+                  <span className="text-xs text-gray-500 dark:text-gray-400 ml-1">(Optional)</span>
+                </label>
+                <input
+                  type="file"
+                  accept="image/*,application/pdf"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0] || null
+                    setFormData({ ...formData, udhyam_attachment: file })
+                  }}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-yellow-50 file:text-yellow-700 hover:file:bg-yellow-100"
+                />
+              </div>
+
+              {/* GST Number */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  GST Number
+                  <span className="text-xs text-gray-500 dark:text-gray-400 ml-1">(Optional, but one of UDHYAM or GST required)</span>
+                </label>
+                <input
+                  type="text"
+                  value={formData.gst_number}
+                  onChange={(e) => setFormData({ ...formData, gst_number: e.target.value.toUpperCase() })}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+                  placeholder="Enter GST number"
+                />
+              </div>
+              {/* GST Certificate */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  GST Certificate
+                  <span className="text-xs text-gray-500 dark:text-gray-400 ml-1">(Optional)</span>
+                </label>
+                <input
+                  type="file"
+                  accept="image/*,application/pdf"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0] || null
+                    setFormData({ ...formData, gst_attachment: file })
+                  }}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-yellow-50 file:text-yellow-700 hover:file:bg-yellow-100"
+                />
+              </div>
+            </div>
+
+            <div className="flex flex-col sm:flex-row justify-end gap-2 sm:gap-3 pt-4 border-t border-gray-200 dark:border-gray-700">
+              <button
+                type="button"
+                onClick={() => setCurrentStep(1)}
+                className="px-4 py-2 text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 order-3 sm:order-1"
+              >
+                Back
+              </button>
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-4 py-2 text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 order-2 sm:order-2"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={loading || uploadingDocs}
+                className="btn-primary order-1 sm:order-3 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {uploadingDocs ? 'Uploading Documents...' : loading ? 'Creating...' : 'Submit for Verification'}
+              </button>
+            </div>
+          </form>
+        ) : (
+          <form onSubmit={handleSubmit} className="p-4 sm:p-6 space-y-3 sm:space-y-4">
+            {/* Edit mode - show all fields in single form */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Name *</label>
+                <input
+                  type="text"
+                  required
+                  value={formData.name}
+                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Email *</label>
+                <input
+                  type="email"
+                  required
+                  value={formData.email}
+                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Phone *</label>
+                <input
+                  type="tel"
+                  required
+                  value={formData.phone}
+                  onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Business Name</label>
+                <input
+                  type="text"
+                  value={formData.business_name}
+                  onChange={(e) => setFormData({ ...formData, business_name: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Status *</label>
+                <select
+                  value={formData.status}
+                  onChange={(e) => setFormData({ ...formData, status: e.target.value as any })}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+                >
+                  <option value="active">Active</option>
+                  <option value="inactive">Inactive</option>
+                  <option value="suspended">Suspended</option>
+                  <option value="pending_verification">Pending Verification</option>
+                </select>
+              </div>
+              {type === 'retailers' && (
+                <>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Master Distributor * 
+                      <span className="text-xs text-gray-500 dark:text-gray-400 ml-1">(Required)</span>
+                    </label>
+                    <select
+                      required={!item}
+                      value={formData.master_distributor_id}
+                      onChange={(e) => {
+                        setFormData({ 
+                          ...formData, 
+                          master_distributor_id: e.target.value,
+                          distributor_id: '' // Clear distributor when master changes
+                        })
+                      }}
+                      disabled={loadingParents}
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <option value="">Select Master Distributor</option>
+                      {masterDistributors.map((md: any) => (
+                        <option key={md.id} value={md.partner_id}>
+                          {md.partner_id} - {md.name} ({md.email})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Distributor * 
+                      <span className="text-xs text-gray-500 dark:text-gray-400 ml-1">(Required)</span>
+                    </label>
+                    <select
+                      required={!item}
+                      value={formData.distributor_id}
+                      onChange={(e) => {
+                        const selectedDist = distributors.find((d: any) => d.partner_id === e.target.value)
+                        setFormData({ 
+                          ...formData, 
+                          distributor_id: e.target.value,
+                          master_distributor_id: selectedDist?.master_distributor_id || formData.master_distributor_id
+                        })
+                      }}
+                      disabled={loadingParents || !formData.master_distributor_id}
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <option value="">Select Distributor</option>
+                      {distributors
+                        .filter((d: any) => !formData.master_distributor_id || d.master_distributor_id === formData.master_distributor_id)
+                        .map((d: any) => (
+                          <option key={d.id} value={d.partner_id}>
+                            {d.partner_id} - {d.name} ({d.email})
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+                </>
+              )}
+              {type === 'distributors' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Master Distributor * 
+                    <span className="text-xs text-gray-500 dark:text-gray-400 ml-1">(Required)</span>
+                  </label>
+                  <select
+                    required={!item}
+                    value={formData.master_distributor_id}
+                    onChange={(e) => setFormData({ ...formData, master_distributor_id: e.target.value })}
+                    disabled={loadingParents}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <option value="">Select Master Distributor</option>
+                    {masterDistributors.map((md: any) => (
+                      <option key={md.id} value={md.partner_id}>
+                        {md.partner_id} - {md.name} ({md.email})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Commission Rate (%)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={formData.commission_rate}
+                  onChange={(e) => setFormData({ ...formData, commission_rate: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Address</label>
+                <input
+                  type="text"
+                  value={formData.address}
+                  onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">City</label>
+                <input
+                  type="text"
+                  value={formData.city}
+                  onChange={(e) => setFormData({ ...formData, city: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">State</label>
+                <select
+                  value={formData.state}
+                  onChange={(e) => setFormData({ ...formData, state: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+                >
+                  <option value="">Select State</option>
+                  <option value="Andhra Pradesh">Andhra Pradesh</option>
+                  <option value="Arunachal Pradesh">Arunachal Pradesh</option>
+                  <option value="Assam">Assam</option>
+                  <option value="Bihar">Bihar</option>
+                  <option value="Chhattisgarh">Chhattisgarh</option>
+                  <option value="Goa">Goa</option>
+                  <option value="Gujarat">Gujarat</option>
+                  <option value="Haryana">Haryana</option>
+                  <option value="Himachal Pradesh">Himachal Pradesh</option>
+                  <option value="Jharkhand">Jharkhand</option>
+                  <option value="Karnataka">Karnataka</option>
+                  <option value="Kerala">Kerala</option>
+                  <option value="Madhya Pradesh">Madhya Pradesh</option>
+                  <option value="Maharashtra">Maharashtra</option>
+                  <option value="Manipur">Manipur</option>
+                  <option value="Meghalaya">Meghalaya</option>
+                  <option value="Mizoram">Mizoram</option>
+                  <option value="Nagaland">Nagaland</option>
+                  <option value="Odisha">Odisha</option>
+                  <option value="Punjab">Punjab</option>
+                  <option value="Rajasthan">Rajasthan</option>
+                  <option value="Sikkim">Sikkim</option>
+                  <option value="Tamil Nadu">Tamil Nadu</option>
+                  <option value="Telangana">Telangana</option>
+                  <option value="Tripura">Tripura</option>
+                  <option value="Uttar Pradesh">Uttar Pradesh</option>
+                  <option value="Uttarakhand">Uttarakhand</option>
+                  <option value="West Bengal">West Bengal</option>
+                  <option value="Andaman and Nicobar Islands">Andaman and Nicobar Islands</option>
+                  <option value="Chandigarh">Chandigarh</option>
+                  <option value="Dadra and Nagar Haveli and Daman and Diu">Dadra and Nagar Haveli and Daman and Diu</option>
+                  <option value="Delhi">Delhi</option>
+                  <option value="Jammu and Kashmir">Jammu and Kashmir</option>
+                  <option value="Ladakh">Ladakh</option>
+                  <option value="Lakshadweep">Lakshadweep</option>
+                  <option value="Puducherry">Puducherry</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Pincode</label>
+                <input
+                  type="text"
+                  value={formData.pincode}
+                  onChange={(e) => setFormData({ ...formData, pincode: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+                />
+              </div>
+            </div>
+
+            {/* Document Fields Section */}
+            <div className="mt-6 pt-6 border-t border-gray-200 dark:border-gray-700">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Document Details</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
               {/* AADHAR Number */}
               <div className="md:col-span-2">
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
@@ -2064,7 +2577,24 @@ function PartnerModal({
                   className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-primary-50 file:text-primary-700 hover:file:bg-primary-100"
                 />
                 {formData.aadhar_attachment_url && !formData.aadhar_attachment && (
-                  <p className="text-xs text-gray-500 mt-1">Current: <a href={formData.aadhar_attachment_url} target="_blank" rel="noopener noreferrer" className="text-primary-600 hover:underline">View existing document</a></p>
+                  <div className="flex items-center gap-2 mt-2">
+                    <button
+                      type="button"
+                      onClick={() => openDocumentViewer(formData.aadhar_attachment_url, 'AADHAR Document')}
+                      className="text-xs px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-1"
+                    >
+                      <Eye className="w-3 h-3" />
+                      Preview
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDownload(formData.aadhar_attachment_url, `AADHAR_${formData.name || 'document'}.${formData.aadhar_attachment_url.split('.').pop()}`)}
+                      className="text-xs px-3 py-1.5 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors flex items-center gap-1"
+                    >
+                      <Download className="w-3 h-3" />
+                      Download
+                    </button>
+                  </div>
                 )}
               </div>
 
@@ -2101,7 +2631,24 @@ function PartnerModal({
                   className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-primary-50 file:text-primary-700 hover:file:bg-primary-100"
                 />
                 {formData.pan_attachment_url && !formData.pan_attachment && (
-                  <p className="text-xs text-gray-500 mt-1">Current: <a href={formData.pan_attachment_url} target="_blank" rel="noopener noreferrer" className="text-primary-600 hover:underline">View existing document</a></p>
+                  <div className="flex items-center gap-2 mt-2">
+                    <button
+                      type="button"
+                      onClick={() => openDocumentViewer(formData.pan_attachment_url, 'PAN Document')}
+                      className="text-xs px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-1"
+                    >
+                      <Eye className="w-3 h-3" />
+                      Preview
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDownload(formData.pan_attachment_url, `PAN_${formData.name || 'document'}.${formData.pan_attachment_url.split('.').pop()}`)}
+                      className="text-xs px-3 py-1.5 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors flex items-center gap-1"
+                    >
+                      <Download className="w-3 h-3" />
+                      Download
+                    </button>
+                  </div>
                 )}
               </div>
 
@@ -2135,7 +2682,24 @@ function PartnerModal({
                   className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-primary-50 file:text-primary-700 hover:file:bg-primary-100"
                 />
                 {formData.udhyam_certificate_url && !formData.udhyam_attachment && (
-                  <p className="text-xs text-gray-500 mt-1">Current: <a href={formData.udhyam_certificate_url} target="_blank" rel="noopener noreferrer" className="text-primary-600 hover:underline">View existing document</a></p>
+                  <div className="flex items-center gap-2 mt-2">
+                    <button
+                      type="button"
+                      onClick={() => openDocumentViewer(formData.udhyam_certificate_url, 'UDHYAM Certificate')}
+                      className="text-xs px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-1"
+                    >
+                      <Eye className="w-3 h-3" />
+                      Preview
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDownload(formData.udhyam_certificate_url, `UDHYAM_${formData.name || 'document'}.${formData.udhyam_certificate_url.split('.').pop()}`)}
+                      className="text-xs px-3 py-1.5 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors flex items-center gap-1"
+                    >
+                      <Download className="w-3 h-3" />
+                      Download
+                    </button>
+                  </div>
                 )}
               </div>
 
@@ -2169,7 +2733,24 @@ function PartnerModal({
                   className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-primary-50 file:text-primary-700 hover:file:bg-primary-100"
                 />
                 {formData.gst_certificate_url && !formData.gst_attachment && (
-                  <p className="text-xs text-gray-500 mt-1">Current: <a href={formData.gst_certificate_url} target="_blank" rel="noopener noreferrer" className="text-primary-600 hover:underline">View existing document</a></p>
+                  <div className="flex items-center gap-2 mt-2">
+                    <button
+                      type="button"
+                      onClick={() => openDocumentViewer(formData.gst_certificate_url, 'GST Certificate')}
+                      className="text-xs px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-1"
+                    >
+                      <Eye className="w-3 h-3" />
+                      Preview
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDownload(formData.gst_certificate_url, `GST_${formData.name || 'document'}.${formData.gst_certificate_url.split('.').pop()}`)}
+                      className="text-xs px-3 py-1.5 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors flex items-center gap-1"
+                    >
+                      <Download className="w-3 h-3" />
+                      Download
+                    </button>
+                  </div>
                 )}
               </div>
             </div>
@@ -2185,13 +2766,124 @@ function PartnerModal({
             </button>
             <button
               type="submit"
-              disabled={loading}
-              className="btn-primary order-1 sm:order-2"
+              disabled={loading || uploadingDocs}
+              className="btn-primary order-1 sm:order-2 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {loading ? 'Saving...' : item ? 'Update' : 'Create'}
+              {uploadingDocs ? 'Uploading Documents...' : loading ? 'Saving...' : item ? 'Update' : 'Create'}
             </button>
           </div>
         </form>
+        )}
+
+        {/* Document Viewer Modal */}
+        <AnimatePresence>
+          {viewingDocument && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black/90 z-[60] flex items-center justify-center p-4"
+              onClick={() => setViewingDocument(null)}
+            >
+              <motion.div
+                initial={{ scale: 0.9, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.9, opacity: 0 }}
+                onClick={(e) => e.stopPropagation()}
+                className="relative bg-white rounded-2xl shadow-2xl max-w-6xl w-full max-h-[95vh] overflow-hidden"
+              >
+                {/* Header */}
+                <div className="flex items-center justify-between p-4 bg-gradient-to-r from-gray-900 to-gray-800 text-white">
+                  <div className="flex items-center gap-3">
+                    {viewingDocument.type === 'image' ? (
+                      <ImageIcon className="w-6 h-6" />
+                    ) : (
+                      <FileText className="w-6 h-6" />
+                    )}
+                    <h3 className="text-lg font-bold">{viewingDocument.name}</h3>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {viewingDocument.type === 'image' && (
+                      <>
+                        <button
+                          onClick={() => setImageZoom(Math.max(0.5, imageZoom - 0.25))}
+                          className="p-2 hover:bg-white/20 rounded-lg transition-colors"
+                          title="Zoom Out"
+                        >
+                          <ZoomOut className="w-5 h-5" />
+                        </button>
+                        <span className="text-sm font-medium min-w-[60px] text-center">{Math.round(imageZoom * 100)}%</span>
+                        <button
+                          onClick={() => setImageZoom(Math.min(3, imageZoom + 0.25))}
+                          className="p-2 hover:bg-white/20 rounded-lg transition-colors"
+                          title="Zoom In"
+                        >
+                          <ZoomIn className="w-5 h-5" />
+                        </button>
+                        <button
+                          onClick={() => setImageRotation((prev) => (prev + 90) % 360)}
+                          className="p-2 hover:bg-white/20 rounded-lg transition-colors"
+                          title="Rotate"
+                        >
+                          <RotateCw className="w-5 h-5" />
+                        </button>
+                      </>
+                    )}
+                    <button
+                      onClick={() => handleDownload(viewingDocument.url, viewingDocument.name)}
+                      className="p-2 hover:bg-white/20 rounded-lg transition-colors"
+                      title="Download"
+                    >
+                      <Download className="w-5 h-5" />
+                    </button>
+                    <button
+                      onClick={() => setViewingDocument(null)}
+                      className="p-2 hover:bg-white/20 rounded-lg transition-colors"
+                    >
+                      <X className="w-5 h-5" />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Document Content */}
+                <div className="relative bg-gray-900 flex items-center justify-center overflow-auto" style={{ height: 'calc(95vh - 80px)' }}>
+                  {viewingDocument.type === 'image' ? (
+                    <motion.div
+                      animate={{ scale: imageZoom, rotate: imageRotation }}
+                      transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+                      className="relative"
+                    >
+                      <img
+                        src={viewingDocument.url}
+                        alt={viewingDocument.name}
+                        className="max-w-full max-h-[85vh] object-contain"
+                        draggable={false}
+                      />
+                    </motion.div>
+                  ) : viewingDocument.type === 'pdf' ? (
+                    <iframe
+                      src={viewingDocument.url}
+                      className="w-full h-full min-h-[600px]"
+                      title={viewingDocument.name}
+                    />
+                  ) : (
+                    <div className="text-center text-white p-12">
+                      <FileText className="w-16 h-16 mx-auto mb-4 opacity-50" />
+                      <p className="text-lg mb-4">Preview not available for this file type</p>
+                      <button
+                        onClick={() => handleDownload(viewingDocument.url, viewingDocument.name)}
+                        className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2 mx-auto"
+                      >
+                        <Download className="w-5 h-5" />
+                        Download to View
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </motion.div>
     </div>
   )
@@ -2223,6 +2915,11 @@ function POSMachinesTab({
   const [sortField, setSortField] = useState<keyof POSMachine>('created_at')
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc')
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set())
+  const [showBulkUploadModal, setShowBulkUploadModal] = useState(false)
+  const [uploadFile, setUploadFile] = useState<File | null>(null)
+  const [uploading, setUploading] = useState(false)
+  const [uploadError, setUploadError] = useState<string | null>(null)
+  const [uploadSuccess, setUploadSuccess] = useState<string | null>(null)
 
   const filteredMachines = useMemo(() => {
     let filtered = posMachines.filter((machine) => {
@@ -2298,6 +2995,112 @@ function POSMachinesTab({
     }
   }
 
+  // Download CSV template
+  const downloadCSVTemplate = () => {
+    const headers = [
+      'machine_id',
+      'serial_number',
+      'retailer_id',
+      'distributor_id',
+      'master_distributor_id',
+      'machine_type',
+      'inventory_status',
+      'status',
+      'delivery_date',
+      'installation_date',
+      'location',
+      'city',
+      'state',
+      'pincode',
+      'notes'
+    ]
+
+    const exampleRow = [
+      'POS12345678',
+      'SN123456789',
+      'RET12345678',
+      'DIS12345678',
+      'MD12345678',
+      'POS',
+      'in_stock',
+      'active',
+      '2024-01-15',
+      '2024-01-20',
+      'Main Street',
+      'Mumbai',
+      'Maharashtra',
+      '400001',
+      'Sample notes'
+    ]
+
+    const csvContent = [
+      headers.join(','),
+      exampleRow.join(','),
+      // Add a few more example rows with different scenarios
+      ['POS87654321', '', 'RET87654321', '', '', 'WPOS', 'received_from_bank', 'active', '', '', '', '', '', '', 'Received from bank'].join(','),
+      ['MATM11111111', 'SN987654321', 'RET11111111', 'DIS11111111', 'MD11111111', 'Mini-ATM', 'assigned_to_retailer', 'active', '2024-02-01', '2024-02-05', 'Park Avenue', 'Delhi', 'Delhi', '110001', 'Assigned to retailer'].join(',')
+    ].join('\n')
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+    const link = document.createElement('a')
+    const url = URL.createObjectURL(blob)
+    link.setAttribute('href', url)
+    link.setAttribute('download', 'pos_machines_template.csv')
+    link.style.visibility = 'hidden'
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+  }
+
+  // Handle CSV file upload
+  const handleFileUpload = async () => {
+    if (!uploadFile) {
+      setUploadError('Please select a CSV file')
+      return
+    }
+
+    setUploading(true)
+    setUploadError(null)
+    setUploadSuccess(null)
+
+    try {
+      const formData = new FormData()
+      formData.append('file', uploadFile)
+
+      const response = await fetch('/api/admin/bulk-upload-pos-machines', {
+        method: 'POST',
+        body: formData,
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        if (data.errors && Array.isArray(data.errors)) {
+          setUploadError(`Validation errors:\n${data.errors.slice(0, 10).join('\n')}${data.errors.length > 10 ? `\n... and ${data.errors.length - 10} more errors` : ''}`)
+        } else {
+          setUploadError(data.error || 'Failed to upload CSV file')
+        }
+        setUploading(false)
+        return
+      }
+
+      setUploadSuccess(`Successfully imported ${data.count} POS machine(s)!`)
+      setUploadFile(null)
+      onRefresh()
+      
+      // Close modal after 2 seconds
+      setTimeout(() => {
+        setShowBulkUploadModal(false)
+        setUploadSuccess(null)
+      }, 2000)
+    } catch (error: any) {
+      console.error('Error uploading CSV:', error)
+      setUploadError(error.message || 'Failed to upload CSV file')
+    } finally {
+      setUploading(false)
+    }
+  }
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
@@ -2348,6 +3151,20 @@ function POSMachinesTab({
           <Plus className="w-4 h-4" />
           Add POS Machine
         </button>
+        <button
+          onClick={downloadCSVTemplate}
+          className="flex items-center gap-2 text-sm px-4 py-1.5 whitespace-nowrap border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900"
+        >
+          <Download className="w-4 h-4" />
+          Download Template
+        </button>
+        <button
+          onClick={() => setShowBulkUploadModal(true)}
+          className="flex items-center gap-2 text-sm px-4 py-1.5 whitespace-nowrap border border-primary-500 text-primary-600 dark:text-primary-400 rounded-lg hover:bg-primary-50 dark:hover:bg-primary-900/20 bg-white dark:bg-gray-900"
+        >
+          <Upload className="w-4 h-4" />
+          Bulk Upload
+        </button>
       </div>
 
       {/* Table */}
@@ -2381,6 +3198,7 @@ function POSMachinesTab({
                 <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700 dark:text-gray-300">Distributor</th>
                 <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700 dark:text-gray-300">Master Distributor</th>
                 <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700 dark:text-gray-300">Status</th>
+                <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700 dark:text-gray-300">Inventory Status</th>
                 <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700 dark:text-gray-300">Delivery Date</th>
                 <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700 dark:text-gray-300">Location</th>
                 <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700 dark:text-gray-300">Actions</th>
@@ -2389,7 +3207,7 @@ function POSMachinesTab({
             <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
               {filteredMachines.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="px-3 py-8 text-center text-sm text-gray-500 dark:text-gray-400">
+                  <td colSpan={11} className="px-3 py-8 text-center text-sm text-gray-500 dark:text-gray-400">
                     No POS machines found
                   </td>
                 </tr>
@@ -2430,6 +3248,19 @@ function POSMachinesTab({
                     <td className="px-3 py-2">
                       <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${getStatusColor(machine.status)}`}>
                         {machine.status}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2">
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
+                        machine.inventory_status === 'in_stock' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400' :
+                        machine.inventory_status === 'received_from_bank' ? 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400' :
+                        machine.inventory_status === 'assigned_to_retailer' ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400' :
+                        machine.inventory_status === 'assigned_to_distributor' ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400' :
+                        machine.inventory_status === 'assigned_to_master_distributor' ? 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400' :
+                        machine.inventory_status === 'damaged_from_bank' ? 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400' :
+                        'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300'
+                      }`}>
+                        {machine.inventory_status?.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) || 'In Stock'}
                       </span>
                     </td>
                     <td className="px-3 py-2 text-sm text-gray-700 dark:text-gray-300">
@@ -2489,6 +3320,143 @@ function POSMachinesTab({
           </div>
         )}
       </div>
+
+      {/* Bulk Upload Modal */}
+      <AnimatePresence>
+        {showBulkUploadModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+            onClick={() => !uploading && setShowBulkUploadModal(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-2xl w-full p-6"
+            >
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
+                  Bulk Upload POS Machines
+                </h2>
+                <button
+                  onClick={() => !uploading && setShowBulkUploadModal(false)}
+                  disabled={uploading}
+                  className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 disabled:opacity-50"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Select CSV File
+                  </label>
+                  <div className="flex items-center gap-4">
+                    <label className="flex-1 cursor-pointer">
+                      <input
+                        type="file"
+                        accept=".csv"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0]
+                          if (file) {
+                            setUploadFile(file)
+                            setUploadError(null)
+                            setUploadSuccess(null)
+                          }
+                        }}
+                        disabled={uploading}
+                        className="hidden"
+                      />
+                      <div className="flex items-center gap-2 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 disabled:opacity-50">
+                        <FileSpreadsheetIcon className="w-5 h-5" />
+                        <span className="flex-1 truncate">
+                          {uploadFile ? uploadFile.name : 'Choose CSV file...'}
+                        </span>
+                      </div>
+                    </label>
+                  </div>
+                </div>
+
+                {uploadFile && (
+                  <div className="p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+                    <p className="text-sm text-blue-800 dark:text-blue-300">
+                      <strong>Selected:</strong> {uploadFile.name} ({(uploadFile.size / 1024).toFixed(2)} KB)
+                    </p>
+                  </div>
+                )}
+
+                {uploadError && (
+                  <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+                    <p className="text-sm text-red-800 dark:text-red-300 whitespace-pre-line">
+                      {uploadError}
+                    </p>
+                  </div>
+                )}
+
+                {uploadSuccess && (
+                  <div className="p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
+                    <p className="text-sm text-green-800 dark:text-green-300">
+                      {uploadSuccess}
+                    </p>
+                  </div>
+                )}
+
+                <div className="bg-gray-50 dark:bg-gray-900 p-4 rounded-lg">
+                  <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-2">
+                    CSV Format Requirements:
+                  </h3>
+                  <ul className="text-xs text-gray-600 dark:text-gray-400 space-y-1 list-disc list-inside">
+                    <li><strong>Required columns:</strong> machine_id, retailer_id</li>
+                    <li><strong>Optional columns:</strong> serial_number, distributor_id, master_distributor_id, machine_type, inventory_status, status, delivery_date, installation_date, location, city, state, pincode, notes</li>
+                    <li><strong>machine_type:</strong> POS, WPOS, or Mini-ATM</li>
+                    <li><strong>inventory_status:</strong> in_stock, received_from_bank, assigned_to_master_distributor, assigned_to_distributor, assigned_to_retailer, damaged_from_bank</li>
+                    <li><strong>status:</strong> active, inactive, maintenance, damaged, returned</li>
+                    <li>All partner IDs (retailer_id, distributor_id, master_distributor_id) must exist in the system</li>
+                    <li>Machine IDs and Serial Numbers must be unique</li>
+                  </ul>
+                </div>
+
+                <div className="flex items-center justify-end gap-3 pt-4 border-t border-gray-200 dark:border-gray-700">
+                  <button
+                    onClick={() => {
+                      setShowBulkUploadModal(false)
+                      setUploadFile(null)
+                      setUploadError(null)
+                      setUploadSuccess(null)
+                    }}
+                    disabled={uploading}
+                    className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleFileUpload}
+                    disabled={!uploadFile || uploading}
+                    className="px-4 py-2 text-sm font-medium text-white bg-primary-600 hover:bg-primary-700 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                  >
+                    {uploading ? (
+                      <>
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                        Uploading...
+                      </>
+                    ) : (
+                      <>
+                        <Upload className="w-4 h-4" />
+                        Upload CSV
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </motion.div>
   )
 }
@@ -2517,6 +3485,7 @@ function POSMachineModal({
     master_distributor_id: '',
     machine_type: 'POS' as 'POS' | 'WPOS' | 'Mini-ATM',
     status: 'active' as 'active' | 'inactive' | 'maintenance' | 'damaged' | 'returned',
+    inventory_status: 'in_stock' as 'in_stock' | 'received_from_bank' | 'assigned_to_master_distributor' | 'assigned_to_distributor' | 'assigned_to_retailer' | 'damaged_from_bank',
     delivery_date: '',
     installation_date: '',
     location: '',
@@ -2537,6 +3506,7 @@ function POSMachineModal({
         master_distributor_id: item.master_distributor_id || '',
         machine_type: item.machine_type || 'POS',
         status: item.status || 'active',
+        inventory_status: item.inventory_status || 'in_stock',
         delivery_date: item.delivery_date ? new Date(item.delivery_date).toISOString().split('T')[0] : '',
         installation_date: item.installation_date ? new Date(item.installation_date).toISOString().split('T')[0] : '',
         location: item.location || '',
@@ -2605,6 +3575,7 @@ function POSMachineModal({
         master_distributor_id: retailer.master_distributor_id,
         machine_type: formData.machine_type,
         status: formData.status,
+        inventory_status: formData.inventory_status,
         delivery_date: formData.delivery_date || null,
         installation_date: formData.installation_date || null,
         location: formData.location || null,
@@ -2711,6 +3682,22 @@ function POSMachineModal({
                 <option value="maintenance">Maintenance</option>
                 <option value="damaged">Damaged</option>
                 <option value="returned">Returned</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Inventory Status *</label>
+              <select
+                required
+                value={formData.inventory_status}
+                onChange={(e) => setFormData({ ...formData, inventory_status: e.target.value as any })}
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+              >
+                <option value="in_stock">In Stock</option>
+                <option value="received_from_bank">Received from Bank</option>
+                <option value="assigned_to_master_distributor">Assigned to Master Distributor</option>
+                <option value="assigned_to_distributor">Assigned to Distributor</option>
+                <option value="assigned_to_retailer">Assigned to Retailer</option>
+                <option value="damaged_from_bank">Damaged from Bank</option>
               </select>
             </div>
             <div>

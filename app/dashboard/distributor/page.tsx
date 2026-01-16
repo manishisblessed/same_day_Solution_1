@@ -9,7 +9,7 @@ import {
   LogOut, Package, Network, BarChart3,
   ArrowUpRight, ArrowDownRight, UserPlus, Receipt, Wallet,
   ArrowUpCircle, ArrowDownCircle, Download, Search, Eye,
-  Settings, PieChart as PieChartIcon
+  Settings, PieChart as PieChartIcon, Plus, X
 } from 'lucide-react'
 import TransactionsTable from '@/components/TransactionsTable'
 import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
@@ -634,6 +634,7 @@ function WalletTab({ user }: { user: any }) {
 function NetworkTab({ retailers, user, onRefresh }: { retailers: any[], user: any, onRefresh: () => void }) {
   const [searchTerm, setSearchTerm] = useState('')
   const [showFundTransfer, setShowFundTransfer] = useState(false)
+  const [showAddRetailer, setShowAddRetailer] = useState(false)
   const [selectedUser, setSelectedUser] = useState<any>(null)
   const [transferData, setTransferData] = useState({
     amount: '',
@@ -691,15 +692,24 @@ function NetworkTab({ retailers, user, onRefresh }: { retailers: any[], user: an
   return (
     <div className="space-y-6">
       <div className="bg-white rounded-xl shadow-lg border border-gray-200 p-4">
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
-          <input
-            type="text"
-            placeholder="Search retailers..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 border rounded-lg"
-          />
+        <div className="flex items-center justify-between gap-4 mb-4">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
+            <input
+              type="text"
+              placeholder="Search retailers..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full pl-10 pr-4 py-2 border rounded-lg"
+            />
+          </div>
+          <button
+            onClick={() => setShowAddRetailer(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors whitespace-nowrap"
+          >
+            <Plus className="w-4 h-4" />
+            Add Retailer
+          </button>
         </div>
       </div>
 
@@ -847,6 +857,553 @@ function NetworkTab({ retailers, user, onRefresh }: { retailers: any[], user: an
           </motion.div>
         </div>
       )}
+
+      {/* Add Retailer Modal */}
+      {showAddRetailer && (
+        <AddRetailerModal
+          onClose={() => setShowAddRetailer(false)}
+          onSuccess={() => {
+            setShowAddRetailer(false)
+            onRefresh()
+          }}
+        />
+      )}
+    </div>
+  )
+}
+
+// Add Retailer Modal Component
+function AddRetailerModal({ onClose, onSuccess }: { onClose: () => void, onSuccess: () => void }) {
+  const [currentStep, setCurrentStep] = useState(1) // 1: Basic Details, 2: Documents
+  const [formData, setFormData] = useState({
+    name: '',
+    email: '',
+    phone: '',
+    password: '',
+    business_name: '',
+    address: '',
+    city: '',
+    state: '',
+    pincode: '',
+    commission_rate: '',
+    // Document fields
+    aadhar_number: '',
+    aadhar_attachment: null as File | null,
+    pan_number: '',
+    pan_attachment: null as File | null,
+    udhyam_number: '',
+    udhyam_attachment: null as File | null,
+    gst_number: '',
+    gst_attachment: null as File | null,
+  })
+  const [loading, setLoading] = useState(false)
+  const [uploadingDocs, setUploadingDocs] = useState(false)
+
+  const handleStep1Next = (e: React.FormEvent) => {
+    e.preventDefault()
+    // Validate basic fields
+    if (!formData.name || !formData.email || !formData.phone || !formData.password) {
+      alert('Please fill all required fields')
+      return
+    }
+    setCurrentStep(2)
+  }
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    
+    // Validate document requirements
+    if (!formData.aadhar_number || !formData.aadhar_attachment) {
+      alert('AADHAR Number and AADHAR Attachment are mandatory')
+      return
+    }
+    if (!formData.pan_number || !formData.pan_attachment) {
+      alert('PAN Number and PAN Attachment are mandatory')
+      return
+    }
+    // At least one of UDHYAM or GST must be provided
+    const hasUdhyam = formData.udhyam_number && formData.udhyam_attachment
+    const hasGst = formData.gst_number && formData.gst_attachment
+    if (!hasUdhyam && !hasGst) {
+      alert('Either UDHYAM Number with Certificate or GST Number with Certificate must be provided')
+      return
+    }
+
+    setUploadingDocs(true)
+
+    try {
+      // First, upload all documents
+      const partnerId = `RET${Date.now().toString().slice(-8)}`
+      let aadharUrl = ''
+      let panUrl = ''
+      let udhyamUrl = ''
+      let gstUrl = ''
+
+      // Upload AADHAR
+      if (formData.aadhar_attachment) {
+        const aadharFormData = new FormData()
+        aadharFormData.append('file', formData.aadhar_attachment)
+        aadharFormData.append('documentType', 'aadhar')
+        aadharFormData.append('partnerId', partnerId)
+        
+        const aadharResponse = await fetch('/api/admin/upload-document', {
+          method: 'POST',
+          body: aadharFormData,
+        })
+        
+        if (!aadharResponse.ok) {
+          const error = await aadharResponse.json()
+          throw new Error(error.error || 'Failed to upload AADHAR document')
+        }
+        const aadharResult = await aadharResponse.json()
+        aadharUrl = aadharResult.url
+      }
+
+      // Upload PAN
+      if (formData.pan_attachment) {
+        const panFormData = new FormData()
+        panFormData.append('file', formData.pan_attachment)
+        panFormData.append('documentType', 'pan')
+        panFormData.append('partnerId', partnerId)
+        
+        const panResponse = await fetch('/api/admin/upload-document', {
+          method: 'POST',
+          body: panFormData,
+        })
+        
+        if (!panResponse.ok) {
+          const error = await panResponse.json()
+          throw new Error(error.error || 'Failed to upload PAN document')
+        }
+        const panResult = await panResponse.json()
+        panUrl = panResult.url
+      }
+
+      // Upload UDHYAM (if provided)
+      if (formData.udhyam_attachment) {
+        const udhyamFormData = new FormData()
+        udhyamFormData.append('file', formData.udhyam_attachment)
+        udhyamFormData.append('documentType', 'udhyam')
+        udhyamFormData.append('partnerId', partnerId)
+        
+        const udhyamResponse = await fetch('/api/admin/upload-document', {
+          method: 'POST',
+          body: udhyamFormData,
+        })
+        
+        if (udhyamResponse.ok) {
+          const udhyamResult = await udhyamResponse.json()
+          udhyamUrl = udhyamResult.url
+        }
+      }
+
+      // Upload GST (if provided)
+      if (formData.gst_attachment) {
+        const gstFormData = new FormData()
+        gstFormData.append('file', formData.gst_attachment)
+        gstFormData.append('documentType', 'gst')
+        gstFormData.append('partnerId', partnerId)
+        
+        const gstResponse = await fetch('/api/admin/upload-document', {
+          method: 'POST',
+          body: gstFormData,
+        })
+        
+        if (gstResponse.ok) {
+          const gstResult = await gstResponse.json()
+          gstUrl = gstResult.url
+        }
+      }
+
+      // Now create the retailer with all data
+      setLoading(true)
+      const response = await fetch('/api/distributor/create-retailer', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: formData.email,
+          password: formData.password,
+          userData: {
+            name: formData.name,
+            phone: formData.phone,
+            business_name: formData.business_name || null,
+            address: formData.address || null,
+            city: formData.city || null,
+            state: formData.state || null,
+            pincode: formData.pincode || null,
+            commission_rate: formData.commission_rate ? parseFloat(formData.commission_rate) : null,
+            // Document fields
+            aadhar_number: formData.aadhar_number || null,
+            aadhar_attachment_url: aadharUrl || null,
+            pan_number: formData.pan_number || null,
+            pan_attachment_url: panUrl || null,
+            udhyam_number: formData.udhyam_number || null,
+            udhyam_certificate_url: udhyamUrl || null,
+            gst_number: formData.gst_number || null,
+            gst_certificate_url: gstUrl || null,
+          }
+        })
+      })
+
+      const data = await response.json()
+      if (data.success) {
+        alert('Retailer created successfully! Status: Pending Verification. Admin will review and approve.')
+        onSuccess()
+      } else {
+        alert(data.error || 'Failed to create retailer')
+      }
+    } catch (error: any) {
+      console.error('Error creating retailer:', error)
+      alert(error.message || 'Failed to create retailer')
+    } finally {
+      setLoading(false)
+      setUploadingDocs(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+        className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto"
+      >
+        <div className="p-6 border-b border-gray-200">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-xl font-bold">Add Retailer</h3>
+              <p className="text-sm text-gray-500 mt-1">
+                Step {currentStep} of 2: {currentStep === 1 ? 'Basic Details' : 'Document Upload'}
+              </p>
+            </div>
+            <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+          {/* Progress indicator */}
+          <div className="mt-4 flex gap-2">
+            <div className={`flex-1 h-2 rounded ${currentStep >= 1 ? 'bg-purple-600' : 'bg-gray-200'}`}></div>
+            <div className={`flex-1 h-2 rounded ${currentStep >= 2 ? 'bg-purple-600' : 'bg-gray-200'}`}></div>
+          </div>
+        </div>
+
+        {currentStep === 1 ? (
+          <form onSubmit={handleStep1Next} className="p-6 space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium mb-1">Name *</label>
+              <input
+                type="text"
+                required
+                value={formData.name}
+                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                className="w-full px-3 py-2 border rounded-lg"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">Email *</label>
+              <input
+                type="email"
+                required
+                value={formData.email}
+                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                className="w-full px-3 py-2 border rounded-lg"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">Phone *</label>
+              <input
+                type="tel"
+                required
+                value={formData.phone}
+                onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                className="w-full px-3 py-2 border rounded-lg"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">Password *</label>
+              <input
+                type="password"
+                required
+                value={formData.password}
+                onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                className="w-full px-3 py-2 border rounded-lg"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">Business Name</label>
+              <input
+                type="text"
+                value={formData.business_name}
+                onChange={(e) => setFormData({ ...formData, business_name: e.target.value })}
+                className="w-full px-3 py-2 border rounded-lg"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">Commission Rate (%)</label>
+              <input
+                type="number"
+                step="0.01"
+                value={formData.commission_rate}
+                onChange={(e) => setFormData({ ...formData, commission_rate: e.target.value })}
+                className="w-full px-3 py-2 border rounded-lg"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">Address</label>
+              <input
+                type="text"
+                value={formData.address}
+                onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+                className="w-full px-3 py-2 border rounded-lg"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">City</label>
+              <input
+                type="text"
+                value={formData.city}
+                onChange={(e) => setFormData({ ...formData, city: e.target.value })}
+                className="w-full px-3 py-2 border rounded-lg"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">State</label>
+              <select
+                value={formData.state}
+                onChange={(e) => setFormData({ ...formData, state: e.target.value })}
+                className="w-full px-3 py-2 border rounded-lg"
+              >
+                <option value="">Select State</option>
+                <option value="Andhra Pradesh">Andhra Pradesh</option>
+                <option value="Arunachal Pradesh">Arunachal Pradesh</option>
+                <option value="Assam">Assam</option>
+                <option value="Bihar">Bihar</option>
+                <option value="Chhattisgarh">Chhattisgarh</option>
+                <option value="Goa">Goa</option>
+                <option value="Gujarat">Gujarat</option>
+                <option value="Haryana">Haryana</option>
+                <option value="Himachal Pradesh">Himachal Pradesh</option>
+                <option value="Jharkhand">Jharkhand</option>
+                <option value="Karnataka">Karnataka</option>
+                <option value="Kerala">Kerala</option>
+                <option value="Madhya Pradesh">Madhya Pradesh</option>
+                <option value="Maharashtra">Maharashtra</option>
+                <option value="Manipur">Manipur</option>
+                <option value="Meghalaya">Meghalaya</option>
+                <option value="Mizoram">Mizoram</option>
+                <option value="Nagaland">Nagaland</option>
+                <option value="Odisha">Odisha</option>
+                <option value="Punjab">Punjab</option>
+                <option value="Rajasthan">Rajasthan</option>
+                <option value="Sikkim">Sikkim</option>
+                <option value="Tamil Nadu">Tamil Nadu</option>
+                <option value="Telangana">Telangana</option>
+                <option value="Tripura">Tripura</option>
+                <option value="Uttar Pradesh">Uttar Pradesh</option>
+                <option value="Uttarakhand">Uttarakhand</option>
+                <option value="West Bengal">West Bengal</option>
+                <option value="Andaman and Nicobar Islands">Andaman and Nicobar Islands</option>
+                <option value="Chandigarh">Chandigarh</option>
+                <option value="Dadra and Nagar Haveli and Daman and Diu">Dadra and Nagar Haveli and Daman and Diu</option>
+                <option value="Delhi">Delhi</option>
+                <option value="Jammu and Kashmir">Jammu and Kashmir</option>
+                <option value="Ladakh">Ladakh</option>
+                <option value="Lakshadweep">Lakshadweep</option>
+                <option value="Puducherry">Puducherry</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">Pincode</label>
+              <input
+                type="text"
+                value={formData.pincode}
+                onChange={(e) => setFormData({ ...formData, pincode: e.target.value })}
+                className="w-full px-3 py-2 border rounded-lg"
+              />
+            </div>
+          </div>
+
+          <div className="flex gap-3 pt-4 border-t">
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="flex-1 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700"
+            >
+              Next: Upload Documents
+            </button>
+          </div>
+        </form>
+        ) : (
+          <form onSubmit={handleSubmit} className="p-6 space-y-4">
+            <div className="mb-4">
+              <h4 className="text-lg font-semibold mb-2">Document Details</h4>
+              <p className="text-sm text-gray-600">Please upload all required documents for verification.</p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* AADHAR Number */}
+              <div className="md:col-span-2">
+                <label className="block text-sm font-medium mb-1">
+                  AADHAR Number *
+                  <span className="text-xs text-red-500 ml-1">(Mandatory)</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={formData.aadhar_number}
+                  onChange={(e) => setFormData({ ...formData, aadhar_number: e.target.value })}
+                  className="w-full px-3 py-2 border rounded-lg"
+                  placeholder="Enter 12-digit AADHAR number"
+                />
+              </div>
+              {/* AADHAR Attachment */}
+              <div className="md:col-span-2">
+                <label className="block text-sm font-medium mb-1">
+                  AADHAR Attachment *
+                  <span className="text-xs text-red-500 ml-1">(Mandatory)</span>
+                </label>
+                <input
+                  type="file"
+                  required
+                  accept="image/*,application/pdf"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0] || null
+                    setFormData({ ...formData, aadhar_attachment: file })
+                  }}
+                  className="w-full px-3 py-2 border rounded-lg file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-purple-50 file:text-purple-700 hover:file:bg-purple-100"
+                />
+              </div>
+
+              {/* PAN Number */}
+              <div className="md:col-span-2">
+                <label className="block text-sm font-medium mb-1">
+                  PAN Number *
+                  <span className="text-xs text-red-500 ml-1">(Mandatory)</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={formData.pan_number}
+                  onChange={(e) => setFormData({ ...formData, pan_number: e.target.value.toUpperCase() })}
+                  className="w-full px-3 py-2 border rounded-lg"
+                  placeholder="Enter PAN number (e.g., ABCDE1234F)"
+                  maxLength={10}
+                />
+              </div>
+              {/* PAN Attachment */}
+              <div className="md:col-span-2">
+                <label className="block text-sm font-medium mb-1">
+                  PAN Attachment *
+                  <span className="text-xs text-red-500 ml-1">(Mandatory)</span>
+                </label>
+                <input
+                  type="file"
+                  required
+                  accept="image/*,application/pdf"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0] || null
+                    setFormData({ ...formData, pan_attachment: file })
+                  }}
+                  className="w-full px-3 py-2 border rounded-lg file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-purple-50 file:text-purple-700 hover:file:bg-purple-100"
+                />
+              </div>
+
+              {/* UDHYAM Number */}
+              <div>
+                <label className="block text-sm font-medium mb-1">
+                  UDHYAM Number
+                  <span className="text-xs text-gray-500 ml-1">(Optional, but one of UDHYAM or GST required)</span>
+                </label>
+                <input
+                  type="text"
+                  value={formData.udhyam_number}
+                  onChange={(e) => setFormData({ ...formData, udhyam_number: e.target.value })}
+                  className="w-full px-3 py-2 border rounded-lg"
+                  placeholder="Enter UDHYAM registration number"
+                />
+              </div>
+              {/* UDHYAM Certificate */}
+              <div>
+                <label className="block text-sm font-medium mb-1">
+                  UDHYAM Certificate
+                  <span className="text-xs text-gray-500 ml-1">(Optional)</span>
+                </label>
+                <input
+                  type="file"
+                  accept="image/*,application/pdf"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0] || null
+                    setFormData({ ...formData, udhyam_attachment: file })
+                  }}
+                  className="w-full px-3 py-2 border rounded-lg file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-purple-50 file:text-purple-700 hover:file:bg-purple-100"
+                />
+              </div>
+
+              {/* GST Number */}
+              <div>
+                <label className="block text-sm font-medium mb-1">
+                  GST Number
+                  <span className="text-xs text-gray-500 ml-1">(Optional, but one of UDHYAM or GST required)</span>
+                </label>
+                <input
+                  type="text"
+                  value={formData.gst_number}
+                  onChange={(e) => setFormData({ ...formData, gst_number: e.target.value.toUpperCase() })}
+                  className="w-full px-3 py-2 border rounded-lg"
+                  placeholder="Enter GST number"
+                />
+              </div>
+              {/* GST Certificate */}
+              <div>
+                <label className="block text-sm font-medium mb-1">
+                  GST Certificate
+                  <span className="text-xs text-gray-500 ml-1">(Optional)</span>
+                </label>
+                <input
+                  type="file"
+                  accept="image/*,application/pdf"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0] || null
+                    setFormData({ ...formData, gst_attachment: file })
+                  }}
+                  className="w-full px-3 py-2 border rounded-lg file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-purple-50 file:text-purple-700 hover:file:bg-purple-100"
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-3 pt-4 border-t">
+              <button
+                type="button"
+                onClick={() => setCurrentStep(1)}
+                className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300"
+              >
+                Back
+              </button>
+              <button
+                type="button"
+                onClick={onClose}
+                className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={loading || uploadingDocs}
+                className="flex-1 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50"
+              >
+                {uploadingDocs ? 'Uploading Documents...' : loading ? 'Creating...' : 'Submit for Verification'}
+              </button>
+            </div>
+          </form>
+        )}
+      </motion.div>
     </div>
   )
 }

@@ -91,9 +91,33 @@ export async function GET(request: NextRequest) {
     try {
       queryResult = await Promise.race([queryPromise, queryTimeoutPromise]) as any
     } catch (queryError: any) {
-      console.error('Query timeout or error:', queryError)
+      console.error('[Razorpay Transactions API] Query timeout or error:', {
+        error: queryError.message,
+        code: queryError.code,
+        details: queryError.details,
+        hint: queryError.hint
+      })
+      
+      // Check if it's a table not found error
+      if (queryError.message?.includes('relation') && queryError.message?.includes('does not exist')) {
+        return NextResponse.json(
+          { 
+            error: 'Database table does not exist. Please run the migration: supabase-razorpay-pos-notifications-migration.sql',
+            details: {
+              hint: 'The razorpay_pos_transactions table needs to be created in your Supabase database',
+              migrationFile: 'supabase-razorpay-pos-notifications-migration.sql',
+              sqlError: queryError.message
+            }
+          },
+          { status: 500 }
+        )
+      }
+      
       return NextResponse.json(
-        { error: 'Database query timed out. The table may be too large. Please try with a smaller page size or contact support.' },
+        { 
+          error: 'Database query timed out. The table may be too large. Please try with a smaller page size or contact support.',
+          details: process.env.NODE_ENV === 'development' ? queryError.message : undefined
+        },
         { status: 504 }
       )
     }
@@ -101,9 +125,38 @@ export async function GET(request: NextRequest) {
     const { data: transactions, error, count } = queryResult
 
     if (error) {
-      console.error('Error fetching Razorpay POS transactions:', error)
+      console.error('[Razorpay Transactions API] Database error:', {
+        error: error.message,
+        code: error.code,
+        details: error.details,
+        hint: error.hint
+      })
+      
+      // Check if it's a table not found error
+      if (error.code === '42P01' || (error.message?.includes('relation') && error.message?.includes('does not exist'))) {
+        return NextResponse.json(
+          { 
+            error: 'Database table does not exist. Please run the migration: supabase-razorpay-pos-notifications-migration.sql',
+            details: {
+              hint: 'The razorpay_pos_transactions table needs to be created in your Supabase database',
+              migrationFile: 'supabase-razorpay-pos-notifications-migration.sql',
+              sqlError: error.message,
+              sqlCode: error.code
+            }
+          },
+          { status: 500 }
+        )
+      }
+      
       return NextResponse.json(
-        { error: `Failed to fetch transactions: ${error.message || 'Database error'}` },
+        { 
+          error: `Failed to fetch transactions: ${error.message || 'Database error'}`,
+          details: process.env.NODE_ENV === 'development' ? {
+            code: error.code,
+            hint: error.hint,
+            details: error.details
+          } : undefined
+        },
         { status: 500 }
       )
     }
@@ -130,12 +183,39 @@ export async function GET(request: NextRequest) {
     console.error('[Razorpay Transactions API] Unexpected error:', {
       error: error.message,
       stack: error.stack,
-      name: error.name
+      name: error.name,
+      code: error.code
     })
+    
+    // Provide more detailed error information
+    let errorMessage = 'Internal server error'
+    let errorDetails: any = {}
+    
+    // Check for common errors
+    if (error.message?.includes('relation') && error.message?.includes('does not exist')) {
+      errorMessage = 'Database table does not exist. Please run the migration: supabase-razorpay-pos-notifications-migration.sql'
+      errorDetails = {
+        hint: 'The razorpay_pos_transactions table needs to be created in your Supabase database',
+        migrationFile: 'supabase-razorpay-pos-notifications-migration.sql'
+      }
+    } else if (error.message?.includes('JWT') || error.message?.includes('auth')) {
+      errorMessage = 'Authentication error. Please check your Supabase configuration.'
+      errorDetails = {
+        hint: 'Verify SUPABASE_SERVICE_ROLE_KEY is set correctly'
+      }
+    } else if (error.message?.includes('timeout')) {
+      errorMessage = 'Database connection timeout. Please try again.'
+    } else {
+      errorDetails = {
+        message: error.message,
+        code: error.code
+      }
+    }
+    
     return NextResponse.json(
       { 
-        error: 'Internal server error',
-        details: process.env.NODE_ENV === 'development' ? error.message : undefined
+        error: errorMessage,
+        details: process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'production' ? errorDetails : undefined
       },
       { status: 500 }
     )

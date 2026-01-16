@@ -1,0 +1,132 @@
+import { NextRequest, NextResponse } from 'next/server'
+import { createClient } from '@supabase/supabase-js'
+import { getCurrentUserServer } from '@/lib/auth-server'
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
+
+const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey)
+
+export const dynamic = 'force-dynamic'
+
+/**
+ * Create distributor (by master distributor)
+ * 
+ * Authorization:
+ * - Only master distributors can create distributors
+ * - Automatically sets master_distributor_id to the logged-in master distributor
+ */
+export async function POST(request: NextRequest) {
+  try {
+    // Check authentication
+    const user = await getCurrentUserServer()
+    if (!user || user.role !== 'master_distributor') {
+      return NextResponse.json(
+        { error: 'Unauthorized: Master Distributor access required' },
+        { status: 401 }
+      )
+    }
+
+    // Get master distributor data
+    const { data: masterDist, error: masterError } = await supabaseAdmin
+      .from('master_distributors')
+      .select('id, partner_id, status')
+      .eq('email', user.email)
+      .single()
+
+    if (masterError || !masterDist) {
+      return NextResponse.json(
+        { error: 'Master Distributor not found' },
+        { status: 404 }
+      )
+    }
+
+    if (masterDist.status !== 'active') {
+      return NextResponse.json(
+        { error: 'Master Distributor must be active to create distributors' },
+        { status: 403 }
+      )
+    }
+
+    const body = await request.json()
+    const { email, password, userData } = body
+
+    if (!email || !password) {
+      return NextResponse.json(
+        { error: 'Email and password are required' },
+        { status: 400 }
+      )
+    }
+
+    // Create auth user
+    const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
+      email,
+      password,
+      email_confirm: true,
+    })
+
+    if (authError) {
+      return NextResponse.json(
+        { error: authError.message },
+        { status: 400 }
+      )
+    }
+
+    // Generate partner ID
+    const partnerId = `DIS${Date.now().toString().slice(-8)}`
+
+    // Prepare distributor data
+    const distributorData = {
+      partner_id: partnerId,
+      name: userData.name,
+      email: email,
+      phone: userData.phone,
+      business_name: userData.business_name || null,
+      address: userData.address || null,
+      city: userData.city || null,
+      state: userData.state || null,
+      pincode: userData.pincode || null,
+      gst_number: userData.gst_number || null,
+      master_distributor_id: masterDist.partner_id, // Automatically set to logged-in master distributor
+      status: 'pending_verification', // Pending verification after document upload
+      commission_rate: userData.commission_rate ? parseFloat(userData.commission_rate) : null,
+      // Document fields
+      aadhar_number: userData.aadhar_number || null,
+      aadhar_attachment_url: userData.aadhar_attachment_url || null,
+      pan_number: userData.pan_number || null,
+      pan_attachment_url: userData.pan_attachment_url || null,
+      udhyam_number: userData.udhyam_number || null,
+      udhyam_certificate_url: userData.udhyam_certificate_url || null,
+      gst_certificate_url: userData.gst_certificate_url || null,
+      verification_status: 'pending',
+    }
+
+    // Insert distributor
+    const { data: distributor, error: insertError } = await supabaseAdmin
+      .from('distributors')
+      .insert([distributorData])
+      .select()
+      .single()
+
+    if (insertError) {
+      // Rollback: delete auth user
+      await supabaseAdmin.auth.admin.deleteUser(authData.user.id)
+      return NextResponse.json(
+        { error: insertError.message },
+        { status: 400 }
+      )
+    }
+
+    return NextResponse.json({
+      success: true,
+      distributor: distributor,
+    })
+  } catch (error: any) {
+    console.error('[Create Distributor API] Error:', error)
+    return NextResponse.json(
+      { error: error.message || 'Failed to create distributor' },
+      { status: 500 }
+    )
+  }
+}
+

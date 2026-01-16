@@ -13,19 +13,20 @@ export const dynamic = 'force-dynamic'
  * Upload document to Supabase Storage
  * 
  * Authorization:
- * - Admin access required
+ * - Admin, Master Distributor, or Distributor access required
+ * - Used for partner onboarding document uploads
  */
 export async function POST(request: NextRequest) {
   try {
-    // Check admin authentication with timeout
+    // Check authentication with timeout
     const authPromise = getCurrentUserServer()
     const authTimeoutPromise = new Promise((_, reject) => 
       setTimeout(() => reject(new Error('Authentication timeout')), 10000)
     )
     
-    let admin
+    let user
     try {
-      admin = await Promise.race([authPromise, authTimeoutPromise]) as any
+      user = await Promise.race([authPromise, authTimeoutPromise]) as any
     } catch (authError: any) {
       console.error('[Upload Document API] Authentication error or timeout:', authError)
       return NextResponse.json(
@@ -34,9 +35,10 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    if (!admin || admin.role !== 'admin') {
+    // Allow admin, master_distributor, and distributor roles
+    if (!user || !['admin', 'master_distributor', 'distributor'].includes(user.role)) {
       return NextResponse.json(
-        { error: 'Unauthorized: Admin access required' },
+        { error: 'Unauthorized: Admin, Master Distributor, or Distributor access required' },
         { status: 401 }
       )
     }
@@ -101,8 +103,28 @@ export async function POST(request: NextRequest) {
 
     if (uploadError) {
       console.error('[Upload Document API] Upload error:', uploadError)
+      
+      // Provide helpful error message for bucket not found
+      const errorMessage = uploadError.message || ''
+      const errorAny = uploadError as any
+      const isBucketNotFound = errorMessage.includes('Bucket not found') || 
+                               (errorMessage.includes('bucket') && errorMessage.includes('not found')) ||
+                               errorAny.statusCode === '404' ||
+                               errorAny.status === 404 ||
+                               errorAny.statusCode === 404
+      
+      if (isBucketNotFound) {
+        return NextResponse.json(
+          { 
+            error: 'Storage bucket not found. Please create the "partner-documents" bucket in Supabase Storage. See SUPABASE-STORAGE-BUCKET-SETUP.md for instructions.',
+            details: 'The partner-documents bucket needs to be created in your Supabase project before uploading documents.'
+          },
+          { status: 500 }
+        )
+      }
+      
       return NextResponse.json(
-        { error: `Failed to upload file: ${uploadError.message}` },
+        { error: `Failed to upload file: ${errorMessage}` },
         { status: 500 }
       )
     }
