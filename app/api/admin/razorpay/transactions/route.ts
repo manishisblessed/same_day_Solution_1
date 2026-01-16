@@ -21,6 +21,16 @@ export const dynamic = 'force-dynamic'
  */
 export async function GET(request: NextRequest) {
   try {
+    // Log request for debugging
+    console.log('[Razorpay Transactions API] Request received:', {
+      url: request.url,
+      method: request.method,
+      headers: {
+        host: request.headers.get('host'),
+        cookie: request.headers.get('cookie') ? 'present' : 'missing',
+      }
+    })
+
     // Check admin authentication with timeout
     const authPromise = getCurrentUserServer()
     const timeoutPromise = new Promise((_, reject) => 
@@ -31,9 +41,15 @@ export async function GET(request: NextRequest) {
     try {
       admin = await Promise.race([authPromise, timeoutPromise]) as any
     } catch (authError: any) {
-      console.error('Authentication error or timeout:', authError)
+      console.error('[Razorpay Transactions API] Authentication error or timeout:', {
+        error: authError.message,
+        stack: authError.stack
+      })
       return NextResponse.json(
-        { error: 'Authentication failed or timed out. Please try again.' },
+        { 
+          error: 'Authentication failed or timed out. Please try again.',
+          details: process.env.NODE_ENV === 'development' ? authError.message : undefined
+        },
         { status: 401 }
       )
     }
@@ -111,9 +127,16 @@ export async function GET(request: NextRequest) {
     })
 
   } catch (error: any) {
-    console.error('Error in admin Razorpay transactions API:', error)
+    console.error('[Razorpay Transactions API] Unexpected error:', {
+      error: error.message,
+      stack: error.stack,
+      name: error.name
+    })
     return NextResponse.json(
-      { error: error.message || 'Internal server error' },
+      { 
+        error: 'Internal server error',
+        details: process.env.NODE_ENV === 'development' ? error.message : undefined
+      },
       { status: 500 }
     )
   }
