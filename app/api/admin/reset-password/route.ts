@@ -1,15 +1,25 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserServer } from '@/lib/auth-server'
 import { createClient } from '@supabase/supabase-js'
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
-
-const supabase = createClient(supabaseUrl, supabaseServiceKey)
+import { apiHandler } from '@/lib/api-wrapper'
 
 export const dynamic = 'force-dynamic'
 
-export async function POST(request: NextRequest) {
+// Helper to get Supabase client safely
+function getSupabaseClient() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+
+  if (!supabaseUrl || !supabaseServiceKey) {
+    throw new Error('Missing Supabase environment variables')
+  }
+
+  return createClient(supabaseUrl, supabaseServiceKey)
+}
+
+async function handleResetPassword(request: NextRequest) {
+  const supabase = getSupabaseClient()
+  
   try {
     // Get current admin user
     const admin = await getCurrentUserServer()
@@ -147,11 +157,17 @@ export async function POST(request: NextRequest) {
       message: `Password reset successfully for ${targetUser.email}`
     })
   } catch (error: any) {
-    console.error('Error in password reset:', error)
+    console.error('[Reset Password] Error:', error)
     return NextResponse.json(
-      { error: 'Failed to reset password' },
+      { 
+        error: 'Failed to reset password',
+        message: error?.message || 'An error occurred while resetting password'
+      },
       { status: 500 }
     )
   }
 }
+
+// Export wrapped handler
+export const POST = apiHandler(handleResetPassword)
 

@@ -1,13 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { getCurrentUserServer } from '@/lib/auth-server'
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
-
-const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey)
+import { apiHandler } from '@/lib/api-wrapper'
 
 export const dynamic = 'force-dynamic'
+
+// Helper to get Supabase client safely
+function getSupabaseClient() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+
+  if (!supabaseUrl || !supabaseServiceKey) {
+    throw new Error('Missing Supabase environment variables')
+  }
+
+  return createClient(supabaseUrl, supabaseServiceKey)
+}
 
 /**
  * Upload document to Supabase Storage
@@ -16,7 +24,9 @@ export const dynamic = 'force-dynamic'
  * - Admin, Master Distributor, or Distributor access required
  * - Used for partner onboarding document uploads
  */
-export async function POST(request: NextRequest) {
+async function handleUploadDocument(request: NextRequest) {
+  const supabaseAdmin = getSupabaseClient()
+  
   try {
     // Check authentication with timeout
     const authPromise = getCurrentUserServer()
@@ -142,9 +152,15 @@ export async function POST(request: NextRequest) {
   } catch (error: any) {
     console.error('[Upload Document API] Error:', error)
     return NextResponse.json(
-      { error: error.message || 'Failed to upload document' },
+      { 
+        error: 'Failed to upload document',
+        message: error?.message || 'An error occurred while uploading the document'
+      },
       { status: 500 }
     )
   }
 }
+
+// Export wrapped handler
+export const POST = apiHandler(handleUploadDocument)
 
