@@ -7,10 +7,16 @@ export const dynamic = 'force-dynamic'
  * This bypasses apiHandler to show raw environment variable status
  */
 export async function GET(request: NextRequest) {
+  // Log to CloudWatch for debugging
+  console.log('[Test Env Vars] Starting diagnostic check')
+  console.log('[Test Env Vars] All process.env keys:', Object.keys(process.env).length)
+  
   // Get all environment variables that start with SUPABASE or NEXT_PUBLIC
   const allEnvKeys = Object.keys(process.env).filter(key => 
-    key.includes('SUPABASE') || key.includes('NEXT_PUBLIC')
+    key.includes('SUPABASE') || key.includes('NEXT_PUBLIC') || key.includes('AMPLIFY')
   )
+  
+  console.log('[Test Env Vars] Filtered env keys:', allEnvKeys)
 
   // Check specific variables
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
