@@ -22,9 +22,20 @@ export function apiHandler(
         )
       }
 
-      if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
+      // Check SUPABASE_SERVICE_ROLE_KEY - be more lenient to catch edge cases
+      const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+      if (!serviceRoleKey || serviceRoleKey.trim() === '' || serviceRoleKey === 'your_supabase_service_role_key') {
         return NextResponse.json(
-          { error: 'Server configuration error: SUPABASE_SERVICE_ROLE_KEY is missing' },
+          { 
+            error: 'Server configuration error: SUPABASE_SERVICE_ROLE_KEY is missing or invalid',
+            details: {
+              isSet: !!serviceRoleKey,
+              isEmpty: serviceRoleKey?.trim() === '',
+              isPlaceholder: serviceRoleKey === 'your_supabase_service_role_key',
+              length: serviceRoleKey?.length || 0,
+              prefix: serviceRoleKey?.substring(0, 10) || 'NOT_SET'
+            }
+          },
           { status: 500, headers: jsonHeaders }
         )
       }
