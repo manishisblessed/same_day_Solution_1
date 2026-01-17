@@ -313,6 +313,23 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Validate mandatory bank account fields for all partner types
+    // Only validate if fields are provided (to handle cases where migration hasn't been run)
+    if (tableName === 'retailers' || tableName === 'distributors' || tableName === 'master_distributors') {
+      // Check if any bank field is provided - if so, all must be provided
+      const hasAnyBankField = userData.bank_name || userData.account_number || userData.ifsc_code || userData.bank_document_url
+      if (hasAnyBankField) {
+        if (!userData.bank_name || !userData.account_number || !userData.ifsc_code || !userData.bank_document_url) {
+          // Rollback: delete auth user
+          await supabaseAdmin.auth.admin.deleteUser(authData.user.id)
+          return NextResponse.json(
+            { error: 'Bank Name, Account Number, IFSC Code, and Bank Document (passbook/cheque) are all mandatory when providing bank account details' },
+            { status: 400 }
+          )
+        }
+      }
+    }
+
     // Insert into appropriate table (with timeout)
     const insertPromise = supabaseAdmin
       .from(tableName)
@@ -342,8 +359,33 @@ export async function POST(request: NextRequest) {
     if (tableError) {
       // Rollback: delete auth user if table insert fails
       await supabaseAdmin.auth.admin.deleteUser(authData.user.id)
+      
+      // Check if error is due to missing columns (migration not run)
+      const errorMessage = tableError.message || ''
+      const errorCode = (tableError as any).code || ''
+      
+      if (errorMessage.includes('column') && (errorMessage.includes('bank_name') || errorMessage.includes('account_number') || errorMessage.includes('ifsc_code') || errorMessage.includes('bank_document_url')) || 
+          errorCode === '42703' || errorMessage.includes('does not exist')) {
+        console.error('[Create User API] Database column error - migration may not be run:', tableError)
+        return NextResponse.json(
+          { 
+            error: 'Database migration required. The bank account columns do not exist in the database.',
+            details: 'Please run the migration file: supabase-migration-add-bank-account-fields.sql in your Supabase SQL Editor before creating partners with bank account details.'
+          },
+          { status: 500 }
+        )
+      }
+      
+      console.error('[Create User API] Database insert error:', tableError)
+      console.error('[Create User API] Error code:', errorCode)
+      console.error('[Create User API] Error details:', JSON.stringify(tableError, null, 2))
+      
       return NextResponse.json(
-        { error: tableError.message },
+        { 
+          error: tableError.message || 'Failed to save user data',
+          details: errorMessage,
+          code: errorCode
+        },
         { status: 400 }
       )
     }
@@ -355,8 +397,27 @@ export async function POST(request: NextRequest) {
   } catch (error: any) {
     console.error('[Create User API] Unexpected error:', error)
     console.error('[Create User API] Error stack:', error.stack)
+    
+    // Check if this is a database column error
+    const errorMessage = error?.message || ''
+    const errorString = JSON.stringify(error) || ''
+    
+    if (errorMessage.includes('column') && (errorMessage.includes('bank_name') || errorMessage.includes('account_number') || errorMessage.includes('ifsc_code') || errorMessage.includes('bank_document_url')) ||
+        errorString.includes('column') && (errorString.includes('bank_name') || errorString.includes('account_number') || errorString.includes('ifsc_code') || errorString.includes('bank_document_url'))) {
+      return NextResponse.json(
+        { 
+          error: 'Database migration required. The bank account columns do not exist in the database.',
+          details: 'Please run the migration file: supabase-migration-add-bank-account-fields.sql in your Supabase SQL Editor before creating partners with bank account details.'
+        },
+        { status: 500 }
+      )
+    }
+    
     return NextResponse.json(
-      { error: error.message || 'Failed to create user. Please check the console for details.' },
+      { 
+        error: error.message || 'Failed to create user. Please check the console for details.',
+        details: errorMessage
+      },
       { status: 500 }
     )
   }

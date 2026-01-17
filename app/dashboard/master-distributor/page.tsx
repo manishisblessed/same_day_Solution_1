@@ -1075,13 +1075,20 @@ function AddDistributorModal({ onClose, onSuccess }: { onClose: () => void, onSu
     state: '',
     pincode: '',
     commission_rate: '',
+    // Bank account details (mandatory)
+    bank_name: '',
+    account_number: '',
+    ifsc_code: '',
+    bank_document: null as File | null,
     // Document fields
     aadhar_number: '',
     aadhar_attachment: null as File | null,
     pan_number: '',
     pan_attachment: null as File | null,
+    udhyam_applicable: false,
     udhyam_number: '',
     udhyam_attachment: null as File | null,
+    gst_applicable: false,
     gst_number: '',
     gst_attachment: null as File | null,
   })
@@ -1101,6 +1108,11 @@ function AddDistributorModal({ onClose, onSuccess }: { onClose: () => void, onSu
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     
+    // Validate bank account requirements
+    if (!formData.bank_name || !formData.account_number || !formData.ifsc_code || !formData.bank_document) {
+      alert('Bank Name, Account Number, IFSC Code, and Bank Document (passbook/cheque) are mandatory')
+      return
+    }
     // Validate document requirements
     if (!formData.aadhar_number || !formData.aadhar_attachment) {
       alert('AADHAR Number and AADHAR Attachment are mandatory')
@@ -1110,12 +1122,20 @@ function AddDistributorModal({ onClose, onSuccess }: { onClose: () => void, onSu
       alert('PAN Number and PAN Attachment are mandatory')
       return
     }
-    // At least one of UDHYAM or GST must be provided
-    const hasUdhyam = formData.udhyam_number && formData.udhyam_attachment
-    const hasGst = formData.gst_number && formData.gst_attachment
-    if (!hasUdhyam && !hasGst) {
-      alert('Either UDHYAM Number with Certificate or GST Number with Certificate must be provided')
-      return
+    // Validate UDHYAM if applicable checkbox is checked
+    if (formData.udhyam_applicable) {
+      if (!formData.udhyam_number || !formData.udhyam_attachment) {
+        alert('UDHYAM Number and Certificate are required when UDHYAM is applicable')
+        return
+      }
+    }
+    
+    // Validate GST if applicable checkbox is checked
+    if (formData.gst_applicable) {
+      if (!formData.gst_number || !formData.gst_attachment) {
+        alert('GST Number and Certificate are required when GST is applicable')
+        return
+      }
     }
 
     setUploadingDocs(true)
@@ -1123,10 +1143,31 @@ function AddDistributorModal({ onClose, onSuccess }: { onClose: () => void, onSu
     try {
       // First, upload all documents
       const partnerId = `DIS${Date.now().toString().slice(-8)}`
+      let bankDocumentUrl = ''
       let aadharUrl = ''
       let panUrl = ''
       let udhyamUrl = ''
       let gstUrl = ''
+
+      // Upload Bank Document
+      if (formData.bank_document) {
+        const bankFormData = new FormData()
+        bankFormData.append('file', formData.bank_document)
+        bankFormData.append('documentType', 'bank')
+        bankFormData.append('partnerId', partnerId)
+        
+        const bankResponse = await fetch('/api/admin/upload-document', {
+          method: 'POST',
+          body: bankFormData,
+        })
+        
+        if (!bankResponse.ok) {
+          const error = await bankResponse.json()
+          throw new Error(error.error || 'Failed to upload bank document')
+        }
+        const bankResult = await bankResponse.json()
+        bankDocumentUrl = bankResult.url
+      }
 
       // Upload AADHAR
       if (formData.aadhar_attachment) {
@@ -1168,8 +1209,8 @@ function AddDistributorModal({ onClose, onSuccess }: { onClose: () => void, onSu
         panUrl = panResult.url
       }
 
-      // Upload UDHYAM (if provided)
-      if (formData.udhyam_attachment) {
+      // Upload UDHYAM (if applicable and provided)
+      if (formData.udhyam_applicable && formData.udhyam_attachment) {
         const udhyamFormData = new FormData()
         udhyamFormData.append('file', formData.udhyam_attachment)
         udhyamFormData.append('documentType', 'udhyam')
@@ -1186,8 +1227,8 @@ function AddDistributorModal({ onClose, onSuccess }: { onClose: () => void, onSu
         }
       }
 
-      // Upload GST (if provided)
-      if (formData.gst_attachment) {
+      // Upload GST (if applicable and provided)
+      if (formData.gst_applicable && formData.gst_attachment) {
         const gstFormData = new FormData()
         gstFormData.append('file', formData.gst_attachment)
         gstFormData.append('documentType', 'gst')
@@ -1221,6 +1262,11 @@ function AddDistributorModal({ onClose, onSuccess }: { onClose: () => void, onSu
             state: formData.state || null,
             pincode: formData.pincode || null,
             commission_rate: formData.commission_rate ? parseFloat(formData.commission_rate) : null,
+            // Bank account details (mandatory)
+            bank_name: formData.bank_name,
+            account_number: formData.account_number,
+            ifsc_code: formData.ifsc_code,
+            bank_document_url: bankDocumentUrl,
             // Document fields
             aadhar_number: formData.aadhar_number || null,
             aadhar_attachment_url: aadharUrl || null,
@@ -1432,11 +1478,80 @@ function AddDistributorModal({ onClose, onSuccess }: { onClose: () => void, onSu
         ) : (
           <form onSubmit={handleSubmit} className="p-6 space-y-4">
             <div className="mb-4">
-              <h4 className="text-lg font-semibold mb-2">Document Details</h4>
-              <p className="text-sm text-gray-600">Please upload all required documents for verification.</p>
+              <h4 className="text-lg font-semibold mb-2">Bank Account & Document Details</h4>
+              <p className="text-sm text-gray-600">Please provide bank account details and upload all required documents for verification.</p>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Bank Account Details Section */}
+              <div className="md:col-span-2">
+                <h5 className="text-md font-semibold mb-3 text-yellow-600 border-b pb-2">Bank Account Details (Mandatory)</h5>
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">
+                  Bank Name *
+                  <span className="text-xs text-red-500 ml-1">(Mandatory)</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={formData.bank_name}
+                  onChange={(e) => setFormData({ ...formData, bank_name: e.target.value })}
+                  className="w-full px-3 py-2 border rounded-lg"
+                  placeholder="Enter bank name"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">
+                  Account Number *
+                  <span className="text-xs text-red-500 ml-1">(Mandatory)</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={formData.account_number}
+                  onChange={(e) => setFormData({ ...formData, account_number: e.target.value })}
+                  className="w-full px-3 py-2 border rounded-lg"
+                  placeholder="Enter account number"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">
+                  IFSC Code *
+                  <span className="text-xs text-red-500 ml-1">(Mandatory)</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={formData.ifsc_code}
+                  onChange={(e) => setFormData({ ...formData, ifsc_code: e.target.value.toUpperCase() })}
+                  className="w-full px-3 py-2 border rounded-lg"
+                  placeholder="Enter IFSC code"
+                  maxLength={11}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">
+                  Bank Document (Passbook/Cheque) *
+                  <span className="text-xs text-red-500 ml-1">(Mandatory)</span>
+                </label>
+                <input
+                  type="file"
+                  required
+                  accept="image/*,application/pdf"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0] || null
+                    setFormData({ ...formData, bank_document: file })
+                  }}
+                  className="w-full px-3 py-2 border rounded-lg file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-yellow-50 file:text-yellow-700 hover:file:bg-yellow-100"
+                />
+                <p className="text-xs text-gray-500 mt-1">Upload passbook or cancelled cheque</p>
+              </div>
+
+              {/* Document Details Section */}
+              <div className="md:col-span-2 mt-4">
+                <h5 className="text-md font-semibold mb-3 text-yellow-600 border-b pb-2">Identity & Business Documents</h5>
+              </div>
               {/* AADHAR Number */}
               <div className="md:col-span-2">
                 <label className="block text-sm font-medium mb-1">
@@ -1504,67 +1619,125 @@ function AddDistributorModal({ onClose, onSuccess }: { onClose: () => void, onSu
                 />
               </div>
 
-              {/* UDHYAM Number */}
-              <div>
-                <label className="block text-sm font-medium mb-1">
-                  UDHYAM Number
-                  <span className="text-xs text-gray-500 ml-1">(Optional, but one of UDHYAM or GST required)</span>
-                </label>
-                <input
-                  type="text"
-                  value={formData.udhyam_number}
-                  onChange={(e) => setFormData({ ...formData, udhyam_number: e.target.value })}
-                  className="w-full px-3 py-2 border rounded-lg"
-                  placeholder="Enter UDHYAM registration number"
-                />
+              {/* UDHYAM Section */}
+              <div className="md:col-span-2">
+                <div className="flex items-center mb-2">
+                  <input
+                    type="checkbox"
+                    id="udhyam_applicable"
+                    checked={formData.udhyam_applicable}
+                    onChange={(e) => {
+                      const checked = e.target.checked
+                      setFormData({ 
+                        ...formData, 
+                        udhyam_applicable: checked,
+                        // Clear fields if unchecked
+                        udhyam_number: checked ? formData.udhyam_number : '',
+                        udhyam_attachment: checked ? formData.udhyam_attachment : null
+                      })
+                    }}
+                    className="w-4 h-4 text-yellow-600 border-gray-300 rounded focus:ring-yellow-500"
+                  />
+                  <label htmlFor="udhyam_applicable" className="ml-2 text-sm font-medium">
+                    UDHYAM Certificate Applicable
+                    {formData.udhyam_applicable && <span className="text-xs text-red-500 ml-1">(Mandatory if checked)</span>}
+                  </label>
+                </div>
               </div>
-              {/* UDHYAM Certificate */}
-              <div>
-                <label className="block text-sm font-medium mb-1">
-                  UDHYAM Certificate
-                  <span className="text-xs text-gray-500 ml-1">(Optional)</span>
-                </label>
-                <input
-                  type="file"
-                  accept="image/*,application/pdf"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0] || null
-                    setFormData({ ...formData, udhyam_attachment: file })
-                  }}
-                  className="w-full px-3 py-2 border rounded-lg file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-yellow-50 file:text-yellow-700 hover:file:bg-yellow-100"
-                />
-              </div>
+              {formData.udhyam_applicable && (
+                <>
+                  <div>
+                    <label className="block text-sm font-medium mb-1">
+                      UDHYAM Number *
+                      <span className="text-xs text-red-500 ml-1">(Required)</span>
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={formData.udhyam_number}
+                      onChange={(e) => setFormData({ ...formData, udhyam_number: e.target.value })}
+                      className="w-full px-3 py-2 border rounded-lg"
+                      placeholder="Enter UDHYAM registration number"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-1">
+                      UDHYAM Certificate *
+                      <span className="text-xs text-red-500 ml-1">(Required)</span>
+                    </label>
+                    <input
+                      type="file"
+                      required
+                      accept="image/*,application/pdf"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0] || null
+                        setFormData({ ...formData, udhyam_attachment: file })
+                      }}
+                      className="w-full px-3 py-2 border rounded-lg file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-yellow-50 file:text-yellow-700 hover:file:bg-yellow-100"
+                    />
+                  </div>
+                </>
+              )}
 
-              {/* GST Number */}
-              <div>
-                <label className="block text-sm font-medium mb-1">
-                  GST Number
-                  <span className="text-xs text-gray-500 ml-1">(Optional, but one of UDHYAM or GST required)</span>
-                </label>
-                <input
-                  type="text"
-                  value={formData.gst_number}
-                  onChange={(e) => setFormData({ ...formData, gst_number: e.target.value.toUpperCase() })}
-                  className="w-full px-3 py-2 border rounded-lg"
-                  placeholder="Enter GST number"
-                />
+              {/* GST Section */}
+              <div className="md:col-span-2">
+                <div className="flex items-center mb-2">
+                  <input
+                    type="checkbox"
+                    id="gst_applicable"
+                    checked={formData.gst_applicable}
+                    onChange={(e) => {
+                      const checked = e.target.checked
+                      setFormData({ 
+                        ...formData, 
+                        gst_applicable: checked,
+                        // Clear fields if unchecked
+                        gst_number: checked ? formData.gst_number : '',
+                        gst_attachment: checked ? formData.gst_attachment : null
+                      })
+                    }}
+                    className="w-4 h-4 text-yellow-600 border-gray-300 rounded focus:ring-yellow-500"
+                  />
+                  <label htmlFor="gst_applicable" className="ml-2 text-sm font-medium">
+                    GST Certificate Applicable
+                    {formData.gst_applicable && <span className="text-xs text-red-500 ml-1">(Mandatory if checked)</span>}
+                  </label>
+                </div>
               </div>
-              {/* GST Certificate */}
-              <div>
-                <label className="block text-sm font-medium mb-1">
-                  GST Certificate
-                  <span className="text-xs text-gray-500 ml-1">(Optional)</span>
-                </label>
-                <input
-                  type="file"
-                  accept="image/*,application/pdf"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0] || null
-                    setFormData({ ...formData, gst_attachment: file })
-                  }}
-                  className="w-full px-3 py-2 border rounded-lg file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-yellow-50 file:text-yellow-700 hover:file:bg-yellow-100"
-                />
-              </div>
+              {formData.gst_applicable && (
+                <>
+                  <div>
+                    <label className="block text-sm font-medium mb-1">
+                      GST Number *
+                      <span className="text-xs text-red-500 ml-1">(Required)</span>
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={formData.gst_number}
+                      onChange={(e) => setFormData({ ...formData, gst_number: e.target.value.toUpperCase() })}
+                      className="w-full px-3 py-2 border rounded-lg"
+                      placeholder="Enter GST number"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-1">
+                      GST Certificate *
+                      <span className="text-xs text-red-500 ml-1">(Required)</span>
+                    </label>
+                    <input
+                      type="file"
+                      required
+                      accept="image/*,application/pdf"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0] || null
+                        setFormData({ ...formData, gst_attachment: file })
+                      }}
+                      className="w-full px-3 py-2 border rounded-lg file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-yellow-50 file:text-yellow-700 hover:file:bg-yellow-100"
+                    />
+                  </div>
+                </>
+              )}
             </div>
 
             <div className="flex gap-3 pt-4 border-t">

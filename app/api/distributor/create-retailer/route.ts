@@ -75,6 +75,16 @@ export async function POST(request: NextRequest) {
     // Generate partner ID
     const partnerId = `RET${Date.now().toString().slice(-8)}`
 
+    // Validate mandatory bank account fields
+    if (!userData.bank_name || !userData.account_number || !userData.ifsc_code || !userData.bank_document_url) {
+      // Rollback: delete auth user
+      await supabaseAdmin.auth.admin.deleteUser(authData.user.id)
+      return NextResponse.json(
+        { error: 'Bank Name, Account Number, IFSC Code, and Bank Document (passbook/cheque) are mandatory' },
+        { status: 400 }
+      )
+    }
+
     // Prepare retailer data
     const retailerData = {
       partner_id: partnerId,
@@ -91,6 +101,11 @@ export async function POST(request: NextRequest) {
       master_distributor_id: distributor.master_distributor_id, // Automatically set from distributor
       status: 'pending_verification', // Pending verification after document upload
       commission_rate: userData.commission_rate ? parseFloat(userData.commission_rate) : null,
+      // Bank account details (mandatory)
+      bank_name: userData.bank_name,
+      account_number: userData.account_number,
+      ifsc_code: userData.ifsc_code,
+      bank_document_url: userData.bank_document_url,
       // Document fields
       aadhar_number: userData.aadhar_number || null,
       aadhar_attachment_url: userData.aadhar_attachment_url || null,
@@ -112,8 +127,29 @@ export async function POST(request: NextRequest) {
     if (insertError) {
       // Rollback: delete auth user
       await supabaseAdmin.auth.admin.deleteUser(authData.user.id)
+      
+      // Check if error is due to missing columns (migration not run)
+      const errorMessage = insertError.message || ''
+      const errorCode = (insertError as any).code || ''
+      
+      if (errorMessage.includes('column') && (errorMessage.includes('bank_name') || errorMessage.includes('account_number') || errorMessage.includes('ifsc_code') || errorMessage.includes('bank_document_url')) || 
+          errorCode === '42703' || errorMessage.includes('does not exist')) {
+        console.error('[Create Retailer API] Database column error - migration may not be run:', insertError)
+        return NextResponse.json(
+          { 
+            error: 'Database migration required. The bank account columns do not exist in the database.',
+            details: 'Please run the migration file: supabase-migration-add-bank-account-fields.sql in your Supabase SQL Editor.'
+          },
+          { status: 500 }
+        )
+      }
+      
+      console.error('[Create Retailer API] Database insert error:', insertError)
       return NextResponse.json(
-        { error: insertError.message },
+        { 
+          error: insertError.message || 'Failed to create retailer',
+          details: errorMessage
+        },
         { status: 400 }
       )
     }

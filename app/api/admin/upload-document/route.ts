@@ -94,7 +94,7 @@ async function handleUploadDocument(request: NextRequest) {
     }
     
     const file = formData.get('file') as File
-    const documentType = formData.get('documentType') as string // 'aadhar', 'pan', 'udhyam', 'gst'
+    const documentType = formData.get('documentType') as string // 'aadhar', 'pan', 'udhyam', 'gst', 'bank'
     const partnerId = formData.get('partnerId') as string // Optional, for existing partners
 
     if (!file) {
@@ -104,7 +104,7 @@ async function handleUploadDocument(request: NextRequest) {
       )
     }
 
-    if (!documentType || !['aadhar', 'pan', 'udhyam', 'gst'].includes(documentType)) {
+    if (!documentType || !['aadhar', 'pan', 'udhyam', 'gst', 'bank'].includes(documentType)) {
       return NextResponse.json(
         { error: 'Invalid document type' },
         { status: 400 }
