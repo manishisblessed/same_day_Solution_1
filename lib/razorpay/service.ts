@@ -165,6 +165,34 @@ function mapRazorpayStatus(razorpayStatus: string): RazorpayTransaction['status'
 }
 
 /**
+ * Map Razorpay POS transaction status to admin-friendly status
+ * 
+ * STATUS MAPPING RULE (MANDATORY):
+ * - AUTHORIZED → CAPTURED
+ * - FAILED, VOIDED, REFUNDED → FAILED
+ * - Everything else → PENDING
+ * 
+ * @param payload - Razorpay notification payload
+ * @returns Mapped status: 'CAPTURED' | 'FAILED' | 'PENDING'
+ */
+export function mapTransactionStatus(payload: any): 'CAPTURED' | 'FAILED' | 'PENDING' {
+  const rawStatus = (payload.status || '').toUpperCase().trim()
+  
+  // AUTHORIZED → CAPTURED
+  if (rawStatus === 'AUTHORIZED') {
+    return 'CAPTURED'
+  }
+  
+  // FAILED, VOIDED, REFUNDED → FAILED
+  if (['FAILED', 'VOIDED', 'REFUNDED'].includes(rawStatus)) {
+    return 'FAILED'
+  }
+  
+  // Everything else → PENDING
+  return 'PENDING'
+}
+
+/**
  * Credit wallet for a successful transaction (idempotent)
  */
 export async function creditWalletForTransaction(transactionId: string): Promise<boolean> {

@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { mapTransactionStatus } from '@/lib/razorpay/service'
+import * as crypto from 'crypto'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
+const RAZORPAY_WEBHOOK_SECRET = process.env.RAZORPAY_WEBHOOK_SECRET
 
 const supabase = createClient(supabaseUrl, supabaseServiceKey)
 
@@ -14,126 +17,141 @@ export const dynamic = 'force-dynamic'
  * This endpoint receives transaction notifications from Razorpay POS devices.
  * It implements idempotency using txnId as the unique key (UPSERT logic).
  * 
- * Phase 1: Display-only feature - no wallet crediting, no settlement logic
+ * Requirements:
+ * - Accept application/json
+ * - Verify signature if header present
+ * - Use txnId as unique identifier
+ * - UPSERT into Supabase
+ * - Return 200 OK immediately
+ * - Always return HTTP 200 OK (even on errors) to prevent Razorpay retries
  */
 export async function POST(request: NextRequest) {
   try {
-    // Parse the notification payload
-    const payload = await request.json()
+    // Get webhook signature from headers (optional - verify if present)
+    const signature = request.headers.get('x-razorpay-signature')
+    
+    // Read raw body for signature verification (if signature is present)
+    let rawBody: string | null = null
+    let payload: any
+    
+    if (signature && RAZORPAY_WEBHOOK_SECRET) {
+      // Read raw body as text for signature verification
+      rawBody = await request.text()
+      payload = JSON.parse(rawBody)
+      
+      // Verify signature
+      const expectedSignature = crypto
+        .createHmac('sha256', RAZORPAY_WEBHOOK_SECRET)
+        .update(rawBody)
+        .digest('hex')
+      
+      if (!crypto.timingSafeEqual(
+        Buffer.from(signature),
+        Buffer.from(expectedSignature)
+      )) {
+        console.error('Invalid webhook signature')
+        // Still return 200 to prevent retries, but log the error
+        return NextResponse.json(
+          { received: true, processed: false, error: 'Invalid signature' },
+          { status: 200 }
+        )
+      }
+    } else {
+      // No signature verification needed, parse JSON directly
+      payload = await request.json()
+    }
 
     // Extract mandatory fields
     const txnId = payload.txnId || payload.id
     if (!txnId) {
-      console.error('Missing txnId in Razorpay notification')
+      console.error('Missing txnId in Razorpay notification', payload)
+      // Return 200 OK but log error
       return NextResponse.json(
-        { error: 'Missing txnId field', received: true },
-        { status: 400 }
+        { received: true, processed: false, error: 'Missing txnId field' },
+        { status: 200 }
       )
     }
 
-    // Extract status
-    const rawStatus = payload.status || 'PENDING'
-    
-    // Derive display status
-    let displayStatus: 'SUCCESS' | 'FAILED' | 'PENDING'
-    if (rawStatus === 'AUTHORIZED') {
-      displayStatus = 'SUCCESS'
-    } else if (rawStatus === 'FAILED') {
-      displayStatus = 'FAILED'
-    } else {
-      displayStatus = 'PENDING'
-    }
+    // Map status using the reusable function
+    const mappedStatus = mapTransactionStatus(payload)
 
-    // Extract amount (convert from paise to rupees if needed, or use as-is)
-    let amount = payload.amount || 0
-    // If amount seems too large (likely in paise), convert to rupees
-    if (amount > 1000000) {
-      amount = amount / 100
-    }
-
-    // Extract payment mode
+    // Extract fields to persist
+    const orderNumber = payload.orderNumber || payload.externalRefNumber || null
+    const amount = payload.amount ? parseFloat(payload.amount) : null
+    const currency = payload.currencyCode || payload.currency || null
     const paymentMode = payload.paymentMode || null
-
-    // Extract device information
-    const deviceSerial = payload.deviceSerial || null
-    const tid = payload.tid || null
-
-    // Extract merchant name
+    const settlementStatus = payload.settlementStatus || null
     const merchantName = payload.merchantName || null
-
-    // Extract transaction time
-    // Try createdTime first (epoch milliseconds), then chargeSlipDate (ISO string)
-    let transactionTime: Date | null = null
+    const rrNumber = payload.rrNumber || payload.rrn || null
+    const acquirerCode = payload.acquirerCode || null
+    
+    // Parse created_time (can be epoch milliseconds or ISO string)
+    let createdTime: Date | null = null
     if (payload.createdTime) {
-      transactionTime = new Date(payload.createdTime)
-    } else if (payload.chargeSlipDate) {
-      transactionTime = new Date(payload.chargeSlipDate)
-    } else if (payload.postingDate) {
-      transactionTime = new Date(payload.postingDate)
+      // If it's a number, treat as epoch milliseconds
+      if (typeof payload.createdTime === 'number') {
+        createdTime = new Date(payload.createdTime)
+      } else {
+        createdTime = new Date(payload.createdTime)
+      }
+    } else if (payload.created_at) {
+      createdTime = new Date(payload.created_at)
     }
     
     // If no valid date found, use current time
-    if (!transactionTime || isNaN(transactionTime.getTime())) {
-      transactionTime = new Date()
+    if (!createdTime || isNaN(createdTime.getTime())) {
+      createdTime = new Date()
     }
 
-    // IDEMPOTENCY: UPSERT logic using txnId as unique key
-    // If txnId exists, update the record; otherwise, insert new record
+    // IDEMPOTENCY: UPSERT logic using txn_id as unique key
+    // If txn_id exists, update the record; otherwise, insert new record
     const { data: existingTransaction, error: checkError } = await supabase
-      .from('razorpay_pos_transactions')
+      .from('razorpay_transactions')
       .select('id')
       .eq('txn_id', txnId)
-      .single()
+      .maybeSingle()
 
-    if (checkError && checkError.code !== 'PGRST116') { // PGRST116 = no rows returned
+    if (checkError && checkError.code !== 'PGRST116') {
+      // PGRST116 = no rows returned (expected for new transactions)
       console.error('Error checking existing transaction:', checkError)
       // Continue with insert/update anyway
     }
 
     const transactionData = {
       txn_id: txnId,
-      status: rawStatus,
-      display_status: displayStatus,
+      order_number: orderNumber,
       amount: amount,
+      currency: currency,
       payment_mode: paymentMode,
-      device_serial: deviceSerial,
-      tid: tid,
+      status: mappedStatus,
+      settlement_status: settlementStatus,
       merchant_name: merchantName,
-      transaction_time: transactionTime.toISOString(),
-      updated_at: new Date().toISOString(),
-      raw_data: payload // Store full payload for reference
+      rr_number: rrNumber,
+      acquirer_code: acquirerCode,
+      created_time: createdTime.toISOString(),
+      raw_payload: payload // Store full payload for audit
     }
 
     let result
     if (existingTransaction) {
-      // UPDATE existing record (idempotency: same txnId received again)
+      // UPDATE existing record (idempotency: same txn_id received again)
       const { data, error } = await supabase
-        .from('razorpay_pos_transactions')
-        .update({
-          status: rawStatus,
-          display_status: displayStatus,
-          amount: amount,
-          payment_mode: paymentMode,
-          device_serial: deviceSerial,
-          tid: tid,
-          merchant_name: merchantName,
-          transaction_time: transactionTime.toISOString(),
-          updated_at: new Date().toISOString(),
-          raw_data: payload
-        })
+        .from('razorpay_transactions')
+        .update(transactionData)
         .eq('txn_id', txnId)
         .select()
         .single()
 
       if (error) {
-        console.error('Error updating Razorpay POS transaction:', error)
+        console.error('Error updating Razorpay transaction:', error)
+        // Return 200 OK but log error
         return NextResponse.json(
           { 
             received: true, 
             processed: false,
             error: error.message 
           },
-          { status: 500 }
+          { status: 200 }
         )
       }
 
@@ -141,23 +159,21 @@ export async function POST(request: NextRequest) {
     } else {
       // INSERT new record
       const { data, error } = await supabase
-        .from('razorpay_pos_transactions')
-        .insert({
-          ...transactionData,
-          created_at: new Date().toISOString()
-        })
+        .from('razorpay_transactions')
+        .insert(transactionData)
         .select()
         .single()
 
       if (error) {
-        console.error('Error inserting Razorpay POS transaction:', error)
+        console.error('Error inserting Razorpay transaction:', error)
+        // Return 200 OK but log error
         return NextResponse.json(
           { 
             received: true, 
             processed: false,
             error: error.message 
           },
-          { status: 500 }
+          { status: 200 }
         )
       }
 
@@ -168,7 +184,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       received: true,
       processed: true,
-      transactionId: result.id,
+      transactionId: result?.id,
       txnId: txnId,
       action: existingTransaction ? 'updated' : 'created'
     })
@@ -190,8 +206,6 @@ export async function GET() {
   return NextResponse.json({
     message: 'Razorpay POS notification endpoint',
     status: 'active',
-    phase: 1,
-    description: 'Display-only feature - no wallet or settlement logic'
+    description: 'Webhook endpoint for Razorpay POS transaction notifications'
   })
 }
-

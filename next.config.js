@@ -21,6 +21,21 @@ const nextConfig = {
   },
   // Ensure proper trailing slash handling
   trailingSlash: false,
+  // Ensure API routes are properly handled
+  async headers() {
+    return [
+      {
+        // Apply headers to all API routes
+        source: '/api/:path*',
+        headers: [
+          {
+            key: 'Content-Type',
+            value: 'application/json',
+          },
+        ],
+      },
+    ]
+  },
 }
 
 module.exports = nextConfig
