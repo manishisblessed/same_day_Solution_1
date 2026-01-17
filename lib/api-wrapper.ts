@@ -14,54 +14,9 @@ export function apiHandler(
     }
 
     try {
-      // Log all environment variables for debugging (in production too, but masked)
-      const allEnvKeys = Object.keys(process.env).filter(key => 
-        key.includes('SUPABASE') || key.includes('AMPLIFY')
-      )
-      console.log('[API Handler] Environment check:', {
-        supabaseUrlExists: !!process.env.NEXT_PUBLIC_SUPABASE_URL,
-        serviceRoleKeyExists: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
-        serviceRoleKeyLength: process.env.SUPABASE_SERVICE_ROLE_KEY?.length || 0,
-        allSupabaseKeys: allEnvKeys,
-        nodeEnv: process.env.NODE_ENV,
-        amplifyEnv: process.env.AMPLIFY_ENV
-      })
-
-      // Check critical environment variables first
-      if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
-        console.error('[API Handler] NEXT_PUBLIC_SUPABASE_URL is missing')
-        return NextResponse.json(
-          { error: 'Server configuration error: NEXT_PUBLIC_SUPABASE_URL is missing' },
-          { status: 500, headers: jsonHeaders }
-        )
-      }
-
-      // Check SUPABASE_SERVICE_ROLE_KEY - be more lenient to catch edge cases
-      const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-      if (!serviceRoleKey || serviceRoleKey.trim() === '' || serviceRoleKey === 'your_supabase_service_role_key') {
-        console.error('[API Handler] SUPABASE_SERVICE_ROLE_KEY check failed:', {
-          isSet: !!serviceRoleKey,
-          isEmpty: serviceRoleKey?.trim() === '',
-          isPlaceholder: serviceRoleKey === 'your_supabase_service_role_key',
-          length: serviceRoleKey?.length || 0,
-          type: typeof serviceRoleKey,
-          allEnvKeys: allEnvKeys
-        })
-        return NextResponse.json(
-          { 
-            error: 'Server configuration error: SUPABASE_SERVICE_ROLE_KEY is missing or invalid',
-            details: {
-              isSet: !!serviceRoleKey,
-              isEmpty: serviceRoleKey?.trim() === '',
-              isPlaceholder: serviceRoleKey === 'your_supabase_service_role_key',
-              length: serviceRoleKey?.length || 0,
-              prefix: serviceRoleKey?.substring(0, 10) || 'NOT_SET',
-              allSupabaseEnvVars: allEnvKeys
-            }
-          },
-          { status: 500, headers: jsonHeaders }
-        )
-      }
+      // Don't check environment variables here - let individual routes handle their own checks
+      // This allows routes that don't need Supabase to work, and routes that do need it
+      // will check and fail gracefully with proper error messages
 
       // Execute the handler
       const response = await handler(request)
