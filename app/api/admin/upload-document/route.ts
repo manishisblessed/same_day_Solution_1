@@ -12,12 +12,50 @@ function getSupabaseClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
   const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
 
+  // Enhanced diagnostics for AWS Amplify
+  console.log('[Upload Document] Environment check:')
+  console.log('[Upload Document] NEXT_PUBLIC_SUPABASE_URL exists:', !!supabaseUrl)
+  console.log('[Upload Document] NEXT_PUBLIC_SUPABASE_URL length:', supabaseUrl?.length || 0)
+  console.log('[Upload Document] SUPABASE_SERVICE_ROLE_KEY exists:', !!supabaseServiceKey)
+  console.log('[Upload Document] SUPABASE_SERVICE_ROLE_KEY length:', supabaseServiceKey?.length || 0)
+  console.log('[Upload Document] SUPABASE_SERVICE_ROLE_KEY type:', typeof supabaseServiceKey)
+  console.log('[Upload Document] SUPABASE_SERVICE_ROLE_KEY is empty string:', supabaseServiceKey === '')
+  console.log('[Upload Document] SUPABASE_SERVICE_ROLE_KEY after trim:', supabaseServiceKey?.trim()?.length || 0)
+  
+  // Check all env vars that contain SUPABASE
+  const allSupabaseVars = Object.keys(process.env).filter(key => key.includes('SUPABASE'))
+  console.log('[Upload Document] All SUPABASE env vars:', allSupabaseVars)
+
   if (!supabaseUrl) {
-    throw new Error('NEXT_PUBLIC_SUPABASE_URL is missing')
+    const error = new Error('NEXT_PUBLIC_SUPABASE_URL is missing')
+    console.error('[Upload Document] Error:', error.message)
+    throw error
   }
 
-  if (!supabaseServiceKey || supabaseServiceKey.trim() === '' || supabaseServiceKey === 'your_supabase_service_role_key') {
-    throw new Error('SUPABASE_SERVICE_ROLE_KEY is missing or invalid')
+  // More detailed validation
+  if (!supabaseServiceKey) {
+    const error = new Error('SUPABASE_SERVICE_ROLE_KEY is missing (undefined or null)')
+    console.error('[Upload Document] Error:', error.message)
+    console.error('[Upload Document] Available env vars with SUPABASE:', allSupabaseVars)
+    throw error
+  }
+
+  if (supabaseServiceKey.trim() === '') {
+    const error = new Error('SUPABASE_SERVICE_ROLE_KEY is empty string')
+    console.error('[Upload Document] Error:', error.message)
+    throw error
+  }
+
+  if (supabaseServiceKey === 'your_supabase_service_role_key') {
+    const error = new Error('SUPABASE_SERVICE_ROLE_KEY is set to placeholder value')
+    console.error('[Upload Document] Error:', error.message)
+    throw error
+  }
+
+  // Additional check: JWT tokens should start with 'eyJ'
+  if (!supabaseServiceKey.startsWith('eyJ')) {
+    console.warn('[Upload Document] Warning: SUPABASE_SERVICE_ROLE_KEY does not start with "eyJ" (expected JWT format)')
+    // Don't throw here, as it might still be valid, just log a warning
   }
 
   return createClient(supabaseUrl, supabaseServiceKey)

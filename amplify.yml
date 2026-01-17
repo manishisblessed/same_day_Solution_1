@@ -1,0 +1,35 @@
+version: 1
+frontend:
+  phases:
+    preBuild:
+      commands:
+        - echo "Starting build..."
+        - echo "Node version: $(node -v)"
+        - echo "NPM version: $(npm -v)"
+        - echo "Checking environment variables..."
+        - |
+          if [ -z "$NEXT_PUBLIC_SUPABASE_URL" ]; then
+            echo "WARNING: NEXT_PUBLIC_SUPABASE_URL is not set"
+          else
+            echo "✓ NEXT_PUBLIC_SUPABASE_URL is set (length: ${#NEXT_PUBLIC_SUPABASE_URL})"
+          fi
+        - |
+          if [ -z "$SUPABASE_SERVICE_ROLE_KEY" ]; then
+            echo "WARNING: SUPABASE_SERVICE_ROLE_KEY is not set"
+          else
+            echo "✓ SUPABASE_SERVICE_ROLE_KEY is set (length: ${#SUPABASE_SERVICE_ROLE_KEY})"
+          fi
+        - npm ci
+    build:
+      commands:
+        - echo "Building Next.js application..."
+        - npm run build
+  artifacts:
+    baseDirectory: .next
+    files:
+      - '**/*'
+  cache:
+    paths:
+      - node_modules/**/*
+      - .next/cache/**/*
+
