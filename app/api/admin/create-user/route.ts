@@ -396,26 +396,54 @@ export async function POST(request: NextRequest) {
     })
   } catch (error: any) {
     console.error('[Create User API] Unexpected error:', error)
-    console.error('[Create User API] Error stack:', error.stack)
+    console.error('[Create User API] Error stack:', error?.stack)
     
     // Check if this is a database column error
     const errorMessage = error?.message || ''
     const errorString = JSON.stringify(error) || ''
     
+    // Environment variable errors
+    if (errorMessage.includes('NEXT_PUBLIC_SUPABASE_URL') || errorMessage.includes('SUPABASE_SERVICE_ROLE_KEY')) {
+      return NextResponse.json(
+        { 
+          error: 'Configuration error',
+          message: 'Supabase environment variables are not configured correctly. Please check NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.',
+          details: errorMessage
+        },
+        { status: 500 }
+      )
+    }
+    
+    // Database column errors
     if (errorMessage.includes('column') && (errorMessage.includes('bank_name') || errorMessage.includes('account_number') || errorMessage.includes('ifsc_code') || errorMessage.includes('bank_document_url')) ||
         errorString.includes('column') && (errorString.includes('bank_name') || errorString.includes('account_number') || errorString.includes('ifsc_code') || errorString.includes('bank_document_url'))) {
       return NextResponse.json(
         { 
-          error: 'Database migration required. The bank account columns do not exist in the database.',
+          error: 'Database migration required',
+          message: 'The bank account columns do not exist in the database.',
           details: 'Please run the migration file: supabase-migration-add-bank-account-fields.sql in your Supabase SQL Editor before creating partners with bank account details.'
         },
         { status: 500 }
       )
     }
     
+    // Database connection errors
+    if (errorMessage.includes('connection') || errorMessage.includes('timeout') || errorMessage.includes('ECONNREFUSED')) {
+      return NextResponse.json(
+        { 
+          error: 'Database connection error',
+          message: 'Failed to connect to the database. Please check your Supabase configuration and try again.',
+          details: errorMessage
+        },
+        { status: 500 }
+      )
+    }
+    
+    // Generic error with more details
     return NextResponse.json(
       { 
         error: error.message || 'Failed to create user. Please check the console for details.',
+        message: errorMessage || 'An unexpected error occurred',
         details: errorMessage
       },
       { status: 500 }

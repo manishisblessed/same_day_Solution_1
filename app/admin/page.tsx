@@ -1743,7 +1743,10 @@ function PartnerModal({
               const contentType = bankResponse.headers.get('content-type')
               if (contentType && contentType.includes('application/json')) {
                 const error = await bankResponse.json()
-                errorMessage = error.error || error.message || errorMessage
+                errorMessage = error.message || error.error || errorMessage
+                if (error.details) {
+                  errorMessage += `\n\nDetails: ${error.details}`
+                }
               } else {
                 const text = await bankResponse.text()
                 errorMessage = text || errorMessage
@@ -1774,7 +1777,10 @@ function PartnerModal({
               const contentType = aadharResponse.headers.get('content-type')
               if (contentType && contentType.includes('application/json')) {
                 const error = await aadharResponse.json()
-                errorMessage = error.error || error.message || errorMessage
+                errorMessage = error.message || error.error || errorMessage
+                if (error.details) {
+                  errorMessage += `\n\nDetails: ${error.details}`
+                }
               } else {
                 const text = await aadharResponse.text()
                 errorMessage = text || errorMessage
@@ -1805,7 +1811,10 @@ function PartnerModal({
               const contentType = panResponse.headers.get('content-type')
               if (contentType && contentType.includes('application/json')) {
                 const error = await panResponse.json()
-                errorMessage = error.error || error.message || errorMessage
+                errorMessage = error.message || error.error || errorMessage
+                if (error.details) {
+                  errorMessage += `\n\nDetails: ${error.details}`
+                }
               } else {
                 const text = await panResponse.text()
                 errorMessage = text || errorMessage
@@ -1836,7 +1845,10 @@ function PartnerModal({
               const contentType = udhyamResponse.headers.get('content-type')
               if (contentType && contentType.includes('application/json')) {
                 const error = await udhyamResponse.json()
-                errorMessage = error.error || error.message || errorMessage
+                errorMessage = error.message || error.error || errorMessage
+                if (error.details) {
+                  errorMessage += `\n\nDetails: ${error.details}`
+                }
               } else {
                 const text = await udhyamResponse.text()
                 errorMessage = text || errorMessage
@@ -1867,7 +1879,10 @@ function PartnerModal({
               const contentType = gstResponse.headers.get('content-type')
               if (contentType && contentType.includes('application/json')) {
                 const error = await gstResponse.json()
-                errorMessage = error.error || error.message || errorMessage
+                errorMessage = error.message || error.error || errorMessage
+                if (error.details) {
+                  errorMessage += `\n\nDetails: ${error.details}`
+                }
               } else {
                 const text = await gstResponse.text()
                 errorMessage = text || errorMessage
@@ -1969,9 +1984,10 @@ function PartnerModal({
           const result = await response.json()
           if (!response.ok) {
             // Provide more detailed error message
-            const errorMsg = result.error || 'Failed to create user'
+            const errorMsg = result.error || result.message || 'Failed to create user'
             const errorDetails = result.details ? `\n\nDetails: ${result.details}` : ''
-            throw new Error(`${errorMsg}${errorDetails}`)
+            const fullMessage = result.message && result.message !== errorMsg ? `${errorMsg}: ${result.message}${errorDetails}` : `${errorMsg}${errorDetails}`
+            throw new Error(fullMessage)
           }
         } else {
           const { error } = await supabase
@@ -1985,7 +2001,20 @@ function PartnerModal({
       onSuccess()
     } catch (error: any) {
       console.error('Error saving:', error)
-      alert(error.message || 'Failed to save')
+      console.error('Error details:', error)
+      
+      // Extract error message - handle both Error objects and string messages
+      let errorMessage = 'Failed to save'
+      if (error?.message) {
+        errorMessage = error.message
+      } else if (typeof error === 'string') {
+        errorMessage = error
+      } else if (error?.error) {
+        errorMessage = error.error
+      }
+      
+      // Show detailed error to user
+      alert(errorMessage)
     } finally {
       setLoading(false)
       setUploadingDocs(false)

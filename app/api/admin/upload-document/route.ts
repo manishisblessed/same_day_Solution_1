@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { getCurrentUserServer } from '@/lib/auth-server'
-import { apiHandler } from '@/lib/api-wrapper'
 
 export const dynamic = 'force-dynamic'
 
@@ -32,7 +31,13 @@ function getSupabaseClient() {
  * - Used for partner onboarding document uploads
  */
 async function handleUploadDocument(request: NextRequest) {
-  const supabaseAdmin = getSupabaseClient()
+  let supabaseAdmin
+  try {
+    supabaseAdmin = getSupabaseClient()
+  } catch (clientError: any) {
+    console.error('[Upload Document API] Failed to initialize Supabase client:', clientError)
+    throw clientError // Re-throw to be caught by outer handler
+  }
   
   try {
     // Log request headers for debugging
@@ -207,10 +212,52 @@ export async function POST(request: NextRequest) {
     return await handleUploadDocument(request)
   } catch (error: any) {
     console.error('[Upload Document API] Unhandled error:', error)
+    console.error('[Upload Document API] Error stack:', error?.stack)
+    
+    // Check for specific error types and provide helpful messages
+    const errorMessage = error?.message || ''
+    
+    // Environment variable errors
+    if (errorMessage.includes('NEXT_PUBLIC_SUPABASE_URL') || errorMessage.includes('SUPABASE_SERVICE_ROLE_KEY')) {
+      return NextResponse.json(
+        {
+          error: 'Configuration error',
+          message: 'Supabase environment variables are not configured correctly. Please check NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.',
+          details: errorMessage
+        },
+        { status: 500 }
+      )
+    }
+    
+    // Authentication errors
+    if (errorMessage.includes('Authentication') || errorMessage.includes('auth') || errorMessage.includes('timeout')) {
+      return NextResponse.json(
+        {
+          error: 'Authentication error',
+          message: 'Failed to authenticate request. Please try logging in again.',
+          details: errorMessage
+        },
+        { status: 401 }
+      )
+    }
+    
+    // Storage bucket errors
+    if (errorMessage.includes('bucket') || errorMessage.includes('storage') || errorMessage.includes('Bucket not found')) {
+      return NextResponse.json(
+        {
+          error: 'Storage configuration error',
+          message: 'The storage bucket "partner-documents" may not be configured. Please create it in Supabase Storage.',
+          details: errorMessage
+        },
+        { status: 500 }
+      )
+    }
+    
+    // Generic error with more details
     return NextResponse.json(
       {
         error: 'Internal server error',
-        message: error?.message || 'An unexpected error occurred',
+        message: errorMessage || 'An unexpected error occurred while uploading the document',
         ...(process.env.NODE_ENV === 'development' && {
           stack: error?.stack,
           details: error
