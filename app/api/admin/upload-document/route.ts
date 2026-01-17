@@ -5,6 +5,9 @@ import { apiHandler } from '@/lib/api-wrapper'
 
 export const dynamic = 'force-dynamic'
 
+// Ensure this route uses Node.js runtime (not Edge) for proper form data handling
+export const runtime = 'nodejs'
+
 // Helper to get Supabase client safely
 function getSupabaseClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
@@ -32,6 +35,22 @@ async function handleUploadDocument(request: NextRequest) {
   const supabaseAdmin = getSupabaseClient()
   
   try {
+    // Log request headers for debugging
+    const contentType = request.headers.get('content-type')
+    console.log('[Upload Document API] Request Content-Type:', contentType)
+    
+    // Check if Content-Type is correct
+    if (!contentType || (!contentType.includes('multipart/form-data') && !contentType.includes('application/x-www-form-urlencoded'))) {
+      console.error('[Upload Document API] Invalid Content-Type:', contentType)
+      return NextResponse.json(
+        { 
+          error: 'Invalid Content-Type. Expected multipart/form-data',
+          received: contentType || 'not set'
+        },
+        { status: 400 }
+      )
+    }
+    
     // Check authentication with timeout
     const authPromise = getCurrentUserServer()
     const authTimeoutPromise = new Promise((_, reject) => 
@@ -57,7 +76,23 @@ async function handleUploadDocument(request: NextRequest) {
       )
     }
 
-    const formData = await request.formData()
+    // Parse form data
+    let formData: FormData
+    try {
+      formData = await request.formData()
+      console.log('[Upload Document API] FormData parsed successfully')
+    } catch (formDataError: any) {
+      console.error('[Upload Document API] Error parsing FormData:', formDataError)
+      return NextResponse.json(
+        { 
+          error: 'Failed to parse form data',
+          message: formDataError?.message || 'Invalid form data format',
+          contentType: contentType
+        },
+        { status: 400 }
+      )
+    }
+    
     const file = formData.get('file') as File
     const documentType = formData.get('documentType') as string // 'aadhar', 'pan', 'udhyam', 'gst'
     const partnerId = formData.get('partnerId') as string // Optional, for existing partners
@@ -165,6 +200,24 @@ async function handleUploadDocument(request: NextRequest) {
   }
 }
 
-// Export wrapped handler
-export const POST = apiHandler(handleUploadDocument)
+// Export handler directly (not wrapped) to avoid Content-Type issues with form data
+// The apiHandler tries to set JSON Content-Type which interferes with multipart/form-data
+export async function POST(request: NextRequest) {
+  try {
+    return await handleUploadDocument(request)
+  } catch (error: any) {
+    console.error('[Upload Document API] Unhandled error:', error)
+    return NextResponse.json(
+      {
+        error: 'Internal server error',
+        message: error?.message || 'An unexpected error occurred',
+        ...(process.env.NODE_ENV === 'development' && {
+          stack: error?.stack,
+          details: error
+        })
+      },
+      { status: 500 }
+    )
+  }
+}
 

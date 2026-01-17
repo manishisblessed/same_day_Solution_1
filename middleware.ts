@@ -4,7 +4,12 @@ import { NextResponse, type NextRequest } from 'next/server'
 export async function middleware(request: NextRequest) {
   // For API routes, ensure we always return JSON responses
   // This prevents HTML error pages from being returned
+  // EXCEPT for routes that handle file uploads (multipart/form-data)
   if (request.nextUrl.pathname.startsWith('/api/')) {
+    // Skip Content-Type override for file upload routes
+    const isFileUploadRoute = request.nextUrl.pathname.includes('/upload-document') ||
+                              request.nextUrl.pathname.includes('/bulk-upload')
+    
     try {
       let response = NextResponse.next({
         request: {
@@ -12,8 +17,10 @@ export async function middleware(request: NextRequest) {
         },
       })
 
-      // Set JSON content type for API routes
-      response.headers.set('Content-Type', 'application/json')
+      // Only set JSON content type for non-file-upload API routes
+      if (!isFileUploadRoute) {
+        response.headers.set('Content-Type', 'application/json')
+      }
       
       // Only handle Supabase auth for non-API routes or specific API routes that need it
       // Most API routes handle their own authentication

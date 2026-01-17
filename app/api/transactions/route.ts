@@ -39,19 +39,15 @@ export async function GET(request: NextRequest) {
     }
 
     // Build query based on role
+    // Note: The new razorpay_transactions table doesn't have retailer_id, distributor_id, or master_distributor_id columns
+    // For role-based filtering, use /api/razorpay/transactions instead which uses razorpay_pos_transactions with device mapping
     let query = supabase
       .from('razorpay_transactions')
       .select('*', { count: 'exact' })
 
-    // Apply role-based filtering
-    if (user.role === 'retailer' && user.partner_id) {
-      query = query.eq('retailer_id', user.partner_id)
-    } else if (user.role === 'distributor' && user.partner_id) {
-      query = query.eq('distributor_id', user.partner_id)
-    } else if (user.role === 'master_distributor' && user.partner_id) {
-      query = query.eq('master_distributor_id', user.partner_id)
-    }
+    // Role-based filtering removed - new razorpay_transactions table schema doesn't support it
     // Admin can see all transactions (no filter)
+    // For role-based access, use /api/razorpay/transactions endpoint
 
     // Apply filters
     if (filters.dateFrom) {
@@ -69,15 +65,16 @@ export async function GET(request: NextRequest) {
     if (filters.status && filters.status !== 'all') {
       query = query.eq('status', filters.status)
     }
-    if (filters.retailer_id) {
-      query = query.eq('retailer_id', filters.retailer_id)
-    }
-    if (filters.distributor_id) {
-      query = query.eq('distributor_id', filters.distributor_id)
-    }
-    if (filters.master_distributor_id) {
-      query = query.eq('master_distributor_id', filters.master_distributor_id)
-    }
+    // Note: These filters are removed because the new razorpay_transactions table doesn't have these columns
+    // if (filters.retailer_id) {
+    //   query = query.eq('retailer_id', filters.retailer_id)
+    // }
+    // if (filters.distributor_id) {
+    //   query = query.eq('distributor_id', filters.distributor_id)
+    // }
+    // if (filters.master_distributor_id) {
+    //   query = query.eq('master_distributor_id', filters.master_distributor_id)
+    // }
     if (filters.minAmount !== undefined) {
       query = query.gte('gross_amount', filters.minAmount)
     }

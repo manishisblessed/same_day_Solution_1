@@ -21,21 +21,8 @@ const nextConfig = {
   },
   // Ensure proper trailing slash handling
   trailingSlash: false,
-  // Ensure API routes are properly handled
-  async headers() {
-    return [
-      {
-        // Apply headers to all API routes
-        source: '/api/:path*',
-        headers: [
-          {
-            key: 'Content-Type',
-            value: 'application/json',
-          },
-        ],
-      },
-    ]
-  },
+  // Note: Content-Type headers are handled by middleware.ts
+  // This allows file upload routes (multipart/form-data) to work correctly
 }
 
 module.exports = nextConfig

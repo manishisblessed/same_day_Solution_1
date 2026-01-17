@@ -60,9 +60,9 @@ export async function GET(request: NextRequest) {
     success: true,
     message: 'Environment variables diagnostic',
     diagnostics,
-    recommendation: !serviceRoleKeyExists 
+    recommendation: !diagnostics.serviceRoleKeyExists 
       ? 'SUPABASE_SERVICE_ROLE_KEY is not set. Please check AWS Amplify Environment Variables.'
-      : serviceRoleKeyLength === 0
+      : diagnostics.serviceRoleKeyLength === 0
       ? 'SUPABASE_SERVICE_ROLE_KEY is empty. Please set a valid value in AWS Amplify.'
       : 'Environment variables appear to be set correctly.'
   })

@@ -251,10 +251,12 @@ export default function RazorpayTransactionsPage() {
 
           {/* Status Filter */}
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4">
-            <div className="flex items-center gap-4">
-              <Filter className="w-5 h-5 text-gray-500" />
-              <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Filter by Status:</span>
-              <div className="flex gap-2">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+              <div className="flex items-center gap-2 min-w-fit">
+                <Filter className="w-5 h-5 text-gray-500" />
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300 whitespace-nowrap">Filter by Status:</span>
+              </div>
+              <div className="flex flex-wrap gap-2">
                 {(['all', 'CAPTURED', 'FAILED', 'PENDING'] as const).map((status) => (
                   <button
                     key={status}
@@ -262,7 +264,7 @@ export default function RazorpayTransactionsPage() {
                       setStatusFilter(status)
                       setPage(1) // Reset to first page when filter changes
                     }}
-                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${
                       statusFilter === status
                         ? 'bg-primary-600 text-white'
                         : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'

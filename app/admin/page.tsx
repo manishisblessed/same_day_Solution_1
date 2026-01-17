@@ -1699,8 +1699,20 @@ function PartnerModal({
           })
           
           if (!aadharResponse.ok) {
-            const error = await aadharResponse.json()
-            throw new Error(error.error || 'Failed to upload AADHAR document')
+            let errorMessage = 'Failed to upload AADHAR document'
+            try {
+              const contentType = aadharResponse.headers.get('content-type')
+              if (contentType && contentType.includes('application/json')) {
+                const error = await aadharResponse.json()
+                errorMessage = error.error || error.message || errorMessage
+              } else {
+                const text = await aadharResponse.text()
+                errorMessage = text || errorMessage
+              }
+            } catch (e) {
+              errorMessage = `HTTP ${aadharResponse.status}: ${aadharResponse.statusText}`
+            }
+            throw new Error(errorMessage)
           }
           const aadharResult = await aadharResponse.json()
           aadharUrl = aadharResult.url
@@ -1718,8 +1730,20 @@ function PartnerModal({
           })
           
           if (!panResponse.ok) {
-            const error = await panResponse.json()
-            throw new Error(error.error || 'Failed to upload PAN document')
+            let errorMessage = 'Failed to upload PAN document'
+            try {
+              const contentType = panResponse.headers.get('content-type')
+              if (contentType && contentType.includes('application/json')) {
+                const error = await panResponse.json()
+                errorMessage = error.error || error.message || errorMessage
+              } else {
+                const text = await panResponse.text()
+                errorMessage = text || errorMessage
+              }
+            } catch (e) {
+              errorMessage = `HTTP ${panResponse.status}: ${panResponse.statusText}`
+            }
+            throw new Error(errorMessage)
           }
           const panResult = await panResponse.json()
           panUrl = panResult.url
@@ -1737,8 +1761,20 @@ function PartnerModal({
           })
           
           if (!udhyamResponse.ok) {
-            const error = await udhyamResponse.json()
-            throw new Error(error.error || 'Failed to upload UDHYAM certificate')
+            let errorMessage = 'Failed to upload UDHYAM certificate'
+            try {
+              const contentType = udhyamResponse.headers.get('content-type')
+              if (contentType && contentType.includes('application/json')) {
+                const error = await udhyamResponse.json()
+                errorMessage = error.error || error.message || errorMessage
+              } else {
+                const text = await udhyamResponse.text()
+                errorMessage = text || errorMessage
+              }
+            } catch (e) {
+              errorMessage = `HTTP ${udhyamResponse.status}: ${udhyamResponse.statusText}`
+            }
+            throw new Error(errorMessage)
           }
           const udhyamResult = await udhyamResponse.json()
           udhyamUrl = udhyamResult.url
@@ -1756,8 +1792,20 @@ function PartnerModal({
           })
           
           if (!gstResponse.ok) {
-            const error = await gstResponse.json()
-            throw new Error(error.error || 'Failed to upload GST certificate')
+            let errorMessage = 'Failed to upload GST certificate'
+            try {
+              const contentType = gstResponse.headers.get('content-type')
+              if (contentType && contentType.includes('application/json')) {
+                const error = await gstResponse.json()
+                errorMessage = error.error || error.message || errorMessage
+              } else {
+                const text = await gstResponse.text()
+                errorMessage = text || errorMessage
+              }
+            } catch (e) {
+              errorMessage = `HTTP ${gstResponse.status}: ${gstResponse.statusText}`
+            }
+            throw new Error(errorMessage)
           }
           const gstResult = await gstResponse.json()
           gstUrl = gstResult.url
