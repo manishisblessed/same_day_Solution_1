@@ -3,26 +3,9 @@ frontend:
   phases:
     preBuild:
       commands:
-        - echo "Starting build..."
-        - echo "Node version: $(node -v)"
-        - echo "NPM version: $(npm -v)"
-        - echo "Checking environment variables..."
-        # Check public environment variables (client-side)
-        - "if [ -z \"$NEXT_PUBLIC_SUPABASE_URL\" ]; then echo \"WARNING: NEXT_PUBLIC_SUPABASE_URL is not set\"; else echo \"✓ NEXT_PUBLIC_SUPABASE_URL is set\"; fi"
-        - "if [ -z \"$NEXT_PUBLIC_SUPABASE_ANON_KEY\" ]; then echo \"WARNING: NEXT_PUBLIC_SUPABASE_ANON_KEY is not set\"; else echo \"✓ NEXT_PUBLIC_SUPABASE_ANON_KEY is set\"; fi"
-        - "if [ -z \"$NEXT_PUBLIC_APP_URL\" ]; then echo \"WARNING: NEXT_PUBLIC_APP_URL is not set\"; else echo \"✓ NEXT_PUBLIC_APP_URL is set\"; fi"
-        # Check server-side environment variables (should be in Secrets or Environment Variables)
-        - "if [ -z \"$SUPABASE_SERVICE_ROLE_KEY\" ]; then echo \"WARNING: SUPABASE_SERVICE_ROLE_KEY is not set - API routes may fail\"; else echo \"✓ SUPABASE_SERVICE_ROLE_KEY is set\"; fi"
-        - "if [ -z \"$BBPS_API_BASE_URL\" ]; then echo \"WARNING: BBPS_API_BASE_URL is not set\"; else echo \"✓ BBPS_API_BASE_URL is set\"; fi"
-        - "if [ -z \"$BBPS_PARTNER_ID\" ]; then echo \"WARNING: BBPS_PARTNER_ID is not set\"; else echo \"✓ BBPS_PARTNER_ID is set\"; fi"
-        - "if [ -z \"$RAZORPAY_KEY_ID\" ]; then echo \"WARNING: RAZORPAY_KEY_ID is not set\"; else echo \"✓ RAZORPAY_KEY_ID is set\"; fi"
-        - "if [ -z \"$RAZORPAY_KEY_SECRET\" ]; then echo \"WARNING: RAZORPAY_KEY_SECRET is not set\"; else echo \"✓ RAZORPAY_KEY_SECRET is set\"; fi"
-        - echo "Installing dependencies..."
         - npm ci
     build:
       commands:
-        - echo "Building Next.js application..."
-        - echo "Environment: $NODE_ENV"
         - npm run build
   artifacts:
     baseDirectory: .next
@@ -31,5 +14,3 @@ frontend:
   cache:
     paths:
       - node_modules/**/*
-      - .next/cache/**/*
-
