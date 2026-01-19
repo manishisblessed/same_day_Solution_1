@@ -32,24 +32,30 @@ function checkSafetyGuard() {
     return
   }
   
+  // Only block in development if mock is not explicitly enabled
+  // In production, always allow real API calls
   if (
-    APP_ENV === 'dev' &&
-    process.env.BBPS_USE_MOCK !== 'true'
+    NODE_ENV === 'development' &&
+    process.env.USE_BBPS_MOCK !== 'true' &&
+    process.env.BBPS_USE_MOCK !== 'true' &&
+    process.env.BBPS_FORCE_REAL_API !== 'true'
   ) {
     throw new Error(
       '🚨 SAFETY BLOCK: Real BBPS API cannot run in DEV environment. ' +
-      'Set BBPS_USE_MOCK=true for local development or APP_ENV=uat/prod for real API calls.'
+      'Set USE_BBPS_MOCK=true for local development or BBPS_FORCE_REAL_API=true to force real API in dev.'
     )
   }
 }
 
 // Mock mode configuration
 // Use mock data if:
-// 1. Explicitly set BBPS_USE_MOCK=true
+// 1. Explicitly set USE_BBPS_MOCK=true (or BBPS_USE_MOCK=true for backward compatibility)
 // 2. In local dev (NODE_ENV=development) and BBPS_FORCE_REAL_API is not set
+// In production (NODE_ENV=production), always use real API unless explicitly set to mock
 const USE_MOCK_DATA = 
+  process.env.USE_BBPS_MOCK === 'true' ||
   process.env.BBPS_USE_MOCK === 'true' ||
-  (APP_ENV === 'dev' && process.env.BBPS_FORCE_REAL_API !== 'true')
+  (NODE_ENV === 'development' && process.env.BBPS_FORCE_REAL_API !== 'true' && process.env.USE_BBPS_MOCK !== 'false')
 
 // Import mock service
 let mockService: any = null
@@ -72,9 +78,11 @@ function logBBPSMode() {
       console.log({
         APP_ENV: APP_ENV,
         NODE_ENV: NODE_ENV,
-        BBPS_USE_MOCK: process.env.BBPS_USE_MOCK,
+        USE_BBPS_MOCK: process.env.USE_BBPS_MOCK,
+        BBPS_USE_MOCK: process.env.BBPS_USE_MOCK, // backward compatibility
         BBPS_FORCE_REAL_API: process.env.BBPS_FORCE_REAL_API,
         MODE: USE_MOCK_DATA ? 'MOCK' : 'REAL API',
+        PRODUCTION_READY: NODE_ENV === 'production' && !USE_MOCK_DATA,
       })
       console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
       global.__BBPS_MODE_LOGGED__ = true

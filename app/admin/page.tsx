@@ -1430,8 +1430,10 @@ function PartnerModal({
     bank_document_url: '',
     // New document fields
     aadhar_number: '',
-    aadhar_attachment: null as File | null,
-    aadhar_attachment_url: '',
+    aadhar_front_attachment: null as File | null,
+    aadhar_front_url: '',
+    aadhar_back_attachment: null as File | null,
+    aadhar_back_url: '',
     pan_number: '',
     pan_attachment: null as File | null,
     pan_attachment_url: '',
@@ -1528,8 +1530,10 @@ function PartnerModal({
         bank_document_url: item.bank_document_url || '',
         // New document fields
         aadhar_number: item.aadhar_number || '',
-        aadhar_attachment: null,
-        aadhar_attachment_url: item.aadhar_attachment_url || '',
+        aadhar_front_attachment: null,
+        aadhar_front_url: item.aadhar_front_url || item.aadhar_attachment_url || '', // Fallback to old field
+        aadhar_back_attachment: null,
+        aadhar_back_url: item.aadhar_back_url || '',
         pan_number: item.pan_number || '',
         pan_attachment: null,
         pan_attachment_url: item.pan_attachment_url || '',
@@ -1567,8 +1571,10 @@ function PartnerModal({
         bank_document_url: '',
         // New document fields
         aadhar_number: '',
-        aadhar_attachment: null,
-        aadhar_attachment_url: '',
+        aadhar_front_attachment: null,
+        aadhar_front_url: '',
+        aadhar_back_attachment: null,
+        aadhar_back_url: '',
         udhyam_applicable: false,
         gst_applicable: false,
         pan_number: '',
@@ -1654,8 +1660,8 @@ function PartnerModal({
         return
       }
       // Validate document requirements
-      if (!formData.aadhar_number || !formData.aadhar_attachment) {
-        alert('AADHAR Number and AADHAR Attachment are mandatory')
+      if (!formData.aadhar_number || !formData.aadhar_front_attachment || !formData.aadhar_back_attachment) {
+        alert('AADHAR Number, AADHAR Front, and AADHAR Back attachments are mandatory')
         return
       }
       if (!formData.pan_number || !formData.pan_attachment) {
@@ -1704,7 +1710,16 @@ function PartnerModal({
     }
 
     setLoading(true)
-    if (!item) {
+    // Check if any documents need to be uploaded
+    const needsUpload = !item || 
+      formData.bank_document || 
+      formData.aadhar_front_attachment || 
+      formData.aadhar_back_attachment || 
+      formData.pan_attachment || 
+      (formData.udhyam_applicable && formData.udhyam_attachment) || 
+      (formData.gst_applicable && formData.gst_attachment)
+    
+    if (needsUpload) {
       setUploadingDocs(true)
     }
 
@@ -1715,15 +1730,21 @@ function PartnerModal({
 
       // Upload documents if new files are provided
       let bankDocumentUrl = formData.bank_document_url
-      let aadharUrl = formData.aadhar_attachment_url
+      let aadharFrontUrl = formData.aadhar_front_url
+      let aadharBackUrl = formData.aadhar_back_url
       let panUrl = formData.pan_attachment_url
       let udhyamUrl = formData.udhyam_certificate_url
       let gstUrl = formData.gst_certificate_url
 
+      // Upload documents if new files are selected (for both new and existing partners)
+      const partnerId = item ? item.partner_id : generatePartnerId()
+      
+      if (formData.bank_document || formData.aadhar_front_attachment || formData.aadhar_back_attachment || formData.pan_attachment || (formData.udhyam_applicable && formData.udhyam_attachment) || (formData.gst_applicable && formData.gst_attachment)) {
+        setUploadingDocs(true)
+      }
+
       if (!item) {
         // Upload new documents for new partners
-        const partnerId = generatePartnerId()
-        setUploadingDocs(true)
         
         // Upload Bank Document
         if (formData.bank_document) {
@@ -1760,38 +1781,74 @@ function PartnerModal({
           bankDocumentUrl = bankResult.url
         }
         
-        if (formData.aadhar_attachment) {
-          const aadharFormData = new FormData()
-          aadharFormData.append('file', formData.aadhar_attachment)
-          aadharFormData.append('documentType', 'aadhar')
-          aadharFormData.append('partnerId', partnerId)
+        // Upload AADHAR Front
+        if (formData.aadhar_front_attachment) {
+          const aadharFrontFormData = new FormData()
+          aadharFrontFormData.append('file', formData.aadhar_front_attachment)
+          aadharFrontFormData.append('documentType', 'aadhar-front')
+          aadharFrontFormData.append('partnerId', partnerId)
           
-          const aadharResponse = await fetch('/api/admin/upload-document', {
+          const aadharFrontResponse = await fetch('/api/admin/upload-document', {
             method: 'POST',
-            body: aadharFormData,
+            body: aadharFrontFormData,
           })
           
-          if (!aadharResponse.ok) {
-            let errorMessage = 'Failed to upload AADHAR document'
+          if (!aadharFrontResponse.ok) {
+            let errorMessage = 'Failed to upload AADHAR front document'
             try {
-              const contentType = aadharResponse.headers.get('content-type')
+              const contentType = aadharFrontResponse.headers.get('content-type')
               if (contentType && contentType.includes('application/json')) {
-                const error = await aadharResponse.json()
+                const error = await aadharFrontResponse.json()
                 errorMessage = error.message || error.error || errorMessage
                 if (error.details) {
                   errorMessage += `\n\nDetails: ${error.details}`
                 }
               } else {
-                const text = await aadharResponse.text()
+                const text = await aadharFrontResponse.text()
                 errorMessage = text || errorMessage
               }
             } catch (e) {
-              errorMessage = `HTTP ${aadharResponse.status}: ${aadharResponse.statusText}`
+              errorMessage = `HTTP ${aadharFrontResponse.status}: ${aadharFrontResponse.statusText}`
             }
             throw new Error(errorMessage)
           }
-          const aadharResult = await aadharResponse.json()
-          aadharUrl = aadharResult.url
+          const aadharFrontResult = await aadharFrontResponse.json()
+          aadharFrontUrl = aadharFrontResult.url
+        }
+        
+        // Upload AADHAR Back
+        if (formData.aadhar_back_attachment) {
+          const aadharBackFormData = new FormData()
+          aadharBackFormData.append('file', formData.aadhar_back_attachment)
+          aadharBackFormData.append('documentType', 'aadhar-back')
+          aadharBackFormData.append('partnerId', partnerId)
+          
+          const aadharBackResponse = await fetch('/api/admin/upload-document', {
+            method: 'POST',
+            body: aadharBackFormData,
+          })
+          
+          if (!aadharBackResponse.ok) {
+            let errorMessage = 'Failed to upload AADHAR back document'
+            try {
+              const contentType = aadharBackResponse.headers.get('content-type')
+              if (contentType && contentType.includes('application/json')) {
+                const error = await aadharBackResponse.json()
+                errorMessage = error.message || error.error || errorMessage
+                if (error.details) {
+                  errorMessage += `\n\nDetails: ${error.details}`
+                }
+              } else {
+                const text = await aadharBackResponse.text()
+                errorMessage = text || errorMessage
+              }
+            } catch (e) {
+              errorMessage = `HTTP ${aadharBackResponse.status}: ${aadharBackResponse.statusText}`
+            }
+            throw new Error(errorMessage)
+          }
+          const aadharBackResult = await aadharBackResponse.json()
+          aadharBackUrl = aadharBackResult.url
         }
 
         if (formData.pan_attachment) {
@@ -1895,6 +1952,219 @@ function PartnerModal({
           const gstResult = await gstResponse.json()
           gstUrl = gstResult.url
         }
+      } else {
+        // Upload new documents for existing partners (if new files are selected)
+        const partnerId = item.partner_id
+        
+        // Upload Bank Document (if new file selected)
+        if (formData.bank_document) {
+          const bankFormData = new FormData()
+          bankFormData.append('file', formData.bank_document)
+          bankFormData.append('documentType', 'bank')
+          bankFormData.append('partnerId', partnerId)
+          
+          const bankResponse = await fetch('/api/admin/upload-document', {
+            method: 'POST',
+            body: bankFormData,
+          })
+          
+          if (!bankResponse.ok) {
+            let errorMessage = 'Failed to upload bank document'
+            try {
+              const contentType = bankResponse.headers.get('content-type')
+              if (contentType && contentType.includes('application/json')) {
+                const error = await bankResponse.json()
+                errorMessage = error.message || error.error || errorMessage
+                if (error.details) {
+                  errorMessage += `\n\nDetails: ${error.details}`
+                }
+              } else {
+                const text = await bankResponse.text()
+                errorMessage = text || errorMessage
+              }
+            } catch (e) {
+              errorMessage = `HTTP ${bankResponse.status}: ${bankResponse.statusText}`
+            }
+            throw new Error(errorMessage)
+          }
+          const bankResult = await bankResponse.json()
+          bankDocumentUrl = bankResult.url
+        }
+        
+        // Upload AADHAR Front (if new file selected)
+        if (formData.aadhar_front_attachment) {
+          const aadharFrontFormData = new FormData()
+          aadharFrontFormData.append('file', formData.aadhar_front_attachment)
+          aadharFrontFormData.append('documentType', 'aadhar-front')
+          aadharFrontFormData.append('partnerId', partnerId)
+          
+          const aadharFrontResponse = await fetch('/api/admin/upload-document', {
+            method: 'POST',
+            body: aadharFrontFormData,
+          })
+          
+          if (!aadharFrontResponse.ok) {
+            let errorMessage = 'Failed to upload AADHAR front document'
+            try {
+              const contentType = aadharFrontResponse.headers.get('content-type')
+              if (contentType && contentType.includes('application/json')) {
+                const error = await aadharFrontResponse.json()
+                errorMessage = error.message || error.error || errorMessage
+                if (error.details) {
+                  errorMessage += `\n\nDetails: ${error.details}`
+                }
+              } else {
+                const text = await aadharFrontResponse.text()
+                errorMessage = text || errorMessage
+              }
+            } catch (e) {
+              errorMessage = `HTTP ${aadharFrontResponse.status}: ${aadharFrontResponse.statusText}`
+            }
+            throw new Error(errorMessage)
+          }
+          const aadharFrontResult = await aadharFrontResponse.json()
+          aadharFrontUrl = aadharFrontResult.url
+        }
+        
+        // Upload AADHAR Back (if new file selected)
+        if (formData.aadhar_back_attachment) {
+          const aadharBackFormData = new FormData()
+          aadharBackFormData.append('file', formData.aadhar_back_attachment)
+          aadharBackFormData.append('documentType', 'aadhar-back')
+          aadharBackFormData.append('partnerId', partnerId)
+          
+          const aadharBackResponse = await fetch('/api/admin/upload-document', {
+            method: 'POST',
+            body: aadharBackFormData,
+          })
+          
+          if (!aadharBackResponse.ok) {
+            let errorMessage = 'Failed to upload AADHAR back document'
+            try {
+              const contentType = aadharBackResponse.headers.get('content-type')
+              if (contentType && contentType.includes('application/json')) {
+                const error = await aadharBackResponse.json()
+                errorMessage = error.message || error.error || errorMessage
+                if (error.details) {
+                  errorMessage += `\n\nDetails: ${error.details}`
+                }
+              } else {
+                const text = await aadharBackResponse.text()
+                errorMessage = text || errorMessage
+              }
+            } catch (e) {
+              errorMessage = `HTTP ${aadharBackResponse.status}: ${aadharBackResponse.statusText}`
+            }
+            throw new Error(errorMessage)
+          }
+          const aadharBackResult = await aadharBackResponse.json()
+          aadharBackUrl = aadharBackResult.url
+        }
+        
+        // Upload PAN (if new file selected)
+        if (formData.pan_attachment) {
+          const panFormData = new FormData()
+          panFormData.append('file', formData.pan_attachment)
+          panFormData.append('documentType', 'pan')
+          panFormData.append('partnerId', partnerId)
+          
+          const panResponse = await fetch('/api/admin/upload-document', {
+            method: 'POST',
+            body: panFormData,
+          })
+          
+          if (!panResponse.ok) {
+            let errorMessage = 'Failed to upload PAN document'
+            try {
+              const contentType = panResponse.headers.get('content-type')
+              if (contentType && contentType.includes('application/json')) {
+                const error = await panResponse.json()
+                errorMessage = error.message || error.error || errorMessage
+                if (error.details) {
+                  errorMessage += `\n\nDetails: ${error.details}`
+                }
+              } else {
+                const text = await panResponse.text()
+                errorMessage = text || errorMessage
+              }
+            } catch (e) {
+              errorMessage = `HTTP ${panResponse.status}: ${panResponse.statusText}`
+            }
+            throw new Error(errorMessage)
+          }
+          const panResult = await panResponse.json()
+          panUrl = panResult.url
+        }
+        
+        // Upload UDHYAM (if new file selected)
+        if (formData.udhyam_applicable && formData.udhyam_attachment) {
+          const udhyamFormData = new FormData()
+          udhyamFormData.append('file', formData.udhyam_attachment)
+          udhyamFormData.append('documentType', 'udhyam')
+          udhyamFormData.append('partnerId', partnerId)
+          
+          const udhyamResponse = await fetch('/api/admin/upload-document', {
+            method: 'POST',
+            body: udhyamFormData,
+          })
+          
+          if (!udhyamResponse.ok) {
+            let errorMessage = 'Failed to upload UDHYAM certificate'
+            try {
+              const contentType = udhyamResponse.headers.get('content-type')
+              if (contentType && contentType.includes('application/json')) {
+                const error = await udhyamResponse.json()
+                errorMessage = error.message || error.error || errorMessage
+                if (error.details) {
+                  errorMessage += `\n\nDetails: ${error.details}`
+                }
+              } else {
+                const text = await udhyamResponse.text()
+                errorMessage = text || errorMessage
+              }
+            } catch (e) {
+              errorMessage = `HTTP ${udhyamResponse.status}: ${udhyamResponse.statusText}`
+            }
+            throw new Error(errorMessage)
+          }
+          const udhyamResult = await udhyamResponse.json()
+          udhyamUrl = udhyamResult.url
+        }
+        
+        // Upload GST (if new file selected)
+        if (formData.gst_applicable && formData.gst_attachment) {
+          const gstFormData = new FormData()
+          gstFormData.append('file', formData.gst_attachment)
+          gstFormData.append('documentType', 'gst')
+          gstFormData.append('partnerId', partnerId)
+          
+          const gstResponse = await fetch('/api/admin/upload-document', {
+            method: 'POST',
+            body: gstFormData,
+          })
+          
+          if (!gstResponse.ok) {
+            let errorMessage = 'Failed to upload GST certificate'
+            try {
+              const contentType = gstResponse.headers.get('content-type')
+              if (contentType && contentType.includes('application/json')) {
+                const error = await gstResponse.json()
+                errorMessage = error.message || error.error || errorMessage
+                if (error.details) {
+                  errorMessage += `\n\nDetails: ${error.details}`
+                }
+              } else {
+                const text = await gstResponse.text()
+                errorMessage = text || errorMessage
+              }
+            } catch (e) {
+              errorMessage = `HTTP ${gstResponse.status}: ${gstResponse.statusText}`
+            }
+            throw new Error(errorMessage)
+          }
+          const gstResult = await gstResponse.json()
+          gstUrl = gstResult.url
+        }
       }
 
       const partnerData: any = {
@@ -1916,7 +2186,8 @@ function PartnerModal({
         bank_document_url: bankDocumentUrl || null,
         // New document fields
         aadhar_number: formData.aadhar_number || null,
-        aadhar_attachment_url: aadharUrl || null,
+        aadhar_front_url: aadharFrontUrl || null,
+        aadhar_back_url: aadharBackUrl || null,
         pan_number: formData.pan_number || null,
         pan_attachment_url: panUrl || null,
         udhyam_number: formData.udhyam_number || null,
@@ -2374,7 +2645,7 @@ function PartnerModal({
                 </label>
                 <input
                   type="file"
-                  required
+                  required={!item}
                   accept="image/*,application/pdf"
                   onChange={(e) => {
                     const file = e.target.files?.[0] || null
@@ -2383,6 +2654,26 @@ function PartnerModal({
                   className="w-full px-3 py-2 border rounded-lg file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 dark:file:bg-blue-900 dark:file:text-blue-200"
                 />
                 <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Upload passbook or cancelled cheque</p>
+                {formData.bank_document_url && !formData.bank_document && (
+                  <div className="flex items-center gap-2 mt-2">
+                    <button
+                      type="button"
+                      onClick={() => openDocumentViewer(formData.bank_document_url, 'Bank Document')}
+                      className="text-xs px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-1"
+                    >
+                      <Eye className="w-3 h-3" />
+                      Preview
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDownload(formData.bank_document_url, `Bank_${formData.name || 'document'}.${formData.bank_document_url.split('.').pop()}`)}
+                      className="text-xs px-3 py-1.5 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors flex items-center gap-1"
+                    >
+                      <Download className="w-3 h-3" />
+                      Download
+                    </button>
+                  </div>
+                )}
               </div>
 
               {/* Document Details Section */}
@@ -2404,22 +2695,79 @@ function PartnerModal({
                   placeholder="Enter 12-digit AADHAR number"
                 />
               </div>
-              {/* AADHAR Attachment */}
+              {/* AADHAR Front Attachment */}
               <div className="md:col-span-2">
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  AADHAR Attachment *
+                  AADHAR Front *
                   <span className="text-xs text-red-500 ml-1">(Mandatory)</span>
                 </label>
                 <input
                   type="file"
-                  required
+                  required={!item}
                   accept="image/*,application/pdf"
                   onChange={(e) => {
                     const file = e.target.files?.[0] || null
-                    setFormData({ ...formData, aadhar_attachment: file })
+                    setFormData({ ...formData, aadhar_front_attachment: file })
                   }}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-yellow-50 file:text-yellow-700 hover:file:bg-yellow-100"
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-primary-50 file:text-primary-700 hover:file:bg-primary-100"
                 />
+                {formData.aadhar_front_url && !formData.aadhar_front_attachment && (
+                  <div className="flex items-center gap-2 mt-2">
+                    <button
+                      type="button"
+                      onClick={() => openDocumentViewer(formData.aadhar_front_url, 'AADHAR Front')}
+                      className="text-xs px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-1"
+                    >
+                      <Eye className="w-3 h-3" />
+                      Preview
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDownload(formData.aadhar_front_url, `AADHAR_Front_${formData.name || 'document'}.${formData.aadhar_front_url.split('.').pop()}`)}
+                      className="text-xs px-3 py-1.5 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors flex items-center gap-1"
+                    >
+                      <Download className="w-3 h-3" />
+                      Download
+                    </button>
+                  </div>
+                )}
+              </div>
+              {/* AADHAR Back Attachment */}
+              <div className="md:col-span-2">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  AADHAR Back *
+                  <span className="text-xs text-red-500 ml-1">(Mandatory)</span>
+                </label>
+                <input
+                  type="file"
+                  required={!item}
+                  accept="image/*,application/pdf"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0] || null
+                    setFormData({ ...formData, aadhar_back_attachment: file })
+                  }}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-primary-50 file:text-primary-700 hover:file:bg-primary-100"
+                />
+                {formData.aadhar_back_url && !formData.aadhar_back_attachment && (
+                  <div className="flex items-center gap-2 mt-2">
+                    <button
+                      type="button"
+                      onClick={() => openDocumentViewer(formData.aadhar_back_url, 'AADHAR Back')}
+                      className="text-xs px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-1"
+                    >
+                      <Eye className="w-3 h-3" />
+                      Preview
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDownload(formData.aadhar_back_url, `AADHAR_Back_${formData.name || 'document'}.${formData.aadhar_back_url.split('.').pop()}`)}
+                      className="text-xs px-3 py-1.5 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors flex items-center gap-1"
+                    >
+                      <Download className="w-3 h-3" />
+                      Download
+                    </button>
+                  </div>
+                )}
               </div>
 
               {/* PAN Number */}
@@ -2823,6 +3171,93 @@ function PartnerModal({
               </div>
             </div>
 
+            {/* Bank Account Details Section */}
+            <div className="mt-6 pt-6 border-t border-gray-200 dark:border-gray-700">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Bank Account Details</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Bank Name *
+                    <span className="text-xs text-red-500 ml-1">(Mandatory)</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={formData.bank_name}
+                    onChange={(e) => setFormData({ ...formData, bank_name: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+                    placeholder="Enter bank name"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Account Number *
+                    <span className="text-xs text-red-500 ml-1">(Mandatory)</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={formData.account_number}
+                    onChange={(e) => setFormData({ ...formData, account_number: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+                    placeholder="Enter account number"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    IFSC Code *
+                    <span className="text-xs text-red-500 ml-1">(Mandatory)</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={formData.ifsc_code}
+                    onChange={(e) => setFormData({ ...formData, ifsc_code: e.target.value.toUpperCase() })}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+                    placeholder="Enter IFSC code"
+                    maxLength={11}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Bank Document (Passbook/Cheque) *
+                    <span className="text-xs text-red-500 ml-1">(Mandatory)</span>
+                  </label>
+                  <input
+                    type="file"
+                    required={!item}
+                    accept="image/*,application/pdf"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0] || null
+                      setFormData({ ...formData, bank_document: file })
+                    }}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 dark:file:bg-blue-900 dark:file:text-blue-200"
+                  />
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Upload passbook or cancelled cheque</p>
+                  {formData.bank_document_url && !formData.bank_document && (
+                    <div className="flex items-center gap-2 mt-2">
+                      <button
+                        type="button"
+                        onClick={() => openDocumentViewer(formData.bank_document_url, 'Bank Document')}
+                        className="text-xs px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-1"
+                      >
+                        <Eye className="w-3 h-3" />
+                        Preview
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDownload(formData.bank_document_url, `Bank_${formData.name || 'document'}.${formData.bank_document_url.split('.').pop()}`)}
+                        className="text-xs px-3 py-1.5 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors flex items-center gap-1"
+                      >
+                        <Download className="w-3 h-3" />
+                        Download
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
             {/* Document Fields Section */}
             <div className="mt-6 pt-6 border-t border-gray-200 dark:border-gray-700">
               <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Document Details</h3>
@@ -2842,10 +3277,10 @@ function PartnerModal({
                   placeholder="Enter 12-digit AADHAR number"
                 />
               </div>
-              {/* AADHAR Attachment */}
+              {/* AADHAR Front Attachment */}
               <div className="md:col-span-2">
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  AADHAR Attachment *
+                  AADHAR Front *
                   <span className="text-xs text-red-500 ml-1">(Mandatory)</span>
                 </label>
                 <input
@@ -2854,15 +3289,15 @@ function PartnerModal({
                   accept="image/*,application/pdf"
                   onChange={(e) => {
                     const file = e.target.files?.[0] || null
-                    setFormData({ ...formData, aadhar_attachment: file })
+                    setFormData({ ...formData, aadhar_front_attachment: file })
                   }}
                   className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-primary-50 file:text-primary-700 hover:file:bg-primary-100"
                 />
-                {formData.aadhar_attachment_url && !formData.aadhar_attachment && (
+                {formData.aadhar_front_url && !formData.aadhar_front_attachment && (
                   <div className="flex items-center gap-2 mt-2">
                     <button
                       type="button"
-                      onClick={() => openDocumentViewer(formData.aadhar_attachment_url, 'AADHAR Document')}
+                      onClick={() => openDocumentViewer(formData.aadhar_front_url, 'AADHAR Front')}
                       className="text-xs px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-1"
                     >
                       <Eye className="w-3 h-3" />
@@ -2870,7 +3305,44 @@ function PartnerModal({
                     </button>
                     <button
                       type="button"
-                      onClick={() => handleDownload(formData.aadhar_attachment_url, `AADHAR_${formData.name || 'document'}.${formData.aadhar_attachment_url.split('.').pop()}`)}
+                      onClick={() => handleDownload(formData.aadhar_front_url, `AADHAR_Front_${formData.name || 'document'}.${formData.aadhar_front_url.split('.').pop()}`)}
+                      className="text-xs px-3 py-1.5 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors flex items-center gap-1"
+                    >
+                      <Download className="w-3 h-3" />
+                      Download
+                    </button>
+                  </div>
+                )}
+              </div>
+              {/* AADHAR Back Attachment */}
+              <div className="md:col-span-2">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  AADHAR Back *
+                  <span className="text-xs text-red-500 ml-1">(Mandatory)</span>
+                </label>
+                <input
+                  type="file"
+                  required={!item}
+                  accept="image/*,application/pdf"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0] || null
+                    setFormData({ ...formData, aadhar_back_attachment: file })
+                  }}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-primary-50 file:text-primary-700 hover:file:bg-primary-100"
+                />
+                {formData.aadhar_back_url && !formData.aadhar_back_attachment && (
+                  <div className="flex items-center gap-2 mt-2">
+                    <button
+                      type="button"
+                      onClick={() => openDocumentViewer(formData.aadhar_back_url, 'AADHAR Back')}
+                      className="text-xs px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-1"
+                    >
+                      <Eye className="w-3 h-3" />
+                      Preview
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDownload(formData.aadhar_back_url, `AADHAR_Back_${formData.name || 'document'}.${formData.aadhar_back_url.split('.').pop()}`)}
                       className="text-xs px-3 py-1.5 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors flex items-center gap-1"
                     >
                       <Download className="w-3 h-3" />

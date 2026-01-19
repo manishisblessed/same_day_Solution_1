@@ -147,7 +147,7 @@ async function handleUploadDocument(request: NextRequest) {
       )
     }
 
-    if (!documentType || !['aadhar', 'pan', 'udhyam', 'gst', 'bank'].includes(documentType)) {
+    if (!documentType || !['aadhar', 'aadhar-front', 'aadhar-back', 'pan', 'udhyam', 'gst', 'bank'].includes(documentType)) {
       return NextResponse.json(
         { error: 'Invalid document type' },
         { status: 400 }
