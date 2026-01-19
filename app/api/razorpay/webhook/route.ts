@@ -2,12 +2,22 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { verifyWebhookSignature, processRazorpayTransaction } from '@/lib/razorpay/service'
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
-
-const supabase = createClient(supabaseUrl, supabaseServiceKey)
+export const runtime = 'nodejs' // Force Node.js runtime (Supabase not compatible with Edge Runtime)
 
 export async function POST(request: NextRequest) {
+  // Initialize Supabase client at runtime (not during build)
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
+  
+  if (!supabaseUrl || !supabaseServiceKey) {
+    return NextResponse.json(
+      { error: 'Supabase configuration missing' },
+      { status: 500 }
+    )
+  }
+  
+  const supabase = createClient(supabaseUrl, supabaseServiceKey)
+  
   try {
     // Get webhook signature from headers
     const signature = request.headers.get('x-razorpay-signature')
@@ -82,8 +92,8 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    return NextResponse.json({ received: true })
-  } catch (error: any) {
+      return NextResponse.json({ received: true })
+    } catch (error: any) {
     console.error('Webhook error:', error)
     // Return 200 to prevent Razorpay from retrying
     return NextResponse.json({ 

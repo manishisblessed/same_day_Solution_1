@@ -3,12 +3,9 @@ import { createClient } from '@supabase/supabase-js'
 import { mapTransactionStatus } from '@/lib/razorpay/service'
 import * as crypto from 'crypto'
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
 const RAZORPAY_WEBHOOK_SECRET = process.env.RAZORPAY_WEBHOOK_SECRET
 
-const supabase = createClient(supabaseUrl, supabaseServiceKey)
-
+export const runtime = 'nodejs' // Force Node.js runtime (Supabase not compatible with Edge Runtime)
 export const dynamic = 'force-dynamic'
 
 /**
@@ -26,6 +23,19 @@ export const dynamic = 'force-dynamic'
  * - Always return HTTP 200 OK (even on errors) to prevent Razorpay retries
  */
 export async function POST(request: NextRequest) {
+  // Initialize Supabase client at runtime (not during build)
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
+  
+  if (!supabaseUrl || !supabaseServiceKey) {
+    return NextResponse.json(
+      { received: true, processed: false, error: 'Supabase configuration missing' },
+      { status: 200 }
+    )
+  }
+  
+  const supabase = createClient(supabaseUrl, supabaseServiceKey)
+  
   try {
     // Get webhook signature from headers (optional - verify if present)
     const signature = request.headers.get('x-razorpay-signature')

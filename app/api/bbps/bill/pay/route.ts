@@ -5,11 +5,7 @@ import { payRequest, generateAgentTransactionId } from '@/services/bbps'
 import { paiseToRupees } from '@/lib/bbps/currency'
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
-
-const supabase = createClient(supabaseUrl, supabaseServiceKey || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
-
+export const runtime = 'nodejs' // Force Node.js runtime (Supabase not compatible with Edge Runtime)
 export const dynamic = 'force-dynamic'
 
 export async function OPTIONS(request: NextRequest) {
@@ -19,6 +15,20 @@ export async function OPTIONS(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    // Initialize Supabase client at runtime (not during build)
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
+    
+    if (!supabaseUrl) {
+      const response = NextResponse.json(
+        { error: 'Supabase configuration missing' },
+        { status: 500 }
+      )
+      return addCorsHeaders(request, response)
+    }
+    
+    const supabase = createClient(supabaseUrl, supabaseServiceKey || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
+    
     // Get current user (server-side)
     const user = await getCurrentUserServer()
     if (!user || !user.partner_id) {

@@ -3,6 +3,7 @@ import { getCurrentUserServer } from '@/lib/auth-server'
 import { createClient } from '@supabase/supabase-js'
 import { apiHandler } from '@/lib/api-wrapper'
 
+export const runtime = 'nodejs' // Force Node.js runtime (Supabase not compatible with Edge Runtime)
 export const dynamic = 'force-dynamic'
 
 // Helper to get Supabase client safely
