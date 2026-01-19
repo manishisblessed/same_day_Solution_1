@@ -21,6 +21,15 @@ const nextConfig = {
   },
   // Ensure proper trailing slash handling
   trailingSlash: false,
+  // Webpack configuration to ensure path aliases work correctly
+  webpack: (config, { isServer }) => {
+    // Ensure path aliases are resolved correctly
+    config.resolve.alias = {
+      ...config.resolve.alias,
+      '@': require('path').resolve(__dirname),
+    }
+    return config
+  },
   // Note: Content-Type headers are handled by middleware.ts
   // This allows file upload routes (multipart/form-data) to work correctly
 }
