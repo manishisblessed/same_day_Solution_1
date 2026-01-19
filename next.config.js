@@ -21,13 +21,43 @@ const nextConfig = {
   },
   // Ensure proper trailing slash handling
   trailingSlash: false,
-  // Webpack configuration to ensure path aliases work correctly
+  // Webpack configuration to ensure path aliases work correctly and optimize performance
   webpack: (config, { isServer }) => {
     // Ensure path aliases are resolved correctly
     config.resolve.alias = {
       ...config.resolve.alias,
       '@': require('path').resolve(__dirname),
     }
+    
+    // Optimize webpack cache for better performance
+    if (!isServer) {
+      config.optimization = {
+        ...config.optimization,
+        splitChunks: {
+          chunks: 'all',
+          cacheGroups: {
+            default: false,
+            vendors: false,
+            // Vendor chunk for node_modules
+            vendor: {
+              name: 'vendor',
+              chunks: 'all',
+              test: /node_modules/,
+              priority: 20,
+            },
+            // Common chunk for shared code
+            common: {
+              name: 'common',
+              minChunks: 2,
+              chunks: 'all',
+              priority: 10,
+              reuseExistingChunk: true,
+            },
+          },
+        },
+      }
+    }
+    
     return config
   },
   // Note: Content-Type headers are handled by middleware.ts
