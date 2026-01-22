@@ -24,6 +24,9 @@ function getAllowedOrigin(request: NextRequest): string | null {
       process.env.NEXT_PUBLIC_APP_URL,
       'https://www.samedaysolution.in',
       'https://samedaysolution.in',
+      'https://www.samedaysolution.co.in',
+      'https://samedaysolution.co.in',
+      'https://api.samedaysolution.co.in',
     ].filter(Boolean) as string[]
     
     // Normalize domains (remove trailing slashes, ensure https)

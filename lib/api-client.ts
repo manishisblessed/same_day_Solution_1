@@ -14,6 +14,7 @@
  * Get the BBPS Backend API base URL (EC2)
  * - In localhost: Uses localhost:3000 (same as Next.js dev server)
  * - In production: Uses NEXT_PUBLIC_BBPS_BACKEND_URL (EC2 backend)
+ * - If NEXT_PUBLIC_BBPS_BACKEND_URL is not set, falls back to relative URLs (same-origin)
  */
 export function getBBPSBackendUrl(): string {
   if (typeof window !== 'undefined') {
@@ -25,13 +26,15 @@ export function getBBPSBackendUrl(): string {
     }
   }
   
-  // Production: EC2 backend URL for BBPS
+  // Production: EC2 backend URL for BBPS (if configured)
+  // If NEXT_PUBLIC_BBPS_BACKEND_URL is empty or not set, use Amplify API routes
   const backendUrl = process.env.NEXT_PUBLIC_BBPS_BACKEND_URL
-  if (backendUrl) {
+  if (backendUrl && backendUrl.trim() !== '') {
     return backendUrl.endsWith('/') ? backendUrl.slice(0, -1) : backendUrl
   }
   
-  // Fallback to relative URLs (Amplify API routes)
+  // Fallback: Use relative URLs (Amplify API routes on same origin)
+  // This works when BBPS credentials are configured in Amplify environment
   return ''
 }
 
