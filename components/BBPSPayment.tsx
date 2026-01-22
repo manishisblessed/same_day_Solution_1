@@ -576,12 +576,20 @@ export default function BBPSPayment() {
       const message = data.error || data.message || 'Failed to fetch bill details'
       const isInfoMessage = data.messageType === 'info' || 
                            message.toLowerCase().includes('no bill due') ||
+                           message.toLowerCase().includes('no bill') ||
+                           message.toLowerCase().includes('no data available') ||
                            message.toLowerCase().includes('payment received') ||
                            message.toLowerCase().includes('already paid')
       
       // Handle successful response
       if (data.success && data.bill) {
-        setBillDetails(data.bill)
+        // Check if this is a "no bill due" info response
+        if (data.bill.additional_info?.noBillDue) {
+          const infoMsg = data.bill.additional_info?.message || 'No bill is currently due for this account'
+          setInfoMessage(infoMsg)
+        } else {
+          setBillDetails(data.bill)
+        }
       } else if (isInfoMessage) {
         // Even if success is false, if it's an info message, show it as info
         setInfoMessage(message)
@@ -826,26 +834,32 @@ export default function BBPSPayment() {
             </div>
           </motion.div>
 
-          {/* Info Message (Success/Info) */}
+          {/* Info Message (Success/Info) - No Bill Due */}
           <AnimatePresence>
             {infoMessage && (
               <motion.div
-                initial={{ opacity: 0, y: -10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -10 }}
-                className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4 flex items-start gap-3"
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                className="bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-900/30 dark:to-emerald-900/30 border-2 border-green-300 dark:border-green-700 rounded-xl p-6 shadow-lg"
               >
-                <CheckCircle className="w-5 h-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
-                <div className="flex-1">
-                  <p className="text-sm font-medium text-green-800 dark:text-green-200">Information</p>
-                  <p className="text-sm text-green-700 dark:text-green-300 mt-1">{infoMessage}</p>
+                <div className="flex items-center gap-4">
+                  <div className="flex-shrink-0">
+                    <div className="w-14 h-14 rounded-full bg-gradient-to-br from-green-400 to-emerald-500 flex items-center justify-center shadow-lg">
+                      <CheckCircle className="w-8 h-8 text-white" />
+                    </div>
+                  </div>
+                  <div className="flex-1">
+                    <h3 className="text-lg font-bold text-green-800 dark:text-green-200">All Clear!</h3>
+                    <p className="text-base text-green-700 dark:text-green-300 mt-1">{infoMessage}</p>
+                  </div>
+                  <button
+                    onClick={() => setInfoMessage(null)}
+                    className="text-green-600 dark:text-green-400 hover:text-green-800 dark:hover:text-green-200 p-2 hover:bg-green-100 dark:hover:bg-green-800/30 rounded-full transition-colors"
+                  >
+                    <XCircle className="w-6 h-6" />
+                  </button>
                 </div>
-                <button
-                  onClick={() => setInfoMessage(null)}
-                  className="text-green-600 dark:text-green-400 hover:text-green-800 dark:hover:text-green-200"
-                >
-                  <XCircle className="w-5 h-5" />
-                </button>
               </motion.div>
             )}
           </AnimatePresence>

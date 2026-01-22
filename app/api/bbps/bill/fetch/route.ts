@@ -6,8 +6,17 @@ import { createClient } from '@supabase/supabase-js'
 
 export const dynamic = 'force-dynamic'
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+// Helper to get Supabase client at runtime (not build time)
+function getSupabaseClient() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  
+  if (!supabaseUrl || !supabaseAnonKey) {
+    throw new Error('Supabase environment variables not configured')
+  }
+  
+  return createClient(supabaseUrl, supabaseAnonKey)
+}
 
 export async function OPTIONS(request: NextRequest) {
   const response = handleCorsPreflight(request)
@@ -35,7 +44,7 @@ export async function POST(request: NextRequest) {
     // If cookie auth fails, try to verify user from request body (fallback)
     // This is needed because Supabase cookie-based auth may not work reliably in all cases
     if (!user && body.user_id) {
-      const supabase = createClient(supabaseUrl, supabaseAnonKey)
+      const supabase = getSupabaseClient()
       // Verify the user_id exists in retailers table
       const { data: retailer } = await supabase
         .from('retailers')

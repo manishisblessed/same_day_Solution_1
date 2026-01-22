@@ -233,7 +233,7 @@ export async function fetchBill(
       throw new Error(errorMessage)
     }
 
-    // Check responseCode - '000' means success, anything else is an error
+    // Check responseCode - '000' means success, anything else is an error or informational
     const responseCode = apiResponse.data.responseCode
     if (responseCode && responseCode !== '000') {
       // Extract error message from various possible locations
@@ -256,12 +256,56 @@ export async function fetchBill(
         apiResponse.data.errorCode ||
         responseCode
       
-      console.log('[BBPS fetchBill] Error detected:', {
+      console.log('[BBPS fetchBill] Response code:', {
         responseCode,
         errorCode,
         errorMessage,
         fullResponse: apiResponse
       })
+      
+      // Check if this is an informational message (no bill due, already paid, etc.)
+      // These should NOT be treated as errors
+      const isInfoMessage = 
+        errorMessage.toLowerCase().includes('no bill') ||
+        errorMessage.toLowerCase().includes('no due') ||
+        errorMessage.toLowerCase().includes('no outstanding') ||
+        errorMessage.toLowerCase().includes('already paid') ||
+        errorMessage.toLowerCase().includes('payment received') ||
+        errorMessage.toLowerCase().includes('no data available') ||
+        errorCode === 'BFR003' || // No bill data available
+        errorCode === 'BFR001' || // No bill found
+        errorCode === 'BFR002'    // Bill already paid
+      
+      if (isInfoMessage) {
+        // Return a special response indicating no bill is due (this is NOT an error)
+        console.log('[BBPS fetchBill] No bill due - returning info response')
+        
+        // Create a friendly success message
+        let friendlyMessage = '🎉 Great news! No dues pending for this account.'
+        if (errorMessage.toLowerCase().includes('already paid') || errorMessage.toLowerCase().includes('payment received')) {
+          friendlyMessage = '✅ All dues are cleared! Your payment has been received.'
+        } else if (errorMessage.toLowerCase().includes('no bill') || errorMessage.toLowerCase().includes('no data')) {
+          friendlyMessage = '✨ No outstanding bill found for this account. You\'re all clear!'
+        }
+        
+        return {
+          biller_id: billerId,
+          consumer_number: consumerNumber || '',
+          bill_amount: 0,
+          due_date: undefined,
+          bill_date: undefined,
+          bill_number: undefined,
+          consumer_name: undefined,
+          reqId,
+          additional_info: {
+            responseCode: responseCode,
+            message: friendlyMessage,
+            originalMessage: errorMessage,
+            messageType: 'success',
+            noBillDue: true,
+          },
+        }
+      }
       
       logBBPSApiError('fetchBill', reqId, errorMessage, billerId)
       throw new Error(errorMessage)
