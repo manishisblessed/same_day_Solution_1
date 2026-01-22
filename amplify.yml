@@ -4,6 +4,9 @@ frontend:
     preBuild:
       commands:
         - npm ci
+        # Echo to verify env vars are available (will show masked values)
+        - echo "NEXT_PUBLIC_SUPABASE_URL is set = $(if [ -n \"$NEXT_PUBLIC_SUPABASE_URL\" ]; then echo 'YES'; else echo 'NO'; fi)"
+        - echo "NEXT_PUBLIC_SUPABASE_ANON_KEY is set = $(if [ -n \"$NEXT_PUBLIC_SUPABASE_ANON_KEY\" ]; then echo 'YES'; else echo 'NO'; fi)"
     build:
       commands:
         - npm run build
