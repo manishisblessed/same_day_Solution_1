@@ -128,7 +128,7 @@ export default function BBPSPayment() {
   // Payment confirmation flow states
   const [paymentStep, setPaymentStep] = useState<'bill' | 'amount' | 'confirm'>('bill')
   const [customAmount, setCustomAmount] = useState<string>('')
-  const [useCustomAmount, setUseCustomAmount] = useState(false)
+  const [amountType, setAmountType] = useState<'full' | 'minimum' | 'custom'>('full')
   const [paymentCharges, setPaymentCharges] = useState<number>(0)
   const [loadingCharges, setLoadingCharges] = useState(false)
   const [tpin, setTpin] = useState('')
@@ -298,14 +298,63 @@ export default function BBPSPayment() {
     }
   }
 
+  // Helper to get minimum amount from bill details
+  const getMinimumAmount = (): number | null => {
+    // Try multiple paths to find the additional info
+    const additionalInfo = billDetails?.additional_info?.additionalInfo?.info || 
+                          billDetails?.additional_info?.billerResponse?.additionalInfo?.info ||
+                          billDetails?.additional_info?.info ||
+                          []
+    
+    // Debug logging
+    console.log('getMinimumAmount - billDetails.additional_info:', billDetails?.additional_info)
+    console.log('getMinimumAmount - additionalInfo array:', additionalInfo)
+    
+    if (!additionalInfo || additionalInfo.length === 0) {
+      console.log('getMinimumAmount - No additionalInfo found')
+      return null
+    }
+    
+    const minAmountInfo = additionalInfo.find((item: { infoName: string; infoValue: string }) => 
+      item.infoName?.toLowerCase().includes('minimum') || 
+      item.infoName?.toLowerCase().includes('min due') ||
+      item.infoName?.toLowerCase().includes('min payable')
+    )
+    
+    console.log('getMinimumAmount - minAmountInfo found:', minAmountInfo)
+    
+    if (minAmountInfo?.infoValue) {
+      const parsed = parseFloat(minAmountInfo.infoValue)
+      const billAmountRupees = billDetails ? paiseToRupees(billDetails.bill_amount) : 0
+      console.log('getMinimumAmount - parsed:', parsed, 'billAmountRupees:', billAmountRupees, 'condition:', parsed < billAmountRupees)
+      return isNaN(parsed) ? null : parsed
+    }
+    return null
+  }
+
+  // Get selected amount based on amount type
+  const getSelectedAmount = (): number => {
+    if (!billDetails) return 0
+    const billAmountInRupees = paiseToRupees(billDetails.bill_amount)
+    
+    switch (amountType) {
+      case 'full':
+        return billAmountInRupees
+      case 'minimum':
+        return getMinimumAmount() || billAmountInRupees
+      case 'custom':
+        return customAmount ? parseFloat(customAmount) : 0
+      default:
+        return billAmountInRupees
+    }
+  }
+
   // Handle amount selection and proceed to confirmation
   const proceedToConfirmation = async () => {
     if (!billDetails) return
     
     const billAmountInRupees = paiseToRupees(billDetails.bill_amount)
-    const selectedAmount = useCustomAmount && customAmount 
-      ? parseFloat(customAmount) 
-      : billAmountInRupees
+    const selectedAmount = getSelectedAmount()
     
     if (isNaN(selectedAmount) || selectedAmount <= 0) {
       setError('Please enter a valid amount')
@@ -627,10 +676,7 @@ export default function BBPSPayment() {
       setTransactionStatus(null)
 
       // Calculate the amount to pay
-      const billAmountInRupees = paiseToRupees(billDetails.bill_amount)
-      const selectedAmount = useCustomAmount && customAmount 
-        ? parseFloat(customAmount) 
-        : billAmountInRupees
+      const selectedAmount = getSelectedAmount()
       
       // Convert back to paise for the API (BBPS API expects paise)
       const amountInPaise = selectedAmount * 100
@@ -768,7 +814,7 @@ export default function BBPSPayment() {
     // Reset payment flow states
     setPaymentStep('bill')
     setCustomAmount('')
-    setUseCustomAmount(false)
+    setAmountType('full')
     setPaymentCharges(0)
     setTpin('')
     setTpinError(null)
@@ -1295,38 +1341,79 @@ export default function BBPSPayment() {
               {/* Amount Selection */}
               <div className="space-y-3 border-t border-gray-200 dark:border-gray-700 pt-4">
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                  Enter Amount
+                  Select Payment Amount
                 </label>
-                <div className="flex gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  {/* Full Amount Button */}
                   <button
                     onClick={() => {
-                      setUseCustomAmount(false)
+                      setAmountType('full')
                       setCustomAmount('')
                     }}
-                    className={`flex-1 px-4 py-2 rounded-lg border-2 text-sm font-medium transition-all ${
-                      !useCustomAmount
+                    className={`px-4 py-3 rounded-lg border-2 text-sm font-medium transition-all ${
+                      amountType === 'full'
                         ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300'
                         : 'border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:border-gray-300'
                     }`}
                   >
-                    Full Amount ({formatPaiseAsRupees(billDetails.bill_amount)})
+                    <div className="text-xs uppercase tracking-wide mb-1 opacity-70">Full Amount</div>
+                    <div className="font-bold">{formatPaiseAsRupees(billDetails.bill_amount)}</div>
                   </button>
+
+                  {/* Minimum Amount Button - Only show if minimum amount is available */}
+                  {(() => {
+                    const minAmount = getMinimumAmount()
+                    const billAmtInRupees = paiseToRupees(billDetails.bill_amount)
+                    console.log('MIN BUTTON CHECK:', { 
+                      minAmount, 
+                      billAmountRaw: billDetails.bill_amount,
+                      billAmtInRupees,
+                      condition1: minAmount !== null,
+                      condition2: minAmount && minAmount > 0,
+                      condition3: minAmount && minAmount < billAmtInRupees,
+                      shouldShow: minAmount !== null && minAmount > 0 && minAmount < billAmtInRupees
+                    })
+                    if (minAmount !== null && minAmount > 0 && minAmount < billAmtInRupees) {
+                      return (
+                        <button
+                          onClick={() => {
+                            setAmountType('minimum')
+                            setCustomAmount('')
+                          }}
+                          disabled={selectedBiller?.amount_exactness === 'EXACT'}
+                          className={`px-4 py-3 rounded-lg border-2 text-sm font-medium transition-all ${
+                            amountType === 'minimum'
+                              ? 'border-green-500 bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300'
+                              : 'border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:border-gray-300'
+                          } disabled:opacity-50 disabled:cursor-not-allowed`}
+                          title={selectedBiller?.amount_exactness === 'EXACT' ? 'This biller requires exact amount payment' : 'Pay minimum amount due'}
+                        >
+                          <div className="text-xs uppercase tracking-wide mb-1 opacity-70">Minimum Due</div>
+                          <div className="font-bold">₹{minAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</div>
+                        </button>
+                      )
+                    }
+                    return null
+                  })()}
+
+                  {/* Custom Amount Button */}
                   <button
-                    onClick={() => setUseCustomAmount(true)}
+                    onClick={() => setAmountType('custom')}
                     disabled={selectedBiller?.amount_exactness === 'EXACT'}
-                    className={`flex-1 px-4 py-2 rounded-lg border-2 text-sm font-medium transition-all ${
-                      useCustomAmount
-                        ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300'
+                    className={`px-4 py-3 rounded-lg border-2 text-sm font-medium transition-all ${
+                      amountType === 'custom'
+                        ? 'border-purple-500 bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300'
                         : 'border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:border-gray-300'
                     } disabled:opacity-50 disabled:cursor-not-allowed`}
                     title={selectedBiller?.amount_exactness === 'EXACT' ? 'This biller requires exact amount payment' : 'Pay custom amount'}
                   >
-                    Custom Amount
+                    <div className="text-xs uppercase tracking-wide mb-1 opacity-70">Custom Amount</div>
+                    <div className="font-bold">{customAmount ? `₹${parseFloat(customAmount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : 'Enter ₹'}</div>
                   </button>
                 </div>
 
-                {useCustomAmount && (
-                  <div className="relative">
+                {amountType === 'custom' && (
+                  <div className="relative mt-2">
                     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-400">₹</span>
                     <input
                       type="number"
@@ -1335,15 +1422,18 @@ export default function BBPSPayment() {
                       placeholder="Enter amount"
                       max={paiseToRupees(billDetails.bill_amount)}
                       min={1}
-                      className="w-full pl-8 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      className="w-full pl-8 pr-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent text-lg"
                     />
+                    <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                      Max: {formatPaiseAsRupees(billDetails.bill_amount)}
+                    </div>
                   </div>
                 )}
               </div>
 
               <button
                 onClick={proceedToConfirmation}
-                disabled={loadingCharges || (useCustomAmount && (!customAmount || parseFloat(customAmount) <= 0))}
+                disabled={loadingCharges || (amountType === 'custom' && (!customAmount || parseFloat(customAmount) <= 0))}
                 className="w-full px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center gap-2 font-semibold mt-4"
               >
                 {loadingCharges ? (
@@ -1422,12 +1512,13 @@ export default function BBPSPayment() {
                 <table className="w-full">
                   <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
                     <tr>
-                      <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-700/50">Amount</td>
+                      <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-700/50">
+                        Amount
+                        {amountType === 'minimum' && <span className="ml-1 text-xs text-green-600">(Min Due)</span>}
+                        {amountType === 'custom' && <span className="ml-1 text-xs text-purple-600">(Custom)</span>}
+                      </td>
                       <td className="px-4 py-3 text-sm font-medium text-gray-900 dark:text-white">
-                        {useCustomAmount && customAmount 
-                          ? `₹${parseFloat(customAmount).toFixed(2)}`
-                          : formatPaiseAsRupees(billDetails.bill_amount)
-                        }
+                        ₹{getSelectedAmount().toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                       </td>
                     </tr>
                     <tr>
@@ -1439,7 +1530,7 @@ export default function BBPSPayment() {
                     <tr className="bg-blue-50 dark:bg-blue-900/20">
                       <td className="px-4 py-3 text-sm font-semibold text-blue-700 dark:text-blue-300">Deduction</td>
                       <td className="px-4 py-3 text-sm font-bold text-blue-700 dark:text-blue-300">
-                        ₹{((useCustomAmount && customAmount ? parseFloat(customAmount) : paiseToRupees(billDetails.bill_amount)) + paymentCharges).toFixed(2)}
+                        ₹{(getSelectedAmount() + paymentCharges).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                       </td>
                     </tr>
                   </tbody>

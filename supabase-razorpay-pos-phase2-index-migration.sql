@@ -11,3 +11,6 @@ COMMENT ON INDEX idx_razorpay_pos_transactions_device_serial IS
 'Index for Phase 2 role-based transaction filtering. Enables efficient queries when filtering transactions by device_serial for role-based visibility.';
 
 
+
+
+
