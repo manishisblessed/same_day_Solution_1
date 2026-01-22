@@ -26,9 +26,74 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const checkUser = async () => {
     try {
-      // Add timeout to prevent hanging
+      // First, check if we have a cached user from recent login
+      // This is important because Supabase session might not be immediately available
+      if (typeof window !== 'undefined') {
+        try {
+          const cachedUser = localStorage.getItem('auth_user')
+          const cacheTimestamp = localStorage.getItem('auth_user_timestamp')
+          
+          if (cachedUser) {
+            const parsedUser = JSON.parse(cachedUser) as AuthUser
+            console.log('Found cached user:', parsedUser.role)
+            setUser(parsedUser)
+            setLoading(false)
+            
+            // Check if this is a recent login (within 5 minutes)
+            // If recent, trust the cache and don't verify immediately
+            const isRecentLogin = cacheTimestamp && 
+              (Date.now() - parseInt(cacheTimestamp)) < 5 * 60 * 1000
+            
+            if (isRecentLogin) {
+              console.log('Recent login detected, trusting cache')
+              return
+            }
+            
+            // For older sessions, verify in background but DON'T clear on failure
+            // Only update if we get valid data
+            getCurrentUser().then((verifiedUser) => {
+              if (verifiedUser) {
+                // Update cache with fresh data
+                localStorage.setItem('auth_user', JSON.stringify(verifiedUser))
+                localStorage.setItem('auth_user_timestamp', Date.now().toString())
+                setUser(verifiedUser)
+              }
+              // Don't clear user on verification failure - keep cached user
+              // User will be properly logged out when they try to access protected resources
+            }).catch(() => {
+              // On error, keep cached user
+            })
+            return
+          }
+        } catch (e) {
+          // Ignore parse errors
+        }
+        
+        // Clear corrupted storage entries
+        try {
+          const localStorageKeys = Object.keys(localStorage)
+          for (const key of localStorageKeys) {
+            const value = localStorage.getItem(key)
+            if (value && value.startsWith('base64-')) {
+              localStorage.removeItem(key)
+            }
+          }
+          
+          const sessionStorageKeys = Object.keys(sessionStorage)
+          for (const key of sessionStorageKeys) {
+            const value = sessionStorage.getItem(key)
+            if (value && value.startsWith('base64-')) {
+              sessionStorage.removeItem(key)
+            }
+          }
+        } catch (e) {
+          // Ignore cleanup errors
+        }
+      }
+      
+      // Add shorter timeout to prevent hanging (2 seconds for logged out state)
       const timeoutPromise = new Promise((resolve) => 
-        setTimeout(() => resolve(null), 10000)
+        setTimeout(() => resolve(null), 2000)
       )
       
       const currentUser = await Promise.race([
@@ -37,8 +102,37 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       ]) as AuthUser | null
       
       setUser(currentUser)
-    } catch (error) {
-      console.error('Error checking user:', error)
+      
+      // Cache the user if found
+      if (typeof window !== 'undefined' && currentUser) {
+        localStorage.setItem('auth_user', JSON.stringify(currentUser))
+        localStorage.setItem('auth_user_timestamp', Date.now().toString())
+      }
+    } catch (error: any) {
+      const errorMessage = error?.message || error?.toString() || ''
+      const isCorruptedSessionError = errorMessage.includes("Cannot create property 'user' on string") || 
+                                      errorMessage.includes('base64-')
+      
+      if (!isCorruptedSessionError) {
+        console.error('Error checking user:', error)
+      }
+      
+      if (isCorruptedSessionError) {
+        if (typeof window !== 'undefined') {
+          try {
+            const allKeys = [...Object.keys(localStorage), ...Object.keys(sessionStorage)]
+            allKeys.forEach(key => {
+              if (key.includes('supabase') || key.includes('sb-') || key.startsWith('auth-token')) {
+                localStorage.removeItem(key)
+                sessionStorage.removeItem(key)
+              }
+            })
+          } catch (e) {
+            // Ignore cleanup errors
+          }
+        }
+      }
+      
       setUser(null)
     } finally {
       setLoading(false)
@@ -50,6 +144,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const result = await signIn(email, password, role as any)
       setUser(result.user)
+      // Store user in localStorage to persist across page navigations
+      // This is critical because the session may not be immediately available after login
+      if (typeof window !== 'undefined' && result.user) {
+        localStorage.setItem('auth_user', JSON.stringify(result.user))
+        localStorage.setItem('auth_user_timestamp', Date.now().toString())
+        console.log('Login successful, user stored:', result.user.role)
+      }
     } catch (error: any) {
       throw error
     } finally {
@@ -62,6 +163,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       await authSignOut()
       setUser(null)
+      // Clear cached user from localStorage
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('auth_user')
+        localStorage.removeItem('auth_user_timestamp')
+      }
     } catch (error) {
       console.error('Error signing out:', error)
     } finally {

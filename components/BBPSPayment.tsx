@@ -1,13 +1,15 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { 
   Search, Loader2, CheckCircle, XCircle, Wallet, Receipt, 
   AlertCircle, RefreshCw, FileText, Clock, MessageSquare, History
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { paiseToRupees, formatPaiseAsRupees } from '@/lib/bbps/currency'
-import { getApiUrl } from '@/lib/api-client'
+import { apiFetch, apiFetchJson } from '@/lib/api-client'
+import { supabase } from '@/lib/supabase/client'
+import { useAuth } from '@/contexts/AuthContext'
 
 interface BBPSBiller {
   biller_id: string
@@ -67,6 +69,14 @@ interface BillDetails {
   reqId?: string
 }
 
+interface PaymentConfirmation {
+  amount: number // Amount to pay in rupees
+  charges: number // Transaction charges in rupees
+  totalDeduction: number // Total deduction from wallet
+  showTpinInput: boolean
+  tpin: string
+}
+
 interface PaymentResult {
   success: boolean
   transaction_id?: string
@@ -89,6 +99,7 @@ interface TransactionStatus {
 }
 
 export default function BBPSPayment() {
+  const { user } = useAuth()
   const [walletBalance, setWalletBalance] = useState<number | null>(null)
   const [loadingBalance, setLoadingBalance] = useState(true)
   const [categories, setCategories] = useState<string[]>([])
@@ -113,11 +124,25 @@ export default function BBPSPayment() {
   const [complaintDescription, setComplaintDescription] = useState('')
   const [submittingComplaint, setSubmittingComplaint] = useState(false)
   const [activeView, setActiveView] = useState<'payment' | 'history'>('payment')
+  
+  // Payment confirmation flow states
+  const [paymentStep, setPaymentStep] = useState<'bill' | 'amount' | 'confirm'>('bill')
+  const [customAmount, setCustomAmount] = useState<string>('')
+  const [useCustomAmount, setUseCustomAmount] = useState(false)
+  const [paymentCharges, setPaymentCharges] = useState<number>(0)
+  const [loadingCharges, setLoadingCharges] = useState(false)
+  const [tpin, setTpin] = useState('')
+  const [tpinError, setTpinError] = useState<string | null>(null)
 
-  // Fetch wallet balance
+  // Ref for auto-scrolling to consumer details form
+  const consumerDetailsRef = useRef<HTMLDivElement>(null)
+
+  // Fetch wallet balance when user is available
   useEffect(() => {
-    fetchWalletBalance()
-  }, [])
+    if (user?.partner_id) {
+      fetchWalletBalance()
+    }
+  }, [user?.partner_id])
 
   // Fetch categories
   useEffect(() => {
@@ -202,24 +227,140 @@ export default function BBPSPayment() {
   }, [selectedBiller])
 
   const fetchWalletBalance = async () => {
+    if (!user?.partner_id) {
+      setLoadingBalance(false)
+      return
+    }
+    
     try {
       setLoadingBalance(true)
-      const response = await fetch(getApiUrl('/api/wallet/balance'))
-      const data = await response.json()
-      if (data.success) {
-        setWalletBalance(data.balance)
+      setError(null)
+      
+      // Use Supabase directly instead of API route (avoids cookie auth issues)
+      // Try new function first
+      const { data: newBalance, error: newError } = await supabase.rpc('get_wallet_balance_v2', {
+        p_user_id: user.partner_id,
+        p_wallet_type: 'primary'
+      })
+
+      if (!newError && newBalance !== null) {
+        setWalletBalance(newBalance)
+      } else if (user.role === 'retailer') {
+        // Fallback to old function for retailers
+        const { data: oldBalance, error: oldError } = await supabase.rpc('get_wallet_balance', {
+          p_retailer_id: user.partner_id
+        })
+        if (!oldError) {
+          setWalletBalance(oldBalance || 0)
+        } else {
+          console.error('Error fetching wallet balance:', oldError)
+          setWalletBalance(0)
+        }
+      } else {
+        setWalletBalance(0)
       }
     } catch (error: any) {
       console.error('Error fetching wallet balance:', error)
+      setWalletBalance(0)
     } finally {
       setLoadingBalance(false)
     }
   }
 
+  // Calculate BBPS charges for a given amount
+  const fetchBBPSCharges = async (amountInRupees: number): Promise<number> => {
+    try {
+      setLoadingCharges(true)
+      
+      // Try to get charge from Supabase RPC
+      const { data: chargeData, error } = await supabase.rpc('calculate_transaction_charge', {
+        p_amount: amountInRupees,
+        p_transaction_type: 'bbps'
+      })
+      
+      if (!error && chargeData !== null) {
+        return chargeData
+      }
+      
+      // Fallback: Calculate charge locally based on common BBPS slabs
+      // These are typical charges - should match backend
+      if (amountInRupees <= 500) return 5
+      if (amountInRupees <= 1000) return 10
+      if (amountInRupees <= 2000) return 15
+      if (amountInRupees <= 5000) return 20
+      if (amountInRupees <= 10000) return 25
+      return 30 // Default for amounts > 10000
+    } catch (error) {
+      console.error('Error fetching BBPS charges:', error)
+      return 20 // Default fallback charge
+    } finally {
+      setLoadingCharges(false)
+    }
+  }
+
+  // Handle amount selection and proceed to confirmation
+  const proceedToConfirmation = async () => {
+    if (!billDetails) return
+    
+    const billAmountInRupees = paiseToRupees(billDetails.bill_amount)
+    const selectedAmount = useCustomAmount && customAmount 
+      ? parseFloat(customAmount) 
+      : billAmountInRupees
+    
+    if (isNaN(selectedAmount) || selectedAmount <= 0) {
+      setError('Please enter a valid amount')
+      return
+    }
+    
+    // Check if amount is valid for the biller
+    if (selectedBiller?.amount_exactness === 'EXACT' && selectedAmount !== billAmountInRupees) {
+      setError('This biller requires exact bill amount payment')
+      return
+    }
+    
+    if (selectedAmount > billAmountInRupees) {
+      setError('Amount cannot exceed bill amount')
+      return
+    }
+    
+    // Fetch charges for the selected amount
+    const charges = await fetchBBPSCharges(selectedAmount)
+    setPaymentCharges(charges)
+    
+    // Check wallet balance
+    const totalDeduction = selectedAmount + charges
+    if (walletBalance !== null && walletBalance < totalDeduction) {
+      setError(`Insufficient balance. Required: ₹${totalDeduction.toFixed(2)}, Available: ₹${walletBalance.toFixed(2)}`)
+      return
+    }
+    
+    // Proceed to confirmation step
+    setPaymentStep('confirm')
+    setError(null)
+  }
+
+  // Go back to amount selection
+  const goBackToAmount = () => {
+    setPaymentStep('amount')
+    setTpin('')
+    setTpinError(null)
+  }
+
+  // Go back to bill details
+  const goBackToBill = () => {
+    setPaymentStep('bill')
+    setCustomAmount('')
+    setUseCustomAmount(false)
+    setTpin('')
+    setTpinError(null)
+    setPaymentCharges(0)
+  }
+
   const fetchCategories = async () => {
     try {
-      const response = await fetch(getApiUrl('/api/bbps/categories'))
-      const data = await response.json()
+      const data = await apiFetchJson<{ success: boolean; categories?: string[]; error?: string }>('/api/bbps/categories', {
+        method: 'GET',
+      })
       if (data.success) {
         const cats = data.categories || []
         setCategories(cats)
@@ -247,11 +388,8 @@ export default function BBPSPayment() {
       setError(null)
       setInfoMessage(null)
       // Use billers-by-category endpoint to get full biller details including inputParams
-      const response = await fetch(getApiUrl('/api/bbps/billers-by-category'), {
+      const data = await apiFetchJson<{ success: boolean; data?: any[]; error?: string; msg?: string }>('/api/bbps/billers-by-category', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
         body: JSON.stringify({
           fieldValue: category,
           paymentChannelName1: 'AGT',
@@ -259,7 +397,6 @@ export default function BBPSPayment() {
           paymentChannelName3: '',
         }),
       })
-      const data = await response.json()
       
       if (data.success && data.data) {
         // The service already returns properly formatted BBPSBiller objects with metadata
@@ -409,6 +546,8 @@ export default function BBPSPayment() {
       // Build request body
       const requestBody: any = {
         biller_id: selectedBiller.biller_id,
+        // Include user_id for fallback auth when cookie auth doesn't work
+        user_id: user?.partner_id,
       }
 
       // Add input_params if using dynamic parameters
@@ -426,17 +565,12 @@ export default function BBPSPayment() {
 
       console.log('Sending fetch bill request:', requestBody)
       
-      const response = await fetch(getApiUrl('/api/bbps/bill/fetch'), {
+      const data = await apiFetchJson<{ success?: boolean; bill?: BillDetails; error?: string; message?: string; messageType?: string }>('/api/bbps/bill/fetch', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
         body: JSON.stringify(requestBody),
       })
-
-      const data = await response.json()
       
-      console.log('Fetch bill response:', { status: response.status, data })
+      console.log('Fetch bill response:', data)
       
       // Check if this is an informational message (not an error)
       const message = data.error || data.message || 'Failed to fetch bill details'
@@ -444,17 +578,6 @@ export default function BBPSPayment() {
                            message.toLowerCase().includes('no bill due') ||
                            message.toLowerCase().includes('payment received') ||
                            message.toLowerCase().includes('already paid')
-      
-      if (!response.ok) {
-        if (isInfoMessage) {
-          console.log('Fetch bill info:', message)
-          setInfoMessage(message)
-        } else {
-          console.error('Fetch bill error:', message)
-          setError(message)
-        }
-        return
-      }
       
       // Handle successful response
       if (data.success && data.bill) {
@@ -478,6 +601,16 @@ export default function BBPSPayment() {
       return
     }
 
+    // Validate T-PIN format if provided
+    // T-PIN is optional if not configured for the account
+    if (tpin && tpin.length > 0 && tpin.length < 4) {
+      setTpinError('T-PIN must be at least 4 digits')
+      return
+    }
+
+    // Clear any previous T-PIN errors
+    setTpinError(null)
+
     try {
       setPaying(true)
       setError(null)
@@ -485,35 +618,60 @@ export default function BBPSPayment() {
       setPaymentResult(null)
       setTransactionStatus(null)
 
-      const response = await fetch(getApiUrl('/api/bbps/bill/pay'), {
+      // Calculate the amount to pay
+      const billAmountInRupees = paiseToRupees(billDetails.bill_amount)
+      const selectedAmount = useCustomAmount && customAmount 
+        ? parseFloat(customAmount) 
+        : billAmountInRupees
+      
+      // Convert back to paise for the API (BBPS API expects paise)
+      const amountInPaise = selectedAmount * 100
+
+      // Get consumer number from input params or direct input
+      const effectiveConsumerNumber = inputParamFields.length > 0
+        ? inputParams[inputParamFields[0].paramName] || ''
+        : consumerNumber.trim()
+
+      const data = await apiFetchJson<PaymentResult>('/api/bbps/bill/pay', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
         body: JSON.stringify({
           biller_id: selectedBiller.biller_id,
           biller_name: selectedBiller.biller_name,
           biller_category: selectedBiller.category || selectedBiller.category_name || selectedCategory,
-          consumer_number: consumerNumber.trim(),
-          amount: billDetails.bill_amount,
+          consumer_number: effectiveConsumerNumber,
+          amount: amountInPaise, // Send in paise to API
           consumer_name: billDetails.consumer_name,
           due_date: billDetails.due_date,
           bill_date: billDetails.bill_date,
           bill_number: billDetails.bill_number,
-          additional_info: billDetails.additional_info,
+          additional_info: {
+            ...billDetails.additional_info,
+            inputParams: inputParamFields.length > 0 
+              ? inputParamFields.map(f => ({ paramName: f.paramName, paramValue: inputParams[f.paramName] || '' }))
+              : undefined,
+          },
+          // Include user_id for fallback auth when cookie auth doesn't work
+          user_id: user?.partner_id,
+          // Include T-PIN for server-side verification
+          tpin: tpin,
         }),
       })
-
-      const data = await response.json()
       setPaymentResult(data)
       
       if (data.success) {
         // Refresh wallet balance
         await fetchWalletBalance()
+        // Reset payment flow
+        setPaymentStep('bill')
+        setCustomAmount('')
+        setUseCustomAmount(false)
+        setTpin('')
+        setPaymentCharges(0)
         // Auto-check transaction status after 2 seconds
         if (data.bbps_transaction_id) {
+          const transactionId = data.bbps_transaction_id
           setTimeout(() => {
-            checkTransactionStatus(data.bbps_transaction_id)
+            checkTransactionStatus(transactionId)
           }, 2000)
         }
       }
@@ -533,18 +691,13 @@ export default function BBPSPayment() {
       setError(null)
       setInfoMessage(null)
 
-      const response = await fetch(getApiUrl('/api/bbps/transaction-status'), {
+      const data = await apiFetchJson<{ success: boolean; status?: TransactionStatus; error?: string }>('/api/bbps/transaction-status', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
         body: JSON.stringify({
           transaction_id: transactionId,
           track_type: 'TRANS_REF_ID',
         }),
       })
-
-      const data = await response.json()
       if (data.success && data.status) {
         setTransactionStatus(data.status)
       } else {
@@ -569,11 +722,8 @@ export default function BBPSPayment() {
       setError(null)
       setInfoMessage(null)
 
-      const response = await fetch(getApiUrl('/api/bbps/complaint/register'), {
+      const data = await apiFetchJson<{ success: boolean; complaint_id?: string; error?: string }>('/api/bbps/complaint/register', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
         body: JSON.stringify({
           transaction_id: paymentResult.bbps_transaction_id,
           complaint_type: 'Transaction',
@@ -581,11 +731,9 @@ export default function BBPSPayment() {
           complaint_disposition: 'Amount deducted multiple times',
         }),
       })
-
-      const data = await response.json()
       if (data.success) {
         setError(null)
-      setInfoMessage(null)
+        setInfoMessage(null)
         setShowComplaintForm(false)
         setComplaintDescription('')
         alert(`Complaint registered successfully! Complaint ID: ${data.complaint_id}`)
@@ -609,6 +757,13 @@ export default function BBPSPayment() {
     setError(null)
     setShowComplaintForm(false)
     setComplaintDescription('')
+    // Reset payment flow states
+    setPaymentStep('bill')
+    setCustomAmount('')
+    setUseCustomAmount(false)
+    setPaymentCharges(0)
+    setTpin('')
+    setTpinError(null)
   }
 
   return (
@@ -938,7 +1093,14 @@ export default function BBPSPayment() {
                       setBillDetails(null)
                       setPaymentResult(null)
                       setError(null)
-      setInfoMessage(null)
+                      setInfoMessage(null)
+                      // Auto-scroll to consumer details form
+                      setTimeout(() => {
+                        consumerDetailsRef.current?.scrollIntoView({ 
+                          behavior: 'smooth', 
+                          block: 'start' 
+                        })
+                      }, 100)
                     }}
                     className={`p-3 rounded-lg border-2 text-left transition-all ${
                       selectedBiller?.biller_id === biller.biller_id
@@ -959,6 +1121,7 @@ export default function BBPSPayment() {
           {/* Consumer Details Input */}
           {selectedBiller && (
             <motion.div
+              ref={consumerDetailsRef}
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               className="bg-white dark:bg-gray-800 rounded-lg shadow-md border border-gray-200 dark:border-gray-700 p-4"
@@ -1042,77 +1205,289 @@ export default function BBPSPayment() {
             </motion.div>
           )}
 
-          {/* Bill Details */}
-          {billDetails && (
+          {/* Bill Details - Step 1: Show Bill Details */}
+          {billDetails && paymentStep === 'bill' && (
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               className="bg-white dark:bg-gray-800 rounded-lg shadow-md border border-gray-200 dark:border-gray-700 p-4"
             >
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Bill Details</h3>
-              <div className="space-y-3">
-                {billDetails.consumer_name && (
-                  <div className="flex justify-between">
-                    <span className="text-gray-600 dark:text-gray-400">Consumer Name:</span>
-                    <span className="font-medium text-gray-900 dark:text-white">{billDetails.consumer_name}</span>
-                  </div>
-                )}
-                <div className="flex justify-between">
-                  <span className="text-gray-600 dark:text-gray-400">Consumer Number:</span>
-                  <span className="font-medium text-gray-900 dark:text-white">{billDetails.consumer_number}</span>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Bill Details</h3>
+                <span className="text-xs text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded">
+                  {selectedBiller?.biller_name}
+                </span>
+              </div>
+              
+              {/* Bill Details Table */}
+              <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden mb-4">
+                <table className="w-full">
+                  <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                    {billDetails.consumer_name && (
+                      <tr>
+                        <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-700/50">Customer Name</td>
+                        <td className="px-4 py-3 text-sm font-medium text-gray-900 dark:text-white">{billDetails.consumer_name}</td>
+                      </tr>
+                    )}
+                    <tr>
+                      <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-700/50">Bill Amount</td>
+                      <td className="px-4 py-3 text-sm font-medium text-gray-900 dark:text-white">{formatPaiseAsRupees(billDetails.bill_amount)}</td>
+                    </tr>
+                    {billDetails.bill_date && (
+                      <tr>
+                        <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-700/50">Bill Date</td>
+                        <td className="px-4 py-3 text-sm font-medium text-gray-900 dark:text-white">
+                          {new Date(billDetails.bill_date).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+                        </td>
+                      </tr>
+                    )}
+                    {billDetails.due_date && (
+                      <tr>
+                        <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-700/50">Due Date</td>
+                        <td className="px-4 py-3 text-sm font-medium text-gray-900 dark:text-white">
+                          {new Date(billDetails.due_date).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+                        </td>
+                      </tr>
+                    )}
+                    <tr>
+                      <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-700/50">Biller Name</td>
+                      <td className="px-4 py-3 text-sm font-medium text-gray-900 dark:text-white">{selectedBiller?.biller_name}</td>
+                    </tr>
+                    {/* Minimum Amount Due - from additional info */}
+                    {(() => {
+                      const additionalInfo = billDetails.additional_info?.additionalInfo?.info || 
+                                            billDetails.additional_info?.billerResponse?.additionalInfo?.info || []
+                      const minAmount = additionalInfo.find((info: any) => 
+                        info.infoName?.toLowerCase().includes('minimum') || 
+                        info.infoName?.toLowerCase().includes('min due') ||
+                        info.infoName?.toLowerCase().includes('min payable')
+                      )
+                      if (minAmount) {
+                        return (
+                          <tr className="bg-green-50 dark:bg-green-900/20">
+                            <td className="px-4 py-3 text-sm text-green-700 dark:text-green-400 font-medium">Minimum Amount Due</td>
+                            <td className="px-4 py-3 text-sm font-bold text-green-700 dark:text-green-300">
+                              ₹{parseFloat(minAmount.infoValue).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                            </td>
+                          </tr>
+                        )
+                      }
+                      return null
+                    })()}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Amount Selection */}
+              <div className="space-y-3 border-t border-gray-200 dark:border-gray-700 pt-4">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Enter Amount
+                </label>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => {
+                      setUseCustomAmount(false)
+                      setCustomAmount('')
+                    }}
+                    className={`flex-1 px-4 py-2 rounded-lg border-2 text-sm font-medium transition-all ${
+                      !useCustomAmount
+                        ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300'
+                        : 'border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:border-gray-300'
+                    }`}
+                  >
+                    Full Amount ({formatPaiseAsRupees(billDetails.bill_amount)})
+                  </button>
+                  <button
+                    onClick={() => setUseCustomAmount(true)}
+                    disabled={selectedBiller?.amount_exactness === 'EXACT'}
+                    className={`flex-1 px-4 py-2 rounded-lg border-2 text-sm font-medium transition-all ${
+                      useCustomAmount
+                        ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300'
+                        : 'border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:border-gray-300'
+                    } disabled:opacity-50 disabled:cursor-not-allowed`}
+                    title={selectedBiller?.amount_exactness === 'EXACT' ? 'This biller requires exact amount payment' : 'Pay custom amount'}
+                  >
+                    Custom Amount
+                  </button>
                 </div>
-                {billDetails.bill_number && (
-                  <div className="flex justify-between">
-                    <span className="text-gray-600 dark:text-gray-400">Bill Number:</span>
-                    <span className="font-medium text-gray-900 dark:text-white">{billDetails.bill_number}</span>
+
+                {useCustomAmount && (
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-400">₹</span>
+                    <input
+                      type="number"
+                      value={customAmount}
+                      onChange={(e) => setCustomAmount(e.target.value)}
+                      placeholder="Enter amount"
+                      max={paiseToRupees(billDetails.bill_amount)}
+                      min={1}
+                      className="w-full pl-8 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
                   </div>
-                )}
-                {billDetails.due_date && (
-                  <div className="flex justify-between">
-                    <span className="text-gray-600 dark:text-gray-400">Due Date:</span>
-                    <span className="font-medium text-gray-900 dark:text-white">
-                      {new Date(billDetails.due_date).toLocaleDateString('en-IN')}
-                    </span>
-                  </div>
-                )}
-                <div className="border-t border-gray-200 dark:border-gray-700 pt-3 mt-3">
-                  <div className="flex justify-between items-center">
-                    <span className="text-lg font-medium text-gray-900 dark:text-white">Amount to Pay:</span>
-                    <span className="text-2xl font-bold text-green-600 dark:text-green-400">
-                      {/* Convert paise to rupees for display only */}
-                      {formatPaiseAsRupees(billDetails.bill_amount)}
-                    </span>
-                  </div>
-                </div>
-                <button
-                  onClick={payBill}
-                  disabled={paying || (walletBalance !== null && walletBalance < paiseToRupees(billDetails.bill_amount))}
-                  className="w-full px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center gap-2 font-semibold mt-4"
-                >
-                  {paying ? (
-                    <>
-                      <Loader2 className="w-5 h-5 animate-spin" />
-                      Processing Payment...
-                    </>
-                  ) : walletBalance !== null && walletBalance < paiseToRupees(billDetails.bill_amount) ? (
-                    <>
-                      <AlertCircle className="w-5 h-5" />
-                      Insufficient Balance
-                    </>
-                  ) : (
-                    <>
-                      <Wallet className="w-5 h-5" />
-                      Pay Bill
-                    </>
-                  )}
-                </button>
-                {walletBalance !== null && walletBalance < paiseToRupees(billDetails.bill_amount) && (
-                  <p className="text-sm text-red-600 dark:text-red-400 text-center mt-2">
-                    {/* Convert paise to rupees for display - wallet balance is already in rupees */}
-                    Required: {formatPaiseAsRupees(billDetails.bill_amount)} | Available: ₹{walletBalance.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </p>
                 )}
               </div>
+
+              <button
+                onClick={proceedToConfirmation}
+                disabled={loadingCharges || (useCustomAmount && (!customAmount || parseFloat(customAmount) <= 0))}
+                className="w-full px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center gap-2 font-semibold mt-4"
+              >
+                {loadingCharges ? (
+                  <>
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                    Calculating Charges...
+                  </>
+                ) : (
+                  <>
+                    Verify
+                  </>
+                )}
+              </button>
+            </motion.div>
+          )}
+
+          {/* Step 2: Confirmation with Charges and T-PIN */}
+          {billDetails && paymentStep === 'confirm' && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="bg-white dark:bg-gray-800 rounded-lg shadow-md border border-gray-200 dark:border-gray-700 p-4"
+            >
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                  {selectedCategory.toUpperCase()} PAYMENT
+                </h3>
+                <button
+                  onClick={goBackToBill}
+                  className="text-sm text-blue-600 dark:text-blue-400 hover:underline"
+                >
+                  GO BACK
+                </button>
+              </div>
+
+              {/* Bill Summary Table */}
+              <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden mb-4">
+                <table className="w-full">
+                  <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                    {billDetails.consumer_name && (
+                      <tr>
+                        <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-700/50">Customer Name</td>
+                        <td className="px-4 py-3 text-sm font-medium text-gray-900 dark:text-white">{billDetails.consumer_name}</td>
+                      </tr>
+                    )}
+                    <tr>
+                      <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-700/50">Bill Amount</td>
+                      <td className="px-4 py-3 text-sm font-medium text-gray-900 dark:text-white">{formatPaiseAsRupees(billDetails.bill_amount)}</td>
+                    </tr>
+                    {billDetails.bill_date && (
+                      <tr>
+                        <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-700/50">Bill Date</td>
+                        <td className="px-4 py-3 text-sm font-medium text-gray-900 dark:text-white">
+                          {new Date(billDetails.bill_date).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+                        </td>
+                      </tr>
+                    )}
+                    {billDetails.due_date && (
+                      <tr>
+                        <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-700/50">Due Date</td>
+                        <td className="px-4 py-3 text-sm font-medium text-gray-900 dark:text-white">
+                          {new Date(billDetails.due_date).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+                        </td>
+                      </tr>
+                    )}
+                    <tr>
+                      <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-700/50">Biller Name</td>
+                      <td className="px-4 py-3 text-sm font-medium text-gray-900 dark:text-white">{selectedBiller?.biller_name}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Payment Breakdown */}
+              <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden mb-4">
+                <table className="w-full">
+                  <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                    <tr>
+                      <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-700/50">Amount</td>
+                      <td className="px-4 py-3 text-sm font-medium text-gray-900 dark:text-white">
+                        {useCustomAmount && customAmount 
+                          ? `₹${parseFloat(customAmount).toFixed(2)}`
+                          : formatPaiseAsRupees(billDetails.bill_amount)
+                        }
+                      </td>
+                    </tr>
+                    <tr>
+                      <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-700/50">Charges</td>
+                      <td className="px-4 py-3 text-sm font-medium text-gray-900 dark:text-white">
+                        ₹{paymentCharges.toFixed(2)}
+                      </td>
+                    </tr>
+                    <tr className="bg-blue-50 dark:bg-blue-900/20">
+                      <td className="px-4 py-3 text-sm font-semibold text-blue-700 dark:text-blue-300">Deduction</td>
+                      <td className="px-4 py-3 text-sm font-bold text-blue-700 dark:text-blue-300">
+                        ₹{((useCustomAmount && customAmount ? parseFloat(customAmount) : paiseToRupees(billDetails.bill_amount)) + paymentCharges).toFixed(2)}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              {/* T-PIN Input */}
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  T-PIN
+                  <span className="text-xs text-gray-500 ml-1">(Optional - if configured)</span>
+                </label>
+                <input
+                  type="password"
+                  value={tpin}
+                  onChange={(e) => {
+                    setTpin(e.target.value.replace(/\D/g, '').slice(0, 6))
+                    setTpinError(null)
+                  }}
+                  placeholder="Enter T-PIN (if set)"
+                  maxLength={6}
+                  className={`w-full px-4 py-3 border rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
+                    tpinError ? 'border-red-500' : 'border-gray-300 dark:border-gray-600'
+                  }`}
+                />
+                {tpinError && (
+                  <p className="text-sm text-red-600 dark:text-red-400 mt-1">{tpinError}</p>
+                )}
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                  Leave empty if you haven't set up T-PIN in Settings
+                </p>
+              </div>
+
+              {/* Wallet Balance Info */}
+              {walletBalance !== null && (
+                <div className="mb-4 p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-600 dark:text-gray-400">Available Balance:</span>
+                    <span className="font-medium text-gray-900 dark:text-white">
+                      ₹{walletBalance.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              <button
+                onClick={payBill}
+                disabled={paying || (tpin.length > 0 && tpin.length < 4)}
+                className="w-full px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center gap-2 font-semibold"
+              >
+                {paying ? (
+                  <>
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                    Processing Payment...
+                  </>
+                ) : (
+                  <>
+                    <Wallet className="w-5 h-5" />
+                    Confirm
+                  </>
+                )}
+              </button>
             </motion.div>
           )}
         </>

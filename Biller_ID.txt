@@ -1,0 +1,34 @@
+AUBA00000NAT3Q-AU Bank Credit Card
+AXIS00000NATKF-Axis Bank Credit Card
+BANK00026NATRG-Bank of India Credit Card
+BANK00000NAT0Q-Bank of Maharashtra Credit Card
+BANK00000NATKB-BoB Credit Card
+CANA00000NATDO-Canara Credit Card
+CUBC00000NATGR-CUB Credit Card
+DBSB00000NATPR-DBS Bank Credit Card
+DCBB00017NATCL-DCB Bank Credit Card
+DHAN00000NAT6X-Dhanlaxmi Bank Limited
+EDGE00000NATWS-Edge CSB Bank RuPay Credit Card
+ESAF00000NATPB-ESAF Bank Credit Card
+FEDE00000NATDL-Federal Bank Credit Card
+HDFC00000NATBH-HDFC Bank Pixel Credit Card
+HDFC00000NATW1-HDFC Credit Card
+HSBC00000NAT4M-HSBC Credit Card
+ICIC00000NATSI-ICICI Credit card
+IDBI00000NAT7G-IDBI Bank Credit Card
+IDFC00000NATFQ-IDFC FIRST Bank Credit Card
+INDI00000NATFA-Indian bank credit card
+INDU00000NATL1-IndusInd Credit Card
+IOBC00000NATI3-IOB Credit Card
+KOTA00000NATED-Kotak Mahindra Bank Credit Card
+ONEB00000NATS1-One - BOBCARD Credit Card
+INDI00000NAT8I-One - Indian Bank Credit Card
+SOUT00000NAT68-One - South Indian Bank Credit Card
+PUNJ00000NATEY-Punjab National Bank Credit Card
+RBLB00000NATN3-RBL Bank Credit Card
+SARA00000NAT16-Saraswat Co-Operative Bank Ltd
+SBIC00000NATDN-SBI Card
+SBMB00000NATX5-SBM Bank India Limited
+SURY00000NATNX-Suryoday Small Finance Bank Credit Card
+UNIO00000NATG9-Union Bank of India Credit Card
+YESB00000NAT8U-Yes Bank Credit Card

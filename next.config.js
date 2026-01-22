@@ -1,5 +1,10 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // Production optimizations
+  poweredByHeader: false, // Remove X-Powered-By header for security
+  compress: true, // Enable gzip compression
+  swcMinify: true, // Use SWC minifier (faster than Terser)
+  
   images: {
     formats: ['image/avif', 'image/webp'],
     // Allow images from the same domain
@@ -12,15 +17,28 @@ const nextConfig = {
     deviceSizes: [640, 750, 828, 1080, 1200, 1920, 2048, 3840],
     imageSizes: [16, 32, 48, 64, 96, 128, 256, 384],
   },
-  // Disable strict mode in production if causing issues
+  
+  // Enable React strict mode for better development experience
   reactStrictMode: true,
+  
   // Ensure proper static generation
   generateBuildId: async () => {
     // Use git commit hash or timestamp for build ID
     return process.env.BUILD_ID || `build-${Date.now()}`
   },
+  
   // Ensure proper trailing slash handling
   trailingSlash: false,
+  
+  // Production environment variables validation
+  env: {
+    // These are validated at runtime, but we can document them here
+    NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
+    NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+  },
+  
+  // Output configuration for production
+  output: 'standalone', // Enable standalone output for better Docker/container support
   // Webpack configuration to ensure path aliases work correctly and optimize performance
   webpack: (config, { isServer }) => {
     // Ensure path aliases are resolved correctly

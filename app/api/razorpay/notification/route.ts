@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { mapTransactionStatus } from '@/lib/razorpay/service'
+import { mapTransactionStatus, calculateMDR } from '@/lib/razorpay/service'
 import * as crypto from 'crypto'
 
 const RAZORPAY_WEBHOOK_SECRET = process.env.RAZORPAY_WEBHOOK_SECRET
@@ -13,6 +13,14 @@ export const dynamic = 'force-dynamic'
  * 
  * This endpoint receives transaction notifications from Razorpay POS devices.
  * It implements idempotency using txnId as the unique key (UPSERT logic).
+ * 
+ * CRITICAL FLOW (FIX: Connects POS → Wallet → Hierarchy):
+ * 1. Store transaction in razorpay_pos_transactions (for role-based visibility)
+ * 2. Look up device_serial in pos_device_mapping to get retailer/distributor/MD
+ * 3. If status is CAPTURED and wallet NOT yet credited:
+ *    - Calculate MDR
+ *    - Credit net amount to retailer wallet
+ *    - Process commission distribution
  * 
  * Requirements:
  * - Accept application/json
@@ -83,6 +91,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Map status using the reusable function
+    // AUTHORIZED → CAPTURED, FAILED/VOIDED/REFUNDED → FAILED, else → PENDING
     const mappedStatus = mapTransactionStatus(payload)
 
     // Extract fields to persist
@@ -94,6 +103,9 @@ export async function POST(request: NextRequest) {
     const merchantName = payload.merchantName || null
     const rrNumber = payload.rrNumber || payload.rrn || null
     const acquirerCode = payload.acquirerCode || null
+    // FIX: Extract device_serial and tid for mapping
+    const deviceSerial = payload.deviceSerial || payload.device_serial || payload.terminalId || null
+    const tid = payload.tid || payload.terminalId || null
     
     // Parse created_time (can be epoch milliseconds or ISO string)
     let createdTime: Date | null = null
@@ -113,90 +125,170 @@ export async function POST(request: NextRequest) {
       createdTime = new Date()
     }
 
-    // IDEMPOTENCY: UPSERT logic using txn_id as unique key
-    // If txn_id exists, update the record; otherwise, insert new record
-    const { data: existingTransaction, error: checkError } = await supabase
-      .from('razorpay_transactions')
-      .select('id')
+    // FIX: Check if transaction already exists in razorpay_pos_transactions
+    const { data: existingPosTransaction } = await supabase
+      .from('razorpay_pos_transactions')
+      .select('id, wallet_credited, retailer_id')
       .eq('txn_id', txnId)
       .maybeSingle()
 
-    if (checkError && checkError.code !== 'PGRST116') {
-      // PGRST116 = no rows returned (expected for new transactions)
-      console.error('Error checking existing transaction:', checkError)
-      // Continue with insert/update anyway
-    }
-
-    const transactionData = {
+    // FIX: Store in razorpay_pos_transactions (used by role-based visibility API)
+    const posTransactionData: any = {
       txn_id: txnId,
-      order_number: orderNumber,
-      amount: amount,
-      currency: currency,
+      status: payload.status || 'PENDING', // Raw status
+      display_status: mappedStatus === 'CAPTURED' ? 'SUCCESS' : mappedStatus === 'FAILED' ? 'FAILED' : 'PENDING',
+      amount: amount || 0,
       payment_mode: paymentMode,
-      status: mappedStatus,
-      settlement_status: settlementStatus,
+      device_serial: deviceSerial,
+      tid: tid,
       merchant_name: merchantName,
-      rr_number: rrNumber,
-      acquirer_code: acquirerCode,
-      created_time: createdTime.toISOString(),
-      raw_payload: payload // Store full payload for audit
+      transaction_time: createdTime.toISOString(),
+      raw_data: payload
     }
 
-    let result
-    if (existingTransaction) {
-      // UPDATE existing record (idempotency: same txn_id received again)
+    let posResult
+    let isNewTransaction = false
+    
+    if (existingPosTransaction) {
+      // UPDATE existing record
       const { data, error } = await supabase
-        .from('razorpay_transactions')
-        .update(transactionData)
+        .from('razorpay_pos_transactions')
+        .update({
+          ...posTransactionData,
+          updated_at: new Date().toISOString()
+        })
         .eq('txn_id', txnId)
         .select()
         .single()
 
       if (error) {
-        console.error('Error updating Razorpay transaction:', error)
-        // Return 200 OK but log error
-        return NextResponse.json(
-          { 
-            received: true, 
-            processed: false,
-            error: error.message 
-          },
-          { status: 200 }
-        )
+        console.error('Error updating razorpay_pos_transactions:', error)
       }
-
-      result = data
+      posResult = data || existingPosTransaction
     } else {
       // INSERT new record
+      isNewTransaction = true
       const { data, error } = await supabase
-        .from('razorpay_transactions')
-        .insert(transactionData)
+        .from('razorpay_pos_transactions')
+        .insert(posTransactionData)
         .select()
         .single()
 
       if (error) {
-        console.error('Error inserting Razorpay transaction:', error)
+        console.error('Error inserting razorpay_pos_transactions:', error)
         // Return 200 OK but log error
         return NextResponse.json(
-          { 
-            received: true, 
-            processed: false,
-            error: error.message 
-          },
+          { received: true, processed: false, error: error.message },
           { status: 200 }
         )
       }
+      posResult = data
+    }
 
-      result = data
+    // FIX: Process wallet credit for CAPTURED transactions
+    let walletCredited = existingPosTransaction?.wallet_credited || false
+    let retailerMapping: any = null
+    
+    if (mappedStatus === 'CAPTURED' && !walletCredited && deviceSerial && amount && amount > 0) {
+      // Look up device mapping to get retailer hierarchy
+      const { data: deviceMapping, error: mappingError } = await supabase
+        .from('pos_device_mapping')
+        .select('retailer_id, distributor_id, master_distributor_id')
+        .eq('device_serial', deviceSerial)
+        .eq('status', 'ACTIVE')
+        .maybeSingle()
+
+      if (mappingError) {
+        console.error('Error looking up device mapping:', mappingError)
+      }
+
+      if (deviceMapping && deviceMapping.retailer_id) {
+        retailerMapping = deviceMapping
+        
+        // Calculate MDR
+        const grossAmount = amount // Amount is already in rupees from Razorpay POS
+        const { mdr, netAmount } = calculateMDR(grossAmount)
+
+        try {
+          // FIX: Credit wallet using add_ledger_entry (atomic operation with row-level locking)
+          const { data: ledgerId, error: ledgerError } = await supabase.rpc('add_ledger_entry', {
+            p_user_id: deviceMapping.retailer_id,
+            p_user_role: 'retailer',
+            p_wallet_type: 'primary',
+            p_fund_category: 'online', // POS transactions are online fund category
+            p_service_type: 'pos',
+            p_tx_type: 'POS_CREDIT',
+            p_credit: netAmount,
+            p_debit: 0,
+            p_reference_id: txnId,
+            p_transaction_id: posResult?.id || null,
+            p_status: 'completed',
+            p_remarks: `POS Transaction Credit - TID: ${tid || 'N/A'}, RRN: ${rrNumber || 'N/A'}, Gross: ₹${grossAmount}, MDR: ₹${mdr}, Net: ₹${netAmount}`
+          })
+
+          if (ledgerError) {
+            console.error('Error crediting wallet:', ledgerError)
+          } else {
+            walletCredited = true
+            console.log(`Wallet credited for retailer ${deviceMapping.retailer_id}, amount: ${netAmount}, ledger_id: ${ledgerId}`)
+
+            // Update transaction with wallet credit info
+            await supabase
+              .from('razorpay_pos_transactions')
+              .update({
+                wallet_credited: true,
+                wallet_credit_id: ledgerId,
+                retailer_id: deviceMapping.retailer_id,
+                distributor_id: deviceMapping.distributor_id,
+                master_distributor_id: deviceMapping.master_distributor_id,
+                gross_amount: grossAmount,
+                mdr_amount: mdr,
+                net_amount: netAmount
+              })
+              .eq('txn_id', txnId)
+
+            // FIX: Process commission distribution (if applicable)
+            if (deviceMapping.distributor_id || deviceMapping.master_distributor_id) {
+              try {
+                // Commission calculation uses process_transaction_commission RPC if available
+                // This distributes commission to distributor and master_distributor
+                const { error: commissionError } = await supabase.rpc('process_transaction_commission', {
+                  p_transaction_id: posResult?.id,
+                  p_transaction_type: 'pos',
+                  p_gross_amount: grossAmount,
+                  p_retailer_id: deviceMapping.retailer_id,
+                  p_distributor_id: deviceMapping.distributor_id || null,
+                  p_master_distributor_id: deviceMapping.master_distributor_id || null
+                })
+
+                if (commissionError) {
+                  // Log but don't fail - commission can be processed manually
+                  console.error('Error processing commission (non-blocking):', commissionError)
+                }
+              } catch (commError) {
+                console.error('Commission processing error (non-blocking):', commError)
+              }
+            }
+          }
+        } catch (walletError) {
+          console.error('Wallet credit error:', walletError)
+        }
+      } else {
+        // Device not mapped - log for admin review
+        console.warn(`No device mapping found for device_serial: ${deviceSerial}. Transaction stored but wallet NOT credited.`)
+      }
     }
 
     // Return success response (always return 200 to prevent Razorpay retries)
     return NextResponse.json({
       received: true,
       processed: true,
-      transactionId: result?.id,
+      transactionId: posResult?.id,
       txnId: txnId,
-      action: existingTransaction ? 'updated' : 'created'
+      action: isNewTransaction ? 'created' : 'updated',
+      status: mappedStatus,
+      walletCredited: walletCredited,
+      retailerMapped: !!retailerMapping
     })
 
   } catch (error: any) {

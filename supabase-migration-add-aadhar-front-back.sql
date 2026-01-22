@@ -32,3 +32,6 @@ COMMENT ON COLUMN retailers.aadhar_back_url IS 'URL to AADHAR back side document
 -- UPDATE master_distributors SET aadhar_front_url = aadhar_attachment_url WHERE aadhar_attachment_url IS NOT NULL AND aadhar_front_url IS NULL;
 
 
+
+
+

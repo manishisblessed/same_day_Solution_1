@@ -92,8 +92,8 @@ export async function POST(request: NextRequest) {
       }
     }
 
-      return NextResponse.json({ received: true })
-    } catch (error: any) {
+    return NextResponse.json({ received: true })
+  } catch (error: any) {
     console.error('Webhook error:', error)
     // Return 200 to prevent Razorpay from retrying
     return NextResponse.json({ 

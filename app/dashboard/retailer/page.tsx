@@ -1,10 +1,10 @@
 'use client'
 
-import { useState, useEffect, useMemo, useCallback, Suspense } from 'react'
+import { useState, useEffect, useMemo, useCallback, Suspense, lazy } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase/client'
-import RetailerSidebar from '@/components/RetailerSidebar'
+import { apiFetchJson } from '@/lib/api-client'
 import RetailerHeader from '@/components/RetailerHeader'
 import { 
   TrendingUp, DollarSign, Users, Activity, 
@@ -14,7 +14,21 @@ import {
 import TransactionsTable from '@/components/TransactionsTable'
 import BBPSPayment from '@/components/BBPSPayment'
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
-import { motion, AnimatePresence } from 'framer-motion'
+
+// Lazy load RetailerSidebar to prevent module loading errors from breaking the page
+const RetailerSidebar = lazy(() => 
+  import('@/components/RetailerSidebar').catch((error) => {
+    // Return a fallback component if import fails
+    return {
+      default: ({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) => (
+        <aside className="hidden lg:flex flex-col w-56 bg-gray-50 border-r border-gray-200 h-[calc(100vh-4rem)] fixed left-0 top-16" />
+      )
+    }
+  })
+)
+
+// Import framer-motion with a fallback component for SSR safety
+import { motion } from 'framer-motion'
 
 type TabType = 'dashboard' | 'wallet' | 'services' | 'bbps' | 'transactions' | 'reports' | 'settings'
 
@@ -43,9 +57,21 @@ function RetailerDashboardContent() {
   const [recentTransactions, setRecentTransactions] = useState<any[]>([])
   const [chartData, setChartData] = useState<any[]>([])
 
+  // Add a mounted flag to prevent redirect on initial mount
+  const [authChecked, setAuthChecked] = useState(false)
+  
   useEffect(() => {
-    if (!authLoading && (!user || user.role !== 'retailer')) {
-      router.push('/business-login')
+    // Wait for auth to finish loading before making redirect decisions
+    if (!authLoading) {
+      // Add a small delay to ensure session state is fully synchronized
+      const timer = setTimeout(() => {
+        setAuthChecked(true)
+        if (!user || user.role !== 'retailer') {
+          console.log('Auth check failed, redirecting to login. User:', user?.role || 'null')
+          router.push('/business-login')
+        }
+      }, 300)
+      return () => clearTimeout(timer)
     }
   }, [user, authLoading, router])
 
@@ -248,6 +274,18 @@ function RetailerDashboardContent() {
     }
   }, [user, authLoading, fetchDashboardData])
 
+  // Safety timeout to prevent infinite loading
+  useEffect(() => {
+    const timeout = setTimeout(() => {
+      if (loading && !authLoading) {
+        console.warn('Loading timeout reached, forcing dashboard to render')
+        setLoading(false)
+      }
+    }, 15000) // 15 second timeout
+
+    return () => clearTimeout(timeout)
+  }, [loading, authLoading])
+
   if (authLoading || loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-50 via-white to-gray-50 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900">
@@ -262,7 +300,9 @@ function RetailerDashboardContent() {
   return (
     <div className="flex min-h-screen bg-gradient-to-br from-gray-50 via-white to-gray-50 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900 overflow-x-hidden">
       <RetailerHeader />
-      <RetailerSidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+      <Suspense fallback={<div className="hidden lg:flex flex-col w-56 bg-gray-50 border-r border-gray-200 h-[calc(100vh-4rem)] fixed left-0 top-16" />}>
+        <RetailerSidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+      </Suspense>
       
       <div className="flex-1 lg:ml-56 min-w-0 overflow-x-hidden pt-16">
         {/* Mobile Menu Button */}
@@ -855,9 +895,8 @@ function WalletTab({ user }: { user: any }) {
     }
 
     try {
-      const response = await fetch('/api/settlement/create', {
+      const data = await apiFetchJson<{ success: boolean; error?: string }>('/api/settlement/create', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           amount: parseFloat(settlementAmount),
           bank_account_number: bankDetails.account_number,
@@ -867,7 +906,6 @@ function WalletTab({ user }: { user: any }) {
         })
       })
 
-      const data = await response.json()
       if (data.success) {
         alert('Settlement request created successfully!')
         setShowSettlement(false)
@@ -877,9 +915,9 @@ function WalletTab({ user }: { user: any }) {
       } else {
         alert(data.error || 'Settlement failed')
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Settlement error:', error)
-      alert('Failed to create settlement request')
+      alert(error.message || 'Failed to create settlement request')
     }
   }
 

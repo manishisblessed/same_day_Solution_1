@@ -62,3 +62,74 @@ export function getApiUrl(path: string): string {
   return baseUrl ? `${baseUrl}${normalizedPath}` : normalizedPath
 }
 
+/**
+ * Centralized API fetch function with automatic credentials inclusion
+ * This ensures all API calls send Supabase auth cookies
+ * 
+ * @param path - API path (e.g., '/api/wallet/balance')
+ * @param options - Fetch options (credentials will be automatically added)
+ * @returns Promise<Response>
+ */
+export async function apiFetch(
+  path: string,
+  options: RequestInit = {}
+): Promise<Response> {
+  const url = getApiUrl(path)
+  
+  // Merge options, ensuring credentials: 'include' is always set
+  const fetchOptions: RequestInit = {
+    ...options,
+    credentials: 'include', // Always include cookies for authentication
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers, // Allow overriding headers
+    },
+  }
+
+  const response = await fetch(url, fetchOptions)
+
+  // Handle 401 Unauthorized errors gracefully
+  if (response.status === 401) {
+    // Don't throw here - let the caller handle it
+    // But we can log for debugging
+    if (process.env.NODE_ENV === 'development') {
+      console.warn('API call returned 401 Unauthorized:', path)
+    }
+  }
+
+  return response
+}
+
+/**
+ * Centralized API fetch with JSON parsing and error handling
+ * 
+ * @param path - API path
+ * @param options - Fetch options
+ * @returns Promise with parsed JSON data
+ */
+export async function apiFetchJson<T = any>(
+  path: string,
+  options: RequestInit = {}
+): Promise<T> {
+  const response = await apiFetch(path, options)
+  
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({ error: 'Unknown error' }))
+    
+    // Provide user-friendly error messages
+    if (response.status === 401) {
+      throw new Error('Session expired, please login again')
+    } else if (response.status === 403) {
+      throw new Error('You do not have permission to access this resource')
+    } else if (response.status === 404) {
+      throw new Error('Resource not found')
+    } else if (response.status >= 500) {
+      throw new Error('Server error, please try again later')
+    } else {
+      throw new Error(errorData.error || errorData.message || 'Request failed')
+    }
+  }
+  
+  return response.json()
+}
+

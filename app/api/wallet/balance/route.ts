@@ -1,42 +1,46 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { cookies } from 'next/headers'
-import { getCurrentUserServer } from '@/lib/auth-server'
+import { getCurrentUserFromRequest } from '@/lib/auth-server-request'
 import { createClient } from '@supabase/supabase-js'
+import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
+
+// Mark this route as dynamic (uses cookies for authentication)
+export const dynamic = 'force-dynamic'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 
+export async function OPTIONS(request: NextRequest) {
+  const response = handleCorsPreflight(request)
+  return response || new NextResponse(null, { status: 204 })
+}
+
 export async function GET(request: NextRequest) {
   try {
-    // Get cookies from request headers (for API routes)
-    const cookieStore = await cookies()
-    const cookieHeader = request.headers.get('cookie')
-    
-    // Log for debugging (remove in production if needed)
-    if (!cookieHeader) {
-      console.error('Wallet Balance API: No cookies in request')
-    }
-    
-    // Get current user (server-side)
-    const user = await getCurrentUserServer(cookieStore)
+    // Get current user from request - reads cookies directly from request object
+    // This is more reliable than using cookies() from next/headers in API routes
+    const user = await getCurrentUserFromRequest(request)
     if (!user || !user.partner_id) {
       console.error('Wallet Balance API: User not authenticated', {
         hasUser: !!user,
         hasPartnerId: !!user?.partner_id,
-        cookiesPresent: !!cookieHeader,
       })
-      return NextResponse.json(
-        { error: 'Unauthorized', message: 'Please log in to access this feature' },
+      const response = NextResponse.json(
+        { 
+          error: 'Unauthorized', 
+          message: 'Please log in to access this feature. If you are already logged in, try refreshing the page.' 
+        },
         { status: 401 }
       )
+      return addCorsHeaders(request, response)
     }
 
     // All roles (retailer, distributor, master_distributor) have wallets
     if (!['retailer', 'distributor', 'master_distributor'].includes(user.role)) {
-      return NextResponse.json(
+      const response = NextResponse.json(
         { error: 'Forbidden: Invalid user role' },
         { status: 403 }
       )
+      return addCorsHeaders(request, response)
     }
 
     const supabase = createClient(supabaseUrl, supabaseAnonKey)
@@ -82,19 +86,21 @@ export async function GET(request: NextRequest) {
       })
     }
 
-    return NextResponse.json({
+    const successResponse = NextResponse.json({
       success: true,
       balance: balance || 0,
       user_id: user.partner_id,
       user_role: user.role,
       wallet_type: 'primary'
     })
+    return addCorsHeaders(request, successResponse)
   } catch (error: any) {
     console.error('Error in wallet balance API:', error)
-    return NextResponse.json(
+    const errorResponse = NextResponse.json(
       { error: error.message || 'Internal server error' },
       { status: 500 }
     )
+    return addCorsHeaders(request, errorResponse)
   }
 }
 

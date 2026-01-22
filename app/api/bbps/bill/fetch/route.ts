@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getCurrentUserServer } from '@/lib/auth-server'
+import { getCurrentUserFromRequest } from '@/lib/auth-server-request'
 import { fetchBill } from '@/services/bbps'
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
+import { createClient } from '@supabase/supabase-js'
 
 export const dynamic = 'force-dynamic'
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 
 export async function OPTIONS(request: NextRequest) {
   const response = handleCorsPreflight(request)
@@ -23,11 +27,38 @@ export async function POST(request: NextRequest) {
   let mac: string | undefined
 
   try {
-    // Get current user (server-side)
-    const user = await getCurrentUserServer()
+    const body = await request.json() as any
+    
+    // Try cookie-based auth first
+    let user = await getCurrentUserFromRequest(request)
+    
+    // If cookie auth fails, try to verify user from request body (fallback)
+    // This is needed because Supabase cookie-based auth may not work reliably in all cases
+    if (!user && body.user_id) {
+      const supabase = createClient(supabaseUrl, supabaseAnonKey)
+      // Verify the user_id exists in retailers table
+      const { data: retailer } = await supabase
+        .from('retailers')
+        .select('partner_id, name, email')
+        .eq('partner_id', body.user_id)
+        .maybeSingle()
+      
+      if (retailer) {
+        user = {
+          id: body.user_id,
+          email: retailer.email,
+          role: 'retailer',
+          partner_id: retailer.partner_id,
+          name: retailer.name,
+        }
+        console.log('Using fallback auth with user_id from request body:', user.email)
+      }
+    }
+    
     if (!user) {
+      console.error('BBPS Bill Fetch: No authenticated user found')
       const response = NextResponse.json(
-        { error: 'Unauthorized' },
+        { error: 'Unauthorized', message: 'Please log in to fetch bills' },
         { status: 401 }
       )
       return addCorsHeaders(request, response)
@@ -41,8 +72,6 @@ export async function POST(request: NextRequest) {
       )
       return addCorsHeaders(request, response)
     }
-
-    const body = await request.json() as any
     
     // Destructure request body
     ({

@@ -7,6 +7,7 @@ import {
   Bell, Search, Settings, LogOut, User, Moon, Sun, 
   ChevronDown, ShoppingCart
 } from 'lucide-react'
+
 import { motion, AnimatePresence } from 'framer-motion'
 
 export default function RetailerHeader() {
@@ -57,9 +58,24 @@ export default function RetailerHeader() {
       
       // Clear any cached data
       localStorage.removeItem('retailerDarkMode')
+      localStorage.removeItem('auth_user')
+      localStorage.removeItem('auth_user_timestamp')
+      
+      // Clear all Supabase related items from storage
+      const keysToRemove: string[] = []
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i)
+        if (key && (key.includes('supabase') || key.includes('sb-'))) {
+          keysToRemove.push(key)
+        }
+      }
+      keysToRemove.forEach(key => localStorage.removeItem(key))
       
       // Logout and wait for it to complete
       await logout()
+      
+      // Small delay to ensure state is cleared
+      await new Promise(resolve => setTimeout(resolve, 100))
     } catch (error) {
       console.error('Logout error:', error)
     } finally {

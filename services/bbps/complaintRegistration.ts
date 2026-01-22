@@ -101,6 +101,7 @@ export async function complaintRegistration(
     }
 
     // Make API request
+    // Endpoint: /api/ba/complaintRegistration
     const response = await bbpsClient.request<BBPSComplaintRegistrationResponse>({
       method: 'POST',
       endpoint: '/complaintRegistration',

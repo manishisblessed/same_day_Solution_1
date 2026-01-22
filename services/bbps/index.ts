@@ -85,3 +85,5 @@ export type { ComplaintRegistrationParams } from './complaintRegistration'
 export { complaintTracking } from './complaintTracking'
 export type { ComplaintTrackingParams } from './complaintTracking'
 
+export { getBBPSWalletBalance } from './getWalletBalance'
+

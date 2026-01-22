@@ -86,7 +86,7 @@ export async function payRequest(
     agentTransactionId,
     inputParams,
     name = 'Utility',
-    subServiceName = 'BBPS Bill payment',
+    subServiceName = 'Credit Card', // Default - must match exact category name from API docs
     initChannel = 'AGT',
     mac = '01-23-45-67-89-ab',
     custConvFee = '0',
@@ -167,20 +167,18 @@ export async function payRequest(
       requestBody.billerResponse = billerResponse
     }
 
-    // PayRequest uses different base URL: https://api.sparkuptech.in/api (not /api/ba)
-    // Extract base URL and remove /ba if present
-    const baseUrl = getBBPSBaseUrl()
-    const payRequestBaseUrl = baseUrl.replace('/ba', '') || 'https://api.sparkuptech.in/api'
+    // PayRequest endpoint: /api/ba/bbps/payRequest (same base URL as other endpoints)
+    // According to API docs, it uses the same headers (partnerid, consumerkey, consumersecret)
+    // No Authorization Bearer token required per API documentation
     
     // Make API request
     const response = await bbpsClient.request<BBPSPayRequestResponse>({
       method: 'POST',
-      endpoint: '/payRequest',
+      endpoint: '/bbps/payRequest',
       body: requestBody,
       reqId,
       billerId,
-      baseUrl: payRequestBaseUrl,
-      includeAuthToken: true, // PayRequest requires Authorization Bearer token
+      includeAuthToken: false, // API docs show same headers as other endpoints, no Bearer token
     })
 
     const apiResponse = response.data

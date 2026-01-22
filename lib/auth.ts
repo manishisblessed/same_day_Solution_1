@@ -11,6 +11,33 @@ export async function signIn(email: string, password: string, role: UserRole) {
 
     if (authError) throw authError
 
+    // CRITICAL: Sync session to cookies so API routes can access it
+    // The createBrowserClient stores in localStorage, but API routes need cookies
+    // Call sync endpoint to ensure cookies are set on the server
+    if (authData.session && typeof window !== 'undefined') {
+      try {
+        // Call sync endpoint to set cookies on server
+        // This is CRITICAL for API routes to work
+        const syncResponse = await fetch('/api/auth/sync-session', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include', // CRITICAL: Include cookies
+          body: JSON.stringify({
+            access_token: authData.session.access_token,
+            refresh_token: authData.session.refresh_token,
+          }),
+        })
+        
+        if (!syncResponse.ok) {
+          console.warn('Session sync returned non-OK status:', syncResponse.status)
+        }
+      } catch (syncError) {
+        // This is CRITICAL - if sync fails, API routes won't work
+        console.error('CRITICAL: Failed to sync session to cookies:', syncError)
+        // Don't throw - let the login complete, but log the error
+      }
+    }
+
     // Then verify the user exists in the appropriate table
     let userData = null
     let tableName = ''

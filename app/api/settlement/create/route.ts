@@ -13,21 +13,25 @@ function generateIdempotencyKey(prefix: string): string {
 export const runtime = 'nodejs' // Force Node.js runtime (Supabase not compatible with Edge Runtime)
 export const dynamic = 'force-dynamic'
 
-// Calculate settlement charge based on amount
+// FIX: Calculate settlement charge based on amount slabs
+// Query: min_amount <= amount <= max_amount
 async function calculateSettlementCharge(supabase: SupabaseClient, amount: number): Promise<number> {
   const { data: slabs, error } = await supabase
     .from('settlement_charge_slabs')
     .select('charge')
     .eq('is_active', true)
-    .gte('min_amount', amount)
-    .lte('max_amount', amount)
+    .lte('min_amount', amount) // FIX: min_amount <= amount
+    .gte('max_amount', amount) // FIX: max_amount >= amount
     .order('charge', { ascending: true })
     .limit(1)
     .single()
 
   if (error || !slabs) {
-    // Default charge if no slab found
-    return 20
+    // Default charge if no slab found - use slab-based defaults
+    if (amount <= 49999) return 20
+    if (amount <= 99999) return 30
+    if (amount <= 149999) return 50
+    return 70
   }
 
   return parseFloat(slabs.charge.toString())
@@ -192,6 +196,30 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: limitCheck.reason },
         { status: 403 }
+      )
+    }
+
+    // FIX: Prevent duplicate pending settlements (race condition protection)
+    // Check if there's already a pending/processing settlement for this user
+    const { data: existingSettlement } = await supabase
+      .from('settlements')
+      .select('id, status, amount, created_at')
+      .eq('user_id', user.partner_id)
+      .in('status', ['pending', 'processing'])
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    if (existingSettlement) {
+      return NextResponse.json(
+        { 
+          error: 'A settlement is already in progress',
+          existing_settlement_id: existingSettlement.id,
+          existing_amount: existingSettlement.amount,
+          existing_status: existingSettlement.status,
+          message: 'Please wait for the current settlement to complete or be rejected before creating a new one.'
+        },
+        { status: 409 } // Conflict
       )
     }
 

@@ -6,10 +6,10 @@ import { useAuth } from '@/contexts/AuthContext'
 import AnimatedSection from '@/components/AnimatedSection'
 import AnimatedCard from '@/components/AnimatedCard'
 import Link from 'next/link'
-import { AlertCircle } from 'lucide-react'
+import { AlertCircle, Loader2 } from 'lucide-react'
 
 export default function BusinessLogin() {
-  const { user, login } = useAuth()
+  const { user, login, loading: authLoading } = useAuth()
   const router = useRouter()
   const [userType, setUserType] = useState<'retailer' | 'distributor' | 'master-distributor' | null>(null)
   const [formData, setFormData] = useState({
@@ -19,14 +19,42 @@ export default function BusinessLogin() {
   })
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [mounted, setMounted] = useState(false)
+
+  // Wait for component to mount
+  useEffect(() => {
+    setMounted(true)
+  }, [])
+
+  // Timeout to prevent infinite loading (max 2 seconds wait)
+  const [forceShow, setForceShow] = useState(false)
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setForceShow(true)
+    }, 1500) // Show page after 1.5 seconds even if still loading
+    return () => clearTimeout(timer)
+  }, [])
 
   useEffect(() => {
-    if (user) {
+    // Only redirect if auth is done loading and user exists
+    if (!authLoading && user) {
       if (user.role === 'retailer') router.push('/dashboard/retailer')
       else if (user.role === 'distributor') router.push('/dashboard/distributor')
       else if (user.role === 'master_distributor') router.push('/dashboard/master-distributor')
     }
-  }, [user, router])
+  }, [user, router, authLoading])
+
+  // Show loading while auth is initializing (max 1.5 seconds)
+  if (!mounted || (authLoading && !forceShow)) {
+    return (
+      <div className="min-h-screen bg-white flex items-center justify-center">
+        <div className="text-center">
+          <Loader2 className="w-8 h-8 animate-spin text-primary-600 mx-auto mb-4" />
+          <p className="text-gray-600">Loading...</p>
+        </div>
+      </div>
+    )
+  }
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value, type, checked } = e.target
@@ -45,12 +73,21 @@ export default function BusinessLogin() {
       const role = userType === 'master-distributor' ? 'master_distributor' : userType
       await login(formData.email, formData.password, role!)
       
-      if (userType === 'retailer') router.push('/dashboard/retailer')
-      else if (userType === 'distributor') router.push('/dashboard/distributor')
-      else if (userType === 'master-distributor') router.push('/dashboard/master-distributor')
+      // Wait for session cookies to be fully processed by the browser
+      // This is critical - without this delay, the redirect may happen before cookies are set
+      await new Promise(resolve => setTimeout(resolve, 500))
+      
+      // Use router.push for client-side navigation to preserve auth state
+      // This prevents full page reload which could lose the session
+      if (userType === 'retailer') {
+        router.push('/dashboard/retailer')
+      } else if (userType === 'distributor') {
+        router.push('/dashboard/distributor')
+      } else if (userType === 'master-distributor') {
+        router.push('/dashboard/master-distributor')
+      }
     } catch (err: any) {
       setError(err.message || 'Invalid credentials')
-    } finally {
       setLoading(false)
     }
   }

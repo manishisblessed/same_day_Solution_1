@@ -7,6 +7,7 @@ import {
   LayoutDashboard, ShoppingCart, Activity, 
   Settings, TrendingUp, CreditCard, X, Menu, Zap
 } from 'lucide-react'
+
 import { motion, AnimatePresence } from 'framer-motion'
 
 interface SidebarItem {

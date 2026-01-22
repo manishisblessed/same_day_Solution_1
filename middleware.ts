@@ -2,49 +2,30 @@ import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
 export async function middleware(request: NextRequest) {
-  // For API routes, ensure we always return JSON responses
-  // This prevents HTML error pages from being returned
-  // EXCEPT for routes that handle file uploads (multipart/form-data)
-  if (request.nextUrl.pathname.startsWith('/api/')) {
-    // Skip Content-Type override for file upload routes
-    const isFileUploadRoute = request.nextUrl.pathname.includes('/upload-document') ||
-                              request.nextUrl.pathname.includes('/bulk-upload')
-    
-    try {
-      let response = NextResponse.next({
-        request: {
-          headers: request.headers,
-        },
-      })
-
-      // Only set JSON content type for non-file-upload API routes
-      if (!isFileUploadRoute) {
-        response.headers.set('Content-Type', 'application/json')
-      }
-      
-      // Only handle Supabase auth for non-API routes or specific API routes that need it
-      // Most API routes handle their own authentication
-      return response
-    } catch (error: any) {
-      // If middleware fails, return JSON error instead of HTML
-      return NextResponse.json(
-        { 
-          error: 'Middleware error',
-          message: error.message || 'An error occurred in middleware'
-        },
-        { status: 500 }
-      )
-    }
-  }
-
-  // For non-API routes, handle Supabase session refresh
+  // Create response early so we can set cookies
   let response = NextResponse.next({
     request: {
       headers: request.headers,
     },
   })
 
+  // For API routes, ensure we always return JSON responses
+  // This prevents HTML error pages from being returned
+  // EXCEPT for routes that handle file uploads (multipart/form-data)
+  const isApiRoute = request.nextUrl.pathname.startsWith('/api/')
+  const isFileUploadRoute = request.nextUrl.pathname.includes('/upload-document') ||
+                            request.nextUrl.pathname.includes('/bulk-upload')
+
   try {
+    // Get request cookies for later use
+    const requestCookies = request.cookies.getAll()
+    
+    // Note: We removed the aggressive "corrupted cookie" detection that was
+    // incorrectly clearing valid Supabase session cookies. Supabase SSR cookies
+    // legitimately contain JSON data, so checking for '{' was wrong.
+
+    // Handle Supabase session refresh for ALL routes (including API routes)
+    // This ensures session cookies are properly refreshed before API routes try to use them
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -63,10 +44,27 @@ export async function middleware(request: NextRequest) {
       }
     )
 
-    // Refresh session if expired - required for Server Components
+    // Refresh session if expired - required for both Server Components and API routes
+    // Use getSession() to refresh the session and update cookies
+    // The setAll callback above will update both request.cookies and response.cookies
     const {
-      data: { user },
-    } = await supabase.auth.getUser()
+      data: { session },
+      error: sessionError,
+    } = await supabase.auth.getSession()
+    
+    // Note: We removed aggressive cookie clearing on session errors.
+    // The session might just be expired or the user not logged in yet.
+    // Let the app handle authentication state, not the middleware.
+
+    // For API routes, set JSON content type and return
+    // The refreshed session cookies are set in both request and response
+    // API routes should read from request.cookies (via getCurrentUserFromRequest)
+    if (isApiRoute) {
+      if (!isFileUploadRoute) {
+        response.headers.set('Content-Type', 'application/json')
+      }
+      return response
+    }
 
     // If user is signed in and the current path is /login, redirect to appropriate dashboard based on role
     // Note: We can't determine role from middleware without additional queries, so we'll let the app handle this

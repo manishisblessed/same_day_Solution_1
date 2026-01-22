@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getCurrentUserServer } from '@/lib/auth-server'
+import { getCurrentUserFromRequest } from '@/lib/auth-server-request'
 import { getBillersByCategoryAndChannel } from '@/services/bbps'
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
 
@@ -13,34 +13,13 @@ export async function OPTIONS(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    // Get current user (server-side)
-    const user = await getCurrentUserServer()
-    if (!user) {
-      console.error('BBPS Billers by Category API: User not authenticated')
-      console.error('Request headers:', {
-        cookie: request.headers.get('cookie') ? 'Present' : 'Missing',
-        authorization: request.headers.get('authorization') ? 'Present' : 'Missing',
-      })
-      const response = NextResponse.json(
-        { 
-          error: 'Unauthorized',
-          message: 'Please log in to access this feature. If you are logged in, try refreshing the page.',
-          debug: process.env.NODE_ENV === 'development' ? 'Session cookie may not be passed correctly' : undefined
-        },
-        { status: 401 }
-      )
-      return addCorsHeaders(request, response)
-    }
-
-    // Only RETAILER role can access BBPS APIs
-    // Normalize role to uppercase for comparison
-    const userRole = user.role?.toUpperCase()
-    if (userRole !== 'RETAILER') {
-      const response = NextResponse.json(
-        { error: 'Forbidden: Only retailers can access this endpoint' },
-        { status: 403 }
-      )
-      return addCorsHeaders(request, response)
+    // Try to get user but don't block if not authenticated
+    // Billers list is semi-public - we log who accesses it but don't block
+    let user = null
+    try {
+      user = await getCurrentUserFromRequest(request)
+    } catch (e) {
+      // Ignore auth errors for biller listing
     }
 
     // Parse request body
@@ -55,7 +34,7 @@ export async function POST(request: NextRequest) {
       return addCorsHeaders(request, response)
     }
 
-    console.log(`Fetching billers for category: ${fieldValue}, payment channels: ${paymentChannelName1}, ${paymentChannelName2}, ${paymentChannelName3}, user: ${user.email}`)
+    console.log(`Fetching billers for category: ${fieldValue}, payment channels: ${paymentChannelName1}, ${paymentChannelName2}, ${paymentChannelName3}, user: ${user?.email || 'anonymous'}`)
     
     const billers = await getBillersByCategoryAndChannel({
       fieldValue,

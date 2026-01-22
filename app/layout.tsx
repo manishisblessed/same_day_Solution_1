@@ -11,6 +11,11 @@ export const metadata: Metadata = {
   title: 'Same Day Solution Pvt. Ltd. - Fast. Secure. Same-Day Fintech Solutions',
   description: 'Leading fintech solutions provider offering digital payments, lending solutions, merchant services, and secure financial technology services.',
   keywords: 'fintech, digital payments, lending solutions, merchant services, KYC, financial technology',
+  icons: {
+    icon: '/LOGO_Same_Day.jpeg',
+    shortcut: '/LOGO_Same_Day.jpeg',
+    apple: '/LOGO_Same_Day.jpeg',
+  },
   openGraph: {
     url: 'https://samedaysolution.in',
     siteName: 'Same Day Solution Pvt. Ltd.',

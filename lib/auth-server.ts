@@ -1,5 +1,6 @@
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
+import { NextRequest } from 'next/server'
 import { AuthUser } from '@/types/database.types'
 import { ReadonlyRequestCookies } from 'next/dist/server/web/spec-extension/adapters/request-cookies'
 
@@ -7,13 +8,29 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 
 /**
- * Get current user from server-side (for API routes)
- * Supports both direct cookie access and request-based cookie access
+ * Get current user from server-side (for API routes and Server Components)
+ * Uses next/headers cookies() which automatically reads from the incoming request
+ * Middleware refreshes the session before API routes run
  */
-export async function getCurrentUserServer(requestCookies?: ReadonlyRequestCookies): Promise<AuthUser | null> {
+export async function getCurrentUserServer(
+  requestCookies?: ReadonlyRequestCookies
+): Promise<AuthUser | null> {
   try {
     // Use provided cookies or get from next/headers
+    // In API routes, await cookies() automatically reads from the incoming request
+    // Middleware refreshes the session before API routes execute
     const cookieStore = requestCookies || await cookies()
+    
+    // Debug: Log cookie names to help diagnose issues
+    const allCookies = cookieStore.getAll()
+    const supabaseCookieNames = allCookies
+      .map(c => c.name)
+      .filter(name => name.includes('supabase') || name.includes('sb-'))
+    
+    if (supabaseCookieNames.length === 0) {
+      console.error('No Supabase session cookies found. User may need to log in again.')
+      console.error('Available cookies:', allCookies.map(c => c.name).join(', ') || 'none')
+    }
     
     const supabase = createServerClient(
       supabaseUrl,
@@ -37,6 +54,18 @@ export async function getCurrentUserServer(requestCookies?: ReadonlyRequestCooki
         },
       }
     )
+
+    // Try to get session first, then user
+    const { data: { session }, error: sessionError } = await supabase.auth.getSession()
+    
+    if (sessionError) {
+      console.error('Supabase session error:', sessionError.message)
+    }
+    
+    if (!session) {
+      console.error('No Supabase session found. User may need to log in again.')
+      return null
+    }
 
     const { data: { user }, error } = await supabase.auth.getUser()
     

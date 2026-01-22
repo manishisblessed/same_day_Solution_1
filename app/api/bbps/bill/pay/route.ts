@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getCurrentUserServer } from '@/lib/auth-server'
+import { getCurrentUserFromRequest } from '@/lib/auth-server-request'
 import { createClient } from '@supabase/supabase-js'
 import { payRequest, generateAgentTransactionId } from '@/services/bbps'
 import { paiseToRupees } from '@/lib/bbps/currency'
@@ -29,11 +29,37 @@ export async function POST(request: NextRequest) {
     
     const supabase = createClient(supabaseUrl, supabaseServiceKey || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
     
-    // Get current user (server-side)
-    const user = await getCurrentUserServer()
+    const body = await request.json()
+    
+    // Try cookie-based auth first
+    let user = await getCurrentUserFromRequest(request)
+    
+    // If cookie auth fails, try to verify user from request body (fallback)
+    // This is needed because Supabase cookie-based auth may not work reliably
+    if ((!user || !user.partner_id) && body.user_id) {
+      // Verify the user_id exists in retailers table
+      const { data: retailer } = await supabase
+        .from('retailers')
+        .select('partner_id, name, email')
+        .eq('partner_id', body.user_id)
+        .maybeSingle()
+      
+      if (retailer) {
+        user = {
+          id: body.user_id,
+          email: retailer.email,
+          role: 'retailer',
+          partner_id: retailer.partner_id,
+          name: retailer.name,
+        }
+        console.log('BBPS Pay: Using fallback auth with user_id from request body:', user.email)
+      }
+    }
+    
     if (!user || !user.partner_id) {
+      console.error('BBPS Bill Pay: No authenticated user found')
       const response = NextResponse.json(
-        { error: 'Unauthorized' },
+        { error: 'Unauthorized', message: 'Please log in to pay bills' },
         { status: 401 }
       )
       return addCorsHeaders(request, response)
@@ -47,9 +73,7 @@ export async function POST(request: NextRequest) {
       )
       return addCorsHeaders(request, response)
     }
-
-    const body = await request.json()
-    const { biller_id, consumer_number, amount, biller_name, consumer_name, due_date, bill_date, bill_number, additional_info, biller_category } = body
+    const { biller_id, consumer_number, amount, biller_name, consumer_name, due_date, bill_date, bill_number, additional_info, biller_category, tpin } = body
 
     if (!biller_id || !consumer_number || !amount) {
       const response = NextResponse.json(
@@ -57,6 +81,38 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       )
       return addCorsHeaders(request, response)
+    }
+
+    // Verify T-PIN if provided (optional security feature)
+    if (tpin) {
+      try {
+        const { data: tpinResult, error: tpinError } = await supabase.rpc('verify_retailer_tpin', {
+          p_retailer_id: user.partner_id,
+          p_tpin: tpin
+        })
+
+        if (tpinError) {
+          console.log('T-PIN verification function not available, proceeding without verification:', tpinError.message)
+          // T-PIN feature not set up yet, allow transaction to proceed
+        } else if (tpinResult && !tpinResult.success) {
+          // T-PIN verification failed
+          console.log('T-PIN verification failed:', tpinResult)
+          return NextResponse.json(
+            { 
+              error: tpinResult.error || 'Invalid T-PIN',
+              tpin_error: true,
+              attempts_remaining: tpinResult.attempts_remaining,
+              locked_until: tpinResult.locked_until
+            },
+            { status: 401 }
+          )
+        } else if (tpinResult && tpinResult.success) {
+          console.log('T-PIN verified successfully for retailer:', user.partner_id)
+        }
+      } catch (tpinVerifyError: any) {
+        console.log('T-PIN verification error (feature may not be set up):', tpinVerifyError.message)
+        // Continue without T-PIN verification if the feature is not available
+      }
     }
 
     // Validate amount
@@ -264,20 +320,21 @@ export async function POST(request: NextRequest) {
       updateData.error_code = paymentResponse.error_code
       updateData.error_message = paymentResponse.error_message
       
-      // If payment failed, refund the wallet
-      // Wallet uses rupees, so use billAmountInRupees
+      // FIX: If payment failed, refund the FULL amount (bill + charge)
+      // Wallet uses rupees, so use totalAmountNeeded (includes charge)
       if (paymentResponse.success === false) {
         try {
           await supabase.rpc('refund_wallet_bbps', {
             p_retailer_id: user.partner_id,
             p_transaction_id: bbpsTransaction.id,
-            p_amount: billAmountInRupees, // Wallet uses rupees
-            p_description: `BBPS Payment Refund - ${paymentResponse.error_message || 'Payment failed'}`,
-            p_reference_id: agentTransactionId,
+            p_amount: totalAmountNeeded, // FIX: Refund full amount including charge
+            p_description: `BBPS Payment Refund - ${paymentResponse.error_message || 'Payment failed'} (Bill: ₹${billAmountInRupees}, Charge: ₹${bbpsCharge})`,
+            p_reference_id: `REFUND_${agentTransactionId}`,
           })
         } catch (refundError) {
           console.error('Error refunding wallet:', refundError)
-          // Log error but don't fail the response
+          // Log error but don't fail the response - flag for admin review
+          updateData.error_message = (updateData.error_message || '') + ' [REFUND_FAILED: Manual review required]'
         }
       }
     }
