@@ -4,9 +4,6 @@ import { NextRequest } from 'next/server'
 import { AuthUser } from '@/types/database.types'
 import { ReadonlyRequestCookies } from 'next/dist/server/web/spec-extension/adapters/request-cookies'
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-
 /**
  * Get current user from server-side (for API routes and Server Components)
  * Uses next/headers cookies() which automatically reads from the incoming request
@@ -16,6 +13,15 @@ export async function getCurrentUserServer(
   requestCookies?: ReadonlyRequestCookies
 ): Promise<AuthUser | null> {
   try {
+    // Get env vars at runtime, not module load
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+    
+    if (!supabaseUrl || !supabaseAnonKey) {
+      console.error('Supabase environment variables not configured')
+      return null
+    }
+    
     // Use provided cookies or get from next/headers
     // In API routes, await cookies() automatically reads from the incoming request
     // Middleware refreshes the session before API routes execute

@@ -1,14 +1,23 @@
-import { createClient } from '@supabase/supabase-js'
+import { createClient, SupabaseClient } from '@supabase/supabase-js'
 import { RazorpayTransaction, POSTerminal, WalletLedgerEntry } from '@/types/database.types'
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
+// Lazy initialization - don't create client at module load time
+let _supabase: SupabaseClient | null = null
 
-if (!supabaseServiceKey) {
-  console.warn('SUPABASE_SERVICE_ROLE_KEY not set. Wallet operations may fail.')
+function getSupabase(): SupabaseClient {
+  if (!_supabase) {
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+    if (!supabaseUrl) {
+      throw new Error('NEXT_PUBLIC_SUPABASE_URL not configured')
+    }
+    if (!supabaseServiceKey) {
+      console.warn('SUPABASE_SERVICE_ROLE_KEY not set. Wallet operations may fail.')
+    }
+    _supabase = createClient(supabaseUrl, supabaseServiceKey || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
+  }
+  return _supabase
 }
-
-const supabase = createClient(supabaseUrl, supabaseServiceKey || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
 
 // Razorpay API configuration
 const RAZORPAY_KEY_ID = process.env.RAZORPAY_KEY_ID
@@ -37,7 +46,7 @@ export function calculateMDR(grossAmount: number, mdrRate: number = DEFAULT_MDR_
  * Get POS terminal by TID
  */
 export async function getPOSTerminalByTID(tid: string): Promise<POSTerminal | null> {
-  const { data, error } = await supabase
+  const { data, error } = await getSupabase()
     .from('pos_terminals')
     .select('*')
     .eq('tid', tid)
@@ -70,7 +79,7 @@ export async function processRazorpayTransaction(
 ): Promise<{ success: boolean; transactionId?: string; error?: string }> {
   try {
     // Check if transaction already exists
-    const { data: existing } = await supabase
+    const { data: existing } = await getSupabase()
       .from('razorpay_transactions')
       .select('id, wallet_credited')
       .eq('razorpay_payment_id', razorpayPaymentId)
@@ -108,7 +117,7 @@ export async function processRazorpayTransaction(
     const transactionStatus = mapRazorpayStatus(paymentData.status)
 
     // Insert transaction
-    const { data: transaction, error: insertError } = await supabase
+    const { data: transaction, error: insertError } = await getSupabase()
       .from('razorpay_transactions')
       .insert({
         razorpay_payment_id: razorpayPaymentId,
@@ -198,7 +207,7 @@ export function mapTransactionStatus(payload: any): 'CAPTURED' | 'FAILED' | 'PEN
 export async function creditWalletForTransaction(transactionId: string): Promise<boolean> {
   try {
     // Get transaction
-    const { data: transaction, error: txError } = await supabase
+    const { data: transaction, error: txError } = await getSupabase()
       .from('razorpay_transactions')
       .select('*')
       .eq('id', transactionId)
@@ -220,7 +229,7 @@ export async function creditWalletForTransaction(transactionId: string): Promise
     }
 
     // Call database function to credit wallet (idempotent)
-    const { data: ledgerId, error: creditError } = await supabase.rpc('credit_wallet', {
+    const { data: ledgerId, error: creditError } = await getSupabase().rpc('credit_wallet', {
       p_retailer_id: transaction.retailer_id,
       p_transaction_id: transactionId,
       p_amount: transaction.net_amount,
@@ -236,7 +245,7 @@ export async function creditWalletForTransaction(transactionId: string): Promise
     // Calculate and distribute commissions to distributor and master distributor
     if (transaction.distributor_id || transaction.master_distributor_id) {
       try {
-        const { error: commissionError } = await supabase.rpc('process_transaction_commission', {
+        const { error: commissionError } = await getSupabase().rpc('process_transaction_commission', {
           p_transaction_id: transactionId,
           p_transaction_type: 'pos',
           p_gross_amount: transaction.gross_amount,
@@ -326,7 +335,7 @@ export function verifyWebhookSignature(
  */
 export async function getWalletBalance(retailerId: string): Promise<number> {
   try {
-    const { data, error } = await supabase.rpc('get_wallet_balance', {
+    const { data, error } = await getSupabase().rpc('get_wallet_balance', {
       p_retailer_id: retailerId
     })
 
@@ -351,7 +360,7 @@ export async function getWalletLedger(
   offset: number = 0
 ): Promise<WalletLedgerEntry[]> {
   try {
-    const { data, error } = await supabase
+    const { data, error } = await getSupabase()
       .from('wallet_ledger')
       .select('*')
       .eq('retailer_id', retailerId)

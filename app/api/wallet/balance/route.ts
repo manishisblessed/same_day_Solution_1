@@ -6,9 +6,6 @@ import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
 // Mark this route as dynamic (uses cookies for authentication)
 export const dynamic = 'force-dynamic'
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-
 export async function OPTIONS(request: NextRequest) {
   const response = handleCorsPreflight(request)
   return response || new NextResponse(null, { status: 204 })
@@ -16,6 +13,18 @@ export async function OPTIONS(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   try {
+    // Get env vars at runtime, not module load
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+    
+    if (!supabaseUrl || !supabaseAnonKey) {
+      const errorResponse = NextResponse.json(
+        { error: 'Supabase configuration missing' },
+        { status: 500 }
+      )
+      return addCorsHeaders(request, errorResponse)
+    }
+    
     // Get current user from request - reads cookies directly from request object
     // This is more reliable than using cookies() from next/headers in API routes
     const user = await getCurrentUserFromRequest(request)

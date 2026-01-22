@@ -1,9 +1,19 @@
-import { createClient } from '@supabase/supabase-js'
+import { createClient, SupabaseClient } from '@supabase/supabase-js'
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
+// Lazy initialization - don't create client at module load time
+let _supabase: SupabaseClient | null = null
 
-const supabase = createClient(supabaseUrl, supabaseServiceKey)
+function getSupabase(): SupabaseClient {
+  if (!_supabase) {
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+    if (!supabaseUrl || !supabaseServiceKey) {
+      throw new Error('Supabase environment variables not configured')
+    }
+    _supabase = createClient(supabaseUrl, supabaseServiceKey)
+  }
+  return _supabase
+}
 
 export interface LimitCheckResult {
   allowed: boolean
@@ -22,7 +32,7 @@ export async function checkPerTransactionLimit(
   wallet_type: 'primary' | 'aeps',
   amount: number
 ): Promise<LimitCheckResult> {
-  const { data: limit } = await supabase
+  const { data: limit } = await getSupabase()
     .from('user_limits')
     .select('limit_amount, is_enabled, is_overridden')
     .eq('user_id', user_id)
@@ -59,7 +69,7 @@ export async function checkDailyTransactionLimit(
   wallet_type: 'primary' | 'aeps',
   amount: number
 ): Promise<LimitCheckResult> {
-  const { data: limit } = await supabase
+  const { data: limit } = await getSupabase()
     .from('user_limits')
     .select('limit_amount, is_enabled, is_overridden')
     .eq('user_id', user_id)
@@ -77,7 +87,7 @@ export async function checkDailyTransactionLimit(
   today.setHours(0, 0, 0, 0)
   const todayStart = today.toISOString()
 
-  const { data: todayTransactions } = await supabase
+  const { data: todayTransactions } = await getSupabase()
     .from('wallet_ledger')
     .select('debit')
     .eq('user_id', user_id)
@@ -114,7 +124,7 @@ export async function checkDailyTransactionLimit(
  * Check BBPS limit slabs
  */
 export async function checkBBPSLimitSlab(amount: number): Promise<LimitCheckResult> {
-  const { data: slab } = await supabase
+  const { data: slab } = await getSupabase()
     .from('bbps_limit_slabs')
     .select('min_amount, max_amount, is_enabled')
     .lte('min_amount', amount)

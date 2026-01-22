@@ -1,13 +1,22 @@
-import { createClient } from '@supabase/supabase-js'
+import { createClient, SupabaseClient } from '@supabase/supabase-js'
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
+// Lazy initialization - don't create client at module load time
+let _supabase: SupabaseClient | null = null
 
-if (!supabaseServiceKey) {
-  console.warn('SUPABASE_SERVICE_ROLE_KEY not set. BBPS operations may fail.')
+function getSupabase(): SupabaseClient {
+  if (!_supabase) {
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+    if (!supabaseUrl) {
+      throw new Error('NEXT_PUBLIC_SUPABASE_URL not configured')
+    }
+    if (!supabaseServiceKey) {
+      console.warn('SUPABASE_SERVICE_ROLE_KEY not set. BBPS operations may fail.')
+    }
+    _supabase = createClient(supabaseUrl, supabaseServiceKey || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
+  }
+  return _supabase
 }
-
-const supabase = createClient(supabaseUrl, supabaseServiceKey || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
 
 // BBPS API Configuration
 const BBPS_API_BASE_URL = process.env.BBPS_API_BASE_URL || 'https://api.sparkuptech.in/api/ba'
@@ -185,7 +194,7 @@ export async function fetchBBPSBillers(category?: string): Promise<BBPSBiller[]>
     
     // Also try to get from cache and merge
     if (category) {
-      const { data: cachedBillers } = await supabase
+      const { data: cachedBillers } = await getSupabase()
         .from('bbps_billers')
         .select('*')
         .eq('is_active', true)
@@ -217,7 +226,7 @@ export async function fetchBBPSBillers(category?: string): Promise<BBPSBiller[]>
   try {
     // First, try to get from cache (database) if category matches
     if (category) {
-      const { data: cachedBillers } = await supabase
+      const { data: cachedBillers } = await getSupabase()
         .from('bbps_billers')
         .select('*')
         .eq('is_active', true)
@@ -242,7 +251,7 @@ export async function fetchBBPSBillers(category?: string): Promise<BBPSBiller[]>
       // In local dev, if credentials not set, try to use cached data
       if (USE_MOCK_DATA) {
         console.warn('BBPS API credentials not configured. Using cached data only.')
-        const { data: cachedBillers } = await supabase
+        const { data: cachedBillers } = await getSupabase()
           .from('bbps_billers')
           .select('*')
           .eq('is_active', true)
@@ -288,7 +297,7 @@ export async function fetchBBPSBillers(category?: string): Promise<BBPSBiller[]>
       // Network error - likely IP not whitelisted in local dev
       if (USE_MOCK_DATA && (fetchError.message.includes('ECONNREFUSED') || fetchError.message.includes('timeout'))) {
         console.warn('BBPS API connection failed (likely IP not whitelisted). Using cached data.')
-        const { data: cachedBillers } = await supabase
+        const { data: cachedBillers } = await getSupabase()
           .from('bbps_billers')
           .select('*')
           .eq('is_active', true)
@@ -319,7 +328,7 @@ export async function fetchBBPSBillers(category?: string): Promise<BBPSBiller[]>
       // If unauthorized (401/403) in local dev, likely IP not whitelisted
       if (USE_MOCK_DATA && (response.status === 401 || response.status === 403)) {
         console.warn('BBPS API returned unauthorized (likely IP not whitelisted). Using cached data.')
-        const { data: cachedBillers } = await supabase
+        const { data: cachedBillers } = await getSupabase()
           .from('bbps_billers')
           .select('*')
           .eq('is_active', true)
@@ -369,7 +378,7 @@ export async function fetchBBPSBillers(category?: string): Promise<BBPSBiller[]>
     console.error('Error fetching BBPS billers:', error)
     
     // Fallback to cached billers even if stale
-    let query = supabase
+    let query = getSupabase()
       .from('bbps_billers')
       .select('*')
       .eq('is_active', true)
@@ -421,7 +430,7 @@ function transformCachedBillers(cachedBillers: any[]): BBPSBiller[] {
 async function cacheBillers(billers: BBPSBiller[]): Promise<void> {
   try {
     for (const biller of billers) {
-      await supabase
+      await getSupabase()
         .from('bbps_billers')
         .upsert({
           biller_id: biller.biller_id,

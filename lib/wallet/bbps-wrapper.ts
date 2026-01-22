@@ -6,13 +6,23 @@
  * DO NOT modify existing BBPS API logic.
  */
 
-import { createClient } from '@supabase/supabase-js'
+import { createClient, SupabaseClient } from '@supabase/supabase-js'
 import { checkAllLimits } from '@/lib/limits/enforcement'
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
+// Lazy initialization - don't create client at module load time
+let _supabase: SupabaseClient | null = null
 
-const supabase = createClient(supabaseUrl, supabaseServiceKey)
+function getSupabase(): SupabaseClient {
+  if (!_supabase) {
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+    if (!supabaseUrl || !supabaseServiceKey) {
+      throw new Error('Supabase environment variables not configured')
+    }
+    _supabase = createClient(supabaseUrl, supabaseServiceKey)
+  }
+  return _supabase
+}
 
 export interface BBPSWalletPreDebitResult {
   allowed: boolean
@@ -34,7 +44,7 @@ export async function preDebitWalletForBBPS(
 ): Promise<BBPSWalletPreDebitResult> {
   try {
     // Check if wallet is frozen
-    const { data: wallet } = await supabase
+    const { data: wallet } = await getSupabase()
       .from('wallets')
       .select('is_frozen, balance')
       .eq('user_id', user_id)
@@ -43,7 +53,7 @@ export async function preDebitWalletForBBPS(
 
     if (!wallet) {
       // Ensure wallet exists
-      await supabase.rpc('ensure_wallet', {
+      await getSupabase().rpc('ensure_wallet', {
         p_user_id: user_id,
         p_user_role: user_role,
         p_wallet_type: 'primary'
@@ -74,7 +84,7 @@ export async function preDebitWalletForBBPS(
     }
 
     // Check balance
-    const { data: balance } = await supabase.rpc('get_wallet_balance_v2', {
+    const { data: balance } = await getSupabase().rpc('get_wallet_balance_v2', {
       p_user_id: user_id,
       p_wallet_type: 'primary'
     })
@@ -87,7 +97,7 @@ export async function preDebitWalletForBBPS(
     }
 
     // Debit wallet using unified ledger
-    const { data: ledgerId, error: ledgerError } = await supabase.rpc('add_ledger_entry', {
+    const { data: ledgerId, error: ledgerError } = await getSupabase().rpc('add_ledger_entry', {
       p_user_id: user_id,
       p_user_role: user_role,
       p_wallet_type: 'primary',
@@ -132,7 +142,7 @@ export async function handleBBPSSuccess(
 ): Promise<boolean> {
   try {
     // Update ledger status to completed
-    const { error } = await supabase
+    const { error } = await getSupabase()
       .from('wallet_ledger')
       .update({ status: 'completed' })
       .eq('id', ledger_id)
@@ -162,13 +172,13 @@ export async function handleBBPSFailure(
 ): Promise<boolean> {
   try {
     // Update original ledger entry status to failed
-    await supabase
+    await getSupabase()
       .from('wallet_ledger')
       .update({ status: 'failed' })
       .eq('id', ledger_id)
 
     // Reverse the debit - credit wallet
-    const { error: reversalError } = await supabase.rpc('add_ledger_entry', {
+    const { error: reversalError } = await getSupabase().rpc('add_ledger_entry', {
       p_user_id: user_id,
       p_user_role: user_role,
       p_wallet_type: 'primary',

@@ -6,11 +6,19 @@ import { getCurrentUserServer } from '@/lib/auth-server'
 // Mark this route as dynamic (uses cookies for authentication)
 export const dynamic = 'force-dynamic'
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-
 export async function GET(request: NextRequest) {
   try {
+    // Get env vars at runtime, not module load
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+    
+    if (!supabaseUrl || !supabaseAnonKey) {
+      return NextResponse.json(
+        { error: 'Supabase configuration missing' },
+        { status: 500 }
+      )
+    }
+    
     // Get current user (server-side)
     const user = await getCurrentUserServer()
     if (!user) {
