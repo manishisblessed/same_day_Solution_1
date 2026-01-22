@@ -38,7 +38,9 @@ const nextConfig = {
   },
   
   // Output configuration for production
-  output: 'standalone', // Enable standalone output for better Docker/container support
+  // Note: 'standalone' output is NOT compatible with AWS Amplify
+  // Amplify handles the build output automatically
+  // output: 'standalone',
   // Webpack configuration to ensure path aliases work correctly and optimize performance
   webpack: (config, { isServer }) => {
     // Ensure path aliases are resolved correctly

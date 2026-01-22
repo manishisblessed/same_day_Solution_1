@@ -1,39 +1,61 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js'
 
 // Check if we're in build phase
-// Next.js sets NEXT_PHASE during build, or we can infer from missing env vars
-// and absence of runtime environment indicators
+// Next.js sets NEXT_PHASE during build
 const isBuildPhase = 
   process.env.NEXT_PHASE === 'phase-production-build' ||
-  process.env.NEXT_PHASE === 'phase-export' ||
-  // If env vars are missing and we're not in a known runtime environment, assume build phase
-  (typeof process !== 'undefined' && 
-   !process.env.AWS_LAMBDA_FUNCTION_NAME &&
-   !process.env.VERCEL &&
-   (!process.env.SUPABASE_SERVICE_ROLE_KEY || !process.env.NEXT_PUBLIC_SUPABASE_URL))
+  process.env.NEXT_PHASE === 'phase-export'
 
-// Get environment variables
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+// Lazy initialization for Supabase admin client
+// This ensures environment variables are read at runtime, not at module load time
+let _supabaseAdmin: SupabaseClient | null = null
 
-// Determine URL and key to use
-let url: string
-let key: string
-
-if (isBuildPhase) {
-  // During build phase, use placeholders to avoid errors
-  // The client won't actually be used during build since API routes aren't executed
-  url = supabaseUrl || 'https://placeholder.supabase.co'
-  key = supabaseServiceKey || 'placeholder-key-for-build-phase-only'
-} else {
-  // Runtime: validate and use real values
-  if (!supabaseUrl || !supabaseServiceKey) {
-    throw new Error('Missing Supabase environment variables. Please configure NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY')
+/**
+ * Get Supabase admin client with service role key
+ * Uses lazy initialization to ensure env vars are available at runtime
+ */
+export function getSupabaseAdmin(): SupabaseClient {
+  if (_supabaseAdmin) {
+    return _supabaseAdmin
   }
-  url = supabaseUrl
-  key = supabaseServiceKey
+
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+
+  // During build phase, return a placeholder client that will throw if used
+  if (isBuildPhase) {
+    console.log('[Supabase Admin] Build phase detected, using placeholder client')
+    _supabaseAdmin = createClient(
+      supabaseUrl || 'https://placeholder.supabase.co',
+      supabaseServiceKey || 'placeholder-key-for-build-phase-only'
+    )
+    return _supabaseAdmin
+  }
+
+  // Runtime validation
+  if (!supabaseUrl) {
+    console.error('[Supabase Admin] NEXT_PUBLIC_SUPABASE_URL is missing')
+    console.error('[Supabase Admin] Available env vars:', Object.keys(process.env).filter(k => k.includes('SUPABASE')))
+    throw new Error('NEXT_PUBLIC_SUPABASE_URL is not configured')
+  }
+
+  if (!supabaseServiceKey) {
+    console.error('[Supabase Admin] SUPABASE_SERVICE_ROLE_KEY is missing')
+    console.error('[Supabase Admin] Available env vars:', Object.keys(process.env).filter(k => k.includes('SUPABASE')))
+    throw new Error('SUPABASE_SERVICE_ROLE_KEY is not configured. Please add it to your environment variables.')
+  }
+
+  _supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey)
+  return _supabaseAdmin
 }
 
-// Create the client - during build this uses placeholders, at runtime it uses real values
-export const supabaseAdmin: SupabaseClient = createClient(url, key)
+// For backward compatibility - exports a getter that initializes on first use
+// WARNING: Direct access to supabaseAdmin may cause issues if env vars are not yet available
+// Prefer using getSupabaseAdmin() function instead
+export const supabaseAdmin: SupabaseClient = new Proxy({} as SupabaseClient, {
+  get(target, prop) {
+    const client = getSupabaseAdmin()
+    return (client as any)[prop]
+  }
+})
 

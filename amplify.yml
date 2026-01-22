@@ -4,9 +4,15 @@ frontend:
     preBuild:
       commands:
         - npm ci
-        # Echo to verify env vars are available (will show masked values)
+        # Verify environment variables are available at build time
+        - echo "=== Environment Variables Check ==="
         - echo "NEXT_PUBLIC_SUPABASE_URL is set = $(if [ -n \"$NEXT_PUBLIC_SUPABASE_URL\" ]; then echo 'YES'; else echo 'NO'; fi)"
         - echo "NEXT_PUBLIC_SUPABASE_ANON_KEY is set = $(if [ -n \"$NEXT_PUBLIC_SUPABASE_ANON_KEY\" ]; then echo 'YES'; else echo 'NO'; fi)"
+        - echo "SUPABASE_SERVICE_ROLE_KEY is set = $(if [ -n \"$SUPABASE_SERVICE_ROLE_KEY\" ]; then echo 'YES'; else echo 'NO'; fi)"
+        - echo "BBPS_PARTNER_ID is set = $(if [ -n \"$BBPS_PARTNER_ID\" ]; then echo 'YES'; else echo 'NO'; fi)"
+        - echo "BBPS_CONSUMER_KEY is set = $(if [ -n \"$BBPS_CONSUMER_KEY\" ]; then echo 'YES'; else echo 'NO'; fi)"
+        - echo "BBPS_CONSUMER_SECRET is set = $(if [ -n \"$BBPS_CONSUMER_SECRET\" ]; then echo 'YES'; else echo 'NO'; fi)"
+        - echo "==================================="
     build:
       commands:
         - npm run build
