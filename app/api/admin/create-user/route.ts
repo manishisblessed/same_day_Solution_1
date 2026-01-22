@@ -1,13 +1,25 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { createClient, SupabaseClient } from '@supabase/supabase-js'
 import { getCurrentUserServer } from '@/lib/auth-server'
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
-
-const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey)
-
 export const dynamic = 'force-dynamic'
+
+// Lazy initialization to avoid build-time errors
+let supabase: SupabaseClient | null = null
+
+function getSupabaseAdmin(): SupabaseClient {
+  if (!supabase) {
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+    
+    if (!supabaseUrl || !supabaseServiceKey) {
+      throw new Error('Supabase environment variables not configured')
+    }
+    
+    supabase = createClient(supabaseUrl, supabaseServiceKey)
+  }
+  return supabase
+}
 
 /**
  * Create user (retailer, distributor, or master distributor)
@@ -42,9 +54,12 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Get Supabase admin client
+    const supabase = getSupabaseAdmin()
+
     // Check admin permissions (super_admin or sub_admin with 'users' department)
     // Use timeout for database query
-    const adminQueryPromise = supabaseAdmin
+    const adminQueryPromise = supabase
       .from('admin_users')
       .select('id, admin_type, department, departments, is_active')
       .eq('email', admin.email)
@@ -134,7 +149,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Create auth user with timeout
-    const createUserPromise = supabaseAdmin.auth.admin.createUser({
+    const createUserPromise = supabase.auth.admin.createUser({
       email,
       password,
       email_confirm: true,
@@ -167,7 +182,7 @@ export async function POST(request: NextRequest) {
     // Validate hierarchy requirements
     if (tableName === 'distributors') {
       if (!userData.master_distributor_id) {
-        await supabaseAdmin.auth.admin.deleteUser(authData.user.id)
+        await supabase.auth.admin.deleteUser(authData.user.id)
         return NextResponse.json(
           { error: 'Master Distributor is required to create a Distributor' },
           { status: 400 }
@@ -175,7 +190,7 @@ export async function POST(request: NextRequest) {
       }
       
       // Verify master distributor exists and is active (with timeout)
-      const masterDistQueryPromise = supabaseAdmin
+      const masterDistQueryPromise = supabase
         .from('master_distributors')
         .select('id, partner_id, status')
         .eq('partner_id', userData.master_distributor_id)
@@ -189,7 +204,7 @@ export async function POST(request: NextRequest) {
       try {
         masterDistResult = await Promise.race([masterDistQueryPromise, masterDistTimeoutPromise]) as any
       } catch (queryError: any) {
-        await supabaseAdmin.auth.admin.deleteUser(authData.user.id)
+        await supabase.auth.admin.deleteUser(authData.user.id)
         return NextResponse.json(
           { error: 'Database query timed out. Please try again.' },
           { status: 504 }
@@ -199,7 +214,7 @@ export async function POST(request: NextRequest) {
       const { data: masterDist, error: masterError } = masterDistResult
 
       if (masterError || !masterDist) {
-        await supabaseAdmin.auth.admin.deleteUser(authData.user.id)
+        await supabase.auth.admin.deleteUser(authData.user.id)
         return NextResponse.json(
           { error: 'Master Distributor not found' },
           { status: 400 }
@@ -207,7 +222,7 @@ export async function POST(request: NextRequest) {
       }
 
       if (masterDist.status !== 'active') {
-        await supabaseAdmin.auth.admin.deleteUser(authData.user.id)
+        await supabase.auth.admin.deleteUser(authData.user.id)
         return NextResponse.json(
           { error: 'Master Distributor must be active' },
           { status: 400 }
@@ -217,7 +232,7 @@ export async function POST(request: NextRequest) {
 
     if (tableName === 'retailers') {
       if (!userData.distributor_id) {
-        await supabaseAdmin.auth.admin.deleteUser(authData.user.id)
+        await supabase.auth.admin.deleteUser(authData.user.id)
         return NextResponse.json(
           { error: 'Distributor is required to create a Retailer' },
           { status: 400 }
@@ -225,7 +240,7 @@ export async function POST(request: NextRequest) {
       }
 
       // Verify distributor exists and is active (with timeout)
-      const distributorQueryPromise = supabaseAdmin
+      const distributorQueryPromise = supabase
         .from('distributors')
         .select('id, partner_id, status, master_distributor_id')
         .eq('partner_id', userData.distributor_id)
@@ -239,7 +254,7 @@ export async function POST(request: NextRequest) {
       try {
         distributorResult = await Promise.race([distributorQueryPromise, distributorTimeoutPromise]) as any
       } catch (queryError: any) {
-        await supabaseAdmin.auth.admin.deleteUser(authData.user.id)
+        await supabase.auth.admin.deleteUser(authData.user.id)
         return NextResponse.json(
           { error: 'Database query timed out. Please try again.' },
           { status: 504 }
@@ -249,7 +264,7 @@ export async function POST(request: NextRequest) {
       const { data: distributor, error: distError } = distributorResult
 
       if (distError || !distributor) {
-        await supabaseAdmin.auth.admin.deleteUser(authData.user.id)
+        await supabase.auth.admin.deleteUser(authData.user.id)
         return NextResponse.json(
           { error: 'Distributor not found' },
           { status: 400 }
@@ -257,7 +272,7 @@ export async function POST(request: NextRequest) {
       }
 
       if (distributor.status !== 'active') {
-        await supabaseAdmin.auth.admin.deleteUser(authData.user.id)
+        await supabase.auth.admin.deleteUser(authData.user.id)
         return NextResponse.json(
           { error: 'Distributor must be active' },
           { status: 400 }
@@ -271,7 +286,7 @@ export async function POST(request: NextRequest) {
 
       // Verify master distributor exists if provided (with timeout)
       if (userData.master_distributor_id) {
-        const masterDistQueryPromise2 = supabaseAdmin
+        const masterDistQueryPromise2 = supabase
           .from('master_distributors')
           .select('id, partner_id, status')
           .eq('partner_id', userData.master_distributor_id)
@@ -285,7 +300,7 @@ export async function POST(request: NextRequest) {
         try {
           masterDistResult2 = await Promise.race([masterDistQueryPromise2, masterDistTimeoutPromise2]) as any
         } catch (queryError: any) {
-          await supabaseAdmin.auth.admin.deleteUser(authData.user.id)
+          await supabase.auth.admin.deleteUser(authData.user.id)
           return NextResponse.json(
             { error: 'Database query timed out. Please try again.' },
             { status: 504 }
@@ -295,7 +310,7 @@ export async function POST(request: NextRequest) {
         const { data: masterDist, error: masterError } = masterDistResult2
 
         if (masterError || !masterDist) {
-          await supabaseAdmin.auth.admin.deleteUser(authData.user.id)
+          await supabase.auth.admin.deleteUser(authData.user.id)
           return NextResponse.json(
             { error: 'Master Distributor not found' },
             { status: 400 }
@@ -304,7 +319,7 @@ export async function POST(request: NextRequest) {
 
         // Verify distributor belongs to the master distributor
         if (distributor.master_distributor_id !== userData.master_distributor_id) {
-          await supabaseAdmin.auth.admin.deleteUser(authData.user.id)
+          await supabase.auth.admin.deleteUser(authData.user.id)
           return NextResponse.json(
             { error: 'Distributor does not belong to the selected Master Distributor' },
             { status: 400 }
@@ -321,7 +336,7 @@ export async function POST(request: NextRequest) {
       if (hasAnyBankField) {
         if (!userData.bank_name || !userData.account_number || !userData.ifsc_code || !userData.bank_document_url) {
           // Rollback: delete auth user
-          await supabaseAdmin.auth.admin.deleteUser(authData.user.id)
+          await supabase.auth.admin.deleteUser(authData.user.id)
           return NextResponse.json(
             { error: 'Bank Name, Account Number, IFSC Code, and Bank Document (passbook/cheque) are all mandatory when providing bank account details' },
             { status: 400 }
@@ -331,7 +346,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Insert into appropriate table (with timeout)
-    const insertPromise = supabaseAdmin
+    const insertPromise = supabase
       .from(tableName)
       .insert([userData])
       .select()
@@ -346,7 +361,7 @@ export async function POST(request: NextRequest) {
       insertResult = await Promise.race([insertPromise, insertTimeoutPromise]) as any
     } catch (insertError: any) {
       // Rollback: delete auth user if insert fails
-      await supabaseAdmin.auth.admin.deleteUser(authData.user.id)
+      await supabase.auth.admin.deleteUser(authData.user.id)
       console.error('[Create User API] Insert timeout or error:', insertError)
       return NextResponse.json(
         { error: 'Failed to save user data. Please try again.' },
@@ -358,7 +373,7 @@ export async function POST(request: NextRequest) {
 
     if (tableError) {
       // Rollback: delete auth user if table insert fails
-      await supabaseAdmin.auth.admin.deleteUser(authData.user.id)
+      await supabase.auth.admin.deleteUser(authData.user.id)
       
       // Check if error is due to missing columns (migration not run)
       const errorMessage = tableError.message || ''

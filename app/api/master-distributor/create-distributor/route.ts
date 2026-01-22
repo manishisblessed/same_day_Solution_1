@@ -1,13 +1,25 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { createClient, SupabaseClient } from '@supabase/supabase-js'
 import { getCurrentUserServer } from '@/lib/auth-server'
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
-
-const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey)
-
 export const dynamic = 'force-dynamic'
+
+// Lazy initialization to avoid build-time errors
+let supabase: SupabaseClient | null = null
+
+function getSupabaseAdmin(): SupabaseClient {
+  if (!supabase) {
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+    
+    if (!supabaseUrl || !supabaseServiceKey) {
+      throw new Error('Supabase environment variables not configured')
+    }
+    
+    supabase = createClient(supabaseUrl, supabaseServiceKey)
+  }
+  return supabase
+}
 
 /**
  * Create distributor (by master distributor)
@@ -27,8 +39,11 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Get Supabase admin client
+    const supabase = getSupabaseAdmin()
+
     // Get master distributor data
-    const { data: masterDist, error: masterError } = await supabaseAdmin
+    const { data: masterDist, error: masterError } = await supabase
       .from('master_distributors')
       .select('id, partner_id, status')
       .eq('email', user.email)
@@ -59,7 +74,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Create auth user
-    const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
+    const { data: authData, error: authError } = await supabase.auth.admin.createUser({
       email,
       password,
       email_confirm: true,
@@ -78,7 +93,7 @@ export async function POST(request: NextRequest) {
     // Validate mandatory bank account fields
     if (!userData.bank_name || !userData.account_number || !userData.ifsc_code || !userData.bank_document_url) {
       // Rollback: delete auth user
-      await supabaseAdmin.auth.admin.deleteUser(authData.user.id)
+      await supabase.auth.admin.deleteUser(authData.user.id)
       return NextResponse.json(
         { error: 'Bank Name, Account Number, IFSC Code, and Bank Document (passbook/cheque) are mandatory' },
         { status: 400 }
@@ -117,7 +132,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Insert distributor
-    const { data: distributor, error: insertError } = await supabaseAdmin
+    const { data: distributor, error: insertError } = await supabase
       .from('distributors')
       .insert([distributorData])
       .select()
@@ -125,7 +140,7 @@ export async function POST(request: NextRequest) {
 
     if (insertError) {
       // Rollback: delete auth user
-      await supabaseAdmin.auth.admin.deleteUser(authData.user.id)
+      await supabase.auth.admin.deleteUser(authData.user.id)
       
       // Check if error is due to missing columns (migration not run)
       const errorMessage = insertError.message || ''

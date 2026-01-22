@@ -1,13 +1,25 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { createClient, SupabaseClient } from '@supabase/supabase-js'
 import { getCurrentUserServer } from '@/lib/auth-server'
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
-
-const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey)
-
 export const dynamic = 'force-dynamic'
+
+// Lazy initialization to avoid build-time errors
+let supabase: SupabaseClient | null = null
+
+function getSupabaseAdmin(): SupabaseClient {
+  if (!supabase) {
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+    
+    if (!supabaseUrl || !supabaseServiceKey) {
+      throw new Error('Supabase environment variables not configured')
+    }
+    
+    supabase = createClient(supabaseUrl, supabaseServiceKey)
+  }
+  return supabase
+}
 
 /**
  * Get all partners with pending_verification status
@@ -26,17 +38,20 @@ export async function GET(request: NextRequest) {
       )
     }
 
+    // Get Supabase admin client
+    const supabase = getSupabaseAdmin()
+
     // Fetch all partners with pending_verification status
     const [retailersResult, distributorsResult, masterDistributorsResult] = await Promise.all([
-      supabaseAdmin
+      supabase
         .from('retailers')
         .select('partner_id, name, email, phone, status, verification_status, aadhar_number, aadhar_attachment_url, pan_number, pan_attachment_url, udhyam_number, udhyam_certificate_url, gst_number, gst_certificate_url, created_at')
         .eq('status', 'pending_verification'),
-      supabaseAdmin
+      supabase
         .from('distributors')
         .select('partner_id, name, email, phone, status, verification_status, aadhar_number, aadhar_attachment_url, pan_number, pan_attachment_url, udhyam_number, udhyam_certificate_url, gst_number, gst_certificate_url, created_at')
         .eq('status', 'pending_verification'),
-      supabaseAdmin
+      supabase
         .from('master_distributors')
         .select('partner_id, name, email, phone, status, verification_status, aadhar_number, aadhar_attachment_url, pan_number, pan_attachment_url, udhyam_number, udhyam_certificate_url, gst_number, gst_certificate_url, created_at')
         .eq('status', 'pending_verification')

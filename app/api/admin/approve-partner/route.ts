@@ -1,13 +1,25 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { createClient, SupabaseClient } from '@supabase/supabase-js'
 import { getCurrentUserServer } from '@/lib/auth-server'
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
-
-const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey)
-
 export const dynamic = 'force-dynamic'
+
+// Lazy initialization to avoid build-time errors
+let supabase: SupabaseClient | null = null
+
+function getSupabaseAdmin(): SupabaseClient {
+  if (!supabase) {
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+    
+    if (!supabaseUrl || !supabaseServiceKey) {
+      throw new Error('Supabase environment variables not configured')
+    }
+    
+    supabase = createClient(supabaseUrl, supabaseServiceKey)
+  }
+  return supabase
+}
 
 /**
  * Approve or reject partner verification
@@ -25,6 +37,9 @@ export async function POST(request: NextRequest) {
         { status: 401 }
       )
     }
+
+    // Get Supabase admin client
+    const supabase = getSupabaseAdmin()
 
     const body = await request.json()
     const { partner_id, partner_type, action, remarks } = body // action: 'approve' or 'reject'
@@ -51,7 +66,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Get partner data
-    const { data: partner, error: partnerError } = await supabaseAdmin
+    const { data: partner, error: partnerError } = await supabase
       .from(partner_type)
       .select('*')
       .eq('partner_id', partner_id)
@@ -86,7 +101,7 @@ export async function POST(request: NextRequest) {
       updateData.status = 'inactive'
     }
 
-    const { data: updatedPartner, error: updateError } = await supabaseAdmin
+    const { data: updatedPartner, error: updateError } = await supabase
       .from(partner_type)
       .update(updateData)
       .eq('partner_id', partner_id)
