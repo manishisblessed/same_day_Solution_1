@@ -399,7 +399,7 @@ export default function BBPSPayment() {
   const goBackToBill = () => {
     setPaymentStep('bill')
     setCustomAmount('')
-    setUseCustomAmount(false)
+    setAmountType('full')
     setTpin('')
     setTpinError(null)
     setPaymentCharges(0)
@@ -718,7 +718,7 @@ export default function BBPSPayment() {
         // Reset payment flow
         setPaymentStep('bill')
         setCustomAmount('')
-        setUseCustomAmount(false)
+        setAmountType('full')
         setTpin('')
         setPaymentCharges(0)
         // Auto-check transaction status after 2 seconds
