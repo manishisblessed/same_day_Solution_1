@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getCurrentUserServer } from '@/lib/auth-server'
+import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { createClient } from '@supabase/supabase-js'
 
 export const runtime = 'nodejs' // Force Node.js runtime (Supabase not compatible with Edge Runtime)
@@ -49,26 +49,15 @@ export async function GET(request: NextRequest) {
     // Create Supabase client
     const supabase = createClient(supabaseUrl, supabaseServiceKey)
 
-    // Check admin authentication with shorter timeout
-    let admin
-    try {
-      const authPromise = getCurrentUserServer()
-      const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Auth timeout')), 5000)
-      )
-      admin = await Promise.race([authPromise, timeoutPromise]) as any
-    } catch (authError: any) {
-      return NextResponse.json(
-        { error: 'Authentication failed', message: authError.message },
-        { status: 401 }
-      )
+    // Check admin authentication with fallback
+    const { user: admin, method } = await getCurrentUserWithFallback(request)
+    console.log('[Razorpay Transactions Old] Auth:', method, '|', admin?.email || 'none')
+    
+    if (!admin) {
+      return NextResponse.json({ error: 'Session expired. Please log in again.', code: 'SESSION_EXPIRED' }, { status: 401 })
     }
-
-    if (!admin || admin.role !== 'admin') {
-      return NextResponse.json(
-        { error: 'Unauthorized: Admin access required' },
-        { status: 401 }
-      )
+    if (admin.role !== 'admin') {
+      return NextResponse.json({ error: 'Unauthorized: Admin access required' }, { status: 403 })
     }
 
     // Get query parameters

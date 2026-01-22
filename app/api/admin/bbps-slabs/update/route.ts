@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getCurrentUserServer } from '@/lib/auth-server'
+import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { createClient } from '@supabase/supabase-js'
 import { addCorsHeaders } from '@/lib/cors'
 
@@ -21,13 +21,15 @@ export async function POST(request: NextRequest) {
     
     const supabase = createClient(supabaseUrl, supabaseServiceKey)
     
-    // Get current admin user
-    const admin = await getCurrentUserServer()
-    if (!admin || admin.role !== 'admin') {
-      return NextResponse.json(
-        { error: 'Unauthorized: Admin access required' },
-        { status: 401 }
-      )
+    // Get current admin user with fallback
+    const { user: admin, method } = await getCurrentUserWithFallback(request)
+    console.log('[BBPS Slabs Update] Auth:', method, '|', admin?.email || 'none')
+    
+    if (!admin) {
+      return NextResponse.json({ error: 'Session expired. Please log in again.', code: 'SESSION_EXPIRED' }, { status: 401 })
+    }
+    if (admin.role !== 'admin') {
+      return NextResponse.json({ error: 'Unauthorized: Admin access required' }, { status: 403 })
     }
 
     const body = await request.json()

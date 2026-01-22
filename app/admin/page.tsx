@@ -72,6 +72,26 @@ function AdminDashboardContent() {
   const [posMachines, setPosMachines] = useState<POSMachine[]>([])
   const [loading, setLoading] = useState(true)
 
+  // Helper to get auth token for API calls (fallback for cookie issues)
+  const getAuthToken = async (): Promise<string | null> => {
+    const { data: { session } } = await supabase.auth.getSession()
+    return session?.access_token || null
+  }
+
+  // Helper to make authenticated API calls
+  const fetchWithAuth = async (url: string, options: RequestInit = {}): Promise<Response> => {
+    const token = await getAuthToken()
+    const headers = new Headers(options.headers || {})
+    if (token) {
+      headers.set('Authorization', `Bearer ${token}`)
+    }
+    return fetch(url, {
+      ...options,
+      headers,
+      credentials: 'include'
+    })
+  }
+
   // Sync activeTab with URL query params
   useEffect(() => {
     const tab = searchParams.get('tab')
@@ -743,7 +763,7 @@ function AdminDashboardContent() {
                                                   activeTab === 'distributors' ? 'distributor' : 
                                                   'master_distributor'
                                   // Call impersonate API directly to open in new tab
-                                  const response = await fetch('/api/admin/impersonate', {
+                                  const response = await fetchWithAuth('/api/admin/impersonate', {
                                     method: 'POST',
                                     headers: { 'Content-Type': 'application/json' },
                                     body: JSON.stringify({ user_id: item.partner_id, user_role: userRole })
@@ -1095,7 +1115,7 @@ function AdminDashboardContent() {
                                       activeTab === 'distributors' ? 'distributor' : 
                                       'master_distributor'
                       
-                      const response = await fetch('/api/admin/reset-password', {
+                      const response = await fetchWithAuth('/api/admin/reset-password', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
@@ -1454,6 +1474,27 @@ function PartnerModal({
   const [imageZoom, setImageZoom] = useState(1)
   const [imageRotation, setImageRotation] = useState(0)
 
+  // Helper to get auth token for uploads (fallback for cookie issues)
+  const getAuthToken = async (): Promise<string | null> => {
+    const { data: { session } } = await supabase.auth.getSession()
+    return session?.access_token || null
+  }
+
+  // Helper to upload document with auth token
+  const uploadWithAuth = async (formData: FormData): Promise<Response> => {
+    const token = await getAuthToken()
+    const headers: HeadersInit = {}
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`
+    }
+    return fetch('/api/admin/upload-document', {
+      method: 'POST',
+      body: formData,
+      headers,
+      credentials: 'include'
+    })
+  }
+
   // Fetch parent entities based on type
   useEffect(() => {
     const fetchParents = async () => {
@@ -1753,10 +1794,7 @@ function PartnerModal({
           bankFormData.append('documentType', 'bank')
           bankFormData.append('partnerId', partnerId)
           
-          const bankResponse = await fetch('/api/admin/upload-document', {
-            method: 'POST',
-            body: bankFormData,
-          })
+          const bankResponse = await uploadWithAuth(bankFormData)
           
           if (!bankResponse.ok) {
             let errorMessage = 'Failed to upload bank document'
@@ -1788,10 +1826,7 @@ function PartnerModal({
           aadharFrontFormData.append('documentType', 'aadhar-front')
           aadharFrontFormData.append('partnerId', partnerId)
           
-          const aadharFrontResponse = await fetch('/api/admin/upload-document', {
-            method: 'POST',
-            body: aadharFrontFormData,
-          })
+          const aadharFrontResponse = await uploadWithAuth(aadharFrontFormData)
           
           if (!aadharFrontResponse.ok) {
             let errorMessage = 'Failed to upload AADHAR front document'
@@ -1823,10 +1858,7 @@ function PartnerModal({
           aadharBackFormData.append('documentType', 'aadhar-back')
           aadharBackFormData.append('partnerId', partnerId)
           
-          const aadharBackResponse = await fetch('/api/admin/upload-document', {
-            method: 'POST',
-            body: aadharBackFormData,
-          })
+          const aadharBackResponse = await uploadWithAuth(aadharBackFormData)
           
           if (!aadharBackResponse.ok) {
             let errorMessage = 'Failed to upload AADHAR back document'
@@ -1857,10 +1889,7 @@ function PartnerModal({
           panFormData.append('documentType', 'pan')
           panFormData.append('partnerId', partnerId)
           
-          const panResponse = await fetch('/api/admin/upload-document', {
-            method: 'POST',
-            body: panFormData,
-          })
+          const panResponse = await uploadWithAuth(panFormData)
           
           if (!panResponse.ok) {
             let errorMessage = 'Failed to upload PAN document'
@@ -1891,10 +1920,7 @@ function PartnerModal({
           udhyamFormData.append('documentType', 'udhyam')
           udhyamFormData.append('partnerId', partnerId)
           
-          const udhyamResponse = await fetch('/api/admin/upload-document', {
-            method: 'POST',
-            body: udhyamFormData,
-          })
+          const udhyamResponse = await uploadWithAuth(udhyamFormData)
           
           if (!udhyamResponse.ok) {
             let errorMessage = 'Failed to upload UDHYAM certificate'
@@ -1925,10 +1951,7 @@ function PartnerModal({
           gstFormData.append('documentType', 'gst')
           gstFormData.append('partnerId', partnerId)
           
-          const gstResponse = await fetch('/api/admin/upload-document', {
-            method: 'POST',
-            body: gstFormData,
-          })
+          const gstResponse = await uploadWithAuth(gstFormData)
           
           if (!gstResponse.ok) {
             let errorMessage = 'Failed to upload GST certificate'
@@ -1963,10 +1986,7 @@ function PartnerModal({
           bankFormData.append('documentType', 'bank')
           bankFormData.append('partnerId', partnerId)
           
-          const bankResponse = await fetch('/api/admin/upload-document', {
-            method: 'POST',
-            body: bankFormData,
-          })
+          const bankResponse = await uploadWithAuth(bankFormData)
           
           if (!bankResponse.ok) {
             let errorMessage = 'Failed to upload bank document'
@@ -1998,10 +2018,7 @@ function PartnerModal({
           aadharFrontFormData.append('documentType', 'aadhar-front')
           aadharFrontFormData.append('partnerId', partnerId)
           
-          const aadharFrontResponse = await fetch('/api/admin/upload-document', {
-            method: 'POST',
-            body: aadharFrontFormData,
-          })
+          const aadharFrontResponse = await uploadWithAuth(aadharFrontFormData)
           
           if (!aadharFrontResponse.ok) {
             let errorMessage = 'Failed to upload AADHAR front document'
@@ -2033,10 +2050,7 @@ function PartnerModal({
           aadharBackFormData.append('documentType', 'aadhar-back')
           aadharBackFormData.append('partnerId', partnerId)
           
-          const aadharBackResponse = await fetch('/api/admin/upload-document', {
-            method: 'POST',
-            body: aadharBackFormData,
-          })
+          const aadharBackResponse = await uploadWithAuth(aadharBackFormData)
           
           if (!aadharBackResponse.ok) {
             let errorMessage = 'Failed to upload AADHAR back document'
@@ -2068,10 +2082,7 @@ function PartnerModal({
           panFormData.append('documentType', 'pan')
           panFormData.append('partnerId', partnerId)
           
-          const panResponse = await fetch('/api/admin/upload-document', {
-            method: 'POST',
-            body: panFormData,
-          })
+          const panResponse = await uploadWithAuth(panFormData)
           
           if (!panResponse.ok) {
             let errorMessage = 'Failed to upload PAN document'
@@ -2103,10 +2114,7 @@ function PartnerModal({
           udhyamFormData.append('documentType', 'udhyam')
           udhyamFormData.append('partnerId', partnerId)
           
-          const udhyamResponse = await fetch('/api/admin/upload-document', {
-            method: 'POST',
-            body: udhyamFormData,
-          })
+          const udhyamResponse = await uploadWithAuth(udhyamFormData)
           
           if (!udhyamResponse.ok) {
             let errorMessage = 'Failed to upload UDHYAM certificate'
@@ -2138,10 +2146,7 @@ function PartnerModal({
           gstFormData.append('documentType', 'gst')
           gstFormData.append('partnerId', partnerId)
           
-          const gstResponse = await fetch('/api/admin/upload-document', {
-            method: 'POST',
-            body: gstFormData,
-          })
+          const gstResponse = await uploadWithAuth(gstFormData)
           
           if (!gstResponse.ok) {
             let errorMessage = 'Failed to upload GST certificate'
@@ -2220,11 +2225,19 @@ function PartnerModal({
         partnerData.partner_id = generatePartnerId()
         
         if (formData.password) {
+          // Get auth token for fallback authentication
+          const { data: { session } } = await supabase.auth.getSession()
+          const authHeaders: HeadersInit = {
+            'Content-Type': 'application/json',
+          }
+          if (session?.access_token) {
+            authHeaders['Authorization'] = `Bearer ${session.access_token}`
+          }
+          
           const response = await fetch('/api/admin/create-user', {
             method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
+            headers: authHeaders,
+            credentials: 'include',
             body: JSON.stringify({
               email: formData.email,
               password: formData.password,
@@ -3821,9 +3834,18 @@ function POSMachinesTab({
       const formData = new FormData()
       formData.append('file', uploadFile)
 
+      // Get auth token for fallback authentication
+      const { data: { session } } = await supabase.auth.getSession()
+      const headers: HeadersInit = {}
+      if (session?.access_token) {
+        headers['Authorization'] = `Bearer ${session.access_token}`
+      }
+
       const response = await fetch('/api/admin/bulk-upload-pos-machines', {
         method: 'POST',
         body: formData,
+        headers,
+        credentials: 'include'
       })
 
       const data = await response.json()

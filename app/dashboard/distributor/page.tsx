@@ -906,6 +906,21 @@ function AddRetailerModal({ onClose, onSuccess }: { onClose: () => void, onSucce
   const [loading, setLoading] = useState(false)
   const [uploadingDocs, setUploadingDocs] = useState(false)
 
+  // Helper to upload document with auth token (fallback for cookie issues)
+  const uploadWithAuth = async (uploadFormData: FormData): Promise<Response> => {
+    const { data: { session } } = await supabase.auth.getSession()
+    const headers: HeadersInit = {}
+    if (session?.access_token) {
+      headers['Authorization'] = `Bearer ${session.access_token}`
+    }
+    return fetch('/api/admin/upload-document', {
+      method: 'POST',
+      body: uploadFormData,
+      headers,
+      credentials: 'include'
+    })
+  }
+
   const handleStep1Next = (e: React.FormEvent) => {
     e.preventDefault()
     // Validate basic fields
@@ -967,10 +982,7 @@ function AddRetailerModal({ onClose, onSuccess }: { onClose: () => void, onSucce
         bankFormData.append('documentType', 'bank')
         bankFormData.append('partnerId', partnerId)
         
-        const bankResponse = await fetch('/api/admin/upload-document', {
-          method: 'POST',
-          body: bankFormData,
-        })
+        const bankResponse = await uploadWithAuth(bankFormData)
         
         if (!bankResponse.ok) {
           const error = await bankResponse.json()
@@ -987,10 +999,7 @@ function AddRetailerModal({ onClose, onSuccess }: { onClose: () => void, onSucce
         aadharFormData.append('documentType', 'aadhar')
         aadharFormData.append('partnerId', partnerId)
         
-        const aadharResponse = await fetch('/api/admin/upload-document', {
-          method: 'POST',
-          body: aadharFormData,
-        })
+        const aadharResponse = await uploadWithAuth(aadharFormData)
         
         if (!aadharResponse.ok) {
           const error = await aadharResponse.json()
@@ -1007,10 +1016,7 @@ function AddRetailerModal({ onClose, onSuccess }: { onClose: () => void, onSucce
         panFormData.append('documentType', 'pan')
         panFormData.append('partnerId', partnerId)
         
-        const panResponse = await fetch('/api/admin/upload-document', {
-          method: 'POST',
-          body: panFormData,
-        })
+        const panResponse = await uploadWithAuth(panFormData)
         
         if (!panResponse.ok) {
           const error = await panResponse.json()
@@ -1027,10 +1033,7 @@ function AddRetailerModal({ onClose, onSuccess }: { onClose: () => void, onSucce
         udhyamFormData.append('documentType', 'udhyam')
         udhyamFormData.append('partnerId', partnerId)
         
-        const udhyamResponse = await fetch('/api/admin/upload-document', {
-          method: 'POST',
-          body: udhyamFormData,
-        })
+        const udhyamResponse = await uploadWithAuth(udhyamFormData)
         
         if (udhyamResponse.ok) {
           const udhyamResult = await udhyamResponse.json()
@@ -1045,10 +1048,7 @@ function AddRetailerModal({ onClose, onSuccess }: { onClose: () => void, onSucce
         gstFormData.append('documentType', 'gst')
         gstFormData.append('partnerId', partnerId)
         
-        const gstResponse = await fetch('/api/admin/upload-document', {
-          method: 'POST',
-          body: gstFormData,
-        })
+        const gstResponse = await uploadWithAuth(gstFormData)
         
         if (gstResponse.ok) {
           const gstResult = await gstResponse.json()
@@ -1058,9 +1058,20 @@ function AddRetailerModal({ onClose, onSuccess }: { onClose: () => void, onSucce
 
       // Now create the retailer with all data
       setLoading(true)
+      
+      // Get auth token for fallback authentication
+      const { data: { session } } = await supabase.auth.getSession()
+      const authHeaders: HeadersInit = {
+        'Content-Type': 'application/json',
+      }
+      if (session?.access_token) {
+        authHeaders['Authorization'] = `Bearer ${session.access_token}`
+      }
+      
       const response = await fetch('/api/distributor/create-retailer', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: authHeaders,
+        credentials: 'include',
         body: JSON.stringify({
           email: formData.email,
           password: formData.password,

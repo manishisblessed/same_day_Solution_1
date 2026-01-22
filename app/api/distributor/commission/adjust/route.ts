@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getCurrentUserServer } from '@/lib/auth-server'
+import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { createClient } from '@supabase/supabase-js'
 import { addCorsHeaders } from '@/lib/cors'
 
@@ -21,13 +21,15 @@ export async function POST(request: NextRequest) {
     
     const supabase = createClient(supabaseUrl, supabaseServiceKey)
     
-    // Get current distributor
-    const distributor = await getCurrentUserServer()
-    if (!distributor || distributor.role !== 'distributor') {
-      return NextResponse.json(
-        { error: 'Unauthorized: Distributor access required' },
-        { status: 401 }
-      )
+    // Get current distributor with fallback
+    const { user: distributor, method } = await getCurrentUserWithFallback(request)
+    console.log('[Distributor Commission Adjust] Auth:', method, '|', distributor?.email || 'none')
+    
+    if (!distributor) {
+      return NextResponse.json({ error: 'Session expired. Please log in again.', code: 'SESSION_EXPIRED' }, { status: 401 })
+    }
+    if (distributor.role !== 'distributor') {
+      return NextResponse.json({ error: 'Unauthorized: Distributor access required' }, { status: 403 })
     }
 
     const body = await request.json()

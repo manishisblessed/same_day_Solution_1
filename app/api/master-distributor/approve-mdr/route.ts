@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getCurrentUserServer } from '@/lib/auth-server'
+import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { createClient } from '@supabase/supabase-js'
 import { addCorsHeaders } from '@/lib/cors'
 
@@ -21,13 +21,15 @@ export async function POST(request: NextRequest) {
     
     const supabase = createClient(supabaseUrl, supabaseServiceKey)
     
-    // Get current master distributor
-    const masterDistributor = await getCurrentUserServer()
-    if (!masterDistributor || masterDistributor.role !== 'master_distributor') {
-      return NextResponse.json(
-        { error: 'Unauthorized: Master distributor access required' },
-        { status: 401 }
-      )
+    // Get current master distributor with fallback
+    const { user: masterDistributor, method } = await getCurrentUserWithFallback(request)
+    console.log('[MD Approve MDR] Auth:', method, '|', masterDistributor?.email || 'none')
+    
+    if (!masterDistributor) {
+      return NextResponse.json({ error: 'Session expired. Please log in again.', code: 'SESSION_EXPIRED' }, { status: 401 })
+    }
+    if (masterDistributor.role !== 'master_distributor') {
+      return NextResponse.json({ error: 'Unauthorized: Master distributor access required' }, { status: 403 })
     }
 
     const body = await request.json()

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { TransactionFilters, TransactionListResponse } from '@/types/database.types'
-import { getCurrentUserServer } from '@/lib/auth-server'
+import { getCurrentUserWithFallback } from '@/lib/auth-server'
 
 // Mark this route as dynamic (uses cookies for authentication)
 export const dynamic = 'force-dynamic'
@@ -19,11 +19,13 @@ export async function GET(request: NextRequest) {
       )
     }
     
-    // Get current user (server-side)
-    const user = await getCurrentUserServer()
+    // Get current user (server-side) with fallback
+    const { user, method } = await getCurrentUserWithFallback(request)
+    console.log('[Transactions API] Auth method:', method, '| User:', user?.email || 'none')
+    
     if (!user) {
       return NextResponse.json(
-        { error: 'Unauthorized' },
+        { error: 'Session expired. Please log out and log back in.', code: 'SESSION_EXPIRED' },
         { status: 401 }
       )
     }

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient, SupabaseClient } from '@supabase/supabase-js'
-import { getCurrentUserServer } from '@/lib/auth-server'
+import { getCurrentUserWithFallback } from '@/lib/auth-server'
 
 export const dynamic = 'force-dynamic'
 
@@ -30,12 +30,21 @@ function getSupabaseAdmin(): SupabaseClient {
  */
 export async function POST(request: NextRequest) {
   try {
-    // Check authentication
-    const user = await getCurrentUserServer()
-    if (!user || user.role !== 'distributor') {
+    // Check authentication with fallback
+    const { user, method } = await getCurrentUserWithFallback(request)
+    console.log('[Create Retailer] Auth method:', method, '| User:', user?.email || 'none')
+    
+    if (!user) {
+      return NextResponse.json(
+        { error: 'Session expired. Please log out and log back in.', code: 'SESSION_EXPIRED' },
+        { status: 401 }
+      )
+    }
+    
+    if (user.role !== 'distributor') {
       return NextResponse.json(
         { error: 'Unauthorized: Distributor access required' },
-        { status: 401 }
+        { status: 403 }
       )
     }
 

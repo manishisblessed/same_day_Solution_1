@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getCurrentUserServer } from '@/lib/auth-server'
+import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { fetchBillerInfo } from '@/lib/bbps/service'
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
 
@@ -12,13 +12,12 @@ export async function OPTIONS(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    // Get current user (server-side)
-    const user = await getCurrentUserServer()
+    // Get current user with fallback
+    const { user, method } = await getCurrentUserWithFallback(request)
+    console.log('[BBPS Biller Info] Auth:', method, '|', user?.email || 'none')
+    
     if (!user) {
-      const response = NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      )
+      const response = NextResponse.json({ error: 'Session expired. Please log in again.', code: 'SESSION_EXPIRED' }, { status: 401 })
       return addCorsHeaders(request, response)
     }
 

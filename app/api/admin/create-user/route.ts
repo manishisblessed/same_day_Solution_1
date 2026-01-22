@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient, SupabaseClient } from '@supabase/supabase-js'
-import { getCurrentUserServer } from '@/lib/auth-server'
+import { getCurrentUserWithFallback } from '@/lib/auth-server'
 
 export const dynamic = 'force-dynamic'
 
@@ -30,27 +30,37 @@ function getSupabaseAdmin(): SupabaseClient {
  */
 export async function POST(request: NextRequest) {
   try {
-    // Check admin authentication with timeout
-    const authPromise = getCurrentUserServer()
+    // Check admin authentication with fallback and timeout
+    const authPromise = getCurrentUserWithFallback(request)
     const authTimeoutPromise = new Promise((_, reject) => 
       setTimeout(() => reject(new Error('Authentication timeout')), 10000)
     )
     
-    let admin
+    let authResult: { user: any; method: string }
     try {
-      admin = await Promise.race([authPromise, authTimeoutPromise]) as any
+      authResult = await Promise.race([authPromise, authTimeoutPromise]) as any
     } catch (authError: any) {
       console.error('[Create User API] Authentication error or timeout:', authError)
       return NextResponse.json(
-        { error: 'Authentication failed or timed out. Please try again.' },
+        { error: 'Authentication failed or timed out. Please try again.', code: 'AUTH_TIMEOUT' },
         { status: 401 }
       )
     }
 
-    if (!admin || admin.role !== 'admin') {
+    const { user: admin, method } = authResult
+    console.log('[Create User API] Auth method:', method, '| User:', admin?.email || 'none')
+
+    if (!admin) {
+      return NextResponse.json(
+        { error: 'Session expired. Please log out and log back in.', code: 'SESSION_EXPIRED' },
+        { status: 401 }
+      )
+    }
+
+    if (admin.role !== 'admin') {
       return NextResponse.json(
         { error: 'Unauthorized: Admin access required' },
-        { status: 401 }
+        { status: 403 }
       )
     }
 
@@ -159,9 +169,9 @@ export async function POST(request: NextRequest) {
       setTimeout(() => reject(new Error('Create user timeout')), 15000)
     )
     
-    let authResult
+    let createUserResult
     try {
-      authResult = await Promise.race([createUserPromise, createUserTimeoutPromise]) as any
+      createUserResult = await Promise.race([createUserPromise, createUserTimeoutPromise]) as any
     } catch (createError: any) {
       console.error('[Create User API] Create user timeout or error:', createError)
       return NextResponse.json(
@@ -170,7 +180,7 @@ export async function POST(request: NextRequest) {
       )
     }
     
-    const { data: authData, error: authError } = authResult
+    const { data: authData, error: authError } = createUserResult
 
     if (authError) {
       return NextResponse.json(

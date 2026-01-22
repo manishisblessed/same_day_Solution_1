@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { cookies } from 'next/headers'
-import { getCurrentUserServer } from '@/lib/auth-server'
+import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { getBillersByCategory } from '@/services/bbps'
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
 
@@ -14,21 +13,16 @@ export async function OPTIONS(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   try {
-    // Get cookies from request
-    const cookieStore = await cookies()
-    const cookieHeader = request.headers.get('cookie')
+    // Get current user with fallback
+    const { user, method } = await getCurrentUserWithFallback(request)
+    console.log('[BBPS Billers] Auth:', method, '|', user?.email || 'none')
     
-    // Get current user (server-side)
-    const user = await getCurrentUserServer(cookieStore)
     if (!user) {
-      console.error('BBPS Billers API: User not authenticated', {
-        cookiesPresent: !!cookieHeader,
-        cookieCount: cookieHeader ? cookieHeader.split(';').length : 0,
-      })
       const response = NextResponse.json(
         { 
           error: 'Unauthorized',
-          message: 'Please log in to access this feature. If you are logged in, try refreshing the page or logging in again.',
+          message: 'Session expired. Please log in again.',
+          code: 'SESSION_EXPIRED'
         },
         { status: 401 }
       )

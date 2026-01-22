@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient, SupabaseClient } from '@supabase/supabase-js'
-import { getCurrentUserServer } from '@/lib/auth-server'
+import { getCurrentUserWithFallback } from '@/lib/auth-server'
 
 export const dynamic = 'force-dynamic'
 
@@ -29,12 +29,21 @@ function getSupabaseAdmin(): SupabaseClient {
  */
 export async function GET(request: NextRequest) {
   try {
-    // Check admin authentication
-    const admin = await getCurrentUserServer()
-    if (!admin || admin.role !== 'admin') {
+    // Check admin authentication with fallback
+    const { user: admin, method } = await getCurrentUserWithFallback(request)
+    console.log('[Pending Verifications] Auth method:', method, '| User:', admin?.email || 'none')
+    
+    if (!admin) {
+      return NextResponse.json(
+        { error: 'Session expired. Please log out and log back in.', code: 'SESSION_EXPIRED' },
+        { status: 401 }
+      )
+    }
+    
+    if (admin.role !== 'admin') {
       return NextResponse.json(
         { error: 'Unauthorized: Admin access required' },
-        { status: 401 }
+        { status: 403 }
       )
     }
 

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getCurrentUserServer } from '@/lib/auth-server'
+import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { createClient } from '@supabase/supabase-js'
 import { apiHandler } from '@/lib/api-wrapper'
 
@@ -26,12 +26,30 @@ async function handleResetPassword(request: NextRequest) {
   const supabase = getSupabaseClient()
   
   try {
-    // Get current admin user
-    const admin = await getCurrentUserServer()
-    if (!admin || admin.role !== 'admin') {
+    // Get current admin user with fallback authentication
+    const { user: admin, method } = await getCurrentUserWithFallback(request)
+    console.log('[Reset Password] Auth method:', method, '| User:', admin?.email || 'none')
+    
+    if (!admin) {
       return NextResponse.json(
-        { error: 'Unauthorized: Admin access required' },
+        { 
+          error: 'Session expired or not found',
+          message: 'Your session has expired. Please log out and log back in.',
+          code: 'SESSION_EXPIRED',
+          action: 'RELOGIN'
+        },
         { status: 401 }
+      )
+    }
+    
+    if (admin.role !== 'admin') {
+      return NextResponse.json(
+        { 
+          error: 'Insufficient permissions',
+          message: `Your role (${admin.role}) does not have permission to reset passwords. Admin access required.`,
+          code: 'INSUFFICIENT_PERMISSIONS'
+        },
+        { status: 403 }
       )
     }
 

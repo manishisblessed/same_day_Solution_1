@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getCurrentUserServer } from '@/lib/auth-server'
+import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { createClient } from '@supabase/supabase-js'
 import { cookies } from 'next/headers'
 
@@ -21,12 +21,21 @@ export async function POST(request: NextRequest) {
     
     const supabase = createClient(supabaseUrl, supabaseServiceKey)
     
-    // Get current admin user
-    const admin = await getCurrentUserServer()
-    if (!admin || admin.role !== 'admin') {
+    // Get current admin user with fallback authentication
+    const { user: admin, method } = await getCurrentUserWithFallback(request)
+    console.log('[Impersonate] Auth method:', method, '| User:', admin?.email || 'none')
+    
+    if (!admin) {
+      return NextResponse.json(
+        { error: 'Session expired. Please log out and log back in.', code: 'SESSION_EXPIRED' },
+        { status: 401 }
+      )
+    }
+    
+    if (admin.role !== 'admin') {
       return NextResponse.json(
         { error: 'Unauthorized: Admin access required' },
-        { status: 401 }
+        { status: 403 }
       )
     }
 
@@ -181,12 +190,14 @@ export async function DELETE(request: NextRequest) {
     
     const supabase = createClient(supabaseUrl, supabaseServiceKey)
     
-    const admin = await getCurrentUserServer()
-    if (!admin || admin.role !== 'admin') {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      )
+    const { user: admin, method } = await getCurrentUserWithFallback(request)
+    console.log('[Impersonate DELETE] Auth:', method, '|', admin?.email || 'none')
+    
+    if (!admin) {
+      return NextResponse.json({ error: 'Session expired. Please log in again.', code: 'SESSION_EXPIRED' }, { status: 401 })
+    }
+    if (admin.role !== 'admin') {
+      return NextResponse.json({ error: 'Unauthorized: Admin access required' }, { status: 403 })
     }
 
     const { searchParams } = new URL(request.url)

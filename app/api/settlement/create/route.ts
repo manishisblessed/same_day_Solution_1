@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getCurrentUserServer } from '@/lib/auth-server'
+import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { createClient, SupabaseClient } from '@supabase/supabase-js'
 import { addCorsHeaders } from '@/lib/cors'
 
@@ -95,13 +95,12 @@ export async function POST(request: NextRequest) {
     
     const supabase = createClient(supabaseUrl, supabaseServiceKey)
     
-    // Get current user
-    const user = await getCurrentUserServer()
+    // Get current user with fallback
+    const { user, method } = await getCurrentUserWithFallback(request)
+    console.log('[Settlement Create] Auth:', method, '|', user?.email || 'none')
+    
     if (!user || !user.partner_id) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      )
+      return NextResponse.json({ error: 'Session expired. Please log in again.', code: 'SESSION_EXPIRED' }, { status: 401 })
     }
 
     // Only retailers, distributors, and master distributors can create settlements

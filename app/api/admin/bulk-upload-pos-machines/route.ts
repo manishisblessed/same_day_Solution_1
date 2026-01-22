@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getCurrentUserServer } from '@/lib/auth-server'
+import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { supabaseAdmin } from '@/lib/supabase/server-admin'
 
 export const dynamic = 'force-dynamic'
@@ -29,13 +29,21 @@ interface CSVRow {
  */
 export async function POST(request: NextRequest) {
   try {
-    // Check authentication
-    const user = await getCurrentUserServer()
+    // Check authentication with fallback
+    const { user, method } = await getCurrentUserWithFallback(request)
+    console.log('[Bulk Upload POS] Auth method:', method, '| User:', user?.email || 'none')
     
-    if (!user || user.role !== 'admin') {
+    if (!user) {
+      return NextResponse.json(
+        { error: 'Session expired. Please log out and log back in.', code: 'SESSION_EXPIRED' },
+        { status: 401 }
+      )
+    }
+    
+    if (user.role !== 'admin') {
       return NextResponse.json(
         { error: 'Unauthorized: Admin access required' },
-        { status: 401 }
+        { status: 403 }
       )
     }
 

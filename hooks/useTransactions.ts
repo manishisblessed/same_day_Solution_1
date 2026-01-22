@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { TransactionFilters, TransactionListResponse, RazorpayTransaction } from '@/types/database.types'
+import { supabase } from '@/lib/supabase/client'
 
 interface UseTransactionsOptions {
   autoPoll?: boolean
@@ -58,7 +59,17 @@ export function useTransactions(options: UseTransactionsOptions = {}) {
       params.append('sortBy', currentFilters.sortBy || 'created_at')
       params.append('sortOrder', currentFilters.sortOrder || 'desc')
 
-      const response = await fetch(`/api/transactions?${params.toString()}`)
+      // Get auth token for fallback authentication
+      const { data: { session } } = await supabase.auth.getSession()
+      const headers: HeadersInit = {}
+      if (session?.access_token) {
+        headers['Authorization'] = `Bearer ${session.access_token}`
+      }
+
+      const response = await fetch(`/api/transactions?${params.toString()}`, {
+        headers,
+        credentials: 'include'
+      })
       
       if (!response.ok) {
         throw new Error('Failed to fetch transactions')

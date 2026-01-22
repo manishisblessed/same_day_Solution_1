@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { getCurrentUserServer } from '@/lib/auth-server'
+import { getCurrentUserWithFallback } from '@/lib/auth-server'
 
 export const dynamic = 'force-dynamic'
 
@@ -94,28 +94,51 @@ async function handleUploadDocument(request: NextRequest) {
       )
     }
     
-    // Check authentication with timeout
-    const authPromise = getCurrentUserServer()
+    // Check authentication with multiple fallback methods and timeout
+    const authPromise = getCurrentUserWithFallback(request)
     const authTimeoutPromise = new Promise((_, reject) => 
       setTimeout(() => reject(new Error('Authentication timeout')), 10000)
     )
     
-    let user
+    let authResult: { user: any; method: string }
     try {
-      user = await Promise.race([authPromise, authTimeoutPromise]) as any
+      authResult = await Promise.race([authPromise, authTimeoutPromise]) as any
     } catch (authError: any) {
       console.error('[Upload Document API] Authentication error or timeout:', authError)
       return NextResponse.json(
-        { error: 'Authentication failed or timed out. Please try again.' },
+        { 
+          error: 'Authentication failed or timed out',
+          message: 'Please try logging out and logging back in.',
+          code: 'AUTH_TIMEOUT'
+        },
         { status: 401 }
       )
     }
 
+    const { user, method } = authResult
+    console.log('[Upload Document API] Auth method used:', method, '| User:', user?.email || 'none')
+
     // Allow admin, master_distributor, and distributor roles
-    if (!user || !['admin', 'master_distributor', 'distributor'].includes(user.role)) {
+    if (!user) {
       return NextResponse.json(
-        { error: 'Unauthorized: Admin, Master Distributor, or Distributor access required' },
+        { 
+          error: 'Session expired or not found',
+          message: 'Your session has expired. Please log out and log back in to continue.',
+          code: 'SESSION_EXPIRED',
+          action: 'RELOGIN'
+        },
         { status: 401 }
+      )
+    }
+    
+    if (!['admin', 'master_distributor', 'distributor'].includes(user.role)) {
+      return NextResponse.json(
+        { 
+          error: 'Insufficient permissions',
+          message: `Your role (${user.role}) does not have permission to upload documents. Admin, Master Distributor, or Distributor access required.`,
+          code: 'INSUFFICIENT_PERMISSIONS'
+        },
+        { status: 403 }
       )
     }
 

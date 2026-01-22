@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getCurrentUserServer } from '@/lib/auth-server'
+import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { createClient } from '@supabase/supabase-js'
 
 export const runtime = 'nodejs' // Force Node.js runtime (Supabase not compatible with Edge Runtime)
@@ -28,13 +28,15 @@ export async function PUT(
     
     const supabase = createClient(supabaseUrl, supabaseServiceKey)
     
-    // Check admin authentication
-    const admin = await getCurrentUserServer()
-    if (!admin || admin.role !== 'admin') {
-      return NextResponse.json(
-        { error: 'Unauthorized: Admin access required' },
-        { status: 401 }
-      )
+    // Check admin authentication with fallback
+    const { user: admin, method } = await getCurrentUserWithFallback(request)
+    console.log('[POS Mapping PUT] Auth:', method, '|', admin?.email || 'none')
+    
+    if (!admin) {
+      return NextResponse.json({ error: 'Session expired. Please log in again.', code: 'SESSION_EXPIRED' }, { status: 401 })
+    }
+    if (admin.role !== 'admin') {
+      return NextResponse.json({ error: 'Unauthorized: Admin access required' }, { status: 403 })
     }
 
     const { id } = params

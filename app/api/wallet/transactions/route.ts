@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getCurrentUserServer } from '@/lib/auth-server'
+import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { createClient } from '@supabase/supabase-js'
 
 // Mark this route as dynamic (uses cookies for authentication)
@@ -18,13 +18,12 @@ export async function GET(request: NextRequest) {
       )
     }
     
-    // Get current user (server-side)
-    const user = await getCurrentUserServer()
+    // Get current user (server-side) with fallback
+    const { user, method } = await getCurrentUserWithFallback(request)
+    console.log('[Wallet Transactions] Auth method:', method, '| User:', user?.email || 'none')
+    
     if (!user || !user.partner_id) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      )
+      return NextResponse.json({ error: 'Session expired. Please log in again.', code: 'SESSION_EXPIRED' }, { status: 401 })
     }
 
     // Only retailers have wallets

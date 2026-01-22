@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getCurrentUserServer } from '@/lib/auth-server'
+import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { createClient } from '@supabase/supabase-js'
 
 export const runtime = 'nodejs' // Force Node.js runtime (Supabase not compatible with Edge Runtime)
@@ -21,11 +21,20 @@ export async function GET(request: NextRequest) {
     
     const supabase = createClient(supabaseUrl, supabaseServiceKey)
     
-    const admin = await getCurrentUserServer()
-    if (!admin || admin.role !== 'admin') {
+    const { user: admin, method } = await getCurrentUserWithFallback(request)
+    console.log('[Sub-Admins API] Auth method:', method, '| User:', admin?.email || 'none')
+    
+    if (!admin) {
+      return NextResponse.json(
+        { error: 'Session expired. Please log out and log back in.', code: 'SESSION_EXPIRED' },
+        { status: 401 }
+      )
+    }
+    
+    if (admin.role !== 'admin') {
       return NextResponse.json(
         { error: 'Unauthorized: Admin access required' },
-        { status: 401 }
+        { status: 403 }
       )
     }
 
@@ -98,11 +107,20 @@ export async function POST(request: NextRequest) {
     
     const supabase = createClient(supabaseUrl, supabaseServiceKey)
     
-    const admin = await getCurrentUserServer()
-    if (!admin || admin.role !== 'admin') {
+    const { user: admin, method } = await getCurrentUserWithFallback(request)
+    console.log('[Sub-Admins API] Auth method:', method, '| User:', admin?.email || 'none')
+    
+    if (!admin) {
+      return NextResponse.json(
+        { error: 'Session expired. Please log out and log back in.', code: 'SESSION_EXPIRED' },
+        { status: 401 }
+      )
+    }
+    
+    if (admin.role !== 'admin') {
       return NextResponse.json(
         { error: 'Unauthorized: Admin access required' },
-        { status: 401 }
+        { status: 403 }
       )
     }
 
@@ -246,11 +264,20 @@ export async function PUT(request: NextRequest) {
     
     const supabase = createClient(supabaseUrl, supabaseServiceKey)
     
-    const admin = await getCurrentUserServer()
-    if (!admin || admin.role !== 'admin') {
+    const { user: admin, method } = await getCurrentUserWithFallback(request)
+    console.log('[Sub-Admins API] Auth method:', method, '| User:', admin?.email || 'none')
+    
+    if (!admin) {
+      return NextResponse.json(
+        { error: 'Session expired. Please log out and log back in.', code: 'SESSION_EXPIRED' },
+        { status: 401 }
+      )
+    }
+    
+    if (admin.role !== 'admin') {
       return NextResponse.json(
         { error: 'Unauthorized: Admin access required' },
-        { status: 401 }
+        { status: 403 }
       )
     }
 
@@ -367,11 +394,20 @@ export async function DELETE(request: NextRequest) {
     
     const supabase = createClient(supabaseUrl, supabaseServiceKey)
     
-    const admin = await getCurrentUserServer()
-    if (!admin || admin.role !== 'admin') {
+    const { user: admin, method } = await getCurrentUserWithFallback(request)
+    console.log('[Sub-Admins API] Auth method:', method, '| User:', admin?.email || 'none')
+    
+    if (!admin) {
+      return NextResponse.json(
+        { error: 'Session expired. Please log out and log back in.', code: 'SESSION_EXPIRED' },
+        { status: 401 }
+      )
+    }
+    
+    if (admin.role !== 'admin') {
       return NextResponse.json(
         { error: 'Unauthorized: Admin access required' },
-        { status: 401 }
+        { status: 403 }
       )
     }
 
