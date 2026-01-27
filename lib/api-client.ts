@@ -11,10 +11,9 @@
  */
 
 /**
- * Get the BBPS Backend API base URL (EC2)
+ * Get the EC2 Backend API base URL
  * - In localhost: Uses localhost:3000 (same as Next.js dev server)
- * - In production: Uses NEXT_PUBLIC_BBPS_BACKEND_URL (EC2 backend)
- * - If NEXT_PUBLIC_BBPS_BACKEND_URL is not set, falls back to relative URLs (same-origin)
+ * - In production: Uses EC2 backend URL
  */
 export function getBBPSBackendUrl(): string {
   if (typeof window !== 'undefined') {
@@ -24,36 +23,40 @@ export function getBBPSBackendUrl(): string {
     if (hostname === 'localhost' || hostname === '127.0.0.1') {
       return '' // Use relative URLs in development
     }
+    
+    // Production: Always use EC2 backend
+    // Check environment variable first, then use hardcoded fallback
+    const backendUrl = process.env.NEXT_PUBLIC_BBPS_BACKEND_URL
+    if (backendUrl && backendUrl.trim() !== '') {
+      return backendUrl.endsWith('/') ? backendUrl.slice(0, -1) : backendUrl
+    }
+    
+    // Hardcoded fallback for production - EC2 backend URL
+    // This ensures API calls go to EC2 even if env var is not set
+    return 'https://api.samedaysolution.co.in'
   }
   
-  // Production: EC2 backend URL for BBPS (if configured)
-  // If NEXT_PUBLIC_BBPS_BACKEND_URL is empty or not set, use Amplify API routes
+  // Server-side: Check environment variable
   const backendUrl = process.env.NEXT_PUBLIC_BBPS_BACKEND_URL
   if (backendUrl && backendUrl.trim() !== '') {
     return backendUrl.endsWith('/') ? backendUrl.slice(0, -1) : backendUrl
   }
   
-  // Fallback: Use relative URLs (Amplify API routes on same origin)
-  // This works when BBPS credentials are configured in Amplify environment
-  return ''
+  // Fallback for SSR
+  return 'https://api.samedaysolution.co.in'
 }
 
 /**
  * Check if a path is a route that needs EC2 backend
- * These routes require:
- * - Whitelisted IP for Sparkup API access (BBPS/Payout)
- * - Server-side environment variables (Admin APIs with Supabase)
+ * ALL API routes go to EC2 because:
+ * - Sparkup APIs need whitelisted IP (BBPS/Payout)
+ * - Admin APIs need SUPABASE_SERVICE_ROLE_KEY
+ * - User management needs Supabase admin access
  */
 function isEC2Route(path: string): boolean {
-  return path.includes('/api/bbps/') || 
-         path.includes('/api/payout/') ||
-         path.includes('/api/admin/sparkup-balance') ||
-         path.includes('/api/admin/sub-admins') ||
-         path.includes('/api/admin/create-user') ||
-         path.includes('/api/admin/approve-partner') ||
-         path.includes('/api/admin/pending-verifications') ||
-         path.includes('/api/admin/reset-password') ||
-         path.includes('/api/admin/upload-document')
+  // Route ALL /api/ calls to EC2 for consistency
+  // EC2 has all environment variables configured correctly
+  return path.startsWith('/api/')
 }
 
 /**
