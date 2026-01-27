@@ -7,8 +7,8 @@ import {
   Bell, Search, Settings, LogOut, User, Moon, Sun, 
   ChevronDown, ShoppingCart
 } from 'lucide-react'
-
 import { motion, AnimatePresence } from 'framer-motion'
+import { SessionBadge } from '@/components/SessionTimer'
 
 export default function RetailerHeader() {
   const { user, logout } = useAuth()
@@ -120,6 +120,9 @@ export default function RetailerHeader() {
 
           {/* Right Side Actions */}
           <div className="flex items-center space-x-2">
+            {/* Session Timer Badge */}
+            <SessionBadge />
+            
             {/* Dark Mode Toggle */}
             <button
               onClick={toggleDarkMode}

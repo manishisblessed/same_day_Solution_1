@@ -115,7 +115,12 @@ const isPrepaidCategory = (category: string): boolean => {
   )
 }
 
-export default function BBPSPayment() {
+interface BBPSPaymentProps {
+  categoryFilter?: string[]
+  title?: string
+}
+
+export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps = {}) {
   const { user } = useAuth()
   const [walletBalance, setWalletBalance] = useState<number | null>(null)
   const [loadingBalance, setLoadingBalance] = useState(true)
@@ -166,10 +171,21 @@ export default function BBPSPayment() {
     }
   }, [user?.partner_id])
 
-  // Fetch categories
+  // Fetch categories (re-fetch when categoryFilter changes)
   useEffect(() => {
+    // Reset state when filter changes
+    setSelectedCategory('')
+    setSelectedBiller(null)
+    setBillDetails(null)
+    setPaymentResult(null)
+    setBillers([])
+    setFilteredBillers([])
+    setError(null)
+    setPrepaidAmount('')
+    setShowPrepaidConfirm(false)
+    
     fetchCategories()
-  }, [])
+  }, [categoryFilter])
 
   // Fetch billers when category changes
   useEffect(() => {
@@ -433,7 +449,18 @@ export default function BBPSPayment() {
         method: 'GET',
       })
       if (data.success) {
-        const cats = data.categories || []
+        let cats = data.categories || []
+        
+        // Filter categories if categoryFilter prop is provided
+        if (categoryFilter && categoryFilter.length > 0) {
+          cats = cats.filter(cat => 
+            categoryFilter.some(filterCat => 
+              cat.toLowerCase().includes(filterCat.toLowerCase()) ||
+              filterCat.toLowerCase().includes(cat.toLowerCase())
+            )
+          )
+        }
+        
         setCategories(cats)
         if (cats.length > 0 && !selectedCategory) {
           setSelectedCategory(cats[0])

@@ -10,6 +10,7 @@ import {
   Menu, X, ChevronDown, Activity, Zap, Shield
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
+import { SessionBadge } from '@/components/SessionTimer'
 
 export default function AdminHeader() {
   const { user, logout } = useAuth()
@@ -77,22 +78,28 @@ export default function AdminHeader() {
     <header className="fixed top-0 left-0 right-0 z-50 backdrop-blur-xl bg-white/95 dark:bg-gray-900/95 border-b border-gray-200/50 dark:border-gray-700/50 shadow-lg shadow-gray-900/5 w-full">
       <div className="w-full mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
-          {/* Logo & Title */}
+          {/* Logo & Title - Clickable to refresh to dashboard */}
           <div className="flex items-center space-x-4">
-            <div className="flex items-center space-x-3">
+            <button 
+              onClick={() => {
+                router.push('/admin?tab=dashboard')
+                window.location.reload()
+              }}
+              className="flex items-center space-x-3 hover:opacity-80 transition-opacity cursor-pointer"
+            >
               <div className="relative">
                 <div className="absolute inset-0 bg-gradient-to-br from-primary-500 to-secondary-500 rounded-xl blur opacity-75"></div>
                 <div className="relative bg-gradient-to-br from-primary-600 to-secondary-600 p-2 rounded-xl">
                   <Shield className="w-6 h-6 text-white" />
                 </div>
               </div>
-              <div>
+              <div className="text-left">
                 <h1 className="text-xl font-bold bg-gradient-to-r from-primary-600 to-secondary-600 bg-clip-text text-transparent">
                   Admin Portal
                 </h1>
                 <p className="text-xs text-gray-500 dark:text-gray-400">Control Center</p>
               </div>
-            </div>
+            </button>
           </div>
 
           {/* Search Bar */}
@@ -111,6 +118,9 @@ export default function AdminHeader() {
 
           {/* Right Side Actions */}
           <div className="flex items-center space-x-2">
+            {/* Session Timer Badge */}
+            <SessionBadge />
+            
             {/* Dark Mode Toggle */}
             <button
               onClick={toggleDarkMode}

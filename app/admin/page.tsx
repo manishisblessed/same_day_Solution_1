@@ -13,12 +13,17 @@ import {
   ChevronLeft, ChevronRight, FileSpreadsheet, FileText,
   MoreVertical, RefreshCw, Settings, CreditCard, MapPin, Calendar, Receipt,
   ArrowUpCircle, ArrowDownCircle, Wallet, LogIn, Key, Eye, EyeOff, ZoomIn, ZoomOut, RotateCw, Image as ImageIcon,
-  Upload, FileSpreadsheet as FileSpreadsheetIcon
+  Upload, FileSpreadsheet as FileSpreadsheetIcon, LayoutDashboard,
+  DollarSign, PiggyBank, ArrowRightLeft, BarChart3, PieChart, LineChart,
+  Building2, Briefcase, Phone, Mail, Clock, Percent, IndianRupee,
+  FileBarChart, Printer, Sheet, BadgeIndianRupee, Banknote,
+  CheckCircle2, AlertTriangle, XCircle, Zap, Globe, Smartphone, FileDown
 } from 'lucide-react'
 import TransactionsTable from '@/components/TransactionsTable'
+import SmartInsights from '@/components/SmartInsights'
 import { motion, AnimatePresence } from 'framer-motion'
 
-type TabType = 'retailers' | 'distributors' | 'master-distributors' | 'services' | 'pos-machines' | 'transactions'
+type TabType = 'dashboard' | 'retailers' | 'distributors' | 'master-distributors' | 'services' | 'pos-machines' | 'transactions'
 type SortField = 'name' | 'email' | 'partner_id' | 'created_at' | 'status'
 type SortDirection = 'asc' | 'desc'
 
@@ -28,13 +33,13 @@ function AdminDashboardContent() {
   const searchParams = useSearchParams()
   const [sidebarOpen, setSidebarOpen] = useState(false)
   
-  // Initialize activeTab from URL or default to 'retailers'
+  // Initialize activeTab from URL or default to 'dashboard'
   const getInitialTab = (): TabType => {
     const tab = searchParams.get('tab')
-    if (tab && ['retailers', 'distributors', 'master-distributors', 'pos-machines', 'services', 'transactions'].includes(tab)) {
+    if (tab && ['dashboard', 'retailers', 'distributors', 'master-distributors', 'pos-machines', 'services', 'transactions'].includes(tab)) {
       return tab as TabType
     }
-    return 'retailers'
+    return 'dashboard'
   }
   
   const [activeTab, setActiveTab] = useState<TabType>(getInitialTab())
@@ -95,25 +100,15 @@ function AdminDashboardContent() {
   // Sync activeTab with URL query params
   useEffect(() => {
     const tab = searchParams.get('tab')
-    if (tab && ['retailers', 'distributors', 'master-distributors', 'pos-machines', 'services', 'transactions'].includes(tab)) {
+    if (tab && ['dashboard', 'retailers', 'distributors', 'master-distributors', 'pos-machines', 'services', 'transactions'].includes(tab)) {
       if (tab !== activeTab) {
         setActiveTab(tab as TabType)
       }
+    } else if (!tab && activeTab !== 'dashboard') {
+      // If no tab in URL, default to dashboard
+      setActiveTab('dashboard')
     }
   }, [searchParams, activeTab])
-
-  // Sync activeTab with URL query params
-  useEffect(() => {
-    const tab = searchParams.get('tab')
-    if (tab && ['retailers', 'distributors', 'master-distributors', 'pos-machines', 'services', 'transactions'].includes(tab)) {
-      if (tab !== activeTab) {
-        setActiveTab(tab as TabType)
-      }
-    } else if (!tab && activeTab !== 'retailers') {
-      // If no tab in URL, default to retailers
-      setActiveTab('retailers')
-    }
-  }, [searchParams])
 
   useEffect(() => {
     if (!authLoading && (!user || user.role !== 'admin')) {
@@ -469,6 +464,7 @@ function AdminDashboardContent() {
           >
             <div className="flex space-x-1 border-b border-gray-200 dark:border-gray-700 p-1 overflow-x-auto scrollbar-hide">
               {[
+                { id: 'dashboard' as TabType, label: 'Overview', icon: LayoutDashboard },
                 { id: 'retailers' as TabType, label: 'Retailers', icon: Users },
                 { id: 'distributors' as TabType, label: 'Distributors', icon: Package },
                 { id: 'master-distributors' as TabType, label: 'Master Distributors', icon: Crown },
@@ -502,7 +498,13 @@ function AdminDashboardContent() {
           </motion.div>
 
           {/* Conditional Content Based on Tab */}
-          {activeTab === 'transactions' ? (
+          {activeTab === 'dashboard' ? (
+            <AdminDashboardOverview 
+              retailers={retailers}
+              distributors={distributors}
+              masterDistributors={masterDistributors}
+            />
+          ) : activeTab === 'transactions' ? (
             <TransactionsTable role="admin" autoPoll={true} pollInterval={10000} />
           ) : activeTab === 'services' ? (
             <ServicesManagementTab />
@@ -544,21 +546,6 @@ function AdminDashboardContent() {
                 />
               </div>
               <div className="flex gap-2 flex-wrap">
-                <button
-                  onClick={() => setShowModal(true)}
-                  className="btn-primary flex items-center gap-1.5 sm:gap-2 whitespace-nowrap text-xs sm:text-sm px-3 sm:px-4 py-2 flex-1 sm:flex-none"
-                >
-                  <Plus className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-                  <span className="hidden md:inline">
-                    Add {
-                      activeTab === 'retailers' ? 'Retailer' : 
-                      activeTab === 'distributors' ? 'Distributor' : 
-                      'Master Distributor'
-                    }
-                  </span>
-                  <span className="hidden sm:inline md:hidden">Add</span>
-                  <span className="sm:hidden">Add</span>
-                </button>
                 <select
                   value={statusFilter}
                   onChange={(e) => {
@@ -1198,6 +1185,493 @@ function AdminDashboardContent() {
           />
         )
       )}
+    </div>
+  )
+}
+
+// Admin Dashboard Overview - Financial Analytics Component
+function AdminDashboardOverview({ 
+  retailers, 
+  distributors, 
+  masterDistributors 
+}: { 
+  retailers: Retailer[]
+  distributors: Distributor[]
+  masterDistributors: MasterDistributor[]
+}) {
+  const [analyticsData, setAnalyticsData] = useState({
+    totalTransactionVolume: 0,
+    todayTransactionVolume: 0,
+    weeklyTransactionVolume: 0,
+    monthlyTransactionVolume: 0,
+    totalCommissionEarned: 0,
+    todayCommissionEarned: 0,
+    monthlyCommissionEarned: 0,
+    activePartners: 0,
+    pendingVerifications: 0,
+    totalWalletBalance: 0,
+    aepsTransactions: 0,
+    bbpsTransactions: 0,
+    dmtTransactions: 0,
+    rechargeTransactions: 0
+  })
+  const [loading, setLoading] = useState(true)
+  const [selectedPeriod, setSelectedPeriod] = useState<'today' | 'week' | 'month' | 'year'>('today')
+
+  useEffect(() => {
+    fetchAnalytics()
+  }, [selectedPeriod])
+
+  const fetchAnalytics = async () => {
+    setLoading(true)
+    try {
+      // Fetch transaction analytics from Supabase
+      const { data: transactions, error } = await supabase
+        .from('transactions')
+        .select('amount, transaction_type, status, created_at')
+        .gte('created_at', getDateRange(selectedPeriod))
+      
+      if (!error && transactions) {
+        const successfulTxns = transactions.filter(t => t.status === 'success')
+        const totalVolume = successfulTxns.reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0)
+        
+        // Calculate by type
+        const aeps = successfulTxns.filter(t => t.transaction_type?.includes('aeps')).length
+        const bbps = successfulTxns.filter(t => t.transaction_type?.includes('bbps')).length
+        const dmt = successfulTxns.filter(t => t.transaction_type?.includes('dmt') || t.transaction_type?.includes('transfer')).length
+        const recharge = successfulTxns.filter(t => t.transaction_type?.includes('recharge')).length
+        
+        setAnalyticsData(prev => ({
+          ...prev,
+          totalTransactionVolume: totalVolume,
+          todayTransactionVolume: totalVolume,
+          aepsTransactions: aeps,
+          bbpsTransactions: bbps,
+          dmtTransactions: dmt,
+          rechargeTransactions: recharge,
+          activePartners: retailers.filter(r => r.status === 'active').length + 
+                         distributors.filter(d => d.status === 'active').length +
+                         masterDistributors.filter(m => m.status === 'active').length,
+          pendingVerifications: retailers.filter(r => r.verification_status === 'pending').length +
+                               distributors.filter(d => d.verification_status === 'pending').length +
+                               masterDistributors.filter(m => m.verification_status === 'pending').length
+        }))
+      }
+    } catch (err) {
+      console.error('Error fetching analytics:', err)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const getDateRange = (period: string) => {
+    const now = new Date()
+    switch (period) {
+      case 'today':
+        return new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString()
+      case 'week':
+        return new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString()
+      case 'month':
+        return new Date(now.getFullYear(), now.getMonth(), 1).toISOString()
+      case 'year':
+        return new Date(now.getFullYear(), 0, 1).toISOString()
+      default:
+        return new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString()
+    }
+  }
+
+  const formatCurrency = (amount: number) => {
+    return new Intl.NumberFormat('en-IN', {
+      style: 'currency',
+      currency: 'INR',
+      maximumFractionDigits: 0
+    }).format(amount)
+  }
+
+  // Download reports function
+  const downloadReport = async (format: 'csv' | 'excel' | 'pdf' | 'json') => {
+    try {
+      const { data: transactions } = await supabase
+        .from('transactions')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(1000)
+      
+      if (!transactions) return
+
+      if (format === 'csv') {
+        const headers = ['Date', 'Transaction ID', 'Type', 'Amount', 'Status', 'Partner ID']
+        const rows = transactions.map(t => [
+          new Date(t.created_at).toLocaleString(),
+          t.transaction_id || t.id,
+          t.transaction_type,
+          t.amount,
+          t.status,
+          t.partner_id
+        ])
+        const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n')
+        downloadFile(csvContent, 'transactions_report.csv', 'text/csv')
+      } else if (format === 'json') {
+        downloadFile(JSON.stringify(transactions, null, 2), 'transactions_report.json', 'application/json')
+      } else if (format === 'excel') {
+        // For Excel, we'll use CSV with tab separation
+        const headers = ['Date', 'Transaction ID', 'Type', 'Amount', 'Status', 'Partner ID']
+        const rows = transactions.map(t => [
+          new Date(t.created_at).toLocaleString(),
+          t.transaction_id || t.id,
+          t.transaction_type,
+          t.amount,
+          t.status,
+          t.partner_id
+        ])
+        const excelContent = [headers.join('\t'), ...rows.map(r => r.join('\t'))].join('\n')
+        downloadFile(excelContent, 'transactions_report.xls', 'application/vnd.ms-excel')
+      }
+    } catch (err) {
+      console.error('Error downloading report:', err)
+      alert('Failed to download report')
+    }
+  }
+
+  const downloadFile = (content: string, filename: string, type: string) => {
+    const blob = new Blob([content], { type })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Period Selector & Report Downloads */}
+      <div className="flex flex-wrap justify-between items-center gap-4">
+        <div className="flex gap-2">
+          {(['today', 'week', 'month', 'year'] as const).map((period) => (
+            <button
+              key={period}
+              onClick={() => setSelectedPeriod(period)}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                selectedPeriod === period
+                  ? 'bg-gradient-to-r from-primary-500 to-secondary-500 text-white shadow-lg'
+                  : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-700 hover:border-primary-500'
+              }`}
+            >
+              {period.charAt(0).toUpperCase() + period.slice(1)}
+            </button>
+          ))}
+        </div>
+        
+        {/* Report Downloads */}
+        <div className="flex gap-2">
+          <button
+            onClick={() => downloadReport('csv')}
+            className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-medium transition-all shadow-md hover:shadow-lg"
+          >
+            <FileDown className="w-4 h-4" />
+            CSV
+          </button>
+          <button
+            onClick={() => downloadReport('excel')}
+            className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-medium transition-all shadow-md hover:shadow-lg"
+          >
+            <Sheet className="w-4 h-4" />
+            Excel
+          </button>
+          <button
+            onClick={() => downloadReport('json')}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-all shadow-md hover:shadow-lg"
+          >
+            <FileBarChart className="w-4 h-4" />
+            JSON
+          </button>
+        </div>
+      </div>
+
+      {/* Financial KPIs - Premium Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="relative overflow-hidden bg-gradient-to-br from-blue-600 via-blue-700 to-indigo-800 rounded-2xl p-6 text-white shadow-xl"
+        >
+          <div className="absolute top-0 right-0 -mt-4 -mr-4 w-24 h-24 bg-white/10 rounded-full blur-2xl"></div>
+          <div className="absolute bottom-0 left-0 -mb-4 -ml-4 w-32 h-32 bg-white/5 rounded-full blur-3xl"></div>
+          <div className="relative z-10">
+            <div className="flex items-center justify-between mb-4">
+              <div className="p-3 bg-white/20 rounded-xl backdrop-blur-sm">
+                <IndianRupee className="w-6 h-6" />
+              </div>
+              <span className="text-xs font-medium bg-white/20 px-2 py-1 rounded-full">
+                {selectedPeriod.toUpperCase()}
+              </span>
+            </div>
+            <p className="text-sm text-blue-100 mb-1">Transaction Volume</p>
+            <p className="text-3xl font-bold tracking-tight">
+              {loading ? '...' : formatCurrency(analyticsData.totalTransactionVolume)}
+            </p>
+            <div className="mt-3 flex items-center gap-1 text-xs text-blue-200">
+              <TrendingUp className="w-3 h-3" />
+              <span>All successful transactions</span>
+            </div>
+          </div>
+        </motion.div>
+
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.1 }}
+          className="relative overflow-hidden bg-gradient-to-br from-emerald-600 via-emerald-700 to-teal-800 rounded-2xl p-6 text-white shadow-xl"
+        >
+          <div className="absolute top-0 right-0 -mt-4 -mr-4 w-24 h-24 bg-white/10 rounded-full blur-2xl"></div>
+          <div className="relative z-10">
+            <div className="flex items-center justify-between mb-4">
+              <div className="p-3 bg-white/20 rounded-xl backdrop-blur-sm">
+                <Users className="w-6 h-6" />
+              </div>
+              <CheckCircle2 className="w-5 h-5 text-emerald-200" />
+            </div>
+            <p className="text-sm text-emerald-100 mb-1">Active Partners</p>
+            <p className="text-3xl font-bold tracking-tight">
+              {loading ? '...' : analyticsData.activePartners.toLocaleString()}
+            </p>
+            <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
+              <div className="bg-white/10 rounded-lg px-2 py-1 text-center">
+                <p className="font-semibold">{retailers.filter(r => r.status === 'active').length}</p>
+                <p className="text-emerald-200">Retailers</p>
+              </div>
+              <div className="bg-white/10 rounded-lg px-2 py-1 text-center">
+                <p className="font-semibold">{distributors.filter(d => d.status === 'active').length}</p>
+                <p className="text-emerald-200">Dist.</p>
+              </div>
+              <div className="bg-white/10 rounded-lg px-2 py-1 text-center">
+                <p className="font-semibold">{masterDistributors.filter(m => m.status === 'active').length}</p>
+                <p className="text-emerald-200">MD</p>
+              </div>
+            </div>
+          </div>
+        </motion.div>
+
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.2 }}
+          className="relative overflow-hidden bg-gradient-to-br from-amber-500 via-orange-600 to-red-600 rounded-2xl p-6 text-white shadow-xl"
+        >
+          <div className="absolute top-0 right-0 -mt-4 -mr-4 w-24 h-24 bg-white/10 rounded-full blur-2xl"></div>
+          <div className="relative z-10">
+            <div className="flex items-center justify-between mb-4">
+              <div className="p-3 bg-white/20 rounded-xl backdrop-blur-sm">
+                <AlertTriangle className="w-6 h-6" />
+              </div>
+              <Clock className="w-5 h-5 text-amber-200" />
+            </div>
+            <p className="text-sm text-amber-100 mb-1">Pending Verifications</p>
+            <p className="text-3xl font-bold tracking-tight">
+              {loading ? '...' : analyticsData.pendingVerifications}
+            </p>
+            <div className="mt-3 text-xs text-amber-200">
+              <span>Requires attention</span>
+            </div>
+          </div>
+        </motion.div>
+
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.3 }}
+          className="relative overflow-hidden bg-gradient-to-br from-purple-600 via-purple-700 to-pink-700 rounded-2xl p-6 text-white shadow-xl"
+        >
+          <div className="absolute top-0 right-0 -mt-4 -mr-4 w-24 h-24 bg-white/10 rounded-full blur-2xl"></div>
+          <div className="relative z-10">
+            <div className="flex items-center justify-between mb-4">
+              <div className="p-3 bg-white/20 rounded-xl backdrop-blur-sm">
+                <CreditCard className="w-6 h-6" />
+              </div>
+              <Zap className="w-5 h-5 text-purple-200" />
+            </div>
+            <p className="text-sm text-purple-100 mb-1">Total POS Machines</p>
+            <p className="text-3xl font-bold tracking-tight">
+              {loading ? '...' : (retailers.length + distributors.length)}
+            </p>
+            <div className="mt-3 text-xs text-purple-200">
+              <span>Active deployments</span>
+            </div>
+          </div>
+        </motion.div>
+      </div>
+
+      {/* Service-wise Transaction Breakdown */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.4 }}
+        className="bg-white dark:bg-gray-800 rounded-2xl p-6 shadow-xl border border-gray-100 dark:border-gray-700"
+      >
+        <div className="flex items-center justify-between mb-6">
+          <h3 className="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
+            <BarChart3 className="w-5 h-5 text-primary-500" />
+            Service-wise Breakdown
+          </h3>
+          <span className="text-sm text-gray-500 dark:text-gray-400">{selectedPeriod.toUpperCase()}</span>
+        </div>
+        
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="p-4 rounded-xl bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-900/30 dark:to-blue-800/30 border border-blue-200 dark:border-blue-700">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="p-2 bg-blue-500 rounded-lg">
+                <Banknote className="w-5 h-5 text-white" />
+              </div>
+              <span className="font-semibold text-blue-900 dark:text-blue-100">AEPS</span>
+            </div>
+            <p className="text-2xl font-bold text-blue-700 dark:text-blue-300">
+              {analyticsData.aepsTransactions.toLocaleString()}
+            </p>
+            <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">transactions</p>
+          </div>
+
+          <div className="p-4 rounded-xl bg-gradient-to-br from-green-50 to-green-100 dark:from-green-900/30 dark:to-green-800/30 border border-green-200 dark:border-green-700">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="p-2 bg-green-500 rounded-lg">
+                <Receipt className="w-5 h-5 text-white" />
+              </div>
+              <span className="font-semibold text-green-900 dark:text-green-100">BBPS</span>
+            </div>
+            <p className="text-2xl font-bold text-green-700 dark:text-green-300">
+              {analyticsData.bbpsTransactions.toLocaleString()}
+            </p>
+            <p className="text-xs text-green-600 dark:text-green-400 mt-1">bill payments</p>
+          </div>
+
+          <div className="p-4 rounded-xl bg-gradient-to-br from-purple-50 to-purple-100 dark:from-purple-900/30 dark:to-purple-800/30 border border-purple-200 dark:border-purple-700">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="p-2 bg-purple-500 rounded-lg">
+                <ArrowRightLeft className="w-5 h-5 text-white" />
+              </div>
+              <span className="font-semibold text-purple-900 dark:text-purple-100">DMT</span>
+            </div>
+            <p className="text-2xl font-bold text-purple-700 dark:text-purple-300">
+              {analyticsData.dmtTransactions.toLocaleString()}
+            </p>
+            <p className="text-xs text-purple-600 dark:text-purple-400 mt-1">transfers</p>
+          </div>
+
+          <div className="p-4 rounded-xl bg-gradient-to-br from-orange-50 to-orange-100 dark:from-orange-900/30 dark:to-orange-800/30 border border-orange-200 dark:border-orange-700">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="p-2 bg-orange-500 rounded-lg">
+                <Smartphone className="w-5 h-5 text-white" />
+              </div>
+              <span className="font-semibold text-orange-900 dark:text-orange-100">Recharge</span>
+            </div>
+            <p className="text-2xl font-bold text-orange-700 dark:text-orange-300">
+              {analyticsData.rechargeTransactions.toLocaleString()}
+            </p>
+            <p className="text-xs text-orange-600 dark:text-orange-400 mt-1">recharges</p>
+          </div>
+        </div>
+      </motion.div>
+
+      {/* AI-Powered Smart Insights */}
+      <SmartInsights 
+        userRole="admin" 
+        stats={{
+          revenue: analyticsData.totalTransactionVolume,
+          transactions: analyticsData.aepsTransactions + analyticsData.bbpsTransactions + analyticsData.dmtTransactions,
+          growth: 15,
+          activeUsers: analyticsData.activePartners
+        }}
+      />
+
+      {/* Quick Actions for Admin */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.5 }}
+        className="bg-gradient-to-r from-gray-900 to-gray-800 dark:from-gray-800 dark:to-gray-900 rounded-2xl p-6 shadow-xl"
+      >
+        <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+          <Zap className="w-5 h-5 text-yellow-400" />
+          Quick Actions
+        </h3>
+        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
+          <button className="flex flex-col items-center gap-2 p-4 bg-white/10 hover:bg-white/20 rounded-xl transition-all group">
+            <div className="p-3 bg-blue-500/20 rounded-xl group-hover:bg-blue-500/30 transition-all">
+              <FileBarChart className="w-6 h-6 text-blue-400" />
+            </div>
+            <span className="text-xs text-gray-300 font-medium">View Reports</span>
+          </button>
+          <button className="flex flex-col items-center gap-2 p-4 bg-white/10 hover:bg-white/20 rounded-xl transition-all group">
+            <div className="p-3 bg-green-500/20 rounded-xl group-hover:bg-green-500/30 transition-all">
+              <CheckCircle2 className="w-6 h-6 text-green-400" />
+            </div>
+            <span className="text-xs text-gray-300 font-medium">Verifications</span>
+          </button>
+          <button className="flex flex-col items-center gap-2 p-4 bg-white/10 hover:bg-white/20 rounded-xl transition-all group">
+            <div className="p-3 bg-purple-500/20 rounded-xl group-hover:bg-purple-500/30 transition-all">
+              <Wallet className="w-6 h-6 text-purple-400" />
+            </div>
+            <span className="text-xs text-gray-300 font-medium">Wallet Ops</span>
+          </button>
+          <button className="flex flex-col items-center gap-2 p-4 bg-white/10 hover:bg-white/20 rounded-xl transition-all group">
+            <div className="p-3 bg-orange-500/20 rounded-xl group-hover:bg-orange-500/30 transition-all">
+              <Settings className="w-6 h-6 text-orange-400" />
+            </div>
+            <span className="text-xs text-gray-300 font-medium">Settings</span>
+          </button>
+          <button className="flex flex-col items-center gap-2 p-4 bg-white/10 hover:bg-white/20 rounded-xl transition-all group">
+            <div className="p-3 bg-pink-500/20 rounded-xl group-hover:bg-pink-500/30 transition-all">
+              <Globe className="w-6 h-6 text-pink-400" />
+            </div>
+            <span className="text-xs text-gray-300 font-medium">Partners</span>
+          </button>
+          <button className="flex flex-col items-center gap-2 p-4 bg-white/10 hover:bg-white/20 rounded-xl transition-all group">
+            <div className="p-3 bg-cyan-500/20 rounded-xl group-hover:bg-cyan-500/30 transition-all">
+              <CreditCard className="w-6 h-6 text-cyan-400" />
+            </div>
+            <span className="text-xs text-gray-300 font-medium">POS Mgmt</span>
+          </button>
+        </div>
+      </motion.div>
+
+      {/* Financial Services Overview */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.6 }}
+        className="bg-white dark:bg-gray-800 rounded-2xl p-6 shadow-xl border border-gray-100 dark:border-gray-700"
+      >
+        <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-6 flex items-center gap-2">
+          <Building2 className="w-5 h-5 text-primary-500" />
+          Financial Services - Powered by AbheePay
+        </h3>
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+          {[
+            { icon: Building2, label: 'Banking & Payments', desc: 'Complete banking solutions', color: 'blue' },
+            { icon: CreditCard, label: 'Mini-ATM & POS', desc: 'Cash withdrawal services', color: 'green' },
+            { icon: Banknote, label: 'AEPS Services', desc: 'Aadhaar enabled payments', color: 'purple' },
+            { icon: IndianRupee, label: 'Aadhaar Pay', desc: 'Secure biometric payments', color: 'orange' },
+            { icon: ArrowRightLeft, label: 'Money Transfer', desc: 'Instant domestic transfers', color: 'pink' },
+            { icon: Receipt, label: 'Bill Payments', desc: 'All utility bills in one place', color: 'cyan' },
+            { icon: Smartphone, label: 'Mobile Recharge', desc: 'Instant prepaid recharge', color: 'yellow' },
+            { icon: Globe, label: 'Travel Services', desc: 'Bus, flights & hotels', color: 'indigo' }
+          ].map((service, idx) => (
+            <motion.div
+              key={idx}
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ delay: 0.7 + idx * 0.05 }}
+              className={`p-4 rounded-xl border-2 border-dashed border-${service.color}-200 dark:border-${service.color}-800 hover:border-solid hover:bg-${service.color}-50 dark:hover:bg-${service.color}-900/20 transition-all cursor-pointer group`}
+            >
+              <service.icon className={`w-8 h-8 text-${service.color}-500 mb-3 group-hover:scale-110 transition-transform`} />
+              <h4 className="font-semibold text-gray-900 dark:text-white text-sm">{service.label}</h4>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{service.desc}</p>
+            </motion.div>
+          ))}
+        </div>
+      </motion.div>
     </div>
   )
 }

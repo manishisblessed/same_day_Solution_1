@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserFromRequest } from '@/lib/auth-server-request'
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
+import { getPayoutBalance } from '@/services/payout'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -11,128 +12,77 @@ export async function OPTIONS(request: NextRequest) {
 }
 
 /**
- * Express Pay Payout API - Get Balance
- * Endpoint: https://api.sparkuptech.in/api/fzep/payout/getBalance
+ * GET /api/payout/balance
  * 
  * Returns the SparkUpTech Express Pay Payout wallet balance.
  * This is used for bank payouts (IMPS/NEFT transfers).
  * 
- * Required Headers:
- * - partnerid: Partner/Merchant identifier
- * - consumerkey: API consumer key
- * - consumersecret: API consumer secret
+ * - Admin: Full balance details
+ * - Retailers: Can check if payout service is available
  */
 export async function GET(request: NextRequest) {
   try {
-    // Get current user (only admin should be able to check payout balance)
+    // Get current user
     const user = await getCurrentUserFromRequest(request)
     const userRole = user?.role as string | undefined
     const isAdmin = userRole === 'admin' || userRole === 'super_admin'
+    const isRetailer = userRole === 'retailer'
 
-    // Restrict to admin users only
-    if (!isAdmin) {
+    // Restrict to admin and retailer users only
+    if (!isAdmin && !isRetailer) {
       const response = NextResponse.json(
-        { success: false, error: 'Access denied. Admin only.' },
+        { success: false, error: 'Access denied.' },
         { status: 403 }
       )
       return addCorsHeaders(request, response)
     }
 
-    // Get credentials from environment
-    const partnerId = process.env.BBPS_PARTNER_ID || process.env.BBPS_CLIENT_ID || ''
-    const consumerKey = process.env.BBPS_CONSUMER_KEY || ''
-    const consumerSecret = process.env.BBPS_CONSUMER_SECRET || ''
-
-    if (!partnerId || !consumerKey || !consumerSecret) {
+    // Fetch payout balance using service
+    const balanceResult = await getPayoutBalance()
+    
+    if (!balanceResult.success) {
       const response = NextResponse.json(
         { 
           success: false, 
-          error: 'Express Pay Payout API credentials not configured',
-          details: 'Missing BBPS_PARTNER_ID, BBPS_CONSUMER_KEY, or BBPS_CONSUMER_SECRET'
+          error: balanceResult.error || 'Failed to fetch payout balance',
+          payout_available: false,
         },
         { status: 500 }
       )
       return addCorsHeaders(request, response)
     }
 
-    // Express Pay Payout API base URL
-    const PAYOUT_API_BASE_URL = 'https://api.sparkuptech.in/api/fzep/payout'
-    
-    console.log('[Express Pay Payout] Fetching balance...')
-    console.log('[Express Pay Payout] Partner ID:', partnerId)
-
-    // Make API request to getBalance
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 30000)
-
-    const response = await fetch(`${PAYOUT_API_BASE_URL}/getBalance`, {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-        'partnerid': partnerId,
-        'consumerkey': consumerKey,
-        'consumersecret': consumerSecret,
-      },
-      signal: controller.signal,
-    })
-
-    clearTimeout(timeoutId)
-
-    const responseText = await response.text()
-    let data: any
-    
-    try {
-      data = JSON.parse(responseText)
-    } catch {
-      data = { raw_response: responseText }
-    }
-
-    console.log('[Express Pay Payout] Response status:', response.status)
-    console.log('[Express Pay Payout] Response:', JSON.stringify(data))
-
-    if (!response.ok) {
-      const errorResponse = NextResponse.json(
-        { 
-          success: false, 
-          error: data?.message || data?.error || `HTTP ${response.status}`,
-          http_status: response.status,
-          api_response: data
-        },
-        { status: response.status }
-      )
-      return addCorsHeaders(request, errorResponse)
-    }
-
-    // Success response
-    const successResponse = NextResponse.json({
-      success: true,
-      api: 'Express Pay Payout - getBalance',
-      endpoint: `${PAYOUT_API_BASE_URL}/getBalance`,
-      balance: data?.data?.balance || data?.balance,
-      lien: data?.data?.lien || data?.lien,
-      available_balance: (data?.data?.balance || data?.balance || 0) - (data?.data?.lien || data?.lien || 0),
-      raw_response: data,
-      last_checked: new Date().toISOString(),
-    })
-    
-    return addCorsHeaders(request, successResponse)
-
-  } catch (error: any) {
-    console.error('[Express Pay Payout] Error fetching balance:', error)
-    
-    // Handle timeout
-    if (error.name === 'AbortError') {
-      const response = NextResponse.json(
-        { success: false, error: 'Request timeout after 30 seconds' },
-        { status: 504 }
-      )
+    // For retailers, just return availability status
+    if (!isAdmin) {
+      const response = NextResponse.json({
+        success: true,
+        payout_available: (balanceResult.available_balance || 0) > 1000,
+        min_transfer: 100,
+        max_transfer: Math.min(balanceResult.available_balance || 0, 200000),
+      })
       return addCorsHeaders(request, response)
     }
 
+    // For admins, return full details
+    const response = NextResponse.json({
+      success: true,
+      balance: balanceResult.balance,
+      lien: balanceResult.lien,
+      available_balance: balanceResult.available_balance,
+      payout_available: (balanceResult.available_balance || 0) > 1000,
+      provider: 'SparkUpTech Express Pay',
+      last_checked: new Date().toISOString(),
+    })
+    
+    return addCorsHeaders(request, response)
+
+  } catch (error: any) {
+    console.error('[Payout Balance] Error:', error)
     const response = NextResponse.json(
       { 
         success: false, 
-        error: error.message || 'Failed to fetch Express Pay Payout balance',
+        error: error.message || 'Failed to fetch payout balance',
+        payout_available: false,
       },
       { status: 500 }
     )

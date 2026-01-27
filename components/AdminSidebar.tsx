@@ -6,7 +6,8 @@ import Link from 'next/link'
 import { 
   LayoutDashboard, Users, Package, Crown, 
   BarChart3, Settings, FileText, TrendingUp,
-  Activity, Zap, X, Menu, CreditCard, Receipt, CheckCircle2
+  Activity, Zap, X, Menu, CreditCard, Receipt, CheckCircle2,
+  Building2, FileBarChart
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 
@@ -19,14 +20,15 @@ interface SidebarItem {
 }
 
 const sidebarItems: SidebarItem[] = [
-  { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, href: '/admin' },
+  { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, href: '/admin?tab=dashboard' },
   { id: 'retailers', label: 'Retailers', icon: Users, href: '/admin?tab=retailers' },
   { id: 'distributors', label: 'Distributors', icon: Package, href: '/admin?tab=distributors' },
   { id: 'master-distributors', label: 'Master Distributors', icon: Crown, href: '/admin?tab=master-distributors' },
-  { id: 'partner-verifications', label: 'Partner Verifications', icon: CheckCircle2, href: '/admin/partner-verifications' },
+  { id: 'partners', label: 'Partners', icon: Building2, href: '/admin/partners', badge: undefined },
   { id: 'pos-machines', label: 'POS Machines', icon: CreditCard, href: '/admin?tab=pos-machines' },
   { id: 'razorpay-transactions', label: 'Razorpay Transactions', icon: Receipt, href: '/admin/razorpay-transactions' },
   { id: 'services', label: 'Services', icon: Activity, href: '/admin?tab=services' },
+  { id: 'reports', label: 'Reports', icon: FileBarChart, href: '/admin/reports' },
   { id: 'settings', label: 'Settings', icon: Settings, href: '/admin/settings' },
 ]
 
@@ -35,8 +37,16 @@ export default function AdminSidebar({ isOpen, onClose }: { isOpen: boolean; onC
   const [hoveredItem, setHoveredItem] = useState<string | null>(null)
 
   const isActive = (href: string) => {
-    if (href === '/admin') return pathname === '/admin'
-    return pathname.includes(href.split('#')[0])
+    // Handle query param based tabs
+    if (typeof window !== 'undefined') {
+      const currentUrl = window.location.href
+      if (href.includes('?tab=')) {
+        return currentUrl.includes(href)
+      }
+    }
+    // Handle page-based routes
+    if (href === '/admin?tab=dashboard') return pathname === '/admin' && !pathname.includes('tab=')
+    return pathname.includes(href.split('?')[0].split('#')[0])
   }
 
   return (

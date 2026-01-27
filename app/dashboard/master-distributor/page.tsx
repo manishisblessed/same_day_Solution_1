@@ -13,6 +13,7 @@ import {
   Eye, RefreshCw, Settings, Plus, X
 } from 'lucide-react'
 import TransactionsTable from '@/components/TransactionsTable'
+import SessionTimer from '@/components/SessionTimer'
 import { LineChart, Line, BarChart, Bar, AreaChart, Area, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
 import { motion, AnimatePresence } from 'framer-motion'
 
@@ -267,6 +268,14 @@ function MasterDistributorDashboardContent() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-gray-50">
+      {/* Session Timer */}
+      <SessionTimer 
+        sessionDuration={10} 
+        warningTime={30} 
+        userRole="master_distributor"
+        loginPath="/business-login"
+        showBadge={false}
+      />
       {/* Header */}
       <div className="bg-white border-b border-gray-200 shadow-sm sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">

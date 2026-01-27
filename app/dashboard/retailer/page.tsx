@@ -6,13 +6,16 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase/client'
 import { apiFetchJson } from '@/lib/api-client'
 import RetailerHeader from '@/components/RetailerHeader'
+import SessionTimer from '@/components/SessionTimer'
 import { 
   TrendingUp, DollarSign, Users, Activity, 
   ShoppingCart, CreditCard, ArrowUpRight, Menu,
-  RefreshCw, Settings, X, Check, AlertCircle, Eye, Receipt, Wallet, Download
+  RefreshCw, Settings, X, Check, AlertCircle, Eye, Receipt, Wallet, Download,
+  Send, Banknote
 } from 'lucide-react'
 import TransactionsTable from '@/components/TransactionsTable'
 import BBPSPayment from '@/components/BBPSPayment'
+import PayoutTransfer from '@/components/PayoutTransfer'
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
 
 // Lazy load RetailerSidebar to prevent module loading errors from breaking the page
@@ -30,7 +33,7 @@ const RetailerSidebar = lazy(() =>
 // Import framer-motion with a fallback component for SSR safety
 import { motion } from 'framer-motion'
 
-type TabType = 'dashboard' | 'wallet' | 'services' | 'bbps' | 'transactions' | 'reports' | 'settings'
+type TabType = 'dashboard' | 'wallet' | 'services' | 'bbps' | 'payout' | 'transactions' | 'reports' | 'settings'
 
 function RetailerDashboardContent() {
   const { user, loading: authLoading } = useAuth()
@@ -40,7 +43,7 @@ function RetailerDashboardContent() {
   
   const getInitialTab = (): TabType => {
     const tab = searchParams.get('tab')
-    if (tab && ['dashboard', 'wallet', 'services', 'bbps', 'transactions', 'reports', 'settings'].includes(tab)) {
+    if (tab && ['dashboard', 'wallet', 'services', 'bbps', 'payout', 'transactions', 'reports', 'settings'].includes(tab)) {
       return tab as TabType
     }
     return 'dashboard'
@@ -77,7 +80,7 @@ function RetailerDashboardContent() {
 
   useEffect(() => {
     const tab = searchParams.get('tab')
-    if (tab && ['dashboard', 'wallet', 'services', 'bbps', 'transactions', 'reports', 'settings'].includes(tab)) {
+    if (tab && ['dashboard', 'wallet', 'services', 'bbps', 'payout', 'transactions', 'reports', 'settings'].includes(tab)) {
       if (tab !== activeTab) {
         setActiveTab(tab as TabType)
       }
@@ -300,6 +303,13 @@ function RetailerDashboardContent() {
   return (
     <div className="flex min-h-screen bg-gradient-to-br from-gray-50 via-white to-gray-50 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900 overflow-x-hidden">
       <RetailerHeader />
+      <SessionTimer 
+        sessionDuration={10} 
+        warningTime={30} 
+        userRole="retailer"
+        loginPath="/business-login"
+        showBadge={false}
+      />
       <Suspense fallback={<div className="hidden lg:flex flex-col w-56 bg-gray-50 border-r border-gray-200 h-[calc(100vh-4rem)] fixed left-0 top-16" />}>
         <RetailerSidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       </Suspense>
@@ -354,6 +364,7 @@ function RetailerDashboardContent() {
                 { id: 'wallet' as TabType, label: 'Wallet', icon: Wallet },
                 { id: 'services' as TabType, label: 'Services', icon: ShoppingCart },
                 { id: 'bbps' as TabType, label: 'BBPS Payments', icon: Receipt },
+                { id: 'payout' as TabType, label: 'Bank Transfer', icon: Send },
                 { id: 'transactions' as TabType, label: 'Transactions', icon: CreditCard },
                 { id: 'reports' as TabType, label: 'Reports', icon: TrendingUp },
               ].map((tab) => (
@@ -381,6 +392,7 @@ function RetailerDashboardContent() {
           {activeTab === 'wallet' && <WalletTab user={user} />}
           {activeTab === 'services' && <ServicesTab />}
           {activeTab === 'bbps' && <BBPSTab />}
+          {activeTab === 'payout' && <PayoutTransfer title="Bank Transfer (Payout)" />}
           {activeTab === 'transactions' && <TransactionsTable role="retailer" autoPoll={true} pollInterval={10000} />}
           {activeTab === 'reports' && <ReportsTab chartData={chartData} stats={stats} />}
         </div>
@@ -528,15 +540,79 @@ function DashboardTab({ stats, chartData, recentTransactions }: { stats: any, ch
   )
 }
 
-// BBPS Tab Component
+// BBPS Tab Component with Sub-tabs
 function BBPSTab() {
+  const [bbpsSubTab, setBbpsSubTab] = useState<'recharge' | 'utilities' | 'creditcard' | 'others'>('recharge')
+
+  // Category groupings - ALL 28 categories covered
+  const RECHARGE_CATEGORIES = [
+    'Mobile Prepaid', 'DTH', 'Fastag', 'NCMC Recharge', 'Broadband Postpaid', 
+    'Landline Postpaid', 'Mobile Postpaid', 'Cable TV'
+  ]
+  
+  const UTILITY_CATEGORIES = [
+    'Electricity', 'Gas', 'Water', 'LPG Gas', 'Municipal Services', 'Municipal Taxes', 
+    'Housing Society', 'Rental', 'Prepaid meter'
+  ]
+  
+  const CREDITCARD_CATEGORIES = ['Credit Card']
+  
+  // Other services - Insurance, Loans, Education, Health, etc.
+  const OTHER_CATEGORIES = [
+    'Insurance', 'Loan Repayment', 'Education Fees', 'Hospital', 'Hospital and Pathology',
+    'Clubs and Associations', 'Subscription', 'Recurring Deposit', 'NPS', 'Donation'
+  ]
+
+  const subTabs = [
+    { id: 'recharge' as const, label: 'Recharge & Postpaid', description: 'Mobile, DTH, Fastag, Cable TV', color: 'from-blue-500 to-blue-600' },
+    { id: 'utilities' as const, label: 'Utility Bills', description: 'Electricity, Gas, Water, LPG', color: 'from-green-500 to-green-600' },
+    { id: 'creditcard' as const, label: 'Credit Card', description: 'Credit Card Bill Payment', color: 'from-purple-500 to-purple-600' },
+    { id: 'others' as const, label: 'Other Services', description: 'Insurance, Loan, Education, Health', color: 'from-orange-500 to-orange-600' },
+  ]
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       className="space-y-4"
     >
-      <BBPSPayment />
+      {/* Sub-tab Navigation */}
+      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-md border border-gray-200 dark:border-gray-700 p-2">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          {subTabs.map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => setBbpsSubTab(tab.id)}
+              className={`p-3 rounded-lg text-left transition-all ${
+                bbpsSubTab === tab.id
+                  ? `bg-gradient-to-r ${tab.color} text-white shadow-md`
+                  : 'bg-gray-50 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-600'
+              }`}
+            >
+              <div className="font-semibold text-sm">{tab.label}</div>
+              <div className={`text-xs mt-0.5 ${bbpsSubTab === tab.id ? 'text-white/80' : 'text-gray-500 dark:text-gray-400'}`}>
+                {tab.description}
+              </div>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* BBPS Payment Component with Category Filter */}
+      <BBPSPayment 
+        categoryFilter={
+          bbpsSubTab === 'recharge' ? RECHARGE_CATEGORIES :
+          bbpsSubTab === 'utilities' ? UTILITY_CATEGORIES :
+          bbpsSubTab === 'creditcard' ? CREDITCARD_CATEGORIES :
+          OTHER_CATEGORIES
+        }
+        title={
+          bbpsSubTab === 'recharge' ? 'Recharge & Postpaid Services' :
+          bbpsSubTab === 'utilities' ? 'Utility Bill Payments' :
+          bbpsSubTab === 'creditcard' ? 'Credit Card Bill Payment' :
+          'Other Services'
+        }
+      />
     </motion.div>
   )
 }

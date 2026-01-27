@@ -1,0 +1,180 @@
+import { NextRequest, NextResponse } from 'next/server'
+import { getCurrentUserFromRequest } from '@/lib/auth-server-request'
+import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
+import { getTransferStatus } from '@/services/payout'
+import { createClient } from '@supabase/supabase-js'
+
+export const runtime = 'nodejs'
+export const dynamic = 'force-dynamic'
+
+// Create Supabase admin client
+const supabaseAdmin = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!,
+  { auth: { persistSession: false } }
+)
+
+export async function OPTIONS(request: NextRequest) {
+  const response = handleCorsPreflight(request)
+  return response || new NextResponse(null, { status: 204 })
+}
+
+/**
+ * GET /api/payout/status
+ * 
+ * Checks the status of a payout transfer.
+ * 
+ * Query Parameters:
+ * - transactionId: Our internal transaction ID
+ * - clientRefId: Client reference ID
+ */
+export async function GET(request: NextRequest) {
+  try {
+    // Get current user
+    const user = await getCurrentUserFromRequest(request)
+    
+    if (!user) {
+      const response = NextResponse.json(
+        { success: false, error: 'Authentication required' },
+        { status: 401 }
+      )
+      return addCorsHeaders(request, response)
+    }
+
+    // Parse query parameters
+    const { searchParams } = new URL(request.url)
+    const transactionId = searchParams.get('transactionId')
+    const clientRefId = searchParams.get('clientRefId')
+
+    if (!transactionId && !clientRefId) {
+      const response = NextResponse.json(
+        { success: false, error: 'Transaction ID or client reference ID is required' },
+        { status: 400 }
+      )
+      return addCorsHeaders(request, response)
+    }
+
+    // Fetch transaction from database
+    let query = supabaseAdmin
+      .from('payout_transactions')
+      .select('*')
+    
+    if (transactionId) {
+      query = query.eq('id', transactionId)
+    } else if (clientRefId) {
+      query = query.eq('client_ref_id', clientRefId)
+    }
+
+    // For retailers, only show their own transactions
+    if (user.role === 'retailer') {
+      query = query.eq('retailer_id', user.partner_id)
+    }
+
+    const { data: transaction, error: txError } = await query.single()
+
+    if (txError || !transaction) {
+      const response = NextResponse.json(
+        { success: false, error: 'Transaction not found' },
+        { status: 404 }
+      )
+      return addCorsHeaders(request, response)
+    }
+
+    // If transaction is still pending/processing, check with provider
+    if (['pending', 'processing'].includes(transaction.status)) {
+      const statusResult = await getTransferStatus({
+        transactionId: transaction.transaction_id,
+        clientRefId: transaction.client_ref_id,
+      })
+
+      if (statusResult.success && statusResult.status) {
+        const newStatus = statusResult.status.toLowerCase()
+        
+        // Update transaction if status changed
+        if (newStatus !== transaction.status) {
+          const updateData: any = {
+            status: newStatus,
+            updated_at: new Date().toISOString(),
+          }
+          
+          if (statusResult.rrn) updateData.rrn = statusResult.rrn
+          if (statusResult.failure_reason) updateData.failure_reason = statusResult.failure_reason
+          if (newStatus === 'success' || newStatus === 'failed') {
+            updateData.completed_at = new Date().toISOString()
+          }
+
+          await supabaseAdmin
+            .from('payout_transactions')
+            .update(updateData)
+            .eq('id', transaction.id)
+
+          // If failed, process refund
+          if (newStatus === 'failed' && transaction.wallet_debited) {
+            const totalAmount = transaction.amount + transaction.charges
+            await supabaseAdmin.rpc('add_ledger_entry', {
+              p_user_id: transaction.retailer_id,
+              p_user_role: 'retailer',
+              p_wallet_type: 'primary',
+              p_fund_category: 'payout',
+              p_service_type: 'payout',
+              p_tx_type: 'REFUND',
+              p_credit: totalAmount,
+              p_debit: 0,
+              p_reference_id: `REFUND_${transaction.client_ref_id}`,
+              p_transaction_id: transaction.id,
+              p_status: 'completed',
+              p_remarks: `Payout failed - Auto refund: ${statusResult.failure_reason || 'Unknown reason'}`
+            })
+
+            // Mark transaction as refunded
+            await supabaseAdmin
+              .from('payout_transactions')
+              .update({ status: 'refunded' })
+              .eq('id', transaction.id)
+          }
+
+          // Return updated status
+          transaction.status = newStatus
+          transaction.rrn = statusResult.rrn || transaction.rrn
+          transaction.failure_reason = statusResult.failure_reason || transaction.failure_reason
+        }
+      }
+    }
+
+    const response = NextResponse.json({
+      success: true,
+      transaction: {
+        id: transaction.id,
+        client_ref_id: transaction.client_ref_id,
+        provider_txn_id: transaction.transaction_id,
+        rrn: transaction.rrn,
+        status: transaction.status.toUpperCase(),
+        amount: transaction.amount,
+        charges: transaction.charges,
+        total_amount: transaction.amount + transaction.charges,
+        account_number: transaction.account_number.replace(/\d(?=\d{4})/g, '*'),
+        account_holder_name: transaction.account_holder_name,
+        bank_name: transaction.bank_name,
+        transfer_mode: transaction.transfer_mode,
+        failure_reason: transaction.failure_reason,
+        remarks: transaction.remarks,
+        created_at: transaction.created_at,
+        completed_at: transaction.completed_at,
+      },
+    })
+    
+    return addCorsHeaders(request, response)
+
+  } catch (error: any) {
+    console.error('[Payout Status] Error:', error)
+    const response = NextResponse.json(
+      { 
+        success: false, 
+        error: error.message || 'Failed to fetch status',
+      },
+      { status: 500 }
+    )
+    return addCorsHeaders(request, response)
+  }
+}
+
