@@ -98,6 +98,23 @@ interface TransactionStatus {
   response_reason?: string
 }
 
+// Categories that are prepaid (don't require bill fetch - direct recharge)
+const PREPAID_CATEGORIES = [
+  'Mobile Prepaid',
+  'DTH',
+  'Fastag',
+  'NCMC Recharge',
+  'Prepaid meter',
+]
+
+// Helper to check if a category is prepaid
+const isPrepaidCategory = (category: string): boolean => {
+  return PREPAID_CATEGORIES.some(pc => 
+    category.toLowerCase().includes(pc.toLowerCase()) ||
+    pc.toLowerCase().includes(category.toLowerCase())
+  )
+}
+
 export default function BBPSPayment() {
   const { user } = useAuth()
   const [walletBalance, setWalletBalance] = useState<number | null>(null)
@@ -133,6 +150,11 @@ export default function BBPSPayment() {
   const [loadingCharges, setLoadingCharges] = useState(false)
   const [tpin, setTpin] = useState('')
   const [tpinError, setTpinError] = useState<string | null>(null)
+  
+  // Prepaid recharge states
+  const [prepaidAmount, setPrepaidAmount] = useState<string>('')
+  const [showPrepaidConfirm, setShowPrepaidConfirm] = useState(false)
+  const [prepaidCharges, setPrepaidCharges] = useState<number>(0)
 
   // Ref for auto-scrolling to consumer details form
   const consumerDetailsRef = useRef<HTMLDivElement>(null)
@@ -818,6 +840,134 @@ export default function BBPSPayment() {
     setPaymentCharges(0)
     setTpin('')
     setTpinError(null)
+    // Reset prepaid states
+    setPrepaidAmount('')
+    setShowPrepaidConfirm(false)
+    setPrepaidCharges(0)
+  }
+
+  // Check if current category is prepaid
+  const isPrepaid = isPrepaidCategory(selectedCategory)
+
+  // Proceed to prepaid confirmation
+  const proceedToPrepaidConfirmation = async () => {
+    if (!selectedBiller) {
+      setError('Please select a biller')
+      return
+    }
+
+    const amount = parseFloat(prepaidAmount)
+    if (isNaN(amount) || amount <= 0) {
+      setError('Please enter a valid recharge amount')
+      return
+    }
+
+    if (amount < 10) {
+      setError('Minimum recharge amount is ₹10')
+      return
+    }
+
+    if (amount > 10000) {
+      setError('Maximum recharge amount is ₹10,000')
+      return
+    }
+
+    // Fetch charges
+    const charges = await fetchBBPSCharges(amount)
+    setPrepaidCharges(charges)
+
+    // Check wallet balance
+    const totalDeduction = amount + charges
+    if (walletBalance !== null && walletBalance < totalDeduction) {
+      setError(`Insufficient balance. Required: ₹${totalDeduction.toFixed(2)}, Available: ₹${walletBalance.toFixed(2)}`)
+      return
+    }
+
+    setError(null)
+    setShowPrepaidConfirm(true)
+  }
+
+  // Pay prepaid recharge directly (no bill fetch)
+  const payPrepaid = async () => {
+    if (!selectedBiller) {
+      setError('Please select a biller')
+      return
+    }
+
+    const amount = parseFloat(prepaidAmount)
+    if (isNaN(amount) || amount <= 0) {
+      setError('Please enter a valid amount')
+      return
+    }
+
+    // Validate T-PIN if provided
+    if (tpin && tpin.length > 0 && tpin.length < 4) {
+      setTpinError('T-PIN must be at least 4 digits')
+      return
+    }
+
+    setTpinError(null)
+
+    try {
+      setPaying(true)
+      setError(null)
+      setInfoMessage(null)
+      setPaymentResult(null)
+      setTransactionStatus(null)
+
+      // Convert to paise for the API
+      const amountInPaise = amount * 100
+
+      // Get consumer number from input params or direct input
+      const effectiveConsumerNumber = inputParamFields.length > 0
+        ? inputParams[inputParamFields[0].paramName] || ''
+        : consumerNumber.trim()
+
+      const data = await apiFetchJson<PaymentResult>('/api/bbps/bill/pay', {
+        method: 'POST',
+        body: JSON.stringify({
+          biller_id: selectedBiller.biller_id,
+          biller_name: selectedBiller.biller_name,
+          biller_category: selectedBiller.category || selectedBiller.category_name || selectedCategory,
+          consumer_number: effectiveConsumerNumber,
+          amount: amountInPaise,
+          // For prepaid, we don't have bill details
+          is_prepaid: true,
+          additional_info: {
+            inputParams: inputParamFields.length > 0
+              ? inputParamFields.map(f => ({ paramName: f.paramName, paramValue: inputParams[f.paramName] || '' }))
+              : undefined,
+            recharge_type: 'prepaid',
+          },
+          user_id: user?.partner_id,
+          tpin: tpin,
+        }),
+      })
+
+      setPaymentResult(data)
+
+      if (data.success) {
+        // Refresh wallet balance
+        await fetchWalletBalance()
+        // Reset prepaid flow
+        setPrepaidAmount('')
+        setShowPrepaidConfirm(false)
+        setPrepaidCharges(0)
+        setTpin('')
+        // Auto-check transaction status
+        if (data.bbps_transaction_id) {
+          const transactionId = data.bbps_transaction_id
+          setTimeout(() => {
+            checkTransactionStatus(transactionId)
+          }, 2000)
+        }
+      }
+    } catch (error: any) {
+      console.error('Error processing prepaid recharge:', error)
+      setError(error.message || 'Recharge failed')
+    } finally {
+      setPaying(false)
+    }
   }
 
   return (
@@ -1101,9 +1251,13 @@ export default function BBPSPayment() {
                     setBillDetails(null)
                     setPaymentResult(null)
                     setError(null)
-      setInfoMessage(null)
+                    setInfoMessage(null)
                     setBillers([])
                     setFilteredBillers([])
+                    // Reset prepaid states
+                    setPrepaidAmount('')
+                    setShowPrepaidConfirm(false)
+                    setPrepaidCharges(0)
                   }}
                   className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 >
@@ -1154,6 +1308,11 @@ export default function BBPSPayment() {
                       setPaymentResult(null)
                       setError(null)
                       setInfoMessage(null)
+                      // Reset prepaid states
+                      setPrepaidAmount('')
+                      setShowPrepaidConfirm(false)
+                      setPrepaidCharges(0)
+                      setTpin('')
                       // Auto-scroll to consumer details form
                       setTimeout(() => {
                         consumerDetailsRef.current?.scrollIntoView({ 
@@ -1239,25 +1398,171 @@ export default function BBPSPayment() {
                     />
                   </div>
                 )}
+                {/* Prepaid Amount Input */}
+                {isPrepaid && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      Recharge Amount (₹) *
+                    </label>
+                    <input
+                      type="number"
+                      value={prepaidAmount}
+                      onChange={(e) => setPrepaidAmount(e.target.value)}
+                      placeholder="Enter recharge amount (₹10 - ₹10,000)"
+                      min="10"
+                      max="10000"
+                      className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                      Min: ₹10 | Max: ₹10,000
+                    </p>
+                  </div>
+                )}
+
+                {/* Fetch Bill Button (for postpaid/bill-based) OR Proceed to Pay (for prepaid) */}
+                {isPrepaid ? (
+                  <button
+                    onClick={proceedToPrepaidConfirmation}
+                    disabled={
+                      loadingCharges ||
+                      !prepaidAmount ||
+                      parseFloat(prepaidAmount) < 10 ||
+                      (inputParamFields.length > 0 
+                        ? inputParamFields.some(field => field.isOptional !== 'true' && !inputParams[field.paramName]?.trim())
+                        : !consumerNumber.trim())
+                    }
+                    className="w-full px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  >
+                    {loadingCharges ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Calculating...
+                      </>
+                    ) : (
+                      <>
+                        <Wallet className="w-4 h-4" />
+                        Proceed to Recharge
+                      </>
+                    )}
+                  </button>
+                ) : (
+                  <button
+                    onClick={fetchBill}
+                    disabled={
+                      loadingBill || 
+                      (inputParamFields.length > 0 
+                        ? inputParamFields.some(field => field.isOptional !== 'true' && !inputParams[field.paramName]?.trim())
+                        : !consumerNumber.trim())
+                    }
+                    className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  >
+                    {loadingBill ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Fetching Bill...
+                      </>
+                    ) : (
+                      <>
+                        <Receipt className="w-4 h-4" />
+                        Fetch Bill Details
+                      </>
+                    )}
+                  </button>
+                )}
+              </div>
+            </motion.div>
+          )}
+
+          {/* Prepaid Confirmation */}
+          {isPrepaid && showPrepaidConfirm && selectedBiller && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="bg-white dark:bg-gray-800 rounded-lg shadow-md border border-gray-200 dark:border-gray-700 p-4"
+            >
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Confirm Recharge</h3>
+              
+              {/* Recharge Summary */}
+              <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden mb-4">
+                <table className="w-full">
+                  <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                    <tr>
+                      <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-700/50">Biller</td>
+                      <td className="px-4 py-3 text-sm font-medium text-gray-900 dark:text-white">{selectedBiller.biller_name}</td>
+                    </tr>
+                    <tr>
+                      <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-700/50">
+                        {inputParamFields.length > 0 ? inputParamFields[0].paramName : 'Mobile Number'}
+                      </td>
+                      <td className="px-4 py-3 text-sm font-medium text-gray-900 dark:text-white">
+                        {inputParamFields.length > 0 ? inputParams[inputParamFields[0].paramName] : consumerNumber}
+                      </td>
+                    </tr>
+                    <tr>
+                      <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-700/50">Recharge Amount</td>
+                      <td className="px-4 py-3 text-sm font-medium text-gray-900 dark:text-white">₹{parseFloat(prepaidAmount).toFixed(2)}</td>
+                    </tr>
+                    <tr>
+                      <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-700/50">Service Charges</td>
+                      <td className="px-4 py-3 text-sm font-medium text-orange-600 dark:text-orange-400">₹{prepaidCharges.toFixed(2)}</td>
+                    </tr>
+                    <tr className="bg-blue-50 dark:bg-blue-900/20">
+                      <td className="px-4 py-3 text-sm font-semibold text-blue-700 dark:text-blue-300">Total Deduction</td>
+                      <td className="px-4 py-3 text-sm font-bold text-blue-700 dark:text-blue-300">
+                        ₹{(parseFloat(prepaidAmount) + prepaidCharges).toFixed(2)}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              {/* T-PIN Input */}
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  T-PIN (Optional)
+                </label>
+                <input
+                  type="password"
+                  value={tpin}
+                  onChange={(e) => {
+                    setTpin(e.target.value.replace(/\D/g, '').slice(0, 6))
+                    setTpinError(null)
+                  }}
+                  placeholder="Enter T-PIN if configured"
+                  maxLength={6}
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+                {tpinError && (
+                  <p className="text-xs text-red-500 mt-1">{tpinError}</p>
+                )}
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex gap-3">
                 <button
-                  onClick={fetchBill}
-                  disabled={
-                    loadingBill || 
-                    (inputParamFields.length > 0 
-                      ? inputParamFields.some(field => field.isOptional !== 'true' && !inputParams[field.paramName]?.trim())
-                      : !consumerNumber.trim())
-                  }
-                  className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  onClick={() => {
+                    setShowPrepaidConfirm(false)
+                    setTpin('')
+                    setTpinError(null)
+                  }}
+                  className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700"
                 >
-                  {loadingBill ? (
+                  Back
+                </button>
+                <button
+                  onClick={payPrepaid}
+                  disabled={paying}
+                  className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                >
+                  {paying ? (
                     <>
                       <Loader2 className="w-4 h-4 animate-spin" />
-                      Fetching Bill...
+                      Processing...
                     </>
                   ) : (
                     <>
-                      <Receipt className="w-4 h-4" />
-                      Fetch Bill Details
+                      <CheckCircle className="w-4 h-4" />
+                      Confirm & Pay ₹{(parseFloat(prepaidAmount) + prepaidCharges).toFixed(2)}
                     </>
                   )}
                 </button>
