@@ -1586,121 +1586,59 @@ function AdminDashboardOverview({
 
         {sparkupBalance ? (
           <div className="space-y-4">
-            {/* Summary Card */}
-            <div className="bg-gradient-to-r from-cyan-600/20 to-blue-600/20 rounded-xl p-4 border border-cyan-500/30">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-cyan-300 mb-1">Total Available Balance</p>
-                  <p className="text-3xl font-bold text-white">
-                    ₹{sparkupBalance.summary.total_available.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                  </p>
+            {/* Main Balance Card */}
+            <div className={`rounded-xl p-5 border ${
+              sparkupBalance.bbps.success 
+                ? 'bg-gradient-to-r from-cyan-600/20 to-blue-600/20 border-cyan-500/30' 
+                : 'bg-red-900/20 border-red-500/30'
+            }`}>
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-cyan-600 rounded-lg">
+                    <Wallet className="w-5 h-5 text-white" />
+                  </div>
+                  <div>
+                    <p className="font-semibold text-white">Sparkup Master Wallet</p>
+                    <p className="text-xs text-slate-400">BBPS, Payout, DMT Services</p>
+                  </div>
                 </div>
-                <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full ${
-                  sparkupBalance.summary.all_services_healthy 
-                    ? 'bg-green-500/20 text-green-400' 
-                    : 'bg-red-500/20 text-red-400'
-                }`}>
-                  {sparkupBalance.summary.all_services_healthy ? (
-                    <>
-                      <CheckCircle2 className="w-4 h-4" />
-                      <span className="text-sm font-medium">All Services Healthy</span>
-                    </>
-                  ) : (
-                    <>
-                      <AlertTriangle className="w-4 h-4" />
-                      <span className="text-sm font-medium">Service Issue</span>
-                    </>
-                  )}
-                </div>
+                {sparkupBalance.bbps.success ? (
+                  <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-green-500/20 text-green-400">
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span className="text-sm font-medium">Active</span>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-red-500/20 text-red-400">
+                    <XCircle className="w-4 h-4" />
+                    <span className="text-sm font-medium">Error</span>
+                  </div>
+                )}
               </div>
+              
+              {sparkupBalance.bbps.success ? (
+                <div className="grid grid-cols-3 gap-4">
+                  <div className="text-center p-3 bg-slate-800/50 rounded-lg">
+                    <p className="text-xs text-slate-400 mb-1">Total Balance</p>
+                    <p className="text-xl font-bold text-white">₹{sparkupBalance.bbps.balance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</p>
+                  </div>
+                  <div className="text-center p-3 bg-slate-800/50 rounded-lg">
+                    <p className="text-xs text-slate-400 mb-1">Lien Amount</p>
+                    <p className="text-xl font-bold text-orange-400">₹{sparkupBalance.bbps.lien.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</p>
+                  </div>
+                  <div className="text-center p-3 bg-green-900/30 rounded-lg border border-green-500/30">
+                    <p className="text-xs text-green-300 mb-1">Available</p>
+                    <p className="text-xl font-bold text-green-400">₹{sparkupBalance.bbps.available_balance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</p>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-sm text-red-400">{sparkupBalance.bbps.error || 'Failed to fetch balance'}</p>
+              )}
+              
               {sparkupBalance.last_checked && (
-                <p className="text-xs text-slate-400 mt-3">
+                <p className="text-xs text-slate-400 mt-4 text-right">
                   Last updated: {new Date(sparkupBalance.last_checked).toLocaleString('en-IN')}
                 </p>
               )}
-            </div>
-
-            {/* Individual Balances */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* BBPS Wallet */}
-              <div className={`rounded-xl p-4 border ${
-                sparkupBalance.bbps.success 
-                  ? 'bg-green-900/20 border-green-500/30' 
-                  : 'bg-red-900/20 border-red-500/30'
-              }`}>
-                <div className="flex items-center gap-3 mb-3">
-                  <div className="p-2 bg-green-600 rounded-lg">
-                    <Receipt className="w-5 h-5 text-white" />
-                  </div>
-                  <div>
-                    <p className="font-semibold text-white">BBPS Wallet</p>
-                    <p className="text-xs text-slate-400">Bill Payments</p>
-                  </div>
-                  {sparkupBalance.bbps.success ? (
-                    <CheckCircle2 className="w-4 h-4 text-green-400 ml-auto" />
-                  ) : (
-                    <XCircle className="w-4 h-4 text-red-400 ml-auto" />
-                  )}
-                </div>
-                {sparkupBalance.bbps.success ? (
-                  <div className="space-y-2">
-                    <div className="flex justify-between text-sm">
-                      <span className="text-slate-400">Balance</span>
-                      <span className="text-white font-medium">₹{sparkupBalance.bbps.balance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
-                    </div>
-                    <div className="flex justify-between text-sm">
-                      <span className="text-slate-400">Lien</span>
-                      <span className="text-orange-400 font-medium">₹{sparkupBalance.bbps.lien.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
-                    </div>
-                    <div className="flex justify-between text-sm pt-2 border-t border-slate-600">
-                      <span className="text-green-400">Available</span>
-                      <span className="text-green-400 font-bold">₹{sparkupBalance.bbps.available_balance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
-                    </div>
-                  </div>
-                ) : (
-                  <p className="text-sm text-red-400">{sparkupBalance.bbps.error || 'Failed to fetch balance'}</p>
-                )}
-              </div>
-
-              {/* Payout Wallet */}
-              <div className={`rounded-xl p-4 border ${
-                sparkupBalance.payout.success 
-                  ? 'bg-purple-900/20 border-purple-500/30' 
-                  : 'bg-red-900/20 border-red-500/30'
-              }`}>
-                <div className="flex items-center gap-3 mb-3">
-                  <div className="p-2 bg-purple-600 rounded-lg">
-                    <ArrowRightLeft className="w-5 h-5 text-white" />
-                  </div>
-                  <div>
-                    <p className="font-semibold text-white">Payout Wallet</p>
-                    <p className="text-xs text-slate-400">DMT / IMPS / NEFT</p>
-                  </div>
-                  {sparkupBalance.payout.success ? (
-                    <CheckCircle2 className="w-4 h-4 text-green-400 ml-auto" />
-                  ) : (
-                    <XCircle className="w-4 h-4 text-red-400 ml-auto" />
-                  )}
-                </div>
-                {sparkupBalance.payout.success ? (
-                  <div className="space-y-2">
-                    <div className="flex justify-between text-sm">
-                      <span className="text-slate-400">Balance</span>
-                      <span className="text-white font-medium">₹{sparkupBalance.payout.balance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
-                    </div>
-                    <div className="flex justify-between text-sm">
-                      <span className="text-slate-400">Lien</span>
-                      <span className="text-orange-400 font-medium">₹{sparkupBalance.payout.lien.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
-                    </div>
-                    <div className="flex justify-between text-sm pt-2 border-t border-slate-600">
-                      <span className="text-purple-400">Available</span>
-                      <span className="text-purple-400 font-bold">₹{sparkupBalance.payout.available_balance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
-                    </div>
-                  </div>
-                ) : (
-                  <p className="text-sm text-red-400">{sparkupBalance.payout.error || 'Failed to fetch balance'}</p>
-                )}
-              </div>
             </div>
           </div>
         ) : (
