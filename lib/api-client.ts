@@ -39,10 +39,13 @@ export function getBBPSBackendUrl(): string {
 }
 
 /**
- * Check if a path is a BBPS API route
+ * Check if a path is a BBPS/Sparkup API route that needs EC2 backend
+ * These routes require whitelisted IP for Sparkup API access
  */
 function isBBPSRoute(path: string): boolean {
-  return path.includes('/api/bbps/')
+  return path.includes('/api/bbps/') || 
+         path.includes('/api/payout/') ||
+         path.includes('/api/admin/sparkup-balance')
 }
 
 /**

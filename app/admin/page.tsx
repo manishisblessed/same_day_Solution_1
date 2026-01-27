@@ -1233,12 +1233,15 @@ function AdminDashboardOverview({
     return session?.access_token || null
   }
 
-  // Fetch Sparkup Balance
+  // Fetch Sparkup Balance (uses EC2 backend for whitelisted IP access)
   const fetchSparkupBalance = async () => {
     setSparkupLoading(true)
     try {
       const token = await getAuthToken()
-      const response = await fetch('/api/admin/sparkup-balance', {
+      // Use EC2 backend URL if configured, otherwise fallback to relative URL
+      const backendUrl = process.env.NEXT_PUBLIC_BBPS_BACKEND_URL || ''
+      const apiUrl = backendUrl ? `${backendUrl}/api/admin/sparkup-balance` : '/api/admin/sparkup-balance'
+      const response = await fetch(apiUrl, {
         headers: {
           'Authorization': token ? `Bearer ${token}` : '',
         },
