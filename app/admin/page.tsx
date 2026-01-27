@@ -1217,10 +1217,60 @@ function AdminDashboardOverview({
   })
   const [loading, setLoading] = useState(true)
   const [selectedPeriod, setSelectedPeriod] = useState<'today' | 'week' | 'month' | 'year'>('today')
+  
+  // Sparkup Balance State
+  const [sparkupBalance, setSparkupBalance] = useState<{
+    bbps: { balance: number; lien: number; available_balance: number; success: boolean; error?: string }
+    payout: { balance: number; lien: number; available_balance: number; success: boolean; error?: string }
+    summary: { total_available: number; all_services_healthy: boolean }
+    last_checked: string
+  } | null>(null)
+  const [sparkupLoading, setSparkupLoading] = useState(false)
+
+  // Helper to get auth token for API calls
+  const getAuthToken = async (): Promise<string | null> => {
+    const { data: { session } } = await supabase.auth.getSession()
+    return session?.access_token || null
+  }
+
+  // Fetch Sparkup Balance
+  const fetchSparkupBalance = async () => {
+    setSparkupLoading(true)
+    try {
+      const token = await getAuthToken()
+      const response = await fetch('/api/admin/sparkup-balance', {
+        headers: {
+          'Authorization': token ? `Bearer ${token}` : '',
+        },
+        credentials: 'include'
+      })
+      
+      if (response.ok) {
+        const data = await response.json()
+        if (data.success) {
+          setSparkupBalance({
+            bbps: data.bbps,
+            payout: data.payout,
+            summary: data.summary,
+            last_checked: data.last_checked
+          })
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching Sparkup balance:', error)
+    } finally {
+      setSparkupLoading(false)
+    }
+  }
 
   useEffect(() => {
     fetchAnalytics()
   }, [selectedPeriod])
+  
+  // Fetch Sparkup balance on mount
+  useEffect(() => {
+    fetchSparkupBalance()
+  }, [])
 
   const fetchAnalytics = async () => {
     setLoading(true)
@@ -1503,6 +1553,175 @@ function AdminDashboardOverview({
           </div>
         </motion.div>
       </div>
+
+      {/* Sparkup Provider Balance Card */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.35 }}
+        className="bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 rounded-2xl p-6 shadow-xl border border-slate-700"
+      >
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center gap-3">
+            <div className="p-3 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-xl shadow-lg">
+              <Globe className="w-6 h-6 text-white" />
+            </div>
+            <div>
+              <h3 className="text-lg font-bold text-white">Sparkup Provider Balance</h3>
+              <p className="text-sm text-slate-400">API Service Provider Wallet Status</p>
+            </div>
+          </div>
+          <button
+            onClick={fetchSparkupBalance}
+            disabled={sparkupLoading}
+            className="flex items-center gap-2 px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-sm font-medium transition-all disabled:opacity-50"
+          >
+            <RefreshCw className={`w-4 h-4 ${sparkupLoading ? 'animate-spin' : ''}`} />
+            {sparkupLoading ? 'Refreshing...' : 'Refresh'}
+          </button>
+        </div>
+
+        {sparkupBalance ? (
+          <div className="space-y-4">
+            {/* Summary Card */}
+            <div className="bg-gradient-to-r from-cyan-600/20 to-blue-600/20 rounded-xl p-4 border border-cyan-500/30">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-cyan-300 mb-1">Total Available Balance</p>
+                  <p className="text-3xl font-bold text-white">
+                    ₹{sparkupBalance.summary.total_available.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                  </p>
+                </div>
+                <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full ${
+                  sparkupBalance.summary.all_services_healthy 
+                    ? 'bg-green-500/20 text-green-400' 
+                    : 'bg-red-500/20 text-red-400'
+                }`}>
+                  {sparkupBalance.summary.all_services_healthy ? (
+                    <>
+                      <CheckCircle2 className="w-4 h-4" />
+                      <span className="text-sm font-medium">All Services Healthy</span>
+                    </>
+                  ) : (
+                    <>
+                      <AlertTriangle className="w-4 h-4" />
+                      <span className="text-sm font-medium">Service Issue</span>
+                    </>
+                  )}
+                </div>
+              </div>
+              {sparkupBalance.last_checked && (
+                <p className="text-xs text-slate-400 mt-3">
+                  Last updated: {new Date(sparkupBalance.last_checked).toLocaleString('en-IN')}
+                </p>
+              )}
+            </div>
+
+            {/* Individual Balances */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* BBPS Wallet */}
+              <div className={`rounded-xl p-4 border ${
+                sparkupBalance.bbps.success 
+                  ? 'bg-green-900/20 border-green-500/30' 
+                  : 'bg-red-900/20 border-red-500/30'
+              }`}>
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="p-2 bg-green-600 rounded-lg">
+                    <Receipt className="w-5 h-5 text-white" />
+                  </div>
+                  <div>
+                    <p className="font-semibold text-white">BBPS Wallet</p>
+                    <p className="text-xs text-slate-400">Bill Payments</p>
+                  </div>
+                  {sparkupBalance.bbps.success ? (
+                    <CheckCircle2 className="w-4 h-4 text-green-400 ml-auto" />
+                  ) : (
+                    <XCircle className="w-4 h-4 text-red-400 ml-auto" />
+                  )}
+                </div>
+                {sparkupBalance.bbps.success ? (
+                  <div className="space-y-2">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-slate-400">Balance</span>
+                      <span className="text-white font-medium">₹{sparkupBalance.bbps.balance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-slate-400">Lien</span>
+                      <span className="text-orange-400 font-medium">₹{sparkupBalance.bbps.lien.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                    </div>
+                    <div className="flex justify-between text-sm pt-2 border-t border-slate-600">
+                      <span className="text-green-400">Available</span>
+                      <span className="text-green-400 font-bold">₹{sparkupBalance.bbps.available_balance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-sm text-red-400">{sparkupBalance.bbps.error || 'Failed to fetch balance'}</p>
+                )}
+              </div>
+
+              {/* Payout Wallet */}
+              <div className={`rounded-xl p-4 border ${
+                sparkupBalance.payout.success 
+                  ? 'bg-purple-900/20 border-purple-500/30' 
+                  : 'bg-red-900/20 border-red-500/30'
+              }`}>
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="p-2 bg-purple-600 rounded-lg">
+                    <ArrowRightLeft className="w-5 h-5 text-white" />
+                  </div>
+                  <div>
+                    <p className="font-semibold text-white">Payout Wallet</p>
+                    <p className="text-xs text-slate-400">DMT / IMPS / NEFT</p>
+                  </div>
+                  {sparkupBalance.payout.success ? (
+                    <CheckCircle2 className="w-4 h-4 text-green-400 ml-auto" />
+                  ) : (
+                    <XCircle className="w-4 h-4 text-red-400 ml-auto" />
+                  )}
+                </div>
+                {sparkupBalance.payout.success ? (
+                  <div className="space-y-2">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-slate-400">Balance</span>
+                      <span className="text-white font-medium">₹{sparkupBalance.payout.balance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-slate-400">Lien</span>
+                      <span className="text-orange-400 font-medium">₹{sparkupBalance.payout.lien.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                    </div>
+                    <div className="flex justify-between text-sm pt-2 border-t border-slate-600">
+                      <span className="text-purple-400">Available</span>
+                      <span className="text-purple-400 font-bold">₹{sparkupBalance.payout.available_balance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-sm text-red-400">{sparkupBalance.payout.error || 'Failed to fetch balance'}</p>
+                )}
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="text-center py-8">
+            {sparkupLoading ? (
+              <div className="flex flex-col items-center gap-3">
+                <RefreshCw className="w-8 h-8 text-cyan-400 animate-spin" />
+                <p className="text-slate-400">Fetching Sparkup balance...</p>
+              </div>
+            ) : (
+              <div className="flex flex-col items-center gap-3">
+                <AlertTriangle className="w-8 h-8 text-amber-400" />
+                <p className="text-slate-400">Unable to fetch Sparkup balance</p>
+                <button
+                  onClick={fetchSparkupBalance}
+                  className="mt-2 px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white rounded-lg text-sm font-medium transition-all"
+                >
+                  Try Again
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </motion.div>
 
       {/* Service-wise Transaction Breakdown */}
       <motion.div
