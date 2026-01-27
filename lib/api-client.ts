@@ -39,22 +39,30 @@ export function getBBPSBackendUrl(): string {
 }
 
 /**
- * Check if a path is a BBPS/Sparkup API route that needs EC2 backend
- * These routes require whitelisted IP for Sparkup API access
+ * Check if a path is a route that needs EC2 backend
+ * These routes require:
+ * - Whitelisted IP for Sparkup API access (BBPS/Payout)
+ * - Server-side environment variables (Admin APIs with Supabase)
  */
-function isBBPSRoute(path: string): boolean {
+function isEC2Route(path: string): boolean {
   return path.includes('/api/bbps/') || 
          path.includes('/api/payout/') ||
-         path.includes('/api/admin/sparkup-balance')
+         path.includes('/api/admin/sparkup-balance') ||
+         path.includes('/api/admin/sub-admins') ||
+         path.includes('/api/admin/create-user') ||
+         path.includes('/api/admin/approve-partner') ||
+         path.includes('/api/admin/pending-verifications') ||
+         path.includes('/api/admin/reset-password') ||
+         path.includes('/api/admin/upload-document')
 }
 
 /**
  * Get the API base URL for a specific path
- * - BBPS routes: Use EC2 backend (whitelisted IP)
+ * - EC2 routes: Use EC2 backend (whitelisted IP + server env vars)
  * - Other routes: Use relative URLs (Amplify API routes)
  */
 export function getApiBaseUrl(path: string = ''): string {
-  if (isBBPSRoute(path)) {
+  if (isEC2Route(path)) {
     return getBBPSBackendUrl()
   }
   // All other routes use Amplify API routes (relative URLs)
@@ -66,7 +74,7 @@ export function getApiBaseUrl(path: string = ''): string {
  * @param path - API path (e.g., '/api/bbps/categories')
  * @returns Full URL or relative path depending on route type
  * 
- * - BBPS routes → EC2 backend (whitelisted IP)
+ * - EC2 routes (BBPS, Payout, Admin APIs) → EC2 backend 
  * - Other routes → Amplify API routes (relative URLs)
  */
 export function getApiUrl(path: string): string {
@@ -78,7 +86,7 @@ export function getApiUrl(path: string): string {
 
 /**
  * Centralized API fetch function
- * - BBPS routes → EC2 backend (no auth needed, uses whitelisted IP)
+ * - EC2 routes → EC2 backend (whitelisted IP + server env vars)
  * - Other routes → Amplify API routes (uses cookies for auth)
  * 
  * @param path - API path (e.g., '/api/wallet/balance')
