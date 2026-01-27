@@ -183,8 +183,20 @@ export async function payRequest(
 
     const apiResponse = response.data
 
+    // 🔍 DETAILED LOGGING: Log full Sparkup API response for debugging
+    console.log('=== SPARKUP PAY REQUEST RESPONSE ===')
+    console.log('Request ID:', reqId)
+    console.log('Biller ID:', billerId)
+    console.log('Amount (paise):', amount)
+    console.log('HTTP Status:', response.status)
+    console.log('Response Success:', response.success)
+    console.log('Full API Response:', JSON.stringify(apiResponse, null, 2))
+    console.log('=====================================')
+
     // Handle error response
     if (!response.success || !apiResponse) {
+      console.error('❌ SPARKUP ERROR: No response or request failed')
+      console.error('Error:', response.error)
       logBBPSApiError('payRequest', reqId, response.error || 'Unknown error', billerId)
       return {
         success: false,
@@ -203,7 +215,21 @@ export async function payRequest(
       apiResponse.status === 'success' &&
       responseData.responseCode === '000'
 
+    // 🔍 Log success check details
+    console.log('=== SPARKUP PAYMENT STATUS CHECK ===')
+    console.log('response.success:', response.success)
+    console.log('apiResponse.success:', apiResponse.success)
+    console.log('apiResponse.status:', apiResponse.status)
+    console.log('apiResponse.message:', apiResponse.message)
+    console.log('responseData.responseCode:', responseData.responseCode)
+    console.log('responseData.responseReason:', responseData.responseReason)
+    console.log('isSuccess:', isSuccess)
+    console.log('====================================')
+
     if (!isSuccess) {
+      console.error('❌ SPARKUP PAYMENT FAILED')
+      console.error('Error Code:', responseData.responseCode || apiResponse.status)
+      console.error('Error Message:', responseData.responseReason || apiResponse.message)
       return {
         success: false,
         error_code:
