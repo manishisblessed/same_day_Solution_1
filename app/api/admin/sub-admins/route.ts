@@ -1,9 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { createClient } from '@supabase/supabase-js'
+import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
 
 export const runtime = 'nodejs' // Force Node.js runtime (Supabase not compatible with Edge Runtime)
 export const dynamic = 'force-dynamic'
+
+// Handle CORS preflight requests
+export async function OPTIONS(request: NextRequest) {
+  const response = handleCorsPreflight(request)
+  return response || new NextResponse(null, { status: 204 })
+}
 
 // Get all sub-admins
 export async function GET(request: NextRequest) {
@@ -13,10 +20,11 @@ export async function GET(request: NextRequest) {
     const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
     
     if (!supabaseUrl || !supabaseServiceKey) {
-      return NextResponse.json(
+      const response = NextResponse.json(
         { error: 'Supabase configuration missing' },
         { status: 500 }
       )
+      return addCorsHeaders(request, response)
     }
     
     const supabase = createClient(supabaseUrl, supabaseServiceKey)
@@ -25,17 +33,19 @@ export async function GET(request: NextRequest) {
     console.log('[Sub-Admins API] Auth method:', method, '| User:', admin?.email || 'none')
     
     if (!admin) {
-      return NextResponse.json(
+      const response = NextResponse.json(
         { error: 'Session expired. Please log out and log back in.', code: 'SESSION_EXPIRED' },
         { status: 401 }
       )
+      return addCorsHeaders(request, response)
     }
     
     if (admin.role !== 'admin') {
-      return NextResponse.json(
+      const response = NextResponse.json(
         { error: 'Unauthorized: Admin access required' },
         { status: 403 }
       )
+      return addCorsHeaders(request, response)
     }
 
     // Verify admin is super_admin
@@ -46,10 +56,11 @@ export async function GET(request: NextRequest) {
       .single()
 
     if (adminData?.admin_type !== 'super_admin') {
-      return NextResponse.json(
+      const response = NextResponse.json(
         { error: 'Only super admins can manage sub-admins' },
         { status: 403 }
       )
+      return addCorsHeaders(request, response)
     }
 
     // Get all admins (including sub-admins)
@@ -72,22 +83,25 @@ export async function GET(request: NextRequest) {
 
     if (error) {
       console.error('Error fetching sub-admins:', error)
-      return NextResponse.json(
+      const response = NextResponse.json(
         { error: 'Failed to fetch sub-admins' },
         { status: 500 }
       )
+      return addCorsHeaders(request, response)
     }
 
-    return NextResponse.json({
+    const response = NextResponse.json({
       success: true,
       admins: admins || []
     })
+    return addCorsHeaders(request, response)
   } catch (error: any) {
     console.error('Error in GET sub-admins:', error)
-    return NextResponse.json(
+    const response = NextResponse.json(
       { error: 'Failed to fetch sub-admins' },
       { status: 500 }
     )
+    return addCorsHeaders(request, response)
   }
 }
 
@@ -99,10 +113,11 @@ export async function POST(request: NextRequest) {
     const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
     
     if (!supabaseUrl || !supabaseServiceKey) {
-      return NextResponse.json(
+      const response = NextResponse.json(
         { error: 'Supabase configuration missing' },
         { status: 500 }
       )
+      return addCorsHeaders(request, response)
     }
     
     const supabase = createClient(supabaseUrl, supabaseServiceKey)
@@ -111,17 +126,19 @@ export async function POST(request: NextRequest) {
     console.log('[Sub-Admins API] Auth method:', method, '| User:', admin?.email || 'none')
     
     if (!admin) {
-      return NextResponse.json(
+      const response = NextResponse.json(
         { error: 'Session expired. Please log out and log back in.', code: 'SESSION_EXPIRED' },
         { status: 401 }
       )
+      return addCorsHeaders(request, response)
     }
     
     if (admin.role !== 'admin') {
-      return NextResponse.json(
+      const response = NextResponse.json(
         { error: 'Unauthorized: Admin access required' },
         { status: 403 }
       )
+      return addCorsHeaders(request, response)
     }
 
     // Verify admin is super_admin
@@ -132,10 +149,11 @@ export async function POST(request: NextRequest) {
       .single()
 
     if (adminData?.admin_type !== 'super_admin') {
-      return NextResponse.json(
+      const response = NextResponse.json(
         { error: 'Only super admins can create sub-admins' },
         { status: 403 }
       )
+      return addCorsHeaders(request, response)
     }
 
     const body = await request.json()
@@ -143,36 +161,40 @@ export async function POST(request: NextRequest) {
 
     // Validation
     if (!email || !name || !password) {
-      return NextResponse.json(
+      const response = NextResponse.json(
         { error: 'email, name, and password are required' },
         { status: 400 }
       )
+      return addCorsHeaders(request, response)
     }
 
     // Validate departments array
     const validDepartments = ['wallet', 'commission', 'mdr', 'limits', 'services', 'reversals', 'disputes', 'reports', 'users', 'settings', 'all']
     if (!departments || !Array.isArray(departments) || departments.length === 0) {
-      return NextResponse.json(
+      const response = NextResponse.json(
         { error: 'At least one department must be selected' },
         { status: 400 }
       )
+      return addCorsHeaders(request, response)
     }
 
     // Validate each department
     for (const dept of departments) {
       if (!validDepartments.includes(dept)) {
-        return NextResponse.json(
+        const response = NextResponse.json(
           { error: `Invalid department: ${dept}` },
           { status: 400 }
         )
+        return addCorsHeaders(request, response)
       }
     }
 
     if (password.length < 8) {
-      return NextResponse.json(
+      const response = NextResponse.json(
         { error: 'Password must be at least 8 characters long' },
         { status: 400 }
       )
+      return addCorsHeaders(request, response)
     }
 
     // Check if email already exists
@@ -183,10 +205,11 @@ export async function POST(request: NextRequest) {
       .single()
 
     if (existingAdmin) {
-      return NextResponse.json(
+      const response = NextResponse.json(
         { error: 'Admin with this email already exists' },
         { status: 400 }
       )
+      return addCorsHeaders(request, response)
     }
 
     // Create auth user
@@ -198,10 +221,11 @@ export async function POST(request: NextRequest) {
 
     if (authError) {
       console.error('Error creating auth user:', authError)
-      return NextResponse.json(
+      const response = NextResponse.json(
         { error: authError.message || 'Failed to create admin user' },
         { status: 500 }
       )
+      return addCorsHeaders(request, response)
     }
 
     // Create admin user record
@@ -228,23 +252,26 @@ export async function POST(request: NextRequest) {
       // Rollback: delete auth user if admin creation fails
       await supabase.auth.admin.deleteUser(authData.user.id)
       console.error('Error creating admin record:', adminError)
-      return NextResponse.json(
+      const response = NextResponse.json(
         { error: 'Failed to create admin record' },
         { status: 500 }
       )
+      return addCorsHeaders(request, response)
     }
 
-    return NextResponse.json({
+    const response = NextResponse.json({
       success: true,
       message: 'Sub-admin created successfully',
       admin: newAdmin
     })
+    return addCorsHeaders(request, response)
   } catch (error: any) {
     console.error('Error in POST sub-admins:', error)
-    return NextResponse.json(
+    const response = NextResponse.json(
       { error: 'Failed to create sub-admin' },
       { status: 500 }
     )
+    return addCorsHeaders(request, response)
   }
 }
 
@@ -256,10 +283,11 @@ export async function PUT(request: NextRequest) {
     const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
     
     if (!supabaseUrl || !supabaseServiceKey) {
-      return NextResponse.json(
+      const response = NextResponse.json(
         { error: 'Supabase configuration missing' },
         { status: 500 }
       )
+      return addCorsHeaders(request, response)
     }
     
     const supabase = createClient(supabaseUrl, supabaseServiceKey)
@@ -268,17 +296,19 @@ export async function PUT(request: NextRequest) {
     console.log('[Sub-Admins API] Auth method:', method, '| User:', admin?.email || 'none')
     
     if (!admin) {
-      return NextResponse.json(
+      const response = NextResponse.json(
         { error: 'Session expired. Please log out and log back in.', code: 'SESSION_EXPIRED' },
         { status: 401 }
       )
+      return addCorsHeaders(request, response)
     }
     
     if (admin.role !== 'admin') {
-      return NextResponse.json(
+      const response = NextResponse.json(
         { error: 'Unauthorized: Admin access required' },
         { status: 403 }
       )
+      return addCorsHeaders(request, response)
     }
 
     // Verify admin is super_admin
@@ -289,20 +319,22 @@ export async function PUT(request: NextRequest) {
       .single()
 
     if (adminData?.admin_type !== 'super_admin') {
-      return NextResponse.json(
+      const response = NextResponse.json(
         { error: 'Only super admins can update sub-admins' },
         { status: 403 }
       )
+      return addCorsHeaders(request, response)
     }
 
     const body = await request.json()
     const { id, name, departments, permissions, is_active } = body
 
     if (!id) {
-      return NextResponse.json(
+      const response = NextResponse.json(
         { error: 'Admin ID is required' },
         { status: 400 }
       )
+      return addCorsHeaders(request, response)
     }
 
     // Check if trying to update a super_admin
@@ -313,27 +345,30 @@ export async function PUT(request: NextRequest) {
       .single()
 
     if (targetAdmin?.admin_type === 'super_admin') {
-      return NextResponse.json(
+      const response = NextResponse.json(
         { error: 'Cannot update super admin' },
         { status: 403 }
       )
+      return addCorsHeaders(request, response)
     }
 
     // Validate departments if provided
     if (departments !== undefined) {
       if (!Array.isArray(departments) || departments.length === 0) {
-        return NextResponse.json(
+        const response = NextResponse.json(
           { error: 'At least one department must be selected' },
           { status: 400 }
         )
+        return addCorsHeaders(request, response)
       }
       const validDepartments = ['wallet', 'commission', 'mdr', 'limits', 'services', 'reversals', 'disputes', 'reports', 'users', 'settings', 'all']
       for (const dept of departments) {
         if (!validDepartments.includes(dept)) {
-          return NextResponse.json(
+          const response = NextResponse.json(
             { error: `Invalid department: ${dept}` },
             { status: 400 }
           )
+          return addCorsHeaders(request, response)
         }
       }
     }
@@ -358,23 +393,26 @@ export async function PUT(request: NextRequest) {
 
     if (error) {
       console.error('Error updating sub-admin:', error)
-      return NextResponse.json(
+      const response = NextResponse.json(
         { error: 'Failed to update sub-admin' },
         { status: 500 }
       )
+      return addCorsHeaders(request, response)
     }
 
-    return NextResponse.json({
+    const response = NextResponse.json({
       success: true,
       message: 'Sub-admin updated successfully',
       admin: updatedAdmin
     })
+    return addCorsHeaders(request, response)
   } catch (error: any) {
     console.error('Error in PUT sub-admins:', error)
-    return NextResponse.json(
+    const response = NextResponse.json(
       { error: 'Failed to update sub-admin' },
       { status: 500 }
     )
+    return addCorsHeaders(request, response)
   }
 }
 
@@ -386,10 +424,11 @@ export async function DELETE(request: NextRequest) {
     const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
     
     if (!supabaseUrl || !supabaseServiceKey) {
-      return NextResponse.json(
+      const response = NextResponse.json(
         { error: 'Supabase configuration missing' },
         { status: 500 }
       )
+      return addCorsHeaders(request, response)
     }
     
     const supabase = createClient(supabaseUrl, supabaseServiceKey)
@@ -398,17 +437,19 @@ export async function DELETE(request: NextRequest) {
     console.log('[Sub-Admins API] Auth method:', method, '| User:', admin?.email || 'none')
     
     if (!admin) {
-      return NextResponse.json(
+      const response = NextResponse.json(
         { error: 'Session expired. Please log out and log back in.', code: 'SESSION_EXPIRED' },
         { status: 401 }
       )
+      return addCorsHeaders(request, response)
     }
     
     if (admin.role !== 'admin') {
-      return NextResponse.json(
+      const response = NextResponse.json(
         { error: 'Unauthorized: Admin access required' },
         { status: 403 }
       )
+      return addCorsHeaders(request, response)
     }
 
     // Verify admin is super_admin
@@ -419,20 +460,22 @@ export async function DELETE(request: NextRequest) {
       .single()
 
     if (adminData?.admin_type !== 'super_admin') {
-      return NextResponse.json(
+      const response = NextResponse.json(
         { error: 'Only super admins can delete sub-admins' },
         { status: 403 }
       )
+      return addCorsHeaders(request, response)
     }
 
     const { searchParams } = new URL(request.url)
     const id = searchParams.get('id')
 
     if (!id) {
-      return NextResponse.json(
+      const response = NextResponse.json(
         { error: 'Admin ID is required' },
         { status: 400 }
       )
+      return addCorsHeaders(request, response)
     }
 
     // Check if trying to delete a super_admin
@@ -443,10 +486,11 @@ export async function DELETE(request: NextRequest) {
       .single()
 
     if (targetAdmin?.admin_type === 'super_admin') {
-      return NextResponse.json(
+      const response = NextResponse.json(
         { error: 'Cannot delete super admin' },
         { status: 403 }
       )
+      return addCorsHeaders(request, response)
     }
 
     // Delete auth user
@@ -460,22 +504,25 @@ export async function DELETE(request: NextRequest) {
 
     if (error) {
       console.error('Error deleting sub-admin:', error)
-      return NextResponse.json(
+      const response = NextResponse.json(
         { error: 'Failed to delete sub-admin' },
         { status: 500 }
       )
+      return addCorsHeaders(request, response)
     }
 
-    return NextResponse.json({
+    const response = NextResponse.json({
       success: true,
       message: 'Sub-admin deleted successfully'
     })
+    return addCorsHeaders(request, response)
   } catch (error: any) {
     console.error('Error in DELETE sub-admins:', error)
-    return NextResponse.json(
+    const response = NextResponse.json(
       { error: 'Failed to delete sub-admin' },
       { status: 500 }
     )
+    return addCorsHeaders(request, response)
   }
 }
 
