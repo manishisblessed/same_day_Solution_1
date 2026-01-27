@@ -1,30 +1,33 @@
 -- Razorpay POS Transaction System Schema Extension
--- Run this SQL in your Supabase SQL Editor after the base schema
+-- Run this SQL in your Supabase SQL Editor after the base schema (supabase-schema.sql)
+-- OR use the unified setup script: scripts/setup-all-tables.sql
+
+-- ============================================================================
+-- IMPORTANT: Make sure you've run supabase-schema.sql FIRST!
+-- It creates: retailers, distributors, master_distributors, pos_machines tables
+-- ============================================================================
 
 -- POS Terminals Table (TID mapping)
 -- Maps Razorpay TID to our internal POS machine and retailer
 CREATE TABLE IF NOT EXISTS pos_terminals (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tid TEXT UNIQUE NOT NULL,
-  machine_id TEXT NOT NULL,
+  machine_id TEXT,  -- Optional reference to pos_machines
   retailer_id TEXT NOT NULL,
   distributor_id TEXT,
   master_distributor_id TEXT,
   razorpay_terminal_id TEXT,
   status TEXT DEFAULT 'active' CHECK (status IN ('active', 'inactive', 'suspended')),
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  FOREIGN KEY (machine_id) REFERENCES pos_machines(machine_id) ON DELETE CASCADE,
-  FOREIGN KEY (retailer_id) REFERENCES retailers(partner_id) ON DELETE CASCADE,
-  FOREIGN KEY (distributor_id) REFERENCES distributors(partner_id) ON DELETE SET NULL,
-  FOREIGN KEY (master_distributor_id) REFERENCES master_distributors(partner_id) ON DELETE SET NULL
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+  -- Note: Foreign keys removed for flexibility. Add them after base tables exist if needed.
 );
 
 -- Razorpay Transactions Table
 CREATE TABLE IF NOT EXISTS razorpay_transactions (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   razorpay_payment_id TEXT UNIQUE,
-  tid TEXT NOT NULL,
+  tid TEXT,  -- Made optional (can be NULL)
   rrn TEXT,
   retailer_id TEXT NOT NULL,
   distributor_id TEXT,
@@ -41,11 +44,8 @@ CREATE TABLE IF NOT EXISTS razorpay_transactions (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   transaction_timestamp TIMESTAMP WITH TIME ZONE,
-  metadata JSONB,
-  FOREIGN KEY (tid) REFERENCES pos_terminals(tid) ON DELETE RESTRICT,
-  FOREIGN KEY (retailer_id) REFERENCES retailers(partner_id) ON DELETE RESTRICT,
-  FOREIGN KEY (distributor_id) REFERENCES distributors(partner_id) ON DELETE SET NULL,
-  FOREIGN KEY (master_distributor_id) REFERENCES master_distributors(partner_id) ON DELETE SET NULL
+  metadata JSONB
+  -- Note: Foreign keys removed for flexibility. The application handles data integrity.
 );
 
 -- Wallet Ledger Table
@@ -53,21 +53,28 @@ CREATE TABLE IF NOT EXISTS razorpay_transactions (
 CREATE TABLE IF NOT EXISTS wallet_ledger (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   retailer_id TEXT NOT NULL,
+  user_role TEXT DEFAULT 'retailer',
+  wallet_type TEXT DEFAULT 'primary',
+  fund_category TEXT,
+  service_type TEXT,
   transaction_id UUID,
-  transaction_type TEXT NOT NULL CHECK (transaction_type IN ('POS_CREDIT', 'PAYOUT', 'REFUND', 'ADJUSTMENT', 'COMMISSION')),
+  transaction_type TEXT NOT NULL,
   amount DECIMAL(12, 2) NOT NULL,
-  balance_after DECIMAL(12, 2) NOT NULL,
+  credit DECIMAL(12, 2) DEFAULT 0,
+  debit DECIMAL(12, 2) DEFAULT 0,
+  opening_balance DECIMAL(12, 2) DEFAULT 0,
+  closing_balance DECIMAL(12, 2) DEFAULT 0,
+  balance_after DECIMAL(12, 2),
   description TEXT,
   reference_id TEXT,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  FOREIGN KEY (retailer_id) REFERENCES retailers(partner_id) ON DELETE CASCADE,
-  FOREIGN KEY (transaction_id) REFERENCES razorpay_transactions(id) ON DELETE SET NULL
+  status TEXT DEFAULT 'completed',
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
 -- Commissions Table (for future use)
 CREATE TABLE IF NOT EXISTS commissions (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  transaction_id UUID NOT NULL,
+  transaction_id UUID,
   retailer_id TEXT NOT NULL,
   distributor_id TEXT,
   master_distributor_id TEXT,
@@ -75,51 +82,82 @@ CREATE TABLE IF NOT EXISTS commissions (
   commission_rate DECIMAL(5, 2),
   commission_amount DECIMAL(12, 2) NOT NULL,
   status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'credited', 'cancelled')),
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  FOREIGN KEY (transaction_id) REFERENCES razorpay_transactions(id) ON DELETE CASCADE,
-  FOREIGN KEY (retailer_id) REFERENCES retailers(partner_id) ON DELETE CASCADE,
-  FOREIGN KEY (distributor_id) REFERENCES distributors(partner_id) ON DELETE SET NULL,
-  FOREIGN KEY (master_distributor_id) REFERENCES master_distributors(partner_id) ON DELETE SET NULL
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- Create indexes for performance
-CREATE INDEX IF NOT EXISTS idx_pos_terminals_tid ON pos_terminals(tid);
-CREATE INDEX IF NOT EXISTS idx_pos_terminals_retailer_id ON pos_terminals(retailer_id);
-CREATE INDEX IF NOT EXISTS idx_pos_terminals_machine_id ON pos_terminals(machine_id);
+-- ============================================================================
+-- CREATE INDEXES FOR PERFORMANCE
+-- ============================================================================
 
-CREATE INDEX IF NOT EXISTS idx_razorpay_transactions_tid ON razorpay_transactions(tid);
-CREATE INDEX IF NOT EXISTS idx_razorpay_transactions_retailer_id ON razorpay_transactions(retailer_id);
-CREATE INDEX IF NOT EXISTS idx_razorpay_transactions_distributor_id ON razorpay_transactions(distributor_id);
-CREATE INDEX IF NOT EXISTS idx_razorpay_transactions_master_distributor_id ON razorpay_transactions(master_distributor_id);
-CREATE INDEX IF NOT EXISTS idx_razorpay_transactions_status ON razorpay_transactions(status);
-CREATE INDEX IF NOT EXISTS idx_razorpay_transactions_created_at ON razorpay_transactions(created_at);
-CREATE INDEX IF NOT EXISTS idx_razorpay_transactions_rrn ON razorpay_transactions(rrn);
-CREATE INDEX IF NOT EXISTS idx_razorpay_transactions_razorpay_payment_id ON razorpay_transactions(razorpay_payment_id);
-CREATE INDEX IF NOT EXISTS idx_razorpay_transactions_wallet_credited ON razorpay_transactions(wallet_credited);
+-- POS Terminals indexes
+DO $$ BEGIN
+  CREATE INDEX IF NOT EXISTS idx_pos_terminals_tid ON pos_terminals(tid);
+EXCEPTION WHEN undefined_table THEN NULL; END $$;
 
-CREATE INDEX IF NOT EXISTS idx_wallet_ledger_retailer_id ON wallet_ledger(retailer_id);
-CREATE INDEX IF NOT EXISTS idx_wallet_ledger_transaction_id ON wallet_ledger(transaction_id);
-CREATE INDEX IF NOT EXISTS idx_wallet_ledger_created_at ON wallet_ledger(created_at);
-CREATE INDEX IF NOT EXISTS idx_wallet_ledger_transaction_type ON wallet_ledger(transaction_type);
+DO $$ BEGIN
+  CREATE INDEX IF NOT EXISTS idx_pos_terminals_retailer_id ON pos_terminals(retailer_id);
+EXCEPTION WHEN undefined_table THEN NULL; END $$;
 
-CREATE INDEX IF NOT EXISTS idx_commissions_transaction_id ON commissions(transaction_id);
-CREATE INDEX IF NOT EXISTS idx_commissions_retailer_id ON commissions(retailer_id);
+-- Razorpay Transactions indexes
+DO $$ BEGIN
+  CREATE INDEX IF NOT EXISTS idx_razorpay_transactions_retailer_id ON razorpay_transactions(retailer_id);
+  CREATE INDEX IF NOT EXISTS idx_razorpay_transactions_status ON razorpay_transactions(status);
+  CREATE INDEX IF NOT EXISTS idx_razorpay_transactions_created_at ON razorpay_transactions(created_at);
+  CREATE INDEX IF NOT EXISTS idx_razorpay_transactions_rrn ON razorpay_transactions(rrn);
+  CREATE INDEX IF NOT EXISTS idx_razorpay_transactions_razorpay_payment_id ON razorpay_transactions(razorpay_payment_id);
+  CREATE INDEX IF NOT EXISTS idx_razorpay_transactions_wallet_credited ON razorpay_transactions(wallet_credited);
+EXCEPTION WHEN undefined_table THEN NULL; END $$;
 
--- Create triggers for updated_at
-DROP TRIGGER IF EXISTS update_pos_terminals_updated_at ON pos_terminals;
-CREATE TRIGGER update_pos_terminals_updated_at BEFORE UPDATE ON pos_terminals
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+-- Wallet Ledger indexes
+DO $$ BEGIN
+  CREATE INDEX IF NOT EXISTS idx_wallet_ledger_retailer_id ON wallet_ledger(retailer_id);
+  CREATE INDEX IF NOT EXISTS idx_wallet_ledger_transaction_id ON wallet_ledger(transaction_id);
+  CREATE INDEX IF NOT EXISTS idx_wallet_ledger_created_at ON wallet_ledger(created_at);
+  CREATE INDEX IF NOT EXISTS idx_wallet_ledger_transaction_type ON wallet_ledger(transaction_type);
+EXCEPTION WHEN undefined_table THEN NULL; END $$;
 
-DROP TRIGGER IF EXISTS update_razorpay_transactions_updated_at ON razorpay_transactions;
-CREATE TRIGGER update_razorpay_transactions_updated_at BEFORE UPDATE ON razorpay_transactions
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+-- Commissions indexes
+DO $$ BEGIN
+  CREATE INDEX IF NOT EXISTS idx_commissions_transaction_id ON commissions(transaction_id);
+  CREATE INDEX IF NOT EXISTS idx_commissions_retailer_id ON commissions(retailer_id);
+EXCEPTION WHEN undefined_table THEN NULL; END $$;
+
+-- ============================================================================
+-- CREATE TRIGGERS FOR UPDATED_AT
+-- ============================================================================
+
+-- First ensure the update_updated_at_column function exists
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.updated_at = NOW();
+  RETURN NEW;
+END;
+$$ language 'plpgsql';
+
+-- Create triggers (safe - will not error if table doesn't exist)
+DO $$ BEGIN
+  DROP TRIGGER IF EXISTS update_pos_terminals_updated_at ON pos_terminals;
+  CREATE TRIGGER update_pos_terminals_updated_at BEFORE UPDATE ON pos_terminals
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+EXCEPTION WHEN undefined_table THEN NULL; END $$;
+
+DO $$ BEGIN
+  DROP TRIGGER IF EXISTS update_razorpay_transactions_updated_at ON razorpay_transactions;
+  CREATE TRIGGER update_razorpay_transactions_updated_at BEFORE UPDATE ON razorpay_transactions
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+EXCEPTION WHEN undefined_table THEN NULL; END $$;
+
+-- ============================================================================
+-- WALLET HELPER FUNCTIONS
+-- ============================================================================
 
 -- Function to get wallet balance (derived from ledger)
 CREATE OR REPLACE FUNCTION get_wallet_balance(p_retailer_id TEXT)
 RETURNS DECIMAL(12, 2) AS $$
 BEGIN
   RETURN COALESCE(
-    (SELECT balance_after 
+    (SELECT COALESCE(closing_balance, balance_after)
      FROM wallet_ledger 
      WHERE retailer_id = p_retailer_id 
      ORDER BY created_at DESC 
@@ -165,6 +203,9 @@ BEGIN
     transaction_id,
     transaction_type,
     amount,
+    credit,
+    opening_balance,
+    closing_balance,
     balance_after,
     description,
     reference_id
@@ -173,6 +214,9 @@ BEGIN
     p_transaction_id,
     'POS_CREDIT',
     p_amount,
+    p_amount,
+    v_balance_before,
+    v_balance_after,
     v_balance_after,
     p_description,
     p_reference_id
@@ -188,54 +232,188 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Enable RLS
-ALTER TABLE pos_terminals ENABLE ROW LEVEL SECURITY;
-ALTER TABLE razorpay_transactions ENABLE ROW LEVEL SECURITY;
-ALTER TABLE wallet_ledger ENABLE ROW LEVEL SECURITY;
-ALTER TABLE commissions ENABLE ROW LEVEL SECURITY;
+-- Function to debit wallet for BBPS (idempotent)
+CREATE OR REPLACE FUNCTION debit_wallet_bbps(
+  p_retailer_id TEXT,
+  p_transaction_id UUID,
+  p_amount DECIMAL(12, 2),
+  p_description TEXT,
+  p_reference_id TEXT
+)
+RETURNS UUID AS $$
+DECLARE
+  v_balance_before DECIMAL(12, 2);
+  v_balance_after DECIMAL(12, 2);
+  v_ledger_id UUID;
+BEGIN
+  -- Check if already debited (idempotency)
+  SELECT id INTO v_ledger_id
+  FROM wallet_ledger
+  WHERE transaction_id = p_transaction_id
+    AND transaction_type = 'BBPS_DEBIT'
+    AND retailer_id = p_retailer_id
+  LIMIT 1;
 
--- RLS Policies (basic - adjust based on your needs)
--- Note: These are permissive for now. Tighten based on your security requirements.
+  IF v_ledger_id IS NOT NULL THEN
+    RETURN v_ledger_id;
+  END IF;
 
--- POS Terminals Policies
-DROP POLICY IF EXISTS "Anyone can read pos_terminals" ON pos_terminals;
-DROP POLICY IF EXISTS "Admins can manage pos_terminals" ON pos_terminals;
+  -- Get current balance
+  v_balance_before := get_wallet_balance(p_retailer_id);
+  
+  -- Check if sufficient balance
+  IF v_balance_before < p_amount THEN
+    RAISE EXCEPTION 'Insufficient wallet balance. Required: %, Available: %', p_amount, v_balance_before;
+  END IF;
 
-CREATE POLICY "Anyone can read pos_terminals" ON pos_terminals
-  FOR SELECT USING (true);
+  v_balance_after := v_balance_before - p_amount;
 
-CREATE POLICY "Admins can manage pos_terminals" ON pos_terminals
-  FOR ALL USING (true);
+  -- Insert ledger entry
+  INSERT INTO wallet_ledger (
+    retailer_id,
+    transaction_id,
+    transaction_type,
+    amount,
+    debit,
+    opening_balance,
+    closing_balance,
+    balance_after,
+    description,
+    reference_id,
+    wallet_type,
+    fund_category,
+    service_type
+  ) VALUES (
+    p_retailer_id,
+    p_transaction_id,
+    'BBPS_DEBIT',
+    -p_amount,
+    p_amount,
+    v_balance_before,
+    v_balance_after,
+    v_balance_after,
+    p_description,
+    p_reference_id,
+    'primary',
+    'bbps',
+    'bbps'
+  ) RETURNING id INTO v_ledger_id;
 
--- Razorpay Transactions Policies
-DROP POLICY IF EXISTS "Anyone can read razorpay_transactions" ON razorpay_transactions;
-DROP POLICY IF EXISTS "Admins can manage razorpay_transactions" ON razorpay_transactions;
+  RETURN v_ledger_id;
+END;
+$$ LANGUAGE plpgsql;
 
-CREATE POLICY "Anyone can read razorpay_transactions" ON razorpay_transactions
-  FOR SELECT USING (true);
+-- Function to refund wallet for BBPS
+CREATE OR REPLACE FUNCTION refund_wallet_bbps(
+  p_retailer_id TEXT,
+  p_transaction_id UUID,
+  p_amount DECIMAL(12, 2),
+  p_description TEXT,
+  p_reference_id TEXT
+)
+RETURNS UUID AS $$
+DECLARE
+  v_balance_before DECIMAL(12, 2);
+  v_balance_after DECIMAL(12, 2);
+  v_ledger_id UUID;
+BEGIN
+  -- Get current balance
+  v_balance_before := get_wallet_balance(p_retailer_id);
+  v_balance_after := v_balance_before + p_amount;
 
-CREATE POLICY "Admins can manage razorpay_transactions" ON razorpay_transactions
-  FOR ALL USING (true);
+  -- Insert ledger entry
+  INSERT INTO wallet_ledger (
+    retailer_id,
+    transaction_id,
+    transaction_type,
+    amount,
+    credit,
+    opening_balance,
+    closing_balance,
+    balance_after,
+    description,
+    reference_id,
+    wallet_type,
+    fund_category,
+    service_type
+  ) VALUES (
+    p_retailer_id,
+    p_transaction_id,
+    'BBPS_REFUND',
+    p_amount,
+    p_amount,
+    v_balance_before,
+    v_balance_after,
+    v_balance_after,
+    p_description,
+    p_reference_id,
+    'primary',
+    'bbps',
+    'bbps'
+  ) RETURNING id INTO v_ledger_id;
 
--- Wallet Ledger Policies
-DROP POLICY IF EXISTS "Anyone can read wallet_ledger" ON wallet_ledger;
-DROP POLICY IF EXISTS "Admins can manage wallet_ledger" ON wallet_ledger;
+  RETURN v_ledger_id;
+END;
+$$ LANGUAGE plpgsql;
 
-CREATE POLICY "Anyone can read wallet_ledger" ON wallet_ledger
-  FOR SELECT USING (true);
+-- Calculate transaction charge function
+CREATE OR REPLACE FUNCTION calculate_transaction_charge(
+  p_amount DECIMAL(12, 2),
+  p_transaction_type TEXT
+)
+RETURNS DECIMAL(12, 2) AS $$
+BEGIN
+  IF p_transaction_type = 'bbps' THEN
+    IF p_amount <= 1000 THEN
+      RETURN 10;
+    ELSIF p_amount <= 5000 THEN
+      RETURN 15;
+    ELSIF p_amount <= 10000 THEN
+      RETURN 20;
+    ELSE
+      RETURN 25;
+    END IF;
+  END IF;
+  RETURN 20;
+END;
+$$ LANGUAGE plpgsql;
 
-CREATE POLICY "Admins can manage wallet_ledger" ON wallet_ledger
-  FOR ALL USING (true);
+-- ============================================================================
+-- ENABLE ROW LEVEL SECURITY AND CREATE POLICIES
+-- ============================================================================
 
--- Commissions Policies
-DROP POLICY IF EXISTS "Anyone can read commissions" ON commissions;
-DROP POLICY IF EXISTS "Admins can manage commissions" ON commissions;
+-- Enable RLS (safe - ignores if table doesn't exist)
+DO $$ BEGIN ALTER TABLE pos_terminals ENABLE ROW LEVEL SECURITY; EXCEPTION WHEN undefined_table THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE razorpay_transactions ENABLE ROW LEVEL SECURITY; EXCEPTION WHEN undefined_table THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE wallet_ledger ENABLE ROW LEVEL SECURITY; EXCEPTION WHEN undefined_table THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE commissions ENABLE ROW LEVEL SECURITY; EXCEPTION WHEN undefined_table THEN NULL; END $$;
 
-CREATE POLICY "Anyone can read commissions" ON commissions
-  FOR SELECT USING (true);
+-- Create permissive RLS policies (safe)
+DO $$ BEGIN
+  DROP POLICY IF EXISTS "Allow all" ON pos_terminals;
+  CREATE POLICY "Allow all" ON pos_terminals FOR ALL USING (true);
+EXCEPTION WHEN undefined_table THEN NULL; END $$;
 
-CREATE POLICY "Admins can manage commissions" ON commissions
-  FOR ALL USING (true);
+DO $$ BEGIN
+  DROP POLICY IF EXISTS "Allow all" ON razorpay_transactions;
+  CREATE POLICY "Allow all" ON razorpay_transactions FOR ALL USING (true);
+EXCEPTION WHEN undefined_table THEN NULL; END $$;
+
+DO $$ BEGIN
+  DROP POLICY IF EXISTS "Allow all" ON wallet_ledger;
+  CREATE POLICY "Allow all" ON wallet_ledger FOR ALL USING (true);
+EXCEPTION WHEN undefined_table THEN NULL; END $$;
+
+DO $$ BEGIN
+  DROP POLICY IF EXISTS "Allow all" ON commissions;
+  CREATE POLICY "Allow all" ON commissions FOR ALL USING (true);
+EXCEPTION WHEN undefined_table THEN NULL; END $$;
+
+-- ============================================================================
+-- SCHEMA SETUP COMPLETE
+-- ============================================================================
+
+SELECT 'Razorpay schema setup complete!' as status;
 
 
 

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserFromRequest } from '@/lib/auth-server-request'
 import { createClient } from '@supabase/supabase-js'
-import { payRequest, generateAgentTransactionId } from '@/services/bbps'
+import { payRequest, generateAgentTransactionId, getBBPSWalletBalance } from '@/services/bbps'
 import { paiseToRupees } from '@/lib/bbps/currency'
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
 
@@ -86,7 +86,7 @@ export async function POST(request: NextRequest) {
     // Verify T-PIN if provided (optional security feature)
     if (tpin) {
       try {
-        const { data: tpinResult, error: tpinError } = await supabase.rpc('verify_retailer_tpin', {
+        const { data: tpinResult, error: tpinError } = await (supabase as any).rpc('verify_retailer_tpin', {
           p_retailer_id: user.partner_id,
           p_tpin: tpin
         })
@@ -126,8 +126,51 @@ export async function POST(request: NextRequest) {
       return addCorsHeaders(request, response)
     }
 
-    // Check wallet balance
-    const { data: balanceData, error: balanceError } = await supabase.rpc('get_wallet_balance', {
+    // Convert paise to rupees for balance checks
+    const billAmountInRupees = paiseToRupees(billAmountInPaise)
+
+    // ========================================
+    // STEP 1: Check SparkUpTech BBPS Provider Balance
+    // ========================================
+    // SparkUpTech wallet is our master BBPS wallet - it pays the actual bill amount
+    // We check this FIRST to ensure we can fulfill the payment
+    console.log('Checking SparkUpTech BBPS provider balance...')
+    const bbpsProviderBalance = await getBBPSWalletBalance()
+    
+    if (!bbpsProviderBalance.success) {
+      console.error('Failed to check BBPS provider balance:', bbpsProviderBalance.error)
+      const response = NextResponse.json(
+        { 
+          error: 'BBPS service temporarily unavailable. Please try again later.',
+          error_code: 'BBPS_PROVIDER_UNAVAILABLE',
+        },
+        { status: 503 }
+      )
+      return addCorsHeaders(request, response)
+    }
+    
+    const availableProviderBalance = (bbpsProviderBalance.balance || 0) - (bbpsProviderBalance.lien || 0)
+    console.log(`SparkUpTech BBPS Balance: ₹${bbpsProviderBalance.balance}, Lien: ₹${bbpsProviderBalance.lien}, Available: ₹${availableProviderBalance}`)
+    
+    // Check if provider has enough balance for the bill amount (no charges - charges stay with us)
+    if (availableProviderBalance < billAmountInRupees) {
+      console.error(`BBPS Provider balance insufficient: Available ₹${availableProviderBalance}, Required ₹${billAmountInRupees}`)
+      const response = NextResponse.json(
+        { 
+          error: 'BBPS service temporarily unavailable due to low provider balance. Please contact admin.',
+          error_code: 'BBPS_PROVIDER_LOW_BALANCE',
+        },
+        { status: 503 }
+      )
+      return addCorsHeaders(request, response)
+    }
+
+    // ========================================
+    // STEP 2: Check Retailer's Local Wallet Balance
+    // ========================================
+    // Retailer pays: Bill Amount + Transaction Charges
+    // Check retailer wallet balance
+    const { data: balanceData, error: balanceError } = await (supabase as any).rpc('get_wallet_balance', {
       p_retailer_id: user.partner_id
     })
 
@@ -140,11 +183,10 @@ export async function POST(request: NextRequest) {
     }
 
     const walletBalance = balanceData || 0
-    // Convert paise to rupees for comparison (wallet balance is in rupees)
-    const billAmountInRupees = paiseToRupees(billAmountInPaise)
+    // billAmountInRupees already calculated above
     
     // Calculate BBPS charge based on amount slabs
-    const { data: chargeData, error: chargeError } = await supabase.rpc('calculate_transaction_charge', {
+    const { data: chargeData, error: chargeError } = await (supabase as any).rpc('calculate_transaction_charge', {
       p_amount: billAmountInRupees,
       p_transaction_type: 'bbps'
     })
@@ -199,10 +241,13 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Debit wallet first (before making payment) - includes charge
-    // Wallet operations use rupees, so convert from paise
+    // ========================================
+    // STEP 3: Debit Retailer's Local Wallet
+    // ========================================
+    // Retailer pays: Bill Amount + Transaction Charges
+    // The charge stays with us as profit
     try {
-      const { data: debitId, error: debitError } = await supabase.rpc('debit_wallet_bbps', {
+      const { data: debitId, error: debitError } = await (supabase as any).rpc('debit_wallet_bbps', {
         p_retailer_id: user.partner_id,
         p_transaction_id: bbpsTransaction.id,
         p_amount: totalAmountNeeded, // Wallet uses rupees - includes bill amount + charge
@@ -324,7 +369,7 @@ export async function POST(request: NextRequest) {
       // Wallet uses rupees, so use totalAmountNeeded (includes charge)
       if (paymentResponse.success === false) {
         try {
-          await supabase.rpc('refund_wallet_bbps', {
+          await (supabase as any).rpc('refund_wallet_bbps', {
             p_retailer_id: user.partner_id,
             p_transaction_id: bbpsTransaction.id,
             p_amount: totalAmountNeeded, // FIX: Refund full amount including charge

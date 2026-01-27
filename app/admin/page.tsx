@@ -1206,9 +1206,69 @@ function AdminDashboardContent() {
 function ServicesManagementTab() {
   const [services, setServices] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  const [bbpsProviderBalance, setBbpsProviderBalance] = useState<{
+    balance: number | null
+    lien: number | null
+    available: number | null
+    loading: boolean
+    error: string | null
+    lastChecked: string | null
+  }>({
+    balance: null,
+    lien: null,
+    available: null,
+    loading: true,
+    error: null,
+    lastChecked: null
+  })
+
+  // Fetch SparkUpTech BBPS Provider Balance
+  const fetchBBPSProviderBalance = async () => {
+    setBbpsProviderBalance(prev => ({ ...prev, loading: true, error: null }))
+    try {
+      const response = await fetch('/api/bbps/wallet-balance', {
+        credentials: 'include'
+      })
+      const data = await response.json()
+      
+      if (data.success) {
+        setBbpsProviderBalance({
+          balance: data.balance || 0,
+          lien: data.lien || 0,
+          available: data.available_balance || (data.balance || 0) - (data.lien || 0),
+          loading: false,
+          error: null,
+          lastChecked: data.last_checked || new Date().toISOString()
+        })
+      } else {
+        setBbpsProviderBalance({
+          balance: null,
+          lien: null,
+          available: null,
+          loading: false,
+          error: data.error || 'Failed to fetch BBPS balance',
+          lastChecked: new Date().toISOString()
+        })
+      }
+    } catch (error: any) {
+      setBbpsProviderBalance({
+        balance: null,
+        lien: null,
+        available: null,
+        loading: false,
+        error: error.message || 'Failed to fetch BBPS balance',
+        lastChecked: new Date().toISOString()
+      })
+    }
+  }
 
   useEffect(() => {
     fetchServicesData()
+    fetchBBPSProviderBalance()
+    
+    // Auto-refresh BBPS balance every 60 seconds
+    const interval = setInterval(fetchBBPSProviderBalance, 60000)
+    return () => clearInterval(interval)
   }, [])
 
   const fetchServicesData = async () => {
@@ -1300,8 +1360,99 @@ function ServicesManagementTab() {
 
   return (
     <div className="space-y-3">
+      {/* SparkUpTech BBPS Provider Balance Card */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="bg-gradient-to-br from-indigo-600 to-purple-700 rounded-xl shadow-lg p-4 sm:p-5 text-white"
+      >
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-white/20 rounded-lg">
+              <Wallet className="w-6 h-6 text-white" />
+            </div>
+            <div>
+              <h3 className="text-lg font-bold">SparkUpTech BBPS Balance</h3>
+              <p className="text-xs text-white/70">Master BBPS Provider Wallet</p>
+            </div>
+          </div>
+          <button 
+            onClick={fetchBBPSProviderBalance}
+            disabled={bbpsProviderBalance.loading}
+            className="p-2 hover:bg-white/10 rounded-lg transition-colors disabled:opacity-50"
+            title="Refresh Balance"
+          >
+            <RefreshCw className={`w-5 h-5 ${bbpsProviderBalance.loading ? 'animate-spin' : ''}`} />
+          </button>
+        </div>
+        
+        {bbpsProviderBalance.error ? (
+          <div className="bg-yellow-500/20 border border-yellow-400/30 rounded-lg p-3">
+            <div className="flex items-center gap-2">
+              <AlertCircle className="w-5 h-5 text-yellow-300" />
+              <p className="text-sm text-yellow-200">
+                {bbpsProviderBalance.error.toLowerCase().includes('whitelist') || bbpsProviderBalance.error.toLowerCase().includes('ip') 
+                  ? 'Your IP is not whitelisted contact admin.' 
+                  : bbpsProviderBalance.error}
+              </p>
+            </div>
+            <p className="text-xs text-yellow-300/70 mt-1">
+              {bbpsProviderBalance.error.toLowerCase().includes('whitelist') || bbpsProviderBalance.error.toLowerCase().includes('ip')
+                ? 'BBPS payments may fail if provider balance is unavailable'
+                : 'BBPS payments may fail if provider balance is unavailable'}
+            </p>
+          </div>
+        ) : bbpsProviderBalance.loading ? (
+          <div className="flex items-center justify-center py-6">
+            <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-white"></div>
+          </div>
+        ) : (
+          <div className="grid grid-cols-3 gap-4">
+            <div className="bg-white/10 rounded-lg p-3 text-center">
+              <p className="text-xs text-white/70 mb-1">Total Balance</p>
+              <p className="text-xl sm:text-2xl font-bold">
+                ₹{(bbpsProviderBalance.balance || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+              </p>
+            </div>
+            <div className="bg-white/10 rounded-lg p-3 text-center">
+              <p className="text-xs text-white/70 mb-1">Lien/Hold</p>
+              <p className="text-xl sm:text-2xl font-bold text-yellow-300">
+                ₹{(bbpsProviderBalance.lien || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+              </p>
+            </div>
+            <div className="bg-white/10 rounded-lg p-3 text-center">
+              <p className="text-xs text-white/70 mb-1">Available</p>
+              <p className={`text-xl sm:text-2xl font-bold ${
+                (bbpsProviderBalance.available || 0) < 10000 ? 'text-red-300' : 
+                (bbpsProviderBalance.available || 0) < 50000 ? 'text-yellow-300' : 'text-green-300'
+              }`}>
+                ₹{(bbpsProviderBalance.available || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+              </p>
+            </div>
+          </div>
+        )}
+        
+        {!bbpsProviderBalance.error && !bbpsProviderBalance.loading && (
+          <div className="mt-4 pt-3 border-t border-white/20 flex items-center justify-between text-xs text-white/60">
+            <span>
+              Status: {(bbpsProviderBalance.available || 0) < 1000 ? (
+                <span className="text-red-300 font-medium">⚠️ Low Balance - Recharge Required</span>
+              ) : (bbpsProviderBalance.available || 0) < 10000 ? (
+                <span className="text-yellow-300 font-medium">⚡ Balance Running Low</span>
+              ) : (
+                <span className="text-green-300 font-medium">✓ Healthy</span>
+              )}
+            </span>
+            <span>
+              Last updated: {bbpsProviderBalance.lastChecked ? new Date(bbpsProviderBalance.lastChecked).toLocaleTimeString() : 'N/A'}
+            </span>
+          </div>
+        )}
+      </motion.div>
+
       {/* Services Grid */}
       <motion.div
+        transition={{ delay: 0.1 }}
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2 sm:gap-3"
