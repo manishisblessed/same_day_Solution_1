@@ -141,7 +141,7 @@ export default function PartnersPage() {
                 Partners Management
               </h1>
               <p className="text-gray-600 dark:text-gray-400">
-                Co-branding partners powered by <span className="font-semibold text-amber-600">AbheePay</span>
+                Co-branding partners powered by <span className="font-semibold text-amber-600">Same Day Solution</span>
               </p>
             </div>
           </div>
@@ -164,7 +164,7 @@ export default function PartnersPage() {
               </h3>
               <p className="text-gray-600 dark:text-gray-400 text-sm mb-4">
                 Partners get a custom subdomain (partner.samedaysolution.co.in), their logo displayed, and 
-                "Powered by AbheePay" branding. They can expand their reach with Same Day Solution's full suite of financial services.
+                "Powered by Same Day Solution" branding. They can expand their reach with Same Day Solution's full suite of financial services.
               </p>
               <div className="flex flex-wrap gap-4">
                 <div className="flex items-center gap-2 text-sm">
@@ -181,7 +181,7 @@ export default function PartnersPage() {
                 </div>
                 <div className="flex items-center gap-2 text-sm">
                   <Shield className="w-4 h-4 text-amber-600" />
-                  <span className="text-gray-700 dark:text-gray-300">Powered by AbheePay</span>
+                  <span className="text-gray-700 dark:text-gray-300">Powered by Same Day Solution</span>
                 </div>
               </div>
             </div>
@@ -377,7 +377,7 @@ export default function PartnersPage() {
                       <div className="p-1.5 bg-amber-500 rounded-lg">
                         <Shield className="w-4 h-4 text-white" />
                       </div>
-                      <span className="font-semibold text-gray-900 dark:text-white">AbheePay</span>
+                      <span className="font-semibold text-gray-900 dark:text-white">Same Day Solution</span>
                     </div>
                   </div>
                 </div>

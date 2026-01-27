@@ -1867,7 +1867,7 @@ function AdminDashboardOverview({
       >
         <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-6 flex items-center gap-2">
           <Building2 className="w-5 h-5 text-primary-500" />
-          Financial Services - Powered by AbheePay
+          Financial Services - Powered by Same Day Solution
         </h3>
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
           {[
