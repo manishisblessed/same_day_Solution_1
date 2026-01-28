@@ -31,7 +31,7 @@ export async function getPayoutBalance(): Promise<{
 
   try {
     const response = await payoutClient.request<PayoutBalanceResponse>({
-      method: 'GET',
+      method: 'POST',  // Sparkup API requires POST for all endpoints
       endpoint: '/getBalance',
     })
 
