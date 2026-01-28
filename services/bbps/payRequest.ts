@@ -171,6 +171,12 @@ export async function payRequest(
     // According to API docs, it uses the same headers (partnerid, consumerkey, consumersecret)
     // No Authorization Bearer token required per API documentation
     
+    // 🔍 LOG FULL REQUEST BODY BEING SENT TO SPARKUP
+    console.log('=== SPARKUP PAY REQUEST - FULL REQUEST ===')
+    console.log('Endpoint: POST /bbps/payRequest')
+    console.log('Request Body:', JSON.stringify(requestBody, null, 2))
+    console.log('===========================================')
+    
     // Make API request
     const response = await bbpsClient.request<BBPSPayRequestResponse>({
       method: 'POST',

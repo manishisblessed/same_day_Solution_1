@@ -21,3 +21,4 @@ COMMENT ON INDEX idx_razorpay_pos_transactions_device_serial IS
 
 
 
+

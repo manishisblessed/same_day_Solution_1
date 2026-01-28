@@ -45,3 +45,4 @@ COMMENT ON COLUMN retailers.aadhar_back_url IS 'URL to AADHAR back side document
 
 
 
+
