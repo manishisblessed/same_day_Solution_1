@@ -131,7 +131,8 @@ export async function POST(request: NextRequest) {
       bank_document_url: userData.bank_document_url,
       // Document fields
       aadhar_number: userData.aadhar_number || null,
-      aadhar_attachment_url: userData.aadhar_attachment_url || null,
+      aadhar_front_url: userData.aadhar_front_url || null,
+      aadhar_back_url: userData.aadhar_back_url || null,
       pan_number: userData.pan_number || null,
       pan_attachment_url: userData.pan_attachment_url || null,
       udhyam_number: userData.udhyam_number || null,

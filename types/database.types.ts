@@ -24,7 +24,9 @@ export interface Retailer {
   bank_document_url?: string
   // Document fields
   aadhar_number?: string
-  aadhar_attachment_url?: string
+  aadhar_attachment_url?: string // Legacy - kept for backward compatibility
+  aadhar_front_url?: string
+  aadhar_back_url?: string
   pan_number?: string
   pan_attachment_url?: string
   udhyam_number?: string
@@ -60,7 +62,9 @@ export interface Distributor {
   bank_document_url?: string
   // Document fields
   aadhar_number?: string
-  aadhar_attachment_url?: string
+  aadhar_attachment_url?: string // Legacy - kept for backward compatibility
+  aadhar_front_url?: string
+  aadhar_back_url?: string
   pan_number?: string
   pan_attachment_url?: string
   udhyam_number?: string
@@ -95,7 +99,9 @@ export interface MasterDistributor {
   bank_document_url?: string
   // Document fields
   aadhar_number?: string
-  aadhar_attachment_url?: string
+  aadhar_attachment_url?: string // Legacy - kept for backward compatibility
+  aadhar_front_url?: string
+  aadhar_back_url?: string
   pan_number?: string
   pan_attachment_url?: string
   udhyam_number?: string

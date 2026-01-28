@@ -893,7 +893,8 @@ function AddRetailerModal({ onClose, onSuccess }: { onClose: () => void, onSucce
     bank_document: null as File | null,
     // Document fields
     aadhar_number: '',
-    aadhar_attachment: null as File | null,
+    aadhar_front_attachment: null as File | null,
+    aadhar_back_attachment: null as File | null,
     pan_number: '',
     pan_attachment: null as File | null,
     udhyam_applicable: false,
@@ -939,8 +940,8 @@ function AddRetailerModal({ onClose, onSuccess }: { onClose: () => void, onSucce
       return
     }
     // Validate document requirements
-    if (!formData.aadhar_number || !formData.aadhar_attachment) {
-      alert('AADHAR Number and AADHAR Attachment are mandatory')
+    if (!formData.aadhar_number || !formData.aadhar_front_attachment || !formData.aadhar_back_attachment) {
+      alert('AADHAR Number, AADHAR Front, and AADHAR Back attachments are mandatory')
       return
     }
     if (!formData.pan_number || !formData.pan_attachment) {
@@ -969,7 +970,8 @@ function AddRetailerModal({ onClose, onSuccess }: { onClose: () => void, onSucce
       // First, upload all documents
       const partnerId = `RET${Date.now().toString().slice(-8)}`
       let bankDocumentUrl = ''
-      let aadharUrl = ''
+      let aadharFrontUrl = ''
+      let aadharBackUrl = ''
       let panUrl = ''
       let udhyamUrl = ''
       let gstUrl = ''
@@ -991,21 +993,38 @@ function AddRetailerModal({ onClose, onSuccess }: { onClose: () => void, onSucce
         bankDocumentUrl = bankResult.url
       }
 
-      // Upload AADHAR
-      if (formData.aadhar_attachment) {
-        const aadharFormData = new FormData()
-        aadharFormData.append('file', formData.aadhar_attachment)
-        aadharFormData.append('documentType', 'aadhar')
-        aadharFormData.append('partnerId', partnerId)
+      // Upload AADHAR Front
+      if (formData.aadhar_front_attachment) {
+        const aadharFrontFormData = new FormData()
+        aadharFrontFormData.append('file', formData.aadhar_front_attachment)
+        aadharFrontFormData.append('documentType', 'aadhar_front')
+        aadharFrontFormData.append('partnerId', partnerId)
         
-        const aadharResponse = await uploadWithAuth(aadharFormData)
+        const aadharFrontResponse = await uploadWithAuth(aadharFrontFormData)
         
-        if (!aadharResponse.ok) {
-          const error = await aadharResponse.json()
-          throw new Error(error.error || 'Failed to upload AADHAR document')
+        if (!aadharFrontResponse.ok) {
+          const error = await aadharFrontResponse.json()
+          throw new Error(error.error || 'Failed to upload AADHAR Front document')
         }
-        const aadharResult = await aadharResponse.json()
-        aadharUrl = aadharResult.url
+        const aadharFrontResult = await aadharFrontResponse.json()
+        aadharFrontUrl = aadharFrontResult.url
+      }
+
+      // Upload AADHAR Back
+      if (formData.aadhar_back_attachment) {
+        const aadharBackFormData = new FormData()
+        aadharBackFormData.append('file', formData.aadhar_back_attachment)
+        aadharBackFormData.append('documentType', 'aadhar_back')
+        aadharBackFormData.append('partnerId', partnerId)
+        
+        const aadharBackResponse = await uploadWithAuth(aadharBackFormData)
+        
+        if (!aadharBackResponse.ok) {
+          const error = await aadharBackResponse.json()
+          throw new Error(error.error || 'Failed to upload AADHAR Back document')
+        }
+        const aadharBackResult = await aadharBackResponse.json()
+        aadharBackUrl = aadharBackResult.url
       }
 
       // Upload PAN
@@ -1087,7 +1106,8 @@ function AddRetailerModal({ onClose, onSuccess }: { onClose: () => void, onSucce
             bank_document_url: bankDocumentUrl,
             // Document fields
             aadhar_number: formData.aadhar_number || null,
-            aadhar_attachment_url: aadharUrl || null,
+            aadhar_front_url: aadharFrontUrl || null,
+            aadhar_back_url: aadharBackUrl || null,
             pan_number: formData.pan_number || null,
             pan_attachment_url: panUrl || null,
             udhyam_number: formData.udhyam_number || null,
@@ -1385,10 +1405,10 @@ function AddRetailerModal({ onClose, onSuccess }: { onClose: () => void, onSucce
                   placeholder="Enter 12-digit AADHAR number"
                 />
               </div>
-              {/* AADHAR Attachment */}
-              <div className="md:col-span-2">
+              {/* AADHAR Front Attachment */}
+              <div>
                 <label className="block text-sm font-medium mb-1">
-                  AADHAR Attachment *
+                  AADHAR Front *
                   <span className="text-xs text-red-500 ml-1">(Mandatory)</span>
                 </label>
                 <input
@@ -1397,10 +1417,33 @@ function AddRetailerModal({ onClose, onSuccess }: { onClose: () => void, onSucce
                   accept="image/*,application/pdf"
                   onChange={(e) => {
                     const file = e.target.files?.[0] || null
-                    setFormData({ ...formData, aadhar_attachment: file })
+                    setFormData({ ...formData, aadhar_front_attachment: file })
                   }}
                   className="w-full px-3 py-2 border rounded-lg file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-purple-50 file:text-purple-700 hover:file:bg-purple-100"
                 />
+                {formData.aadhar_front_attachment && (
+                  <p className="text-xs text-green-600 mt-1">✓ {formData.aadhar_front_attachment.name}</p>
+                )}
+              </div>
+              {/* AADHAR Back Attachment */}
+              <div>
+                <label className="block text-sm font-medium mb-1">
+                  AADHAR Back *
+                  <span className="text-xs text-red-500 ml-1">(Mandatory)</span>
+                </label>
+                <input
+                  type="file"
+                  required
+                  accept="image/*,application/pdf"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0] || null
+                    setFormData({ ...formData, aadhar_back_attachment: file })
+                  }}
+                  className="w-full px-3 py-2 border rounded-lg file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-purple-50 file:text-purple-700 hover:file:bg-purple-100"
+                />
+                {formData.aadhar_back_attachment && (
+                  <p className="text-xs text-green-600 mt-1">✓ {formData.aadhar_back_attachment.name}</p>
+                )}
               </div>
 
               {/* PAN Number */}
