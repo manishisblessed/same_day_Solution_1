@@ -10,6 +10,7 @@ import {
   Users, Building2, Crown, DollarSign, TrendingUp
 } from 'lucide-react'
 import { motion } from 'framer-motion'
+import { apiFetch } from '@/lib/api-client'
 
 type UserType = 'retailer' | 'distributor' | 'master_distributor'
 type FundCategory = 'cash' | 'online' | 'commission' | 'settlement' | 'adjustment'
@@ -178,9 +179,8 @@ export default function AdminWalletManagement() {
           break
       }
 
-      const response = await fetch(endpoint, {
+      const response = await apiFetch(endpoint, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body)
       })
 

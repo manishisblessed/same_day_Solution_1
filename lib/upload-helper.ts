@@ -1,6 +1,7 @@
 'use client'
 
 import { createBrowserClient } from '@supabase/ssr'
+import { apiFetch } from '@/lib/api-client'
 
 /**
  * Get the current session's access token
@@ -21,7 +22,8 @@ export async function getAuthToken(): Promise<string | null> {
 }
 
 /**
- * Upload a document with proper authentication (includes auth token as fallback)
+ * Upload a document with proper authentication
+ * apiFetch handles auth token automatically for cross-origin requests
  */
 export async function uploadDocument(
   file: File,
@@ -29,17 +31,6 @@ export async function uploadDocument(
   partnerId?: string
 ): Promise<{ success: boolean; url?: string; error?: string; action?: string }> {
   try {
-    // Get auth token for fallback authentication
-    const token = await getAuthToken()
-    
-    if (!token) {
-      return {
-        success: false,
-        error: 'Session expired. Please log in again.',
-        action: 'RELOGIN'
-      }
-    }
-
     const formData = new FormData()
     formData.append('file', file)
     formData.append('documentType', documentType)
@@ -47,14 +38,10 @@ export async function uploadDocument(
       formData.append('partnerId', partnerId)
     }
 
-    const response = await fetch('/api/admin/upload-document', {
+    // apiFetch handles auth token automatically
+    const response = await apiFetch('/api/admin/upload-document', {
       method: 'POST',
       body: formData,
-      headers: {
-        // Include Authorization header as fallback for cookie issues
-        'Authorization': `Bearer ${token}`
-      },
-      credentials: 'include' // Include cookies
     })
 
     if (!response.ok) {

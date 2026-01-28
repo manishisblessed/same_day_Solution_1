@@ -3,6 +3,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react'
 import { AuthUser } from '@/types/database.types'
 import { getCurrentUser, signIn, signOut as authSignOut } from '@/lib/auth'
+import { apiFetch } from '@/lib/api-client'
 
 interface AuthContextType {
   user: AuthUser | null
@@ -183,9 +184,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const impersonate = async (userId: string, userRole: 'retailer' | 'distributor' | 'master_distributor') => {
     setLoading(true)
     try {
-      const response = await fetch('/api/admin/impersonate', {
+      const response = await apiFetch('/api/admin/impersonate', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ user_id: userId, user_role: userRole })
       })
 
@@ -219,7 +219,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const sessionId = localStorage.getItem('impersonation_session_id')
       if (sessionId) {
-        await fetch(`/api/admin/impersonate?session_id=${sessionId}`, {
+        await apiFetch(`/api/admin/impersonate?session_id=${sessionId}`, {
           method: 'DELETE'
         })
         localStorage.removeItem('impersonation_token')

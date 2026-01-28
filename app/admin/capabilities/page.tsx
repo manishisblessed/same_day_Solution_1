@@ -13,6 +13,7 @@ import {
   ToggleLeft, ToggleRight, Sliders, XCircle, CheckCircle
 } from 'lucide-react'
 import { motion } from 'framer-motion'
+import { apiFetch } from '@/lib/api-client'
 
 type TabType = 'wallet' | 'commission' | 'mdr' | 'limits' | 'services' | 'reversals' | 'disputes' | 'reports' | 'slabs'
 
@@ -157,9 +158,8 @@ export default function AdminCapabilities() {
           break
       }
 
-      const response = await fetch(endpoint, {
+      const response = await apiFetch(endpoint, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body)
       })
 
@@ -187,7 +187,7 @@ export default function AdminCapabilities() {
 
       const url = `/api/admin/reports?type=${type}&format=${format}&start=${startDate}&end=${endDate}&user_id=${userId}`
       
-      const response = await fetch(url)
+      const response = await apiFetch(url)
       if (response.ok) {
         if (format === 'csv') {
           const blob = await response.blob()

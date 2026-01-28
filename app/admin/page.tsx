@@ -751,9 +751,8 @@ function AdminDashboardContent() {
                                                   activeTab === 'distributors' ? 'distributor' : 
                                                   'master_distributor'
                                   // Call impersonate API directly to open in new tab
-                                  const response = await fetchWithAuth('/api/admin/impersonate', {
+                                  const response = await apiFetch('/api/admin/impersonate', {
                                     method: 'POST',
-                                    headers: { 'Content-Type': 'application/json' },
                                     body: JSON.stringify({ user_id: item.partner_id, user_role: userRole })
                                   })
                                   const data = await response.json()
@@ -965,9 +964,8 @@ function AdminDashboardContent() {
                          activeTab === 'distributors' ? 'distributor' : 
                          'master_distributor')
                       
-                      const response = await fetch(endpoint, {
+                      const response = await apiFetch(endpoint, {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
                           user_id: selectedWalletUser.partner_id,
                           user_role: userRole,
@@ -1103,9 +1101,8 @@ function AdminDashboardContent() {
                                       activeTab === 'distributors' ? 'distributor' : 
                                       'master_distributor'
                       
-                      const response = await fetchWithAuth('/api/admin/reset-password', {
+                      const response = await apiFetch('/api/admin/reset-password', {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
                           user_id: selectedUserForReset.partner_id,
                           user_role: userRole,
@@ -1238,16 +1235,8 @@ function AdminDashboardOverview({
   const fetchSparkupBalance = async () => {
     setSparkupLoading(true)
     try {
-      const token = await getAuthToken()
-      // Use EC2 backend URL if configured, otherwise fallback to relative URL
-      const backendUrl = process.env.NEXT_PUBLIC_BBPS_BACKEND_URL || ''
-      const apiUrl = backendUrl ? `${backendUrl}/api/admin/sparkup-balance` : '/api/admin/sparkup-balance'
-      const response = await fetch(apiUrl, {
-        headers: {
-          'Authorization': token ? `Bearer ${token}` : '',
-        },
-        credentials: 'include'
-      })
+      // apiFetch automatically handles routing to EC2 and adding auth token
+      const response = await apiFetch('/api/admin/sparkup-balance')
       
       if (response.ok) {
         const data = await response.json()
@@ -2264,17 +2253,11 @@ function PartnerModal({
     return session?.access_token || null
   }
 
-  // Helper to upload document with auth token
+  // Helper to upload document - apiFetch handles auth token automatically
   const uploadWithAuth = async (formData: FormData): Promise<Response> => {
-    const token = await getAuthToken()
-    const headers: HeadersInit = {}
-    if (token) {
-      headers['Authorization'] = `Bearer ${token}`
-    }
     return apiFetch('/api/admin/upload-document', {
       method: 'POST',
       body: formData,
-      headers,
     })
   }
 

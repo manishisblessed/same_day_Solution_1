@@ -18,6 +18,7 @@ import {
   Loader2,
   Search
 } from 'lucide-react'
+import { apiFetch } from '@/lib/api-client'
 import { motion } from 'framer-motion'
 import { POSDeviceMapping } from '@/types/database.types'
 
@@ -104,7 +105,7 @@ export default function POSMappingPage() {
         url += `&deviceSerial=${encodeURIComponent(searchTerm)}`
       }
 
-      const response = await fetch(url)
+      const response = await apiFetch(url)
       const result = await response.json()
 
       if (!response.ok) {
@@ -462,11 +463,8 @@ function POSMappingModal({
       
       const method = mapping ? 'PUT' : 'POST'
 
-      const response = await fetch(url, {
+      const response = await apiFetch(url, {
         method,
-        headers: {
-          'Content-Type': 'application/json',
-        },
         body: JSON.stringify(formData),
       })
 

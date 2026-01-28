@@ -10,6 +10,29 @@
  * Set NEXT_PUBLIC_BBPS_BACKEND_URL to your EC2 backend URL (e.g., http://api.samedaysolution.co.in)
  */
 
+import { createBrowserClient } from '@supabase/ssr'
+
+/**
+ * Get Supabase access token for API calls
+ * This is needed for cross-origin requests where cookies won't be sent
+ */
+async function getAccessToken(): Promise<string | null> {
+  if (typeof window === 'undefined') return null
+  
+  try {
+    const supabase = createBrowserClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    )
+    
+    const { data: { session } } = await supabase.auth.getSession()
+    return session?.access_token || null
+  } catch (error) {
+    console.error('Failed to get access token:', error)
+    return null
+  }
+}
+
 /**
  * Get the EC2 Backend API base URL
  * - In localhost: Uses localhost:3000 (same as Next.js dev server)
@@ -92,6 +115,10 @@ export function getApiUrl(path: string): string {
  * - EC2 routes → EC2 backend (whitelisted IP + server env vars)
  * - Other routes → Amplify API routes (uses cookies for auth)
  * 
+ * IMPORTANT: For cross-origin requests (to EC2 backend), cookies won't be sent
+ * because they're set for a different subdomain. We include the access token
+ * in the Authorization header to authenticate these requests.
+ * 
  * @param path - API path (e.g., '/api/wallet/balance')
  * @param options - Fetch options
  * @returns Promise<Response>
@@ -101,6 +128,7 @@ export async function apiFetch(
   options: RequestInit = {}
 ): Promise<Response> {
   const url = getApiUrl(path)
+  const isCrossOrigin = url.startsWith('http')
   
   // Build headers - don't set Content-Type for FormData (browser sets it automatically with boundary)
   const isFormData = options.body instanceof FormData
@@ -109,9 +137,18 @@ export async function apiFetch(
     ...(options.headers as Record<string, string> || {}),
   }
   
+  // For cross-origin requests, include the access token in Authorization header
+  // This is needed because cookies are domain-specific and won't be sent to subdomains
+  if (isCrossOrigin && typeof window !== 'undefined') {
+    const accessToken = await getAccessToken()
+    if (accessToken) {
+      headers['Authorization'] = `Bearer ${accessToken}`
+    }
+  }
+  
   const fetchOptions: RequestInit = {
     ...options,
-    credentials: 'include', // Include cookies for Amplify API routes
+    credentials: 'include', // Include cookies for same-origin requests
     headers,
   }
 
