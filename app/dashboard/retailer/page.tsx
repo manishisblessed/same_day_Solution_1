@@ -6,7 +6,6 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase/client'
 import { apiFetch, apiFetchJson } from '@/lib/api-client'
 import RetailerHeader from '@/components/RetailerHeader'
-import SessionTimer from '@/components/SessionTimer'
 import { 
   TrendingUp, DollarSign, Users, Activity, 
   ShoppingCart, CreditCard, ArrowUpRight, Menu,
@@ -303,13 +302,6 @@ function RetailerDashboardContent() {
   return (
     <div className="flex min-h-screen bg-gradient-to-br from-gray-50 via-white to-gray-50 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900 overflow-x-hidden">
       <RetailerHeader />
-      <SessionTimer 
-        sessionDuration={10} 
-        warningTime={30} 
-        userRole="retailer"
-        loginPath="/business-login"
-        showBadge={false}
-      />
       <Suspense fallback={<div className="hidden lg:flex flex-col w-56 bg-gray-50 border-r border-gray-200 h-[calc(100vh-4rem)] fixed left-0 top-16" />}>
         <RetailerSidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       </Suspense>
