@@ -15,6 +15,7 @@ import TransactionsTable from '@/components/TransactionsTable'
 import SessionTimer from '@/components/SessionTimer'
 import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
 import { motion } from 'framer-motion'
+import { apiFetch } from '@/lib/api-client'
 
 type TabType = 'dashboard' | 'wallet' | 'network' | 'commission' | 'analytics' | 'reports' | 'settings'
 
@@ -670,9 +671,8 @@ function NetworkTab({ retailers, user, onRefresh }: { retailers: any[], user: an
     }
 
     try {
-      const response = await fetch('/api/distributor/wallet/transfer', {
+      const response = await apiFetch('/api/distributor/wallet/transfer', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           retailer_id: selectedUser.partner_id,
           action: action,
@@ -922,11 +922,10 @@ function AddRetailerModal({ onClose, onSuccess }: { onClose: () => void, onSucce
     if (session?.access_token) {
       headers['Authorization'] = `Bearer ${session.access_token}`
     }
-    return fetch('/api/admin/upload-document', {
+    return apiFetch('/api/admin/upload-document', {
       method: 'POST',
       body: uploadFormData,
       headers,
-      credentials: 'include'
     })
   }
 
@@ -1070,17 +1069,14 @@ function AddRetailerModal({ onClose, onSuccess }: { onClose: () => void, onSucce
       
       // Get auth token for fallback authentication
       const { data: { session } } = await supabase.auth.getSession()
-      const authHeaders: HeadersInit = {
-        'Content-Type': 'application/json',
-      }
+      const authHeaders: HeadersInit = {}
       if (session?.access_token) {
         authHeaders['Authorization'] = `Bearer ${session.access_token}`
       }
       
-      const response = await fetch('/api/distributor/create-retailer', {
+      const response = await apiFetch('/api/distributor/create-retailer', {
         method: 'POST',
         headers: authHeaders,
-        credentials: 'include',
         body: JSON.stringify({
           email: formData.email,
           password: formData.password,
@@ -1636,9 +1632,8 @@ function CommissionTab({ commissionData, stats }: { commissionData: any[], stats
         return
       }
 
-      const response = await fetch('/api/distributor/commission/adjust', {
+      const response = await apiFetch('/api/distributor/commission/adjust', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           retailer_id: transaction.retailer_id,
           commission_id: selectedCommission.id,
@@ -1900,7 +1895,7 @@ function ReportsTab({ user }: { user: any }) {
     }
 
     try {
-      const response = await fetch(`/api/reports/${reportType}?start=${dateRange.start}&end=${dateRange.end}&format=${format}`, {
+      const response = await apiFetch(`/api/reports/${reportType}?start=${dateRange.start}&end=${dateRange.end}&format=${format}`, {
         method: 'GET',
       })
 

@@ -22,6 +22,7 @@ import {
 import TransactionsTable from '@/components/TransactionsTable'
 import SmartInsights from '@/components/SmartInsights'
 import { motion, AnimatePresence } from 'framer-motion'
+import { apiFetch } from '@/lib/api-client'
 
 type TabType = 'dashboard' | 'retailers' | 'distributors' | 'master-distributors' | 'services' | 'pos-machines' | 'transactions'
 type SortField = 'name' | 'email' | 'partner_id' | 'created_at' | 'status'
@@ -1860,9 +1861,7 @@ function ServicesManagementTab() {
   const fetchBBPSProviderBalance = async () => {
     setBbpsProviderBalance(prev => ({ ...prev, loading: true, error: null }))
     try {
-      const response = await fetch('/api/bbps/wallet-balance', {
-        credentials: 'include'
-      })
+      const response = await apiFetch('/api/bbps/wallet-balance')
       const data = await response.json()
       
       if (data.success) {
@@ -2272,11 +2271,10 @@ function PartnerModal({
     if (token) {
       headers['Authorization'] = `Bearer ${token}`
     }
-    return fetch('/api/admin/upload-document', {
+    return apiFetch('/api/admin/upload-document', {
       method: 'POST',
       body: formData,
       headers,
-      credentials: 'include'
     })
   }
 
@@ -3012,17 +3010,14 @@ function PartnerModal({
         if (formData.password) {
           // Get auth token for fallback authentication
           const { data: { session } } = await supabase.auth.getSession()
-          const authHeaders: HeadersInit = {
-            'Content-Type': 'application/json',
-          }
+          const authHeaders: HeadersInit = {}
           if (session?.access_token) {
             authHeaders['Authorization'] = `Bearer ${session.access_token}`
           }
           
-          const response = await fetch('/api/admin/create-user', {
+          const response = await apiFetch('/api/admin/create-user', {
             method: 'POST',
             headers: authHeaders,
-            credentials: 'include',
             body: JSON.stringify({
               email: formData.email,
               password: formData.password,
@@ -4626,11 +4621,10 @@ function POSMachinesTab({
         headers['Authorization'] = `Bearer ${session.access_token}`
       }
 
-      const response = await fetch('/api/admin/bulk-upload-pos-machines', {
+      const response = await apiFetch('/api/admin/bulk-upload-pos-machines', {
         method: 'POST',
         body: formData,
         headers,
-        credentials: 'include'
       })
 
       const data = await response.json()

@@ -16,6 +16,7 @@ import {
   Filter
 } from 'lucide-react'
 import { motion } from 'framer-motion'
+import { apiFetch } from '@/lib/api-client'
 
 interface RazorpayTransaction {
   txn_id: string
@@ -58,7 +59,7 @@ export default function RazorpayTransactionsPage() {
 
     try {
       const statusParam = statusFilter !== 'all' ? `&status=${statusFilter}` : ''
-      const response = await fetch(`/api/admin/razorpay-transactions?page=${page}&limit=${limit}${statusParam}`)
+      const response = await apiFetch(`/api/admin/razorpay-transactions?page=${page}&limit=${limit}${statusParam}`)
       
       // Check if response is JSON before parsing
       const contentType = response.headers.get('content-type')

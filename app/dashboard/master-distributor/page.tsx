@@ -16,6 +16,7 @@ import TransactionsTable from '@/components/TransactionsTable'
 import SessionTimer from '@/components/SessionTimer'
 import { LineChart, Line, BarChart, Bar, AreaChart, Area, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
 import { motion, AnimatePresence } from 'framer-motion'
+import { apiFetch } from '@/lib/api-client'
 
 type TabType = 'dashboard' | 'wallet' | 'network' | 'commission' | 'analytics' | 'reports' | 'settings'
 
@@ -713,9 +714,8 @@ function NetworkTab({ distributors, retailers, user, onRefresh }: { distributors
     }
 
     try {
-      const response = await fetch('/api/master-distributor/approve-mdr', {
+      const response = await apiFetch('/api/master-distributor/approve-mdr', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           distributor_id: selectedUser.partner_id,
           approved_mdr_rate: mdrRate / 100 // Convert percentage to decimal
@@ -745,9 +745,8 @@ function NetworkTab({ distributors, retailers, user, onRefresh }: { distributors
     }
 
     try {
-      const response = await fetch('/api/admin/wallet/push', {
+      const response = await apiFetch('/api/admin/wallet/push', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           user_id: selectedUser.partner_id,
           user_role: selectedUser.user_type || (selectedType === 'distributors' ? 'distributor' : 'retailer'),
@@ -1111,11 +1110,10 @@ function AddDistributorModal({ onClose, onSuccess }: { onClose: () => void, onSu
     if (session?.access_token) {
       headers['Authorization'] = `Bearer ${session.access_token}`
     }
-    return fetch('/api/admin/upload-document', {
+    return apiFetch('/api/admin/upload-document', {
       method: 'POST',
       body: uploadFormData,
       headers,
-      credentials: 'include'
     })
   }
 
@@ -1259,17 +1257,14 @@ function AddDistributorModal({ onClose, onSuccess }: { onClose: () => void, onSu
       
       // Get auth token for fallback authentication
       const { data: { session } } = await supabase.auth.getSession()
-      const authHeaders: HeadersInit = {
-        'Content-Type': 'application/json',
-      }
+      const authHeaders: HeadersInit = {}
       if (session?.access_token) {
         authHeaders['Authorization'] = `Bearer ${session.access_token}`
       }
       
-      const response = await fetch('/api/master-distributor/create-distributor', {
+      const response = await apiFetch('/api/master-distributor/create-distributor', {
         method: 'POST',
         headers: authHeaders,
-        credentials: 'include',
         body: JSON.stringify({
           email: formData.email,
           password: formData.password,
@@ -1946,7 +1941,7 @@ function ReportsTab({ user }: { user: any }) {
     }
 
     try {
-      const response = await fetch(`/api/reports/${reportType}?start=${dateRange.start}&end=${dateRange.end}&format=${format}`, {
+      const response = await apiFetch(`/api/reports/${reportType}?start=${dateRange.start}&end=${dateRange.end}&format=${format}`, {
         method: 'GET',
       })
 

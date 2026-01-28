@@ -10,6 +10,7 @@ import {
   User, Mail, Shield, Save, ArrowLeft, Users, Plus, Edit, Trash2, X
 } from 'lucide-react'
 import { motion } from 'framer-motion'
+import { apiFetch } from '@/lib/api-client'
 
 export default function AdminSettings() {
   const { user, loading: authLoading } = useAuth()
@@ -92,10 +93,12 @@ export default function AdminSettings() {
   const fetchSubAdmins = async () => {
     setLoadingSubAdmins(true)
     try {
-      const response = await fetch('/api/admin/sub-admins')
+      const response = await apiFetch('/api/admin/sub-admins')
       const data = await response.json()
       if (data.success) {
         setSubAdmins(data.admins || [])
+      } else if (data.error) {
+        setMessage({ type: 'error', text: data.error })
       }
     } catch (error) {
       console.error('Error fetching sub-admins:', error)
@@ -125,18 +128,15 @@ export default function AdminSettings() {
 
     setLoading(true)
     try {
-      const url = editingSubAdmin 
-        ? '/api/admin/sub-admins'
-        : '/api/admin/sub-admins'
+      const url = '/api/admin/sub-admins'
       const method = editingSubAdmin ? 'PUT' : 'POST'
 
       const body = editingSubAdmin
         ? { id: editingSubAdmin.id, ...subAdminFormData, password: undefined }
         : subAdminFormData
 
-      const response = await fetch(url, {
+      const response = await apiFetch(url, {
         method,
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body)
       })
 
@@ -167,7 +167,7 @@ export default function AdminSettings() {
     if (!confirm('Are you sure you want to delete this sub-admin?')) return
 
     try {
-      const response = await fetch(`/api/admin/sub-admins?id=${id}`, {
+      const response = await apiFetch(`/api/admin/sub-admins?id=${id}`, {
         method: 'DELETE'
       })
 

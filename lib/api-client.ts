@@ -102,9 +102,10 @@ export async function apiFetch(
 ): Promise<Response> {
   const url = getApiUrl(path)
   
-  // Build headers
+  // Build headers - don't set Content-Type for FormData (browser sets it automatically with boundary)
+  const isFormData = options.body instanceof FormData
   const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
+    ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
     ...(options.headers as Record<string, string> || {}),
   }
   

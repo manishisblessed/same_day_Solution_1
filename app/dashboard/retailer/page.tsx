@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo, useCallback, Suspense, lazy } from 'react
 import { useAuth } from '@/contexts/AuthContext'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase/client'
-import { apiFetchJson } from '@/lib/api-client'
+import { apiFetch, apiFetchJson } from '@/lib/api-client'
 import RetailerHeader from '@/components/RetailerHeader'
 import SessionTimer from '@/components/SessionTimer'
 import { 
@@ -1198,7 +1198,7 @@ function ReportsTab({ chartData, stats }: { chartData: any[], stats: any }) {
 
     setDownloading(true)
     try {
-      const response = await fetch(`/api/reports/${reportType}?start=${dateRange.start}&end=${dateRange.end}&format=${format}`, {
+      const response = await apiFetch(`/api/reports/${reportType}?start=${dateRange.start}&end=${dateRange.end}&format=${format}`, {
         method: 'GET',
       })
 
