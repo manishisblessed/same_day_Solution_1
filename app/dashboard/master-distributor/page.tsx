@@ -1185,7 +1185,7 @@ function AddDistributorModal({ onClose, onSuccess }: { onClose: () => void, onSu
       if (formData.aadhar_front_attachment) {
         const aadharFrontFormData = new FormData()
         aadharFrontFormData.append('file', formData.aadhar_front_attachment)
-        aadharFrontFormData.append('documentType', 'aadhar_front')
+        aadharFrontFormData.append('documentType', 'aadhar-front')
         aadharFrontFormData.append('partnerId', partnerId)
         
         const aadharFrontResponse = await uploadWithAuth(aadharFrontFormData)
@@ -1202,7 +1202,7 @@ function AddDistributorModal({ onClose, onSuccess }: { onClose: () => void, onSu
       if (formData.aadhar_back_attachment) {
         const aadharBackFormData = new FormData()
         aadharBackFormData.append('file', formData.aadhar_back_attachment)
-        aadharBackFormData.append('documentType', 'aadhar_back')
+        aadharBackFormData.append('documentType', 'aadhar-back')
         aadharBackFormData.append('partnerId', partnerId)
         
         const aadharBackResponse = await uploadWithAuth(aadharBackFormData)
