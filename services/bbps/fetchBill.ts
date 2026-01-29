@@ -358,6 +358,16 @@ export async function fetchBill(
       })
     }
     
+    // CRITICAL: Extract reqId - this is needed for the payment to work
+    // The reqId links the fetched bill to the payment request
+    const finalReqId = apiResponse.reqId || apiResponse.data?.reqId || reqId
+    console.log('[BBPS fetchBill] ReqId tracking:', {
+      generatedReqId: reqId,
+      apiResponseReqId: apiResponse.reqId,
+      apiResponseDataReqId: apiResponse.data?.reqId,
+      finalReqId: finalReqId,
+    })
+    
     const billDetails: BBPSBillDetails = {
       biller_id: billerId,
       consumer_number: consumerNumber,
@@ -366,10 +376,10 @@ export async function fetchBill(
       bill_date: billerResponse.billDate || billerResponse.bill_date,
       bill_number: billerResponse.billNumber || billerResponse.bill_number,
       consumer_name: consumerName,
-      reqId: apiResponse.reqId || reqId,
+      reqId: finalReqId,
       additional_info: {
         ...apiResponse.data,
-        reqId: apiResponse.reqId || reqId,
+        reqId: finalReqId,
         responseCode: apiResponse.data.responseCode,
         inputParams: responseInputParams,
         billerResponse: billerResponse,

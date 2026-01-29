@@ -663,7 +663,7 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
 
       console.log('Sending fetch bill request:', requestBody)
       
-      const data = await apiFetchJson<{ success?: boolean; bill?: BillDetails; error?: string; message?: string; messageType?: string }>('/api/bbps/bill/fetch', {
+      const data = await apiFetchJson<{ success?: boolean; bill?: BillDetails; reqId?: string; error?: string; message?: string; messageType?: string }>('/api/bbps/bill/fetch', {
         method: 'POST',
         body: JSON.stringify(requestBody),
       })
@@ -686,7 +686,18 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
           const infoMsg = data.bill.additional_info?.message || 'No bill is currently due for this account'
           setInfoMessage(infoMsg)
         } else {
-          setBillDetails(data.bill)
+          // CRITICAL: Ensure reqId is captured from all possible locations
+          // The reqId is essential for the payment to succeed
+          const billWithReqId = {
+            ...data.bill,
+            // Prioritize reqId from: bill.reqId > data.reqId > bill.additional_info.reqId
+            reqId: data.bill.reqId || data.reqId || data.bill.additional_info?.reqId,
+          }
+          console.log('📋 Bill fetched with reqId:', billWithReqId.reqId || 'NOT FOUND - Payment will fail!')
+          if (!billWithReqId.reqId) {
+            console.error('❌ CRITICAL: No reqId found in bill response! Full response:', data)
+          }
+          setBillDetails(billWithReqId)
         }
       } else if (isInfoMessage) {
         // Even if success is false, if it's an info message, show it as info
@@ -734,6 +745,14 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
       const effectiveConsumerNumber = inputParamFields.length > 0
         ? inputParams[inputParamFields[0].paramName] || ''
         : consumerNumber.trim()
+
+      // CRITICAL: Extract reqId for payment correlation
+      const paymentReqId = billDetails.reqId || billDetails.additional_info?.reqId
+      console.log('💳 Initiating payment with reqId:', paymentReqId || 'NOT FOUND!')
+      if (!paymentReqId) {
+        console.error('❌ CRITICAL: No reqId available for payment! This will cause "No fetch data found" error.')
+        console.error('Bill details:', billDetails)
+      }
 
       const data = await apiFetchJson<PaymentResult>('/api/bbps/bill/pay', {
         method: 'POST',
