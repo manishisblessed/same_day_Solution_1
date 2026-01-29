@@ -372,21 +372,20 @@ export async function POST(request: NextRequest) {
     }
     
     // Prepare billerResponse for Sparkup
-    // IMPORTANT: Use the actual billerResponse from fetchBill if available, 
-    // as Sparkup may validate this matches the original fetch
-    const fetchedBillerResponse = additional_info?.billerResponse || {}
-    const billerResponse = {
-      responseCode: fetchedBillerResponse.responseCode || '000',
-      responseMessage: fetchedBillerResponse.responseMessage || 'Bill fetched successfully',
-      billAmount: fetchedBillerResponse.billAmount || billAmountInRupees.toString(),
-      dueDate: fetchedBillerResponse.dueDate || due_date || '',
-      billDate: fetchedBillerResponse.billDate || bill_date || '',
-      billNumber: fetchedBillerResponse.billNumber || bill_number || '',
-      customerName: fetchedBillerResponse.customerName || consumer_name || '',
-      // Include additional fields from the original fetch response if present
-      ...(fetchedBillerResponse.additionalInfo ? { additionalInfo: fetchedBillerResponse.additionalInfo } : {}),
-      ...(fetchedBillerResponse.amountOptions ? { amountOptions: fetchedBillerResponse.amountOptions } : {}),
+    // CRITICAL: Use the EXACT billerResponse from fetchBill without modification
+    // Sparkup validates this matches the original fetch - any modification causes "No fetch data found" error
+    const billerResponse = additional_info?.billerResponse || {
+      responseCode: '000',
+      responseMessage: 'Bill fetched successfully',
+      billAmount: billAmountInRupees.toString(),
+      dueDate: due_date || '',
+      billDate: bill_date || '',
+      billNumber: bill_number || '',
+      customerName: consumer_name || '',
     }
+    
+    // Log the billerResponse being sent (for debugging)
+    console.log('billerResponse (from fetchBill):', JSON.stringify(billerResponse, null, 2))
     
     // Log what we're sending for debugging
     console.log('=== BBPS Pay Request Debug ===')
@@ -413,11 +412,12 @@ export async function POST(request: NextRequest) {
       subServiceName, // Use extracted category (e.g., "Credit Card")
       billerAdhoc: billerAdhocString, // Use extracted billerAdhoc ("true" or "false")
       paymentInfo, // Use validated paymentInfo with proper infoName/infoValue
-      billerResponse, // Use clean billerResponse, NOT the raw additional_info
+      billerResponse, // EXACT billerResponse from fetchBill
       // CRITICAL: Pass the reqId from fetchBill to correlate payment with BBPS provider
       // This reqId links the payment to the previously fetched bill data
       reqId: reqId || additional_info?.reqId,
-      // DO NOT pass additionalInfo - it may contain malformed nested data
+      // Pass additionalInfo from fetchBill if available (may be needed for correlation)
+      additionalInfo: additional_info?.additionalInfo || additional_info?.data?.additionalInfo || undefined,
     })
 
     // Update transaction with payment response

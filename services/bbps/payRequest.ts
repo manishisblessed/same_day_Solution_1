@@ -177,7 +177,9 @@ export async function payRequest(
     // 🔍 LOG FULL REQUEST BODY BEING SENT TO SPARKUP
     console.log('=== SPARKUP PAY REQUEST - FULL REQUEST ===')
     console.log('Endpoint: POST /bbps/payRequest')
-    console.log('Request Body:', JSON.stringify(requestBody, null, 2))
+    console.log('reqId being sent:', reqId)
+    console.log('billerResponse being sent:', JSON.stringify(billerResponse, null, 2))
+    console.log('Full Request Body:', JSON.stringify(requestBody, null, 2))
     console.log('===========================================')
     
     // Make API request
@@ -239,6 +241,8 @@ export async function payRequest(
       console.error('❌ SPARKUP PAYMENT FAILED')
       console.error('Error Code:', responseData.responseCode || apiResponse.status)
       console.error('Error Message:', responseData.responseReason || apiResponse.message)
+      console.error('Full Error Response:', JSON.stringify(apiResponse, null, 2))
+      console.error('Request reqId was:', reqId)
       return {
         success: false,
         error_code:
