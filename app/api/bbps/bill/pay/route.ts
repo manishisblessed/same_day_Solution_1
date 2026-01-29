@@ -288,23 +288,12 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Prepare additional_info with billerResponse for payRequest API
-    // IMPORTANT: Sparkup Pay Request API expects amount in RUPEES (not paise)
-    const paymentAdditionalInfo = {
-      ...(additional_info || {}),
-      billerResponse: {
-        responseCode: '000',
-        responseMessage: 'Bill fetched successfully',
-        billAmount: billAmountInRupees.toString(), // Sparkup expects rupees
-        dueDate: due_date,
-        billDate: bill_date,
-        billNumber: bill_number,
-        customerName: consumer_name,
-      },
-    }
-
+    // ========================================
+    // STEP 4: Prepare Sparkup API Request
+    // ========================================
+    
     // Prepare inputParams - ensure each param has valid paramName and paramValue
-    // Sparkup API requires "paramName" field for each input parameter
+    // Sparkup API REQUIRES "paramName" field for each input parameter
     let inputParams: Array<{ paramName: string; paramValue: string }> = []
     
     if (additional_info?.inputParams && Array.isArray(additional_info.inputParams)) {
@@ -326,9 +315,6 @@ export async function POST(request: NextRequest) {
         }
       ]
     }
-    
-    // Log inputParams for debugging
-    console.log('BBPS Pay - inputParams being sent:', JSON.stringify(inputParams, null, 2))
 
     // Extract billerAdhoc from metadata (from biller info or additional_info)
     // billerAdhoc should be "true" (string) for adhoc billers, "false" otherwise
@@ -344,15 +330,50 @@ export async function POST(request: NextRequest) {
     const subServiceName = biller_category || 
                           additional_info?.metadata?.billerCategory || 
                           additional_info?.category || 
-                          'BBPS Bill payment' // Default fallback
+                          'Credit Card' // Default for Credit Card payments
 
-    // Extract paymentInfo from additional_info if available
-    const paymentInfo = additional_info?.paymentInfo || [
-      {
-        infoName: 'Remarks',
-        infoValue: 'Received'
-      }
-    ]
+    // Prepare paymentInfo - Sparkup requires items with infoName and infoValue
+    // IMPORTANT: Filter out any items without valid infoName to prevent "Additional info name is required" error
+    let paymentInfo: Array<{ infoName: string; infoValue: string }> = []
+    
+    if (additional_info?.paymentInfo && Array.isArray(additional_info.paymentInfo)) {
+      paymentInfo = additional_info.paymentInfo
+        .filter((info: any) => info && info.infoName && typeof info.infoName === 'string' && info.infoName.trim() !== '')
+        .map((info: any) => ({
+          infoName: info.infoName.trim(),
+          infoValue: String(info.infoValue || '').trim(),
+        }))
+    }
+    
+    // Default paymentInfo if none provided or all filtered out
+    if (paymentInfo.length === 0) {
+      paymentInfo = [
+        {
+          infoName: 'Remarks',
+          infoValue: 'Bill Payment'
+        }
+      ]
+    }
+    
+    // Prepare billerResponse for Sparkup (minimal required fields only)
+    // DO NOT spread entire additional_info - it may contain malformed data
+    const billerResponse = {
+      responseCode: '000',
+      responseMessage: 'Bill fetched successfully',
+      billAmount: billAmountInRupees.toString(),
+      dueDate: due_date || '',
+      billDate: bill_date || '',
+      billNumber: bill_number || '',
+      customerName: consumer_name || '',
+    }
+    
+    // Log what we're sending for debugging
+    console.log('=== BBPS Pay Request Debug ===')
+    console.log('inputParams:', JSON.stringify(inputParams, null, 2))
+    console.log('paymentInfo:', JSON.stringify(paymentInfo, null, 2))
+    console.log('billerAdhoc:', billerAdhocString)
+    console.log('subServiceName:', subServiceName)
+    console.log('==============================')
 
     // Make payment to BBPS API using new service
     // IMPORTANT: Sparkup Pay Request API expects amount in RUPEES (not paise)
@@ -365,9 +386,9 @@ export async function POST(request: NextRequest) {
       inputParams,
       subServiceName, // Use extracted category (e.g., "Credit Card")
       billerAdhoc: billerAdhocString, // Use extracted billerAdhoc ("true" or "false")
-      paymentInfo, // Use extracted paymentInfo
-      additionalInfo: paymentAdditionalInfo,
-      billerResponse: paymentAdditionalInfo.billerResponse,
+      paymentInfo, // Use validated paymentInfo with proper infoName/infoValue
+      billerResponse, // Use clean billerResponse, NOT the raw additional_info
+      // DO NOT pass additionalInfo - it may contain malformed nested data
     })
 
     // Update transaction with payment response
