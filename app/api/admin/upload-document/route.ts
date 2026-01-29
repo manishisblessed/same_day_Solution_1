@@ -170,9 +170,11 @@ async function handleUploadDocument(request: NextRequest) {
       )
     }
 
-    if (!documentType || !['aadhar', 'aadhar-front', 'aadhar-back', 'pan', 'udhyam', 'gst', 'bank'].includes(documentType)) {
+    // Normalize document type (accept both hyphen and underscore formats)
+    const normalizedDocType = documentType?.replace(/_/g, '-')
+    if (!normalizedDocType || !['aadhar', 'aadhar-front', 'aadhar-back', 'pan', 'udhyam', 'gst', 'bank'].includes(normalizedDocType)) {
       return NextResponse.json(
-        { error: 'Invalid document type' },
+        { error: 'Invalid document type', received: documentType, expected: ['aadhar', 'aadhar-front', 'aadhar-back', 'pan', 'udhyam', 'gst', 'bank'] },
         { status: 400 }
       )
     }
@@ -195,11 +197,11 @@ async function handleUploadDocument(request: NextRequest) {
       )
     }
 
-    // Generate unique filename
+    // Generate unique filename using normalized document type
     const timestamp = Date.now()
     const randomStr = Math.random().toString(36).substring(2, 15)
     const fileExt = file.name.split('.').pop() || 'pdf'
-    const fileName = `${documentType}/${timestamp}_${randomStr}.${fileExt}`
+    const fileName = `${normalizedDocType}/${timestamp}_${randomStr}.${fileExt}`
 
     // Convert File to ArrayBuffer
     const arrayBuffer = await file.arrayBuffer()

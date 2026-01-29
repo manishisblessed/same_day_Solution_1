@@ -582,6 +582,20 @@ function AdminDashboardContent() {
                     </button>
                   </div>
                 </div>
+                {/* Only Admin can add Master Distributors - Distributors and Retailers are created by their parent hierarchy */}
+                {activeTab === 'master-distributors' && (
+                  <button
+                    onClick={() => {
+                      setEditingItem(null)
+                      setShowModal(true)
+                    }}
+                    className="px-3 py-1.5 bg-gradient-to-r from-amber-500 to-amber-600 text-white text-sm rounded-lg hover:from-amber-600 hover:to-amber-700 flex items-center gap-1.5 shadow-sm"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span className="hidden sm:inline">Add Master Distributor</span>
+                    <span className="sm:hidden">Add</span>
+                  </button>
+                )}
                 {selectedItems.size > 0 && (
                   <button
                     onClick={handleBulkDelete}
@@ -594,6 +608,24 @@ function AdminDashboardContent() {
               </div>
             </div>
           </motion.div>
+
+          {/* Info banner for retailers/distributors tabs */}
+          {(activeTab === 'retailers' || activeTab === 'distributors') && (
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="mb-3 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg"
+            >
+              <div className="flex items-center gap-2 text-sm text-blue-800 dark:text-blue-300">
+                <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                <span>
+                  {activeTab === 'distributors' 
+                    ? 'Distributors are created by Master Distributors. You can view, activate, and manage them here.'
+                    : 'Retailers are created by Distributors. You can view, activate, and manage them here.'}
+                </span>
+              </div>
+            </motion.div>
+          )}
 
           {/* Table - Compact */}
           <motion.div
