@@ -60,6 +60,9 @@ interface BBPSPayRequestResponse {
 /**
  * Pay bill request
  * 
+ * IMPORTANT: Sparkup API expects amount in RUPEES (not paise).
+ * For a ₹200 payment, send amount: 200 (NOT 20000).
+ * 
  * @param params - Payment request parameters
  * @returns Payment response with transaction ID
  * 
@@ -68,7 +71,7 @@ interface BBPSPayRequestResponse {
  * const paymentResponse = await payRequest({
  *   billerId: 'AEML00000NATD1',
  *   consumerNumber: '1234567890',
- *   amount: 1000,
+ *   amount: 200, // ₹200 in rupees (NOT paise)
  *   agentTransactionId: 'BBPS-123-1234567890-ABC',
  *   inputParams: [
  *     { paramName: 'Consumer Number', paramValue: '1234567890' }
@@ -193,7 +196,7 @@ export async function payRequest(
     console.log('=== SPARKUP PAY REQUEST RESPONSE ===')
     console.log('Request ID:', reqId)
     console.log('Biller ID:', billerId)
-    console.log('Amount (paise):', amount)
+    console.log('Amount (₹):', amount)
     console.log('HTTP Status:', response.status)
     console.log('Response Success:', response.success)
     console.log('Full API Response:', JSON.stringify(apiResponse, null, 2))

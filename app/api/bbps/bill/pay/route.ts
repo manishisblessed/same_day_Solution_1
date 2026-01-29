@@ -289,13 +289,13 @@ export async function POST(request: NextRequest) {
     }
 
     // Prepare additional_info with billerResponse for payRequest API
-    // IMPORTANT: Pay Request API expects amount in paise - do NOT convert
+    // IMPORTANT: Sparkup Pay Request API expects amount in RUPEES (not paise)
     const paymentAdditionalInfo = {
       ...(additional_info || {}),
       billerResponse: {
         responseCode: '000',
         responseMessage: 'Bill fetched successfully',
-        billAmount: billAmountInPaise.toString(), // Keep in paise for API
+        billAmount: billAmountInRupees.toString(), // Sparkup expects rupees
         dueDate: due_date,
         billDate: bill_date,
         billNumber: bill_number,
@@ -336,11 +336,12 @@ export async function POST(request: NextRequest) {
     ]
 
     // Make payment to BBPS API using new service
-    // IMPORTANT: Pay Request API expects amount in paise - send billAmountInPaise (not converted)
+    // IMPORTANT: Sparkup Pay Request API expects amount in RUPEES (not paise)
+    // Sparkup confirmed: send actual payable amount directly (e.g., 200 for ₹200, NOT 20000)
     const paymentResponse = await payRequest({
       billerId: biller_id,
       consumerNumber: consumer_number,
-      amount: billAmountInPaise, // Send in paise to BBPS API
+      amount: billAmountInRupees, // Send in RUPEES to Sparkup API (not paise!)
       agentTransactionId: agentTransactionId,
       inputParams,
       subServiceName, // Use extracted category (e.g., "Credit Card")
