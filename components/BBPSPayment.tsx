@@ -747,6 +747,8 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
           due_date: billDetails.due_date,
           bill_date: billDetails.bill_date,
           bill_number: billDetails.bill_number,
+          // CRITICAL: Pass reqId from fetchBill to correlate with BBPS provider
+          reqId: billDetails.reqId || billDetails.additional_info?.reqId,
           additional_info: {
             ...billDetails.additional_info,
             inputParams: inputParamFields.length > 0 

@@ -73,7 +73,7 @@ export async function POST(request: NextRequest) {
       )
       return addCorsHeaders(request, response)
     }
-    const { biller_id, consumer_number, amount, biller_name, consumer_name, due_date, bill_date, bill_number, additional_info, biller_category, tpin } = body
+    const { biller_id, consumer_number, amount, biller_name, consumer_name, due_date, bill_date, bill_number, additional_info, biller_category, tpin, reqId } = body
 
     if (!biller_id || !consumer_number || !amount) {
       const response = NextResponse.json(
@@ -294,11 +294,27 @@ export async function POST(request: NextRequest) {
     
     // Prepare inputParams - ensure each param has valid paramName and paramValue
     // Sparkup API REQUIRES "paramName" field for each input parameter
+    // IMPORTANT: Use the exact inputParams from the fetchBill response to ensure consistency
     let inputParams: Array<{ paramName: string; paramValue: string }> = []
     
-    if (additional_info?.inputParams && Array.isArray(additional_info.inputParams)) {
-      // Validate and clean inputParams from frontend
-      inputParams = additional_info.inputParams
+    // Priority: Use inputParams from additional_info (frontend-provided), 
+    // but also check additional_info.inputParams.input format (from fetchBill response)
+    const providedInputParams = additional_info?.inputParams
+    const fetchedInputParams = additional_info?.inputParams?.input || 
+                               additional_info?.data?.inputParams?.input ||
+                               []
+    
+    if (providedInputParams && Array.isArray(providedInputParams)) {
+      // Frontend sent inputParams array directly
+      inputParams = providedInputParams
+        .filter((param: any) => param && param.paramName && typeof param.paramName === 'string' && param.paramName.trim() !== '')
+        .map((param: any) => ({
+          paramName: param.paramName.trim(),
+          paramValue: String(param.paramValue || '').trim(),
+        }))
+    } else if (fetchedInputParams && Array.isArray(fetchedInputParams) && fetchedInputParams.length > 0) {
+      // Use inputParams from fetchBill response (format: { input: [...] })
+      inputParams = fetchedInputParams
         .filter((param: any) => param && param.paramName && typeof param.paramName === 'string' && param.paramName.trim() !== '')
         .map((param: any) => ({
           paramName: param.paramName.trim(),
@@ -355,29 +371,39 @@ export async function POST(request: NextRequest) {
       ]
     }
     
-    // Prepare billerResponse for Sparkup (minimal required fields only)
-    // DO NOT spread entire additional_info - it may contain malformed data
+    // Prepare billerResponse for Sparkup
+    // IMPORTANT: Use the actual billerResponse from fetchBill if available, 
+    // as Sparkup may validate this matches the original fetch
+    const fetchedBillerResponse = additional_info?.billerResponse || {}
     const billerResponse = {
-      responseCode: '000',
-      responseMessage: 'Bill fetched successfully',
-      billAmount: billAmountInRupees.toString(),
-      dueDate: due_date || '',
-      billDate: bill_date || '',
-      billNumber: bill_number || '',
-      customerName: consumer_name || '',
+      responseCode: fetchedBillerResponse.responseCode || '000',
+      responseMessage: fetchedBillerResponse.responseMessage || 'Bill fetched successfully',
+      billAmount: fetchedBillerResponse.billAmount || billAmountInRupees.toString(),
+      dueDate: fetchedBillerResponse.dueDate || due_date || '',
+      billDate: fetchedBillerResponse.billDate || bill_date || '',
+      billNumber: fetchedBillerResponse.billNumber || bill_number || '',
+      customerName: fetchedBillerResponse.customerName || consumer_name || '',
+      // Include additional fields from the original fetch response if present
+      ...(fetchedBillerResponse.additionalInfo ? { additionalInfo: fetchedBillerResponse.additionalInfo } : {}),
+      ...(fetchedBillerResponse.amountOptions ? { amountOptions: fetchedBillerResponse.amountOptions } : {}),
     }
     
     // Log what we're sending for debugging
     console.log('=== BBPS Pay Request Debug ===')
+    console.log('reqId (from fetchBill):', reqId || additional_info?.reqId || 'NOT PROVIDED - This may cause "No fetch data found" error!')
     console.log('inputParams:', JSON.stringify(inputParams, null, 2))
     console.log('paymentInfo:', JSON.stringify(paymentInfo, null, 2))
     console.log('billerAdhoc:', billerAdhocString)
     console.log('subServiceName:', subServiceName)
+    if (!reqId && !additional_info?.reqId) {
+      console.warn('⚠️ WARNING: reqId is missing! This will likely cause "No fetch data found for given ref id" error from BBPS provider.')
+    }
     console.log('==============================')
 
     // Make payment to BBPS API using new service
     // IMPORTANT: Sparkup Pay Request API expects amount in RUPEES (not paise)
     // Sparkup confirmed: send actual payable amount directly (e.g., 200 for ₹200, NOT 20000)
+    // CRITICAL: Pass reqId from fetchBill to correlate payment with the fetched bill data
     const paymentResponse = await payRequest({
       billerId: biller_id,
       consumerNumber: consumer_number,
@@ -388,6 +414,9 @@ export async function POST(request: NextRequest) {
       billerAdhoc: billerAdhocString, // Use extracted billerAdhoc ("true" or "false")
       paymentInfo, // Use validated paymentInfo with proper infoName/infoValue
       billerResponse, // Use clean billerResponse, NOT the raw additional_info
+      // CRITICAL: Pass the reqId from fetchBill to correlate payment with BBPS provider
+      // This reqId links the payment to the previously fetched bill data
+      reqId: reqId || additional_info?.reqId,
       // DO NOT pass additionalInfo - it may contain malformed nested data
     })
 
