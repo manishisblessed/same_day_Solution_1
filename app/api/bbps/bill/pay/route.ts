@@ -303,13 +303,32 @@ export async function POST(request: NextRequest) {
       },
     }
 
-    // Prepare inputParams
-    const inputParams = additional_info?.inputParams || [
-      {
-        paramName: 'Consumer Number',
-        paramValue: consumer_number,
-      }
-    ]
+    // Prepare inputParams - ensure each param has valid paramName and paramValue
+    // Sparkup API requires "paramName" field for each input parameter
+    let inputParams: Array<{ paramName: string; paramValue: string }> = []
+    
+    if (additional_info?.inputParams && Array.isArray(additional_info.inputParams)) {
+      // Validate and clean inputParams from frontend
+      inputParams = additional_info.inputParams
+        .filter((param: any) => param && param.paramName && typeof param.paramName === 'string' && param.paramName.trim() !== '')
+        .map((param: any) => ({
+          paramName: param.paramName.trim(),
+          paramValue: String(param.paramValue || '').trim(),
+        }))
+    }
+    
+    // If no valid inputParams, use consumer_number as fallback
+    if (inputParams.length === 0) {
+      inputParams = [
+        {
+          paramName: 'Consumer Number',
+          paramValue: consumer_number,
+        }
+      ]
+    }
+    
+    // Log inputParams for debugging
+    console.log('BBPS Pay - inputParams being sent:', JSON.stringify(inputParams, null, 2))
 
     // Extract billerAdhoc from metadata (from biller info or additional_info)
     // billerAdhoc should be "true" (string) for adhoc billers, "false" otherwise
