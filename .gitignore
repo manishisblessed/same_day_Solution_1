@@ -142,3 +142,4 @@ fix-add-ledger-entry-amount.sql
 src/test/
 *.test.js
 *.test.ts
+*.test.ts
