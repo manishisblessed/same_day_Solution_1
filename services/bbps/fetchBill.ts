@@ -148,40 +148,36 @@ export async function fetchBill(
     console.log('[BBPS] Fetching bill with inputParams:', requestInputParams)
     console.log('[BBPS] Consumer number:', consumerNumber)
 
-    // Build query parameters
-    const queryParams = new URLSearchParams()
-    queryParams.append('reqId', reqId)
-    queryParams.append('billerId', billerId)
-    
-    // Add inputParams as array query parameters
-    requestInputParams.forEach((param, index) => {
-      queryParams.append(`inputParams[${index}][paramName]`, param.paramName)
-      queryParams.append(`inputParams[${index}][paramValue]`, String(param.paramValue))
-    })
-    
-    queryParams.append('initChannel', initChannel)
+    // Build request body as per Sparkup API documentation
+    // The API expects a POST request with JSON body, NOT query parameters
+    const requestBody: any = {
+      ip: ip,
+      initChannel: initChannel,
+      mac: mac,
+      billerId: billerId,
+      inputParams: requestInputParams.map(p => ({
+        paramName: p.paramName,
+        paramValue: String(p.paramValue),
+      })),
+    }
     
     // Add paymentInfo if provided
     if (paymentInfo && paymentInfo.length > 0) {
-      paymentInfo.forEach((info, index) => {
-        queryParams.append(`paymentInfo[${index}][infoName]`, info.infoName)
-        queryParams.append(`paymentInfo[${index}][infoValue]`, info.infoValue)
-      })
+      requestBody.paymentInfo = paymentInfo
     }
     
     // Add paymentMode if provided
     if (paymentMode) {
-      queryParams.append('paymentMode', paymentMode)
+      requestBody.paymentMode = paymentMode
     }
 
-    // Build endpoint with query parameters
-    const endpoint = `/bbps/fetchBill?${queryParams.toString()}`
+    console.log('[BBPS fetchBill] Request body:', JSON.stringify(requestBody, null, 2))
 
-    // Make API request (empty body as per API spec)
+    // Make API request with JSON body (per Sparkup API documentation)
     const response = await bbpsClient.request<BBPSFetchBillResponse>({
       method: 'POST',
-      endpoint,
-      body: undefined,
+      endpoint: '/bbps/fetchBill',
+      body: requestBody,
       reqId,
       billerId,
     })

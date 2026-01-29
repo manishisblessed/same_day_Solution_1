@@ -89,13 +89,13 @@ export async function payRequest(
     agentTransactionId,
     inputParams,
     name = 'Utility',
-    subServiceName = 'Credit Card', // Default - must match exact category name from API docs
+    subServiceName = 'BBPS Bill payment', // Per Sparkup API docs - use "BBPS Bill payment"
     initChannel = 'AGT',
     mac = '01-23-45-67-89-ab',
     custConvFee = '0',
     billerAdhoc = 'false', // API expects "true" or "false" as string
     paymentInfo = [],
-    paymentMode = 'Internet Banking', // Changed from Cash - many billers don't support Cash
+    paymentMode = 'Wallet', // Per Sparkup API docs - "Wallet" is widely supported
     quickPay = 'Y',
     splitPay = 'N',
     additionalInfo = {},
