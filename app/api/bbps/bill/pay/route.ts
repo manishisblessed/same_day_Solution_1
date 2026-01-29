@@ -341,12 +341,9 @@ export async function POST(request: NextRequest) {
     // Convert to string format expected by API ("true" or "false")
     const billerAdhocString = String(billerAdhoc).toLowerCase() === 'true' ? 'true' : 'false'
 
-    // Extract sub_service_name from biller category
-    // Use the category from request body, or try to extract from additional_info
-    const subServiceName = biller_category || 
-                          additional_info?.metadata?.billerCategory || 
-                          additional_info?.category || 
-                          'Credit Card' // Default for Credit Card payments
+    // Per Sparkup API documentation, sub_service_name should be "BBPS Bill payment"
+    // NOT the biller category (category is stored separately in additional_info)
+    const subServiceName = 'BBPS Bill payment'
 
     // Prepare paymentInfo - Sparkup requires items with infoName and infoValue
     // IMPORTANT: Filter out any items without valid infoName to prevent "Additional info name is required" error
@@ -404,11 +401,11 @@ export async function POST(request: NextRequest) {
     // Sparkup confirmed: send actual payable amount directly (e.g., 200 for ₹200, NOT 20000)
     // CRITICAL: Pass reqId from fetchBill to correlate payment with the fetched bill data
     // Determine payment mode - use provided, or from metadata, or default
-    // Some billers don't support "Cash" mode, so we default to "Internet Banking"
+    // Per Sparkup API docs, "Wallet" is a widely supported payment mode
     const effectivePaymentMode = payment_mode || 
                                   additional_info?.metadata?.paymentMode ||
                                   additional_info?.paymentMode ||
-                                  'Internet Banking' // Widely supported default
+                                  'Wallet' // Per Sparkup API docs - widely supported
     
     console.log('Payment mode:', effectivePaymentMode)
     
