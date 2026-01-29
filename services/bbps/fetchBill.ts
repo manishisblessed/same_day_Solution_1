@@ -193,8 +193,23 @@ export async function fetchBill(
 
     const apiResponse = response.data
 
-    // Log full response for debugging
-    console.log('[BBPS fetchBill] Full API response:', JSON.stringify(apiResponse, null, 2))
+    // Log full response for debugging - CRITICAL for understanding Sparkup's response structure
+    console.log('=== SPARKUP FETCH BILL - FULL RESPONSE ===')
+    console.log('Success:', apiResponse.success)
+    console.log('Status:', apiResponse.status)
+    console.log('Top-level reqId:', apiResponse.reqId)
+    console.log('Top-level keys:', Object.keys(apiResponse))
+    if (apiResponse.data) {
+      console.log('Data keys:', Object.keys(apiResponse.data))
+      console.log('Data.responseCode:', apiResponse.data.responseCode)
+      // Log any reference ID fields that Sparkup might return
+      console.log('Data.refId:', (apiResponse.data as any).refId)
+      console.log('Data.referenceId:', (apiResponse.data as any).referenceId)
+      console.log('Data.billFetchRefId:', (apiResponse.data as any).billFetchRefId)
+      console.log('Data.requestId:', (apiResponse.data as any).requestId)
+    }
+    console.log('Full Response:', JSON.stringify(apiResponse, null, 2))
+    console.log('===========================================')
 
     // Check if API returned an error (success: false)
     if (apiResponse.success === false) {
