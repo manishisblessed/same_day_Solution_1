@@ -93,7 +93,7 @@ export async function payRequest(
     initChannel = 'AGT',
     mac = '01-23-45-67-89-ab',
     custConvFee = '0',
-    billerAdhoc = 'false', // API expects "true" or "false" as string
+    billerAdhoc = '0', // Per API docs, this is an AMOUNT (like "20.00"), not a boolean
     paymentInfo = [],
     paymentMode = 'Wallet', // Per Sparkup API docs - "Wallet" is widely supported
     quickPay = 'Y',

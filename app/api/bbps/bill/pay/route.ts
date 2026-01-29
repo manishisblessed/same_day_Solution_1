@@ -332,14 +332,9 @@ export async function POST(request: NextRequest) {
       ]
     }
 
-    // Extract billerAdhoc from metadata (from biller info or additional_info)
-    // billerAdhoc should be "true" (string) for adhoc billers, "false" otherwise
-    const billerAdhoc = additional_info?.metadata?.billerAdhoc || 
-                        additional_info?.billerAdhoc || 
-                        'false' // Default to false if not found
-    
-    // Convert to string format expected by API ("true" or "false")
-    const billerAdhocString = String(billerAdhoc).toLowerCase() === 'true' ? 'true' : 'false'
+    // Per API docs, billerAdhoc is an AMOUNT (like "20.00"), not "true"/"false"
+    // It represents adhoc payment amount. We set to "0" for regular bill payments.
+    const billerAdhocString = '0'
 
     // Per Sparkup API documentation, sub_service_name should be "BBPS Bill payment"
     // NOT the biller category (category is stored separately in additional_info)
@@ -369,20 +364,16 @@ export async function POST(request: NextRequest) {
     }
     
     // Prepare billerResponse for Sparkup
-    // CRITICAL: Use the EXACT billerResponse from fetchBill without modification
-    // Sparkup validates this matches the original fetch - any modification causes "No fetch data found" error
-    const billerResponse = additional_info?.billerResponse || {
-      responseCode: '000',
+    // Per API documentation, billerResponse in payRequest should be a SIMPLE acknowledgment
+    // NOT the full bill details from fetchBill
+    // The reqId is what links the payment to the fetched bill data
+    const billerResponse = {
+      responseCode: additional_info?.responseCode || '000',
       responseMessage: 'Bill fetched successfully',
-      billAmount: billAmountInRupees.toString(),
-      dueDate: due_date || '',
-      billDate: bill_date || '',
-      billNumber: bill_number || '',
-      customerName: consumer_name || '',
     }
     
     // Log the billerResponse being sent (for debugging)
-    console.log('billerResponse (from fetchBill):', JSON.stringify(billerResponse, null, 2))
+    console.log('billerResponse (simple ack):', JSON.stringify(billerResponse, null, 2))
     
     // Log what we're sending for debugging
     console.log('=== BBPS Pay Request Debug ===')
@@ -415,16 +406,18 @@ export async function POST(request: NextRequest) {
       amount: billAmountInRupees, // Send in RUPEES to Sparkup API (not paise!)
       agentTransactionId: agentTransactionId,
       inputParams,
-      subServiceName, // Use extracted category (e.g., "Credit Card")
+      subServiceName, // "BBPS Bill payment" per API docs
       billerAdhoc: billerAdhocString, // Use extracted billerAdhoc ("true" or "false")
       paymentInfo, // Use validated paymentInfo with proper infoName/infoValue
-      billerResponse, // EXACT billerResponse from fetchBill
+      billerResponse, // Simple acknowledgment per API docs (NOT full bill details)
       paymentMode: effectivePaymentMode, // Use correct payment mode for biller
       // CRITICAL: Pass the reqId from fetchBill to correlate payment with BBPS provider
       // This reqId links the payment to the previously fetched bill data
       reqId: reqId || additional_info?.reqId,
-      // Pass additionalInfo from fetchBill if available (may be needed for correlation)
-      additionalInfo: additional_info?.additionalInfo || additional_info?.data?.additionalInfo || undefined,
+      // Per API docs, additionalInfo is for payment notes, NOT bill info
+      additionalInfo: {
+        notes: `Bill Payment - ${biller_name || biller_id}`,
+      },
     })
 
     // Update transaction with payment response
