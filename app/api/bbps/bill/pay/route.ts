@@ -73,7 +73,7 @@ export async function POST(request: NextRequest) {
       )
       return addCorsHeaders(request, response)
     }
-    const { biller_id, consumer_number, amount, biller_name, consumer_name, due_date, bill_date, bill_number, additional_info, biller_category, tpin, reqId } = body
+    const { biller_id, consumer_number, amount, biller_name, consumer_name, due_date, bill_date, bill_number, additional_info, biller_category, tpin, reqId, payment_mode } = body
 
     if (!biller_id || !consumer_number || !amount) {
       const response = NextResponse.json(
@@ -403,6 +403,15 @@ export async function POST(request: NextRequest) {
     // IMPORTANT: Sparkup Pay Request API expects amount in RUPEES (not paise)
     // Sparkup confirmed: send actual payable amount directly (e.g., 200 for ₹200, NOT 20000)
     // CRITICAL: Pass reqId from fetchBill to correlate payment with the fetched bill data
+    // Determine payment mode - use provided, or from metadata, or default
+    // Some billers don't support "Cash" mode, so we default to "Internet Banking"
+    const effectivePaymentMode = payment_mode || 
+                                  additional_info?.metadata?.paymentMode ||
+                                  additional_info?.paymentMode ||
+                                  'Internet Banking' // Widely supported default
+    
+    console.log('Payment mode:', effectivePaymentMode)
+    
     const paymentResponse = await payRequest({
       billerId: biller_id,
       consumerNumber: consumer_number,
@@ -413,6 +422,7 @@ export async function POST(request: NextRequest) {
       billerAdhoc: billerAdhocString, // Use extracted billerAdhoc ("true" or "false")
       paymentInfo, // Use validated paymentInfo with proper infoName/infoValue
       billerResponse, // EXACT billerResponse from fetchBill
+      paymentMode: effectivePaymentMode, // Use correct payment mode for biller
       // CRITICAL: Pass the reqId from fetchBill to correlate payment with BBPS provider
       // This reqId links the payment to the previously fetched bill data
       reqId: reqId || additional_info?.reqId,

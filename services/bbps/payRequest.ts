@@ -95,7 +95,7 @@ export async function payRequest(
     custConvFee = '0',
     billerAdhoc = 'false', // API expects "true" or "false" as string
     paymentInfo = [],
-    paymentMode = 'Cash', // Default to Cash as per API documentation
+    paymentMode = 'Internet Banking', // Changed from Cash - many billers don't support Cash
     quickPay = 'Y',
     splitPay = 'N',
     additionalInfo = {},
