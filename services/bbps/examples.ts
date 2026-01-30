@@ -95,7 +95,8 @@ export async function examplePayBill(
   billerId: string,
   consumerNumber: string,
   amount: number,
-  retailerId: string
+  retailerId: string,
+  billerCategory: string = 'Credit Card' // Category name like "Credit Card", "Electricity", etc.
 ) {
   try {
     // Generate unique agent transaction ID
@@ -109,6 +110,8 @@ export async function examplePayBill(
       inputParams: [
         { paramName: 'Consumer Number', paramValue: consumerNumber },
       ],
+      subServiceName: billerCategory, // REQUIRED: Must be the biller category
+      billerAdhoc: 'true', // "true" or "false" (string)
     })
 
     if (paymentResponse.success) {
@@ -259,7 +262,9 @@ export async function exampleCompletePaymentFlow(
       inputParams: [
         { paramName: 'Consumer Number', paramValue: consumerNumber },
       ],
-      billerResponse: billDetails.additional_info,
+      subServiceName: category, // REQUIRED: biller category like "Credit Card", "Electricity"
+      billerAdhoc: (selectedBiller.metadata as any)?.billerAdhoc || 'true', // "true" or "false" (string)
+      reqId: billDetails.reqId, // CRITICAL: Links payment to fetched bill
     })
 
     if (!paymentResponse.success) {

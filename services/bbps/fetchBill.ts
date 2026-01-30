@@ -148,36 +148,47 @@ export async function fetchBill(
     console.log('[BBPS] Fetching bill with inputParams:', requestInputParams)
     console.log('[BBPS] Consumer number:', consumerNumber)
 
-    // Build request body as per Sparkup API documentation
-    // The API expects a POST request with JSON body, NOT query parameters
-    const requestBody: any = {
-      ip: ip,
-      initChannel: initChannel,
-      mac: mac,
-      billerId: billerId,
-      inputParams: requestInputParams.map(p => ({
-        paramName: p.paramName,
-        paramValue: String(p.paramValue),
-      })),
-    }
+    // Build query parameters as per Sparkup API documentation
+    // The API expects a POST request with QUERY PARAMETERS, NOT JSON body
+    const queryParams = new URLSearchParams()
     
-    // Add paymentInfo if provided
+    // Add reqId - CRITICAL: This links fetch to payment
+    queryParams.append('reqId', reqId)
+    
+    // Add billerId
+    queryParams.append('billerId', billerId)
+    
+    // Add inputParams in array format: inputParams[0][paramName]=X&inputParams[0][paramValue]=Y
+    requestInputParams.forEach((param, index) => {
+      queryParams.append(`inputParams[${index}][paramName]`, param.paramName)
+      queryParams.append(`inputParams[${index}][paramValue]`, String(param.paramValue))
+    })
+    
+    // Add initChannel
+    queryParams.append('initChannel', initChannel)
+    
+    // Add paymentInfo if provided: paymentInfo[0][infoName]=X&paymentInfo[0][infoValue]=Y
     if (paymentInfo && paymentInfo.length > 0) {
-      requestBody.paymentInfo = paymentInfo
+      paymentInfo.forEach((info, index) => {
+        queryParams.append(`paymentInfo[${index}][infoName]`, info.infoName)
+        queryParams.append(`paymentInfo[${index}][infoValue]`, info.infoValue)
+      })
+    } else {
+      // Default paymentInfo as shown in API docs
+      queryParams.append('paymentInfo[0][infoName]', 'Remarks')
+      queryParams.append('paymentInfo[0][infoValue]', 'Received')
     }
     
-    // Add paymentMode if provided
-    if (paymentMode) {
-      requestBody.paymentMode = paymentMode
-    }
+    // Add paymentMode if provided (default to Cash as shown in API docs)
+    queryParams.append('paymentMode', paymentMode || 'Cash')
 
-    console.log('[BBPS fetchBill] Request body:', JSON.stringify(requestBody, null, 2))
+    const endpoint = `/bbps/fetchBill?${queryParams.toString()}`
+    console.log('[BBPS fetchBill] Request URL:', endpoint)
 
-    // Make API request with JSON body (per Sparkup API documentation)
+    // Make API request with query parameters (per Sparkup API documentation)
     const response = await bbpsClient.request<BBPSFetchBillResponse>({
       method: 'POST',
-      endpoint: '/bbps/fetchBill',
-      body: requestBody,
+      endpoint,
       reqId,
       billerId,
     })

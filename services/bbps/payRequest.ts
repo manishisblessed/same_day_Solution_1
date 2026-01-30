@@ -21,18 +21,16 @@ export interface PayRequestParams {
   agentTransactionId: string
   inputParams?: Array<{ paramName: string; paramValue: string | number }>
   name?: string
-  subServiceName?: string
+  subServiceName: string // REQUIRED: Category name (e.g., "Credit Card", "Electricity")
   initChannel?: string
   mac?: string
   custConvFee?: string
-  billerAdhoc?: string
-  paymentInfo?: any[]
-  paymentMode?: string
-  quickPay?: string
-  splitPay?: string
-  additionalInfo?: Record<string, any>
-  billerResponse?: Record<string, any>
-  reqId?: string
+  billerAdhoc?: string // "true" or "false"
+  paymentInfo?: Array<{ infoName: string; infoValue: string }>
+  paymentMode?: string // "Cash", "Account", "Wallet", "UPI"
+  quickPay?: string // "Y" or "N"
+  splitPay?: string // "Y" or "N"
+  reqId?: string // CRITICAL: Must be reqId from fetchBill response
 }
 
 /**
@@ -89,17 +87,15 @@ export async function payRequest(
     agentTransactionId,
     inputParams,
     name = 'Utility',
-    subServiceName = 'BBPS Bill payment', // Per Sparkup API docs - use "BBPS Bill payment"
+    subServiceName, // REQUIRED: Must be category name (e.g., "Credit Card", "Electricity")
     initChannel = 'AGT',
     mac = '01-23-45-67-89-ab',
     custConvFee = '0',
-    billerAdhoc = '0', // Per API docs, this is an AMOUNT (like "20.00"), not a boolean
+    billerAdhoc = 'true', // Per API docs: "true" or "false" (string boolean)
     paymentInfo = [],
-    paymentMode = 'Wallet', // Per Sparkup API docs - "Wallet" is widely supported
+    paymentMode = 'Cash', // Per API docs: "Cash", "Account", "Wallet", "UPI"
     quickPay = 'Y',
     splitPay = 'N',
-    additionalInfo = {},
-    billerResponse = {},
     reqId: providedReqId,
   } = params
   const reqId = providedReqId || generateReqId()
@@ -117,6 +113,22 @@ export async function payRequest(
   if (!agentTransactionId || agentTransactionId.trim() === '') {
     throw new Error('Agent transaction ID is required')
   }
+  if (!subServiceName || subServiceName.trim() === '') {
+    throw new Error('sub_service_name (category) is required - e.g., "Credit Card", "Electricity"')
+  }
+  
+  // Validate sub_service_name is a valid category
+  const validCategories = [
+    'Broadband Postpaid', 'Cable TV', 'Clubs and Associations', 'Credit Card',
+    'Donation', 'DTH', 'Education Fees', 'Electricity', 'Fastag', 'Gas',
+    'Hospital', 'Hospital and Pathology', 'Housing Society', 'Insurance',
+    'Landline Postpaid', 'Loan Repayment', 'LPG Gas', 'Mobile Postpaid',
+    'Mobile Prepaid', 'Municipal Services', 'Municipal Taxes', 'Recurring Deposit',
+    'Rental', 'Subscription', 'Water', 'NCMC Recharge', 'NPS', 'Prepaid meter'
+  ]
+  if (!validCategories.includes(subServiceName)) {
+    console.warn(`[BBPS payRequest] Warning: sub_service_name "${subServiceName}" may not be a valid category`)
+  }
 
   // Use mock data if enabled
   if (isMockMode()) {
@@ -126,7 +138,6 @@ export async function payRequest(
       consumer_number: consumerNumber,
       amount,
       agent_transaction_id: agentTransactionId,
-      additional_info: additionalInfo,
       reqId,
     }
     return getMockPayRequest(mockPayment)
@@ -143,32 +154,26 @@ export async function payRequest(
         },
       ]
 
-    // Prepare request body (matching API specification)
+    // Prepare request body (matching API specification exactly)
+    // Per Sparkup API docs - only send fields that are in the spec
     const requestBody: any = {
       name,
-      sub_service_name: subServiceName,
+      sub_service_name: subServiceName, // MUST be category name like "Credit Card", "Electricity"
       initChannel,
       amount: amount.toString(),
       billerId,
       inputParams: requestInputParams,
       mac,
       custConvFee,
-      billerAdhoc,
-      paymentInfo,
+      billerAdhoc, // Must be "true" or "false" (string)
+      paymentInfo: paymentInfo.length > 0 ? paymentInfo : [{ infoName: 'Remarks', infoValue: 'Received' }],
       paymentMode,
       quickPay,
       splitPay,
-      reqId,
+      reqId, // CRITICAL: Links payment to fetchBill
     }
     
-    // Note: additionalInfo and billerResponse are not in the API spec
-    // but may be needed for internal tracking - keeping them optional
-    if (additionalInfo && Object.keys(additionalInfo).length > 0) {
-      requestBody.additionalInfo = additionalInfo
-    }
-    if (billerResponse && Object.keys(billerResponse).length > 0) {
-      requestBody.billerResponse = billerResponse
-    }
+    // NOTE: Do NOT send additionalInfo or billerResponse - they are NOT in the API spec
 
     // PayRequest endpoint: /api/ba/bbps/payRequest (same base URL as other endpoints)
     // According to API docs, it uses the same headers (partnerid, consumerkey, consumersecret)
@@ -178,7 +183,8 @@ export async function payRequest(
     console.log('=== SPARKUP PAY REQUEST - FULL REQUEST ===')
     console.log('Endpoint: POST /bbps/payRequest')
     console.log('reqId being sent:', reqId)
-    console.log('billerResponse being sent:', JSON.stringify(billerResponse, null, 2))
+    console.log('sub_service_name (category):', subServiceName)
+    console.log('billerAdhoc:', billerAdhoc)
     console.log('Full Request Body:', JSON.stringify(requestBody, null, 2))
     console.log('===========================================')
     

@@ -332,13 +332,19 @@ export async function POST(request: NextRequest) {
       ]
     }
 
-    // Per API docs, billerAdhoc is an AMOUNT (like "20.00"), not "true"/"false"
-    // It represents adhoc payment amount. We set to "0" for regular bill payments.
-    const billerAdhocString = '0'
+    // Per API docs, billerAdhoc must be "true" or "false" (string boolean)
+    // Get from biller metadata if available, default to "true" for adhoc billers
+    const billerAdhocString = additional_info?.metadata?.billerAdhoc || 
+                              additional_info?.billerAdhoc || 
+                              'true'
 
-    // Per Sparkup API documentation, sub_service_name should be "BBPS Bill payment"
-    // NOT the biller category (category is stored separately in additional_info)
-    const subServiceName = 'BBPS Bill payment'
+    // Per Sparkup API documentation, sub_service_name MUST be the category name
+    // e.g., "Credit Card", "Electricity", "DTH", etc. (case + spaces must match exactly)
+    const subServiceName = biller_category || 
+                           additional_info?.metadata?.billerCategory ||
+                           additional_info?.billerCategory ||
+                           additional_info?.category ||
+                           'Credit Card' // Fallback - should always be provided by frontend
 
     // Prepare paymentInfo - Sparkup requires items with infoName and infoValue
     // IMPORTANT: Filter out any items without valid infoName to prevent "Additional info name is required" error
@@ -363,17 +369,8 @@ export async function POST(request: NextRequest) {
       ]
     }
     
-    // Prepare billerResponse for Sparkup
-    // Per API documentation, billerResponse in payRequest should be a SIMPLE acknowledgment
-    // NOT the full bill details from fetchBill
-    // The reqId is what links the payment to the fetched bill data
-    const billerResponse = {
-      responseCode: additional_info?.responseCode || '000',
-      responseMessage: 'Bill fetched successfully',
-    }
-    
-    // Log the billerResponse being sent (for debugging)
-    console.log('billerResponse (simple ack):', JSON.stringify(billerResponse, null, 2))
+    // NOTE: billerResponse and additionalInfo are NOT in the API spec
+    // Only reqId links the payment to the fetched bill data
     
     // Log what we're sending for debugging
     console.log('=== BBPS Pay Request Debug ===')
@@ -406,18 +403,13 @@ export async function POST(request: NextRequest) {
       amount: billAmountInRupees, // Send in RUPEES to Sparkup API (not paise!)
       agentTransactionId: agentTransactionId,
       inputParams,
-      subServiceName, // "BBPS Bill payment" per API docs
-      billerAdhoc: billerAdhocString, // Use extracted billerAdhoc ("true" or "false")
-      paymentInfo, // Use validated paymentInfo with proper infoName/infoValue
-      billerResponse, // Simple acknowledgment per API docs (NOT full bill details)
-      paymentMode: effectivePaymentMode, // Use correct payment mode for biller
+      subServiceName, // MUST be category name like "Credit Card", "Electricity" (exact match)
+      billerAdhoc: billerAdhocString, // "true" or "false" (string boolean)
+      paymentInfo, // Array of { infoName, infoValue }
+      paymentMode: effectivePaymentMode, // "Cash", "Account", "Wallet", "UPI"
       // CRITICAL: Pass the reqId from fetchBill to correlate payment with BBPS provider
       // This reqId links the payment to the previously fetched bill data
       reqId: reqId || additional_info?.reqId,
-      // Per API docs, additionalInfo is for payment notes, NOT bill info
-      additionalInfo: {
-        notes: `Bill Payment - ${biller_name || biller_id}`,
-      },
     })
 
     // Update transaction with payment response
