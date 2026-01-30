@@ -382,13 +382,33 @@ export async function fetchBill(
     
     // CRITICAL: Extract reqId - this is needed for the payment to work
     // The reqId links the fetched bill to the payment request
-    const finalReqId = apiResponse.reqId || apiResponse.data?.reqId || reqId
-    console.log('[BBPS fetchBill] ReqId tracking:', {
-      generatedReqId: reqId,
-      apiResponseReqId: apiResponse.reqId,
-      apiResponseDataReqId: apiResponse.data?.reqId,
-      finalReqId: finalReqId,
-    })
+    // Sparkup returns a DIFFERENT reqId in the response than what we sent!
+    // We MUST use Sparkup's returned reqId for payRequest to work
+    
+    // Check all possible locations for Sparkup's reqId
+    const sparkupReqId = apiResponse.reqId || 
+                         (apiResponse as any).requestId || 
+                         apiResponse.data?.reqId ||
+                         (apiResponse.data as any)?.requestId ||
+                         (apiResponse.data as any)?.refId ||
+                         (apiResponse.data as any)?.billFetchRefId
+    
+    // IMPORTANT: Only fall back to our generated reqId if Sparkup didn't return one
+    const finalReqId = sparkupReqId || reqId
+    
+    console.log('🔴 [BBPS fetchBill] CRITICAL ReqId tracking:')
+    console.log('  - Our generated reqId:', reqId)
+    console.log('  - apiResponse.reqId:', apiResponse.reqId)
+    console.log('  - apiResponse.requestId:', (apiResponse as any).requestId)
+    console.log('  - apiResponse.data?.reqId:', apiResponse.data?.reqId)
+    console.log('  - sparkupReqId (extracted):', sparkupReqId)
+    console.log('  - finalReqId (to be used):', finalReqId)
+    console.log('  - Full apiResponse keys:', Object.keys(apiResponse))
+    if (sparkupReqId && sparkupReqId !== reqId) {
+      console.log('  ✅ Using Sparkups returned reqId for payment')
+    } else {
+      console.log('  ⚠️ WARNING: Using our generated reqId - Sparkup may not find fetch data!')
+    }
     
     const billDetails: BBPSBillDetails = {
       biller_id: billerId,
