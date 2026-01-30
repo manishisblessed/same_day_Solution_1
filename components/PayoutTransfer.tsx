@@ -133,7 +133,7 @@ export default function PayoutTransfer({ title }: PayoutTransferProps = {}) {
     }
   }, [user?.partner_id])
 
-  // Fetch bank list - using direct fetch (no auth needed for bank list)
+  // Fetch bank list - using apiFetch to route to EC2 backend (whitelisted IP)
   const fetchBanks = useCallback(async (query?: string) => {
     setLoadingBanks(true)
     try {
@@ -141,8 +141,11 @@ export default function PayoutTransfer({ title }: PayoutTransferProps = {}) {
       if (query) params.set('search', query)
       params.set('imps', 'true') // Only IMPS-enabled banks
       
-      const response = await fetch(`/api/payout/banks?${params.toString()}`)
-      const result = await response.json()
+      const result = await apiFetchJson<{
+        success: boolean
+        banks?: Bank[]
+        error?: string
+      }>(`/api/payout/banks?${params.toString()}`)
       
       if (result.success && result.banks) {
         setBanks(result.banks)
@@ -210,16 +213,16 @@ export default function PayoutTransfer({ title }: PayoutTransferProps = {}) {
     if (user) {
       setSenderName(user.name || '')
       setSenderEmail(user.email || '')
-      // Fetch mobile from retailer profile if available
+      // Fetch phone from retailer profile if available
       if (user.partner_id) {
         supabase
           .from('retailers')
-          .select('mobile')
+          .select('phone')
           .eq('partner_id', user.partner_id)
           .maybeSingle()
           .then(({ data }) => {
-            if (data?.mobile) {
-              setSenderMobile(data.mobile)
+            if (data?.phone) {
+              setSenderMobile(data.phone)
             }
           })
       }
