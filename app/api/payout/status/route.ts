@@ -81,14 +81,13 @@ export async function GET(request: NextRequest) {
     }
 
     // If transaction is still pending/processing, check with provider
-    if (['pending', 'processing'].includes(transaction.status)) {
+    if (['pending', 'processing'].includes(transaction.status) && transaction.transaction_id) {
       const statusResult = await getTransferStatus({
         transactionId: transaction.transaction_id,
-        clientRefId: transaction.client_ref_id,
       })
 
       if (statusResult.success && statusResult.status) {
-        const newStatus = statusResult.status.toLowerCase()
+        const newStatus = statusResult.status
         
         // Update transaction if status changed
         if (newStatus !== transaction.status) {
@@ -97,8 +96,8 @@ export async function GET(request: NextRequest) {
             updated_at: new Date().toISOString(),
           }
           
-          if (statusResult.rrn) updateData.rrn = statusResult.rrn
-          if (statusResult.failure_reason) updateData.failure_reason = statusResult.failure_reason
+          if (statusResult.operator_id) updateData.rrn = statusResult.operator_id // opid is the RRN
+          if (statusResult.status === 'failed') updateData.failure_reason = statusResult.status_message || 'Transaction failed'
           if (newStatus === 'success' || newStatus === 'failed') {
             updateData.completed_at = new Date().toISOString()
           }
@@ -123,7 +122,7 @@ export async function GET(request: NextRequest) {
               p_reference_id: `REFUND_${transaction.client_ref_id}`,
               p_transaction_id: transaction.id,
               p_status: 'completed',
-              p_remarks: `Payout failed - Auto refund: ${statusResult.failure_reason || 'Unknown reason'}`
+              p_remarks: `Payout failed - Auto refund: ${statusResult.status_message || 'Unknown reason'}`
             })
 
             // Mark transaction as refunded
@@ -135,8 +134,8 @@ export async function GET(request: NextRequest) {
 
           // Return updated status
           transaction.status = newStatus
-          transaction.rrn = statusResult.rrn || transaction.rrn
-          transaction.failure_reason = statusResult.failure_reason || transaction.failure_reason
+          transaction.rrn = statusResult.operator_id || transaction.rrn
+          transaction.failure_reason = statusResult.status_message || transaction.failure_reason
         }
       }
     }

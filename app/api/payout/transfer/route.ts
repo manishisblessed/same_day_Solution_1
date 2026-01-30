@@ -32,6 +32,12 @@ export async function OPTIONS(request: NextRequest) {
  * - accountHolderName: Beneficiary name
  * - amount: Amount to transfer (in rupees)
  * - transferMode: 'IMPS' or 'NEFT'
+ * - bankId: Bank ID from bank list
+ * - bankName: Bank name
+ * - beneficiaryMobile: Beneficiary mobile number
+ * - senderName: Sender name
+ * - senderMobile: Sender mobile number
+ * - senderEmail: Optional sender email
  * - remarks: Optional remarks
  * - tpin: Transaction PIN for authorization
  * - user_id: Fallback auth - retailer partner_id (if cookie auth fails)
@@ -46,6 +52,12 @@ export async function POST(request: NextRequest) {
       accountHolderName, 
       amount, 
       transferMode, 
+      bankId,
+      bankName,
+      beneficiaryMobile,
+      senderName,
+      senderMobile,
+      senderEmail,
       remarks,
       tpin,
       user_id
@@ -97,6 +109,41 @@ export async function POST(request: NextRequest) {
     if (!accountNumber || !ifscCode || !accountHolderName || !amount || !transferMode) {
       const response = NextResponse.json(
         { success: false, error: 'All fields are required: accountNumber, ifscCode, accountHolderName, amount, transferMode' },
+        { status: 400 }
+      )
+      return addCorsHeaders(request, response)
+    }
+
+    // Validate bank details
+    if (!bankId || !bankName) {
+      const response = NextResponse.json(
+        { success: false, error: 'Bank ID and bank name are required' },
+        { status: 400 }
+      )
+      return addCorsHeaders(request, response)
+    }
+
+    // Validate beneficiary and sender details
+    if (!beneficiaryMobile || !senderName || !senderMobile) {
+      const response = NextResponse.json(
+        { success: false, error: 'Beneficiary mobile, sender name, and sender mobile are required' },
+        { status: 400 }
+      )
+      return addCorsHeaders(request, response)
+    }
+
+    // Validate mobile numbers (Indian format: 10 digits starting with 6-9)
+    const mobileRegex = /^[6-9]\d{9}$/
+    if (!mobileRegex.test(beneficiaryMobile)) {
+      const response = NextResponse.json(
+        { success: false, error: 'Invalid beneficiary mobile number' },
+        { status: 400 }
+      )
+      return addCorsHeaders(request, response)
+    }
+    if (!mobileRegex.test(senderMobile)) {
+      const response = NextResponse.json(
+        { success: false, error: 'Invalid sender mobile number' },
         { status: 400 }
       )
       return addCorsHeaders(request, response)
@@ -209,6 +256,7 @@ export async function POST(request: NextRequest) {
         account_number: accountNumber,
         ifsc_code: ifscCode,
         account_holder_name: accountHolderName,
+        bank_name: bankName,
         amount: amountNum,
         charges,
         transfer_mode: transferMode,
@@ -270,13 +318,19 @@ export async function POST(request: NextRequest) {
       })
       .eq('id', payoutTx.id)
 
-    // Initiate transfer with SparkUp
+    // Initiate transfer with SparkUp expressPay2 API
     const transferResult = await initiateTransfer({
       accountNumber,
       ifscCode,
       accountHolderName,
       amount: amountNum,
       transferMode: transferMode as 'IMPS' | 'NEFT',
+      bankId: parseInt(bankId),
+      bankName,
+      beneficiaryMobile,
+      senderName,
+      senderMobile,
+      senderEmail: senderEmail || user.email,
       remarks: remarks || `Payout - ${clientRefId}`,
       clientRefId,
     })
@@ -330,8 +384,7 @@ export async function POST(request: NextRequest) {
       .from('payout_transactions')
       .update({ 
         transaction_id: transferResult.transaction_id,
-        rrn: transferResult.rrn,
-        status: transferResult.status?.toLowerCase() || 'processing',
+        status: transferResult.status || 'processing',
         updated_at: new Date().toISOString()
       })
       .eq('id', payoutTx.id)
@@ -344,17 +397,17 @@ export async function POST(request: NextRequest) {
 
     const response = NextResponse.json({
       success: true,
-      message: 'Transfer initiated successfully',
+      message: transferResult.remark || 'Transfer initiated successfully',
       transaction_id: payoutTx.id,
       provider_txn_id: transferResult.transaction_id,
-      client_ref_id: clientRefId,
-      rrn: transferResult.rrn,
-      status: transferResult.status || 'PROCESSING',
-      amount: amountNum,
-      charges,
-      total_debited: totalAmount,
+      client_ref_id: transferResult.client_ref_id || clientRefId,
+      status: (transferResult.status || 'processing').toUpperCase(),
+      amount: transferResult.amount || amountNum,
+      charges: transferResult.charges || charges,
+      total_debited: transferResult.total_amount || totalAmount,
       account_number: accountNumber.replace(/\d(?=\d{4})/g, '*'),
       account_holder_name: accountHolderName,
+      bank_name: bankName,
       transfer_mode: transferMode,
     })
     

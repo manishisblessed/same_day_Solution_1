@@ -356,7 +356,7 @@ function RetailerDashboardContent() {
                 { id: 'wallet' as TabType, label: 'Wallet', icon: Wallet },
                 { id: 'services' as TabType, label: 'Services', icon: ShoppingCart },
                 { id: 'bbps' as TabType, label: 'BBPS Payments', icon: Receipt },
-                { id: 'payout' as TabType, label: 'Bank Transfer', icon: Send },
+                { id: 'payout' as TabType, label: 'Settlement', icon: Banknote },
                 { id: 'transactions' as TabType, label: 'Transactions', icon: CreditCard },
                 { id: 'reports' as TabType, label: 'Reports', icon: TrendingUp },
               ].map((tab) => (
@@ -384,7 +384,7 @@ function RetailerDashboardContent() {
           {activeTab === 'wallet' && <WalletTab user={user} />}
           {activeTab === 'services' && <ServicesTab />}
           {activeTab === 'bbps' && <BBPSTab />}
-          {activeTab === 'payout' && <PayoutTransfer title="Bank Transfer (Payout)" />}
+          {activeTab === 'payout' && <PayoutTransfer title="Settlement to Bank Account" />}
           {activeTab === 'transactions' && <TransactionsTable role="retailer" autoPoll={true} pollInterval={10000} />}
           {activeTab === 'reports' && <ReportsTab chartData={chartData} stats={stats} />}
         </div>

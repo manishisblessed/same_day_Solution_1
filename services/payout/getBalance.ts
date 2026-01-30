@@ -1,11 +1,15 @@
 /**
  * Get Payout Wallet Balance
- * SparkUpTech Express Pay Payout API: GET /getBalance
+ * SparkUpTech API: GET /api/wallet/getBalance
+ * 
+ * Note: This endpoint uses a different base URL than other payout APIs
  */
 
-import { payoutClient } from './payoutClient'
 import { PayoutBalanceResponse } from './types'
-import { isPayoutMockMode } from './config'
+import { isPayoutMockMode, getPartnerId, getConsumerKey, getConsumerSecret, getPayoutTimeout } from './config'
+
+// Wallet API base URL (different from payout API)
+const WALLET_API_URL = 'https://api.sparkuptech.in/api/wallet'
 
 /**
  * Get payout wallet balance
@@ -17,6 +21,8 @@ export async function getPayoutBalance(): Promise<{
   balance?: number
   lien?: number
   available_balance?: number
+  is_active?: boolean
+  client_id?: string
   error?: string
 }> {
   // Mock mode
@@ -26,23 +32,68 @@ export async function getPayoutBalance(): Promise<{
       balance: 10000,
       lien: 0,
       available_balance: 10000,
+      is_active: true,
     }
   }
 
   try {
-    const response = await payoutClient.request<PayoutBalanceResponse>({
-      method: 'POST',  // Sparkup API requires POST for all endpoints
-      endpoint: '/getBalance',
-    })
+    // Validate credentials
+    const partnerId = getPartnerId()
+    const consumerKey = getConsumerKey()
+    const consumerSecret = getConsumerSecret()
 
-    if (!response.success || !response.data) {
+    if (!partnerId || !consumerKey || !consumerSecret) {
       return {
         success: false,
-        error: response.error || 'Failed to fetch payout balance',
+        error: 'Payout API credentials not configured',
       }
     }
 
-    const apiResponse = response.data
+    // Create abort controller for timeout
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), getPayoutTimeout())
+
+    // Make GET request to wallet API
+    const response = await fetch(`${WALLET_API_URL}/getBalance`, {
+      method: 'GET',
+      headers: {
+        'partnerid': partnerId,
+        'consumerkey': consumerKey,
+        'consumersecret': consumerSecret,
+      },
+      signal: controller.signal,
+    })
+
+    clearTimeout(timeoutId)
+
+    // Parse response
+    const responseText = await response.text()
+    let apiResponse: PayoutBalanceResponse
+
+    try {
+      apiResponse = JSON.parse(responseText)
+    } catch {
+      console.error('[Payout Balance] Invalid JSON response:', responseText.substring(0, 200))
+      return {
+        success: false,
+        error: 'Invalid response from wallet API',
+      }
+    }
+
+    // Log response
+    console.log('[Payout Balance] Response:', {
+      success: apiResponse.success,
+      status: apiResponse.status,
+      balance: apiResponse.data?.balance,
+    })
+
+    // Handle error responses
+    if (!response.ok) {
+      return {
+        success: false,
+        error: apiResponse.message || `HTTP ${response.status}`,
+      }
+    }
 
     if (!apiResponse.success || !apiResponse.data) {
       return {
@@ -60,13 +111,23 @@ export async function getPayoutBalance(): Promise<{
       balance,
       lien,
       available_balance: balance - lien,
+      is_active: balanceData.is_active,
+      client_id: balanceData.client_id,
     }
   } catch (error: any) {
-    console.error('Error fetching payout balance:', error)
+    // Handle timeout
+    if (error.name === 'AbortError') {
+      console.error('[Payout Balance] Request timeout')
+      return {
+        success: false,
+        error: 'Request timeout',
+      }
+    }
+
+    console.error('[Payout Balance] Error:', error)
     return {
       success: false,
       error: error.message || 'Failed to fetch payout balance',
     }
   }
 }
-

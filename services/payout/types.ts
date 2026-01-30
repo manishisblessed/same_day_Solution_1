@@ -18,20 +18,36 @@ export interface PayoutBank {
   isPopular: boolean
   logo?: string
   accountLimit?: number
+  // Additional fields from API
+  sprintBankID?: number
+  iPayBankID?: number
+  pdrsBankID?: number
+  pay1MoneyBankID?: number
+  accountNo?: string | null
+  npcicode?: string | null
+  isaepsStatus?: boolean
+  isNotLive?: boolean
+  isVirtual?: boolean
 }
 
 /**
- * Balance response
+ * Balance response - matches /api/wallet/getBalance
  */
 export interface PayoutBalanceResponse {
   success: boolean
   status?: number
   message?: string
   data?: {
+    _id?: string
     balance?: number
     lien?: number
     is_active?: boolean
+    created_at?: string
+    created_by?: string
+    updated_at?: string
+    updated_by?: string
     first_name?: string
+    middle_name?: string
     last_name?: string
     email?: string
     mobile?: string
@@ -78,7 +94,7 @@ export interface VerifyAccountResponse {
 }
 
 /**
- * Transfer request
+ * Transfer request - matches expressPay2 API
  */
 export interface TransferRequest {
   accountNumber: string
@@ -86,30 +102,57 @@ export interface TransferRequest {
   accountHolderName: string
   amount: number
   transferMode: 'IMPS' | 'NEFT'
+  bankId: number          // Required: BankID from bank list
+  bankName: string        // Required: Bank name
+  beneficiaryMobile: string // Required: Beneficiary mobile
+  senderName: string      // Required: Sender name
+  senderMobile: string    // Required: Sender mobile
+  senderEmail?: string    // Optional: Sender email
   remarks?: string
-  clientRefId?: string // Our internal reference ID
+  clientRefId?: string    // Our internal reference ID (becomes APIRequestID)
+  webhookUrl?: string     // Optional: Webhook URL for callbacks
 }
 
 /**
- * Transfer response
+ * Express Pay API Request Body - exact format for expressPay2
+ */
+export interface ExpressPayRequestBody {
+  AccountNo: string
+  AmountR: number
+  APIRequestID: number
+  BankID: number
+  BeneMobile: string
+  BeneName: string
+  bankName: string
+  IFSC: string
+  SenderEmail: string
+  SenderMobile: string
+  SenderName: string
+  paymentType: 'IMPS' | 'NEFT'
+  WebHook: string
+  extraParam1: string
+  extraParam2: string
+  extraField1: string
+  sub_service_name: string
+  remark: string
+}
+
+/**
+ * Transfer response - matches expressPay2 API response
  */
 export interface TransferResponse {
   success: boolean
-  status?: number
   message?: string
   data?: {
-    transactionId?: string // SparkUp transaction ID
-    clientRefId?: string // Our reference ID
-    rrn?: string // Bank RRN
-    status?: 'PENDING' | 'SUCCESS' | 'FAILED' | 'PROCESSING'
-    amount?: number
-    charges?: number
-    accountNumber?: string
-    ifsc?: string
-    accountHolderName?: string
-    bankName?: string
-    transferMode?: string
-    timestamp?: string
+    clientReqId?: number      // API returns this
+    totalAmount?: number
+    serviceCharge?: number
+    transactionAmount?: number
+    referenceNo?: string | null
+    transaction_id?: string   // UTR number
+    status?: string           // 'pending', 'success', 'failed'
+    remark?: string
+    paymentType?: string
   }
   error?: string
 }
@@ -118,32 +161,25 @@ export interface TransferResponse {
  * Transfer status request
  */
 export interface TransferStatusRequest {
-  transactionId?: string
-  clientRefId?: string
+  transactionId: string   // Required: UTR transaction ID
 }
 
 /**
- * Transfer status response
+ * Transfer status response - matches statusCheck API
  */
 export interface TransferStatusResponse {
   success: boolean
   status?: number
-  message?: string
   data?: {
-    transactionId?: string
-    clientRefId?: string
-    rrn?: string
-    status?: 'PENDING' | 'SUCCESS' | 'FAILED' | 'PROCESSING'
+    status?: number          // 2 = SUCCESS, 1 = PENDING, 0 = FAILED
+    msg?: string             // 'SUCCESS', 'PENDING', 'FAILED'
+    bal?: number             // Remaining balance
+    errorcode?: string
+    account?: string         // Account number
     amount?: number
-    charges?: number
-    accountNumber?: string
-    ifsc?: string
-    accountHolderName?: string
-    bankName?: string
-    transferMode?: string
-    failureReason?: string
-    timestamp?: string
-    completedAt?: string
+    rpid?: string            // Reference ID
+    agentid?: string
+    opid?: string            // Operator ID / RRN
   }
   error?: string
 }

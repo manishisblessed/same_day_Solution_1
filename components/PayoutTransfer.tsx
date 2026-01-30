@@ -64,11 +64,17 @@ export default function PayoutTransfer({ title }: PayoutTransferProps = {}) {
   const [confirmAccountNumber, setConfirmAccountNumber] = useState('')
   const [ifscCode, setIfscCode] = useState('')
   const [accountHolderName, setAccountHolderName] = useState('')
+  const [beneficiaryMobile, setBeneficiaryMobile] = useState('')
   const [amount, setAmount] = useState('')
   const [transferMode, setTransferMode] = useState<'IMPS' | 'NEFT'>('IMPS')
   const [remarks, setRemarks] = useState('')
   const [tpin, setTpin] = useState('')
   const [showTpin, setShowTpin] = useState(false)
+  
+  // Sender details (auto-filled from user profile)
+  const [senderName, setSenderName] = useState('')
+  const [senderMobile, setSenderMobile] = useState('')
+  const [senderEmail, setSenderEmail] = useState('')
   
   // Verification state
   const [verifying, setVerifying] = useState(false)
@@ -199,6 +205,27 @@ export default function PayoutTransfer({ title }: PayoutTransferProps = {}) {
     return () => clearInterval(interval)
   }, [fetchWalletBalance, fetchBanks, fetchRecentTransactions])
 
+  // Initialize sender details from user profile
+  useEffect(() => {
+    if (user) {
+      setSenderName(user.name || '')
+      setSenderEmail(user.email || '')
+      // Fetch mobile from retailer profile if available
+      if (user.partner_id) {
+        supabase
+          .from('retailers')
+          .select('mobile')
+          .eq('partner_id', user.partner_id)
+          .maybeSingle()
+          .then(({ data }) => {
+            if (data?.mobile) {
+              setSenderMobile(data.mobile)
+            }
+          })
+      }
+    }
+  }, [user])
+
   // Bank search debounce
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -231,6 +258,11 @@ export default function PayoutTransfer({ title }: PayoutTransferProps = {}) {
     setError(null)
     
     // Validate inputs
+    if (!selectedBank) {
+      setError('Please select a bank')
+      return
+    }
+    
     if (!accountNumber || accountNumber.length < 9) {
       setError('Please enter a valid account number (minimum 9 digits)')
       return
@@ -243,6 +275,11 @@ export default function PayoutTransfer({ title }: PayoutTransferProps = {}) {
     
     if (!ifscCode || !/^[A-Z]{4}0[A-Z0-9]{6}$/.test(ifscCode)) {
       setError('Please enter a valid IFSC code (e.g., SBIN0001234)')
+      return
+    }
+
+    if (!beneficiaryMobile || !/^[6-9]\d{9}$/.test(beneficiaryMobile)) {
+      setError('Please enter a valid 10-digit beneficiary mobile number')
       return
     }
     
@@ -304,6 +341,17 @@ export default function PayoutTransfer({ title }: PayoutTransferProps = {}) {
       setError(`Insufficient balance. You need ₹${totalAmount.toLocaleString('en-IN')} but have ₹${walletBalance.toLocaleString('en-IN')}`)
       return
     }
+
+    // Validate sender details
+    if (!senderName || senderName.trim().length < 2) {
+      setError('Please enter sender name')
+      return
+    }
+
+    if (!senderMobile || !/^[6-9]\d{9}$/.test(senderMobile)) {
+      setError('Please enter a valid 10-digit sender mobile number')
+      return
+    }
     
     setStep('confirm')
   }
@@ -314,6 +362,21 @@ export default function PayoutTransfer({ title }: PayoutTransferProps = {}) {
     
     if (!tpin || tpin.length !== 4) {
       setError('Please enter your 4-digit TPIN')
+      return
+    }
+
+    if (!selectedBank) {
+      setError('Please select a bank')
+      return
+    }
+
+    if (!beneficiaryMobile || beneficiaryMobile.length !== 10) {
+      setError('Please enter a valid 10-digit beneficiary mobile number')
+      return
+    }
+
+    if (!senderName || !senderMobile) {
+      setError('Sender name and mobile are required')
       return
     }
     
@@ -331,6 +394,7 @@ export default function PayoutTransfer({ title }: PayoutTransferProps = {}) {
         total_debited?: number
         account_number?: string
         account_holder_name?: string
+        bank_name?: string
         transfer_mode?: string
         error?: string
         refunded?: boolean
@@ -343,6 +407,12 @@ export default function PayoutTransfer({ title }: PayoutTransferProps = {}) {
           accountHolderName,
           amount: amountNum,
           transferMode,
+          bankId: selectedBank.id,
+          bankName: selectedBank.bankName,
+          beneficiaryMobile,
+          senderName,
+          senderMobile,
+          senderEmail,
           remarks,
           tpin,
           user_id: user?.partner_id, // Fallback auth
@@ -608,11 +678,26 @@ export default function PayoutTransfer({ title }: PayoutTransferProps = {}) {
                 />
               </div>
 
+              {/* Beneficiary Mobile */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  📱 Beneficiary Mobile Number
+                </label>
+                <input
+                  type="tel"
+                  value={beneficiaryMobile}
+                  onChange={(e) => setBeneficiaryMobile(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
+                  placeholder="Enter 10-digit mobile number"
+                  maxLength={10}
+                />
+              </div>
+
               {/* Verify Button */}
               <div className="flex justify-end pt-4">
                 <button
                   onClick={handleVerifyAccount}
-                  disabled={verifying || !accountNumber || !confirmAccountNumber || !ifscCode || accountNumber !== confirmAccountNumber}
+                  disabled={verifying || !accountNumber || !confirmAccountNumber || !ifscCode || accountNumber !== confirmAccountNumber || beneficiaryMobile.length !== 10}
                   className="px-6 py-2 bg-blue-600 text-white rounded-lg shadow-md hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                 >
                   {verifying ? (
@@ -658,6 +743,48 @@ export default function PayoutTransfer({ title }: PayoutTransferProps = {}) {
                   <div>
                     <p className="text-gray-500 dark:text-gray-400">IFSC Code</p>
                     <p className="font-semibold text-gray-900 dark:text-white">{ifscCode}</p>
+                  </div>
+                  <div>
+                    <p className="text-gray-500 dark:text-gray-400">Beneficiary Mobile</p>
+                    <p className="font-semibold text-gray-900 dark:text-white">{beneficiaryMobile}</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Sender Details */}
+              <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+                <h4 className="font-medium text-blue-700 dark:text-blue-400 mb-3">Sender Details (Your Information)</h4>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Sender Name</label>
+                    <input
+                      type="text"
+                      value={senderName}
+                      onChange={(e) => setSenderName(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                      placeholder="Your name"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Sender Mobile</label>
+                    <input
+                      type="tel"
+                      value={senderMobile}
+                      onChange={(e) => setSenderMobile(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                      placeholder="10-digit mobile"
+                      maxLength={10}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Sender Email (Optional)</label>
+                    <input
+                      type="email"
+                      value={senderEmail}
+                      onChange={(e) => setSenderEmail(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                      placeholder="Email address"
+                    />
                   </div>
                 </div>
               </div>
