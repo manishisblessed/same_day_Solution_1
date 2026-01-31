@@ -68,9 +68,10 @@ export function validateBBPSCredentials(): void {
 
 /**
  * Get API timeout in milliseconds
- * Increased to 60 seconds to accommodate Sparkup API processing time
+ * Increased to 90 seconds to accommodate Sparkup API processing time
+ * BBPS payments can take up to 60-90 seconds to process through NPCI
  */
 export function getAPITimeout(): number {
-  return parseInt(process.env.BBPS_API_TIMEOUT || '60000', 10) // Default 60 seconds
+  return parseInt(process.env.BBPS_API_TIMEOUT || '90000', 10) // Default 90 seconds
 }
 
