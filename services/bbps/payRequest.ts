@@ -16,6 +16,7 @@ import { getMockPayRequest } from './mocks/payRequest'
  */
 export interface PayRequestParams {
   billerId: string
+  billerName?: string // NEW: Required per Sparkup API update (Jan 2026)
   consumerNumber: string
   amount: number
   agentTransactionId: string
@@ -31,6 +32,7 @@ export interface PayRequestParams {
   quickPay?: string // "Y" or "N"
   splitPay?: string // "Y" or "N"
   reqId?: string // CRITICAL: Must be reqId from fetchBill response
+  customerMobileNumber?: string // NEW: Required for Wallet payment mode
 }
 
 /**
@@ -82,6 +84,7 @@ export async function payRequest(
 ): Promise<BBPSPaymentResponse> {
   const {
     billerId,
+    billerName, // NEW: Required per Sparkup API update (Jan 2026)
     consumerNumber,
     amount,
     agentTransactionId,
@@ -97,6 +100,7 @@ export async function payRequest(
     quickPay = 'Y',
     splitPay = 'N',
     reqId: providedReqId,
+    customerMobileNumber, // NEW: Required for Wallet payment mode
   } = params
   const reqId = providedReqId || generateReqId()
 
@@ -112,6 +116,10 @@ export async function payRequest(
   }
   if (!agentTransactionId || agentTransactionId.trim() === '') {
     throw new Error('Agent transaction ID is required')
+  }
+  // NEW: Sparkup API requires billerName per Jan 2026 update
+  if (!billerName || billerName.trim() === '') {
+    throw new Error('billerName is required')
   }
   if (!subServiceName || subServiceName.trim() === '') {
     throw new Error('sub_service_name (category) is required - e.g., "Credit Card", "Electricity"')
@@ -154,6 +162,28 @@ export async function payRequest(
         },
       ]
 
+    // Build paymentInfo based on payment mode (per Sparkup API update Jan 2026)
+    // Cash: { infoName: "Payment Account Info", infoValue: "Cash Payment" }
+    // Wallet: { infoName: "WalletName", infoValue: "Wallet" }, { infoName: "MobileNo", infoValue: "<mobile>" }
+    let effectivePaymentInfo: Array<{ infoName: string; infoValue: string }> = []
+    
+    if (paymentMode === 'Cash') {
+      effectivePaymentInfo = [
+        { infoName: 'Payment Account Info', infoValue: 'Cash Payment' }
+      ]
+    } else if (paymentMode === 'Wallet') {
+      effectivePaymentInfo = [
+        { infoName: 'WalletName', infoValue: 'Wallet' },
+        { infoName: 'MobileNo', infoValue: customerMobileNumber || consumerNumber }
+      ]
+    } else if (paymentInfo.length > 0) {
+      // Use provided paymentInfo for other modes
+      effectivePaymentInfo = paymentInfo
+    } else {
+      // Default fallback
+      effectivePaymentInfo = [{ infoName: 'Remarks', infoValue: 'Received' }]
+    }
+
     // Prepare request body (matching API specification exactly)
     // Per Sparkup API docs - only send fields that are in the spec
     const requestBody: any = {
@@ -162,11 +192,12 @@ export async function payRequest(
       initChannel,
       amount: amount.toString(),
       billerId,
+      billerName, // NEW: Required per Sparkup API update (Jan 2026)
       inputParams: requestInputParams,
       mac,
       custConvFee,
       billerAdhoc, // Must be "true" or "false" (string)
-      paymentInfo: paymentInfo.length > 0 ? paymentInfo : [{ infoName: 'Remarks', infoValue: 'Received' }],
+      paymentInfo: effectivePaymentInfo, // Generated based on paymentMode
       paymentMode,
       quickPay,
       splitPay,
@@ -183,7 +214,11 @@ export async function payRequest(
     console.log('=== SPARKUP PAY REQUEST - FULL REQUEST ===')
     console.log('Endpoint: POST /bbps/payRequest')
     console.log('reqId being sent:', reqId)
+    console.log('billerId:', billerId)
+    console.log('billerName:', billerName)
     console.log('sub_service_name (category):', subServiceName)
+    console.log('paymentMode:', paymentMode)
+    console.log('paymentInfo:', JSON.stringify(effectivePaymentInfo, null, 2))
     console.log('billerAdhoc:', billerAdhoc)
     console.log('Full Request Body:', JSON.stringify(requestBody, null, 2))
     console.log('===========================================')

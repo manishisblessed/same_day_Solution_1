@@ -83,6 +83,15 @@ export async function POST(request: NextRequest) {
       return addCorsHeaders(request, response)
     }
 
+    // NEW: billerName is required per Sparkup API update (Jan 2026)
+    if (!biller_name || biller_name.trim() === '') {
+      const response = NextResponse.json(
+        { error: 'billerName is required' },
+        { status: 400 }
+      )
+      return addCorsHeaders(request, response)
+    }
+
     // Verify T-PIN if provided (optional security feature)
     if (tpin) {
       try {
@@ -389,24 +398,38 @@ export async function POST(request: NextRequest) {
     // Sparkup confirmed: send actual payable amount directly (e.g., 200 for ₹200, NOT 20000)
     // CRITICAL: Pass reqId from fetchBill to correlate payment with the fetched bill data
     // Determine payment mode - use provided, or from metadata, or default
-    // Per Sparkup API docs, "Wallet" is a widely supported payment mode
+    // Per Sparkup API docs (Jan 2026 update), "Cash" is recommended
     const effectivePaymentMode = payment_mode || 
                                   additional_info?.metadata?.paymentMode ||
                                   additional_info?.paymentMode ||
-                                  'Wallet' // Per Sparkup API docs - widely supported
+                                  'Cash' // Per Sparkup API update (Jan 2026) - Cash is widely supported
     
     console.log('Payment mode:', effectivePaymentMode)
     
+    // Extract customer mobile number from inputParams for Wallet payment mode
+    // Look for common mobile number field names
+    let customerMobileNumber: string | undefined
+    const mobileParamNames = ['Mobile Number', 'Registered Mobile Number', 'MobileNo', 'Mobile No', 'Customer Mobile']
+    for (const param of inputParams) {
+      if (mobileParamNames.some(name => param.paramName.toLowerCase().includes(name.toLowerCase().replace(' ', '')))) {
+        customerMobileNumber = param.paramValue
+        break
+      }
+    }
+    console.log('Customer mobile number for Wallet mode:', customerMobileNumber || 'Not found in inputParams')
+    
     const paymentResponse = await payRequest({
       billerId: biller_id,
+      billerName: biller_name, // NEW: Required per Sparkup API update (Jan 2026)
       consumerNumber: consumer_number,
       amount: billAmountInRupees, // Send in RUPEES to Sparkup API (not paise!)
       agentTransactionId: agentTransactionId,
       inputParams,
       subServiceName, // MUST be category name like "Credit Card", "Electricity" (exact match)
       billerAdhoc: billerAdhocString, // "true" or "false" (string boolean)
-      paymentInfo, // Array of { infoName, infoValue }
+      paymentInfo, // Will be overridden by payRequest based on paymentMode
       paymentMode: effectivePaymentMode, // "Cash", "Account", "Wallet", "UPI"
+      customerMobileNumber, // NEW: For Wallet payment mode (Jan 2026 update)
       // CRITICAL: Pass the reqId from fetchBill to correlate payment with BBPS provider
       // This reqId links the payment to the previously fetched bill data
       reqId: reqId || additional_info?.reqId,
