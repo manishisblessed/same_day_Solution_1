@@ -8,7 +8,8 @@ import { getBBPSBaseUrl, getBBPSPartnerId, getBBPSConsumerKey, getBBPSConsumerSe
 /**
  * Generate BBPS authentication headers
  * Required for all SparkUpTech BBPS API requests
- * Headers match vendor API requirements: partnerid, consumerkey, consumersecret (all lowercase)
+ * Headers: partnerid (lowercase), consumerKey, consumerSecret (camelCase)
+ * UPDATED Jan 31, 2026: Per Sparkup support - headers must use camelCase for consumerKey/consumerSecret
  * 
  * @param includeAuthToken - Whether to include Authorization Bearer token (optional, not required per API docs)
  */
@@ -16,8 +17,8 @@ export function getBBPSHeaders(includeAuthToken: boolean = false): Record<string
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     'partnerid': getBBPSPartnerId(),
-    'consumerkey': getBBPSConsumerKey(), // API expects lowercase
-    'consumersecret': getBBPSConsumerSecret(), // API expects lowercase
+    'consumerKey': getBBPSConsumerKey(), // FIXED: camelCase per Sparkup Jan 2026
+    'consumerSecret': getBBPSConsumerSecret(), // FIXED: camelCase per Sparkup Jan 2026
   }
   
   if (includeAuthToken) {
@@ -105,7 +106,7 @@ export function sanitizeForLogging(data: any): any {
   if (!data || typeof data !== 'object') return data
   
   const sanitized = { ...data }
-  const sensitiveKeys = ['consumersecret', 'consumer_secret', 'secret', 'password', 'token', 'key']
+  const sensitiveKeys = ['consumersecret', 'consumerSecret', 'consumer_secret', 'secret', 'password', 'token', 'key']
   
   for (const key of Object.keys(sanitized)) {
     if (sensitiveKeys.some(sk => key.toLowerCase().includes(sk.toLowerCase()))) {

@@ -54,12 +54,13 @@ export async function getPayoutBalance(): Promise<{
     const timeoutId = setTimeout(() => controller.abort(), getPayoutTimeout())
 
     // Make GET request to wallet API
+    // UPDATED Jan 31, 2026: Per Sparkup support - headers must use camelCase for consumerKey/consumerSecret
     const response = await fetch(`${WALLET_API_URL}/getBalance`, {
       method: 'GET',
       headers: {
         'partnerid': partnerId,
-        'consumerkey': consumerKey,
-        'consumersecret': consumerSecret,
+        'consumerKey': consumerKey, // FIXED: camelCase per Sparkup Jan 2026
+        'consumerSecret': consumerSecret, // FIXED: camelCase per Sparkup Jan 2026
       },
       signal: controller.signal,
     })

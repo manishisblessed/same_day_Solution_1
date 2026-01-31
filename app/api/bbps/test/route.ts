@@ -30,11 +30,12 @@ export async function GET(request: NextRequest) {
 
     // Test API call with a simple category (Electricity)
     const testUrl = `${BBPS_API_BASE_URL}/billerId/getList?blr_category_name=Electricity&page=&limit=10`
+    // UPDATED Jan 31, 2026: Per Sparkup support - headers must use camelCase for consumerKey/consumerSecret
     const headers = {
       'Content-Type': 'application/json',
       'partnerid': BBPS_PARTNER_ID,
-      'consumerkey': BBPS_CONSUMER_KEY,
-      'consumersecret': BBPS_CONSUMER_SECRET,
+      'consumerKey': BBPS_CONSUMER_KEY, // FIXED: camelCase per Sparkup Jan 2026
+      'consumerSecret': BBPS_CONSUMER_SECRET, // FIXED: camelCase per Sparkup Jan 2026
     }
 
     console.log('Testing BBPS API connection...')
@@ -84,8 +85,8 @@ export async function GET(request: NextRequest) {
       },
       headers: {
         'partnerid': BBPS_PARTNER_ID ? 'Set' : 'Not set',
-        'consumerkey': BBPS_CONSUMER_KEY ? 'Set' : 'Not set',
-        'consumersecret': BBPS_CONSUMER_SECRET ? 'Set' : 'Not set',
+        'consumerKey': BBPS_CONSUMER_KEY ? 'Set' : 'Not set',
+        'consumerSecret': BBPS_CONSUMER_SECRET ? 'Set' : 'Not set',
       },
       message: response.ok 
         ? 'BBPS API connection successful! Your EC2 IP is whitelisted and credentials are working.'

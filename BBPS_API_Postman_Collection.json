@@ -1,0 +1,659 @@
+{
+	"info": {
+		"_postman_id": "bbps-api-collection-2026",
+		"name": "BBPS API - Sparkup (Fixed Jan 31, 2026)",
+		"description": "BBPS API collection for testing fetchBill and payRequest APIs. FIXED: Header names updated to camelCase (consumerKey, consumerSecret) per Sparkup support guidance.",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "1. Fetch Bill",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"if (pm.response.code === 200) {",
+							"    const jsonData = pm.response.json();",
+							"    if (jsonData.reqId) {",
+							"        pm.environment.set(\"reqId\", jsonData.reqId);",
+							"        console.log(\"✅ Saved reqId:\", jsonData.reqId);",
+							"    }",
+							"    if (jsonData.success) {",
+							"        console.log(\"✅ Fetch Bill successful\");",
+							"        ",
+							"        // Extract bill amount and save for payRequest",
+							"        const billAmount = jsonData.data?.billerResponse?.billAmount;",
+							"        if (billAmount) {",
+							"            pm.environment.set(\"billAmount\", billAmount);",
+							"            console.log(\"💰 Bill Amount:\", billAmount);",
+							"            ",
+							"            // Extract minimum amount due as alternative",
+							"            const additionalInfo = jsonData.data?.additionalInfo?.info;",
+							"            if (additionalInfo && Array.isArray(additionalInfo)) {",
+							"                const minAmountDue = additionalInfo.find(info => info.infoName === \"Minimum Amount Due\");",
+							"                if (minAmountDue) {",
+							"                    // Remove decimal and convert to string",
+							"                    const minAmount = Math.floor(parseFloat(minAmountDue.infoValue)).toString();",
+							"                    pm.environment.set(\"minAmountDue\", minAmount);",
+							"                    console.log(\"💡 Minimum Amount Due:\", minAmount, \"(use this for testing if full amount times out)\");",
+							"                }",
+							"            }",
+							"            ",
+							"            // Warn if amount is very large",
+							"            const amountNum = parseFloat(billAmount);",
+							"            if (amountNum > 1000000) {",
+							"                console.warn(\"\\n⚠️ WARNING: Bill amount is very large! This may cause 504 timeout.\");",
+							"                console.warn(\"💡 For testing, you can set billAmount to '1' or '10' in environment variables\");",
+							"            }",
+							"        }",
+							"        ",
+							"        // Extract customer name",
+							"        const customerName = jsonData.data?.billerResponse?.customerName;",
+							"        if (customerName) {",
+							"            console.log(\"👤 Customer:\", customerName);",
+							"        }",
+							"        ",
+							"        // Extract due date",
+							"        const dueDate = jsonData.data?.billerResponse?.dueDate;",
+							"        if (dueDate) {",
+							"            console.log(\"📅 Due Date:\", dueDate);",
+							"        }",
+							"        ",
+							"        // Log additional info",
+							"        const additionalInfo = jsonData.data?.additionalInfo?.info;",
+							"        if (additionalInfo && Array.isArray(additionalInfo)) {",
+							"            console.log(\"\\n📋 Additional Info:\");",
+							"            additionalInfo.forEach(info => {",
+							"                console.log(\"  -\", info.infoName + \":\", info.infoValue);",
+							"            });",
+							"        }",
+							"        ",
+							"        // Save timestamp for reqId expiry tracking",
+							"        pm.environment.set(\"fetchBillTimestamp\", new Date().toISOString());",
+							"        console.log(\"\\n⏰ IMPORTANT: Use this reqId within 5-15 minutes for payRequest!\");",
+							"    } else {",
+							"        console.error(\"❌ Fetch Bill failed:\", jsonData.message);",
+							"    }",
+							"} else {",
+							"    console.error(\"❌ Unexpected status code:\", pm.response.code);",
+							"    console.log(\"Response:\", pm.response.text());",
+							"}"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "partnerid",
+						"value": "{{partnerid}}",
+						"type": "text"
+					},
+					{
+						"key": "consumerKey",
+						"value": "{{consumerKey}}",
+						"type": "text"
+					},
+					{
+						"key": "consumerSecret",
+						"value": "{{consumerSecret}}",
+						"type": "text"
+					}
+				],
+				"url": {
+					"raw": "{{base_url}}/fetchBill?reqId=TESTABCD1234567890EFGH12345678&billerId={{billerId}}&inputParams[0][paramName]=Last%204%20digits%20of%20Credit%20Card%20Number&inputParams[0][paramValue]=0016&inputParams[1][paramName]=Registered%20Mobile%20Number&inputParams[1][paramValue]=9971969046&initChannel=AGT&paymentInfo[0][infoName]=Remarks&paymentInfo[0][infoValue]=Received&paymentMode=Cash",
+					"host": [
+						"{{base_url}}"
+					],
+					"path": [
+						"fetchBill"
+					],
+					"query": [
+						{
+							"key": "reqId",
+							"value": "TESTABCD1234567890EFGH12345678",
+							"description": "Request ID (will be generated by API if not provided)"
+						},
+						{
+							"key": "billerId",
+							"value": "{{billerId}}",
+							"description": "Biller ID"
+						},
+						{
+							"key": "inputParams[0][paramName]",
+							"value": "Last 4 digits of Credit Card Number"
+						},
+						{
+							"key": "inputParams[0][paramValue]",
+							"value": "0016"
+						},
+						{
+							"key": "inputParams[1][paramName]",
+							"value": "Registered Mobile Number"
+						},
+						{
+							"key": "inputParams[1][paramValue]",
+							"value": "9971969046"
+						},
+						{
+							"key": "initChannel",
+							"value": "AGT"
+						},
+						{
+							"key": "paymentInfo[0][infoName]",
+							"value": "Remarks"
+						},
+						{
+							"key": "paymentInfo[0][infoValue]",
+							"value": "Received"
+						},
+						{
+							"key": "paymentMode",
+							"value": "Cash"
+						}
+					]
+				},
+				"description": "Fetches bill details for a consumer. **IMPORTANT:** Save the reqId from response for payRequest!"
+			},
+			"response": []
+		},
+		{
+			"name": "2. Pay Request (Cash Mode)",
+			"event": [
+				{
+					"listen": "prerequest",
+					"script": {
+						"exec": [
+							"// Verify reqId is set",
+							"const reqId = pm.environment.get(\"reqId\");",
+							"if (!reqId || reqId === \"\") {",
+							"    console.warn(\"⚠️ WARNING: reqId is not set! Run '1. Fetch Bill' first.\");",
+							"    console.warn(\"Using placeholder reqId - this will likely fail!\");",
+							"} else {",
+							"    console.log(\"✅ Using reqId from fetchBill:\", reqId);",
+							"    ",
+							"    // Check if reqId is still valid (within 15 minutes)",
+							"    const fetchBillTimestamp = pm.environment.get(\"fetchBillTimestamp\");",
+							"    if (fetchBillTimestamp) {",
+							"        const fetchTime = new Date(fetchBillTimestamp);",
+							"        const now = new Date();",
+							"        const minutesElapsed = (now - fetchTime) / 1000 / 60;",
+							"        if (minutesElapsed > 15) {",
+							"            console.warn(\"⚠️ WARNING: reqId may be expired! (\" + Math.round(minutesElapsed) + \" minutes old)\");",
+							"            console.warn(\"💡 Consider running fetchBill again to get a fresh reqId\");",
+							"        } else {",
+							"            console.log(\"✅ reqId is fresh (\" + Math.round(minutesElapsed) + \" minutes old)\");",
+							"        }",
+							"    }",
+							"}",
+							"",
+							"// Get bill amount from environment (set by fetchBill)",
+							"const billAmount = pm.environment.get(\"billAmount\");",
+							"if (billAmount) {",
+							"    const amountNum = parseFloat(billAmount);",
+							"    console.log(\"💰 Bill Amount from fetchBill:\", billAmount);",
+							"    ",
+							"    // Warn if amount is very large (might cause timeout)",
+							"    if (amountNum > 1000000) {",
+							"        console.warn(\"\\n⚠️ WARNING: Bill amount is very large (\" + billAmount + \")!\");",
+							"        console.warn(\"💡 Large amounts may cause 504 timeout due to server processing time\");",
+							"        console.warn(\"💡 Consider testing with a smaller amount first (set billAmount to '1' or '10' in environment)\");",
+							"        console.warn(\"💡 Or try 'Minimum Amount Due' from additionalInfo\");",
+							"    }",
+							"    ",
+							"    console.log(\"💡 TIP: The amount field will use this value automatically\");",
+							"} else {",
+							"    console.warn(\"⚠️ billAmount not set - using default or manual value\");",
+							"}",
+							"",
+							"// Log request details before sending",
+							"console.log(\"\\n📤 Sending Pay Request (Cash Mode)...\");",
+							"console.log(\"Time:\", new Date().toISOString());"
+						],
+						"type": "text/javascript"
+					}
+				},
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"// Handle 504 Gateway Timeout",
+							"if (pm.response.code === 504) {",
+							"    console.error(\"❌ 504 Gateway Timeout - Server is taking too long\");",
+							"    console.log(\"\\n💡 Troubleshooting Steps:\");",
+							"    console.log(\"1. Wait 30-60 seconds and retry\");",
+							"    console.log(\"2. Verify reqId is still valid (use within 5-15 min of fetchBill)\");",
+							"    console.log(\"3. Check if Sparkup server is experiencing issues\");",
+							"    console.log(\"4. Verify amount matches billAmount from fetchBill\");",
+							"    console.log(\"5. Try with a smaller test amount (e.g., '1' or '10')\");",
+							"    console.log(\"6. Increase Postman timeout: Settings → Request timeout → 120000ms\");",
+							"    console.log(\"\\n📋 Request Details:\");",
+							"    console.log(\"reqId:\", pm.environment.get(\"reqId\"));",
+							"    console.log(\"Amount sent:\", pm.environment.get(\"billAmount\") || \"Not set\");",
+							"    console.log(\"Response Time:\", pm.response.responseTime + \"ms\");",
+							"    ",
+							"    // Log the request body that was sent",
+							"    try {",
+							"        const requestBody = JSON.parse(pm.request.body.raw);",
+							"        console.log(\"\\n📤 Request Body Sent:\");",
+							"        console.log(JSON.stringify(requestBody, null, 2));",
+							"    } catch (e) {",
+							"        console.log(\"Could not parse request body\");",
+							"    }",
+							"} else if (pm.response.code === 200) {",
+							"    try {",
+							"        const jsonData = pm.response.json();",
+							"        if (jsonData.success) {",
+							"            console.log(\"✅ Payment successful!\");",
+							"            console.log(\"Transaction ID:\", jsonData.data?.transaction_id);",
+							"            console.log(\"Status:\", jsonData.status);",
+							"        } else {",
+							"            console.log(\"❌ Payment failed:\", jsonData.message);",
+							"            console.log(\"Response Code:\", jsonData.data?.responseCode);",
+							"            if (jsonData.message && jsonData.message.includes(\"No fetch data found\")) {",
+							"                console.log(\"\\n💡 This error means:\");",
+							"                console.log(\"- reqId doesn't match fetchBill response\");",
+							"                console.log(\"- reqId expired (too much time passed)\");",
+							"                console.log(\"- Run fetchBill again to get a fresh reqId\");",
+							"            }",
+							"        }",
+							"    } catch (e) {",
+							"        console.error(\"Error parsing response:\", e);",
+							"        console.log(\"Raw response:\", pm.response.text());",
+							"    }",
+							"} else {",
+							"    console.error(\"❌ Unexpected status code:\", pm.response.code);",
+							"    console.log(\"Response:\", pm.response.text());",
+							"}"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "partnerid",
+						"value": "{{partnerid}}",
+						"type": "text"
+					},
+					{
+						"key": "consumerKey",
+						"value": "{{consumerKey}}",
+						"type": "text"
+					},
+					{
+						"key": "consumerSecret",
+						"value": "{{consumerSecret}}",
+						"type": "text"
+					},
+					{
+						"key": "Content-Type",
+						"value": "application/json",
+						"type": "text"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"name\": \"Utility\",\n    \"sub_service_name\": \"Credit Card\",\n    \"initChannel\": \"AGT\",\n    \"amount\": \"{{billAmount}}\",\n    \"billerId\": \"{{billerId}}\",\n    \"billerName\": \"{{billerName}}\",\n    \"inputParams\": [\n        {\n            \"paramName\": \"Last 4 digits of Credit Card Number\",\n            \"paramValue\": \"0016\"\n        },\n        {\n            \"paramName\": \"Registered Mobile Number\",\n            \"paramValue\": \"9971969046\"\n        }\n    ],\n    \"mac\": \"01-23-45-67-89-ab\",\n    \"custConvFee\": \"0\",\n    \"billerAdhoc\": \"true\",\n    \"paymentInfo\": [\n        {\n            \"infoName\": \"Payment Account Info\",\n            \"infoValue\": \"Cash Payment\"\n        }\n    ],\n    \"paymentMode\": \"Cash\",\n    \"quickPay\": \"Y\",\n    \"splitPay\": \"N\",\n    \"reqId\": \"{{reqId}}\"\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "{{base_url}}/payRequest",
+					"host": [
+						"{{base_url}}"
+					],
+					"path": [
+						"payRequest"
+					]
+				},
+				"description": "Pay bill using Cash mode. **IMPORTANT:** Use reqId from fetchBill response! Per Sparkup update (Jan 2026):\n- Must include `billerName`\n- `paymentInfo` for Cash: `{ \"infoName\": \"Payment Account Info\", \"infoValue\": \"Cash Payment\" }`"
+			},
+			"response": []
+		},
+		{
+			"name": "3. Pay Request (Wallet Mode)",
+			"event": [
+				{
+					"listen": "prerequest",
+					"script": {
+						"exec": [
+							"// Verify reqId is set",
+							"const reqId = pm.environment.get(\"reqId\");",
+							"if (!reqId || reqId === \"\") {",
+							"    console.warn(\"⚠️ WARNING: reqId is not set! Run '1. Fetch Bill' first.\");",
+							"    console.warn(\"Using placeholder reqId - this will likely fail!\");",
+							"} else {",
+							"    console.log(\"✅ Using reqId from fetchBill:\", reqId);",
+							"    ",
+							"    // Check if reqId is still valid (within 15 minutes)",
+							"    const fetchBillTimestamp = pm.environment.get(\"fetchBillTimestamp\");",
+							"    if (fetchBillTimestamp) {",
+							"        const fetchTime = new Date(fetchBillTimestamp);",
+							"        const now = new Date();",
+							"        const minutesElapsed = (now - fetchTime) / 1000 / 60;",
+							"        if (minutesElapsed > 15) {",
+							"            console.warn(\"⚠️ WARNING: reqId may be expired! (\" + Math.round(minutesElapsed) + \" minutes old)\");",
+							"            console.warn(\"💡 Consider running fetchBill again to get a fresh reqId\");",
+							"        } else {",
+							"            console.log(\"✅ reqId is fresh (\" + Math.round(minutesElapsed) + \" minutes old)\");",
+							"        }",
+							"    }",
+							"}",
+							"",
+							"// Get bill amount from environment (set by fetchBill)",
+							"const billAmount = pm.environment.get(\"billAmount\");",
+							"if (billAmount) {",
+							"    const amountNum = parseFloat(billAmount);",
+							"    console.log(\"💰 Bill Amount from fetchBill:\", billAmount);",
+							"    ",
+							"    // Warn if amount is very large (might cause timeout)",
+							"    if (amountNum > 1000000) {",
+							"        console.warn(\"\\n⚠️ WARNING: Bill amount is very large (\" + billAmount + \")!\");",
+							"        console.warn(\"💡 Large amounts may cause 504 timeout due to server processing time\");",
+							"        console.warn(\"💡 Consider testing with a smaller amount first (set billAmount to '1' or '10' in environment)\");",
+							"        console.warn(\"💡 Or try 'Minimum Amount Due' from additionalInfo\");",
+							"    }",
+							"    ",
+							"    console.log(\"💡 TIP: The amount field will use this value automatically\");",
+							"} else {",
+							"    console.warn(\"⚠️ billAmount not set - using default or manual value\");",
+							"}",
+							"",
+							"// Log request details before sending",
+							"console.log(\"\\n📤 Sending Pay Request (Wallet Mode)...\");",
+							"console.log(\"Time:\", new Date().toISOString());"
+						],
+						"type": "text/javascript"
+					}
+				},
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"// Handle 504 Gateway Timeout",
+							"if (pm.response.code === 504) {",
+							"    console.error(\"❌ 504 Gateway Timeout - Server is taking too long\");",
+							"    console.log(\"\\n💡 Troubleshooting Steps:\");",
+							"    console.log(\"1. Wait 30-60 seconds and retry\");",
+							"    console.log(\"2. Verify reqId is still valid (use within 5-15 min of fetchBill)\");",
+							"    console.log(\"3. Check if Sparkup server is experiencing issues\");",
+							"    console.log(\"4. Verify amount matches billAmount from fetchBill\");",
+							"    console.log(\"5. Try with a smaller test amount (e.g., '1' or '10')\");",
+							"    console.log(\"6. Increase Postman timeout: Settings → Request timeout → 120000ms\");",
+							"    console.log(\"\\n📋 Request Details:\");",
+							"    console.log(\"reqId:\", pm.environment.get(\"reqId\"));",
+							"    console.log(\"Amount sent:\", pm.environment.get(\"billAmount\") || \"Not set\");",
+							"    console.log(\"Response Time:\", pm.response.responseTime + \"ms\");",
+							"    ",
+							"    // Log the request body that was sent",
+							"    try {",
+							"        const requestBody = JSON.parse(pm.request.body.raw);",
+							"        console.log(\"\\n📤 Request Body Sent:\");",
+							"        console.log(JSON.stringify(requestBody, null, 2));",
+							"    } catch (e) {",
+							"        console.log(\"Could not parse request body\");",
+							"    }",
+							"} else if (pm.response.code === 200) {",
+							"    try {",
+							"        const jsonData = pm.response.json();",
+							"        if (jsonData.success) {",
+							"            console.log(\"✅ Payment successful!\");",
+							"            console.log(\"Transaction ID:\", jsonData.data?.transaction_id);",
+							"            console.log(\"Status:\", jsonData.status);",
+							"        } else {",
+							"            console.log(\"❌ Payment failed:\", jsonData.message);",
+							"            console.log(\"Response Code:\", jsonData.data?.responseCode);",
+							"            if (jsonData.message && jsonData.message.includes(\"No fetch data found\")) {",
+							"                console.log(\"\\n💡 This error means:\");",
+							"                console.log(\"- reqId doesn't match fetchBill response\");",
+							"                console.log(\"- reqId expired (too much time passed)\");",
+							"                console.log(\"- Run fetchBill again to get a fresh reqId\");",
+							"            }",
+							"        }",
+							"    } catch (e) {",
+							"        console.error(\"Error parsing response:\", e);",
+							"        console.log(\"Raw response:\", pm.response.text());",
+							"    }",
+							"} else {",
+							"    console.error(\"❌ Unexpected status code:\", pm.response.code);",
+							"    console.log(\"Response:\", pm.response.text());",
+							"}"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "partnerid",
+						"value": "{{partnerid}}",
+						"type": "text"
+					},
+					{
+						"key": "consumerKey",
+						"value": "{{consumerKey}}",
+						"type": "text"
+					},
+					{
+						"key": "consumerSecret",
+						"value": "{{consumerSecret}}",
+						"type": "text"
+					},
+					{
+						"key": "Content-Type",
+						"value": "application/json",
+						"type": "text"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"name\": \"Utility\",\n    \"sub_service_name\": \"Credit Card\",\n    \"initChannel\": \"AGT\",\n    \"amount\": \"{{billAmount}}\",\n    \"billerId\": \"{{billerId}}\",\n    \"billerName\": \"{{billerName}}\",\n    \"inputParams\": [\n        {\n            \"paramName\": \"Last 4 digits of Credit Card Number\",\n            \"paramValue\": \"0016\"\n        },\n        {\n            \"paramName\": \"Registered Mobile Number\",\n            \"paramValue\": \"9971969046\"\n        }\n    ],\n    \"mac\": \"01-23-45-67-89-ab\",\n    \"custConvFee\": \"0\",\n    \"billerAdhoc\": \"true\",\n    \"paymentInfo\": [\n        {\n            \"infoName\": \"WalletName\",\n            \"infoValue\": \"Wallet\"\n        },\n        {\n            \"infoName\": \"MobileNo\",\n            \"infoValue\": \"9971969046\"\n        }\n    ],\n    \"paymentMode\": \"Wallet\",\n    \"quickPay\": \"Y\",\n    \"splitPay\": \"N\",\n    \"reqId\": \"{{reqId}}\"\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "{{base_url}}/payRequest",
+					"host": [
+						"{{base_url}}"
+					],
+					"path": [
+						"payRequest"
+					]
+				},
+				"description": "Pay bill using Wallet mode. **IMPORTANT:** Use reqId from fetchBill response! Per Sparkup update (Jan 2026):\n- Must include `billerName`\n- `paymentInfo` for Wallet: `{ \"infoName\": \"WalletName\", \"infoValue\": \"Wallet\" }` + `{ \"infoName\": \"MobileNo\", \"infoValue\": \"<mobile>\" }`"
+			},
+			"response": []
+		},
+		{
+			"name": "4. Pay Request (Test with Small Amount)",
+			"event": [
+				{
+					"listen": "prerequest",
+					"script": {
+						"exec": [
+							"// This request uses a small test amount to isolate timeout issues",
+							"// Set testAmount to '1' or '10' to test if timeout is amount-related",
+							"const testAmount = pm.environment.get(\"testAmount\") || \"1\";",
+							"pm.environment.set(\"billAmount\", testAmount);",
+							"console.log(\"🧪 TEST MODE: Using small amount for testing:\", testAmount);",
+							"",
+							"// Verify reqId is set",
+							"const reqId = pm.environment.get(\"reqId\");",
+							"if (!reqId || reqId === \"\") {",
+							"    console.warn(\"⚠️ WARNING: reqId is not set! Run '1. Fetch Bill' first.\");",
+							"} else {",
+							"    console.log(\"✅ Using reqId from fetchBill:\", reqId);",
+							"}",
+							"",
+							"console.log(\"\\n📤 Sending Pay Request (Test Mode - Small Amount)...\");",
+							"console.log(\"Time:\", new Date().toISOString());"
+						],
+						"type": "text/javascript"
+					}
+				},
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"// Handle 504 Gateway Timeout",
+							"if (pm.response.code === 504) {",
+							"    console.error(\"❌ 504 Gateway Timeout - Even with small amount!\");",
+							"    console.log(\"\\n💡 This suggests the timeout is NOT amount-related\");",
+							"    console.log(\"💡 Possible causes:\");",
+							"    console.log(\"  1. Server-side processing issue\");",
+							"    console.log(\"  2. Network/infrastructure problem\");",
+							"    console.log(\"  3. reqId validation taking too long\");",
+							"    console.log(\"  4. Sparkup server overload\");",
+							"    console.log(\"\\n📋 Request Details:\");",
+							"    console.log(\"reqId:\", pm.environment.get(\"reqId\"));",
+							"    console.log(\"Test Amount:\", pm.environment.get(\"testAmount\") || \"1\");",
+							"    console.log(\"Response Time:\", pm.response.responseTime + \"ms\");",
+							"} else if (pm.response.code === 200) {",
+							"    try {",
+							"        const jsonData = pm.response.json();",
+							"        if (jsonData.success) {",
+							"            console.log(\"✅ Payment successful with small amount!\");",
+							"            console.log(\"💡 This confirms the timeout is likely amount-related\");",
+							"            console.log(\"💡 Try gradually increasing the amount to find the limit\");",
+							"            console.log(\"Transaction ID:\", jsonData.data?.transaction_id);",
+							"        } else {",
+							"            console.log(\"❌ Payment failed:\", jsonData.message);",
+							"            console.log(\"Response Code:\", jsonData.data?.responseCode);",
+							"        }",
+							"    } catch (e) {",
+							"        console.error(\"Error parsing response:\", e);",
+							"        console.log(\"Raw response:\", pm.response.text());",
+							"    }",
+							"} else {",
+							"    console.error(\"❌ Unexpected status code:\", pm.response.code);",
+							"    console.log(\"Response:\", pm.response.text());",
+							"}"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "partnerid",
+						"value": "{{partnerid}}",
+						"type": "text"
+					},
+					{
+						"key": "consumerKey",
+						"value": "{{consumerKey}}",
+						"type": "text"
+					},
+					{
+						"key": "consumerSecret",
+						"value": "{{consumerSecret}}",
+						"type": "text"
+					},
+					{
+						"key": "Content-Type",
+						"value": "application/json",
+						"type": "text"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"name\": \"Utility\",\n    \"sub_service_name\": \"Credit Card\",\n    \"initChannel\": \"AGT\",\n    \"amount\": \"{{billAmount}}\",\n    \"billerId\": \"{{billerId}}\",\n    \"billerName\": \"{{billerName}}\",\n    \"inputParams\": [\n        {\n            \"paramName\": \"Last 4 digits of Credit Card Number\",\n            \"paramValue\": \"0016\"\n        },\n        {\n            \"paramName\": \"Registered Mobile Number\",\n            \"paramValue\": \"9971969046\"\n        }\n    ],\n    \"mac\": \"01-23-45-67-89-ab\",\n    \"custConvFee\": \"0\",\n    \"billerAdhoc\": \"true\",\n    \"paymentInfo\": [\n        {\n            \"infoName\": \"Payment Account Info\",\n            \"infoValue\": \"Cash Payment\"\n        }\n    ],\n    \"paymentMode\": \"Cash\",\n    \"quickPay\": \"Y\",\n    \"splitPay\": \"N\",\n    \"reqId\": \"{{reqId}}\"\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "{{base_url}}/payRequest",
+					"host": [
+						"{{base_url}}"
+					],
+					"path": [
+						"payRequest"
+					]
+				},
+				"description": "**TEST REQUEST** - Pay with small amount (default: '1') to test if 504 timeout is amount-related.\n\n**How to use:**\n1. Run '1. Fetch Bill' first to get reqId\n2. Set 'testAmount' environment variable to '1', '10', '100', etc.\n3. Run this request\n4. If it succeeds, the timeout is likely amount-related. If it still times out, it's a server/infrastructure issue."
+			},
+			"response": []
+		}
+	],
+	"variable": [
+		{
+			"key": "base_url",
+			"value": "https://api.sparkuptech.in/api/ba/bbps",
+			"type": "string"
+		},
+		{
+			"key": "partnerid",
+			"value": "240054",
+			"type": "string"
+		},
+		{
+			"key": "consumerKey",
+			"value": "b2078d92ff9f8e9e",
+			"type": "string"
+		},
+		{
+			"key": "consumerSecret",
+			"value": "ba6fba9775548f71",
+			"type": "string"
+		},
+		{
+			"key": "billerId",
+			"value": "ICIC00000NATSI",
+			"type": "string"
+		},
+		{
+			"key": "billerName",
+			"value": "ICICI Credit Card",
+			"type": "string"
+		},
+						{
+							"key": "reqId",
+							"value": "",
+							"type": "string"
+						},
+						{
+							"key": "billAmount",
+							"value": "100",
+							"type": "string",
+							"description": "Bill amount (auto-populated from fetchBill, can be overridden)"
+						},
+						{
+							"key": "fetchBillTimestamp",
+							"value": "",
+							"type": "string",
+							"description": "Timestamp when fetchBill was called (for reqId expiry tracking)"
+						},
+						{
+							"key": "testAmount",
+							"value": "1",
+							"type": "string",
+							"description": "Test amount for '4. Pay Request (Test with Small Amount)' - use '1', '10', '100', etc."
+						},
+						{
+							"key": "minAmountDue",
+							"value": "",
+							"type": "string",
+							"description": "Minimum amount due (auto-populated from fetchBill additionalInfo)"
+						}
+	]
+}
+

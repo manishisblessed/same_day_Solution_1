@@ -165,14 +165,15 @@ export interface BBPSPaymentResponse {
 /**
  * Generate authentication headers for BBPS API
  * Based on SparkUpTech BBPS API documentation
- * Required headers: partnerid, consumerkey, consumersecret
+ * Headers: partnerid (lowercase), consumerKey, consumerSecret (camelCase)
+ * UPDATED Jan 31, 2026: Per Sparkup support - headers must use camelCase for consumerKey/consumerSecret
  */
 function getBBPSHeaders(): Record<string, string> {
   return {
     'Content-Type': 'application/json',
     'partnerid': BBPS_PARTNER_ID,
-    'consumerkey': BBPS_CONSUMER_KEY,
-    'consumersecret': BBPS_CONSUMER_SECRET,
+    'consumerKey': BBPS_CONSUMER_KEY, // FIXED: camelCase per Sparkup Jan 2026
+    'consumerSecret': BBPS_CONSUMER_SECRET, // FIXED: camelCase per Sparkup Jan 2026
   }
 }
 
@@ -281,8 +282,8 @@ export async function fetchBBPSBillers(category?: string): Promise<BBPSBiller[]>
       useMockData: USE_MOCK_DATA,
       headers: {
         'partnerid': BBPS_PARTNER_ID ? 'Set' : 'Not set',
-        'consumerkey': BBPS_CONSUMER_KEY ? 'Set' : 'Not set',
-        'consumersecret': BBPS_CONSUMER_SECRET ? 'Set' : 'Not set',
+        'consumerKey': BBPS_CONSUMER_KEY ? 'Set' : 'Not set',
+        'consumerSecret': BBPS_CONSUMER_SECRET ? 'Set' : 'Not set',
       },
     })
 

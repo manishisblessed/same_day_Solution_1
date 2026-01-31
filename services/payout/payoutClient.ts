@@ -48,13 +48,14 @@ function generateReqId(): string {
 
 /**
  * Get Payout API headers
+ * UPDATED Jan 31, 2026: Per Sparkup support - headers must use camelCase for consumerKey/consumerSecret
  */
 function getPayoutHeaders(): Record<string, string> {
   return {
     'Content-Type': 'application/json',
     'partnerid': getPartnerId(),
-    'consumerkey': getConsumerKey(),
-    'consumersecret': getConsumerSecret(),
+    'consumerKey': getConsumerKey(), // FIXED: camelCase per Sparkup Jan 2026
+    'consumerSecret': getConsumerSecret(), // FIXED: camelCase per Sparkup Jan 2026
   }
 }
 
