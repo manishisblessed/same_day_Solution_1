@@ -162,26 +162,16 @@ export async function payRequest(
         },
       ]
 
-    // Build paymentInfo based on payment mode (per Sparkup API update Jan 2026)
-    // Cash: { infoName: "Payment Account Info", infoValue: "Cash Payment" }
-    // Wallet: { infoName: "WalletName", infoValue: "Wallet" }, { infoName: "MobileNo", infoValue: "<mobile>" }
-    let effectivePaymentInfo: Array<{ infoName: string; infoValue: string }> = []
+    // Build paymentInfo - Per Sparkup sample cURL (Jan 2026)
+    // ALWAYS use: { infoName: "Remarks", infoValue: "Bill Payment" }
+    // This is the exact format from Sparkup's working sample
+    let effectivePaymentInfo: Array<{ infoName: string; infoValue: string }> = [
+      { infoName: 'Remarks', infoValue: 'Bill Payment' }
+    ]
     
-    if (paymentMode === 'Cash') {
-      effectivePaymentInfo = [
-        { infoName: 'Payment Account Info', infoValue: 'Cash Payment' }
-      ]
-    } else if (paymentMode === 'Wallet') {
-      effectivePaymentInfo = [
-        { infoName: 'WalletName', infoValue: 'Wallet' },
-        { infoName: 'MobileNo', infoValue: customerMobileNumber || consumerNumber }
-      ]
-    } else if (paymentInfo.length > 0) {
-      // Use provided paymentInfo for other modes
+    // Only override if explicitly provided and valid
+    if (paymentInfo.length > 0 && paymentInfo[0].infoName) {
       effectivePaymentInfo = paymentInfo
-    } else {
-      // Default fallback
-      effectivePaymentInfo = [{ infoName: 'Remarks', infoValue: 'Received' }]
     }
 
     // Prepare request body (matching API specification exactly)
