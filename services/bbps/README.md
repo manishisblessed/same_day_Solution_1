@@ -43,8 +43,8 @@ BBPS_CONSUMER_SECRET=your_consumer_secret
 BBPS_USE_MOCK=true  # Use mock data instead of real API
 BBPS_FORCE_REAL_API=true  # Force real API even in dev
 
-# API Timeout (optional, default: 30000ms)
-BBPS_API_TIMEOUT=30000
+# API Timeout (optional, default: 60000ms)
+BBPS_API_TIMEOUT=60000
 ```
 
 ### Mock Mode

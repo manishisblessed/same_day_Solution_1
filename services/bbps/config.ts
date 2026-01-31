@@ -68,8 +68,9 @@ export function validateBBPSCredentials(): void {
 
 /**
  * Get API timeout in milliseconds
+ * Increased to 60 seconds to accommodate Sparkup API processing time
  */
 export function getAPITimeout(): number {
-  return parseInt(process.env.BBPS_API_TIMEOUT || '30000', 10) // Default 30 seconds
+  return parseInt(process.env.BBPS_API_TIMEOUT || '60000', 10) // Default 60 seconds
 }
 
