@@ -73,7 +73,7 @@ export async function POST(request: NextRequest) {
       )
       return addCorsHeaders(request, response)
     }
-    const { biller_id, consumer_number, amount, biller_name, consumer_name, due_date, bill_date, bill_number, additional_info, biller_category, tpin, reqId, payment_mode } = body
+    const { biller_id, consumer_number, amount, biller_name, consumer_name, due_date, bill_date, bill_number, additional_info, biller_category, tpin, reqId, payment_mode, is_prepaid } = body
 
     if (!biller_id || !consumer_number || !amount) {
       const response = NextResponse.json(
@@ -433,6 +433,8 @@ export async function POST(request: NextRequest) {
       // CRITICAL: Pass the reqId from fetchBill to correlate payment with BBPS provider
       // This reqId links the payment to the previously fetched bill data
       reqId: reqId || additional_info?.reqId,
+      // Bill number from fetchBill response - required by Sparkup
+      billNumber: bill_number || additional_info?.billerResponse?.billNumber || additional_info?.billNumber,
     })
 
     // Update transaction with payment response

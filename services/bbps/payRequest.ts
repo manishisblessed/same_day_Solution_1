@@ -33,6 +33,7 @@ export interface PayRequestParams {
   splitPay?: string // "Y" or "N"
   reqId?: string // CRITICAL: Must be reqId from fetchBill response
   customerMobileNumber?: string // NEW: Required for Wallet payment mode
+  billNumber?: string // Bill number from fetchBill response (required by Sparkup)
 }
 
 /**
@@ -97,10 +98,11 @@ export async function payRequest(
     billerAdhoc = 'true', // Per API docs: "true" or "false" (string boolean)
     paymentInfo = [],
     paymentMode = 'Cash', // Per API docs: "Cash", "Account", "Wallet", "UPI"
-    quickPay = 'Y',
+    quickPay = 'N', // Per Sparkup sample: "N" for non-quick pay (bill fetch was done)
     splitPay = 'N',
     reqId: providedReqId,
     customerMobileNumber, // NEW: Required for Wallet payment mode
+    billNumber, // Bill number from fetchBill response
   } = params
   const reqId = providedReqId || generateReqId()
 
@@ -176,6 +178,7 @@ export async function payRequest(
 
     // Prepare request body (matching API specification exactly)
     // Per Sparkup API docs - only send fields that are in the spec
+    // Format matches exact Postman request that works
     const requestBody: any = {
       name,
       sub_service_name: subServiceName, // MUST be category name like "Credit Card", "Electricity"
@@ -184,6 +187,7 @@ export async function payRequest(
       billerId,
       billerName, // NEW: Required per Sparkup API update (Jan 2026)
       inputParams: requestInputParams,
+      billNumber: billNumber || '', // Bill number from fetchBill response
       mac,
       custConvFee,
       billerAdhoc, // Must be "true" or "false" (string)
@@ -206,10 +210,13 @@ export async function payRequest(
     console.log('reqId being sent:', reqId)
     console.log('billerId:', billerId)
     console.log('billerName:', billerName)
+    console.log('billNumber:', billNumber)
     console.log('sub_service_name (category):', subServiceName)
     console.log('paymentMode:', paymentMode)
     console.log('paymentInfo:', JSON.stringify(effectivePaymentInfo, null, 2))
     console.log('billerAdhoc:', billerAdhoc)
+    console.log('quickPay:', quickPay)
+    console.log('splitPay:', splitPay)
     console.log('Full Request Body:', JSON.stringify(requestBody, null, 2))
     console.log('===========================================')
     
