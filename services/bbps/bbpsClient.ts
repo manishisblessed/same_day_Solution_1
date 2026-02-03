@@ -123,7 +123,17 @@ export class BBPSClient {
       try {
         responseData = JSON.parse(responseText)
       } catch {
-        responseData = responseText
+        // If response is not JSON, it might be an error message (e.g., "Invalid XML request")
+        // Try to extract meaningful error message
+        if (responseText.includes('Invalid XML') || responseText.includes('XML')) {
+          responseData = {
+            success: false,
+            message: 'Invalid XML request',
+            error: 'Invalid XML request',
+          }
+        } else {
+          responseData = { raw_response: responseText }
+        }
       }
 
       // Log response
@@ -135,9 +145,15 @@ export class BBPSClient {
         responseData?.responseCode || responseData?.status
       )
 
-      // Handle non-OK responses
-      if (!response.ok) {
-        const errorMessage = responseData?.message || responseData?.error || response.statusText
+      // Handle non-OK responses or error messages in response
+      if (!response.ok || responseData?.error || responseData?.message?.includes('Invalid XML')) {
+        const errorMessage = 
+          responseData?.error || 
+          responseData?.message || 
+          responseData?.responseReason ||
+          response.statusText ||
+          (typeof responseData === 'string' ? responseData : 'Unknown error')
+        
         logBBPSApiError(
           `${method} ${endpoint}`,
           requestId,
@@ -150,6 +166,7 @@ export class BBPSClient {
           error: errorMessage,
           status: response.status,
           reqId: requestId,
+          data: responseData, // Include full response for debugging
         }
       }
 
