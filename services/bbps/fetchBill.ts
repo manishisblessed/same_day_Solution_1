@@ -382,33 +382,31 @@ export async function fetchBill(
     
     // CRITICAL: Extract reqId - this is needed for the payment to work
     // The reqId links the fetched bill to the payment request
-    // Sparkup returns a DIFFERENT reqId in the response than what we sent!
-    // We MUST use Sparkup's returned reqId for payRequest to work
+    // IMPORTANT: Sparkup stores fetch data under the reqId WE SENT, not the one they return!
+    // We MUST use the reqId we sent to fetchBill for payRequest to work
     
-    // Check all possible locations for Sparkup's reqId
-    const sparkupReqId = apiResponse.reqId || 
-                         (apiResponse as any).requestId || 
-                         apiResponse.data?.reqId ||
-                         (apiResponse.data as any)?.requestId ||
-                         (apiResponse.data as any)?.refId ||
-                         (apiResponse.data as any)?.billFetchRefId
+    // Check all possible locations for Sparkup's returned reqId (for logging only)
+    const sparkupReturnedReqId = apiResponse.reqId || 
+                                  (apiResponse as any).requestId || 
+                                  apiResponse.data?.reqId ||
+                                  (apiResponse.data as any)?.requestId ||
+                                  (apiResponse.data as any)?.refId ||
+                                  (apiResponse.data as any)?.billFetchRefId
     
-    // IMPORTANT: Only fall back to our generated reqId if Sparkup didn't return one
-    const finalReqId = sparkupReqId || reqId
+    // CRITICAL: Use the reqId WE SENT to fetchBill, not the one Sparkup returned
+    // Sparkup stores the fetch data under the reqId we sent in the query parameter
+    // If we use Sparkup's returned reqId, we get "No fetch data found for given ref id"
+    const finalReqId = reqId // Always use the reqId we sent
     
     console.log('🔴 [BBPS fetchBill] CRITICAL ReqId tracking:')
-    console.log('  - Our generated reqId:', reqId)
-    console.log('  - apiResponse.reqId:', apiResponse.reqId)
-    console.log('  - apiResponse.requestId:', (apiResponse as any).requestId)
-    console.log('  - apiResponse.data?.reqId:', apiResponse.data?.reqId)
-    console.log('  - sparkupReqId (extracted):', sparkupReqId)
-    console.log('  - finalReqId (to be used):', finalReqId)
+    console.log('  - Our generated reqId (SENT to fetchBill):', reqId)
+    console.log('  - Sparkup returned reqId:', sparkupReturnedReqId)
+    console.log('  - finalReqId (to be used in payRequest):', finalReqId)
     console.log('  - Full apiResponse keys:', Object.keys(apiResponse))
-    if (sparkupReqId && sparkupReqId !== reqId) {
-      console.log('  ✅ Using Sparkups returned reqId for payment')
-    } else {
-      console.log('  ⚠️ WARNING: Using our generated reqId - Sparkup may not find fetch data!')
+    if (sparkupReturnedReqId && sparkupReturnedReqId !== reqId) {
+      console.log('  ⚠️ Sparkup returned different reqId, but we MUST use the one we sent!')
     }
+    console.log('  ✅ Using reqId we SENT to fetchBill for payRequest')
     
     const billDetails: BBPSBillDetails = {
       biller_id: billerId,
