@@ -1693,9 +1693,14 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
 
               {/* Amount Selection */}
               <div className="space-y-3 border-t border-gray-200 dark:border-gray-700 pt-4">
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                  Select Payment Amount
-                </label>
+                <div className="flex items-center justify-between">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Select Payment Amount
+                  </label>
+                  <span className="text-xs text-gray-500 dark:text-gray-400">
+                    You can pay any amount between minimum and full
+                  </span>
+                </div>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                   {/* Full Amount Button */}
                   <button
@@ -1749,37 +1754,59 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
                     return null
                   })()}
 
-                  {/* Custom Amount Button */}
+                  {/* Custom Amount Button - Always visible */}
                   <button
                     onClick={() => setAmountType('custom')}
                     disabled={selectedBiller?.amount_exactness === 'EXACT'}
                     className={`px-4 py-3 rounded-lg border-2 text-sm font-medium transition-all ${
                       amountType === 'custom'
-                        ? 'border-purple-500 bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300'
-                        : 'border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:border-gray-300'
+                        ? 'border-purple-500 bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300 ring-2 ring-purple-200 dark:ring-purple-800'
+                        : 'border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:border-purple-300 dark:hover:border-purple-600'
                     } disabled:opacity-50 disabled:cursor-not-allowed`}
-                    title={selectedBiller?.amount_exactness === 'EXACT' ? 'This biller requires exact amount payment' : 'Pay custom amount'}
+                    title={selectedBiller?.amount_exactness === 'EXACT' ? 'This biller requires exact amount payment' : 'Pay any custom amount between minimum and full amount'}
                   >
                     <div className="text-xs uppercase tracking-wide mb-1 opacity-70">Custom Amount</div>
-                    <div className="font-bold">{customAmount ? `₹${parseFloat(customAmount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : 'Enter ₹'}</div>
+                    <div className="font-bold">{customAmount ? `₹${parseFloat(customAmount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : 'Enter Amount'}</div>
                   </button>
                 </div>
 
                 {amountType === 'custom' && (
-                  <div className="relative mt-2">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-400">₹</span>
-                    <input
-                      type="number"
-                      value={customAmount}
-                      onChange={(e) => setCustomAmount(e.target.value)}
-                      placeholder="Enter amount"
-                      max={paiseToRupees(billDetails.bill_amount)}
-                      min={1}
-                      className="w-full pl-8 pr-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent text-lg"
-                    />
-                    <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                      Max: {formatPaiseAsRupees(billDetails.bill_amount)}
+                  <div className="mt-3 p-3 bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-lg">
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-400 font-medium">₹</span>
+                      <input
+                        type="number"
+                        value={customAmount}
+                        onChange={(e) => {
+                          const value = e.target.value
+                          const billAmtInRupees = paiseToRupees(billDetails.bill_amount)
+                          const minAmt = getMinimumAmount()
+                          const maxValue = Math.min(parseFloat(value) || 0, billAmtInRupees)
+                          const minValue = minAmt || 1
+                          if (value === '' || (parseFloat(value) >= minValue && parseFloat(value) <= billAmtInRupees)) {
+                            setCustomAmount(value)
+                          }
+                        }}
+                        placeholder={`Enter amount (Min: ₹${getMinimumAmount()?.toLocaleString('en-IN', { minimumFractionDigits: 2 }) || '1'})`}
+                        max={paiseToRupees(billDetails.bill_amount)}
+                        min={getMinimumAmount() || 1}
+                        className="w-full pl-8 pr-4 py-3 border-2 border-purple-300 dark:border-purple-700 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-lg font-semibold"
+                        autoFocus
+                      />
                     </div>
+                    <div className="flex items-center justify-between mt-2 text-xs">
+                      <span className="text-gray-600 dark:text-gray-400">
+                        Min: ₹{getMinimumAmount()?.toLocaleString('en-IN', { minimumFractionDigits: 2 }) || '1'}
+                      </span>
+                      <span className="text-gray-600 dark:text-gray-400">
+                        Max: {formatPaiseAsRupees(billDetails.bill_amount)}
+                      </span>
+                    </div>
+                    {customAmount && parseFloat(customAmount) > 0 && (
+                      <div className="mt-2 text-xs text-purple-700 dark:text-purple-300 font-medium">
+                        You will pay: ₹{parseFloat(customAmount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
