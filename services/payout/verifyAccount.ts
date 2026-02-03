@@ -147,12 +147,14 @@ export async function verifyBankAccount(request: VerifyAccountRequest): Promise<
     }
 
     // Return success response
+    // After checking for false above, isValid can only be true | undefined
+    // Default to true if undefined (treat as valid)
     return {
       success: true,
       account_holder_name: verifyData.accountHolderName || 'N/A',
       bank_name: verifyData.bankName || bankName || 'N/A',
       branch_name: verifyData.branchName || 'N/A',
-      is_valid: verifyData.isValid !== false,
+      is_valid: verifyData.isValid ?? true,
       transaction_id: verifyData.transactionId,
       charges: 2, // Typical verification charge
     }
