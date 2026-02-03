@@ -1,0 +1,64 @@
+Subject: URGENT: 504 Gateway Timeout on payRequest Endpoint - Partner ID 240054
+
+Dear Sparkup Support Team,
+
+We are experiencing a critical issue with the BBPS payRequest API endpoint that is preventing us from processing bill payments. We have attached our Postman collection (BBPS_API_Postman_Collection.json) for your reference and testing.
+
+ISSUE SUMMARY:
+- fetchBill endpoint works perfectly (returns reqId and bill details)
+- payRequest endpoint consistently returns 504 Gateway Timeout
+- This occurs even with amount "1" (proving it's NOT amount-related)
+- Response: HTML error page from nginx/1.18.0 (Ubuntu)
+
+TEST EVIDENCE:
+Latest fetchBill Response (Working):
+- reqId: EF17AKDJKHN1LJE9LMJHEPG3BC460311510
+- Bill Amount: ₹29,899,958
+- Status: Success (200)
+
+payRequest Response (Failing):
+- Amount tested: "1" (smallest possible)
+- Status: 504 Gateway Timeout
+- Error: nginx gateway timeout waiting for backend response
+
+REQUEST DETAILS:
+Endpoint: POST https://api.sparkuptech.in/api/ba/bbps/payRequest
+Partner ID: 240054
+Biller ID: ICIC00000NATSI
+Biller Name: ICICI Credit Card
+
+Request includes all required fields per Sparkup API documentation (Jan 2026 update):
+- name, sub_service_name, initChannel, amount, billerId, billerName
+- inputParams, mac, custConvFee, billerAdhoc
+- paymentInfo, paymentMode, quickPay, splitPay, reqId
+
+QUESTIONS:
+1. Is the payRequest endpoint currently experiencing issues?
+2. What is the nginx timeout setting for /payRequest?
+3. Is there a known issue with reqId validation taking too long?
+4. Can you check server logs for reqId: EF17AKDJKHN1LJE9LMJHEPG3BC460311510?
+5. Are there any backend service delays affecting payRequest?
+
+ATTACHMENT:
+- BBPS_API_Postman_Collection.json - Complete Postman collection with all requests, test scripts, and environment variables. You can import this directly to reproduce the issue.
+
+IMPACT:
+This issue is blocking all bill payment transactions for our production environment. We urgently need this resolved.
+
+Please investigate and provide:
+1. Root cause analysis
+2. Expected resolution timeline
+3. Any workarounds we can use in the meantime
+
+We are available for any additional information or testing you may require.
+
+Thank you for your prompt attention to this matter.
+
+Best Regards,
+[Your Name]
+[Your Title]
+Same Day Solution Pvt. Ltd.
+Partner ID: 240054
+Email: [your-email@domain.com]
+Phone: [your-phone-number]
+

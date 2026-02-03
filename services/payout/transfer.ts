@@ -84,27 +84,45 @@ export async function initiateTransfer(request: TransferRequest): Promise<{
     }
   }
 
+  // Normalize account number (remove spaces, keep only digits)
+  const normalizedAccountNumber = accountNumber.replace(/\s+/g, '').trim()
+  
+  // Validate account number (must be 9-18 digits)
+  if (!/^\d{9,18}$/.test(normalizedAccountNumber)) {
+    return {
+      success: false,
+      error: 'Invalid account number. Must be 9-18 digits only.',
+    }
+  }
+
+  // Normalize IFSC code (uppercase, remove spaces)
+  const normalizedIfsc = ifscCode.replace(/\s+/g, '').trim().toUpperCase()
+  
+  // Validate IFSC (11 characters)
+  const ifscRegex = /^[A-Z]{4}0[A-Z0-9]{6}$/
+  if (!ifscRegex.test(normalizedIfsc)) {
+    return {
+      success: false,
+      error: 'Invalid IFSC code format. Expected format: ABCD0123456',
+    }
+  }
+
+  // Normalize mobile numbers (remove spaces)
+  const normalizedBeneficiaryMobile = beneficiaryMobile.replace(/\s+/g, '').trim()
+  const normalizedSenderMobile = senderMobile.replace(/\s+/g, '').trim()
+
   // Validate mobile numbers (10 digits)
   const mobileRegex = /^[6-9]\d{9}$/
-  if (!mobileRegex.test(beneficiaryMobile)) {
+  if (!mobileRegex.test(normalizedBeneficiaryMobile)) {
     return {
       success: false,
       error: 'Invalid beneficiary mobile number',
     }
   }
-  if (!mobileRegex.test(senderMobile)) {
+  if (!mobileRegex.test(normalizedSenderMobile)) {
     return {
       success: false,
       error: 'Invalid sender mobile number',
-    }
-  }
-
-  // Validate IFSC (11 characters)
-  const ifscRegex = /^[A-Z]{4}0[A-Z0-9]{6}$/
-  if (!ifscRegex.test(ifscCode.toUpperCase())) {
-    return {
-      success: false,
-      error: 'Invalid IFSC code format',
     }
   }
 
@@ -141,7 +159,7 @@ export async function initiateTransfer(request: TransferRequest): Promise<{
   // Mock mode
   if (isPayoutMockMode()) {
     // Simulate some failures for testing
-    if (accountNumber.startsWith('999')) {
+    if (normalizedAccountNumber.startsWith('999')) {
       return {
         success: false,
         error: 'Bank server temporarily unavailable',
@@ -163,32 +181,33 @@ export async function initiateTransfer(request: TransferRequest): Promise<{
   try {
     // Build request body matching API specification exactly
     const requestBody: ExpressPayRequestBody = {
-      AccountNo: accountNumber,
+      AccountNo: normalizedAccountNumber,
       AmountR: amount,
       APIRequestID: apiRequestId,
       BankID: bankId,
-      BeneMobile: beneficiaryMobile,
-      BeneName: accountHolderName,
-      bankName: bankName,
-      IFSC: ifscCode.toUpperCase(),
-      SenderEmail: senderEmail || 'noreply@example.com',
-      SenderMobile: senderMobile,
-      SenderName: senderName,
+      BeneMobile: normalizedBeneficiaryMobile,
+      BeneName: accountHolderName.trim(),
+      bankName: bankName.trim(),
+      IFSC: normalizedIfsc,
+      SenderEmail: (senderEmail || 'noreply@example.com').trim(),
+      SenderMobile: normalizedSenderMobile,
+      SenderName: senderName.trim(),
       paymentType: transferMode,
       WebHook: webhookUrl || '',
       extraParam1: 'NA',
       extraParam2: 'NA',
       extraField1: clientRefId || '',
       sub_service_name: 'ExpressPay',
-      remark: remarks || `Payout transfer to ${accountHolderName}`,
+      remark: (remarks || `Payout transfer to ${accountHolderName}`).trim(),
     }
 
     console.log('[Payout] Initiating transfer:', {
-      accountNumber: accountNumber.slice(-4).padStart(accountNumber.length, '*'),
+      accountNumber: normalizedAccountNumber.slice(-4).padStart(normalizedAccountNumber.length, '*'),
       amount,
       bankName,
       transferMode,
       apiRequestId,
+      ifsc: normalizedIfsc,
     })
 
     const response = await payoutClient.request<TransferResponse>({

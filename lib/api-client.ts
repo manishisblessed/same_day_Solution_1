@@ -71,14 +71,26 @@ export function getBBPSBackendUrl(): string {
 
 /**
  * Check if a path is a route that needs EC2 backend
- * ALL API routes go to EC2 because:
- * - Sparkup APIs need whitelisted IP (BBPS/Payout)
+ * Most API routes go to EC2 because:
+ * - Sparkup APIs need whitelisted IP (BBPS/Payout transfers)
  * - Admin APIs need SUPABASE_SERVICE_ROLE_KEY
  * - User management needs Supabase admin access
+ * 
+ * Exceptions (use local Next.js API routes):
+ * - /api/payout/banks - Public reference data, doesn't need EC2
  */
 function isEC2Route(path: string): boolean {
-  // Route ALL /api/ calls to EC2 for consistency
-  // EC2 has all environment variables configured correctly
+  // Exclude routes that don't need EC2 (public reference data)
+  const localRoutes = [
+    '/api/payout/banks', // Bank list is public reference data
+  ]
+  
+  // Check if this is a local route
+  if (localRoutes.some(route => path.startsWith(route))) {
+    return false
+  }
+  
+  // Route all other /api/ calls to EC2
   return path.startsWith('/api/')
 }
 

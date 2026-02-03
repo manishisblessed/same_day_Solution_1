@@ -85,14 +85,20 @@ export async function POST(request: NextRequest) {
       return addCorsHeaders(request, response)
     }
 
+    // Normalize inputs
+    const normalizedAccountNumber = accountNumber.toString().replace(/\s+/g, '').trim()
+    const normalizedIfsc = ifscCode.toString().replace(/\s+/g, '').trim().toUpperCase()
+
     // Verify account
+    console.log('[Payout Verify] Verifying account for user:', user.partner_id)
     const result = await verifyBankAccount({
-      accountNumber,
-      ifscCode,
-      bankName,
+      accountNumber: normalizedAccountNumber,
+      ifscCode: normalizedIfsc,
+      bankName: bankName?.trim() || undefined,
     })
 
     if (!result.success) {
+      console.error('[Payout Verify] Verification failed:', result.error)
       const response = NextResponse.json(
         { 
           success: false, 
@@ -104,9 +110,15 @@ export async function POST(request: NextRequest) {
       return addCorsHeaders(request, response)
     }
 
+    console.log('[Payout Verify] Verification successful:', {
+      account_holder: result.account_holder_name,
+      bank: result.bank_name,
+      is_valid: result.is_valid,
+    })
+
     const response = NextResponse.json({
       success: true,
-      is_valid: result.is_valid,
+      is_valid: result.is_valid !== false,
       account_holder_name: result.account_holder_name,
       bank_name: result.bank_name,
       branch_name: result.branch_name,
@@ -117,11 +129,15 @@ export async function POST(request: NextRequest) {
     return addCorsHeaders(request, response)
 
   } catch (error: any) {
-    console.error('[Payout Verify] Error:', error)
+    console.error('[Payout Verify] Unexpected error:', {
+      error: error.message,
+      stack: error.stack,
+      name: error.name,
+    })
     const response = NextResponse.json(
       { 
         success: false, 
-        error: error.message || 'Account verification failed',
+        error: error.message || 'An unexpected error occurred. Please try again later.',
       },
       { status: 500 }
     )

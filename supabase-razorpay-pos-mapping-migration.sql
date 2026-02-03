@@ -73,3 +73,7 @@ COMMENT ON TABLE pos_device_mapping IS 'POS device mapping for role-based transa
 
 
 
+
+
+
+

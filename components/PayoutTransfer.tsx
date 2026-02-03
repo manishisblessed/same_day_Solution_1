@@ -276,7 +276,9 @@ export default function PayoutTransfer({ title }: PayoutTransferProps = {}) {
       return
     }
     
-    if (!ifscCode || !/^[A-Z]{4}0[A-Z0-9]{6}$/.test(ifscCode)) {
+    // Normalize IFSC code (uppercase, remove spaces)
+    const normalizedIfsc = ifscCode?.replace(/\s+/g, '').trim().toUpperCase() || ''
+    if (!normalizedIfsc || !/^[A-Z]{4}0[A-Z0-9]{6}$/.test(normalizedIfsc)) {
       setError('Please enter a valid IFSC code (e.g., SBIN0001234)')
       return
     }
@@ -288,6 +290,9 @@ export default function PayoutTransfer({ title }: PayoutTransferProps = {}) {
     
     setVerifying(true)
     try {
+      // Normalize account number (remove spaces)
+      const normalizedAccountNumber = accountNumber.replace(/\s+/g, '').trim()
+      
       const result = await apiFetchJson<{
         success: boolean
         is_valid?: boolean
@@ -298,8 +303,8 @@ export default function PayoutTransfer({ title }: PayoutTransferProps = {}) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          accountNumber,
-          ifscCode,
+          accountNumber: normalizedAccountNumber,
+          ifscCode: normalizedIfsc,
           bankName: selectedBank?.bankName,
           user_id: user?.partner_id, // Fallback auth
         }),

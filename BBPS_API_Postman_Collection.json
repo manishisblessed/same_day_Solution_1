@@ -2,10 +2,118 @@
 	"info": {
 		"_postman_id": "bbps-api-collection-2026",
 		"name": "BBPS API - Sparkup (Fixed Jan 31, 2026)",
-		"description": "BBPS API collection for testing fetchBill and payRequest APIs. FIXED: Header names updated to camelCase (consumerKey, consumerSecret) per Sparkup support guidance.",
+		"description": "BBPS API collection for Credit Card bill payment. **WORKFLOW:** 1) Get Credit Card Billers → 2) Fetch Bill → 3) Pay Request. FIXED: Header names updated to camelCase (consumerKey, consumerSecret) per Sparkup support guidance.",
 		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
 	},
 	"item": [
+		{
+			"name": "0. Get Credit Card Billers",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"if (pm.response.code === 200) {",
+							"    const jsonData = pm.response.json();",
+							"    if (jsonData.success && jsonData.data && Array.isArray(jsonData.data)) {",
+							"        console.log(\"✅ Found\", jsonData.data.length, \"Credit Card billers\");",
+							"        ",
+							"        // Display billers for user to select",
+							"        console.log(\"\\n📋 Available Credit Card Billers:\");",
+							"        jsonData.data.forEach((biller, index) => {",
+							"            // This endpoint returns billerId and billerName directly",
+							"            const billerId = biller.billerId || biller._id || \"\";",
+							"            const billerName = biller.billerName || \"\";",
+							"            console.log(`  ${index + 1}. ${billerName} (ID: ${billerId})`);",
+							"        });",
+							"        ",
+							"        // Auto-set first biller if not already set",
+							"        const currentBillerId = pm.environment.get(\"billerId\");",
+							"        if (!currentBillerId || currentBillerId === \"\") {",
+							"            const firstBiller = jsonData.data[0];",
+							"            if (firstBiller) {",
+							"                // This endpoint returns billerId and billerName directly",
+							"                const billerId = firstBiller.billerId || firstBiller._id || \"\";",
+							"                const billerName = firstBiller.billerName || \"\";",
+							"                if (billerId && billerName) {",
+							"                    pm.environment.set(\"billerId\", billerId);",
+							"                    pm.environment.set(\"billerName\", billerName);",
+							"                    console.log(\"\\n💡 Auto-set billerId:\", billerId);",
+							"                    console.log(\"💡 Auto-set billerName:\", billerName);",
+							"                    console.log(\"💡 You can manually change these in environment variables if needed\");",
+							"                } else {",
+							"                    console.warn(\"⚠️ First biller missing billerId or billerName\");",
+							"                }",
+							"            }",
+							"        } else {",
+							"            console.log(\"\\n💡 Current billerId:\", currentBillerId);",
+							"            console.log(\"💡 Current billerName:\", pm.environment.get(\"billerName\"));",
+							"        }",
+							"    } else {",
+							"        console.error(\"❌ Failed to fetch billers:\", jsonData.msg || jsonData.message || \"Unknown error\");",
+							"    }",
+							"} else {",
+							"    console.error(\"❌ Unexpected status code:\", pm.response.code);",
+							"    console.log(\"Response:\", pm.response.text());",
+							"}"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "partnerid",
+						"value": "{{partnerid}}",
+						"type": "text"
+					},
+					{
+						"key": "consumerKey",
+						"value": "{{consumerKey}}",
+						"type": "text"
+					},
+					{
+						"key": "consumerSecret",
+						"value": "{{consumerSecret}}",
+						"type": "text"
+					},
+					{
+						"key": "Content-Type",
+						"value": "application/json",
+						"type": "text"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"fieldValue\": \"Credit Card\",\n    \"paymentChannelName1\": \"AGT\",\n    \"paymentChannelName2\": \"\",\n    \"paymentChannelName3\": \"\"\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "https://api.sparkuptech.in/api/ba/billerInfo/getDataBybillerCategory",
+					"protocol": "https",
+					"host": [
+						"api",
+						"sparkuptech",
+						"in"
+					],
+					"path": [
+						"api",
+						"ba",
+						"billerInfo",
+						"getDataBybillerCategory"
+					],
+					"description": "Fetches all Credit Card billers with billerId and billerName. **IMPORTANT:** Run this first to get billerId and billerName for your bank!"
+				},
+				"description": "Gets list of all Credit Card billers using BBPS API. This endpoint returns billerId and billerName directly. Use this to find your bank's billerId and billerName before running fetchBill and payRequest."
+			},
+			"response": []
+		},
 		{
 			"name": "1. Fetch Bill",
 			"event": [

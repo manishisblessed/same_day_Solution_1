@@ -8,18 +8,33 @@ const ALLOWED_ORIGINS = [
   'https://api.samedaysolution.co.in',
   'http://localhost:3000',
   'http://127.0.0.1:3000',
+  'http://44.193.29.59:3001',
+  'http://44.193.29.59:3000',
 ]
 
 // Add CORS headers to response
 function addCorsHeaders(request: NextRequest, response: NextResponse): NextResponse {
   const origin = request.headers.get('origin')
   
-  if (origin && ALLOWED_ORIGINS.some(allowed => origin.startsWith(allowed) || allowed.startsWith(origin))) {
-    response.headers.set('Access-Control-Allow-Origin', origin)
-    response.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
-    response.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With')
-    response.headers.set('Access-Control-Allow-Credentials', 'true')
-    response.headers.set('Access-Control-Max-Age', '86400')
+  if (origin) {
+    // Check for exact match or if origin starts with allowed origin
+    const isAllowed = ALLOWED_ORIGINS.some(allowed => {
+      // Exact match
+      if (origin === allowed) return true
+      // Origin starts with allowed (for sub-paths)
+      if (origin.startsWith(allowed + '/')) return true
+      // For IP addresses, also check if they match the base IP
+      if (allowed.includes('44.193.29.59') && origin.includes('44.193.29.59')) return true
+      return false
+    })
+    
+    if (isAllowed) {
+      response.headers.set('Access-Control-Allow-Origin', origin)
+      response.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
+      response.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With')
+      response.headers.set('Access-Control-Allow-Credentials', 'true')
+      response.headers.set('Access-Control-Max-Age', '86400')
+    }
   }
   
   return response

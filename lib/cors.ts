@@ -27,6 +27,8 @@ function getAllowedOrigin(request: NextRequest): string | null {
       'https://www.samedaysolution.co.in',
       'https://samedaysolution.co.in',
       'https://api.samedaysolution.co.in',
+      'http://44.193.29.59:3001',
+      'http://44.193.29.59:3000',
     ].filter(Boolean) as string[]
     
     // Normalize domains (remove trailing slashes, ensure https)
@@ -39,7 +41,15 @@ function getAllowedOrigin(request: NextRequest): string | null {
     })
     
     // If origin matches allowed domain, return it
-    if (normalizedDomains.some(domain => origin === domain || origin.startsWith(domain + '/'))) {
+    if (normalizedDomains.some(domain => {
+      // Exact match
+      if (origin === domain) return true
+      // Origin starts with domain (for sub-paths)
+      if (origin.startsWith(domain + '/')) return true
+      // For IP addresses, check if they match the base IP
+      if (domain.includes('44.193.29.59') && origin.includes('44.193.29.59')) return true
+      return false
+    })) {
       return origin
     }
     
@@ -47,8 +57,8 @@ function getAllowedOrigin(request: NextRequest): string | null {
     return null
   }
   
-  // In development, allow localhost
-  if (origin.includes('localhost') || origin.includes('127.0.0.1')) {
+  // In development, allow localhost and IP addresses
+  if (origin.includes('localhost') || origin.includes('127.0.0.1') || origin.includes('44.193.29.59')) {
     return origin
   }
   

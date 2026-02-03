@@ -35,25 +35,32 @@ export async function verifyBankAccount(request: VerifyAccountRequest): Promise<
     }
   }
 
-  // Basic validation
-  if (accountNumber.length < 9 || accountNumber.length > 18) {
+  // Normalize account number (remove spaces, keep only digits)
+  const normalizedAccountNumber = accountNumber.replace(/\s+/g, '').trim()
+  
+  // Validate account number (must be 9-18 digits)
+  if (!/^\d{9,18}$/.test(normalizedAccountNumber)) {
     return {
       success: false,
-      error: 'Invalid account number length (must be 9-18 digits)',
+      error: 'Invalid account number. Must be 9-18 digits only.',
     }
   }
 
-  if (!/^[A-Z]{4}0[A-Z0-9]{6}$/.test(ifscCode)) {
+  // Normalize IFSC code (uppercase, remove spaces)
+  const normalizedIfsc = ifscCode.replace(/\s+/g, '').trim().toUpperCase()
+  
+  // Validate IFSC code format (4 letters, 0, then 6 alphanumeric)
+  if (!/^[A-Z]{4}0[A-Z0-9]{6}$/.test(normalizedIfsc)) {
     return {
       success: false,
-      error: 'Invalid IFSC code format',
+      error: 'Invalid IFSC code format. Expected format: ABCD0123456',
     }
   }
 
   // Mock mode
   if (isPayoutMockMode()) {
     // Simulate some failures for testing
-    if (accountNumber.startsWith('000')) {
+    if (normalizedAccountNumber.startsWith('000')) {
       return {
         success: false,
         error: 'Account does not exist',
@@ -72,48 +79,88 @@ export async function verifyBankAccount(request: VerifyAccountRequest): Promise<
   }
 
   try {
+    console.log('[Account Verify] Request:', {
+      accountNumber: normalizedAccountNumber.replace(/\d(?=\d{4})/g, '*'), // Mask for logging
+      ifsc: normalizedIfsc,
+      bankName: bankName || '',
+    })
+
     const response = await payoutClient.request<VerifyAccountResponse>({
       method: 'POST',
       endpoint: '/accountVerify',
       body: {
-        accountNumber,
-        ifsc: ifscCode,
+        accountNumber: normalizedAccountNumber,
+        ifsc: normalizedIfsc,
         bankName: bankName || '',
       },
     })
 
+    console.log('[Account Verify] Response:', {
+      success: response.success,
+      status: response.status,
+      hasData: !!response.data,
+    })
+
     if (!response.success || !response.data) {
+      console.error('[Account Verify] API Error:', {
+        success: response.success,
+        error: response.error,
+        status: response.status,
+        data: response.data,
+      })
       return {
         success: false,
-        error: response.error || 'Failed to verify account',
+        error: response.error || 'Failed to verify account. Please check the account details and try again.',
       }
     }
 
     const apiResponse = response.data
 
-    if (!apiResponse.success || !apiResponse.data) {
+    // Handle API response structure
+    if (!apiResponse.success) {
+      const errorMessage = apiResponse.message || apiResponse.error || 'Account verification failed'
+      console.error('[Account Verify] Verification failed:', errorMessage)
       return {
         success: false,
-        error: apiResponse.message || apiResponse.error || 'Account verification failed',
+        error: errorMessage,
+      }
+    }
+
+    // Check if data exists
+    if (!apiResponse.data) {
+      console.error('[Account Verify] No data in response:', apiResponse)
+      return {
+        success: false,
+        error: 'Invalid response from verification service',
       }
     }
 
     const verifyData = apiResponse.data
 
+    // Validate that account is valid
+    if (verifyData.isValid === false) {
+      return {
+        success: false,
+        error: 'Account verification failed. Please check the account number and IFSC code.',
+        is_valid: false,
+      }
+    }
+
+    // Return success response
     return {
       success: true,
-      account_holder_name: verifyData.accountHolderName,
-      bank_name: verifyData.bankName,
-      branch_name: verifyData.branchName,
+      account_holder_name: verifyData.accountHolderName || 'N/A',
+      bank_name: verifyData.bankName || bankName || 'N/A',
+      branch_name: verifyData.branchName || 'N/A',
       is_valid: verifyData.isValid !== false,
       transaction_id: verifyData.transactionId,
       charges: 2, // Typical verification charge
     }
   } catch (error: any) {
-    console.error('Error verifying bank account:', error)
+    console.error('[Account Verify] Exception:', error)
     return {
       success: false,
-      error: error.message || 'Failed to verify account',
+      error: error.message || 'An unexpected error occurred during account verification',
     }
   }
 }
