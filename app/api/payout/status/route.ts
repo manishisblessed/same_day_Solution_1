@@ -22,18 +22,46 @@ export async function OPTIONS(request: NextRequest) {
 /**
  * GET /api/payout/status
  * 
- * Checks the status of a payout transfer.
+ * Checks the status of a payout transfer, or lists all transactions.
  * 
  * Query Parameters:
  * - transactionId: Our internal transaction ID
  * - clientRefId: Client reference ID
+ * - list: Set to "true" to get list of recent transactions
+ * - user_id: Fallback auth - retailer partner_id
  */
 export async function GET(request: NextRequest) {
   try {
-    // Get current user
-    const user = await getCurrentUserFromRequest(request)
+    // Parse query parameters
+    const { searchParams } = new URL(request.url)
+    const transactionId = searchParams.get('transactionId')
+    const clientRefId = searchParams.get('clientRefId')
+    const listMode = searchParams.get('list') === 'true'
+    const userId = searchParams.get('user_id')
     
-    if (!user) {
+    // Get current user
+    let user = await getCurrentUserFromRequest(request)
+    
+    // Fallback auth using user_id
+    if ((!user || !user.partner_id) && userId) {
+      const { data: retailer } = await supabaseAdmin
+        .from('retailers')
+        .select('partner_id, name, email')
+        .eq('partner_id', userId)
+        .maybeSingle()
+      
+      if (retailer) {
+        user = {
+          id: userId,
+          email: retailer.email,
+          role: 'retailer',
+          partner_id: retailer.partner_id,
+          name: retailer.name,
+        }
+      }
+    }
+    
+    if (!user || !user.partner_id) {
       const response = NextResponse.json(
         { success: false, error: 'Authentication required' },
         { status: 401 }
@@ -41,10 +69,30 @@ export async function GET(request: NextRequest) {
       return addCorsHeaders(request, response)
     }
 
-    // Parse query parameters
-    const { searchParams } = new URL(request.url)
-    const transactionId = searchParams.get('transactionId')
-    const clientRefId = searchParams.get('clientRefId')
+    // If list mode, return recent transactions
+    if (listMode) {
+      const { data: transactions, error: listError } = await supabaseAdmin
+        .from('payout_transactions')
+        .select('*')
+        .eq('retailer_id', user.partner_id)
+        .order('created_at', { ascending: false })
+        .limit(20)
+      
+      if (listError) {
+        console.error('[Payout Status] List error:', listError)
+        const response = NextResponse.json({
+          success: true,
+          transactions: [],
+        })
+        return addCorsHeaders(request, response)
+      }
+      
+      const response = NextResponse.json({
+        success: true,
+        transactions: transactions || [],
+      })
+      return addCorsHeaders(request, response)
+    }
 
     if (!transactionId && !clientRefId) {
       const response = NextResponse.json(

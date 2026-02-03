@@ -8,7 +8,8 @@ import { motion } from 'framer-motion'
 import {
   Search, X, RefreshCw, Info, AlertCircle, Check, Building2, 
   CreditCard, User, Hash, IndianRupee, Zap, Clock, ArrowRight,
-  CheckCircle2, XCircle, Loader2, Wallet, Send, Eye, EyeOff
+  CheckCircle2, XCircle, Loader2, Wallet, Send, Eye, EyeOff,
+  Star, Trash2, Plus, BookUser
 } from 'lucide-react'
 
 // Types
@@ -39,6 +40,18 @@ interface PayoutTransaction {
   failure_reason?: string
   created_at: string
   completed_at?: string
+}
+
+interface SavedBeneficiary {
+  id: string
+  account_number: string
+  ifsc_code: string
+  account_holder_name: string
+  bank_id?: number
+  bank_name: string
+  beneficiary_mobile?: string
+  nickname?: string
+  is_default: boolean
 }
 
 interface PayoutTransferProps {
@@ -98,6 +111,12 @@ export default function PayoutTransfer({ title }: PayoutTransferProps = {}) {
   const [recentTransactions, setRecentTransactions] = useState<PayoutTransaction[]>([])
   const [loadingTransactions, setLoadingTransactions] = useState(false)
   const [activeView, setActiveView] = useState<'transfer' | 'history'>('transfer')
+  
+  // Saved beneficiaries
+  const [savedBeneficiaries, setSavedBeneficiaries] = useState<SavedBeneficiary[]>([])
+  const [loadingBeneficiaries, setLoadingBeneficiaries] = useState(false)
+  const [showSavedBeneficiaries, setShowSavedBeneficiaries] = useState(false)
+  const [savingBeneficiary, setSavingBeneficiary] = useState(false)
   
   // Charges
   const charges = useMemo(() => {
@@ -165,20 +184,20 @@ export default function PayoutTransfer({ title }: PayoutTransferProps = {}) {
     
     setLoadingTransactions(true)
     try {
-      const { data, error } = await supabase
-        .from('payout_transactions')
-        .select('*')
-        .eq('retailer_id', user.partner_id)
-        .order('created_at', { ascending: false })
-        .limit(10)
+      // Use API endpoint instead of direct Supabase call
+      const result = await apiFetchJson<{
+        success: boolean
+        transactions?: any[]
+        error?: string
+      }>(`/api/payout/status?user_id=${user.partner_id}&list=true`)
       
-      if (!error && data) {
-        setRecentTransactions(data.map(tx => ({
+      if (result.success && result.transactions) {
+        setRecentTransactions(result.transactions.map((tx: any) => ({
           id: tx.id,
           client_ref_id: tx.client_ref_id,
           provider_txn_id: tx.transaction_id,
           rrn: tx.rrn,
-          status: tx.status.toUpperCase(),
+          status: tx.status?.toUpperCase() || 'PENDING',
           amount: tx.amount,
           charges: tx.charges,
           total_amount: tx.amount + tx.charges,
@@ -198,15 +217,138 @@ export default function PayoutTransfer({ title }: PayoutTransferProps = {}) {
     }
   }, [user?.partner_id])
 
+  // Fetch saved beneficiaries
+  const fetchSavedBeneficiaries = useCallback(async () => {
+    if (!user?.partner_id) return
+    
+    setLoadingBeneficiaries(true)
+    try {
+      const result = await apiFetchJson<{
+        success: boolean
+        beneficiaries?: SavedBeneficiary[]
+        error?: string
+      }>(`/api/beneficiaries?user_id=${user.partner_id}`)
+      
+      if (result.success && result.beneficiaries) {
+        setSavedBeneficiaries(result.beneficiaries)
+      }
+    } catch (err) {
+      console.error('Error fetching saved beneficiaries:', err)
+    } finally {
+      setLoadingBeneficiaries(false)
+    }
+  }, [user?.partner_id])
+
+  // Save beneficiary
+  const saveBeneficiary = async () => {
+    if (!user?.partner_id || !accountNumber || !ifscCode || !selectedBank) return
+    
+    setSavingBeneficiary(true)
+    try {
+      const result = await apiFetchJson<{
+        success: boolean
+        message?: string
+        error?: string
+      }>('/api/beneficiaries', {
+        method: 'POST',
+        body: JSON.stringify({
+          account_number: accountNumber,
+          ifsc_code: ifscCode,
+          account_holder_name: verificationResult?.account_holder_name || accountHolderName || 'Account Holder',
+          bank_id: selectedBank.id,
+          bank_name: selectedBank.bankName,
+          beneficiary_mobile: beneficiaryMobile,
+          is_default: savedBeneficiaries.length === 0, // First one is default
+          user_id: user.partner_id,
+        }),
+      })
+      
+      if (result.success) {
+        setInfoMessage('Beneficiary saved successfully!')
+        fetchSavedBeneficiaries()
+        setTimeout(() => setInfoMessage(null), 3000)
+      } else {
+        setError(result.error || 'Failed to save beneficiary')
+      }
+    } catch (err: any) {
+      console.error('Error saving beneficiary:', err)
+      setError(err.message || 'Failed to save beneficiary')
+    } finally {
+      setSavingBeneficiary(false)
+    }
+  }
+
+  // Select saved beneficiary
+  const selectSavedBeneficiary = (beneficiary: SavedBeneficiary) => {
+    setAccountNumber(beneficiary.account_number)
+    setConfirmAccountNumber(beneficiary.account_number)
+    setIfscCode(beneficiary.ifsc_code)
+    setAccountHolderName(beneficiary.account_holder_name)
+    setBeneficiaryMobile(beneficiary.beneficiary_mobile || '')
+    
+    // Find and select the matching bank
+    const matchingBank = banks.find(b => 
+      b.bankName.toLowerCase() === beneficiary.bank_name.toLowerCase() ||
+      b.id === beneficiary.bank_id
+    )
+    if (matchingBank) {
+      setSelectedBank(matchingBank)
+    } else {
+      // Create a pseudo-bank entry
+      setSelectedBank({
+        id: beneficiary.bank_id || 0,
+        bankName: beneficiary.bank_name,
+        code: '',
+        ifsc: beneficiary.ifsc_code,
+        isIMPS: true,
+        isNEFT: true,
+        isACVerification: true,
+        isPopular: false,
+      })
+    }
+    
+    setShowSavedBeneficiaries(false)
+    setVerified(true)
+    setVerificationResult({
+      account_holder_name: beneficiary.account_holder_name,
+      bank_name: beneficiary.bank_name,
+      is_valid: true,
+    })
+    setStep('verify')
+  }
+
+  // Delete saved beneficiary
+  const deleteSavedBeneficiary = async (id: string) => {
+    if (!user?.partner_id) return
+    
+    if (!confirm('Are you sure you want to delete this saved account?')) return
+    
+    try {
+      const result = await apiFetchJson<{
+        success: boolean
+        error?: string
+      }>(`/api/beneficiaries?id=${id}&user_id=${user.partner_id}`, {
+        method: 'DELETE',
+      })
+      
+      if (result.success) {
+        fetchSavedBeneficiaries()
+      }
+    } catch (err) {
+      console.error('Error deleting beneficiary:', err)
+    }
+  }
+
   // Initial load
   useEffect(() => {
     fetchWalletBalance()
     fetchBanks()
     fetchRecentTransactions()
+    fetchSavedBeneficiaries()
     
     const interval = setInterval(fetchWalletBalance, 15000)
     return () => clearInterval(interval)
-  }, [fetchWalletBalance, fetchBanks, fetchRecentTransactions])
+  }, [fetchWalletBalance, fetchBanks, fetchRecentTransactions, fetchSavedBeneficiaries])
 
   // Initialize sender details from user profile
   useEffect(() => {
@@ -596,7 +738,70 @@ export default function PayoutTransfer({ title }: PayoutTransferProps = {}) {
           {/* Step 1: Bank Details */}
           {step === 'details' && (
             <div className="space-y-4">
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Enter Bank Details</h3>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Enter Bank Details</h3>
+                
+                {/* Saved Beneficiaries Button */}
+                {savedBeneficiaries.length > 0 && (
+                  <button
+                    onClick={() => setShowSavedBeneficiaries(!showSavedBeneficiaries)}
+                    className="flex items-center gap-2 px-3 py-1.5 text-sm bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors"
+                  >
+                    <BookUser className="w-4 h-4" />
+                    Saved Accounts ({savedBeneficiaries.length})
+                  </button>
+                )}
+              </div>
+              
+              {/* Saved Beneficiaries Dropdown */}
+              {showSavedBeneficiaries && savedBeneficiaries.length > 0 && (
+                <div className="mb-4 p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+                  <div className="flex items-center justify-between mb-3">
+                    <h4 className="font-medium text-blue-800 dark:text-blue-300">Select a Saved Account</h4>
+                    <button
+                      onClick={() => setShowSavedBeneficiaries(false)}
+                      className="text-blue-600 dark:text-blue-400 hover:text-blue-800"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                  <div className="space-y-2 max-h-48 overflow-y-auto">
+                    {savedBeneficiaries.map((beneficiary) => (
+                      <div
+                        key={beneficiary.id}
+                        className="flex items-center justify-between p-3 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 hover:border-blue-400 cursor-pointer transition-colors"
+                        onClick={() => selectSavedBeneficiary(beneficiary)}
+                      >
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium text-gray-900 dark:text-white">
+                              {beneficiary.nickname || beneficiary.bank_name}
+                            </span>
+                            {beneficiary.is_default && (
+                              <Star className="w-4 h-4 text-yellow-500 fill-yellow-500" />
+                            )}
+                          </div>
+                          <p className="text-sm text-gray-600 dark:text-gray-400">
+                            ****{beneficiary.account_number.slice(-4)} • {beneficiary.ifsc_code}
+                          </p>
+                          <p className="text-xs text-gray-500 dark:text-gray-500">
+                            {beneficiary.account_holder_name}
+                          </p>
+                        </div>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            deleteSavedBeneficiary(beneficiary.id)
+                          }}
+                          className="p-1.5 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
               
               {/* Bank Selection */}
               <div className="relative">
@@ -757,6 +962,32 @@ export default function PayoutTransfer({ title }: PayoutTransferProps = {}) {
                     <p className="font-semibold text-gray-900 dark:text-white">{beneficiaryMobile}</p>
                   </div>
                 </div>
+                
+                {/* Save Account Button */}
+                {!savedBeneficiaries.some(b => 
+                  b.account_number === accountNumber && b.ifsc_code === ifscCode
+                ) && (
+                  <button
+                    onClick={saveBeneficiary}
+                    disabled={savingBeneficiary}
+                    className="mt-3 flex items-center gap-2 px-3 py-1.5 text-sm text-green-600 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/20 rounded-lg transition-colors"
+                  >
+                    {savingBeneficiary ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Plus className="w-4 h-4" />
+                    )}
+                    Save this account for future transfers
+                  </button>
+                )}
+                {savedBeneficiaries.some(b => 
+                  b.account_number === accountNumber && b.ifsc_code === ifscCode
+                ) && (
+                  <div className="mt-3 flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
+                    <Check className="w-4 h-4 text-green-500" />
+                    Account already saved
+                  </div>
+                )}
               </div>
 
               {/* Sender Details */}

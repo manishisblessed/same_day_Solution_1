@@ -1395,7 +1395,7 @@ function SettingsTab({ user }: { user: any }) {
     if (!user?.partner_id) return
     setLoading(true)
     try {
-      const response = await apiFetchJson('/api/tpin')
+      const response = await apiFetchJson(`/api/tpin?user_id=${user.partner_id}`)
       if (response.success) {
         setTpinStatus({
           tpin_enabled: response.tpin_enabled,

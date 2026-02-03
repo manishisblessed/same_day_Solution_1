@@ -6639,12 +6639,16 @@ Example: "100"
 
 🔸 billerId
 Type: String
-
 Required: Yes
-
 Description: Unique BBPS biller identifier.
-
 Example: "KOTA00000NATED"
+🔸 billerName
+Type: String
+Required: Yes
+Description: Official BBPS biller name corresponding to the provided billerId.
+
+This field is mandatory in PayRequest to correctly identify the biller during payment processing.
+Example: "Union Bank of India Credit Card"
 
 🔸 inputParams
 Type: Array of Objects
@@ -6703,34 +6707,56 @@ Example: "true"
 
 🔸 paymentInfo
 Type: Array of Objects
-
 Required: No
+Description:
 
-Description: Additional payment related information.
+Contains additional payment-related information.
 
-Each object:
-▪ infoName
+The structure of paymentInfo depends on the selected paymentMode.
+
+Each object contains:
+infoName
 Type: String
-
 Required: Yes
 
-Example: "Remarks"
-
-▪ infoValue
+infoValue
 Type: String
-
 Required: Yes
 
-Example: "Received"
+✔ For paymentMode = Cash
+"paymentInfo": [
+  {
+    "infoName": "Payment Account Info",
+    "infoValue": "Cash Payment"
+  }
+]
+
+✔ For paymentMode = Wallet
+
+"paymentInfo": [
+  {
+    "infoName": "WalletName",
+    "infoValue": "Wallet"
+  },
+  {
+    "infoName": "MobileNo",
+    "infoValue": "<Customer Mobile Number>"
+  }
+]
 
 🔸 paymentMode
 Type: String
-
 Required: Yes
+Allowed Values:
 
-Allowed Values: Cash, Account, Wallet, UPI (as per system)
+Cash
 
-Example: "Cash"
+Wallet
+
+Example:
+
+Plain Text
+"paymentMode": "Cash"
 
 🔸 quickPay
 Type: String
@@ -6764,12 +6790,14 @@ Description: Unique request / transaction reference ID.
 Example: "42NFKEG9E7FCOC54LL9Q88KK2MI50631211"
 
 HEADERS
+partnerid
+2400xx
 
-partnerid 2400xx
+consumerkey
+21b9c1f6195fxxxx
 
-consumerkey 21b9c1f6195fxxxx
-
-consumersecret ecdad1614bd1xxxx
+consumersecret
+ecdad1614bd1xxxx
 
 Body
 raw (json)
@@ -6780,6 +6808,7 @@ raw (json)
     "initChannel": "AGT",
     "amount": "100",
     "billerId": "KOTA00000NATED",
+    "billerName": "Kotak Mahindra Bank Credit Card",
     "inputParams": [
         {
             "paramName": "Registered Mobile Number",
@@ -6795,8 +6824,8 @@ raw (json)
     "billerAdhoc": "true",
     "paymentInfo": [
         {
-            "infoName": "Remarks",
-            "infoValue": "Received"
+            "infoName": "Payment Account Info",
+            "infoValue": "Cash Payment"
          
         }
     ],
@@ -6813,11 +6842,12 @@ curl --location 'https://api.sparkuptech.in/api/ba/bbps/payRequest' \
 --header 'consumerkey: 21b9c1f6195fxxxx' \
 --header 'consumersecret: ecdad1614bd1xxxx' \
 --data '{
-      "name": "Utility",
+    "name": "Utility",
     "sub_service_name": "Credit Card",
     "initChannel": "AGT",
     "amount": "100",
     "billerId": "KOTA00000NATED",
+    "billerName": "Kotak Mahindra Bank Credit Card",
     "inputParams": [
         {
             "paramName": "Registered Mobile Number",
@@ -6833,8 +6863,8 @@ curl --location 'https://api.sparkuptech.in/api/ba/bbps/payRequest' \
     "billerAdhoc": "true",
     "paymentInfo": [
         {
-            "infoName": "Remarks",
-            "infoValue": "Received"
+            "infoName": "Payment Account Info",
+            "infoValue": "Cash Payment"
          
         }
     ],
@@ -6845,6 +6875,7 @@ curl --location 'https://api.sparkuptech.in/api/ba/bbps/payRequest' \
 }'
 
 Example Response
+
 {
   "success": true,
   "status": "success",
@@ -6864,7 +6895,7 @@ Example Response
       "input": [
         {
           "paramName": "Registered Mobile Number",
-          "paramValue": "8085539000"
+          "paramValue": "808553xxxx"
         },
         {
           "paramName": "Last 4 digits of Credit Card Number",
