@@ -179,24 +179,45 @@ export async function payRequest(
     // Prepare request body (matching API specification exactly)
     // Per Sparkup API docs - only send fields that are in the spec
     // Format matches exact Postman request that works
+    // IMPORTANT: Don't send empty strings or undefined - only include fields with valid values
     const requestBody: any = {
-      name,
+      name: name || 'Utility',
       sub_service_name: subServiceName, // MUST be category name like "Credit Card", "Electricity"
-      initChannel,
+      initChannel: initChannel || 'AGT',
       amount: amount.toString(),
       billerId,
-      billerName, // NEW: Required per Sparkup API update (Jan 2026)
       inputParams: requestInputParams,
-      billNumber: billNumber || '', // Bill number from fetchBill response
-      mac,
-      custConvFee,
-      billerAdhoc, // Must be "true" or "false" (string)
+      mac: mac || '01-23-45-67-89-ab',
+      custConvFee: custConvFee || '0',
+      billerAdhoc: billerAdhoc || 'true', // Must be "true" or "false" (string)
       paymentInfo: effectivePaymentInfo, // Generated based on paymentMode
-      paymentMode,
-      quickPay,
-      splitPay,
+      paymentMode: paymentMode || 'Cash',
+      quickPay: quickPay || 'Y',
+      splitPay: splitPay || 'N',
       reqId, // CRITICAL: Links payment to fetchBill
     }
+    
+    // Only include billerName if provided (required per API update)
+    if (billerName && billerName.trim() !== '') {
+      requestBody.billerName = billerName.trim()
+    }
+    
+    // Only include billNumber if it's provided (don't send empty string)
+    if (billNumber && billNumber.trim() !== '') {
+      requestBody.billNumber = billNumber.trim()
+    }
+    
+    // Only include customerMobileNumber for Wallet payment mode
+    if (customerMobileNumber && customerMobileNumber.trim() !== '') {
+      requestBody.customerMobileNumber = customerMobileNumber.trim()
+    }
+    
+    // Remove any undefined or null values to prevent "Invalid XML" errors
+    Object.keys(requestBody).forEach(key => {
+      if (requestBody[key] === undefined || requestBody[key] === null) {
+        delete requestBody[key]
+      }
+    })
     
     // NOTE: Do NOT send additionalInfo or billerResponse - they are NOT in the API spec
 

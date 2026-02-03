@@ -85,20 +85,34 @@ export async function verifyBankAccount(request: VerifyAccountRequest): Promise<
       bankName: bankName || '',
     })
 
+    // Build request body - only include fields with values
+    const requestBody: any = {
+      AccountNo: normalizedAccountNumber,
+      IFSC: normalizedIfsc,
+    }
+    
+    // Only include bankName if provided
+    if (bankName && bankName.trim() !== '') {
+      requestBody.bankName = bankName.trim()
+    }
+
+    console.log('[Account Verify] Request body:', {
+      AccountNo: normalizedAccountNumber.replace(/\d(?=\d{4})/g, '*'), // Mask for logging
+      IFSC: normalizedIfsc,
+      hasBankName: !!requestBody.bankName,
+    })
+
     const response = await payoutClient.request<VerifyAccountResponse>({
       method: 'POST',
       endpoint: '/accountVerify',
-      body: {
-        accountNumber: normalizedAccountNumber,
-        ifsc: normalizedIfsc,
-        bankName: bankName || '',
-      },
+      body: requestBody,
     })
 
     console.log('[Account Verify] Response:', {
       success: response.success,
       status: response.status,
       hasData: !!response.data,
+      error: response.error,
     })
 
     if (!response.success || !response.data) {
@@ -107,10 +121,22 @@ export async function verifyBankAccount(request: VerifyAccountRequest): Promise<
         error: response.error,
         status: response.status,
         data: response.data,
+        fullResponse: JSON.stringify(response, null, 2),
       })
+      
+      // Provide more specific error message
+      let errorMessage = response.error || 'Failed to verify account. Please check the account details and try again.'
+      
+      // Check if it's a validation error
+      if (response.status === 400) {
+        errorMessage = 'Invalid account number or IFSC code. Please verify and try again.'
+      } else if (response.status === 500) {
+        errorMessage = 'Verification service temporarily unavailable. Please try again later.'
+      }
+      
       return {
         success: false,
-        error: response.error || 'Failed to verify account. Please check the account details and try again.',
+        error: errorMessage,
       }
     }
 

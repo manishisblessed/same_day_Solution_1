@@ -120,6 +120,16 @@ export class BBPSClient {
       const responseText = await response.text()
       let responseData: any
       
+      // Log raw response for debugging
+      if (!response.ok || responseText.includes('Invalid XML') || responseText.includes('XML')) {
+        console.error('[BBPS Client] Non-JSON or error response:', {
+          status: response.status,
+          statusText: response.statusText,
+          responseText: responseText.substring(0, 500), // First 500 chars
+          url,
+        })
+      }
+      
       try {
         responseData = JSON.parse(responseText)
       } catch {
@@ -128,11 +138,31 @@ export class BBPSClient {
         if (responseText.includes('Invalid XML') || responseText.includes('XML')) {
           responseData = {
             success: false,
+            status: 'error',
             message: 'Invalid XML request',
-            error: 'Invalid XML request',
+            error: 'Invalid XML request - The API request format may be incorrect. Please check the request body.',
+          }
+        } else if (responseText.includes('404') || responseText.includes('Not Found')) {
+          responseData = {
+            success: false,
+            status: 'error',
+            message: 'Endpoint not found',
+            error: 'API endpoint not found. Please verify the endpoint URL.',
+          }
+        } else if (responseText.includes('500') || responseText.includes('Internal Server Error')) {
+          responseData = {
+            success: false,
+            status: 'error',
+            message: 'Server error',
+            error: 'Internal server error. Please try again later.',
           }
         } else {
-          responseData = { raw_response: responseText }
+          responseData = { 
+            success: false,
+            status: 'error',
+            raw_response: responseText.substring(0, 200),
+            error: responseText.substring(0, 200) || 'Unknown error from API',
+          }
         }
       }
 

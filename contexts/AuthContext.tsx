@@ -162,15 +162,50 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const logout = async () => {
     setLoading(true)
     try {
+      // Sign out from Supabase first
       await authSignOut()
+      
+      // Clear all auth-related data
+      if (typeof window !== 'undefined') {
+        // Clear cached user
+        localStorage.removeItem('auth_user')
+        localStorage.removeItem('auth_user_timestamp')
+        
+        // Clear all Supabase related items from localStorage
+        const localStorageKeys: string[] = []
+        for (let i = 0; i < localStorage.length; i++) {
+          const key = localStorage.key(i)
+          if (key && (key.includes('supabase') || key.includes('sb-'))) {
+            localStorageKeys.push(key)
+          }
+        }
+        localStorageKeys.forEach(key => localStorage.removeItem(key))
+        
+        // Clear all Supabase related items from sessionStorage
+        const sessionStorageKeys: string[] = []
+        for (let i = 0; i < sessionStorage.length; i++) {
+          const key = sessionStorage.key(i)
+          if (key && (key.includes('supabase') || key.includes('sb-'))) {
+            sessionStorageKeys.push(key)
+          }
+        }
+        sessionStorageKeys.forEach(key => sessionStorage.removeItem(key))
+        
+        // Clear impersonation data if any
+        localStorage.removeItem('impersonation_token')
+        localStorage.removeItem('impersonation_session_id')
+        sessionStorage.removeItem('impersonated_user')
+      }
+      
       setUser(null)
-      // Clear cached user from localStorage
+    } catch (error) {
+      console.error('Error signing out:', error)
+      // Even if signOut fails, clear local state
+      setUser(null)
       if (typeof window !== 'undefined') {
         localStorage.removeItem('auth_user')
         localStorage.removeItem('auth_user_timestamp')
       }
-    } catch (error) {
-      console.error('Error signing out:', error)
     } finally {
       setLoading(false)
     }

@@ -98,24 +98,46 @@ export default function SessionTimer({
   // Handle logout
   const handleLogout = async () => {
     try {
-      // Clear session data
+      // Clear session timer data
       localStorage.removeItem('sessionStartTime')
       localStorage.removeItem('sessionDuration')
       localStorage.removeItem('lastActivityTime')
       localStorage.removeItem('sessionExtended')
       
+      // Clear auth cache
+      localStorage.removeItem('auth_user')
+      localStorage.removeItem('auth_user_timestamp')
+      
+      // Clear all Supabase related items from storage
+      const keysToRemove: string[] = []
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i)
+        if (key && (key.includes('supabase') || key.includes('sb-'))) {
+          keysToRemove.push(key)
+        }
+      }
+      keysToRemove.forEach(key => localStorage.removeItem(key))
+      
+      // Clear sessionStorage as well
+      for (let i = 0; i < sessionStorage.length; i++) {
+        const key = sessionStorage.key(i)
+        if (key && (key.includes('supabase') || key.includes('sb-'))) {
+          sessionStorage.removeItem(key)
+        }
+      }
+      
+      // Call logout to sign out from Supabase
       await logout()
       
-      // Redirect based on role
-      if (userRole === 'admin') {
-        router.push('/admin/login')
-      } else {
-        router.push(loginPath)
-      }
+      // Small delay to ensure state is cleared
+      await new Promise(resolve => setTimeout(resolve, 100))
     } catch (error) {
       console.error('Logout error:', error)
-      // Force redirect anyway
-      window.location.href = userRole === 'admin' ? '/admin/login' : loginPath
+    } finally {
+      // Force a hard redirect to ensure all state is cleared
+      // This ensures cookies are also cleared
+      const redirectPath = userRole === 'admin' ? '/admin/login' : loginPath
+      window.location.href = redirectPath
     }
   }
 
