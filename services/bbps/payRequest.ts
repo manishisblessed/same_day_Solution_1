@@ -176,33 +176,28 @@ export async function payRequest(
       effectivePaymentInfo = paymentInfo
     }
 
-    // Prepare request body (matching API specification EXACTLY)
-    // Per Sparkup API docs - ONLY send fields that are in the official example
-    // The official curl example shows EXACTLY these fields - DO NOT add extra fields!
-    // Adding extra fields like billerName/billNumber causes "Invalid XML request" errors
+    // Prepare request body (matching WORKING Sparkup format from testing)
+    // This format was confirmed to work (returns "Fund Issue" = correct format, just wallet balance issue)
     const requestBody: any = {
       name: name || 'Utility',
       sub_service_name: subServiceName, // MUST be category name like "Credit Card", "Electricity"
       initChannel: initChannel || 'AGT',
       amount: amount.toString(),
       billerId,
+      billerName: billerName || '', // REQUIRED - biller name
       inputParams: requestInputParams,
+      billNumber: billNumber || '', // REQUIRED - from fetchBill response
       mac: mac || '01-23-45-67-89-ab',
       custConvFee: custConvFee || '0',
       billerAdhoc: billerAdhoc || 'true', // Must be "true" or "false" (string)
       paymentInfo: effectivePaymentInfo, // Generated based on paymentMode
       paymentMode: paymentMode || 'Cash',
-      quickPay: quickPay || 'Y',  // API example shows "Y"
+      quickPay: quickPay || 'N',  // Working example shows "N"
       splitPay: splitPay || 'N',
       reqId, // CRITICAL: Links payment to fetchBill
     }
     
-    // NOTE: DO NOT add billerName, billNumber, or customerMobileNumber!
-    // The official Sparkup API example does NOT include these fields
-    // Adding them causes "Invalid XML request" errors
-    // See: https://api.sparkuptech.in/api/ba/bbps/payRequest example in bbps.txt
-    
-    // Remove any undefined or null values to prevent "Invalid XML" errors
+    // Remove any undefined or null values (but keep empty strings for required fields)
     Object.keys(requestBody).forEach(key => {
       if (requestBody[key] === undefined || requestBody[key] === null) {
         delete requestBody[key]
