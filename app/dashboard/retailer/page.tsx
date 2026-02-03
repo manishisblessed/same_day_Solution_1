@@ -10,7 +10,7 @@ import {
   TrendingUp, DollarSign, Users, Activity, 
   ShoppingCart, CreditCard, ArrowUpRight, Menu,
   RefreshCw, Settings, X, Check, AlertCircle, Eye, Receipt, Wallet, Download,
-  Send, Banknote
+  Send, Banknote, Lock, EyeOff, Shield, Key
 } from 'lucide-react'
 import TransactionsTable from '@/components/TransactionsTable'
 import BBPSPayment from '@/components/BBPSPayment'
@@ -387,6 +387,7 @@ function RetailerDashboardContent() {
           {activeTab === 'payout' && <PayoutTransfer title="Settlement to Bank Account" />}
           {activeTab === 'transactions' && <TransactionsTable role="retailer" autoPoll={true} pollInterval={10000} />}
           {activeTab === 'reports' && <ReportsTab chartData={chartData} stats={stats} />}
+          {activeTab === 'settings' && <SettingsTab user={user} />}
         </div>
       </div>
     </div>
@@ -1366,6 +1367,318 @@ function StatCard({ label, value, icon: Icon, gradient, delay }: {
       </div>
       <div className="absolute -bottom-3 -right-3 w-16 h-16 bg-white/10 rounded-full blur-xl"></div>
     </motion.div>
+  )
+}
+
+// Settings Tab Component with TPIN Management
+function SettingsTab({ user }: { user: any }) {
+  const [tpinStatus, setTpinStatus] = useState<{
+    tpin_enabled: boolean
+    is_locked: boolean
+    locked_until: string | null
+  } | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [showTpinSetup, setShowTpinSetup] = useState(false)
+  const [currentTpin, setCurrentTpin] = useState('')
+  const [newTpin, setNewTpin] = useState('')
+  const [confirmTpin, setConfirmTpin] = useState('')
+  const [showCurrentTpin, setShowCurrentTpin] = useState(false)
+  const [showNewTpin, setShowNewTpin] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+
+  useEffect(() => {
+    fetchTpinStatus()
+  }, [user])
+
+  const fetchTpinStatus = async () => {
+    if (!user?.partner_id) return
+    setLoading(true)
+    try {
+      const response = await apiFetchJson('/api/tpin')
+      if (response.success) {
+        setTpinStatus({
+          tpin_enabled: response.tpin_enabled,
+          is_locked: response.is_locked,
+          locked_until: response.locked_until,
+        })
+      }
+    } catch (error) {
+      console.error('Error fetching TPIN status:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleSetTpin = async () => {
+    setMessage(null)
+    
+    if (newTpin.length !== 4) {
+      setMessage({ type: 'error', text: 'TPIN must be exactly 4 digits' })
+      return
+    }
+    
+    if (newTpin !== confirmTpin) {
+      setMessage({ type: 'error', text: 'New TPIN and confirmation do not match' })
+      return
+    }
+    
+    // If TPIN is already set, require current TPIN
+    if (tpinStatus?.tpin_enabled && !currentTpin) {
+      setMessage({ type: 'error', text: 'Current TPIN is required to change TPIN' })
+      return
+    }
+
+    setSaving(true)
+    try {
+      const response = await apiFetchJson('/api/tpin', {
+        method: 'POST',
+        body: JSON.stringify({
+          tpin: newTpin,
+          current_tpin: tpinStatus?.tpin_enabled ? currentTpin : undefined,
+          user_id: user.partner_id,
+        }),
+      })
+
+      if (response.success) {
+        setMessage({ type: 'success', text: response.message || 'TPIN set successfully!' })
+        setShowTpinSetup(false)
+        setCurrentTpin('')
+        setNewTpin('')
+        setConfirmTpin('')
+        fetchTpinStatus()
+      } else {
+        setMessage({ type: 'error', text: response.error || 'Failed to set TPIN' })
+      }
+    } catch (error: any) {
+      setMessage({ type: 'error', text: error.message || 'Failed to set TPIN' })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-600"></div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* TPIN Settings Card */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="bg-white dark:bg-gray-800 rounded-lg shadow-md border border-gray-200 dark:border-gray-700 p-6"
+      >
+        <div className="flex items-center gap-3 mb-6">
+          <div className="p-3 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
+            <Shield className="w-6 h-6 text-blue-600 dark:text-blue-400" />
+          </div>
+          <div>
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Transaction PIN (TPIN)</h3>
+            <p className="text-sm text-gray-600 dark:text-gray-400">
+              Secure your transactions with a 4-digit PIN
+            </p>
+          </div>
+        </div>
+
+        {message && (
+          <div className={`mb-4 p-3 rounded-lg flex items-center gap-2 ${
+            message.type === 'success' 
+              ? 'bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400' 
+              : 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400'
+          }`}>
+            {message.type === 'success' ? <Check className="w-5 h-5" /> : <AlertCircle className="w-5 h-5" />}
+            {message.text}
+          </div>
+        )}
+
+        {/* TPIN Status */}
+        <div className="mb-6 p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <Key className="w-5 h-5 text-gray-500 dark:text-gray-400" />
+              <div>
+                <p className="font-medium text-gray-900 dark:text-white">TPIN Status</p>
+                <p className="text-sm text-gray-600 dark:text-gray-400">
+                  {tpinStatus?.tpin_enabled ? 'Your TPIN is set and active' : 'TPIN not configured'}
+                </p>
+              </div>
+            </div>
+            <span className={`px-3 py-1 text-sm rounded-full ${
+              tpinStatus?.tpin_enabled
+                ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                : 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'
+            }`}>
+              {tpinStatus?.tpin_enabled ? 'Active' : 'Not Set'}
+            </span>
+          </div>
+
+          {tpinStatus?.is_locked && (
+            <div className="mt-3 p-2 bg-red-50 dark:bg-red-900/20 rounded text-red-700 dark:text-red-400 text-sm flex items-center gap-2">
+              <Lock className="w-4 h-4" />
+              Account locked due to failed attempts. Try again after {new Date(tpinStatus.locked_until!).toLocaleTimeString()}
+            </div>
+          )}
+        </div>
+
+        {/* Set/Change TPIN Section */}
+        {!showTpinSetup ? (
+          <button
+            onClick={() => setShowTpinSetup(true)}
+            disabled={tpinStatus?.is_locked}
+            className="w-full px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <Key className="w-5 h-5" />
+            {tpinStatus?.tpin_enabled ? 'Change TPIN' : 'Set Up TPIN'}
+          </button>
+        ) : (
+          <div className="space-y-4">
+            {/* Current TPIN (if already set) */}
+            {tpinStatus?.tpin_enabled && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Current TPIN
+                </label>
+                <div className="relative">
+                  <input
+                    type={showCurrentTpin ? 'text' : 'password'}
+                    value={currentTpin}
+                    onChange={(e) => setCurrentTpin(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                    placeholder="Enter current TPIN"
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white pr-10"
+                    maxLength={4}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowCurrentTpin(!showCurrentTpin)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                  >
+                    {showCurrentTpin ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* New TPIN */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                New TPIN (4 digits)
+              </label>
+              <div className="relative">
+                <input
+                  type={showNewTpin ? 'text' : 'password'}
+                  value={newTpin}
+                  onChange={(e) => setNewTpin(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                  placeholder="Enter new 4-digit TPIN"
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white pr-10"
+                  maxLength={4}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowNewTpin(!showNewTpin)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                >
+                  {showNewTpin ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                </button>
+              </div>
+            </div>
+
+            {/* Confirm TPIN */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Confirm TPIN
+              </label>
+              <input
+                type="password"
+                value={confirmTpin}
+                onChange={(e) => setConfirmTpin(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                placeholder="Re-enter new TPIN"
+                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                maxLength={4}
+              />
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  setShowTpinSetup(false)
+                  setCurrentTpin('')
+                  setNewTpin('')
+                  setConfirmTpin('')
+                  setMessage(null)
+                }}
+                className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSetTpin}
+                disabled={saving || newTpin.length !== 4 || newTpin !== confirmTpin}
+                className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {saving ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  <>
+                    <Check className="w-4 h-4" />
+                    {tpinStatus?.tpin_enabled ? 'Change TPIN' : 'Set TPIN'}
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Info Text */}
+        <div className="mt-6 p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
+          <h4 className="font-medium text-blue-800 dark:text-blue-300 mb-2">Why use TPIN?</h4>
+          <ul className="text-sm text-blue-700 dark:text-blue-400 space-y-1">
+            <li>• Required for all settlement/payout transactions</li>
+            <li>• Adds extra security layer to your transactions</li>
+            <li>• Protects against unauthorized access</li>
+            <li>• Account locks after 5 failed attempts for 15 minutes</li>
+          </ul>
+        </div>
+      </motion.div>
+
+      {/* Profile Settings Card */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.1 }}
+        className="bg-white dark:bg-gray-800 rounded-lg shadow-md border border-gray-200 dark:border-gray-700 p-6"
+      >
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Profile Information</h3>
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm text-gray-600 dark:text-gray-400">Name</label>
+              <p className="font-medium text-gray-900 dark:text-white">{user?.name || 'N/A'}</p>
+            </div>
+            <div>
+              <label className="block text-sm text-gray-600 dark:text-gray-400">Partner ID</label>
+              <p className="font-medium text-gray-900 dark:text-white">{user?.partner_id || 'N/A'}</p>
+            </div>
+            <div>
+              <label className="block text-sm text-gray-600 dark:text-gray-400">Email</label>
+              <p className="font-medium text-gray-900 dark:text-white">{user?.email || 'N/A'}</p>
+            </div>
+            <div>
+              <label className="block text-sm text-gray-600 dark:text-gray-400">Role</label>
+              <p className="font-medium text-gray-900 dark:text-white capitalize">{user?.role || 'N/A'}</p>
+            </div>
+          </div>
+        </div>
+      </motion.div>
+    </div>
   )
 }
 
