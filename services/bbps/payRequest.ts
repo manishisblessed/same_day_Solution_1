@@ -199,29 +199,35 @@ export async function payRequest(
     // NOTE: Do NOT allow frontend paymentInfo to override!
     // The format MUST match Sparkup documentation exactly or you get "Invalid XML request" error
 
-    // Prepare request body - EXACT format per Sparkup API Documentation (Feb 2026)
-    // Reference: bbps.txt lines 6805-6836
-    // Field order and format must match EXACTLY
+    // Prepare request body - EXACT format that WORKED in testing (Feb 2026)
+    // Reference: User's working example that returned "Fund Issue" (correct format, just balance issue)
     const requestBody: any = {
       name: name || 'Utility',
       sub_service_name: subServiceName, // MUST be exact category name (e.g., "Credit Card", "Electricity")
       initChannel: initChannel || 'AGT',
       amount: amount.toString(),
       billerId,
-      billerName: billerName || '', // REQUIRED per documentation line 6645-6651
+      billerName: billerName || '', // REQUIRED - biller name
       inputParams: requestInputParams,
       mac: mac || '01-23-45-67-89-ab',
       custConvFee: custConvFee || '0',
       billerAdhoc: billerAdhoc || 'true', // Must be string "true" or "false"
       paymentInfo: effectivePaymentInfo, // Format depends on paymentMode (see above)
       paymentMode: paymentMode || 'Cash',
-      quickPay: quickPay || 'Y',  // Documentation example shows "Y"
+      quickPay: 'Y',  // ALWAYS "Y" - the working example showed "Y"
       splitPay: splitPay || 'N',
-      reqId, // CRITICAL: Unique request ID
+      reqId, // CRITICAL: Unique request ID that links to fetchBill
     }
     
-    // IMPORTANT: billNumber is NOT in the documented fields - do NOT include it
-    // The API documentation does NOT list billNumber as a required or optional field
+    // billNumber: Only include if available from fetchBill response
+    // NOT all billers return billNumber (e.g., ICICI Credit Card doesn't)
+    // Only add if we have a real value - don't send empty string
+    if (billNumber && billNumber.trim() !== '') {
+      requestBody.billNumber = billNumber
+      console.log('Including billNumber in request:', billNumber)
+    } else {
+      console.log('No billNumber available from fetchBill - omitting from request')
+    }
     
     // Remove any undefined or null values
     Object.keys(requestBody).forEach(key => {
