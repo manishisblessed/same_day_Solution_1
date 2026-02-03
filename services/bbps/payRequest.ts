@@ -164,8 +164,9 @@ export async function payRequest(
         },
       ]
 
-    // Build paymentInfo - Per Sparkup API Documentation (Feb 2026)
-    // Format depends on paymentMode:
+    // Build paymentInfo - EXACTLY as per Sparkup API Documentation (Feb 2026)
+    // IMPORTANT: DO NOT allow frontend to override this - must match exact documentation format
+    // Reference: bbps.txt lines 6726-6745
     // 
     // For Cash mode:
     //   { "infoName": "Payment Account Info", "infoValue": "Cash Payment" }
@@ -178,25 +179,25 @@ export async function payRequest(
     
     const mode = paymentMode || 'Cash'
     if (mode === 'Cash') {
+      // EXACT format from documentation line 6727-6732
       effectivePaymentInfo = [
         { infoName: 'Payment Account Info', infoValue: 'Cash Payment' }
       ]
     } else if (mode === 'Wallet') {
+      // EXACT format from documentation line 6734-6745
       effectivePaymentInfo = [
         { infoName: 'WalletName', infoValue: 'Wallet' },
         { infoName: 'MobileNo', infoValue: customerMobileNumber || '' }
       ]
     } else {
-      // Default fallback
+      // Default to Cash format
       effectivePaymentInfo = [
         { infoName: 'Payment Account Info', infoValue: 'Cash Payment' }
       ]
     }
     
-    // Override if explicitly provided and valid
-    if (paymentInfo.length > 0 && paymentInfo[0].infoName) {
-      effectivePaymentInfo = paymentInfo
-    }
+    // NOTE: Do NOT allow frontend paymentInfo to override!
+    // The format MUST match Sparkup documentation exactly or you get "Invalid XML request" error
 
     // Prepare request body - EXACT format per Sparkup API Documentation (Feb 2026)
     // Reference: bbps.txt lines 6805-6836
