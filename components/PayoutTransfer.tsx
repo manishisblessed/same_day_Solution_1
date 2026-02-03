@@ -102,6 +102,7 @@ export default function PayoutTransfer({ title }: PayoutTransferProps = {}) {
   const [step, setStep] = useState<'details' | 'verify' | 'confirm' | 'result'>('details')
   const [transferring, setTransferring] = useState(false)
   const [transferResult, setTransferResult] = useState<PayoutTransaction | null>(null)
+  const [isPollingStatus, setIsPollingStatus] = useState(false)
   
   // UI state
   const [error, setError] = useState<string | null>(null)
@@ -112,11 +113,12 @@ export default function PayoutTransfer({ title }: PayoutTransferProps = {}) {
   const [loadingTransactions, setLoadingTransactions] = useState(false)
   const [activeView, setActiveView] = useState<'transfer' | 'history'>('transfer')
   
-  // Saved beneficiaries
+  // Saved beneficiaries - Show saved accounts first if available
   const [savedBeneficiaries, setSavedBeneficiaries] = useState<SavedBeneficiary[]>([])
-  const [loadingBeneficiaries, setLoadingBeneficiaries] = useState(false)
+  const [loadingBeneficiaries, setLoadingBeneficiaries] = useState(true) // Start as true since we load on mount
   const [showSavedBeneficiaries, setShowSavedBeneficiaries] = useState(false)
   const [savingBeneficiary, setSavingBeneficiary] = useState(false)
+  const [showNewAccountForm, setShowNewAccountForm] = useState(false) // Track if user wants to add new account
   
   // Charges
   const charges = useMemo(() => {
@@ -217,9 +219,61 @@ export default function PayoutTransfer({ title }: PayoutTransferProps = {}) {
     }
   }, [user?.partner_id])
 
+  // Poll transaction status for pending/processing transactions
+  const pollTransactionStatus = useCallback(async (transactionId: string) => {
+    if (!user?.partner_id || !transactionId) return
+    
+    try {
+      const result = await apiFetchJson<{
+        success: boolean
+        transaction?: {
+          id: string
+          client_ref_id: string
+          provider_txn_id?: string
+          rrn?: string
+          status: string
+          amount: number
+          charges: number
+          total_amount: number
+          account_number: string
+          account_holder_name: string
+          bank_name?: string
+          transfer_mode: string
+          failure_reason?: string
+          created_at: string
+          completed_at?: string
+        }
+        error?: string
+      }>(`/api/payout/status?transactionId=${transactionId}&user_id=${user.partner_id}`)
+      
+      if (result.success && result.transaction) {
+        const updatedTx = result.transaction
+        // Update the transfer result with the latest status
+        setTransferResult(prev => prev ? {
+          ...prev,
+          status: updatedTx.status,
+          rrn: updatedTx.rrn || prev.rrn,
+          provider_txn_id: updatedTx.provider_txn_id || prev.provider_txn_id,
+          failure_reason: updatedTx.failure_reason,
+          completed_at: updatedTx.completed_at,
+        } : null)
+        
+        // Return the status for the polling effect
+        return updatedTx.status
+      }
+    } catch (err) {
+      console.error('Error polling transaction status:', err)
+    }
+    return null
+  }, [user?.partner_id])
+
   // Fetch saved beneficiaries
   const fetchSavedBeneficiaries = useCallback(async () => {
-    if (!user?.partner_id) return
+    if (!user?.partner_id) {
+      setLoadingBeneficiaries(false)
+      setShowNewAccountForm(true) // Show form if no user
+      return
+    }
     
     setLoadingBeneficiaries(true)
     try {
@@ -231,9 +285,17 @@ export default function PayoutTransfer({ title }: PayoutTransferProps = {}) {
       
       if (result.success && result.beneficiaries) {
         setSavedBeneficiaries(result.beneficiaries)
+        // If no saved beneficiaries, show the new account form by default
+        if (result.beneficiaries.length === 0) {
+          setShowNewAccountForm(true)
+        }
+      } else {
+        // If no beneficiaries or error, show form
+        setShowNewAccountForm(true)
       }
     } catch (err) {
       console.error('Error fetching saved beneficiaries:', err)
+      setShowNewAccountForm(true) // Show form on error
     } finally {
       setLoadingBeneficiaries(false)
     }
@@ -308,6 +370,7 @@ export default function PayoutTransfer({ title }: PayoutTransferProps = {}) {
     }
     
     setShowSavedBeneficiaries(false)
+    setShowNewAccountForm(false) // Hide new account form when selecting saved beneficiary
     setVerified(true)
     setVerificationResult({
       account_holder_name: beneficiary.account_holder_name,
@@ -349,6 +412,40 @@ export default function PayoutTransfer({ title }: PayoutTransferProps = {}) {
     const interval = setInterval(fetchWalletBalance, 15000)
     return () => clearInterval(interval)
   }, [fetchWalletBalance, fetchBanks, fetchRecentTransactions, fetchSavedBeneficiaries])
+
+  // Auto-poll transaction status when on result step with pending/processing status
+  useEffect(() => {
+    if (step !== 'result' || !transferResult?.id) return
+    
+    const currentStatus = transferResult.status?.toUpperCase()
+    // Only poll if status is pending or processing
+    if (!['PENDING', 'PROCESSING'].includes(currentStatus)) return
+    
+    setIsPollingStatus(true)
+    let pollCount = 0
+    const maxPolls = 12 // Poll for 2 minutes max (every 10 seconds)
+    
+    const pollInterval = setInterval(async () => {
+      pollCount++
+      const newStatus = await pollTransactionStatus(transferResult.id)
+      
+      // Stop polling if status is resolved or max polls reached
+      if (newStatus && !['PENDING', 'PROCESSING'].includes(newStatus.toUpperCase())) {
+        setIsPollingStatus(false)
+        clearInterval(pollInterval)
+        // Also refresh transactions list
+        fetchRecentTransactions()
+      } else if (pollCount >= maxPolls) {
+        setIsPollingStatus(false)
+        clearInterval(pollInterval)
+      }
+    }, 10000) // Poll every 10 seconds
+    
+    return () => {
+      clearInterval(pollInterval)
+      setIsPollingStatus(false)
+    }
+  }, [step, transferResult?.id, transferResult?.status, pollTransactionStatus, fetchRecentTransactions])
 
   // Initialize sender details from user profile
   useEffect(() => {
@@ -618,6 +715,8 @@ export default function PayoutTransfer({ title }: PayoutTransferProps = {}) {
     setStep('details')
     setError(null)
     setInfoMessage(null)
+    // Reset to show saved accounts if available
+    setShowNewAccountForm(savedBeneficiaries.length === 0)
   }
 
   // Get status color
@@ -738,70 +837,89 @@ export default function PayoutTransfer({ title }: PayoutTransferProps = {}) {
           {/* Step 1: Bank Details */}
           {step === 'details' && (
             <div className="space-y-4">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Enter Bank Details</h3>
-                
-                {/* Saved Beneficiaries Button */}
-                {savedBeneficiaries.length > 0 && (
-                  <button
-                    onClick={() => setShowSavedBeneficiaries(!showSavedBeneficiaries)}
-                    className="flex items-center gap-2 px-3 py-1.5 text-sm bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors"
-                  >
-                    <BookUser className="w-4 h-4" />
-                    Saved Accounts ({savedBeneficiaries.length})
-                  </button>
-                )}
-              </div>
-              
-              {/* Saved Beneficiaries Dropdown */}
-              {showSavedBeneficiaries && savedBeneficiaries.length > 0 && (
-                <div className="mb-4 p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
-                  <div className="flex items-center justify-between mb-3">
-                    <h4 className="font-medium text-blue-800 dark:text-blue-300">Select a Saved Account</h4>
+              {/* Loading Beneficiaries */}
+              {loadingBeneficiaries && (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
+                  <span className="ml-2 text-gray-600 dark:text-gray-400">Loading saved accounts...</span>
+                </div>
+              )}
+
+              {/* Show Saved Accounts First - When there are saved beneficiaries and not showing new account form */}
+              {!loadingBeneficiaries && savedBeneficiaries.length > 0 && !showNewAccountForm && (
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Select Account to Transfer</h3>
                     <button
-                      onClick={() => setShowSavedBeneficiaries(false)}
-                      className="text-blue-600 dark:text-blue-400 hover:text-blue-800"
+                      onClick={() => setShowNewAccountForm(true)}
+                      className="flex items-center gap-2 px-3 py-1.5 text-sm bg-green-50 dark:bg-green-900/30 text-green-600 dark:text-green-400 rounded-lg hover:bg-green-100 dark:hover:bg-green-900/50 transition-colors"
                     >
-                      <X className="w-4 h-4" />
+                      <Plus className="w-4 h-4" />
+                      Add New Account
                     </button>
                   </div>
-                  <div className="space-y-2 max-h-48 overflow-y-auto">
+                  
+                  {/* Saved Accounts Grid */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     {savedBeneficiaries.map((beneficiary) => (
                       <div
                         key={beneficiary.id}
-                        className="flex items-center justify-between p-3 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 hover:border-blue-400 cursor-pointer transition-colors"
+                        className="flex items-center justify-between p-4 bg-white dark:bg-gray-800 rounded-xl border-2 border-gray-200 dark:border-gray-700 hover:border-blue-400 dark:hover:border-blue-500 cursor-pointer transition-all shadow-sm hover:shadow-md"
                         onClick={() => selectSavedBeneficiary(beneficiary)}
                       >
                         <div className="flex-1">
-                          <div className="flex items-center gap-2">
-                            <span className="font-medium text-gray-900 dark:text-white">
-                              {beneficiary.nickname || beneficiary.bank_name}
+                          <div className="flex items-center gap-2 mb-1">
+                            <Building2 className="w-4 h-4 text-gray-500 dark:text-gray-400" />
+                            <span className="font-semibold text-gray-900 dark:text-white">
+                              {beneficiary.bank_name}
                             </span>
                             {beneficiary.is_default && (
                               <Star className="w-4 h-4 text-yellow-500 fill-yellow-500" />
                             )}
                           </div>
-                          <p className="text-sm text-gray-600 dark:text-gray-400">
-                            ****{beneficiary.account_number.slice(-4)} • {beneficiary.ifsc_code}
-                          </p>
-                          <p className="text-xs text-gray-500 dark:text-gray-500">
+                          <p className="text-sm text-gray-700 dark:text-gray-300 font-medium">
                             {beneficiary.account_holder_name}
                           </p>
+                          <p className="text-sm text-gray-500 dark:text-gray-400 font-mono">
+                            ****{beneficiary.account_number.slice(-4)} • {beneficiary.ifsc_code}
+                          </p>
                         </div>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            deleteSavedBeneficiary(beneficiary.id)
-                          }}
-                          className="p-1.5 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                        <div className="flex flex-col items-end gap-2">
+                          <ArrowRight className="w-5 h-5 text-blue-500" />
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              deleteSavedBeneficiary(beneficiary.id)
+                            }}
+                            className="p-1.5 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded"
+                            title="Delete this account"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
                       </div>
                     ))}
                   </div>
                 </div>
               )}
+
+              {/* New Account Form - Show when there are no saved accounts OR user clicked "Add New" */}
+              {!loadingBeneficiaries && (savedBeneficiaries.length === 0 || showNewAccountForm) && (
+                <>
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Enter Bank Details</h3>
+                    
+                    {/* Back to Saved Accounts Button - Only show if there are saved beneficiaries */}
+                    {savedBeneficiaries.length > 0 && (
+                      <button
+                        onClick={() => setShowNewAccountForm(false)}
+                        className="flex items-center gap-2 px-3 py-1.5 text-sm bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+                      >
+                        <BookUser className="w-4 h-4" />
+                        Back to Saved Accounts
+                      </button>
+                    )}
+                  </div>
               
               {/* Bank Selection */}
               <div className="relative">
@@ -926,6 +1044,8 @@ export default function PayoutTransfer({ title }: PayoutTransferProps = {}) {
                   )}
                 </button>
               </div>
+                </>
+              )}
             </div>
           )}
 
@@ -1237,7 +1357,7 @@ export default function PayoutTransfer({ title }: PayoutTransferProps = {}) {
                 ) : transferResult.status === 'FAILED' ? (
                   <XCircle className="w-8 h-8 text-red-600" />
                 ) : (
-                  <Clock className="w-8 h-8 text-yellow-600" />
+                  <Clock className={`w-8 h-8 text-yellow-600 ${isPollingStatus ? 'animate-pulse' : ''}`} />
                 )}
               </div>
 
@@ -1246,6 +1366,23 @@ export default function PayoutTransfer({ title }: PayoutTransferProps = {}) {
                  transferResult.status === 'FAILED' ? 'Transfer Failed' :
                  'Transfer Processing'}
               </h3>
+
+              {/* Processing status indicator */}
+              {['PENDING', 'PROCESSING'].includes(transferResult.status) && (
+                <div className="flex items-center justify-center gap-2 text-sm text-yellow-700 dark:text-yellow-400 bg-yellow-50 dark:bg-yellow-900/20 px-4 py-2 rounded-lg">
+                  {isPollingStatus ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Checking status with bank... This may take a few minutes.</span>
+                    </>
+                  ) : (
+                    <>
+                      <AlertCircle className="w-4 h-4" />
+                      <span>Transfer submitted. Check "Recent Transfers" for updated status.</span>
+                    </>
+                  )}
+                </div>
+              )}
 
               <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4 text-left space-y-2">
                 <div className="flex justify-between text-sm">
@@ -1274,16 +1411,35 @@ export default function PayoutTransfer({ title }: PayoutTransferProps = {}) {
                   <span className="text-gray-600 dark:text-gray-400">Status</span>
                   <span className={`px-2 py-0.5 rounded text-xs font-semibold ${getStatusColor(transferResult.status)}`}>
                     {transferResult.status}
+                    {isPollingStatus && <Loader2 className="w-3 h-3 inline ml-1 animate-spin" />}
                   </span>
                 </div>
+                {transferResult.failure_reason && (
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-600 dark:text-gray-400">Reason</span>
+                    <span className="text-red-600 dark:text-red-400">{transferResult.failure_reason}</span>
+                  </div>
+                )}
               </div>
 
-              <button
-                onClick={handleReset}
-                className="px-6 py-2 bg-blue-600 text-white rounded-lg shadow-md hover:bg-blue-700 transition-colors"
-              >
-                New Transfer
-              </button>
+              <div className="flex gap-3 justify-center">
+                <button
+                  onClick={handleReset}
+                  className="px-6 py-2 bg-blue-600 text-white rounded-lg shadow-md hover:bg-blue-700 transition-colors"
+                >
+                  New Transfer
+                </button>
+                {['PENDING', 'PROCESSING'].includes(transferResult.status) && (
+                  <button
+                    onClick={() => pollTransactionStatus(transferResult.id)}
+                    disabled={isPollingStatus}
+                    className="px-6 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors disabled:opacity-50 flex items-center gap-2"
+                  >
+                    <RefreshCw className={`w-4 h-4 ${isPollingStatus ? 'animate-spin' : ''}`} />
+                    Check Status
+                  </button>
+                )}
+              </div>
             </div>
           )}
         </div>

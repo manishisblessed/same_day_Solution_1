@@ -686,17 +686,44 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
           const infoMsg = data.bill.additional_info?.message || 'No bill is currently due for this account'
           setInfoMessage(infoMsg)
         } else {
-          // CRITICAL: Ensure reqId is captured from all possible locations
-          // The reqId is essential for the payment to succeed
+          // CRITICAL: Ensure reqId is captured from ALL possible locations
+          // The reqId links the fetched bill to the payment request with SparkUp
+          // Without reqId, payment will fail with "No fetch data found for given ref id"
+          
+          // Check all possible reqId locations with detailed logging
+          console.log('🔍 Searching for reqId in response:')
+          console.log('  - data.reqId:', data.reqId)
+          console.log('  - data.bill.reqId:', data.bill?.reqId)
+          console.log('  - data.bill.additional_info?.reqId:', data.bill?.additional_info?.reqId)
+          console.log('  - data.data?.reqId:', (data as any).data?.reqId)
+          
+          // Extract reqId from all possible locations
+          const extractedReqId = 
+            data.reqId || // Top-level reqId from API response
+            data.bill?.reqId || // reqId in bill object
+            data.bill?.additional_info?.reqId || // reqId in additional_info
+            (data as any).data?.reqId || // reqId in nested data object
+            null
+          
           const billWithReqId = {
             ...data.bill,
-            // Prioritize reqId from: bill.reqId > data.reqId > bill.additional_info.reqId
-            reqId: data.bill.reqId || data.reqId || data.bill.additional_info?.reqId,
+            reqId: extractedReqId,
+            // Also store in additional_info as backup
+            additional_info: {
+              ...data.bill.additional_info,
+              reqId: extractedReqId,
+            },
           }
-          console.log('📋 Bill fetched with reqId:', billWithReqId.reqId || 'NOT FOUND - Payment will fail!')
-          if (!billWithReqId.reqId) {
-            console.error('❌ CRITICAL: No reqId found in bill response! Full response:', data)
+          
+          if (extractedReqId) {
+            console.log('✅ reqId successfully captured:', extractedReqId)
+          } else {
+            console.error('❌ CRITICAL: No reqId found in bill response!')
+            console.error('Full response for debugging:', JSON.stringify(data, null, 2))
+            setError('Bill fetch error: Missing reference ID. Please try again.')
+            return
           }
+          
           setBillDetails(billWithReqId)
         }
       } else if (isInfoMessage) {
@@ -747,12 +774,23 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
         : consumerNumber.trim()
 
       // CRITICAL: Extract reqId for payment correlation
+      // This links the payment to the previously fetched bill data with SparkUp
       const paymentReqId = billDetails.reqId || billDetails.additional_info?.reqId
-      console.log('💳 Initiating payment with reqId:', paymentReqId || 'NOT FOUND!')
+      
+      console.log('💳 PAYMENT reqId check:')
+      console.log('  - billDetails.reqId:', billDetails.reqId)
+      console.log('  - billDetails.additional_info?.reqId:', billDetails.additional_info?.reqId)
+      console.log('  - Final paymentReqId:', paymentReqId)
+      
       if (!paymentReqId) {
-        console.error('❌ CRITICAL: No reqId available for payment! This will cause "No fetch data found" error.')
-        console.error('Bill details:', billDetails)
+        console.error('❌ CRITICAL: No reqId available for payment!')
+        console.error('Bill details for debugging:', JSON.stringify(billDetails, null, 2))
+        setError('Payment error: Missing reference ID. Please fetch the bill again.')
+        setPaying(false)
+        return
       }
+
+      console.log('✅ Using reqId for payment:', paymentReqId)
 
       const data = await apiFetchJson<PaymentResult>('/api/bbps/bill/pay', {
         method: 'POST',
