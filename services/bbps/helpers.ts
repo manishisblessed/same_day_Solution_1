@@ -8,8 +8,10 @@ import { getBBPSBaseUrl, getBBPSPartnerId, getBBPSConsumerKey, getBBPSConsumerSe
 /**
  * Generate BBPS authentication headers
  * Required for all SparkUpTech BBPS API requests
- * Headers: partnerid (lowercase), consumerKey, consumerSecret (camelCase)
- * UPDATED Jan 31, 2026: Per Sparkup support - headers must use camelCase for consumerKey/consumerSecret
+ * 
+ * Per Sparkup API Documentation (Feb 2026):
+ * Headers must be lowercase: partnerid, consumerkey, consumersecret
+ * Reference: bbps.txt lines 49-57, 6429-6434, 6792-6800
  * 
  * @param includeAuthToken - Whether to include Authorization Bearer token (optional, not required per API docs)
  */
@@ -17,8 +19,8 @@ export function getBBPSHeaders(includeAuthToken: boolean = false): Record<string
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     'partnerid': getBBPSPartnerId(),
-    'consumerKey': getBBPSConsumerKey(), // FIXED: camelCase per Sparkup Jan 2026
-    'consumerSecret': getBBPSConsumerSecret(), // FIXED: camelCase per Sparkup Jan 2026
+    'consumerkey': getBBPSConsumerKey(), // lowercase per documentation
+    'consumersecret': getBBPSConsumerSecret(), // lowercase per documentation
   }
   
   if (includeAuthToken) {

@@ -164,40 +164,65 @@ export async function payRequest(
         },
       ]
 
-    // Build paymentInfo - Per Sparkup sample cURL (Jan 2026)
-    // ALWAYS use: { infoName: "Remarks", infoValue: "Bill Payment" }
-    // This is the exact format from Sparkup's working sample
-    let effectivePaymentInfo: Array<{ infoName: string; infoValue: string }> = [
-      { infoName: 'Remarks', infoValue: 'Bill Payment' }
-    ]
+    // Build paymentInfo - Per Sparkup API Documentation (Feb 2026)
+    // Format depends on paymentMode:
+    // 
+    // For Cash mode:
+    //   { "infoName": "Payment Account Info", "infoValue": "Cash Payment" }
+    //
+    // For Wallet mode:
+    //   [{ "infoName": "WalletName", "infoValue": "Wallet" },
+    //    { "infoName": "MobileNo", "infoValue": "<Customer Mobile>" }]
+    //
+    let effectivePaymentInfo: Array<{ infoName: string; infoValue: string }> = []
     
-    // Only override if explicitly provided and valid
+    const mode = paymentMode || 'Cash'
+    if (mode === 'Cash') {
+      effectivePaymentInfo = [
+        { infoName: 'Payment Account Info', infoValue: 'Cash Payment' }
+      ]
+    } else if (mode === 'Wallet') {
+      effectivePaymentInfo = [
+        { infoName: 'WalletName', infoValue: 'Wallet' },
+        { infoName: 'MobileNo', infoValue: customerMobileNumber || '' }
+      ]
+    } else {
+      // Default fallback
+      effectivePaymentInfo = [
+        { infoName: 'Payment Account Info', infoValue: 'Cash Payment' }
+      ]
+    }
+    
+    // Override if explicitly provided and valid
     if (paymentInfo.length > 0 && paymentInfo[0].infoName) {
       effectivePaymentInfo = paymentInfo
     }
 
-    // Prepare request body (matching WORKING Sparkup format from testing)
-    // This format was confirmed to work (returns "Fund Issue" = correct format, just wallet balance issue)
+    // Prepare request body - EXACT format per Sparkup API Documentation (Feb 2026)
+    // Reference: bbps.txt lines 6805-6836
+    // Field order and format must match EXACTLY
     const requestBody: any = {
       name: name || 'Utility',
-      sub_service_name: subServiceName, // MUST be category name like "Credit Card", "Electricity"
+      sub_service_name: subServiceName, // MUST be exact category name (e.g., "Credit Card", "Electricity")
       initChannel: initChannel || 'AGT',
       amount: amount.toString(),
       billerId,
-      billerName: billerName || '', // REQUIRED - biller name
+      billerName: billerName || '', // REQUIRED per documentation line 6645-6651
       inputParams: requestInputParams,
-      billNumber: billNumber || '', // REQUIRED - from fetchBill response
       mac: mac || '01-23-45-67-89-ab',
       custConvFee: custConvFee || '0',
-      billerAdhoc: billerAdhoc || 'true', // Must be "true" or "false" (string)
-      paymentInfo: effectivePaymentInfo, // Generated based on paymentMode
+      billerAdhoc: billerAdhoc || 'true', // Must be string "true" or "false"
+      paymentInfo: effectivePaymentInfo, // Format depends on paymentMode (see above)
       paymentMode: paymentMode || 'Cash',
-      quickPay: quickPay || 'N',  // Working example shows "N"
+      quickPay: quickPay || 'Y',  // Documentation example shows "Y"
       splitPay: splitPay || 'N',
-      reqId, // CRITICAL: Links payment to fetchBill
+      reqId, // CRITICAL: Unique request ID
     }
     
-    // Remove any undefined or null values (but keep empty strings for required fields)
+    // IMPORTANT: billNumber is NOT in the documented fields - do NOT include it
+    // The API documentation does NOT list billNumber as a required or optional field
+    
+    // Remove any undefined or null values
     Object.keys(requestBody).forEach(key => {
       if (requestBody[key] === undefined || requestBody[key] === null) {
         delete requestBody[key]
