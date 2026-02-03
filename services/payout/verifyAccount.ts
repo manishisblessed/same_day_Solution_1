@@ -1,13 +1,15 @@
 /**
  * Verify Bank Account
- * SparkUpTech Express Pay Payout API: POST /accountVerify
  * 
- * Verifies bank account details before making a transfer
+ * NOTE: Sparkup Payout API does NOT have an account verification endpoint.
+ * The documentation only shows: bankList, expressPay, expressPay2, statusCheck, getBalance
+ * 
+ * This function validates the account format locally and returns success,
+ * allowing the user to proceed with the transfer.
  */
 
-import { payoutClient } from './payoutClient'
-import { VerifyAccountRequest, VerifyAccountResponse } from './types'
-import { isPayoutMockMode, getPayoutCharges } from './config'
+import { VerifyAccountRequest } from './types'
+import { isPayoutMockMode } from './config'
 
 /**
  * Verify bank account details
@@ -78,118 +80,27 @@ export async function verifyBankAccount(request: VerifyAccountRequest): Promise<
     }
   }
 
-  try {
-    console.log('[Account Verify] Request:', {
-      accountNumber: normalizedAccountNumber.replace(/\d(?=\d{4})/g, '*'), // Mask for logging
-      ifsc: normalizedIfsc,
-      bankName: bankName || '',
-    })
+  // NOTE: Sparkup Payout API does NOT have an account verification endpoint.
+  // The API documentation only includes: bankList, expressPay, expressPay2, statusCheck, getBalance
+  // We skip external verification and return success based on local validation.
+  
+  console.log('[Account Verify] Skipping external API call - endpoint not available in Sparkup Payout')
+  console.log('[Account Verify] Local format validation passed for:', {
+    accountNumber: normalizedAccountNumber.replace(/\d(?=\d{4})/g, '*'), // Masked
+    ifsc: normalizedIfsc,
+    bankName: bankName || 'Not provided',
+  })
 
-    // Build request body - only include fields with values
-    const requestBody: any = {
-      AccountNo: normalizedAccountNumber,
-      IFSC: normalizedIfsc,
-    }
-    
-    // Only include bankName if provided
-    if (bankName && bankName.trim() !== '') {
-      requestBody.bankName = bankName.trim()
-    }
-
-    console.log('[Account Verify] Request body:', {
-      AccountNo: normalizedAccountNumber.replace(/\d(?=\d{4})/g, '*'), // Mask for logging
-      IFSC: normalizedIfsc,
-      hasBankName: !!requestBody.bankName,
-    })
-
-    const response = await payoutClient.request<VerifyAccountResponse>({
-      method: 'POST',
-      endpoint: '/accountVerify',
-      body: requestBody,
-    })
-
-    console.log('[Account Verify] Response:', {
-      success: response.success,
-      status: response.status,
-      hasData: !!response.data,
-      error: response.error,
-    })
-
-    if (!response.success || !response.data) {
-      console.error('[Account Verify] API Error:', {
-        success: response.success,
-        error: response.error,
-        status: response.status,
-        data: response.data,
-        fullResponse: JSON.stringify(response, null, 2),
-      })
-      
-      // Provide more specific error message
-      let errorMessage = response.error || 'Failed to verify account. Please check the account details and try again.'
-      
-      // Check if it's a validation error
-      if (response.status === 400) {
-        errorMessage = 'Invalid account number or IFSC code. Please verify and try again.'
-      } else if (response.status === 500) {
-        errorMessage = 'Verification service temporarily unavailable. Please try again later.'
-      }
-      
-      return {
-        success: false,
-        error: errorMessage,
-      }
-    }
-
-    const apiResponse = response.data
-
-    // Handle API response structure
-    if (!apiResponse.success) {
-      const errorMessage = apiResponse.message || apiResponse.error || 'Account verification failed'
-      console.error('[Account Verify] Verification failed:', errorMessage)
-      return {
-        success: false,
-        error: errorMessage,
-      }
-    }
-
-    // Check if data exists
-    if (!apiResponse.data) {
-      console.error('[Account Verify] No data in response:', apiResponse)
-      return {
-        success: false,
-        error: 'Invalid response from verification service',
-      }
-    }
-
-    const verifyData = apiResponse.data
-
-    // Validate that account is valid
-    if (verifyData.isValid === false) {
-      return {
-        success: false,
-        error: 'Account verification failed. Please check the account number and IFSC code.',
-        is_valid: false,
-      }
-    }
-
-    // Return success response
-    // After checking for false above, isValid can only be true | undefined
-    // Default to true if undefined (treat as valid)
-    return {
-      success: true,
-      account_holder_name: verifyData.accountHolderName || 'N/A',
-      bank_name: verifyData.bankName || bankName || 'N/A',
-      branch_name: verifyData.branchName || 'N/A',
-      is_valid: verifyData.isValid ?? true,
-      transaction_id: verifyData.transactionId,
-      charges: 2, // Typical verification charge
-    }
-  } catch (error: any) {
-    console.error('[Account Verify] Exception:', error)
-    return {
-      success: false,
-      error: error.message || 'An unexpected error occurred during account verification',
-    }
+  // Return success - the account format is valid
+  // The actual account validity will be confirmed during the transfer
+  return {
+    success: true,
+    account_holder_name: 'To be confirmed on transfer', // Not available without penny drop API
+    bank_name: bankName || 'Bank',
+    branch_name: normalizedIfsc.substring(0, 4), // First 4 chars of IFSC indicate bank
+    is_valid: true, // Format validated locally
+    transaction_id: `LOCALVERIFY_${Date.now()}`,
+    charges: 0, // No charge for local validation
   }
 }
 
