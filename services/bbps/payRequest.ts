@@ -176,10 +176,10 @@ export async function payRequest(
       effectivePaymentInfo = paymentInfo
     }
 
-    // Prepare request body (matching API specification exactly)
-    // Per Sparkup API docs - only send fields that are in the spec
-    // Format matches exact Postman request that works
-    // IMPORTANT: Don't send empty strings or undefined - only include fields with valid values
+    // Prepare request body (matching API specification EXACTLY)
+    // Per Sparkup API docs - ONLY send fields that are in the official example
+    // The official curl example shows EXACTLY these fields - DO NOT add extra fields!
+    // Adding extra fields like billerName/billNumber causes "Invalid XML request" errors
     const requestBody: any = {
       name: name || 'Utility',
       sub_service_name: subServiceName, // MUST be category name like "Credit Card", "Electricity"
@@ -192,25 +192,15 @@ export async function payRequest(
       billerAdhoc: billerAdhoc || 'true', // Must be "true" or "false" (string)
       paymentInfo: effectivePaymentInfo, // Generated based on paymentMode
       paymentMode: paymentMode || 'Cash',
-      quickPay: quickPay || 'Y',
+      quickPay: quickPay || 'Y',  // API example shows "Y"
       splitPay: splitPay || 'N',
       reqId, // CRITICAL: Links payment to fetchBill
     }
     
-    // Only include billerName if provided (required per API update)
-    if (billerName && billerName.trim() !== '') {
-      requestBody.billerName = billerName.trim()
-    }
-    
-    // Only include billNumber if it's provided (don't send empty string)
-    if (billNumber && billNumber.trim() !== '') {
-      requestBody.billNumber = billNumber.trim()
-    }
-    
-    // Only include customerMobileNumber for Wallet payment mode
-    if (customerMobileNumber && customerMobileNumber.trim() !== '') {
-      requestBody.customerMobileNumber = customerMobileNumber.trim()
-    }
+    // NOTE: DO NOT add billerName, billNumber, or customerMobileNumber!
+    // The official Sparkup API example does NOT include these fields
+    // Adding them causes "Invalid XML request" errors
+    // See: https://api.sparkuptech.in/api/ba/bbps/payRequest example in bbps.txt
     
     // Remove any undefined or null values to prevent "Invalid XML" errors
     Object.keys(requestBody).forEach(key => {
