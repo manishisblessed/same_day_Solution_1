@@ -573,12 +573,15 @@ export default function PayoutTransfer({ title }: PayoutTransferProps = {}) {
     return () => clearTimeout(timer)
   }, [bankSearchQuery, fetchBanks])
 
-  // Auto-fill IFSC when bank is selected
+  // Auto-fill IFSC prefix when bank is selected (only for new accounts, not saved beneficiaries)
+  // The user must complete the full 11-character IFSC code
   useEffect(() => {
-    if (selectedBank?.ifsc) {
+    if (selectedBank?.ifsc && !ifscCode) {
+      // Only set prefix if IFSC is empty (new account entry)
+      // Format: First 4 chars (bank code) + "0" as placeholder, user must complete the rest
       setIfscCode(selectedBank.ifsc.substring(0, 4) + '0')
     }
-  }, [selectedBank])
+  }, [selectedBank, ifscCode])
 
   // Handle bank selection
   const handleBankSelect = (bank: Bank) => {
