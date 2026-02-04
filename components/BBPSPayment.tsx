@@ -115,6 +115,30 @@ const isPrepaidCategory = (category: string): boolean => {
   )
 }
 
+// Helper to sanitize error messages (remove HTML from nginx/server errors)
+const sanitizeErrorMessage = (message: string | undefined | null): string => {
+  if (!message) return 'Unknown error'
+  
+  // Check if the message contains HTML (nginx error, etc.)
+  const trimmed = message.trim()
+  if (trimmed.includes('<html') || trimmed.includes('<!DOCTYPE') || trimmed.includes('<center>')) {
+    // Extract error type from HTML
+    if (trimmed.includes('504') || trimmed.includes('Gateway Time-out') || trimmed.includes('Gateway Timeout')) {
+      return 'Payment request timed out. This does NOT mean the payment failed - please check your transaction history in 2-3 minutes before retrying.'
+    }
+    if (trimmed.includes('502') || trimmed.includes('Bad Gateway')) {
+      return 'Service temporarily unavailable. Please try again.'
+    }
+    if (trimmed.includes('503') || trimmed.includes('Service Unavailable')) {
+      return 'Service is currently unavailable. Please try again later.'
+    }
+    // Generic HTML error
+    return 'Server error occurred. Please check transaction history and try again if needed.'
+  }
+  
+  return message
+}
+
 interface BBPSPaymentProps {
   categoryFilter?: string[]
   title?: string
@@ -1246,7 +1270,7 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
                       </div>
                     )}
                     {paymentResult.error_message && (
-                      <p className="text-sm text-red-700 dark:text-red-300 mt-1">{paymentResult.error_message}</p>
+                      <p className="text-sm text-red-700 dark:text-red-300 mt-1">{sanitizeErrorMessage(paymentResult.error_message)}</p>
                     )}
                     {paymentResult.success && paymentResult.bbps_transaction_id && (
                       <div className="mt-3 flex gap-2">

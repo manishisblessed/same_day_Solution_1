@@ -12,6 +12,33 @@ import { BBPSPaymentRequest, BBPSPaymentResponse } from './types'
 import { getMockPayRequest } from './mocks/payRequest'
 
 /**
+ * Sanitize error messages to remove HTML (e.g., nginx error pages)
+ * Returns a user-friendly message
+ */
+function sanitizeErrorMessage(message: string | undefined | null): string {
+  if (!message) return 'Payment request failed'
+  
+  // Check if the message contains HTML (nginx error, etc.)
+  const trimmed = message.trim()
+  if (trimmed.includes('<html') || trimmed.includes('<!DOCTYPE') || trimmed.includes('<center>')) {
+    // Extract error type from HTML
+    if (trimmed.includes('504') || trimmed.includes('Gateway Time-out') || trimmed.includes('Gateway Timeout')) {
+      return 'Payment request timed out. This does NOT mean the payment failed - please check your transaction history before retrying.'
+    }
+    if (trimmed.includes('502') || trimmed.includes('Bad Gateway')) {
+      return 'Service temporarily unavailable. Please check transaction history and try again.'
+    }
+    if (trimmed.includes('503') || trimmed.includes('Service Unavailable')) {
+      return 'Service is currently unavailable. Please try again later.'
+    }
+    // Generic HTML error
+    return 'Server error occurred. Please check transaction history before retrying.'
+  }
+  
+  return message
+}
+
+/**
  * Request parameters for payRequest
  */
 export interface PayRequestParams {
@@ -288,7 +315,7 @@ export async function payRequest(
       return {
         success: false,
         error_code: 'PAYMENT_FAILED',
-        error_message: response.error || 'Payment request failed',
+        error_message: sanitizeErrorMessage(response.error),
         agent_transaction_id: agentTransactionId,
         reqId,
       }
@@ -319,6 +346,15 @@ export async function payRequest(
       console.error('Error Message:', responseData.responseReason || apiResponse.message)
       console.error('Full Error Response:', JSON.stringify(apiResponse, null, 2))
       console.error('Request reqId was:', reqId)
+      
+      // Get error message and sanitize to remove any HTML
+      const rawErrorMessage = 
+        responseData.responseReason ||
+        apiResponse.message ||
+        responseData.error_message ||
+        responseData.errorMessage ||
+        'Payment failed'
+      
       return {
         success: false,
         error_code:
@@ -327,12 +363,7 @@ export async function payRequest(
           responseData.errorCode ||
           apiResponse.status?.toString() ||
           'PAYMENT_FAILED',
-        error_message:
-          responseData.responseReason ||
-          apiResponse.message ||
-          responseData.error_message ||
-          responseData.errorMessage ||
-          'Payment failed',
+        error_message: sanitizeErrorMessage(rawErrorMessage),
         agent_transaction_id: agentTransactionId,
         reqId,
       }
@@ -374,7 +405,7 @@ export async function payRequest(
     logBBPSApiError('payRequest', reqId, error, billerId)
     return {
       success: false,
-      error_message: error.message || 'Payment request failed',
+      error_message: sanitizeErrorMessage(error.message),
       agent_transaction_id: agentTransactionId,
       reqId,
     }

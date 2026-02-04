@@ -203,6 +203,43 @@ export async function apiFetch(
  * @param options - Fetch options
  * @returns Promise with parsed JSON data
  */
+/**
+ * Helper to check if a string looks like HTML (nginx error page, etc.)
+ */
+function isHtmlResponse(text: string): boolean {
+  const trimmed = text.trim().toLowerCase()
+  return trimmed.startsWith('<!doctype') || 
+         trimmed.startsWith('<html') || 
+         trimmed.includes('<center>') ||
+         trimmed.includes('gateway time') ||
+         trimmed.includes('nginx')
+}
+
+/**
+ * Extract a meaningful error message from HTML or non-JSON responses
+ */
+function extractErrorFromHtml(html: string, status: number): string {
+  // Check for specific nginx errors
+  if (html.includes('504') || html.includes('Gateway Time-out') || html.includes('Gateway Timeout')) {
+    return 'Request timed out. The payment may still be processing - please check your transaction history before retrying.'
+  }
+  if (html.includes('502') || html.includes('Bad Gateway')) {
+    return 'Service temporarily unavailable. Please try again in a few moments.'
+  }
+  if (html.includes('503') || html.includes('Service Unavailable')) {
+    return 'Service is currently unavailable. Please try again later.'
+  }
+  if (html.includes('500') || html.includes('Internal Server Error')) {
+    return 'Server error occurred. Please try again.'
+  }
+  // Default based on status code
+  if (status === 504) return 'Request timed out. Please check transaction history before retrying.'
+  if (status === 502) return 'Service temporarily unavailable.'
+  if (status === 503) return 'Service unavailable. Please try again later.'
+  if (status >= 500) return 'Server error. Please try again.'
+  return `Request failed with status ${status}`
+}
+
 export async function apiFetchJson<T = any>(
   path: string,
   options: RequestInit = {}
@@ -210,7 +247,30 @@ export async function apiFetchJson<T = any>(
   const response = await apiFetch(path, options)
   
   if (!response.ok) {
-    const errorData = await response.json().catch(() => ({ error: 'Unknown error' }))
+    // Try to get the response as text first to check if it's HTML
+    let errorText: string
+    try {
+      errorText = await response.text()
+    } catch {
+      errorText = ''
+    }
+    
+    // Check if response is HTML (e.g., nginx error page)
+    if (isHtmlResponse(errorText)) {
+      const friendlyError = extractErrorFromHtml(errorText, response.status)
+      throw new Error(friendlyError)
+    }
+    
+    // Try to parse as JSON
+    let errorData: any = { error: 'Unknown error' }
+    try {
+      errorData = JSON.parse(errorText)
+    } catch {
+      // Not JSON, use the text as error message if it's short and readable
+      if (errorText && errorText.length < 200 && !errorText.includes('<')) {
+        errorData = { error: errorText }
+      }
+    }
     
     // Provide user-friendly error messages, but preserve backend error messages when available
     if (response.status === 401) {
@@ -219,6 +279,8 @@ export async function apiFetchJson<T = any>(
       throw new Error(errorData.error || errorData.message || 'You do not have permission to access this resource')
     } else if (response.status === 404) {
       throw new Error(errorData.error || errorData.message || 'Resource not found')
+    } else if (response.status === 504) {
+      throw new Error('Request timed out. The payment may still be processing - please check your transaction history before retrying.')
     } else if (response.status >= 500) {
       // For 500 errors, use backend error message if available, otherwise show generic message
       throw new Error(errorData.error || errorData.message || 'Server error, please try again later')
