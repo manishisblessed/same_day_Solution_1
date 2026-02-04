@@ -57,9 +57,12 @@ export function getPayoutTimeout(): number {
 
 /**
  * Check if mock mode is enabled for payout
+ * NOTE: Only USE_PAYOUT_MOCK controls payout mock mode (not BBPS mock)
  */
 export function isPayoutMockMode(): boolean {
-  return process.env.USE_PAYOUT_MOCK === 'true' || process.env.USE_BBPS_MOCK === 'true'
+  // Only check USE_PAYOUT_MOCK - don't inherit from USE_BBPS_MOCK
+  // This allows BBPS to be in mock mode while Payout uses real API
+  return process.env.USE_PAYOUT_MOCK === 'true'
 }
 
 /**

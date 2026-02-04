@@ -208,6 +208,7 @@ export async function initiateTransfer(request: TransferRequest): Promise<{
       transferMode,
       apiRequestId,
       ifsc: normalizedIfsc,
+      mockMode: isPayoutMockMode(),
     })
 
     const response = await payoutClient.request<TransferResponse>({
@@ -216,7 +217,22 @@ export async function initiateTransfer(request: TransferRequest): Promise<{
       body: requestBody,
     })
 
+    // Log full API response for debugging
+    console.log('[Payout] API Response:', {
+      success: response.success,
+      status: response.status,
+      reqId: response.reqId,
+      hasData: !!response.data,
+      error: response.error,
+      data: response.data ? JSON.stringify(response.data).substring(0, 500) : null,
+    })
+
     if (!response.success || !response.data) {
+      console.error('[Payout] Transfer failed - no success or data:', {
+        success: response.success,
+        error: response.error,
+        status: response.status,
+      })
       return {
         success: false,
         error: response.error || 'Failed to initiate transfer',
@@ -226,6 +242,11 @@ export async function initiateTransfer(request: TransferRequest): Promise<{
     const apiResponse = response.data
 
     if (!apiResponse.success) {
+      console.error('[Payout] API returned failure:', {
+        success: apiResponse.success,
+        message: apiResponse.message,
+        data: apiResponse.data,
+      })
       return {
         success: false,
         error: apiResponse.message || 'Transfer initiation failed',
@@ -233,6 +254,14 @@ export async function initiateTransfer(request: TransferRequest): Promise<{
     }
 
     const transferData = apiResponse.data
+
+    console.log('[Payout] Transfer successful:', {
+      transaction_id: transferData?.transaction_id,
+      clientReqId: transferData?.clientReqId,
+      status: transferData?.status,
+      amount: transferData?.transactionAmount,
+      remark: transferData?.remark,
+    })
 
     // Map API response to our format
     return {
