@@ -334,7 +334,16 @@ export default function PayoutTransfer({ title }: PayoutTransferProps = {}) {
       }
     } catch (err: any) {
       console.error('Error saving beneficiary:', err)
-      setError(err.message || 'Failed to save beneficiary')
+      // Try to extract the actual error message from the response
+      let errorMessage = 'Failed to save beneficiary'
+      if (err.message && err.message !== 'Server error, please try again later') {
+        errorMessage = err.message
+      } else if (err.error) {
+        errorMessage = err.error
+      } else if (typeof err === 'string') {
+        errorMessage = err
+      }
+      setError(errorMessage)
     } finally {
       setSavingBeneficiary(false)
     }

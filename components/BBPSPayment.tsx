@@ -151,6 +151,7 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
   const [paymentStep, setPaymentStep] = useState<'bill' | 'amount' | 'confirm'>('bill')
   const [customAmount, setCustomAmount] = useState<string>('')
   const [amountType, setAmountType] = useState<'full' | 'minimum' | 'custom'>('full')
+  const [customAmountError, setCustomAmountError] = useState<string | null>(null)
   const [paymentCharges, setPaymentCharges] = useState<number>(0)
   const [loadingCharges, setLoadingCharges] = useState(false)
   const [tpin, setTpin] = useState('')
@@ -392,6 +393,29 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
     if (!billDetails) return
     
     const billAmountInRupees = paiseToRupees(billDetails.bill_amount)
+    const minAmt = getMinimumAmount() || 1
+    
+    // Validate custom amount if selected
+    if (amountType === 'custom') {
+      const numValue = parseFloat(customAmount)
+      if (customAmount === '' || isNaN(numValue) || numValue <= 0) {
+        setCustomAmountError('Please enter a valid amount')
+        setError('Please enter a valid amount')
+        return
+      }
+      if (numValue < minAmt) {
+        setCustomAmountError(`Amount must be at least ₹${minAmt.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`)
+        setError(`Amount must be at least ₹${minAmt.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`)
+        return
+      }
+      if (numValue > billAmountInRupees) {
+        setCustomAmountError(`Amount cannot exceed bill amount of ${formatPaiseAsRupees(billDetails.bill_amount)}`)
+        setError(`Amount cannot exceed bill amount of ${formatPaiseAsRupees(billDetails.bill_amount)}`)
+        return
+      }
+      setCustomAmountError(null)
+    }
+    
     const selectedAmount = getSelectedAmount()
     
     if (isNaN(selectedAmount) || selectedAmount <= 0) {
@@ -407,6 +431,11 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
     
     if (selectedAmount > billAmountInRupees) {
       setError('Amount cannot exceed bill amount')
+      return
+    }
+    
+    if (selectedAmount < minAmt) {
+      setError(`Amount must be at least ₹${minAmt.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`)
       return
     }
     
@@ -441,6 +470,7 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
     setTpin('')
     setTpinError(null)
     setPaymentCharges(0)
+    setCustomAmountError(null)
   }
 
   const fetchCategories = async () => {
@@ -926,6 +956,7 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
     setPaymentCharges(0)
     setTpin('')
     setTpinError(null)
+    setCustomAmountError(null)
     // Reset prepaid states
     setPrepaidAmount('')
     setShowPrepaidConfirm(false)
@@ -1794,7 +1825,15 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
 
                   {/* Custom Amount Button - Always visible */}
                   <button
-                    onClick={() => setAmountType('custom')}
+                    onClick={() => {
+                      setAmountType('custom')
+                      setCustomAmountError(null)
+                      // Pre-fill with minimum amount if available, otherwise empty
+                      const minAmt = getMinimumAmount()
+                      if (minAmt && !customAmount) {
+                        setCustomAmount(minAmt.toString())
+                      }
+                    }}
                     disabled={selectedBiller?.amount_exactness === 'EXACT'}
                     className={`px-4 py-3 rounded-lg border-2 text-sm font-medium transition-all ${
                       amountType === 'custom'
@@ -1817,21 +1856,43 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
                         value={customAmount}
                         onChange={(e) => {
                           const value = e.target.value
-                          const billAmtInRupees = paiseToRupees(billDetails.bill_amount)
-                          const minAmt = getMinimumAmount()
-                          const maxValue = Math.min(parseFloat(value) || 0, billAmtInRupees)
-                          const minValue = minAmt || 1
-                          if (value === '' || (parseFloat(value) >= minValue && parseFloat(value) <= billAmtInRupees)) {
+                          // Allow empty string or any numeric input while typing
+                          // Only validate on blur or when proceeding
+                          if (value === '' || /^\d*\.?\d*$/.test(value)) {
                             setCustomAmount(value)
+                            setCustomAmountError(null) // Clear error while typing
+                          }
+                        }}
+                        onBlur={() => {
+                          // Validate on blur
+                          const billAmtInRupees = paiseToRupees(billDetails.bill_amount)
+                          const minAmt = getMinimumAmount() || 1
+                          const numValue = parseFloat(customAmount)
+                          
+                          if (customAmount === '' || isNaN(numValue) || numValue <= 0) {
+                            setCustomAmountError('Please enter a valid amount')
+                          } else if (numValue < minAmt) {
+                            setCustomAmountError(`Amount must be at least ₹${minAmt.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`)
+                          } else if (numValue > billAmtInRupees) {
+                            setCustomAmountError(`Amount cannot exceed bill amount of ${formatPaiseAsRupees(billDetails.bill_amount)}`)
+                          } else {
+                            setCustomAmountError(null)
                           }
                         }}
                         placeholder={`Enter amount (Min: ₹${getMinimumAmount()?.toLocaleString('en-IN', { minimumFractionDigits: 2 }) || '1'})`}
                         max={paiseToRupees(billDetails.bill_amount)}
                         min={getMinimumAmount() || 1}
-                        className="w-full pl-8 pr-4 py-3 border-2 border-purple-300 dark:border-purple-700 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-lg font-semibold"
+                        className={`w-full pl-8 pr-4 py-3 border-2 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-lg font-semibold ${
+                          customAmountError ? 'border-red-500 dark:border-red-500' : 'border-purple-300 dark:border-purple-700'
+                        }`}
                         autoFocus
                       />
                     </div>
+                    {customAmountError && (
+                      <div className="mt-2 text-xs text-red-600 dark:text-red-400 font-medium">
+                        {customAmountError}
+                      </div>
+                    )}
                     <div className="flex items-center justify-between mt-2 text-xs">
                       <span className="text-gray-600 dark:text-gray-400">
                         Min: ₹{getMinimumAmount()?.toLocaleString('en-IN', { minimumFractionDigits: 2 }) || '1'}
@@ -1840,7 +1901,7 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
                         Max: {formatPaiseAsRupees(billDetails.bill_amount)}
                       </span>
                     </div>
-                    {customAmount && parseFloat(customAmount) > 0 && (
+                    {customAmount && parseFloat(customAmount) > 0 && !customAmountError && (
                       <div className="mt-2 text-xs text-purple-700 dark:text-purple-300 font-medium">
                         You will pay: ₹{parseFloat(customAmount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                       </div>
@@ -1851,7 +1912,7 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
 
               <button
                 onClick={proceedToConfirmation}
-                disabled={loadingCharges || (amountType === 'custom' && (!customAmount || parseFloat(customAmount) <= 0))}
+                disabled={loadingCharges || (amountType === 'custom' && (!customAmount || parseFloat(customAmount) <= 0 || customAmountError !== null))}
                 className="w-full px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center gap-2 font-semibold mt-4"
               >
                 {loadingCharges ? (

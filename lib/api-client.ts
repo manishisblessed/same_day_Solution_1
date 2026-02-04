@@ -181,15 +181,16 @@ export async function apiFetchJson<T = any>(
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({ error: 'Unknown error' }))
     
-    // Provide user-friendly error messages
+    // Provide user-friendly error messages, but preserve backend error messages when available
     if (response.status === 401) {
-      throw new Error('Session expired, please login again')
+      throw new Error(errorData.error || errorData.message || 'Session expired, please login again')
     } else if (response.status === 403) {
-      throw new Error('You do not have permission to access this resource')
+      throw new Error(errorData.error || errorData.message || 'You do not have permission to access this resource')
     } else if (response.status === 404) {
-      throw new Error('Resource not found')
+      throw new Error(errorData.error || errorData.message || 'Resource not found')
     } else if (response.status >= 500) {
-      throw new Error('Server error, please try again later')
+      // For 500 errors, use backend error message if available, otherwise show generic message
+      throw new Error(errorData.error || errorData.message || 'Server error, please try again later')
     } else {
       throw new Error(errorData.error || errorData.message || 'Request failed')
     }
