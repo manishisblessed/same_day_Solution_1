@@ -89,7 +89,65 @@ export async function POST(request: NextRequest) {
     const normalizedAccountNumber = accountNumber.toString().replace(/\s+/g, '').trim()
     const normalizedIfsc = ifscCode.toString().replace(/\s+/g, '').trim().toUpperCase()
 
-    // Verify account
+    // Account verification charges: ₹4
+    const verificationCharges = 4
+
+    // Check wallet balance before verification
+    const { data: walletBalance, error: balanceError } = await supabase.rpc('get_wallet_balance_v2', {
+      p_user_id: user.partner_id,
+      p_wallet_type: 'primary'
+    })
+
+    if (balanceError) {
+      console.error('[Payout Verify] Error fetching wallet balance:', balanceError)
+      const response = NextResponse.json(
+        { success: false, error: 'Failed to check wallet balance' },
+        { status: 500 }
+      )
+      return addCorsHeaders(request, response)
+    }
+
+    if ((walletBalance || 0) < verificationCharges) {
+      const response = NextResponse.json(
+        { 
+          success: false, 
+          error: `Insufficient balance for account verification. Required: ₹${verificationCharges}, Available: ₹${(walletBalance || 0).toFixed(2)}`,
+          is_valid: false,
+        },
+        { status: 400 }
+      )
+      return addCorsHeaders(request, response)
+    }
+
+    // Generate transaction ID for verification
+    const verificationTransactionId = `VERIFY_${user.partner_id}_${Date.now()}_${Math.random().toString(36).substring(7)}`
+
+    // Debit wallet for verification charges
+    const { data: ledgerId, error: debitError } = await supabase.rpc('add_ledger_entry', {
+      p_user_id: user.partner_id,
+      p_user_role: userRole || 'retailer',
+      p_wallet_type: 'primary',
+      p_fund_category: 'payout',
+      p_service_type: 'account_verification',
+      p_tx_type: 'ACCOUNT_VERIFY_DEBIT',
+      p_credit: 0,
+      p_debit: verificationCharges,
+      p_reference_id: verificationTransactionId,
+      p_transaction_id: verificationTransactionId,
+      p_status: 'completed', // Verification charge is always completed
+      p_remarks: `Account verification charges for ${normalizedAccountNumber.substring(0, 4)}****${normalizedAccountNumber.slice(-4)} - ${normalizedIfsc}`
+    })
+
+    if (debitError) {
+      console.error('[Payout Verify] Error debiting wallet:', debitError)
+      const response = NextResponse.json(
+        { success: false, error: 'Failed to deduct verification charges from wallet' },
+        { status: 500 }
+      )
+      return addCorsHeaders(request, response)
+    }
+
+    // Verify account (after wallet deduction)
     console.log('[Payout Verify] Verifying account for user:', user.partner_id)
     const result = await verifyBankAccount({
       accountNumber: normalizedAccountNumber,
@@ -99,11 +157,14 @@ export async function POST(request: NextRequest) {
 
     if (!result.success) {
       console.error('[Payout Verify] Verification failed:', result.error)
+      // Note: We don't refund the charge if verification fails - charge is for the verification attempt
       const response = NextResponse.json(
         { 
           success: false, 
           error: result.error || 'Account verification failed',
           is_valid: false,
+          verification_charges: verificationCharges,
+          message: 'Verification charges have been deducted from your wallet',
         },
         { status: 400 }
       )
@@ -114,6 +175,7 @@ export async function POST(request: NextRequest) {
       account_holder: result.account_holder_name,
       bank: result.bank_name,
       is_valid: result.is_valid,
+      charges_deducted: verificationCharges,
     })
 
     const response = NextResponse.json({
@@ -122,8 +184,9 @@ export async function POST(request: NextRequest) {
       account_holder_name: result.account_holder_name,
       bank_name: result.bank_name,
       branch_name: result.branch_name,
-      verification_charges: result.charges || 2,
-      message: 'Account verified successfully',
+      verification_charges: verificationCharges,
+      transaction_id: verificationTransactionId,
+      message: 'Account verified successfully. ₹4 verification charges have been deducted from your wallet.',
     })
     
     return addCorsHeaders(request, response)

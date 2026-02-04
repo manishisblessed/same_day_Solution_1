@@ -115,13 +115,29 @@ export async function POST(request: NextRequest) {
     }
 
     // Validate bank details
-    if (!bankId || !bankName) {
+    // Note: bankId can be 0 for some banks, but bankName is always required
+    if (bankId === undefined || bankId === null || !bankName) {
+      console.error('[Payout Transfer] Missing bank details:', { bankId, bankName })
       const response = NextResponse.json(
         { success: false, error: 'Bank ID and bank name are required' },
         { status: 400 }
       )
       return addCorsHeaders(request, response)
     }
+
+    // Log transfer request for debugging
+    console.log('[Payout Transfer] Request:', {
+      accountNumber: accountNumber?.replace(/\d(?=\d{4})/g, '*'),
+      ifscCode,
+      accountHolderName,
+      amount,
+      transferMode,
+      bankId,
+      bankName,
+      beneficiaryMobile,
+      senderName,
+      senderMobile,
+    })
 
     // Validate beneficiary and sender details
     if (!beneficiaryMobile || !senderName || !senderMobile) {

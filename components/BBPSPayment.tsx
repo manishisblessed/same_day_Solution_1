@@ -393,7 +393,8 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
     if (!billDetails) return
     
     const billAmountInRupees = paiseToRupees(billDetails.bill_amount)
-    const minAmt = getMinimumAmount() || 1
+    // For custom amount, minimum is ₹100 (not the minimum due amount)
+    const customMinAmount = 100
     
     // Validate custom amount if selected
     if (amountType === 'custom') {
@@ -403,9 +404,9 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
         setError('Please enter a valid amount')
         return
       }
-      if (numValue < minAmt) {
-        setCustomAmountError(`Amount must be at least ₹${minAmt.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`)
-        setError(`Amount must be at least ₹${minAmt.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`)
+      if (numValue < customMinAmount) {
+        setCustomAmountError(`Amount must be at least ₹${customMinAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`)
+        setError(`Amount must be at least ₹${customMinAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`)
         return
       }
       if (numValue > billAmountInRupees) {
@@ -434,8 +435,9 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
       return
     }
     
-    if (selectedAmount < minAmt) {
-      setError(`Amount must be at least ₹${minAmt.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`)
+    // Minimum payment check (₹100 for any payment)
+    if (selectedAmount < customMinAmount) {
+      setError(`Amount must be at least ₹${customMinAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`)
       return
     }
     
@@ -1767,7 +1769,7 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
                     Select Payment Amount
                   </label>
                   <span className="text-xs text-gray-500 dark:text-gray-400">
-                    You can pay any amount between minimum and full
+                    You can pay any amount between ₹100 and full amount
                   </span>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
@@ -1828,11 +1830,7 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
                     onClick={() => {
                       setAmountType('custom')
                       setCustomAmountError(null)
-                      // Pre-fill with minimum amount if available, otherwise empty
-                      const minAmt = getMinimumAmount()
-                      if (minAmt && !customAmount) {
-                        setCustomAmount(minAmt.toString())
-                      }
+                      // Don't pre-fill - let user enter their preferred amount (min ₹100)
                     }}
                     disabled={selectedBiller?.amount_exactness === 'EXACT'}
                     className={`px-4 py-3 rounded-lg border-2 text-sm font-medium transition-all ${
@@ -1864,24 +1862,24 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
                           }
                         }}
                         onBlur={() => {
-                          // Validate on blur
+                          // Validate on blur - minimum ₹100 for custom amount
                           const billAmtInRupees = paiseToRupees(billDetails.bill_amount)
-                          const minAmt = getMinimumAmount() || 1
+                          const customMinAmount = 100 // Minimum ₹100 for custom payments
                           const numValue = parseFloat(customAmount)
                           
                           if (customAmount === '' || isNaN(numValue) || numValue <= 0) {
                             setCustomAmountError('Please enter a valid amount')
-                          } else if (numValue < minAmt) {
-                            setCustomAmountError(`Amount must be at least ₹${minAmt.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`)
+                          } else if (numValue < customMinAmount) {
+                            setCustomAmountError(`Amount must be at least ₹${customMinAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`)
                           } else if (numValue > billAmtInRupees) {
                             setCustomAmountError(`Amount cannot exceed bill amount of ${formatPaiseAsRupees(billDetails.bill_amount)}`)
                           } else {
                             setCustomAmountError(null)
                           }
                         }}
-                        placeholder={`Enter amount (Min: ₹${getMinimumAmount()?.toLocaleString('en-IN', { minimumFractionDigits: 2 }) || '1'})`}
+                        placeholder="Enter amount (Min: ₹100)"
                         max={paiseToRupees(billDetails.bill_amount)}
-                        min={getMinimumAmount() || 1}
+                        min={100}
                         className={`w-full pl-8 pr-4 py-3 border-2 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-lg font-semibold ${
                           customAmountError ? 'border-red-500 dark:border-red-500' : 'border-purple-300 dark:border-purple-700'
                         }`}
@@ -1895,7 +1893,7 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
                     )}
                     <div className="flex items-center justify-between mt-2 text-xs">
                       <span className="text-gray-600 dark:text-gray-400">
-                        Min: ₹{getMinimumAmount()?.toLocaleString('en-IN', { minimumFractionDigits: 2 }) || '1'}
+                        Min: ₹100.00
                       </span>
                       <span className="text-gray-600 dark:text-gray-400">
                         Max: {formatPaiseAsRupees(billDetails.bill_amount)}

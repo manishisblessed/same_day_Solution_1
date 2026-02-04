@@ -48,7 +48,7 @@ npm ci --production=false
 
 # Build the application
 echo -e "${YELLOW}🔨 Building Next.js application...${NC}"
-npm run build
+NODE_OPTIONS="--max-old-space-size=4096" npm run build
 
 if [ $? -eq 0 ]; then
     echo -e "${GREEN}✅ Build successful!${NC}"

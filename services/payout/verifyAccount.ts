@@ -76,7 +76,7 @@ export async function verifyBankAccount(request: VerifyAccountRequest): Promise<
       branch_name: 'Test Branch',
       is_valid: true,
       transaction_id: 'MOCK_VERIFY_' + Date.now(),
-      charges: 2, // ₹2 for account verification
+      charges: 4, // ₹4 for account verification
     }
   }
 
@@ -93,6 +93,7 @@ export async function verifyBankAccount(request: VerifyAccountRequest): Promise<
 
   // Return success - the account format is valid
   // The actual account validity will be confirmed during the transfer
+  // Note: Charges are handled by the API endpoint, not here
   return {
     success: true,
     account_holder_name: 'To be confirmed on transfer', // Not available without penny drop API
@@ -100,7 +101,7 @@ export async function verifyBankAccount(request: VerifyAccountRequest): Promise<
     branch_name: normalizedIfsc.substring(0, 4), // First 4 chars of IFSC indicate bank
     is_valid: true, // Format validated locally
     transaction_id: `LOCALVERIFY_${Date.now()}`,
-    charges: 0, // No charge for local validation
+    charges: 4, // ₹4 verification charges (handled by API endpoint)
   }
 }
 

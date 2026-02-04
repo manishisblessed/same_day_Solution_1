@@ -100,7 +100,18 @@ export async function GET(request: NextRequest) {
  */
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json()
+    let body
+    try {
+      body = await request.json()
+    } catch (parseError) {
+      console.error('[Beneficiaries] Error parsing request body:', parseError)
+      const response = NextResponse.json(
+        { success: false, error: 'Invalid request body' },
+        { status: 400 }
+      )
+      return addCorsHeaders(request, response)
+    }
+
     const { 
       account_number, 
       ifsc_code, 
@@ -152,39 +163,107 @@ export async function POST(request: NextRequest) {
       return addCorsHeaders(request, response)
     }
 
+    // Normalize IFSC code
+    const normalizedIfsc = ifsc_code.toUpperCase().trim()
+    const normalizedAccountNumber = account_number.trim()
+
     // If setting as default, unset other defaults first
     if (is_default) {
-      await supabaseAdmin
+      const { error: unsetError } = await supabaseAdmin
         .from('saved_beneficiaries')
         .update({ is_default: false })
         .eq('retailer_id', user.partner_id)
+      
+      if (unsetError) {
+        console.error('[Beneficiaries] Error unsetting defaults:', unsetError)
+        // Continue anyway - not critical
+      }
     }
 
-    // Insert or update beneficiary
-    const { data: beneficiary, error } = await supabaseAdmin
+    // Check if beneficiary already exists
+    const { data: existingBeneficiary, error: checkError } = await supabaseAdmin
       .from('saved_beneficiaries')
-      .upsert({
-        retailer_id: user.partner_id,
-        account_number,
-        ifsc_code: ifsc_code.toUpperCase(),
-        account_holder_name: account_holder_name || 'Account Holder',
-        bank_id: bank_id || null,
-        bank_name,
-        beneficiary_mobile: beneficiary_mobile || null,
-        nickname: nickname || null,
-        is_default: is_default || false,
-        is_verified: true,
-        updated_at: new Date().toISOString(),
-      }, {
-        onConflict: 'retailer_id,account_number,ifsc_code',
-      })
-      .select()
-      .single()
+      .select('id')
+      .eq('retailer_id', user.partner_id)
+      .eq('account_number', normalizedAccountNumber)
+      .eq('ifsc_code', normalizedIfsc)
+      .maybeSingle()
+
+    if (checkError && checkError.code !== 'PGRST116') { // PGRST116 = no rows returned
+      console.error('[Beneficiaries] Error checking existing beneficiary:', checkError)
+      const response = NextResponse.json(
+        { success: false, error: 'Failed to check existing beneficiary. Please ensure the saved_beneficiaries table exists.' },
+        { status: 500 }
+      )
+      return addCorsHeaders(request, response)
+    }
+
+    const beneficiaryData = {
+      retailer_id: user.partner_id,
+      account_number: normalizedAccountNumber,
+      ifsc_code: normalizedIfsc,
+      account_holder_name: account_holder_name || 'Account Holder',
+      bank_id: bank_id || null,
+      bank_name: bank_name.trim(),
+      beneficiary_mobile: beneficiary_mobile ? beneficiary_mobile.trim() : null,
+      nickname: nickname ? nickname.trim() : null,
+      is_default: is_default || false,
+      is_verified: true,
+      updated_at: new Date().toISOString(),
+    }
+
+    let beneficiary
+    let error
+
+    if (existingBeneficiary) {
+      // Update existing beneficiary
+      const { data: updated, error: updateError } = await supabaseAdmin
+        .from('saved_beneficiaries')
+        .update(beneficiaryData)
+        .eq('id', existingBeneficiary.id)
+        .select()
+        .single()
+      
+      beneficiary = updated
+      error = updateError
+    } else {
+      // Insert new beneficiary
+      const { data: inserted, error: insertError } = await supabaseAdmin
+        .from('saved_beneficiaries')
+        .insert({
+          ...beneficiaryData,
+          created_at: new Date().toISOString(),
+        })
+        .select()
+        .single()
+      
+      beneficiary = inserted
+      error = insertError
+    }
 
     if (error) {
-      console.error('[Beneficiaries] Error saving:', error)
+      console.error('[Beneficiaries] Error saving beneficiary:', error)
+      console.error('[Beneficiaries] Error details:', {
+        code: error.code,
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+      })
+      
+      // Provide more helpful error messages
+      let errorMessage = 'Failed to save beneficiary'
+      if (error.code === '42P01') {
+        errorMessage = 'Database table not found. Please run the saved_beneficiaries migration.'
+      } else if (error.code === '23505') {
+        errorMessage = 'This account is already saved'
+      } else if (error.code === '23503') {
+        errorMessage = 'Invalid retailer reference. Please contact support.'
+      } else if (error.message) {
+        errorMessage = error.message
+      }
+      
       const response = NextResponse.json(
-        { success: false, error: error.message || 'Failed to save beneficiary' },
+        { success: false, error: errorMessage },
         { status: 500 }
       )
       return addCorsHeaders(request, response)
