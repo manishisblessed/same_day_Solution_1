@@ -219,12 +219,12 @@ export async function POST(request: NextRequest) {
     const totalAmount = amountNum + charges
 
     // Check retailer's wallet balance
-    const { data: walletBalance, error: balanceError } = await supabaseAdmin.rpc('get_wallet_balance_v2', {
-      p_user_id: user.partner_id,
-      p_wallet_type: 'primary'
+    // Using the same wallet function as BBPS for consistency (get_wallet_balance with p_retailer_id)
+    const { data: walletBalance, error: balanceError } = await (supabaseAdmin as any).rpc('get_wallet_balance', {
+      p_retailer_id: user.partner_id
     })
 
-    if (balanceError || walletBalance === null) {
+    if (balanceError) {
       console.error('Error fetching wallet balance:', balanceError)
       const response = NextResponse.json(
         { success: false, error: 'Failed to check wallet balance' },
@@ -294,21 +294,13 @@ export async function POST(request: NextRequest) {
     }
 
     // Debit wallet
-    // Note: fund_category must be one of: 'cash', 'online', 'commission', 'settlement', 'adjustment', 'aeps', 'bbps', 'other'
-    // service_type must be one of: 'bbps', 'aeps', 'settlement', 'pos', 'admin', 'other'
-    const { data: ledgerId, error: ledgerError } = await supabaseAdmin.rpc('add_ledger_entry', {
-      p_user_id: user.partner_id,
-      p_user_role: 'retailer',
-      p_wallet_type: 'primary',
-      p_fund_category: 'settlement', // Payout is part of settlement flow
-      p_service_type: 'settlement', // Bank transfer = settlement
-      p_tx_type: 'PAYOUT',
-      p_credit: 0,
-      p_debit: totalAmount,
-      p_reference_id: clientRefId,
+    // Using the same wallet function as BBPS for consistency (debit_wallet_bbps)
+    const { data: ledgerId, error: ledgerError } = await (supabaseAdmin as any).rpc('debit_wallet_bbps', {
+      p_retailer_id: user.partner_id,
       p_transaction_id: payoutTx.id,
-      p_status: 'pending',
-      p_remarks: `Payout to ${accountHolderName} - ${accountNumber} via ${transferMode}`
+      p_amount: totalAmount,
+      p_description: `Payout to ${accountHolderName} - ${accountNumber} via ${transferMode}`,
+      p_reference_id: clientRefId
     })
 
     if (ledgerError) {
@@ -355,19 +347,13 @@ export async function POST(request: NextRequest) {
 
     if (!transferResult.success) {
       // Refund the wallet
-      await supabaseAdmin.rpc('add_ledger_entry', {
-        p_user_id: user.partner_id,
-        p_user_role: 'retailer',
-        p_wallet_type: 'primary',
-        p_fund_category: 'settlement', // Payout refund is part of settlement flow
-        p_service_type: 'settlement',
-        p_tx_type: 'REFUND',
-        p_credit: totalAmount,
-        p_debit: 0,
-        p_reference_id: `REFUND_${clientRefId}`,
+      // Using the same wallet function as BBPS for consistency (refund_wallet_bbps)
+      await (supabaseAdmin as any).rpc('refund_wallet_bbps', {
+        p_retailer_id: user.partner_id,
         p_transaction_id: payoutTx.id,
-        p_status: 'completed',
-        p_remarks: `Payout failed - Refund: ${transferResult.error}`
+        p_amount: totalAmount,
+        p_description: `Payout failed - Refund: ${transferResult.error}`,
+        p_reference_id: `REFUND_${clientRefId}`
       })
 
       // Update transaction as failed
