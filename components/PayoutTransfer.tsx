@@ -433,6 +433,7 @@ export default function PayoutTransfer({ title }: PayoutTransferProps = {}) {
         bank_name?: string
         verification_charges?: number
         transaction_id?: string
+        sparkup_transaction_id?: string
         message?: string
         error?: string
       }>('/api/payout/verify', {
@@ -442,6 +443,7 @@ export default function PayoutTransfer({ title }: PayoutTransferProps = {}) {
           accountNumber: normalizedAccountNumber,
           ifscCode: normalizedIfsc,
           bankName: selectedBank?.bankName,
+          bankId: selectedBank?.id, // Include bankId for better accuracy
           user_id: user?.partner_id, // Fallback auth
         }),
       })
@@ -452,9 +454,12 @@ export default function PayoutTransfer({ title }: PayoutTransferProps = {}) {
           account_holder_name: result.account_holder_name,
           bank_name: result.bank_name,
           is_valid: result.is_valid,
-          is_saved_account: false, // Freshly verified
+          is_saved_account: false, // Freshly verified via SparkupX API
         })
-        setAccountHolderName(result.account_holder_name || accountHolderName)
+        // Update account holder name with the verified name from bank
+        if (result.account_holder_name) {
+          setAccountHolderName(result.account_holder_name)
+        }
         
         // Refresh wallet balance after verification
         await fetchWalletBalance()
@@ -644,6 +649,7 @@ export default function PayoutTransfer({ title }: PayoutTransferProps = {}) {
         bank_name?: string
         verification_charges?: number
         transaction_id?: string
+        sparkup_transaction_id?: string
         message?: string
         error?: string
       }>('/api/payout/verify', {
@@ -653,6 +659,7 @@ export default function PayoutTransfer({ title }: PayoutTransferProps = {}) {
           accountNumber: normalizedAccountNumber,
           ifscCode: normalizedIfsc,
           bankName: selectedBank?.bankName,
+          bankId: selectedBank?.id, // Include bankId for SparkupX API
           user_id: user?.partner_id, // Fallback auth
         }),
       })
@@ -663,9 +670,12 @@ export default function PayoutTransfer({ title }: PayoutTransferProps = {}) {
           account_holder_name: result.account_holder_name,
           bank_name: result.bank_name,
           is_valid: result.is_valid,
-          is_saved_account: false, // Freshly verified - not from saved
+          is_saved_account: false, // Freshly verified via SparkupX API
         })
-        setAccountHolderName(result.account_holder_name || '')
+        // Update account holder name with the verified name from bank
+        if (result.account_holder_name) {
+          setAccountHolderName(result.account_holder_name)
+        }
         setStep('verify')
         
         // Refresh wallet balance after verification

@@ -72,6 +72,7 @@ export interface VerifyAccountRequest {
   accountNumber: string
   ifscCode: string
   bankName?: string
+  bankId?: number
 }
 
 /**
