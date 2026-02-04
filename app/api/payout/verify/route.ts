@@ -123,17 +123,20 @@ export async function POST(request: NextRequest) {
     const verificationTransactionId = `VERIFY_${user.partner_id}_${Date.now()}_${Math.random().toString(36).substring(7)}`
 
     // Debit wallet for verification charges
+    // Note: fund_category must be one of: 'cash', 'online', 'commission', 'settlement', 'adjustment', 'aeps', 'bbps', 'other'
+    // service_type must be one of: 'bbps', 'aeps', 'settlement', 'pos', 'admin', 'other'
+    // p_transaction_id must be UUID or null (not TEXT)
     const { data: ledgerId, error: debitError } = await supabase.rpc('add_ledger_entry', {
       p_user_id: user.partner_id,
       p_user_role: userRole || 'retailer',
       p_wallet_type: 'primary',
-      p_fund_category: 'payout',
-      p_service_type: 'account_verification',
+      p_fund_category: 'settlement', // Settlement flow includes verification
+      p_service_type: 'settlement', // Account verification is part of settlement
       p_tx_type: 'ACCOUNT_VERIFY_DEBIT',
       p_credit: 0,
       p_debit: verificationCharges,
       p_reference_id: verificationTransactionId,
-      p_transaction_id: verificationTransactionId,
+      p_transaction_id: null, // Must be UUID or null, not TEXT string
       p_status: 'completed', // Verification charge is always completed
       p_remarks: `Account verification charges for ${normalizedAccountNumber.substring(0, 4)}****${normalizedAccountNumber.slice(-4)} - ${normalizedIfsc}`
     })

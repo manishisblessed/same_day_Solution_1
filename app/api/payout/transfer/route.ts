@@ -294,12 +294,14 @@ export async function POST(request: NextRequest) {
     }
 
     // Debit wallet
+    // Note: fund_category must be one of: 'cash', 'online', 'commission', 'settlement', 'adjustment', 'aeps', 'bbps', 'other'
+    // service_type must be one of: 'bbps', 'aeps', 'settlement', 'pos', 'admin', 'other'
     const { data: ledgerId, error: ledgerError } = await supabaseAdmin.rpc('add_ledger_entry', {
       p_user_id: user.partner_id,
       p_user_role: 'retailer',
       p_wallet_type: 'primary',
-      p_fund_category: 'payout',
-      p_service_type: 'payout',
+      p_fund_category: 'settlement', // Payout is part of settlement flow
+      p_service_type: 'settlement', // Bank transfer = settlement
       p_tx_type: 'PAYOUT',
       p_credit: 0,
       p_debit: totalAmount,
@@ -357,8 +359,8 @@ export async function POST(request: NextRequest) {
         p_user_id: user.partner_id,
         p_user_role: 'retailer',
         p_wallet_type: 'primary',
-        p_fund_category: 'payout',
-        p_service_type: 'payout',
+        p_fund_category: 'settlement', // Payout refund is part of settlement flow
+        p_service_type: 'settlement',
         p_tx_type: 'REFUND',
         p_credit: totalAmount,
         p_debit: 0,
