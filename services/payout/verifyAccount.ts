@@ -1,22 +1,32 @@
 /**
  * Verify Bank Account (Account Verification / Penny Drop)
  * 
- * This service calls the SparkupX Payout API to verify bank account details
- * and fetch the beneficiary name. This is done via a "penny drop" transaction
- * where ₹1 is credited to verify the account exists and get the holder's name.
+ * NOTE: As of Feb 2026, the SparkupX Payout API documentation does NOT include
+ * an account verification endpoint. The available endpoints are:
+ * - bankList, expressPay2, statusCheck, getBalance
  * 
- * The verification deducts from the SparkupX wallet balance.
+ * Until SparkupX provides an account verification API, this service performs
+ * LOCAL VALIDATION ONLY and returns a placeholder response.
+ * 
+ * CONTACT SparkupX support to get the correct account verification endpoint!
  */
 
 import { VerifyAccountRequest } from './types'
-import { payoutClient } from './payoutClient'
 import { isPayoutMockMode } from './config'
 
+// Flag to track if SparkupX account verification API is available
+// Set this to true once SparkupX provides the correct endpoint
+const SPARKUPX_VERIFICATION_AVAILABLE = false
+
 /**
- * Verify bank account details and get beneficiary name
+ * Verify bank account details
+ * 
+ * IMPORTANT: SparkupX Payout API does NOT have an account verification endpoint
+ * as per the current documentation (Feb 2026). This function only performs
+ * local validation until SparkupX provides the correct API.
  * 
  * @param request - Account details to verify (accountNumber, ifscCode, bankId, bankName)
- * @returns Verification result with account holder name from bank
+ * @returns Verification result (local validation only - no beneficiary name)
  */
 export async function verifyBankAccount(request: VerifyAccountRequest): Promise<{
   success: boolean
@@ -28,6 +38,8 @@ export async function verifyBankAccount(request: VerifyAccountRequest): Promise<
   charges?: number
   error?: string
   sparkup_balance?: number
+  verification_type?: 'local' | 'api'
+  message?: string
 }> {
   const { accountNumber, ifscCode, bankName, bankId } = request
 
@@ -63,7 +75,7 @@ export async function verifyBankAccount(request: VerifyAccountRequest): Promise<
 
   // Mock mode for testing
   if (isPayoutMockMode()) {
-    console.log('[Account Verify] Mock mode enabled')
+    console.log('[Account Verify] Mock mode enabled - returning mock data')
     
     // Simulate some failures for testing
     if (normalizedAccountNumber.startsWith('000')) {
@@ -75,156 +87,53 @@ export async function verifyBankAccount(request: VerifyAccountRequest): Promise<
     
     return {
       success: true,
-      account_holder_name: 'TEST ACCOUNT HOLDER',
+      account_holder_name: 'TEST ACCOUNT HOLDER (MOCK)',
       bank_name: bankName || 'Test Bank',
       branch_name: 'Test Branch',
       is_valid: true,
       transaction_id: 'MOCK_VERIFY_' + Date.now(),
-      charges: 4, // ₹4 for account verification
-      sparkup_balance: 1000, // Mock balance
+      charges: 0, // No charges for mock
+      sparkup_balance: 1000,
+      verification_type: 'local',
     }
   }
 
-  // Call SparkupX Account Verification API
-  // The API endpoint is /accountVerify
-  // This performs a penny drop verification to confirm account exists and get beneficiary name
-  
-  console.log('[Account Verify] Calling SparkupX API for account verification:', {
-    accountNumber: normalizedAccountNumber.replace(/\d(?=\d{4})/g, '*'), // Masked
-    ifsc: normalizedIfsc,
-    bankName: bankName || 'Not provided',
-    bankId: bankId || 'Not provided',
-  })
+  // ============================================================
+  // IMPORTANT: SparkupX does NOT have account verification API
+  // ============================================================
+  // The SparkupX Payout API documentation only includes:
+  // - POST /api/fzep/payout/bankList
+  // - POST /api/fzep/payout/expressPay2
+  // - POST /api/fzep/payout/statusCheck
+  // - GET /api/wallet/getBalance
+  //
+  // There is NO /accountVerify endpoint in the documentation!
+  // Contact SparkupX support to get the correct endpoint.
+  // ============================================================
 
-  try {
-    // Generate unique request ID for tracking
-    const requestId = `AV${Date.now()}${Math.random().toString(36).substring(2, 8).toUpperCase()}`
+  if (!SPARKUPX_VERIFICATION_AVAILABLE) {
+    console.log('[Account Verify] SparkupX verification API NOT available')
+    console.log('[Account Verify] Performing LOCAL VALIDATION ONLY')
     
-    // Prepare request body for accountVerify API
-    const requestBody = {
-      accountNo: normalizedAccountNumber,
-      ifscCode: normalizedIfsc,
-      bankId: bankId || undefined,
-      bankName: bankName || undefined,
-      requestId: requestId,
-    }
-
-    // Make API call to SparkupX accountVerify endpoint
-    const response = await payoutClient.request({
-      method: 'POST',
-      endpoint: '/accountVerify',
-      body: requestBody,
-      reqId: requestId,
-    })
-
-    console.log('[Account Verify] API Response:', {
-      success: response.success,
-      status: response.status,
-      hasData: !!response.data,
-      reqId: response.reqId,
-    })
-
-    if (!response.success) {
-      console.error('[Account Verify] API call failed:', response.error)
-      return {
-        success: false,
-        error: response.error || 'Account verification failed. Please try again.',
-      }
-    }
-
-    const data = response.data
-
-    // Check if the API response indicates success
-    // SparkupX typically uses: success: true, status: 200, or responseCode: "00"
-    if (data?.success === false || data?.status === 'FAILURE' || data?.status === 'failed') {
-      const errorMessage = data?.message || data?.error || data?.msg || 'Account verification failed'
-      console.error('[Account Verify] API returned failure:', errorMessage)
-      return {
-        success: false,
-        error: errorMessage,
-      }
-    }
-
-    // Extract beneficiary name and other details from response
-    // SparkupX response structure varies, so we check multiple possible field names
-    const accountHolderName = 
-      data?.data?.accountHolderName ||
-      data?.data?.beneName ||
-      data?.data?.beneficiaryName ||
-      data?.data?.name ||
-      data?.accountHolderName ||
-      data?.beneName ||
-      data?.beneficiaryName ||
-      data?.name ||
-      null
-
-    const verifiedBankName = 
-      data?.data?.bankName ||
-      data?.bankName ||
-      bankName ||
-      'Bank'
-
-    const branchName =
-      data?.data?.branchName ||
-      data?.data?.branch ||
-      data?.branchName ||
-      data?.branch ||
-      normalizedIfsc.substring(0, 4) // Fallback to first 4 chars of IFSC
-
-    const transactionId =
-      data?.data?.transactionId ||
-      data?.data?.transaction_id ||
-      data?.data?.txnId ||
-      data?.transactionId ||
-      data?.transaction_id ||
-      data?.txnId ||
-      response.reqId
-
-    const sparkupBalance =
-      data?.data?.balance ||
-      data?.balance ||
-      data?.data?.bal ||
-      data?.bal ||
-      undefined
-
-    // If no beneficiary name was returned, the verification may have failed
-    if (!accountHolderName) {
-      console.warn('[Account Verify] No beneficiary name in response:', data)
-      return {
-        success: true, // API call succeeded but no name returned
-        account_holder_name: 'Account Holder Name Not Available',
-        bank_name: verifiedBankName,
-        branch_name: branchName,
-        is_valid: true, // Account format is valid
-        transaction_id: transactionId,
-        charges: 4,
-        sparkup_balance: sparkupBalance,
-      }
-    }
-
-    console.log('[Account Verify] Verification successful:', {
-      accountHolderName: accountHolderName,
-      bankName: verifiedBankName,
-      transactionId: transactionId,
-    })
-
+    // Return success with local validation (no beneficiary name)
+    // The user will need to manually confirm the beneficiary name
     return {
       success: true,
-      account_holder_name: accountHolderName,
-      bank_name: verifiedBankName,
-      branch_name: branchName,
-      is_valid: true,
-      transaction_id: transactionId,
-      charges: 4, // ₹4 verification charges
-      sparkup_balance: sparkupBalance,
-    }
-
-  } catch (error: any) {
-    console.error('[Account Verify] Unexpected error:', error)
-    return {
-      success: false,
-      error: error.message || 'Account verification failed due to an unexpected error',
+      account_holder_name: undefined, // Cannot fetch from SparkupX
+      bank_name: bankName || normalizedIfsc.substring(0, 4) + ' Bank',
+      branch_name: normalizedIfsc.substring(0, 4) + ' Branch',
+      is_valid: true, // Account format is valid
+      transaction_id: `LOCAL_${Date.now()}`,
+      charges: 0, // No charges since no API call
+      verification_type: 'local',
+      message: 'Account format validated. Beneficiary name verification is not available - please confirm the name before transfer.',
     }
   }
-}
 
+  // If SparkupX verification becomes available, implement the API call here
+  // For now, this code path is never reached
+  return {
+    success: false,
+    error: 'Account verification service not configured. Please contact support.',
+  }
+}

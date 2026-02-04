@@ -16,19 +16,24 @@ export async function OPTIONS(request: NextRequest) {
  * POST /api/payout/verify
  * 
  * Verifies bank account details before making a transfer.
- * This calls SparkupX accountVerify API to perform penny drop verification
- * and fetch the actual beneficiary name from the bank.
  * 
- * Flow:
- * 1. Deduct ₹4 from retailer wallet (verification charges)
- * 2. Call SparkupX accountVerify API (deducts from SparkupX wallet, returns beneficiary name)
- * 3. Return beneficiary name to user
+ * IMPORTANT: SparkupX Payout API does NOT have an account verification endpoint
+ * as per the documentation (Feb 2026). This endpoint only performs LOCAL validation.
+ * 
+ * The available SparkupX endpoints are:
+ * - bankList, expressPay2, statusCheck, getBalance
+ * 
+ * Until SparkupX provides an account verification API:
+ * - NO charges are deducted (since no API call is made)
+ * - Only local format validation is performed
+ * - Beneficiary name CANNOT be fetched from the bank
+ * - User must manually confirm the beneficiary name
  * 
  * Request Body:
  * - accountNumber: Bank account number
  * - ifscCode: IFSC code
  * - bankName: Bank name (optional)
- * - bankId: Bank ID from bank list (optional, improves accuracy)
+ * - bankId: Bank ID from bank list (optional)
  * - user_id: Fallback auth - retailer partner_id (if cookie auth fails)
  */
 export async function POST(request: NextRequest) {
@@ -96,63 +101,15 @@ export async function POST(request: NextRequest) {
     const normalizedAccountNumber = accountNumber.toString().replace(/\s+/g, '').trim()
     const normalizedIfsc = ifscCode.toString().replace(/\s+/g, '').trim().toUpperCase()
 
-    // Account verification charges: ₹4
-    const verificationCharges = 4
+    console.log('[Payout Verify] Verifying account for user:', user.partner_id)
+    console.log('[Payout Verify] Account:', normalizedAccountNumber.substring(0, 4) + '****' + normalizedAccountNumber.slice(-4))
+    console.log('[Payout Verify] IFSC:', normalizedIfsc)
 
-    // Check wallet balance before verification
-    // Using the same wallet function as BBPS for consistency (get_wallet_balance with p_retailer_id)
-    const { data: walletBalance, error: balanceError } = await (supabase as any).rpc('get_wallet_balance', {
-      p_retailer_id: user.partner_id
-    })
-
-    if (balanceError) {
-      console.error('[Payout Verify] Error fetching wallet balance:', balanceError)
-      const response = NextResponse.json(
-        { success: false, error: 'Failed to check wallet balance' },
-        { status: 500 }
-      )
-      return addCorsHeaders(request, response)
-    }
-
-    if ((walletBalance || 0) < verificationCharges) {
-      const response = NextResponse.json(
-        { 
-          success: false, 
-          error: `Insufficient balance for account verification. Required: ₹${verificationCharges}, Available: ₹${(walletBalance || 0).toFixed(2)}`,
-          is_valid: false,
-        },
-        { status: 400 }
-      )
-      return addCorsHeaders(request, response)
-    }
-
-    // Generate transaction ID for verification
-    const verificationTransactionId = `VERIFY_${user.partner_id}_${Date.now()}_${Math.random().toString(36).substring(7)}`
-
-    // Debit wallet for verification charges
-    // Using the same wallet function as BBPS for consistency (debit_wallet_bbps)
-    // This ensures the same wallet system is used for both BBPS and Payout
-    const { data: ledgerId, error: debitError } = await (supabase as any).rpc('debit_wallet_bbps', {
-      p_retailer_id: user.partner_id,
-      p_transaction_id: null, // No UUID transaction record for verification
-      p_amount: verificationCharges,
-      p_description: `Account verification charges for ${normalizedAccountNumber.substring(0, 4)}****${normalizedAccountNumber.slice(-4)} - ${normalizedIfsc}`,
-      p_reference_id: verificationTransactionId
-    })
-
-    if (debitError) {
-      console.error('[Payout Verify] Error debiting wallet:', debitError)
-      const response = NextResponse.json(
-        { success: false, error: 'Failed to deduct verification charges from wallet' },
-        { status: 500 }
-      )
-      return addCorsHeaders(request, response)
-    }
-
-    // Verify account via SparkupX API (after retailer wallet deduction)
-    // This calls SparkupX accountVerify endpoint which performs penny drop verification
-    // and deducts from SparkupX wallet balance
-    console.log('[Payout Verify] Calling SparkupX accountVerify for user:', user.partner_id)
+    // ============================================================
+    // NOTE: SparkupX verification API is NOT available
+    // NO charges are deducted - only local validation is performed
+    // ============================================================
+    
     const result = await verifyBankAccount({
       accountNumber: normalizedAccountNumber,
       ifscCode: normalizedIfsc,
@@ -161,41 +118,40 @@ export async function POST(request: NextRequest) {
     })
 
     if (!result.success) {
-      console.error('[Payout Verify] SparkupX verification failed:', result.error)
-      // Note: We don't refund the charge if verification fails - charge is for the verification attempt
+      console.error('[Payout Verify] Validation failed:', result.error)
       const response = NextResponse.json(
         { 
           success: false, 
-          error: result.error || 'Account verification failed',
+          error: result.error || 'Account validation failed',
           is_valid: false,
-          verification_charges: verificationCharges,
-          message: 'Verification charges have been deducted from your wallet.',
+          verification_charges: 0, // No charges since SparkupX API not available
         },
         { status: 400 }
       )
       return addCorsHeaders(request, response)
     }
 
-    console.log('[Payout Verify] SparkupX verification successful:', {
-      account_holder: result.account_holder_name,
-      bank: result.bank_name,
-      branch: result.branch_name,
+    console.log('[Payout Verify] Validation result:', {
+      verification_type: result.verification_type,
       is_valid: result.is_valid,
-      sparkup_transaction_id: result.transaction_id,
-      sparkup_balance: result.sparkup_balance,
-      retailer_charges_deducted: verificationCharges,
+      bank: result.bank_name,
+      has_name: !!result.account_holder_name,
     })
 
+    // Return response with clear indication that name verification is not available
     const response = NextResponse.json({
       success: true,
       is_valid: result.is_valid !== false,
-      account_holder_name: result.account_holder_name,
+      account_holder_name: result.account_holder_name || null, // null means "not available"
       bank_name: result.bank_name,
       branch_name: result.branch_name,
-      verification_charges: verificationCharges,
-      transaction_id: verificationTransactionId,
-      sparkup_transaction_id: result.transaction_id,
-      message: `Account verified successfully. ₹${verificationCharges} verification charges have been deducted from your wallet.`,
+      verification_charges: 0, // No charges since SparkupX API not available
+      verification_type: result.verification_type || 'local',
+      message: result.message || 'Account format validated. Please enter and confirm the beneficiary name manually.',
+      // Important warning for user
+      warning: !result.account_holder_name 
+        ? 'Beneficiary name verification is not available from SparkupX. Please verify the account holder name before proceeding with the transfer.'
+        : undefined,
     })
     
     return addCorsHeaders(request, response)
@@ -216,4 +172,3 @@ export async function POST(request: NextRequest) {
     return addCorsHeaders(request, response)
   }
 }
-

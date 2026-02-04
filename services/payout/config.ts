@@ -50,9 +50,10 @@ export function validatePayoutCredentials(): void {
 
 /**
  * Get API timeout in milliseconds
+ * Increased to 120 seconds for IMPS/NEFT transfers which can take longer
  */
 export function getPayoutTimeout(): number {
-  return parseInt(process.env.PAYOUT_API_TIMEOUT || '60000', 10) // Default 60 seconds for payouts
+  return parseInt(process.env.PAYOUT_API_TIMEOUT || '120000', 10) // Default 120 seconds for payouts
 }
 
 /**

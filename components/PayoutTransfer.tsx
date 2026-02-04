@@ -6,7 +6,7 @@ import { supabase } from '@/lib/supabase/client'
 import { apiFetchJson } from '@/lib/api-client'
 import { motion } from 'framer-motion'
 import {
-  Search, X, RefreshCw, Info, AlertCircle, Check, Building2, 
+  Search, X, RefreshCw, Info, AlertCircle, AlertTriangle, Check, Building2, 
   CreditCard, User, Hash, IndianRupee, Zap, Clock, ArrowRight,
   CheckCircle2, XCircle, Loader2, Wallet, Send, Eye, EyeOff,
   Star, Trash2, Plus, BookUser
@@ -404,7 +404,7 @@ export default function PayoutTransfer({ title }: PayoutTransferProps = {}) {
     setStep('verify')
   }
 
-  // Re-verify saved beneficiary account with Rs. 4 charges
+  // Re-verify saved beneficiary account (local validation only - SparkupX not available)
   const handleReVerifyAccount = async () => {
     setError(null)
     
@@ -413,10 +413,9 @@ export default function PayoutTransfer({ title }: PayoutTransferProps = {}) {
       return
     }
 
-    // Check wallet balance before verification
-    const verificationCharges = 4
-    if (walletBalance < verificationCharges) {
-      setError(`Insufficient balance for account verification. Required: ₹${verificationCharges}, Available: ₹${walletBalance.toFixed(2)}`)
+    // Require account holder name
+    if (!accountHolderName || accountHolderName.trim().length < 2) {
+      setError('Please enter the account holder name')
       return
     }
     
@@ -451,24 +450,28 @@ export default function PayoutTransfer({ title }: PayoutTransferProps = {}) {
       if (result.success && result.is_valid) {
         setVerified(true)
         setVerificationResult({
-          account_holder_name: result.account_holder_name,
+          account_holder_name: result.account_holder_name || accountHolderName, // Use user-entered name if not from API
           bank_name: result.bank_name,
           is_valid: result.is_valid,
-          is_saved_account: false, // Freshly verified via SparkupX API
+          is_saved_account: false,
         })
-        // Update account holder name with the verified name from bank
+        // Update account holder name with the verified name from bank (if provided)
         if (result.account_holder_name) {
           setAccountHolderName(result.account_holder_name)
         }
         
-        // Refresh wallet balance after verification
-        await fetchWalletBalance()
+        // Refresh wallet balance after verification (only if charges were deducted)
+        if (result.verification_charges && result.verification_charges > 0) {
+          await fetchWalletBalance()
+        }
         
-        // Show success message with charges info
-        setInfoMessage(result.message || `Account re-verified successfully! ₹${result.verification_charges || verificationCharges} verification charges have been deducted from your wallet.`)
+        // Show success message
+        const chargesMsg = result.verification_charges && result.verification_charges > 0
+          ? ` ₹${result.verification_charges} charges deducted.`
+          : ''
+        setInfoMessage(result.message || `Account format validated!${chargesMsg}`)
       } else {
         setError(result.error || 'Account verification failed')
-        // Refresh wallet balance even on failure (charges may have been deducted)
         await fetchWalletBalance()
       }
     } catch (err: any) {
@@ -630,10 +633,9 @@ export default function PayoutTransfer({ title }: PayoutTransferProps = {}) {
       return
     }
 
-    // Check wallet balance before verification
-    const verificationCharges = 4
-    if (walletBalance < verificationCharges) {
-      setError(`Insufficient balance for account verification. Required: ₹${verificationCharges}, Available: ₹${walletBalance.toFixed(2)}`)
+    // Require account holder name to be entered manually (since SparkupX verification is not available)
+    if (!accountHolderName || accountHolderName.trim().length < 2) {
+      setError('Please enter the account holder name (required for transfer)')
       return
     }
     
@@ -667,22 +669,28 @@ export default function PayoutTransfer({ title }: PayoutTransferProps = {}) {
       if (result.success && result.is_valid) {
         setVerified(true)
         setVerificationResult({
-          account_holder_name: result.account_holder_name,
+          account_holder_name: result.account_holder_name || accountHolderName, // Use user-entered name if not from API
           bank_name: result.bank_name,
           is_valid: result.is_valid,
-          is_saved_account: false, // Freshly verified via SparkupX API
+          is_saved_account: false,
         })
-        // Update account holder name with the verified name from bank
+        // Update account holder name with the verified name from bank (if provided)
+        // If not provided, keep the user-entered name
         if (result.account_holder_name) {
           setAccountHolderName(result.account_holder_name)
         }
         setStep('verify')
         
-        // Refresh wallet balance after verification
-        await fetchWalletBalance()
+        // Refresh wallet balance after verification (only if charges were deducted)
+        if (result.verification_charges && result.verification_charges > 0) {
+          await fetchWalletBalance()
+        }
         
-        // Show success message with charges info
-        setInfoMessage(result.message || `Account verified successfully! ₹${result.verification_charges || verificationCharges} verification charges have been deducted from your wallet.`)
+        // Show success message
+        const chargesMsg = result.verification_charges && result.verification_charges > 0
+          ? ` ₹${result.verification_charges} verification charges have been deducted from your wallet.`
+          : ''
+        setInfoMessage(result.message || `Account format validated!${chargesMsg} Please confirm the beneficiary name before proceeding.`)
       } else {
         setError(result.error || 'Account verification failed')
         setVerified(false)
@@ -1156,16 +1164,36 @@ export default function PayoutTransfer({ title }: PayoutTransferProps = {}) {
                 />
               </div>
 
-              {/* Verification Charges Notice */}
-              <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-3 mb-4">
+              {/* Account Holder Name - Manual Entry Required */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  <User className="w-4 h-4 inline mr-2" />
+                  Account Holder Name <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={accountHolderName}
+                  onChange={(e) => setAccountHolderName(e.target.value)}
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
+                  placeholder="Enter account holder name as per bank records"
+                  maxLength={100}
+                />
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                  Enter the exact name as it appears in the bank account
+                </p>
+              </div>
+
+              {/* Important Notice */}
+              <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-3 mb-4">
                 <div className="flex items-start gap-2">
-                  <Info className="w-5 h-5 text-yellow-600 dark:text-yellow-400 flex-shrink-0 mt-0.5" />
+                  <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
                   <div className="flex-1">
-                    <p className="text-sm font-medium text-yellow-800 dark:text-yellow-300">
-                      Account Verification Charges
+                    <p className="text-sm font-medium text-amber-800 dark:text-amber-300">
+                      Important: Verify Beneficiary Details
                     </p>
-                    <p className="text-sm text-yellow-700 dark:text-yellow-400 mt-1">
-                      ₹4 will be deducted from your wallet for each account verification. Your current balance: ₹{walletBalance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                    <p className="text-sm text-amber-700 dark:text-amber-400 mt-1">
+                      Please ensure the account number and account holder name are correct. 
+                      Transfers to wrong accounts cannot be reversed.
                     </p>
                   </div>
                 </div>
@@ -1175,18 +1203,18 @@ export default function PayoutTransfer({ title }: PayoutTransferProps = {}) {
               <div className="flex justify-end pt-4">
                 <button
                   onClick={handleVerifyAccount}
-                  disabled={verifying || !accountNumber || !confirmAccountNumber || !ifscCode || accountNumber !== confirmAccountNumber || beneficiaryMobile.length !== 10 || walletBalance < 4}
+                  disabled={verifying || !accountNumber || !confirmAccountNumber || !ifscCode || accountNumber !== confirmAccountNumber || beneficiaryMobile.length !== 10 || !accountHolderName || accountHolderName.trim().length < 2}
                   className="px-6 py-2 bg-blue-600 text-white rounded-lg shadow-md hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                 >
                   {verifying ? (
                     <>
                       <Loader2 className="w-4 h-4 animate-spin" />
-                      Verifying...
+                      Validating...
                     </>
                   ) : (
                     <>
                       <Check className="w-4 h-4" />
-                      Verify Account (₹4 charges)
+                      Validate & Proceed
                     </>
                   )}
                 </button>
