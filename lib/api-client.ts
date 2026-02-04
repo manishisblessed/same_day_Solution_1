@@ -112,6 +112,13 @@ export function getApiUrl(path: string): string {
 }
 
 /**
+ * Extended fetch options with timeout support
+ */
+export interface ApiFetchOptions extends Omit<RequestInit, 'signal'> {
+  timeout?: number // Timeout in milliseconds (default: 120000 for BBPS/Payout routes)
+}
+
+/**
  * Centralized API fetch function
  * - EC2 routes → EC2 backend (whitelisted IP + server env vars)
  * - Other routes → Amplify API routes (uses cookies for auth)
@@ -121,15 +128,24 @@ export function getApiUrl(path: string): string {
  * in the Authorization header to authenticate these requests.
  * 
  * @param path - API path (e.g., '/api/wallet/balance')
- * @param options - Fetch options
+ * @param options - Fetch options with optional timeout
  * @returns Promise<Response>
  */
 export async function apiFetch(
   path: string,
-  options: RequestInit = {}
+  options: ApiFetchOptions = {}
 ): Promise<Response> {
   const url = getApiUrl(path)
   const isCrossOrigin = url.startsWith('http')
+  
+  // Determine timeout - longer for BBPS/Payout APIs
+  const isBBPSOrPayoutRoute = path.includes('/bbps/') || path.includes('/payout/')
+  const defaultTimeout = isBBPSOrPayoutRoute ? 120000 : 60000 // 120s for BBPS/Payout, 60s for others
+  const timeout = options.timeout ?? defaultTimeout
+  
+  // Create AbortController for timeout
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), timeout)
   
   // Build headers - don't set Content-Type for FormData (browser sets it automatically with boundary)
   const isFormData = options.body instanceof FormData
@@ -147,22 +163,37 @@ export async function apiFetch(
     }
   }
   
+  // Remove timeout from options before spreading (it's not a valid fetch option)
+  const { timeout: _, ...restOptions } = options
+  
   const fetchOptions: RequestInit = {
-    ...options,
+    ...restOptions,
     credentials: 'include', // Include cookies for same-origin requests
     headers,
+    signal: controller.signal,
   }
 
-  const response = await fetch(url, fetchOptions)
+  try {
+    const response = await fetch(url, fetchOptions)
+    clearTimeout(timeoutId)
 
-  // Handle 401 Unauthorized errors gracefully
-  if (response.status === 401) {
-    if (process.env.NODE_ENV === 'development') {
-      console.warn('API call returned 401 Unauthorized:', path)
+    // Handle 401 Unauthorized errors gracefully
+    if (response.status === 401) {
+      if (process.env.NODE_ENV === 'development') {
+        console.warn('API call returned 401 Unauthorized:', path)
+      }
     }
-  }
 
-  return response
+    return response
+  } catch (error: any) {
+    clearTimeout(timeoutId)
+    
+    // Handle timeout/abort errors
+    if (error.name === 'AbortError') {
+      throw new Error(`Request timeout after ${timeout / 1000} seconds. The server is taking too long to respond.`)
+    }
+    throw error
+  }
 }
 
 /**

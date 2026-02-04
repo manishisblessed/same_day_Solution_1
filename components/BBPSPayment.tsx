@@ -871,7 +871,15 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
       }
     } catch (error: any) {
       console.error('Error paying bill:', error)
-      setError(error.message || 'Payment failed')
+      // Handle timeout errors specifically
+      const errorMsg = error.message || 'Payment failed'
+      if (errorMsg.includes('504') || errorMsg.includes('Gateway Time') || errorMsg.includes('timeout')) {
+        setError('Payment request timed out. This does NOT mean the payment failed - it may still be processing. Please check your transaction history in 2-3 minutes to verify the payment status. Do NOT retry the payment.')
+      } else if (errorMsg.includes('Too many request')) {
+        setError('Too many payment requests. Please wait 30 seconds before trying again.')
+      } else {
+        setError(errorMsg)
+      }
     } finally {
       setPaying(false)
     }
