@@ -66,17 +66,51 @@ export interface BankListResponse {
 }
 
 /**
- * Account verification request
+ * Account verification request - matches /api/dto/validate_account API
  */
 export interface VerifyAccountRequest {
   accountNumber: string
   ifscCode: string
   bankName?: string
   bankId?: number
+  purpose_message?: string  // Optional, defaults to "This is a penniless transaction"
+  validation_type?: string  // Optional, defaults to "penniless"
 }
 
 /**
- * Account verification response
+ * Validate Account API Request Body (exact format for /api/dto/validate_account)
+ */
+export interface ValidateAccountRequestBody {
+  purpose_message: string
+  validation_type: string
+  account_number: string
+  ifscCode: string
+}
+
+/**
+ * Validate Account API Response (exact format from /api/dto/validate_account)
+ */
+export interface ValidateAccountResponse {
+  success: boolean
+  status?: number
+  message?: string
+  data?: {
+    status?: string
+    accountStatus?: string
+    responseCode?: string
+    message?: string
+    beneficiaryName?: string  // This is what we need!
+    bankReferenceNumber?: string
+    validationType?: string
+    transactionStatus?: string
+    reference_id?: string
+    uuid?: string
+  }
+  error?: string
+}
+
+/**
+ * Account verification response (our internal format)
  */
 export interface VerifyAccountResponse {
   success: boolean
@@ -167,18 +201,32 @@ export interface TransferStatusRequest {
 
 /**
  * Transfer status response - matches statusCheck API
+ * Updated to match latest API response format
  */
 export interface TransferStatusResponse {
   success: boolean
-  status?: number
+  status?: number | string  // HTTP status or "success"/"pending"/"failed"
+  message?: string           // API message
   data?: {
-    status?: number          // 2 = SUCCESS, 1 = PENDING, 0 = FAILED
+    // New format fields (from latest API)
+    responseCode?: number    // 2 = SUCCESS, 1 = PENDING, 0 = FAILED
+    rpid?: string            // Reference ID / Payment Reference ID
+    account?: string         // Account number
+    reqId?: string           // Request ID
+    deductedAmount?: number  // Total amount deducted (amount + charge)
+    serviceCharge?: number   // Service charge
+    transactionAmount?: number // Actual transfer amount
+    referenceNo?: string | null // Reference number
+    status?: string          // 'success', 'pending', 'failed'
+    remark?: string          // Remark message
+    transaction_id?: string  // UTR transaction ID
+    
+    // Legacy format fields (for backward compatibility)
+    status_code?: number     // 2 = SUCCESS, 1 = PENDING, 0 = FAILED
     msg?: string             // 'SUCCESS', 'PENDING', 'FAILED'
     bal?: number             // Remaining balance
     errorcode?: string
-    account?: string         // Account number
     amount?: number
-    rpid?: string            // Reference ID
     agentid?: string
     opid?: string            // Operator ID / RRN
   }

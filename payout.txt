@@ -33408,17 +33408,15 @@ GET getBalance
 https://api.sparkuptech.in/api/wallet/getBalance
 
 HEADERS
-partnerid 2400xx
-
-consumerkey 21b9c1f6195fxxxx
-
-consumersecret ecdad1614bd1xxxx
+partnerid:240054
+consumerkey:b2078d92ff9f8e9e
+consumersecret:ba6fba9775548f71
 
 Example Request
 curl --location 'https://api.sparkuptech.in/api/wallet/getBalance' \
---header 'partnerid: 2400xx' \
---header 'consumerkey: 21b9c1f6195fxxxx' \
---header 'consumersecret: ecdad1614bd1xxxx'
+--header 'partnerid: 240054' \
+--header 'consumerkey: b2078d92ff9f8e9e' \
+--header 'consumersecret: ba6fba9775548f71'
 
 Example Response
 Body

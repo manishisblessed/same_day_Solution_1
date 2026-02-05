@@ -1,0 +1,331 @@
+{
+	"info": {
+		"_postman_id": "sparkuptech-payout-api",
+		"name": "SparkUpTech Payout API",
+		"description": "Complete collection for SparkUpTech Express Pay Payout APIs\n\nAPIs included:\n1. POST bankList - Get list of banks\n2. POST validate_account - Verify bank account\n3. POST expressPay2 - Initiate bank transfer\n4. POST statusCheck - Check transaction status\n5. GET getBalance - Get wallet balance",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "1. Bank List",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "partnerid",
+						"value": "{{partnerid}}",
+						"type": "text"
+					},
+					{
+						"key": "consumerkey",
+						"value": "{{consumerkey}}",
+						"type": "text"
+					},
+					{
+						"key": "consumersecret",
+						"value": "{{consumersecret}}",
+						"type": "text"
+					},
+					{
+						"key": "Content-Type",
+						"value": "application/json",
+						"type": "text"
+					}
+				],
+				"url": {
+					"raw": "https://api.sparkuptech.in/api/fzep/payout/bankList",
+					"protocol": "https",
+					"host": [
+						"api",
+						"sparkuptech",
+						"in"
+					],
+					"path": [
+						"api",
+						"fzep",
+						"payout",
+						"bankList"
+					]
+				},
+				"description": "Get list of banks available for payout transfers.\n\nThis endpoint returns all banks with their details including:\n- Bank ID (required for expressPay2)\n- Bank name\n- IFSC code\n- Support for IMPS/NEFT\n- Account verification support\n\nNo request body required."
+			},
+			"response": []
+		},
+		{
+			"name": "2. Validate Account",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "partnerid",
+						"value": "{{partnerid}}",
+						"type": "text"
+					},
+					{
+						"key": "consumerkey",
+						"value": "{{consumerkey}}",
+						"type": "text"
+					},
+					{
+						"key": "consumersecret",
+						"value": "{{consumersecret}}",
+						"type": "text"
+					},
+					{
+						"key": "Content-Type",
+						"value": "application/json",
+						"type": "text"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"purpose_message\": \"This is a penniless transaction\",\n    \"validation_type\": \"penniless\",\n    \"account_number\": \"50100104420821\",\n    \"ifscCode\": \"HDFC0003756\"\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "https://api.sparkuptech.in/api/dto/validate_account",
+					"protocol": "https",
+					"host": [
+						"api",
+						"sparkuptech",
+						"in"
+					],
+					"path": [
+						"api",
+						"dto",
+						"validate_account"
+					]
+				},
+				"description": "Validate bank account details and get beneficiary name.\n\nThis is a penniless transaction (no money transfer) used to:\n- Verify account exists\n- Get beneficiary name from bank\n- Confirm IFSC code is correct\n\n**Request Body:**\n- `purpose_message`: Always \"This is a penniless transaction\"\n- `validation_type`: Always \"penniless\"\n- `account_number`: Bank account number (9-18 digits)\n- `ifscCode`: IFSC code (11 characters)\n\n**Response includes:**\n- `beneficiaryName`: Account holder name from bank\n- `accountStatus`: \"valid\" or \"invalid\"\n- `reference_id`: Transaction reference ID"
+			},
+			"response": []
+		},
+		{
+			"name": "3. Express Pay (Transfer)",
+			"event": [
+				{
+					"listen": "prerequest",
+					"script": {
+						"type": "text/javascript",
+						"exec": [
+							"// Generate unique 16-digit APIRequestID",
+							"// Format: timestamp (13 digits) + random (3 digits) = 16 digits",
+							"const timestamp = Date.now(); // 13 digits",
+							"const random = Math.floor(Math.random() * 1000); // 0-999 (3 digits)",
+							"const randomStr = random.toString().padStart(3, '0'); // Ensure 3 digits",
+							"const apiRequestIdStr = timestamp.toString() + randomStr; // 16 digits total",
+							"const finalApiRequestId = parseInt(apiRequestIdStr);",
+							"",
+							"// Set as collection variable",
+							"pm.collectionVariables.set('apiRequestId', finalApiRequestId);",
+							"",
+							"console.log('Generated APIRequestID:', finalApiRequestId, '(16 digits)');"
+						]
+					}
+				},
+				{
+					"listen": "test",
+					"script": {
+						"type": "text/javascript",
+						"exec": [
+							"// Automatically save transaction_id from response",
+							"if (pm.response.code === 200) {",
+							"    try {",
+							"        const jsonData = pm.response.json();",
+							"        if (jsonData.success && jsonData.data && jsonData.data.transaction_id) {",
+							"            const transactionId = jsonData.data.transaction_id;",
+							"            pm.collectionVariables.set('transaction_id', transactionId);",
+							"            console.log('Saved transaction_id:', transactionId);",
+							"        }",
+							"    } catch (e) {",
+							"        console.log('Could not parse response or extract transaction_id');",
+							"    }",
+							"}"
+						]
+					}
+				}
+			],
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "partnerid",
+						"value": "{{partnerid}}",
+						"type": "text"
+					},
+					{
+						"key": "consumerkey",
+						"value": "{{consumerkey}}",
+						"type": "text"
+					},
+					{
+						"key": "consumersecret",
+						"value": "{{consumersecret}}",
+						"type": "text"
+					},
+					{
+						"key": "Content-Type",
+						"value": "application/json",
+						"type": "text"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"AccountNo\": \"50100104420821\",\n    \"AmountR\": 100,\n    \"APIRequestID\": {{apiRequestId}},\n    \"BankID\": 31,\n    \"BeneMobile\": \"9971969046\",\n    \"BeneName\": \"Manish Kumar Shah\",\n    \"bankName\": \"HDFC BANK\",\n    \"IFSC\": \"HDFC0003756\",\n    \"SenderEmail\": \"support@samedaysolution.in\",\n    \"SenderMobile\": \"9311757194\",\n    \"SenderName\": \"Aryan\",\n    \"paymentType\": \"IMPS\",\n    \"WebHook\": \"https://yourdomain.com/webhook\",\n    \"extraParam1\": \"NA\",\n    \"extraParam2\": \"NA\",\n    \"extraField1\": \"TestValue\",\n    \"sub_service_name\": \"ExpressPay\",\n    \"remark\": \"Test Transaction\"\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "https://api.sparkuptech.in/api/fzep/payout/expressPay2",
+					"protocol": "https",
+					"host": [
+						"api",
+						"sparkuptech",
+						"in"
+					],
+					"path": [
+						"api",
+						"fzep",
+						"payout",
+						"expressPay2"
+					]
+				},
+				"description": "Initiate bank transfer via IMPS or NEFT.\n\n**Important:**\n- Get BankID from bankList API first\n- BankID must match the IFSC code\n- Use beneficiary name from validate_account API\n- **APIRequestID is automatically generated** - unique for each request (prevents \"Data already exist\" error)\n\n**Request Body Fields:**\n- `AccountNo`: Beneficiary account number\n- `AmountR`: Transfer amount (in rupees)\n- `APIRequestID`: Unique 16-digit numeric ID (auto-generated)\n- `BankID`: Bank ID from bankList API (REQUIRED)\n- `BeneMobile`: Beneficiary mobile number (10 digits)\n- `BeneName`: Beneficiary name (from validate_account)\n- `bankName`: Bank name\n- `IFSC`: IFSC code (11 characters)\n- `SenderEmail`: Sender email\n- `SenderMobile`: Sender mobile (10 digits)\n- `SenderName`: Sender name\n- `paymentType`: \"IMPS\" or \"NEFT\"\n- `WebHook`: Webhook URL (optional)\n- `extraParam1`, `extraParam2`: Set to \"NA\"\n- `extraField1`: Internal reference ID\n- `sub_service_name`: \"ExpressPay\"\n- `remark`: Transaction remark\n\n**Response includes:**\n- `transaction_id`: UTR number (automatically saved to {{transaction_id}} variable)\n- `status`: \"pending\", \"success\", or \"failed\"\n- `clientReqId`: Client request ID\n\n**Note:** The transaction_id is automatically saved and can be used in the Status Check request."
+			},
+			"response": []
+		},
+		{
+			"name": "4. Status Check",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "partnerid",
+						"value": "{{partnerid}}",
+						"type": "text"
+					},
+					{
+						"key": "consumerkey",
+						"value": "{{consumerkey}}",
+						"type": "text"
+					},
+					{
+						"key": "consumersecret",
+						"value": "{{consumersecret}}",
+						"type": "text"
+					},
+					{
+						"key": "Content-Type",
+						"value": "application/json",
+						"type": "text"
+					}
+				],
+				"url": {
+					"raw": "https://api.sparkuptech.in/api/fzep/payout/statusCheck?transaction_id={{transaction_id}}&sub_service_name=ExpressPay",
+					"protocol": "https",
+					"host": [
+						"api",
+						"sparkuptech",
+						"in"
+					],
+					"path": [
+						"api",
+						"fzep",
+						"payout",
+						"statusCheck"
+					],
+					"query": [
+						{
+							"key": "transaction_id",
+							"value": "{{transaction_id}}",
+							"description": "UTR transaction ID from expressPay2 response"
+						},
+						{
+							"key": "sub_service_name",
+							"value": "ExpressPay",
+							"description": "Service name (always ExpressPay)"
+						}
+					]
+				},
+				"description": "Check the status of a transaction using the UTR from expressPay2.\n\n**Query Parameters:**\n- `transaction_id`: UTR number from expressPay2 API response\n- `sub_service_name`: Always \"ExpressPay\"\n\n**Response includes:**\n- `responseCode`: 2 = SUCCESS, 1 = PENDING, 0 = FAILED\n- `status`: \"success\", \"pending\", or \"failed\"\n- `transactionAmount`: Actual transfer amount\n- `deductedAmount`: Total amount deducted (amount + charge)\n- `serviceCharge`: Service charge\n- `rpid`: Reference/Payment ID\n- `remark`: Transaction remark\n- `transaction_id`: UTR number"
+			},
+			"response": []
+		},
+		{
+			"name": "5. Get Balance",
+			"request": {
+				"method": "GET",
+				"header": [
+					{
+						"key": "partnerid",
+						"value": "{{partnerid}}",
+						"type": "text"
+					},
+					{
+						"key": "consumerkey",
+						"value": "{{consumerkey}}",
+						"type": "text"
+					},
+					{
+						"key": "consumersecret",
+						"value": "{{consumersecret}}",
+						"type": "text"
+					}
+				],
+				"url": {
+					"raw": "https://api.sparkuptech.in/api/wallet/getBalance",
+					"protocol": "https",
+					"host": [
+						"api",
+						"sparkuptech",
+						"in"
+					],
+					"path": [
+						"api",
+						"wallet",
+						"getBalance"
+					]
+				},
+				"description": "Get payout wallet balance.\n\nThis endpoint uses a different base URL (/api/wallet instead of /api/fzep/payout).\n\n**Response includes:**\n- `balance`: Total wallet balance\n- `lien`: Lien amount (locked funds)\n- `is_active`: Wallet active status\n- `client_id`: Client/Partner ID\n\n**Available Balance = balance - lien**"
+			},
+			"response": []
+		}
+	],
+	"variable": [
+		{
+			"key": "partnerid",
+			"value": "240054",
+			"type": "string"
+		},
+		{
+			"key": "consumerkey",
+			"value": "b2078d92ff9f8e9e",
+			"type": "string"
+		},
+		{
+			"key": "consumersecret",
+			"value": "ba6fba9775548f71",
+			"type": "string"
+		},
+		{
+			"key": "transaction_id",
+			"value": "UTR1171879022158",
+			"type": "string",
+			"description": "UTR from expressPay2 response - automatically updated after calling expressPay2"
+		},
+		{
+			"key": "apiRequestId",
+			"value": "",
+			"type": "string",
+			"description": "Auto-generated unique 16-digit APIRequestID - generated automatically before each expressPay2 request"
+		}
+	]
+}
+

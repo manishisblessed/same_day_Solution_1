@@ -29,6 +29,11 @@ export async function getTransferStatus(request: TransferStatusRequest): Promise
   operator_id?: string
   error_code?: string
   error?: string
+  // New fields from updated API response
+  deducted_amount?: number
+  service_charge?: number
+  remark?: string
+  req_id?: string
 }> {
   const { transactionId } = request
 
@@ -79,10 +84,11 @@ export async function getTransferStatus(request: TransferStatusRequest): Promise
   }
 
   try {
-    // API uses query parameter for transaction_id
+    // API uses query parameters: transaction_id and sub_service_name
+    const endpoint = `/statusCheck?transaction_id=${encodeURIComponent(transactionId)}&sub_service_name=ExpressPay`
     const response = await payoutClient.request<TransferStatusResponse>({
       method: 'POST',
-      endpoint: `/statusCheck?transaction_id=${encodeURIComponent(transactionId)}`,
+      endpoint,
     })
 
     if (!response.success || !response.data) {
@@ -110,23 +116,81 @@ export async function getTransferStatus(request: TransferStatusRequest): Promise
       }
     }
 
-    // Map API response to our format
-    // API returns: status 2 = SUCCESS, 1 = PENDING, 0 = FAILED
-    const statusCode = statusData.status ?? 1
-    const mappedStatus = mapStatusCode(statusCode)
+    // Handle new API response format
+    // New format uses responseCode (number) and status (string)
+    // Legacy format uses status (number) and msg (string)
+    
+    let statusCode: number
+    let statusString: string
+    let mappedStatus: 'pending' | 'success' | 'failed' | 'processing'
 
-    return {
-      success: true,
+    // Check for new format first
+    if (statusData.responseCode !== undefined) {
+      statusCode = statusData.responseCode
+      statusString = statusData.status || 'pending'
+    } else if (typeof statusData.status === 'number') {
+      // Legacy format
+      statusCode = statusData.status
+      statusString = statusData.msg || 'PENDING'
+    } else if (typeof statusData.status === 'string') {
+      // New format with string status
+      statusString = statusData.status.toLowerCase()
+      // Map string status to code
+      if (statusString === 'success') {
+        statusCode = 2
+      } else if (statusString === 'pending') {
+        statusCode = 1
+      } else {
+        statusCode = 0
+      }
+    } else {
+      // Default to pending
+      statusCode = 1
+      statusString = 'pending'
+    }
+
+    // Map status code to our format
+    mappedStatus = mapStatusCode(statusCode)
+
+    // Use new format fields if available, fallback to legacy
+    const amount = statusData.transactionAmount ?? statusData.amount
+    const deductedAmount = statusData.deductedAmount
+    const serviceCharge = statusData.serviceCharge
+    const referenceId = statusData.rpid ?? statusData.referenceNo
+    const accountNumber = statusData.account
+    const balance = statusData.bal
+    const remark = statusData.remark
+    const operatorId = statusData.opid
+    const errorCode = statusData.errorcode
+    const reqId = statusData.reqId
+
+    console.log('[Payout Status] Status check result:', {
       transaction_id: transactionId,
       status: mappedStatus,
       status_code: statusCode,
-      status_message: statusData.msg,
-      amount: statusData.amount,
-      account_number: statusData.account,
-      balance: statusData.bal,
-      reference_id: statusData.rpid,
-      operator_id: statusData.opid,  // This is the RRN/UTR from bank
-      error_code: statusData.errorcode,
+      amount,
+      deductedAmount,
+      serviceCharge,
+      referenceId,
+    })
+
+    return {
+      success: true,
+      transaction_id: statusData.transaction_id || transactionId,
+      status: mappedStatus,
+      status_code: statusCode,
+      status_message: statusString.toUpperCase(),
+      amount,
+      account_number: accountNumber,
+      balance,
+      reference_id: referenceId,
+      operator_id: operatorId,
+      error_code: errorCode,
+      // Additional fields from new format
+      deducted_amount: deductedAmount,
+      service_charge: serviceCharge,
+      remark,
+      req_id: reqId,
     }
   } catch (error: any) {
     console.error('Error fetching transfer status:', error)

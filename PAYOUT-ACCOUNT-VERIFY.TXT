@@ -1,0 +1,70 @@
+https://documenter.getpostman.com/view/44095803/2sB3BGGVAw#181b2d01-1993-4826-b921-8d32d510a751
+
+POST
+validate_account
+https://api.sparkuptech.in/api/dto/validate_account
+Validate Account
+This endpoint is used to validate an account based on the provided account number and IFSC code. It is particularly useful for transactions that require account verification before proceeding.
+
+Request
+Method: POST
+URL: https://api.sparkuptech.in/api/dto/validate_account
+
+Request Body
+Field	Type	Description
+purpose_message	String	Message stating the reason or note for the transaction. Here, "This is a penniless transaction" indicates it’s only for validation, not money transfer.
+validation_type	String	Type of validation being performed. "penniless" means only account verification without transferring funds.
+account_number	String	The bank account number to be validated. Masked here for security.
+ifscCode	String	The IFSC (Indian Financial System Code) of the bank branch where the account is held. Masked here for security.
+HEADERS
+
+
+partnerid:240054
+consumerkey:b2078d92ff9f8e9e
+consumersecret:ba6fba9775548f71
+
+Body
+raw (json)
+
+{
+    "purpose_message": "This is a penniless transaction",
+    "validation_type": "penniless",
+    "account_number": "1011461xxxx",
+    "ifscCode": "IDFB008xxxx"
+}
+
+curl
+curl --location 'https://api.sparkuptech.in/api/dto/validate_account' \
+--header 'partnerid:  240054' \
+--header 'consumerkey: b2078d92ff9f8e9e' \
+--header 'consumersecret: ba6fba9775548f71' \
+--data '{
+    "purpose_message": "This is a penniless transaction",
+    "validation_type": "penniless",
+    "account_number": "1011461xxxx",
+    "ifscCode": "IDFB00xxxx"
+}'
+
+
+Example Response
+
+Body
+
+{
+  "success": true,
+  "status": 200,
+  "message": "The account has been successfully verified.",
+  "data": {
+    "status": "success",
+    "accountStatus": "valid",
+    "responseCode": "S00000",
+    "message": "The account has been successfully verified.",
+    "beneficiaryName": "Mr. Sazid",
+    "bankReferenceNumber": "9227178",
+    "validationType": "penniless",
+    "transactionStatus": "success",
+    "reference_id": "UTR1028238929418",
+    "uuid": "BF63105C172B478E9BB8951C6A108608"
+  }
+}
+

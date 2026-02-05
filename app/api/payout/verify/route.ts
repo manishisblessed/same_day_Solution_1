@@ -15,19 +15,18 @@ export async function OPTIONS(request: NextRequest) {
 /**
  * POST /api/payout/verify
  * 
- * Verifies bank account details before making a transfer.
+ * Verifies bank account details before making a transfer or settlement.
  * 
- * IMPORTANT: SparkupX Payout API does NOT have an account verification endpoint
- * as per the documentation (Feb 2026). This endpoint only performs LOCAL validation.
+ * Uses SparkUpTech validate_account API: POST /api/dto/validate_account
+ * This endpoint validates account details and returns the beneficiary name.
  * 
- * The available SparkupX endpoints are:
- * - bankList, expressPay2, statusCheck, getBalance
+ * API Documentation: https://documenter.getpostman.com/view/44095803/2sB3BGGVAw#181b2d01-1993-4826-b921-8d32d510a751
  * 
- * Until SparkupX provides an account verification API:
- * - NO charges are deducted (since no API call is made)
- * - Only local format validation is performed
- * - Beneficiary name CANNOT be fetched from the bank
- * - User must manually confirm the beneficiary name
+ * Features:
+ * - Validates account number and IFSC code format
+ * - Calls SparkUpTech API to verify account exists
+ * - Returns beneficiary name from bank
+ * - No charges (penniless transaction)
  * 
  * Request Body:
  * - accountNumber: Bank account number
@@ -105,11 +104,7 @@ export async function POST(request: NextRequest) {
     console.log('[Payout Verify] Account:', normalizedAccountNumber.substring(0, 4) + '****' + normalizedAccountNumber.slice(-4))
     console.log('[Payout Verify] IFSC:', normalizedIfsc)
 
-    // ============================================================
-    // NOTE: SparkupX verification API is NOT available
-    // NO charges are deducted - only local validation is performed
-    // ============================================================
-    
+    // Call validate_account API to verify account and get beneficiary name
     const result = await verifyBankAccount({
       accountNumber: normalizedAccountNumber,
       ifscCode: normalizedIfsc,
@@ -124,7 +119,7 @@ export async function POST(request: NextRequest) {
           success: false, 
           error: result.error || 'Account validation failed',
           is_valid: false,
-          verification_charges: 0, // No charges since SparkupX API not available
+          verification_charges: 0, // Penniless transaction - no charges
         },
         { status: 400 }
       )
@@ -136,22 +131,21 @@ export async function POST(request: NextRequest) {
       is_valid: result.is_valid,
       bank: result.bank_name,
       has_name: !!result.account_holder_name,
+      reference_id: result.reference_id,
     })
 
-    // Return response with clear indication that name verification is not available
+    // Return response with beneficiary name from API
     const response = NextResponse.json({
       success: true,
       is_valid: result.is_valid !== false,
-      account_holder_name: result.account_holder_name || null, // null means "not available"
+      account_holder_name: result.account_holder_name || null, // Beneficiary name from API
       bank_name: result.bank_name,
       branch_name: result.branch_name,
-      verification_charges: 0, // No charges since SparkupX API not available
-      verification_type: result.verification_type || 'local',
-      message: result.message || 'Account format validated. Please enter and confirm the beneficiary name manually.',
-      // Important warning for user
-      warning: !result.account_holder_name 
-        ? 'Beneficiary name verification is not available from SparkupX. Please verify the account holder name before proceeding with the transfer.'
-        : undefined,
+      verification_charges: 0, // Penniless transaction - no charges
+      verification_type: result.verification_type || 'api',
+      message: result.message || 'Account verified successfully',
+      reference_id: result.reference_id,
+      uuid: result.uuid,
     })
     
     return addCorsHeaders(request, response)

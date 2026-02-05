@@ -1,32 +1,29 @@
 /**
  * Verify Bank Account (Account Verification / Penny Drop)
  * 
- * NOTE: As of Feb 2026, the SparkupX Payout API documentation does NOT include
- * an account verification endpoint. The available endpoints are:
- * - bankList, expressPay2, statusCheck, getBalance
+ * Uses SparkUpTech validate_account API: POST /api/dto/validate_account
+ * This endpoint validates account details and returns the beneficiary name.
  * 
- * Until SparkupX provides an account verification API, this service performs
- * LOCAL VALIDATION ONLY and returns a placeholder response.
- * 
- * CONTACT SparkupX support to get the correct account verification endpoint!
+ * API Documentation: https://documenter.getpostman.com/view/44095803/2sB3BGGVAw#181b2d01-1993-4826-b921-8d32d510a751
  */
 
-import { VerifyAccountRequest } from './types'
+import { VerifyAccountRequest, ValidateAccountRequestBody, ValidateAccountResponse } from './types'
 import { isPayoutMockMode } from './config'
-
-// Flag to track if SparkupX account verification API is available
-// Set this to true once SparkupX provides the correct endpoint
-const SPARKUPX_VERIFICATION_AVAILABLE = false
+import { 
+  getPartnerId, 
+  getConsumerKey, 
+  getConsumerSecret, 
+  validatePayoutCredentials 
+} from './config'
 
 /**
- * Verify bank account details
+ * Verify bank account details using SparkUpTech validate_account API
  * 
- * IMPORTANT: SparkupX Payout API does NOT have an account verification endpoint
- * as per the current documentation (Feb 2026). This function only performs
- * local validation until SparkupX provides the correct API.
+ * This function calls the /api/dto/validate_account endpoint to verify
+ * account details and retrieve the beneficiary name before settlement.
  * 
  * @param request - Account details to verify (accountNumber, ifscCode, bankId, bankName)
- * @returns Verification result (local validation only - no beneficiary name)
+ * @returns Verification result with beneficiary name from API
  */
 export async function verifyBankAccount(request: VerifyAccountRequest): Promise<{
   success: boolean
@@ -40,8 +37,17 @@ export async function verifyBankAccount(request: VerifyAccountRequest): Promise<
   sparkup_balance?: number
   verification_type?: 'local' | 'api'
   message?: string
+  reference_id?: string
+  uuid?: string
 }> {
-  const { accountNumber, ifscCode, bankName, bankId } = request
+  const { 
+    accountNumber, 
+    ifscCode, 
+    bankName, 
+    bankId,
+    purpose_message = 'This is a penniless transaction',
+    validation_type = 'penniless'
+  } = request
 
   // Validate inputs
   if (!accountNumber || !ifscCode) {
@@ -94,46 +100,121 @@ export async function verifyBankAccount(request: VerifyAccountRequest): Promise<
       transaction_id: 'MOCK_VERIFY_' + Date.now(),
       charges: 0, // No charges for mock
       sparkup_balance: 1000,
-      verification_type: 'local',
+      verification_type: 'api',
+      reference_id: 'MOCK_REF_' + Date.now(),
+      uuid: 'MOCK_UUID_' + Date.now(),
     }
   }
 
-  // ============================================================
-  // IMPORTANT: SparkupX does NOT have account verification API
-  // ============================================================
-  // The SparkupX Payout API documentation only includes:
-  // - POST /api/fzep/payout/bankList
-  // - POST /api/fzep/payout/expressPay2
-  // - POST /api/fzep/payout/statusCheck
-  // - GET /api/wallet/getBalance
-  //
-  // There is NO /accountVerify endpoint in the documentation!
-  // Contact SparkupX support to get the correct endpoint.
-  // ============================================================
+  // Validate credentials
+  try {
+    validatePayoutCredentials()
+  } catch (error) {
+    console.error('[Account Verify] Credentials not configured:', error)
+    return {
+      success: false,
+      error: (error as Error).message,
+    }
+  }
 
-  if (!SPARKUPX_VERIFICATION_AVAILABLE) {
-    console.log('[Account Verify] SparkupX verification API NOT available')
-    console.log('[Account Verify] Performing LOCAL VALIDATION ONLY')
-    
-    // Return success with local validation (no beneficiary name)
-    // The user will need to manually confirm the beneficiary name
+  // Prepare API request
+  const apiUrl = 'https://api.sparkuptech.in/api/dto/validate_account'
+  const requestBody: ValidateAccountRequestBody = {
+    purpose_message,
+    validation_type,
+    account_number: normalizedAccountNumber,
+    ifscCode: normalizedIfsc,
+  }
+
+  // Prepare headers (lowercase as per API documentation)
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'partnerid': getPartnerId(),
+    'consumerkey': getConsumerKey(),
+    'consumersecret': getConsumerSecret(),
+  }
+
+  try {
+    console.log('[Account Verify] Calling validate_account API:', {
+      account: normalizedAccountNumber.substring(0, 4) + '****' + normalizedAccountNumber.slice(-4),
+      ifsc: normalizedIfsc,
+    })
+
+    const response = await fetch(apiUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(requestBody),
+    })
+
+    const responseText = await response.text()
+    let responseData: ValidateAccountResponse
+
+    try {
+      responseData = JSON.parse(responseText)
+    } catch (parseError) {
+      console.error('[Account Verify] Failed to parse response:', responseText)
+      return {
+        success: false,
+        error: 'Invalid response from account verification API',
+      }
+    }
+
+    // Check HTTP status
+    if (!response.ok) {
+      console.error('[Account Verify] API error:', {
+        status: response.status,
+        data: responseData,
+      })
+      return {
+        success: false,
+        error: responseData.message || `API returned status ${response.status}`,
+      }
+    }
+
+    // Check API response success
+    if (!responseData.success) {
+      console.error('[Account Verify] API returned failure:', responseData)
+      return {
+        success: false,
+        error: responseData.message || 'Account verification failed',
+      }
+    }
+
+    // Extract beneficiary name from response
+    const beneficiaryName = responseData.data?.beneficiaryName
+    const accountStatus = responseData.data?.accountStatus
+    const isAccountValid = accountStatus === 'valid'
+
+    if (!isAccountValid) {
+      return {
+        success: false,
+        error: responseData.data?.message || 'Account is not valid',
+      }
+    }
+
+    console.log('[Account Verify] Account verified successfully:', {
+      beneficiaryName: beneficiaryName ? beneficiaryName.substring(0, 3) + '***' : 'N/A',
+      reference_id: responseData.data?.reference_id,
+    })
+
     return {
       success: true,
-      account_holder_name: undefined, // Cannot fetch from SparkupX
+      account_holder_name: beneficiaryName || undefined,
       bank_name: bankName || normalizedIfsc.substring(0, 4) + ' Bank',
       branch_name: normalizedIfsc.substring(0, 4) + ' Branch',
-      is_valid: true, // Account format is valid
-      transaction_id: `LOCAL_${Date.now()}`,
-      charges: 0, // No charges since no API call
-      verification_type: 'local',
-      message: 'Account format validated. Beneficiary name verification is not available - please confirm the name before transfer.',
+      is_valid: isAccountValid,
+      transaction_id: responseData.data?.reference_id,
+      reference_id: responseData.data?.reference_id,
+      uuid: responseData.data?.uuid,
+      charges: 0, // Penniless transaction - no charges
+      verification_type: 'api',
+      message: responseData.data?.message || 'Account verified successfully',
     }
-  }
-
-  // If SparkupX verification becomes available, implement the API call here
-  // For now, this code path is never reached
-  return {
-    success: false,
-    error: 'Account verification service not configured. Please contact support.',
+  } catch (error: any) {
+    console.error('[Account Verify] Network error:', error)
+    return {
+      success: false,
+      error: error.message || 'Network error while verifying account',
+    }
   }
 }

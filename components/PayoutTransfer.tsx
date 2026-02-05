@@ -828,7 +828,15 @@ export default function PayoutTransfer({ title }: PayoutTransferProps = {}) {
         }
       }
     } catch (err: any) {
-      setError(err.message || 'Transfer failed')
+      console.error('Transfer error:', err)
+      const errorMsg = err.message || 'Transfer failed'
+      
+      // Handle SparkupX timeout errors specifically
+      if (errorMsg.includes('504') || errorMsg.includes('Gateway Time') || errorMsg.includes('timeout') || errorMsg.includes('SparkupX server timeout')) {
+        setError('Transfer request timed out at SparkupX server. This does NOT mean the transfer failed - it may still be processing. Please check your transaction history in 2-3 minutes before retrying.')
+      } else {
+        setError(errorMsg)
+      }
     } finally {
       setTransferring(false)
     }

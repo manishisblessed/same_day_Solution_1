@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { createClient } from '@supabase/supabase-js'
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
-import { createSettlementPayout } from '@/lib/razorpay/payout'
+import { initiateTransfer } from '@/services/payout/transfer'
 
 export const runtime = 'nodejs' // Force Node.js runtime (Supabase not compatible with Edge Runtime)
 export const dynamic = 'force-dynamic'
@@ -100,27 +100,97 @@ export async function POST(request: NextRequest) {
     }
 
     if (action === 'approve') {
-      // Process the payout via RazorpayX
-      const payoutResult = await createSettlementPayout({
-        id: settlement.id,
-        amount: parseFloat(settlement.amount.toString()),
-        net_amount: parseFloat(settlement.net_amount.toString()),
-        bank_account_number: settlement.bank_account_number,
-        bank_ifsc: settlement.bank_ifsc,
-        bank_account_name: settlement.bank_account_name
+      // Process the payout via SparkUpTech Express Pay
+      // Get sender details from admin user
+      const senderName = admin.name || admin.email?.split('@')[0] || 'Admin'
+      const senderMobile = admin.mobile || '9311757194' // Default admin mobile
+      const senderEmail = admin.email || 'admin@samedaysolution.in'
+      
+      // Get beneficiary mobile from user table (retailer/distributor/master_distributor)
+      let beneficiaryMobile = '0000000000' // Default fallback
+      try {
+        // Try to get mobile from the user's table based on their role
+        if (settlement.user_role === 'retailer') {
+          const { data: retailer } = await supabase
+            .from('retailers')
+            .select('mobile')
+            .eq('partner_id', settlement.user_id)
+            .single()
+          if (retailer?.mobile) {
+            beneficiaryMobile = retailer.mobile
+          }
+        } else if (settlement.user_role === 'distributor') {
+          const { data: distributor } = await supabase
+            .from('distributors')
+            .select('mobile')
+            .eq('partner_id', settlement.user_id)
+            .single()
+          if (distributor?.mobile) {
+            beneficiaryMobile = distributor.mobile
+          }
+        } else if (settlement.user_role === 'master_distributor') {
+          const { data: masterDistributor } = await supabase
+            .from('master_distributors')
+            .select('mobile')
+            .eq('partner_id', settlement.user_id)
+            .single()
+          if (masterDistributor?.mobile) {
+            beneficiaryMobile = masterDistributor.mobile
+          }
+        }
+      } catch (error) {
+        console.warn('[Settlement Release] Could not fetch user mobile, using default:', error)
+      }
+      
+      // If still default, try to use a valid format (SparkUpTech requires 10 digits starting with 6-9)
+      if (beneficiaryMobile === '0000000000') {
+        beneficiaryMobile = '9999999999' // Use a valid format for API (will be validated by initiateTransfer)
+      }
+      
+      // Use net_amount (after charge deduction) for the transfer
+      const transferAmount = parseFloat(settlement.net_amount.toString())
+      
+      // Generate client reference ID for tracking
+      const clientRefId = `SETTLE_${settlement.id}_${Date.now()}`
+      
+      console.log('[Settlement Release] Initiating SparkUpTech Express Pay transfer:', {
+        settlement_id: settlement.id,
+        amount: transferAmount,
+        account_number: settlement.bank_account_number?.slice(-4).padStart(settlement.bank_account_number.length, '*'),
+        ifsc: settlement.bank_ifsc,
+        account_name: settlement.bank_account_name,
+        sender_name: senderName,
+      })
+      
+      // Initiate transfer with SparkUpTech Express Pay
+      const transferResult = await initiateTransfer({
+        accountNumber: settlement.bank_account_number,
+        ifscCode: settlement.bank_ifsc,
+        accountHolderName: settlement.bank_account_name,
+        amount: transferAmount,
+        transferMode: 'NEFT', // Default to NEFT for settlements (can be made configurable)
+        bankId: undefined, // Will be resolved from bankList API
+        bankName: undefined, // Will be resolved from bankList API
+        beneficiaryMobile: beneficiaryMobile,
+        senderName: senderName,
+        senderMobile: senderMobile,
+        senderEmail: senderEmail,
+        remarks: `Settlement payout - ${settlement.bank_account_name} (ID: ${settlement.id})`,
+        clientRefId: clientRefId,
       })
 
-      if (payoutResult.success && payoutResult.payout_id) {
+      if (transferResult.success && transferResult.transaction_id) {
         // Payout initiated successfully
-        const payoutReferenceId = payoutResult.payout_id
+        const payoutReferenceId = transferResult.transaction_id // UTR from SparkUpTech
+        const payoutStatus = transferResult.status || 'processing'
         
         // Update settlement status
         const { error: updateError } = await supabase
           .from('settlements')
           .update({
-            status: payoutResult.status === 'processed' ? 'success' : 'processing',
+            status: payoutStatus === 'success' ? 'success' : 'processing',
             processed_at: new Date().toISOString(),
-            completed_at: payoutResult.status === 'processed' ? new Date().toISOString() : null,
+            completed_at: payoutStatus === 'success' ? new Date().toISOString() : null,
             payout_reference_id: payoutReferenceId,
             updated_at: new Date().toISOString()
           })
@@ -139,7 +209,7 @@ export async function POST(request: NextRequest) {
           await supabase
             .from('wallet_ledger')
             .update({ 
-              status: payoutResult.status === 'processed' ? 'completed' : 'pending',
+              status: payoutStatus === 'success' ? 'completed' : 'pending',
               reference_id: payoutReferenceId
             })
             .eq('id', settlement.ledger_entry_id)
@@ -164,23 +234,32 @@ export async function POST(request: NextRequest) {
               settlement_id: settlement_id,
               settlement_mode: settlement.settlement_mode,
               payout_reference_id: payoutReferenceId,
-              payout_status: payoutResult.status
+              payout_status: payoutStatus,
+              transaction_id: payoutReferenceId,
+              provider: 'SparkUpTech Express Pay'
             }
           })
 
         const successResponse = NextResponse.json({
           success: true,
-          message: payoutResult.status === 'processed' 
+          message: payoutStatus === 'success' 
             ? 'Settlement approved and payout processed successfully' 
             : 'Settlement approved and payout initiated',
           settlement_id: settlement_id,
           payout_reference_id: payoutReferenceId,
-          payout_status: payoutResult.status
+          payout_status: payoutStatus,
+          transaction_id: payoutReferenceId
         })
         return addCorsHeaders(request, successResponse)
       } else {
         // Payout failed - CRITICAL: Refund the wallet (money was already debited)
-        const failureReason = payoutResult.failure_reason || payoutResult.error || 'Payout API failed'
+        const failureReason = transferResult.error || 'Payout API failed'
+        
+        console.error('[Settlement Release] Payout failed:', {
+          settlement_id: settlement.id,
+          error: failureReason,
+          transfer_result: transferResult
+        })
         
         // FIX: Reverse the wallet debit since payout failed
         const { error: reversalError } = await supabase.rpc('add_ledger_entry', {
@@ -234,9 +313,10 @@ export async function POST(request: NextRequest) {
             remarks: `Settlement approval failed - ${failureReason}. Wallet ${reversalError ? 'REFUND FAILED' : 'refunded'}.`,
             metadata: {
               settlement_id: settlement_id,
-              error: payoutResult.error,
+              error: transferResult.error,
               failure_reason: failureReason,
-              wallet_refunded: !reversalError
+              wallet_refunded: !reversalError,
+              provider: 'SparkUpTech Express Pay'
             }
           })
 
