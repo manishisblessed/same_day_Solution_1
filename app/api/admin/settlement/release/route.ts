@@ -103,8 +103,22 @@ export async function POST(request: NextRequest) {
       // Process the payout via SparkUpTech Express Pay
       // Get sender details from admin user
       const senderName = admin.name || admin.email?.split('@')[0] || 'Admin'
-      const senderMobile = admin.mobile || '9311757194' // Default admin mobile
       const senderEmail = admin.email || 'admin@samedaysolution.in'
+      
+      // Get admin mobile from database (AuthUser doesn't have mobile property)
+      let senderMobile = '9311757194' // Default admin mobile
+      try {
+        const { data: adminData } = await supabase
+          .from('admin_users')
+          .select('mobile')
+          .eq('email', admin.email)
+          .single()
+        if (adminData?.mobile) {
+          senderMobile = adminData.mobile
+        }
+      } catch (error) {
+        console.warn('[Settlement Release] Could not fetch admin mobile, using default:', error)
+      }
       
       // Get beneficiary mobile from user table (retailer/distributor/master_distributor)
       let beneficiaryMobile = '0000000000' // Default fallback
