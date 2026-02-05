@@ -156,13 +156,13 @@ export async function getTransferStatus(request: TransferStatusRequest): Promise
     const amount = statusData.transactionAmount ?? statusData.amount
     const deductedAmount = statusData.deductedAmount
     const serviceCharge = statusData.serviceCharge
-    const referenceId = statusData.rpid ?? statusData.referenceNo
-    const accountNumber = statusData.account
+    const referenceId = (statusData.rpid ?? statusData.referenceNo) ?? undefined // Convert null to undefined
+    const accountNumber = statusData.account ?? undefined
     const balance = statusData.bal
-    const remark = statusData.remark
-    const operatorId = statusData.opid
-    const errorCode = statusData.errorcode
-    const reqId = statusData.reqId
+    const remark = statusData.remark ?? undefined
+    const operatorId = statusData.opid ?? undefined // Convert null to undefined
+    const errorCode = statusData.errorcode ?? undefined // Convert null to undefined
+    const reqId = statusData.reqId ?? undefined
 
     console.log('[Payout Status] Status check result:', {
       transaction_id: transactionId,

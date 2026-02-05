@@ -137,8 +137,8 @@ export interface TransferRequest {
   accountHolderName: string
   amount: number
   transferMode: 'IMPS' | 'NEFT'
-  bankId: number          // Required: BankID from bank list
-  bankName: string        // Required: Bank name
+  bankId?: number          // Optional: BankID from bank list (will be resolved if not provided)
+  bankName?: string        // Optional: Bank name (will be resolved if not provided)
   beneficiaryMobile: string // Required: Beneficiary mobile
   senderName: string      // Required: Sender name
   senderMobile: string    // Required: Sender mobile
