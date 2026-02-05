@@ -193,6 +193,65 @@ export async function POST(request: NextRequest) {
         clientRefId: clientRefId,
       })
 
+      // ========== HANDLE TIMEOUT SCENARIO FOR SETTLEMENTS ==========
+      // If it's a timeout, DON'T refund - transaction may still be processing
+      if (transferResult.is_timeout) {
+        console.warn('[Settlement Release] Server timeout - keeping settlement as pending:', {
+          settlement_id: settlement.id,
+          client_ref_id: clientRefId,
+        })
+
+        // Update settlement as pending (not failed) - no refund
+        await supabase
+          .from('settlements')
+          .update({
+            status: 'pending',
+            failure_reason: 'Server timeout - awaiting status confirmation. Please check status in 2-3 minutes.',
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', settlement_id)
+
+        // Update ledger status to pending
+        if (settlement.ledger_entry_id) {
+          await supabase
+            .from('wallet_ledger')
+            .update({ status: 'pending' })
+            .eq('id', settlement.ledger_entry_id)
+        }
+
+        // Log admin action
+        await supabase
+          .from('admin_audit_log')
+          .insert({
+            admin_id: admin.id,
+            action_type: 'settlement_approve_pending',
+            target_user_id: settlement.user_id,
+            target_user_role: settlement.user_role,
+            wallet_type: 'primary',
+            amount: settlement.amount,
+            ip_address: ipAddress,
+            user_agent: request.headers.get('user-agent') || 'unknown',
+            remarks: `Settlement payout initiated but server timed out - Status pending. Amount: ₹${settlement.amount}`,
+            metadata: {
+              settlement_id: settlement_id,
+              settlement_mode: settlement.settlement_mode,
+              is_timeout: true,
+              provider: 'SparkUpTech Express Pay'
+            }
+          })
+
+        const pendingResponse = NextResponse.json({
+          success: true,
+          message: 'Settlement payout is being processed. Please check the status in 2-3 minutes.',
+          settlement_id: settlement_id,
+          payout_status: 'pending',
+          is_timeout: true,
+          check_status_after: '2-3 minutes'
+        })
+        return addCorsHeaders(request, pendingResponse)
+      }
+      // ========== END TIMEOUT HANDLING ==========
+
       if (transferResult.success && transferResult.transaction_id) {
         // Payout initiated successfully
         const payoutReferenceId = transferResult.transaction_id // UTR from SparkUpTech
@@ -263,6 +322,26 @@ export async function POST(request: NextRequest) {
           payout_reference_id: payoutReferenceId,
           payout_status: payoutStatus,
           transaction_id: payoutReferenceId
+        })
+        return addCorsHeaders(request, successResponse)
+      } else if (transferResult.success && !transferResult.transaction_id) {
+        // Success but no transaction ID (timeout scenario handled above, this is edge case)
+        const payoutStatus = transferResult.status || 'processing'
+        
+        await supabase
+          .from('settlements')
+          .update({
+            status: payoutStatus === 'success' ? 'success' : 'processing',
+            processed_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', settlement_id)
+
+        const successResponse = NextResponse.json({
+          success: true,
+          message: 'Settlement payout initiated',
+          settlement_id: settlement_id,
+          payout_status: payoutStatus
         })
         return addCorsHeaders(request, successResponse)
       } else {
