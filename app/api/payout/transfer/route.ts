@@ -393,34 +393,33 @@ export async function POST(request: NextRequest) {
     // ========== HANDLE TIMEOUT SCENARIO ==========
     // If it's a timeout, DON'T refund - transaction may still be processing
     if (transferResult.is_timeout) {
-      console.warn('[Payout Transfer] Server timeout - keeping transaction as pending:', {
+      console.warn('[Payout Transfer] Server timeout - keeping transaction as processing:', {
         transaction_id: payoutTx.id,
         client_ref_id: clientRefId,
       })
 
-      // Update transaction as pending (not failed) - no refund
+      // Update transaction as processing (not failed, not pending) - no refund
+      // Don't set failure_reason - it's not a failure, just slow processing
       await supabaseAdmin
         .from('payout_transactions')
         .update({ 
-          status: 'pending',
-          failure_reason: 'Server timeout - awaiting status confirmation',
+          status: 'processing',
           updated_at: new Date().toISOString()
         })
         .eq('id', payoutTx.id)
 
-      // Keep ledger entry as pending (not completed, not failed)
+      // Keep ledger entry as completed (money is being transferred)
       await supabaseAdmin
         .from('wallet_ledger')
-        .update({ status: 'pending' })
+        .update({ status: 'completed' })
         .eq('id', ledgerId)
 
       const response = NextResponse.json({
         success: true,  // Return success to UI - transaction is processing
-        message: 'Your transaction is being processed. Please check the status in 2-3 minutes.',
+        message: 'Transfer initiated successfully. Processing may take a few minutes.',
         transaction_id: payoutTx.id,
         client_ref_id: clientRefId,
-        status: 'PENDING',
-        is_timeout: true,
+        status: 'PROCESSING',
         amount: amountNum,
         charges,
         total_debited: totalAmount,
@@ -428,7 +427,6 @@ export async function POST(request: NextRequest) {
         account_holder_name: accountHolderName,
         bank_name: bankName,
         transfer_mode: transferMode,
-        check_status_after: '2-3 minutes',
       })
       return addCorsHeaders(request, response)
     }

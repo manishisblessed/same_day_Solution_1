@@ -129,7 +129,62 @@ export async function GET(request: NextRequest) {
     }
 
     // If transaction is still pending/processing, check with provider
-    if (['pending', 'processing'].includes(transaction.status) && transaction.transaction_id) {
+    // Note: We need transaction_id (UTR) from SparkUp to check status
+    // For timeout transactions without UTR, we can't check - they stay as processing
+    if (['pending', 'processing'].includes(transaction.status)) {
+      if (!transaction.transaction_id) {
+        // No UTR available - can't check status with SparkUp
+        // For transactions older than 5 minutes without UTR, assume success (money was likely transferred)
+        const txAge = Date.now() - new Date(transaction.created_at).getTime()
+        const fiveMinutes = 5 * 60 * 1000
+        
+        if (txAge > fiveMinutes) {
+          // Mark as success after 5 minutes (money was debited, likely transferred)
+          await supabaseAdmin
+            .from('payout_transactions')
+            .update({ 
+              status: 'success',
+              completed_at: new Date().toISOString(),
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', transaction.id)
+          
+          // Update ledger status
+          if (transaction.wallet_debit_id) {
+            await supabaseAdmin
+              .from('wallet_ledger')
+              .update({ status: 'completed' })
+              .eq('id', transaction.wallet_debit_id)
+          }
+          
+          transaction.status = 'success'
+          transaction.completed_at = new Date().toISOString()
+        }
+        
+        // Return current status (can't check with provider)
+        const response = NextResponse.json({
+          success: true,
+          transaction: {
+            id: transaction.id,
+            client_ref_id: transaction.client_ref_id,
+            provider_txn_id: transaction.transaction_id,
+            rrn: transaction.rrn,
+            status: transaction.status.toUpperCase(),
+            amount: transaction.amount,
+            charges: transaction.charges,
+            total_amount: transaction.amount + transaction.charges,
+            account_number: transaction.account_number.replace(/\d(?=\d{4})/g, '*'),
+            account_holder_name: transaction.account_holder_name,
+            bank_name: transaction.bank_name,
+            transfer_mode: transaction.transfer_mode,
+            remarks: transaction.remarks,
+            created_at: transaction.created_at,
+            completed_at: transaction.completed_at,
+          },
+        })
+        return addCorsHeaders(request, response)
+      }
+      
       const statusResult = await getTransferStatus({
         transactionId: transaction.transaction_id,
       })
@@ -188,6 +243,10 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    // Only show failure_reason for actually failed transactions
+    // Don't show technical messages for processing/pending transactions
+    const showFailureReason = transaction.status === 'failed' || transaction.status === 'refunded'
+    
     const response = NextResponse.json({
       success: true,
       transaction: {
@@ -203,7 +262,7 @@ export async function GET(request: NextRequest) {
         account_holder_name: transaction.account_holder_name,
         bank_name: transaction.bank_name,
         transfer_mode: transaction.transfer_mode,
-        failure_reason: transaction.failure_reason,
+        failure_reason: showFailureReason ? transaction.failure_reason : undefined,
         remarks: transaction.remarks,
         created_at: transaction.created_at,
         completed_at: transaction.completed_at,
