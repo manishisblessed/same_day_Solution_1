@@ -164,6 +164,7 @@ export async function initiateTransfer(request: TransferRequest): Promise<{
   total_amount?: number
   remark?: string
   error?: string
+  is_timeout?: boolean  // Indicates if this was a timeout - transaction may still process
 }> {
   const { 
     accountNumber, 
@@ -402,10 +403,16 @@ export async function initiateTransfer(request: TransferRequest): Promise<{
       })
       
       // Check if it's a SparkupX server timeout (504)
+      // IMPORTANT: For timeouts, we return success=true with status='pending' and is_timeout=true
+      // This prevents automatic refunds for transactions that may still be processing
       if (response.status === 504 || (response.error && (response.error.includes('504') || response.error.includes('Gateway Time') || response.error.includes('timeout')))) {
+        console.warn('[Payout] Server timeout - transaction may still be processing')
         return {
-          success: false,
-          error: 'SparkupX server timeout: The transfer request timed out at SparkupX\'s server. This does NOT mean the transfer failed - it may still be processing. Please check your transaction history in 2-3 minutes before retrying.',
+          success: true,  // Return success to prevent refund - transaction may still process
+          status: 'pending',
+          is_timeout: true,
+          remark: 'Your transaction is being processed. Please check the status in 2-3 minutes.',
+          error: undefined,
         }
       }
       

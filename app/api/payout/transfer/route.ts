@@ -261,6 +261,51 @@ export async function POST(request: NextRequest) {
       return addCorsHeaders(request, response)
     }
 
+    // ========== DUPLICATE TRANSACTION PREVENTION ==========
+    // Check for recent transactions to same account within 2 minutes
+    const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000).toISOString()
+    const { data: recentTx, error: recentTxError } = await supabaseAdmin
+      .from('payout_transactions')
+      .select('id, status, created_at, amount')
+      .eq('retailer_id', user.partner_id)
+      .eq('account_number', accountNumber)
+      .gte('created_at', twoMinutesAgo)
+      .in('status', ['pending', 'processing', 'success'])
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    if (!recentTxError && recentTx) {
+      const timeSinceLastTx = Math.round((Date.now() - new Date(recentTx.created_at).getTime()) / 1000)
+      const waitTime = 120 - timeSinceLastTx
+      
+      console.warn('[Payout Transfer] Duplicate transaction blocked:', {
+        retailer_id: user.partner_id,
+        account_number: accountNumber.replace(/\d(?=\d{4})/g, '*'),
+        recent_tx_id: recentTx.id,
+        recent_tx_status: recentTx.status,
+        seconds_ago: timeSinceLastTx,
+      })
+      
+      const response = NextResponse.json(
+        { 
+          success: false, 
+          error: `A transaction to this account was initiated ${timeSinceLastTx} seconds ago (Status: ${recentTx.status.toUpperCase()}). Please wait ${waitTime} seconds before retrying to prevent duplicate transfers.`,
+          duplicate_prevention: true,
+          recent_transaction: {
+            id: recentTx.id,
+            status: recentTx.status,
+            amount: recentTx.amount,
+            created_at: recentTx.created_at,
+          },
+          wait_seconds: waitTime,
+        },
+        { status: 429 }  // Too Many Requests
+      )
+      return addCorsHeaders(request, response)
+    }
+    // ========== END DUPLICATE PREVENTION ==========
+
     // Generate client reference ID
     const clientRefId = generateClientRefId(user.partner_id || 'UNKNOWN')
 
@@ -345,8 +390,50 @@ export async function POST(request: NextRequest) {
       clientRefId,
     })
 
+    // ========== HANDLE TIMEOUT SCENARIO ==========
+    // If it's a timeout, DON'T refund - transaction may still be processing
+    if (transferResult.is_timeout) {
+      console.warn('[Payout Transfer] Server timeout - keeping transaction as processing:', {
+        transaction_id: payoutTx.id,
+        client_ref_id: clientRefId,
+      })
+
+      // Update transaction as processing (not failed, not pending) - no refund
+      // Don't set failure_reason - it's not a failure, just slow processing
+      await supabaseAdmin
+        .from('payout_transactions')
+        .update({ 
+          status: 'processing',
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', payoutTx.id)
+
+      // Keep ledger entry as completed (money is being transferred)
+      await supabaseAdmin
+        .from('wallet_ledger')
+        .update({ status: 'completed' })
+        .eq('id', ledgerId)
+
+      const response = NextResponse.json({
+        success: true,  // Return success to UI - transaction is processing
+        message: 'Transfer initiated successfully. Processing may take a few minutes.',
+        transaction_id: payoutTx.id,
+        client_ref_id: clientRefId,
+        status: 'PROCESSING',
+        amount: amountNum,
+        charges,
+        total_debited: totalAmount,
+        account_number: accountNumber.replace(/\d(?=\d{4})/g, '*'),
+        account_holder_name: accountHolderName,
+        bank_name: bankName,
+        transfer_mode: transferMode,
+      })
+      return addCorsHeaders(request, response)
+    }
+    // ========== END TIMEOUT HANDLING ==========
+
     if (!transferResult.success) {
-      // Refund the wallet
+      // Refund the wallet - only for actual failures (not timeouts)
       // Using the same wallet function as BBPS for consistency (refund_wallet_bbps)
       await (supabaseAdmin as any).rpc('refund_wallet_bbps', {
         p_retailer_id: user.partner_id,
