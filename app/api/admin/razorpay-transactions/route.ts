@@ -20,15 +20,16 @@ function getSupabaseClient() {
 /**
  * Admin-only API to fetch Razorpay POS transactions
  * 
- * Returns paginated list of transactions sorted by created_time DESC
+ * Reads from razorpay_pos_transactions table (populated by webhook)
+ * Returns paginated list of transactions sorted by transaction_time DESC
  * 
- * Response fields ONLY:
+ * Response fields:
  * - txn_id
  * - amount
  * - payment_mode
  * - status (CAPTURED, FAILED, PENDING)
  * - settlement_status
- * - created_time
+ * - created_time (mapped from transaction_time)
  */
 export async function GET(request: NextRequest) {
   // Check environment variables FIRST - before anything else
@@ -51,7 +52,7 @@ export async function GET(request: NextRequest) {
 
     // Check admin authentication with fallback
     const { user: admin, method } = await getCurrentUserWithFallback(request)
-    console.log('[Razorpay Transactions Old] Auth:', method, '|', admin?.email || 'none')
+    console.log('[Razorpay Transactions] Auth:', method, '|', admin?.email || 'none')
     
     if (!admin) {
       return NextResponse.json({ error: 'Session expired. Please log in again.', code: 'SESSION_EXPIRED' }, { status: 401 })
@@ -75,16 +76,17 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // Build query - Select only specified fields
+    // Build query from razorpay_pos_transactions (the table webhook writes to)
     let query = supabase
-      .from('razorpay_transactions')
-      .select('txn_id, amount, payment_mode, status, settlement_status, created_time', { count: 'exact' })
-      .order('created_time', { ascending: false, nullsFirst: false })
+      .from('razorpay_pos_transactions')
+      .select('txn_id, amount, payment_mode, display_status, status, transaction_time, raw_data', { count: 'exact' })
+      .order('transaction_time', { ascending: false, nullsFirst: false })
       .range(offset, offset + limit - 1)
 
-    // Apply status filter if provided
+    // Apply status filter if provided (filter on display_status: SUCCESS, FAILED, PENDING)
     if (statusFilter && ['CAPTURED', 'FAILED', 'PENDING'].includes(statusFilter.toUpperCase())) {
-      query = query.eq('status', statusFilter.toUpperCase())
+      const displayStatus = statusFilter.toUpperCase() === 'CAPTURED' ? 'SUCCESS' : statusFilter.toUpperCase()
+      query = query.eq('display_status', displayStatus)
     }
 
     const { data: transactions, error, count } = await query
@@ -92,7 +94,7 @@ export async function GET(request: NextRequest) {
     if (error) {
       if (error.code === '42P01' || error.message?.includes('does not exist')) {
         return NextResponse.json(
-          { error: 'Table does not exist. Run migration: supabase-razorpay-transactions-migration.sql' },
+          { error: 'Table razorpay_pos_transactions does not exist. Please contact admin.' },
           { status: 500 }
         )
       }
@@ -102,6 +104,17 @@ export async function GET(request: NextRequest) {
       )
     }
 
+    // Map fields to the format the frontend expects
+    const mappedTransactions = (transactions || []).map((txn: any) => ({
+      txn_id: txn.txn_id,
+      amount: txn.amount,
+      payment_mode: txn.payment_mode,
+      // Map display_status back to frontend status: SUCCESS→CAPTURED
+      status: txn.display_status === 'SUCCESS' ? 'CAPTURED' : (txn.display_status || txn.status || 'PENDING'),
+      settlement_status: txn.raw_data?.settlementStatus || null,
+      created_time: txn.transaction_time
+    }))
+
     // Calculate pagination metadata
     const totalPages = count ? Math.ceil(count / limit) : 1
     const hasNextPage = page < totalPages
@@ -109,7 +122,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      data: transactions || [],
+      data: mappedTransactions,
       pagination: {
         page,
         limit,
