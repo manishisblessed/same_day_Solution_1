@@ -1,6 +1,6 @@
 https://documenter.getpostman.com/view/44095803/2sB3B8stY8#0579a617-8d0d-4328-8928-de8349450004
 
-BBPS Service 1 API Documentation
+New BBPS Service 1 API Documentation
 🔹 Required Headers for All API Requests:
 These headers must be sent with every API request:
 
