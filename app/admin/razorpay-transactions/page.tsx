@@ -191,7 +191,7 @@ export default function RazorpayTransactionsPage() {
       <div className="lg:pl-56">
         <div className="p-6 space-y-6">
           {/* Header */}
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
               <h1 className="text-3xl font-bold text-gray-900 dark:text-white flex items-center gap-3">
                 <CreditCard className="w-8 h-8 text-primary-600" />
@@ -201,7 +201,7 @@ export default function RazorpayTransactionsPage() {
                 View all Razorpay POS transaction notifications
               </p>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-shrink-0">
               <button
                 onClick={() => setAutoRefresh(!autoRefresh)}
                 className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
@@ -212,12 +212,12 @@ export default function RazorpayTransactionsPage() {
                 title={autoRefresh ? 'Auto-refresh enabled (every 10s)' : 'Auto-refresh disabled'}
               >
                 <div className={`w-2 h-2 rounded-full ${autoRefresh ? 'bg-white animate-pulse' : 'bg-gray-500'}`} />
-                <span className="text-sm">{autoRefresh ? 'Auto-refresh ON' : 'Auto-refresh OFF'}</span>
+                <span className="text-sm whitespace-nowrap">{autoRefresh ? 'Auto-refresh ON' : 'Auto-refresh OFF'}</span>
               </button>
               <button
                 onClick={() => fetchTransactions()}
                 disabled={loading}
-                className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors whitespace-nowrap"
               >
                 <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
                 Refresh
