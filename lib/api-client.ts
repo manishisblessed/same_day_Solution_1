@@ -3,11 +3,11 @@
  * Handles API base URL configuration for different environments
  * 
  * Architecture:
- * - Frontend: Hosted on AWS Amplify (samedaysolution.co.in)
+ * - Frontend: Hosted on AWS Amplify (samedaysolution.in)
  * - BBPS Backend: Hosted on EC2 with whitelisted IP for BBPS API
  * - Other APIs: Handled by Amplify's Next.js API routes
  * 
- * Set NEXT_PUBLIC_BBPS_BACKEND_URL to your EC2 backend URL (e.g., http://api.samedaysolution.co.in)
+ * Set NEXT_PUBLIC_BBPS_BACKEND_URL to your EC2 backend URL (e.g., https://api.samedaysolution.in)
  */
 
 import { createBrowserClient } from '@supabase/ssr'
@@ -56,7 +56,7 @@ export function getBBPSBackendUrl(): string {
     
     // Hardcoded fallback for production - EC2 backend URL
     // This ensures API calls go to EC2 even if env var is not set
-    return 'https://api.samedaysolution.co.in'
+    return 'https://api.samedaysolution.in'
   }
   
   // Server-side: Check environment variable
@@ -66,7 +66,7 @@ export function getBBPSBackendUrl(): string {
   }
   
   // Fallback for SSR
-  return 'https://api.samedaysolution.co.in'
+  return 'https://api.samedaysolution.in'
 }
 
 /**

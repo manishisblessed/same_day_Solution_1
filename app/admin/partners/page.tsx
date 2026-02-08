@@ -163,7 +163,7 @@ export default function PartnersPage() {
                 Partner Co-Branding Program
               </h3>
               <p className="text-gray-600 dark:text-gray-400 text-sm mb-4">
-                Partners get a custom subdomain (partner.samedaysolution.co.in), their logo displayed, and 
+                Partners get a custom subdomain (partner.samedaysolution.in), their logo displayed, and 
                 "Powered by Same Day Solution" branding. They can expand their reach with Same Day Solution's full suite of financial services.
               </p>
               <div className="flex flex-wrap gap-4">
@@ -336,7 +336,7 @@ export default function PartnersPage() {
                       <h3 className="text-xl font-bold text-gray-900 dark:text-white">{partner.name}</h3>
                       <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
                         <Globe className="w-4 h-4" />
-                        <span>{partner.subdomain}.samedaysolution.co.in</span>
+                        <span>{partner.subdomain}.samedaysolution.in</span>
                       </div>
                     </div>
                   </div>
@@ -472,7 +472,7 @@ export default function PartnersPage() {
                       required
                     />
                     <span className="px-4 py-3 bg-gray-100 dark:bg-gray-700 border border-l-0 border-gray-200 dark:border-gray-700 rounded-r-xl text-sm text-gray-500 dark:text-gray-400">
-                      .samedaysolution.co.in
+                      .samedaysolution.in
                     </span>
                   </div>
                 </div>

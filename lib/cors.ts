@@ -24,11 +24,13 @@ function getAllowedOrigin(request: NextRequest): string | null {
       process.env.NEXT_PUBLIC_APP_URL,
       'https://www.samedaysolution.in',
       'https://samedaysolution.in',
+      'https://api.samedaysolution.in',
+      'http://44.193.29.59:3001',
+      'http://44.193.29.59:3000',
+      // Legacy domains (keep temporarily for transition)
       'https://www.samedaysolution.co.in',
       'https://samedaysolution.co.in',
       'https://api.samedaysolution.co.in',
-      'http://44.193.29.59:3001',
-      'http://44.193.29.59:3000',
     ].filter(Boolean) as string[]
     
     // Normalize domains (remove trailing slashes, ensure https)

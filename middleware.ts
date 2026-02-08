@@ -3,13 +3,17 @@ import { NextResponse, type NextRequest } from 'next/server'
 
 // Allowed origins for CORS
 const ALLOWED_ORIGINS = [
-  'https://samedaysolution.co.in',
-  'https://www.samedaysolution.co.in',
-  'https://api.samedaysolution.co.in',
+  'https://samedaysolution.in',
+  'https://www.samedaysolution.in',
+  'https://api.samedaysolution.in',
   'http://localhost:3000',
   'http://127.0.0.1:3000',
   'http://44.193.29.59:3001',
   'http://44.193.29.59:3000',
+  // Legacy domains (keep temporarily for transition)
+  'https://samedaysolution.co.in',
+  'https://www.samedaysolution.co.in',
+  'https://api.samedaysolution.co.in',
 ]
 
 // Add CORS headers to response
