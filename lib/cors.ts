@@ -1,111 +1,43 @@
 /**
  * CORS Utility
- * Handles CORS headers for API routes
+ * 
+ * IMPORTANT: CORS is now handled CENTRALLY in middleware.ts for ALL API routes.
+ * These functions are kept as no-op pass-throughs for backward compatibility
+ * with existing route handlers that call them. They do NOT add any headers.
+ * 
+ * This prevents duplicate Access-Control-Allow-Origin headers which browsers reject.
+ * All CORS logic lives in middleware.ts only.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
 
 /**
- * Get allowed origin for CORS
- * In production, only allow requests from the domain
- * In development, allow localhost
- */
-function getAllowedOrigin(request: NextRequest): string | null {
-  const origin = request.headers.get('origin')
-  
-  if (!origin) {
-    // No origin header means same-origin request, no CORS needed
-    return null
-  }
-  
-  // In production, check against allowed domains
-  if (process.env.NODE_ENV === 'production') {
-    const allowedDomains = [
-      process.env.NEXT_PUBLIC_APP_URL,
-      'https://www.samedaysolution.in',
-      'https://samedaysolution.in',
-      'https://api.samedaysolution.in',
-      'http://44.193.29.59:3001',
-      'http://44.193.29.59:3000',
-      // Legacy domains (keep temporarily for transition)
-      'https://www.samedaysolution.co.in',
-      'https://samedaysolution.co.in',
-      'https://api.samedaysolution.co.in',
-    ].filter(Boolean) as string[]
-    
-    // Normalize domains (remove trailing slashes, ensure https)
-    const normalizedDomains = allowedDomains.map(domain => {
-      let normalized = domain.trim()
-      if (normalized.endsWith('/')) {
-        normalized = normalized.slice(0, -1)
-      }
-      return normalized
-    })
-    
-    // If origin matches allowed domain, return it
-    if (normalizedDomains.some(domain => {
-      // Exact match
-      if (origin === domain) return true
-      // Origin starts with domain (for sub-paths)
-      if (origin.startsWith(domain + '/')) return true
-      // For IP addresses, check if they match the base IP
-      if (domain.includes('44.193.29.59') && origin.includes('44.193.29.59')) return true
-      return false
-    })) {
-      return origin
-    }
-    
-    // Origin doesn't match, return null (will not add CORS headers)
-    return null
-  }
-  
-  // In development, allow localhost and IP addresses
-  if (origin.includes('localhost') || origin.includes('127.0.0.1') || origin.includes('44.193.29.59')) {
-    return origin
-  }
-  
-  return null
-}
-
-/**
- * Add CORS headers to response
- * Only adds CORS headers if origin is different (cross-origin request)
+ * Add CORS headers to response - NO-OP (handled by middleware)
+ * 
+ * CORS headers are now added centrally in middleware.ts to ensure
+ * ALL API routes get CORS headers automatically, including error responses.
+ * This function is kept for backward compatibility but does nothing.
  */
 export function addCorsHeaders(
   request: NextRequest,
   response: NextResponse
 ): NextResponse {
-  const allowedOrigin = getAllowedOrigin(request)
-  
-  // Only add CORS headers for cross-origin requests
-  if (allowedOrigin) {
-    response.headers.set('Access-Control-Allow-Origin', allowedOrigin)
-    response.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
-    response.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization')
-    response.headers.set('Access-Control-Allow-Credentials', 'true')
-  }
-  
+  // No-op: CORS is handled by middleware.ts
+  // Do NOT add headers here - it would cause duplicate Access-Control-Allow-Origin
   return response
 }
 
 /**
- * Handle OPTIONS request for CORS preflight
+ * Handle OPTIONS request for CORS preflight - NO-OP (handled by middleware)
+ * 
+ * OPTIONS preflight is handled in middleware.ts (lines 56-59).
+ * Route handlers never receive OPTIONS requests because middleware
+ * short-circuits them. This function is kept for backward compatibility.
  */
 export function handleCorsPreflight(request: NextRequest): NextResponse | null {
-  const allowedOrigin = getAllowedOrigin(request)
-  
-  if (allowedOrigin) {
-    return new NextResponse(null, {
-      status: 204,
-      headers: {
-        'Access-Control-Allow-Origin': allowedOrigin,
-        'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-        'Access-Control-Allow-Credentials': 'true',
-      },
-    })
-  }
-  
+  // No-op: OPTIONS preflight is handled by middleware.ts
+  // Returning null means the route handler continues normally (which won't happen
+  // in practice because middleware already handles OPTIONS and returns 204)
   return null
 }
 

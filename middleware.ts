@@ -105,17 +105,15 @@ export async function middleware(request: NextRequest) {
     // The session might just be expired or the user not logged in yet.
     // Let the app handle authentication state, not the middleware.
 
-    // For API routes, set JSON content type
-    // The refreshed session cookies are set in both request and response
-    // API routes should read from request.cookies (via getCurrentUserFromRequest)
-    // NOTE: Do NOT add CORS headers here - each API route handler adds them via lib/cors.ts
-    // Adding them here AND in route handlers causes duplicate Access-Control-Allow-Origin headers
-    // which browsers reject. Only OPTIONS preflight is handled above (line 56-59).
+    // For API routes, set JSON content type and CORS headers
+    // CORS is handled centrally here in middleware so ALL API routes get CORS headers
+    // automatically - even error responses. Individual route handlers do NOT need to
+    // add CORS headers (lib/cors.ts addCorsHeaders is now a no-op pass-through).
     if (isApiRoute) {
       if (!isFileUploadRoute) {
         response.headers.set('Content-Type', 'application/json')
       }
-      return response
+      return addCorsHeaders(request, response)
     }
 
     // If user is signed in and the current path is /login, redirect to appropriate dashboard based on role
