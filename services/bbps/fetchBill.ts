@@ -179,11 +179,19 @@ export async function fetchBill(
       queryParams.append('paymentInfo[0][infoValue]', 'Received')
     }
     
-    // Add paymentMode if provided (default to Cash as shown in API docs)
-    queryParams.append('paymentMode', paymentMode || 'Cash')
+    // Add paymentMode if provided (default to lowercase "cash" as per tested API)
+    queryParams.append('paymentMode', (paymentMode || 'cash').toLowerCase())
 
     const endpoint = `/bbps/fetchBill?${queryParams.toString()}`
     console.log('[BBPS fetchBill] Request URL:', endpoint)
+    console.log('[BBPS fetchBill] Query Parameters:', {
+      reqId,
+      billerId,
+      inputParams: requestInputParams,
+      initChannel,
+      paymentInfo: paymentInfo || [{ infoName: 'Remarks', infoValue: 'Received' }],
+      paymentMode: paymentMode || 'cash',
+    })
 
     // Make API request with query parameters (per Sparkup API documentation)
     const response = await bbpsClient.request<BBPSFetchBillResponse>({

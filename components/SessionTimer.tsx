@@ -38,15 +38,22 @@ export default function SessionTimer({
   const [timeRemaining, setTimeRemaining] = useState(totalSessionTime)
   const [showWarning, setShowWarning] = useState(false)
   const [isExpired, setIsExpired] = useState(false)
-  const [lastActivity, setLastActivity] = useState(Date.now())
   
+  // Use refs for values accessed inside the interval callback
+  // This avoids putting them in the useEffect dependency array
+  const showWarningRef = useRef(false)
+  const isExpiredRef = useRef(false)
   const timerRef = useRef<NodeJS.Timeout | null>(null)
-  const warningTimerRef = useRef<NodeJS.Timeout | null>(null)
+  const logoutInProgressRef = useRef(false)
+
+  // Keep refs in sync with state
+  useEffect(() => { showWarningRef.current = showWarning }, [showWarning])
+  useEffect(() => { isExpiredRef.current = isExpired }, [isExpired])
 
   // Format time as MM:SS
   const formatTime = (seconds: number): string => {
-    const mins = Math.floor(seconds / 60)
-    const secs = seconds % 60
+    const mins = Math.floor(Math.max(0, seconds) / 60)
+    const secs = Math.max(0, seconds) % 60
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
   }
 
@@ -66,37 +73,18 @@ export default function SessionTimer({
     return 'from-emerald-500/20 to-emerald-600/20 border-emerald-500/50'
   }
 
-  // Reset session timer
-  const resetSession = useCallback(() => {
-    setTimeRemaining(totalSessionTime)
-    setShowWarning(false)
-    setIsExpired(false)
-    setLastActivity(Date.now())
-    
-    // Store session start time in localStorage
-    localStorage.setItem('sessionStartTime', Date.now().toString())
-    localStorage.setItem('sessionDuration', totalSessionTime.toString())
-  }, [totalSessionTime])
+  // Handle logout - memoized with useCallback to avoid stale closures
+  const handleLogout = useCallback(async () => {
+    // Prevent double logout calls
+    if (logoutInProgressRef.current) return
+    logoutInProgressRef.current = true
 
-  // Handle user activity
-  const handleActivity = useCallback(() => {
-    // Only reset if warning is not showing (don't reset during warning period)
-    if (!showWarning && !isExpired) {
-      setLastActivity(Date.now())
-      // Update localStorage
-      localStorage.setItem('lastActivityTime', Date.now().toString())
+    // Stop the timer immediately
+    if (timerRef.current) {
+      clearInterval(timerRef.current)
+      timerRef.current = null
     }
-  }, [showWarning, isExpired])
 
-  // Handle stay signed in
-  const handleStaySignedIn = () => {
-    resetSession()
-    // Store the new session
-    localStorage.setItem('sessionExtended', Date.now().toString())
-  }
-
-  // Handle logout
-  const handleLogout = async () => {
     try {
       // Clear session timer data
       localStorage.removeItem('sessionStartTime')
@@ -119,12 +107,14 @@ export default function SessionTimer({
       keysToRemove.forEach(key => localStorage.removeItem(key))
       
       // Clear sessionStorage as well
+      const sessionKeysToRemove: string[] = []
       for (let i = 0; i < sessionStorage.length; i++) {
         const key = sessionStorage.key(i)
         if (key && (key.includes('supabase') || key.includes('sb-'))) {
-          sessionStorage.removeItem(key)
+          sessionKeysToRemove.push(key)
         }
       }
+      sessionKeysToRemove.forEach(key => sessionStorage.removeItem(key))
       
       // Call logout to sign out from Supabase
       await logout()
@@ -135,11 +125,43 @@ export default function SessionTimer({
       console.error('Logout error:', error)
     } finally {
       // Force a hard redirect to ensure all state is cleared
-      // This ensures cookies are also cleared
       const redirectPath = userRole === 'admin' ? '/admin/login' : loginPath
       window.location.href = redirectPath
     }
-  }
+  }, [logout, userRole, loginPath])
+
+  // Reset session timer
+  const resetSession = useCallback(() => {
+    // Clear the old interval
+    if (timerRef.current) {
+      clearInterval(timerRef.current)
+      timerRef.current = null
+    }
+
+    setTimeRemaining(totalSessionTime)
+    setShowWarning(false)
+    setIsExpired(false)
+    showWarningRef.current = false
+    isExpiredRef.current = false
+    logoutInProgressRef.current = false
+    
+    // Store session start time in localStorage (for SessionBadge sync)
+    localStorage.setItem('sessionStartTime', Date.now().toString())
+    localStorage.setItem('sessionDuration', totalSessionTime.toString())
+  }, [totalSessionTime])
+
+  // Handle stay signed in
+  const handleStaySignedIn = useCallback(() => {
+    resetSession()
+    localStorage.setItem('sessionExtended', Date.now().toString())
+  }, [resetSession])
+
+  // Handle user activity (only updates last activity timestamp, doesn't reset timer)
+  const handleActivity = useCallback(() => {
+    if (!showWarningRef.current && !isExpiredRef.current) {
+      localStorage.setItem('lastActivityTime', Date.now().toString())
+    }
+  }, [])
 
   // Initialize session from localStorage or start new
   useEffect(() => {
@@ -152,16 +174,22 @@ export default function SessionTimer({
       
       if (remaining > 0) {
         setTimeRemaining(remaining)
+        // Check if we should already be showing the warning
+        if (remaining <= warningTime) {
+          setShowWarning(true)
+          showWarningRef.current = true
+        }
       } else {
-        // Session already expired
+        // Session already expired - logout immediately
         setTimeRemaining(0)
         setIsExpired(true)
+        isExpiredRef.current = true
       }
     } else {
       // Start new session
       resetSession()
     }
-  }, [resetSession])
+  }, [resetSession, warningTime])
 
   // Activity listeners
   useEffect(() => {
@@ -188,23 +216,43 @@ export default function SessionTimer({
     }
   }, [handleActivity])
 
-  // Main countdown timer
+  // Main countdown timer - NO showWarning/isExpired in deps!
+  // Uses refs to read those values inside the callback
   useEffect(() => {
     if (!user) return
 
     timerRef.current = setInterval(() => {
+      // If already expired, stop ticking
+      if (isExpiredRef.current) {
+        if (timerRef.current) {
+          clearInterval(timerRef.current)
+          timerRef.current = null
+        }
+        return
+      }
+
       setTimeRemaining(prev => {
         const newTime = prev - 1
         
-        // Show warning at 30 seconds
-        if (newTime === warningTime && !showWarning) {
+        // Show warning popup at 30 seconds remaining
+        if (newTime <= warningTime && newTime > 0 && !showWarningRef.current) {
           setShowWarning(true)
+          showWarningRef.current = true
         }
         
-        // Session expired
+        // Session expired - time reached 0
         if (newTime <= 0) {
           setIsExpired(true)
+          isExpiredRef.current = true
           setShowWarning(false)
+          showWarningRef.current = false
+          
+          // Stop the interval - no more ticks needed
+          if (timerRef.current) {
+            clearInterval(timerRef.current)
+            timerRef.current = null
+          }
+          
           return 0
         }
         
@@ -215,21 +263,38 @@ export default function SessionTimer({
     return () => {
       if (timerRef.current) {
         clearInterval(timerRef.current)
+        timerRef.current = null
       }
     }
-  }, [user, warningTime, showWarning])
+  }, [user, warningTime]) // Only depends on user and warningTime - NOT showWarning/isExpired
 
   // Auto logout when session expires
+  // This fires when isExpired transitions from false → true
   useEffect(() => {
-    if (isExpired) {
-      // Wait a moment to show the expired message, then logout
+    if (isExpired && !logoutInProgressRef.current) {
+      console.log('⏰ Session expired - auto logout in 2 seconds...')
+      
+      // Give 2 seconds to show the "Session Expired" modal, then force logout
       const logoutTimer = setTimeout(() => {
+        console.log('⏰ Executing auto logout now!')
         handleLogout()
       }, 2000)
       
-      return () => clearTimeout(logoutTimer)
+      // Safety net: if the timeout somehow doesn't fire, force logout after 5 seconds
+      const safetyTimer = setTimeout(() => {
+        if (!logoutInProgressRef.current) {
+          console.log('⏰ Safety net: forcing logout!')
+          const redirectPath = userRole === 'admin' ? '/admin/login' : loginPath
+          window.location.href = redirectPath
+        }
+      }, 5000)
+      
+      return () => {
+        clearTimeout(logoutTimer)
+        clearTimeout(safetyTimer)
+      }
     }
-  }, [isExpired])
+  }, [isExpired, handleLogout, userRole, loginPath])
 
   // Don't render if no user
   if (!user) return null
@@ -255,7 +320,7 @@ export default function SessionTimer({
         </motion.div>
       )}
 
-      {/* Warning Modal */}
+      {/* Warning Modal - Shows at 30 seconds remaining */}
       <AnimatePresence>
         {showWarning && !isExpired && (
           <motion.div
@@ -385,7 +450,8 @@ export default function SessionTimer({
   )
 }
 
-// Session Timer Badge Component (can be used separately in headers)
+// Session Timer Badge Component (used in headers to display countdown)
+// Reads from localStorage to stay in sync with SessionTimer
 export function SessionBadge() {
   const [timeRemaining, setTimeRemaining] = useState<number | null>(null)
 
@@ -427,4 +493,3 @@ export function SessionBadge() {
     </div>
   )
 }
-

@@ -29,9 +29,11 @@ interface BBPSComplaintRegistrationResponse {
   status?: string
   message?: string
   data?: {
+    complaintAssigned?: string
     complaintId?: string
     responseCode?: string
     responseReason?: string
+    transactionDetails?: string
     txnRefId?: string
     [key: string]: any
   }
@@ -131,13 +133,18 @@ export async function complaintRegistration(
       }
     }
 
-    // Transform successful response
+    // Transform successful response - handle new response structure
     const complaintResponse: BBPSComplaintResponse = {
       success: true,
       complaint_id: apiResponse.data?.complaintId,
       transaction_id: transactionId,
       status: apiResponse.status || 'success',
       message: apiResponse.message || 'Complaint registered successfully',
+      // Include additional fields from new response format
+      complaint_assigned: apiResponse.data?.complaintAssigned,
+      response_code: apiResponse.data?.responseCode,
+      response_reason: apiResponse.data?.responseReason,
+      transaction_details: apiResponse.data?.transactionDetails,
     }
 
     logBBPSApiCall(

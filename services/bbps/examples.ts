@@ -111,7 +111,7 @@ export async function examplePayBill(
         { paramName: 'Consumer Number', paramValue: consumerNumber },
       ],
       subServiceName: billerCategory, // REQUIRED: Must be the biller category
-      billerAdhoc: 'true', // "true" or "false" (string)
+      billerAdhoc: true, // boolean (true or false)
     })
 
     if (paymentResponse.success) {
@@ -263,7 +263,7 @@ export async function exampleCompletePaymentFlow(
         { paramName: 'Consumer Number', paramValue: consumerNumber },
       ],
       subServiceName: category, // REQUIRED: biller category like "Credit Card", "Electricity"
-      billerAdhoc: (selectedBiller.metadata as any)?.billerAdhoc || 'true', // "true" or "false" (string)
+      billerAdhoc: (selectedBiller.metadata as any)?.billerAdhoc === 'true' || (selectedBiller.metadata as any)?.billerAdhoc === true || true, // boolean (true or false)
       reqId: billDetails.reqId, // CRITICAL: Links payment to fetched bill
     })
 

@@ -22,6 +22,7 @@ interface BBPSBiller {
   amount_exactness?: 'EXACT' | 'INEXACT' | 'ANY'
   support_bill_fetch?: boolean
   support_partial_payment?: boolean
+  paymentMode?: string // Payment mode (e.g., "Cash") - fixed "Cash" for now
   metadata?: {
     billerInputParams?: {
       paramInfo?: Array<{
@@ -546,8 +547,8 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
         method: 'POST',
         body: JSON.stringify({
           fieldValue: category,
-          paymentChannelName1: 'AGT',
-          paymentChannelName2: '',
+          paymentChannelName1: 'INT',
+          paymentChannelName2: 'AGT',
           paymentChannelName3: '',
         }),
       })
@@ -862,6 +863,8 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
           bill_number: billDetails.bill_number,
           // CRITICAL: Pass reqId from fetchBill to correlate with BBPS provider
           reqId: billDetails.reqId || billDetails.additional_info?.reqId,
+          // Payment mode - fixed "Cash" for now
+          payment_mode: selectedBiller.paymentMode || 'Cash',
           additional_info: {
             ...billDetails.additional_info,
             inputParams: inputParamFields.length > 0 
@@ -1084,6 +1087,8 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
           amount: amountInPaise,
           // For prepaid, we don't have bill details
           is_prepaid: true,
+          // Payment mode - fixed "Cash" for now
+          payment_mode: selectedBiller.paymentMode || 'Cash',
           additional_info: {
             inputParams: inputParamFields.length > 0
               ? inputParamFields.map(f => ({ paramName: f.paramName, paramValue: inputParams[f.paramName] || '' }))
@@ -1650,6 +1655,12 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
                       </td>
                     </tr>
                     <tr>
+                      <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-700/50">Payment Mode</td>
+                      <td className="px-4 py-3 text-sm font-medium text-green-700 dark:text-green-400">
+                        {selectedBiller.paymentMode || 'Cash'}
+                      </td>
+                    </tr>
+                    <tr>
                       <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-700/50">Recharge Amount</td>
                       <td className="px-4 py-3 text-sm font-medium text-gray-900 dark:text-white">₹{parseFloat(prepaidAmount).toFixed(2)}</td>
                     </tr>
@@ -1768,6 +1779,12 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
                     <tr>
                       <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-700/50">Biller Name</td>
                       <td className="px-4 py-3 text-sm font-medium text-gray-900 dark:text-white">{selectedBiller?.biller_name}</td>
+                    </tr>
+                    <tr>
+                      <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-700/50">Payment Mode</td>
+                      <td className="px-4 py-3 text-sm font-medium text-green-700 dark:text-green-400">
+                        {selectedBiller?.paymentMode || 'Cash'}
+                      </td>
                     </tr>
                     {/* Minimum Amount Due - from additional info */}
                     {(() => {
@@ -2011,6 +2028,12 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
                     <tr>
                       <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-700/50">Biller Name</td>
                       <td className="px-4 py-3 text-sm font-medium text-gray-900 dark:text-white">{selectedBiller?.biller_name}</td>
+                    </tr>
+                    <tr>
+                      <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-700/50">Payment Mode</td>
+                      <td className="px-4 py-3 text-sm font-medium text-green-700 dark:text-green-400">
+                        {selectedBiller?.paymentMode || 'Cash'}
+                      </td>
                     </tr>
                   </tbody>
                 </table>

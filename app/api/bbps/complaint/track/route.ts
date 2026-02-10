@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
-import { trackComplaint } from '@/lib/bbps/service'
+import { complaintTracking } from '@/services/bbps'
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
 
 export const dynamic = 'force-dynamic'
@@ -41,13 +41,25 @@ export async function POST(request: NextRequest) {
       return addCorsHeaders(request, response)
     }
 
-    const complaint = await trackComplaint(
-      complaint_id,
-      complaint_type || 'Service'
-    )
+    const complaint = await complaintTracking({
+      complaintId: complaint_id,
+      complaintType: complaint_type || 'Service',
+    })
 
+    // Return response matching tested API format
+    // Note: The response format may vary, but we'll return the complaint tracking data
     const response = NextResponse.json({
       success: true,
+      status: complaint.status || 'success',
+      message: 'Complaint tracking details fetched',
+      data: {
+        complaintId: complaint.complaint_id,
+        complaintType: complaint.complaint_type || complaint_type || 'Service',
+        status: complaint.status,
+        description: complaint.description,
+        resolution: complaint.resolution,
+      },
+      // Also include full complaint object for backward compatibility
       complaint,
     })
     

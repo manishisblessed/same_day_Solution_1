@@ -206,13 +206,36 @@ export async function POST(request: NextRequest) {
       inputParamsCount: inputParams?.length || 0,
     })
 
+    // Ensure paymentInfo is set with default if not provided (matches working Postman format)
+    const finalPaymentInfo = paymentInfo || [
+      {
+        infoName: 'Remarks',
+        infoValue: 'Received',
+      },
+    ]
+
+    // Ensure initChannel is set (default to 'AGT' as per working Postman)
+    const finalInitChannel = init_channel || 'AGT'
+
+    // Ensure paymentMode is set (default to 'cash' lowercase as per working Postman)
+    const finalPaymentMode = payment_mode || 'cash'
+
+    console.log('[BBPS API Route] Calling fetchBill with:', {
+      billerId: biller_id,
+      consumerNumber: effectiveConsumerNumber,
+      inputParams,
+      paymentInfo: finalPaymentInfo,
+      paymentMode: finalPaymentMode,
+      initChannel: finalInitChannel,
+    })
+
     const billDetails = await fetchBill({
       billerId: biller_id,
       consumerNumber: effectiveConsumerNumber,
       inputParams,
-      paymentInfo,
-      paymentMode: payment_mode,
-      initChannel: init_channel || 'AGT',
+      paymentInfo: finalPaymentInfo,
+      paymentMode: finalPaymentMode,
+      initChannel: finalInitChannel,
       ip: ip || '127.0.0.1',
       mac: mac || '01-23-45-67-89-ab',
     })

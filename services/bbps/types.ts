@@ -18,6 +18,7 @@ export interface BBPSBiller {
   support_bill_fetch?: boolean
   support_partial_payment?: boolean
   support_additional_info?: boolean
+  paymentMode?: string // Payment mode (e.g., "Cash", "Wallet", "UPI", etc.)
   metadata?: Record<string, any>
 }
 
@@ -115,6 +116,10 @@ export interface BBPSComplaintResponse {
   message?: string
   error_code?: string
   error_message?: string
+  complaint_assigned?: string
+  response_code?: string
+  response_reason?: string
+  transaction_details?: string
 }
 
 /**

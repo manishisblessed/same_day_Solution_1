@@ -1,0 +1,432 @@
+{
+	"info": {
+		"_postman_id": "bbps-sparkup-collection-2025",
+		"name": "BBPS SparkUpTech API - Complete Collection",
+		"description": "Complete BBPS API collection for final testing. All APIs tested with SparkUp team.\n\nBase URL: https://api.sparkuptech.in/api\n\nHeaders (Common for all requests):\n- partnerid: 240054\n- consumerkey: b2078d92ff9f8e9e\n- consumersecret: ba6fba9775548f71\n- Content-Type: application/json",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "1. GET getBalance",
+			"request": {
+				"method": "GET",
+				"header": [
+					{
+						"key": "partnerid",
+						"value": "240054",
+						"type": "text"
+					},
+					{
+						"key": "consumerkey",
+						"value": "b2078d92ff9f8e9e",
+						"type": "text"
+					},
+					{
+						"key": "consumersecret",
+						"value": "ba6fba9775548f71",
+						"type": "text"
+					}
+				],
+				"url": {
+					"raw": "https://api.sparkuptech.in/api/wallet/getBalance",
+					"protocol": "https",
+					"host": [
+						"api",
+						"sparkuptech",
+						"in"
+					],
+					"path": [
+						"api",
+						"wallet",
+						"getBalance"
+					]
+				},
+				"description": "Get wallet balance from SparkUpTech BBPS service.\n\n**Endpoint:** GET /api/wallet/getBalance\n\n**Response:**\n```json\n{\n  \"success\": true,\n  \"status\": 200,\n  \"message\": \"Balance fetched successfully\",\n  \"data\": {\n    \"balance\": 100000,\n    \"lien\": 0,\n    \"is_active\": true\n  }\n}\n```"
+			},
+			"response": []
+		},
+		{
+			"name": "2. POST getDataBybillerCategory",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "partnerid",
+						"value": "240054",
+						"type": "text"
+					},
+					{
+						"key": "consumerkey",
+						"value": "b2078d92ff9f8e9e",
+						"type": "text"
+					},
+					{
+						"key": "consumersecret",
+						"value": "ba6fba9775548f71",
+						"type": "text"
+					},
+					{
+						"key": "Content-Type",
+						"value": "application/json",
+						"type": "text"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"fieldValue\": \"Credit Card\",\n  \"paymentChannelName1\": \"INT\",\n  \"paymentChannelName2\": \"AGT\",\n  \"paymentChannelName3\": \"\"\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "https://api.sparkuptech.in/api/ba/billerInfo/getDataBybillerCategory",
+					"protocol": "https",
+					"host": [
+						"api",
+						"sparkuptech",
+						"in"
+					],
+					"path": [
+						"api",
+						"ba",
+						"billerInfo",
+						"getDataBybillerCategory"
+					]
+				},
+				"description": "Get billers by category and payment channels.\n\n**Endpoint:** POST /api/ba/billerInfo/getDataBybillerCategory\n\n**Request Body:**\n- `fieldValue`: Biller category (e.g., \"Credit Card\", \"Electricity\", \"Gas\")\n- `paymentChannelName1`: Primary payment channel (e.g., \"INT\", \"AGT\")\n- `paymentChannelName2`: Secondary payment channel (e.g., \"AGT\")\n- `paymentChannelName3`: Tertiary payment channel (optional)\n\n**Response:** Returns array of billers with details including billerId, billerName, billerCategory, payment modes, etc."
+			},
+			"response": []
+		},
+		{
+			"name": "3. POST fetchBill",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "partnerid",
+						"value": "240054",
+						"type": "text"
+					},
+					{
+						"key": "consumerkey",
+						"value": "b2078d92ff9f8e9e",
+						"type": "text"
+					},
+					{
+						"key": "consumersecret",
+						"value": "ba6fba9775548f71",
+						"type": "text"
+					}
+				],
+				"url": {
+					"raw": "https://api.sparkuptech.in/api/ba/bbps/fetchBill?reqId=TESTABCD1234567890EFGH12345674&billerId=ICIC00000NATSI&inputParams[0][paramName]=Last 4 digits of Credit Card Number&inputParams[0][paramValue]=0016&inputParams[1][paramName]=Registered Mobile Number&inputParams[1][paramValue]=9971969046&initChannel=AGT&paymentInfo[0][infoName]=Remarks&paymentInfo[0][infoValue]=Received&paymentMode=cash",
+					"protocol": "https",
+					"host": [
+						"api",
+						"sparkuptech",
+						"in"
+					],
+					"path": [
+						"api",
+						"ba",
+						"bbps",
+						"fetchBill"
+					],
+					"query": [
+						{
+							"key": "reqId",
+							"value": "TESTABCD1234567890EFGH12345674",
+							"description": "REQUIRED: Unique request ID (links fetchBill to payRequest)"
+						},
+						{
+							"key": "billerId",
+							"value": "ICIC00000NATSI",
+							"description": "Biller ID from getDataBybillerCategory"
+						},
+						{
+							"key": "inputParams[0][paramName]",
+							"value": "Last 4 digits of Credit Card Number",
+							"description": "First input parameter name"
+						},
+						{
+							"key": "inputParams[0][paramValue]",
+							"value": "0016",
+							"description": "First input parameter value"
+						},
+						{
+							"key": "inputParams[1][paramName]",
+							"value": "Registered Mobile Number",
+							"description": "Second input parameter name"
+						},
+						{
+							"key": "inputParams[1][paramValue]",
+							"value": "9971969046",
+							"description": "Second input parameter value"
+						},
+						{
+							"key": "initChannel",
+							"value": "AGT",
+							"description": "Channel: AGT (Agent)"
+						},
+						{
+							"key": "paymentInfo[0][infoName]",
+							"value": "Remarks",
+							"description": "Payment info name"
+						},
+						{
+							"key": "paymentInfo[0][infoValue]",
+							"value": "Received",
+							"description": "Payment info value"
+						},
+						{
+							"key": "paymentMode",
+							"value": "cash",
+							"description": "Payment mode (lowercase: cash)"
+						}
+					]
+				},
+				"description": "Fetch bill details from biller.\n\n**Endpoint:** POST /api/ba/bbps/fetchBill\n\n**IMPORTANT:** This API uses POST method but sends ALL parameters as QUERY PARAMETERS (not request body).\n\n**Query Parameters (EXACT format - tested and working):**\n- `reqId`: REQUIRED - Unique request ID (links fetchBill to payRequest)\n- `billerId`: Biller ID from getDataBybillerCategory\n- `inputParams[0][paramName]`: First input parameter name (e.g., \"Last 4 digits of Credit Card Number\")\n- `inputParams[0][paramValue]`: First input parameter value (e.g., \"0016\")\n- `inputParams[1][paramName]`: Second input parameter name (e.g., \"Registered Mobile Number\")\n- `inputParams[1][paramValue]`: Second input parameter value (e.g., \"9971969046\")\n- `initChannel`: Channel type (\"AGT\" for Agent)\n- `paymentInfo[0][infoName]`: Payment info name (\"Remarks\")\n- `paymentInfo[0][infoValue]`: Payment info value (\"Received\")\n- `paymentMode`: Payment mode (lowercase: \"cash\")\n\n**NOTE:** Do NOT use customerParams, amount, or quickPay. The correct parameter name is inputParams.\n\n**Response:** Returns bill details including amount, due date, customer name. The reqId sent here MUST be used in payRequest."
+			},
+			"response": []
+		},
+		{
+			"name": "4. POST payRequest",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "partnerid",
+						"value": "240054",
+						"type": "text"
+					},
+					{
+						"key": "consumerkey",
+						"value": "b2078d92ff9f8e9e",
+						"type": "text"
+					},
+					{
+						"key": "consumersecret",
+						"value": "ba6fba9775548f71",
+						"type": "text"
+					},
+					{
+						"key": "Content-Type",
+						"value": "application/json",
+						"type": "text"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"name\": \"Utility\",\n  \"sub_service_name\": \"Credit Card\",\n  \"initChannel\": \"AGT\",\n  \"amount\": 100,\n  \"billerId\": \"ICIC00000NATSI\",\n  \"billerName\": \"ICICI Credit Card\",\n  \"inputParams\": [\n    {\n      \"paramName\": \"Last 4 digits of Credit Card Number\",\n      \"paramValue\": \"0016\"\n    },\n    {\n      \"paramName\": \"Registered Mobile Number\",\n      \"paramValue\": \"9971969046\"\n    }\n  ],\n  \"mac\": \"01-23-45-67-89-ab\",\n  \"custConvFee\": 1,\n  \"billerAdhoc\": true,\n  \"paymentInfo\": [\n    {\n      \"infoName\": \"Payment Account Info\",\n      \"infoValue\": \"Cash Payment\"\n    }\n  ],\n  \"paymentMode\": \"Cash\",\n  \"quickPay\": \"N\",\n  \"splitPay\": \"N\",\n  \"reqId\": \"6B9F2O2NGQ80B68O61DNHEMP11560411430\",\n  \"billerResponse\": {\n    \"billAmount\": \"29899958\",\n    \"billDate\": \"2026-01-20\",\n    \"customerName\": \"MANISH KUMAR SHAH\",\n    \"dueDate\": \"2026-02-07\"\n  },\n  \"additionalInfo\": [\n    {\n      \"infoName\": \"Minimum Amount Due\",\n      \"infoValue\": \"14950.00\"\n    },\n    {\n      \"infoName\": \"Current Outstanding Amount\",\n      \"infoValue\": \"279107.00\"\n    }\n  ]\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "https://api.sparkuptech.in/api/ba/bbps/payRequest",
+					"protocol": "https",
+					"host": [
+						"api",
+						"sparkuptech",
+						"in"
+					],
+					"path": [
+						"api",
+						"ba",
+						"bbps",
+						"payRequest"
+					]
+				},
+				"description": "Process bill payment.\n\n**Endpoint:** POST /api/ba/bbps/payRequest\n\n**TESTED & WORKING Request Body (flat JSON, NOT nested):**\n- `name`: Service name (e.g., \"Utility\")\n- `sub_service_name`: Category name (e.g., \"Credit Card\", \"Electricity\")\n- `initChannel`: Channel (\"AGT\")\n- `amount`: Payment amount in RUPEES as number (e.g., 100 for ₹100, NOT string)\n- `billerId`: Biller ID from getDataBybillerCategory\n- `billerName`: Biller name from getDataBybillerCategory\n- `inputParams`: Array of {paramName, paramValue} (same as fetchBill)\n- `mac`: MAC address (\"01-23-45-67-89-ab\")\n- `custConvFee`: Convenience fee as number (1)\n- `billerAdhoc`: Boolean true/false (NOT string)\n- `paymentInfo`: [{infoName: \"Payment Account Info\", infoValue: \"Cash Payment\"}]\n- `paymentMode`: Capitalized (\"Cash\")\n- `quickPay`: \"N\" (bill fetch was done)\n- `splitPay`: \"N\"\n- `reqId`: MUST be the reqId from fetchBill response\n- `billerResponse`: Bill details from fetchBill {billAmount, billDate, customerName, dueDate}\n- `additionalInfo`: Additional info from fetchBill [{infoName, infoValue}]\n\n**Response:**\n```json\n{\n  \"success\": true,\n  \"status\": \"success\",\n  \"message\": \"Payment Completed Successfully\",\n  \"data\": {\n    \"responseCode\": \"000\",\n    \"responseReason\": \"Successful\",\n    \"CustConvFee\": \"0\",\n    \"RespAmount\": \"10000\",\n    \"RespBillDate\": \"2026-01-20\",\n    \"RespCustomerName\": \"MANISH KUMAR SHAH\",\n    \"RespDueDate\": \"2026-02-07\",\n    \"approvalRefNumber\": \"1770631280199\",\n    \"bbpsId\": \"CC016040CBAB72885679\",\n    \"transaction_id\": \"UTR1689790976944\",\n    \"status\": \"success\"\n  }\n}\n```"
+			},
+			"response": []
+		},
+		{
+			"name": "5. POST transactionStatus",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "partnerid",
+						"value": "240054",
+						"type": "text"
+					},
+					{
+						"key": "consumerkey",
+						"value": "b2078d92ff9f8e9e",
+						"type": "text"
+					},
+					{
+						"key": "consumersecret",
+						"value": "ba6fba9775548f71",
+						"type": "text"
+					},
+					{
+						"key": "Content-Type",
+						"value": "application/json",
+						"type": "text"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"reqData\": {\n    \"transactionStatusReq\": {\n      \"trackValue\": \"UTR1689790976944\",\n      \"trackType\": \"TRANS_REF_ID\"\n    }\n  },\n  \"reqId\": \"6B9F2O2NGQ80B68O61DNHEMP11560411430\"\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "https://api.sparkuptech.in/api/ba/bbps/transactionStatus",
+					"protocol": "https",
+					"host": [
+						"api",
+						"sparkuptech",
+						"in"
+					],
+					"path": [
+						"api",
+						"ba",
+						"bbps",
+						"transactionStatus"
+					]
+				},
+				"description": "Check transaction status.\n\n**Endpoint:** POST /api/ba/bbps/transactionStatus\n\n**TESTED & WORKING Request Body:**\n- `reqData.transactionStatusReq.trackValue`: Transaction reference ID (e.g., UTR number from payRequest response)\n- `reqData.transactionStatusReq.trackType`: Track type - \"TRANS_REF_ID\" for UTR/transaction_id\n- `reqId`: The reqId used in fetchBill/payRequest (at root level, NOT inside reqData)\n\n**Response:**\n```json\n{\n  \"success\": true,\n  \"status\": \"success\",\n  \"message\": \"Detail Fetched\",\n  \"data\": {\n    \"reqId\": \"931PN22G3AB32GJAMBK9IL0GI7I60401516\",\n    \"totalAmount\": 100,\n    \"serviceCharge\": 0,\n    \"transactionAmount\": 100,\n    \"referenceNo\": \"CC016040CBAB72885679\",\n    \"transaction_id\": \"UTR1689790976944\",\n    \"status\": \"success\",\n    \"remark\": \"Successful\",\n    \"compalainRegisterDes\": {},\n    \"compalainRegisterStatus\": false\n  }\n}\n```"
+			},
+			"response": []
+		},
+		{
+			"name": "6. POST complaintRegistration",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "partnerid",
+						"value": "240054",
+						"type": "text"
+					},
+					{
+						"key": "consumerkey",
+						"value": "b2078d92ff9f8e9e",
+						"type": "text"
+					},
+					{
+						"key": "consumersecret",
+						"value": "ba6fba9775548f71",
+						"type": "text"
+					},
+					{
+						"key": "Content-Type",
+						"value": "application/json",
+						"type": "text"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"reqData\": {\n    \"complaintRegistrationReq\": {\n      \"complaintType\": \"BBPS\",\n      \"txnRefId\": \"UTR1689790976944\",\n      \"complaintDesc\": \"test complaint\",\n      \"complaintDisposition\": \"checking complain api\"\n    }\n  }\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "https://api.sparkuptech.in/api/ba/complaintRegistration",
+					"protocol": "https",
+					"host": [
+						"api",
+						"sparkuptech",
+						"in"
+					],
+					"path": [
+						"api",
+						"ba",
+						"complaintRegistration"
+					]
+				},
+				"description": "Register a complaint for a BBPS transaction.\n\n**Endpoint:** POST /api/ba/complaintRegistration\n\n**TESTED Request Body:**\n- `reqData.complaintRegistrationReq.complaintType`: Type of complaint (e.g., \"BBPS\")\n- `reqData.complaintRegistrationReq.txnRefId`: Transaction reference ID (UTR number from payRequest response)\n- `reqData.complaintRegistrationReq.complaintDesc`: Detailed description of the complaint\n- `reqData.complaintRegistrationReq.complaintDisposition`: Explanation of the complaint's nature\n\n**IMPORTANT:** Field names are `txnRefId` (NOT transactionId) and `complaintDesc` (NOT description).\n\n**Response:**\n```json\n{\n  \"success\": true,\n  \"status\": \"string\",\n  \"message\": \"string\",\n  \"data\": {\n    \"complaintAssigned\": \"string\",\n    \"complaintId\": \"string\",\n    \"responseCode\": \"string\",\n    \"responseReason\": \"string\",\n    \"transactionDetails\": \"string\"\n  }\n}\n```\n\nUse the `complaintId` from the response for complaintTracking API."
+			},
+			"response": []
+		},
+		{
+			"name": "7. POST complaintTracking",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "partnerid",
+						"value": "240054",
+						"type": "text"
+					},
+					{
+						"key": "consumerkey",
+						"value": "b2078d92ff9f8e9e",
+						"type": "text"
+					},
+					{
+						"key": "consumersecret",
+						"value": "ba6fba9775548f71",
+						"type": "text"
+					},
+					{
+						"key": "Content-Type",
+						"value": "application/json",
+						"type": "text"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"reqData\": {\n    \"complaintTrackingReq\": {\n      \"complaintType\": \"Service\",\n      \"complaintId\": \"XD1495446616192\"\n    }\n  }\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "https://api.sparkuptech.in/api/ba/complaintTracking",
+					"protocol": "https",
+					"host": [
+						"api",
+						"sparkuptech",
+						"in"
+					],
+					"path": [
+						"api",
+						"ba",
+						"complaintTracking"
+					]
+				},
+				"description": "Track complaint status.\n\n**Endpoint:** POST /api/ba/complaintTracking\n\n**TESTED Request Body:**\n- `reqData.complaintTrackingReq.complaintType`: Type of complaint (e.g., \"Service\")\n- `reqData.complaintTrackingReq.complaintId`: Complaint ID from complaintRegistration response (e.g., \"XD1495446616192\")\n\n**Response:**\n```json\n{\n  \"reqData\": {\n    \"complaintTrackingReq\": {\n      \"complaintType\": \"Service\",\n      \"complaintId\": \"XD1495446616192\"\n    }\n  }\n}\n```"
+			},
+			"response": []
+		}
+	],
+	"variable": [
+		{
+			"key": "base_url",
+			"value": "https://api.sparkuptech.in/api",
+			"type": "string"
+		},
+		{
+			"key": "partner_id",
+			"value": "240054",
+			"type": "string"
+		},
+		{
+			"key": "consumer_key",
+			"value": "b2078d92ff9f8e9e",
+			"type": "string"
+		},
+		{
+			"key": "consumer_secret",
+			"value": "ba6fba9775548f71",
+			"type": "string"
+		}
+	]
+}
+

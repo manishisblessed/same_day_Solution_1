@@ -27,6 +27,16 @@ interface BBPSTransactionStatusResponse {
   status?: string
   message?: string
   data?: {
+    reqId?: string
+    totalAmount?: number | string
+    serviceCharge?: number | string
+    transactionAmount?: number | string
+    referenceNo?: string
+    transaction_id?: string
+    status?: string
+    remark?: string
+    compalainRegisterDes?: any
+    compalainRegisterStatus?: boolean
     responseCode?: string
     responseReason?: string
     txnList?: {
@@ -103,30 +113,59 @@ export async function transactionStatus(
       throw new Error(apiResponse.message || 'Failed to fetch transaction status')
     }
 
-    const txnList = apiResponse.data.txnList || {}
-    const isSuccess =
-      apiResponse.data.responseCode === '000' &&
-      txnList.txnStatus === 'SUCCESS'
+    const responseData = apiResponse.data
 
-    // Parse amount safely
-    const amountValue = txnList.amount
-    const parsedAmount: number = amountValue 
-      ? (typeof amountValue === 'number' ? amountValue : parseFloat(String(amountValue)))
-      : 0
+    // Parse amounts safely (handle both number and string formats)
+    const parseAmount = (value: number | string | undefined): number => {
+      if (typeof value === 'number') return value
+      if (!value) return 0
+      const cleaned = String(value).replace(/[,\s₹]/g, '')
+      const parsed = parseFloat(cleaned)
+      return isNaN(parsed) ? 0 : parsed
+    }
 
-    // Extract additional fields from txnList, excluding amount
-    const { amount: _, ...restTxnList } = txnList
+    // Determine success status
+    // Response format: status can be "success" or responseCode can be "000"
+    const isSuccess = 
+      responseData.status === 'success' ||
+      responseData.status === 'SUCCESS' ||
+      responseData.responseCode === '000'
 
     // Transform API response to BBPSTransactionStatus format
+    // Handle both new format (tested API) and legacy format (txnList)
     const transactionStatus: BBPSTransactionStatus = {
-      transaction_id: txnList.txnReferenceId || transactionId,
-      status: txnList.txnStatus || apiResponse.data.responseReason || 'UNKNOWN',
-      payment_status: txnList.txnStatus || apiResponse.data.responseReason || 'UNKNOWN',
-      amount: parsedAmount,
-      response_code: apiResponse.data.responseCode,
-      response_reason: apiResponse.data.responseReason,
-      txn_reference_id: txnList.txnReferenceId,
-      ...restTxnList,
+      transaction_id: 
+        responseData.transaction_id || // New format (primary)
+        responseData.referenceNo || // BBPS reference number
+        responseData.txnList?.txnReferenceId || // Legacy format
+        transactionId, // Fallback
+      status: 
+        responseData.status || // New format (primary)
+        responseData.txnList?.txnStatus || // Legacy format
+        (isSuccess ? 'SUCCESS' : 'UNKNOWN'),
+      payment_status: 
+        responseData.status || // New format
+        responseData.remark || // Remark field
+        responseData.txnList?.txnStatus || // Legacy format
+        responseData.responseReason || // Fallback
+        'UNKNOWN',
+      amount: 
+        parseAmount(responseData.transactionAmount) || // New format (primary)
+        parseAmount(responseData.totalAmount) || // Alternative
+        parseAmount(responseData.txnList?.amount) || // Legacy format
+        0,
+      response_code: responseData.responseCode,
+      response_reason: responseData.remark || responseData.responseReason,
+      txn_reference_id: responseData.referenceNo || responseData.transaction_id,
+      // Include additional fields from new response format
+      totalAmount: parseAmount(responseData.totalAmount),
+      serviceCharge: parseAmount(responseData.serviceCharge),
+      transactionAmount: parseAmount(responseData.transactionAmount),
+      referenceNo: responseData.referenceNo,
+      remark: responseData.remark,
+      compalainRegisterDes: responseData.compalainRegisterDes,
+      compalainRegisterStatus: responseData.compalainRegisterStatus,
+      reqId: responseData.reqId || reqId,
     }
 
     logBBPSApiCall(

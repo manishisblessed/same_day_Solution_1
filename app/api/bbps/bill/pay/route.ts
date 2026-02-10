@@ -341,11 +341,11 @@ export async function POST(request: NextRequest) {
       ]
     }
 
-    // Per API docs, billerAdhoc must be "true" or "false" (string boolean)
-    // Get from biller metadata if available, default to "true" for adhoc billers
+    // billerAdhoc must be boolean true/false (NOT string) per production-tested format
+    // Get from biller metadata if available, default to true for adhoc billers
     const billerAdhocString = additional_info?.metadata?.billerAdhoc || 
                               additional_info?.billerAdhoc || 
-                              'true'
+                              true
 
     // Per Sparkup API documentation, sub_service_name MUST be the category name
     // e.g., "Credit Card", "Electricity", "DTH", etc. (case + spaces must match exactly)
@@ -357,6 +357,8 @@ export async function POST(request: NextRequest) {
 
     // Prepare paymentInfo - Sparkup requires items with infoName and infoValue
     // IMPORTANT: Filter out any items without valid infoName to prevent "Additional info name is required" error
+    // NOTE: paymentInfo is overridden by payRequest service based on paymentMode (Cash/Wallet)
+    // so this is only used as a fallback - the service builds the correct format
     let paymentInfo: Array<{ infoName: string; infoValue: string }> = []
     
     if (additional_info?.paymentInfo && Array.isArray(additional_info.paymentInfo)) {
@@ -368,30 +370,92 @@ export async function POST(request: NextRequest) {
         }))
     }
     
-    // Default paymentInfo if none provided or all filtered out
+    // Default paymentInfo matching production-tested format (Feb 2026)
+    // For Cash mode: { infoName: "Payment Account Info", infoValue: "Cash Payment" }
     if (paymentInfo.length === 0) {
       paymentInfo = [
         {
-          infoName: 'Remarks',
-          infoValue: 'Bill Payment'
+          infoName: 'Payment Account Info',
+          infoValue: 'Cash Payment'
         }
       ]
     }
     
-    // NOTE: billerResponse and additionalInfo are NOT in the API spec
-    // Only reqId links the payment to the fetched bill data
+    // ========================================
+    // CRITICAL: Extract billerResponse and additionalInfo from fetchBill response
+    // These MUST be passed EXACTLY as returned by fetchBill - NO reconstruction/modification!
+    // SparkUp validates these values match what was stored during fetchBill.
+    // Modifying even a single value causes "additionalInfo value mismatch" error.
+    // ========================================
     
-    // Log what we're sending for debugging
-    console.log('=== BBPS Pay Request Debug ===')
-    console.log('reqId (from fetchBill):', reqId || additional_info?.reqId || 'NOT PROVIDED - This may cause "No fetch data found" error!')
+    // PASS billerResponse DIRECTLY from fetchBill - do NOT reconstruct!
+    let billerResponse: any = undefined
+    if (additional_info?.billerResponse) {
+      // Use the EXACT billerResponse object from fetchBill without modification
+      billerResponse = additional_info.billerResponse
+      console.log('[BBPS Pay] ✅ Using ORIGINAL billerResponse from fetchBill:', JSON.stringify(billerResponse, null, 2))
+    } else if (bill_date || due_date || consumer_name) {
+      // Fallback: construct from available data (only if fetchBill didn't provide billerResponse)
+      const billAmountInPaiseStr = String(Math.round(billAmountInRupees * 100)) // Use Math.round to avoid floating point
+      billerResponse = {
+        billAmount: billAmountInPaiseStr,
+        billDate: bill_date || undefined,
+        customerName: consumer_name || undefined,
+        dueDate: due_date || undefined,
+      }
+      console.log('[BBPS Pay] ⚠️ billerResponse not in fetchBill data, constructed fallback:', JSON.stringify(billerResponse, null, 2))
+    } else {
+      console.log('[BBPS Pay] ❌ No billerResponse available')
+    }
+    
+    // EXTRACT additionalInfo array from fetchBill - MUST match exactly!
+    // fetchBill returns: additionalInfo: { info: [...] }
+    // payRequest expects: additionalInfo: [...]  (flat array, without the { info } wrapper)
+    let additionalInfoArray: Array<{ infoName: string; infoValue: string }> | undefined
+    
+    if (additional_info?.additionalInfo) {
+      if (Array.isArray(additional_info.additionalInfo)) {
+        // Already a flat array - use directly
+        additionalInfoArray = additional_info.additionalInfo
+        console.log('[BBPS Pay] ✅ additionalInfo is flat array, using directly')
+      } else if (additional_info.additionalInfo.info && Array.isArray(additional_info.additionalInfo.info)) {
+        // Format from fetchBill: { info: [...] } - extract the inner array
+        additionalInfoArray = additional_info.additionalInfo.info
+        console.log('[BBPS Pay] ✅ additionalInfo extracted from { info: [...] } format')
+      } else {
+        console.log('[BBPS Pay] ⚠️ additionalInfo exists but not in expected format:', typeof additional_info.additionalInfo, JSON.stringify(additional_info.additionalInfo))
+      }
+    } else {
+      console.log('[BBPS Pay] ⚠️ No additionalInfo in additional_info object')
+      // Check alternative locations
+      if (additional_info?.data?.additionalInfo) {
+        if (Array.isArray(additional_info.data.additionalInfo)) {
+          additionalInfoArray = additional_info.data.additionalInfo
+        } else if (additional_info.data.additionalInfo.info && Array.isArray(additional_info.data.additionalInfo.info)) {
+          additionalInfoArray = additional_info.data.additionalInfo.info
+        }
+        console.log('[BBPS Pay] Found additionalInfo in alternative location (additional_info.data)')
+      }
+    }
+    
+    // Log EXACT values being sent - critical for debugging "additionalInfo value mismatch"
+    console.log('=== BBPS Pay Request - EXACT VALUES FOR SPARKUP ===')
+    console.log('reqId (from fetchBill):', reqId || additional_info?.reqId || 'NOT PROVIDED!')
     console.log('inputParams:', JSON.stringify(inputParams, null, 2))
-    console.log('paymentInfo:', JSON.stringify(paymentInfo, null, 2))
+    console.log('billerResponse (EXACT from fetchBill):', JSON.stringify(billerResponse, null, 2))
+    console.log('additionalInfo (EXACT from fetchBill):', JSON.stringify(additionalInfoArray, null, 2))
     console.log('billerAdhoc:', billerAdhocString)
     console.log('subServiceName:', subServiceName)
     if (!reqId && !additional_info?.reqId) {
-      console.warn('⚠️ WARNING: reqId is missing! This will likely cause "No fetch data found for given ref id" error from BBPS provider.')
+      console.warn('⚠️ WARNING: reqId is missing!')
     }
-    console.log('==============================')
+    if (!billerResponse) {
+      console.warn('⚠️ WARNING: billerResponse is missing! This may cause payment errors.')
+    }
+    if (!additionalInfoArray || additionalInfoArray.length === 0) {
+      console.warn('⚠️ WARNING: additionalInfo is missing or empty! This may cause "additionalInfo value mismatch" error.')
+    }
+    console.log('===================================================')
 
     // Make payment to BBPS API using new service
     // IMPORTANT: Sparkup Pay Request API expects amount in RUPEES (not paise)
@@ -418,6 +482,14 @@ export async function POST(request: NextRequest) {
     }
     console.log('Customer mobile number for Wallet mode:', customerMobileNumber || 'Not found in inputParams')
     
+    // Convert billerAdhoc from string to boolean
+    const billerAdhocBoolean = billerAdhocString === 'true' || billerAdhocString === true
+    
+    // Convert custConvFee to number (default 1 as per tested API)
+    const custConvFeeNumber = additional_info?.custConvFee 
+      ? (typeof additional_info.custConvFee === 'number' ? additional_info.custConvFee : parseFloat(String(additional_info.custConvFee)) || 1)
+      : 1
+    
     const paymentResponse = await payRequest({
       billerId: biller_id,
       billerName: biller_name, // NEW: Required per Sparkup API update (Jan 2026)
@@ -426,15 +498,20 @@ export async function POST(request: NextRequest) {
       agentTransactionId: agentTransactionId,
       inputParams,
       subServiceName, // MUST be category name like "Credit Card", "Electricity" (exact match)
-      billerAdhoc: billerAdhocString, // "true" or "false" (string boolean)
+      custConvFee: custConvFeeNumber, // Number (not string) - default 1
+      billerAdhoc: billerAdhocBoolean, // Boolean (not string) - default true
       paymentInfo, // Will be overridden by payRequest based on paymentMode
       paymentMode: effectivePaymentMode, // "Cash", "Account", "Wallet", "UPI"
+      quickPay: 'N', // "N" for non-quick pay (bill fetch was done) - as per tested API
       customerMobileNumber, // NEW: For Wallet payment mode (Jan 2026 update)
       // CRITICAL: Pass the reqId from fetchBill to correlate payment with BBPS provider
       // This reqId links the payment to the previously fetched bill data
       reqId: reqId || additional_info?.reqId,
       // Bill number from fetchBill response - required by Sparkup
       billNumber: bill_number || additional_info?.billerResponse?.billNumber || additional_info?.billNumber,
+      // Include billerResponse and additionalInfo from fetchBill response (as per tested API)
+      billerResponse,
+      additionalInfo: additionalInfoArray,
     })
 
     // Update transaction with payment response

@@ -126,6 +126,7 @@ export async function getBillersByCategoryAndChannel(
         : undefined,
       support_bill_fetch: biller.billerFetchRequirement === 'MANDATORY' || biller.billerSupportBillValidation === 'SUPPORTED',
       support_partial_payment: biller.billerPaymentExactness?.toLowerCase().includes('below') || false,
+      paymentMode: 'Cash', // Fixed value: "Cash" for now as per requirement
       metadata: {
         _id: biller._id,
         billerAdhoc: biller.billerAdhoc,

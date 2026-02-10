@@ -43,19 +43,28 @@ export async function POST(request: NextRequest) {
 
     const complaint = await complaintRegistration({
       transactionId: transaction_id,
-      complaintType: complaint_type || 'Transaction',
+      complaintType: complaint_type || 'BBPS', // Default to "BBPS" as per tested API
       description,
-      complaintDisposition: complaint_disposition || 'Amount deducted multiple times',
+      complaintDisposition: complaint_disposition || description, // Use description as default
     })
 
+    // Return response matching tested API format
     const response = NextResponse.json({
       success: complaint.success,
-      complaint_id: complaint.complaint_id,
-      transaction_id: complaint.transaction_id,
-      status: complaint.status,
-      message: complaint.message,
-      error_code: complaint.error_code,
-      error_message: complaint.error_message,
+      status: complaint.status || '',
+      message: complaint.message || '',
+      data: {
+        complaintAssigned: complaint.complaint_assigned || '',
+        complaintId: complaint.complaint_id || '',
+        responseCode: complaint.response_code || '',
+        responseReason: complaint.response_reason || '',
+        transactionDetails: complaint.transaction_details || '',
+      },
+      // Also include error fields if complaint failed
+      ...(complaint.error_code && {
+        error_code: complaint.error_code,
+        error_message: complaint.error_message,
+      }),
     })
     
     return addCorsHeaders(request, response)

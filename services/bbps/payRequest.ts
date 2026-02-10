@@ -45,15 +45,15 @@ export interface PayRequestParams {
   billerId: string
   billerName?: string // NEW: Required per Sparkup API update (Jan 2026)
   consumerNumber: string
-  amount: number
+  amount: number // Amount in RUPEES (not paise)
   agentTransactionId: string
   inputParams?: Array<{ paramName: string; paramValue: string | number }>
   name?: string
   subServiceName: string // REQUIRED: Category name (e.g., "Credit Card", "Electricity")
   initChannel?: string
   mac?: string
-  custConvFee?: string
-  billerAdhoc?: string // "true" or "false"
+  custConvFee?: number // Number (not string) - e.g., 1
+  billerAdhoc?: boolean // Boolean (not string) - e.g., true
   paymentInfo?: Array<{ infoName: string; infoValue: string }>
   paymentMode?: string // "Cash", "Account", "Wallet", "UPI"
   quickPay?: string // "Y" or "N"
@@ -61,6 +61,17 @@ export interface PayRequestParams {
   reqId?: string // CRITICAL: Must be reqId from fetchBill response
   customerMobileNumber?: string // NEW: Required for Wallet payment mode
   billNumber?: string // Bill number from fetchBill response (required by Sparkup)
+  billerResponse?: { // Bill details from fetchBill response - pass EXACTLY as returned by fetchBill
+    billAmount?: string
+    billDate?: string
+    customerName?: string
+    dueDate?: string
+    [key: string]: any // Allow extra fields from fetchBill (don't lose any data)
+  }
+  additionalInfo?: Array<{ // Additional info from fetchBill response
+    infoName: string
+    infoValue: string
+  }>
 }
 
 /**
@@ -73,12 +84,24 @@ interface BBPSPayRequestResponse {
   data?: {
     responseCode?: string
     responseReason?: string
+    CustConvFee?: string
+    RespAmount?: string // Amount in paise
+    RespBillDate?: string
+    RespCustomerName?: string
+    RespDueDate?: string
+    approvalRefNumber?: string
+    inputParams?: {
+      input?: Array<{
+        paramName: string
+        paramValue: string
+      }>
+    }
+    bbpsId?: string // BBPS transaction ID
+    transaction_id?: string // UTR/Transaction ID
+    status?: string
     txnRefId?: string
-    transaction_id?: string
     transactionId?: string
     requestId?: string
-    approvalRefNumber?: string
-    RespAmount?: string
     bill_amount?: string
     amount_paid?: string
     [key: string]: any
@@ -86,26 +109,34 @@ interface BBPSPayRequestResponse {
 }
 
 /**
- * Pay bill request
+ * Pay bill request - PRODUCTION TESTED (Feb 2026)
  * 
  * IMPORTANT: Sparkup API expects amount in RUPEES (not paise).
  * For a ₹200 payment, send amount: 200 (NOT 20000).
  * 
+ * PRODUCTION-TESTED JSON FORMAT (verified on Postman):
+ * {
+ *   "name": "Utility",
+ *   "sub_service_name": "Credit Card",    // MUST be exact category name
+ *   "initChannel": "AGT",
+ *   "amount": 100,                        // Number in RUPEES (NOT paise, NOT string)
+ *   "billerId": "ICIC00000NATSI",
+ *   "billerName": "ICICI Credit Card",    // REQUIRED
+ *   "inputParams": [{ "paramName": "...", "paramValue": "..." }],
+ *   "mac": "01-23-45-67-89-ab",
+ *   "custConvFee": 1,                     // Number (NOT string)
+ *   "billerAdhoc": true,                  // Boolean (NOT string)
+ *   "paymentInfo": [{ "infoName": "Payment Account Info", "infoValue": "Cash Payment" }],
+ *   "paymentMode": "Cash",
+ *   "quickPay": "N",
+ *   "splitPay": "N",
+ *   "reqId": "...",                       // MUST match fetchBill reqId
+ *   "billerResponse": { "billAmount": "...", "billDate": "...", "customerName": "...", "dueDate": "..." },
+ *   "additionalInfo": [{ "infoName": "...", "infoValue": "..." }]
+ * }
+ * 
  * @param params - Payment request parameters
  * @returns Payment response with transaction ID
- * 
- * @example
- * ```typescript
- * const paymentResponse = await payRequest({
- *   billerId: 'AEML00000NATD1',
- *   consumerNumber: '1234567890',
- *   amount: 200, // ₹200 in rupees (NOT paise)
- *   agentTransactionId: 'BBPS-123-1234567890-ABC',
- *   inputParams: [
- *     { paramName: 'Consumer Number', paramValue: '1234567890' }
- *   ]
- * })
- * ```
  */
 export async function payRequest(
   params: PayRequestParams
@@ -121,15 +152,17 @@ export async function payRequest(
     subServiceName, // REQUIRED: Must be category name (e.g., "Credit Card", "Electricity")
     initChannel = 'AGT',
     mac = '01-23-45-67-89-ab',
-    custConvFee = '0',
-    billerAdhoc = 'true', // Per API docs: "true" or "false" (string boolean)
+    custConvFee = 1, // Number (not string) - default 1 as per tested API
+    billerAdhoc = true, // Boolean (not string) - default true as per tested API
     paymentInfo = [],
     paymentMode = 'Cash', // Per API docs: "Cash", "Account", "Wallet", "UPI"
-    quickPay = 'N', // Per Sparkup sample: "N" for non-quick pay (bill fetch was done)
+    quickPay = 'N', // "N" for non-quick pay (bill fetch was done) - as per tested API
     splitPay = 'N',
     reqId: providedReqId,
     customerMobileNumber, // NEW: Required for Wallet payment mode
     billNumber, // Bill number from fetchBill response
+    billerResponse, // Bill details from fetchBill response
+    additionalInfo, // Additional info from fetchBill response
   } = params
   const reqId = providedReqId || generateReqId()
 
@@ -226,44 +259,50 @@ export async function payRequest(
     // NOTE: Do NOT allow frontend paymentInfo to override!
     // The format MUST match Sparkup documentation exactly or you get "Invalid XML request" error
 
-    // Prepare request body - EXACT format that WORKED in testing (Feb 2026)
-    // Reference: User's working example that returned "Fund Issue" (correct format, just balance issue)
+    // ========================================
+    // Build request body - EXACT format matching PRODUCTION-TESTED Postman request (Feb 2026)
+    // This format has been verified to return perfect response from Sparkup API
+    // ========================================
     const requestBody: any = {
       name: name || 'Utility',
-      sub_service_name: subServiceName, // MUST be exact category name (e.g., "Credit Card", "Electricity")
+      sub_service_name: subServiceName,       // MUST be exact category name (e.g., "Credit Card", "Electricity")
       initChannel: initChannel || 'AGT',
-      amount: amount.toString(),
+      amount: amount,                          // Number in RUPEES (NOT string, NOT paise)
       billerId,
-      billerName: billerName || '', // REQUIRED - biller name
-      inputParams: requestInputParams,
+      billerName: billerName || '',            // REQUIRED per Sparkup API
+      inputParams: requestInputParams,         // Array of { paramName, paramValue }
       mac: mac || '01-23-45-67-89-ab',
-      custConvFee: custConvFee || '0',
-      billerAdhoc: billerAdhoc || 'true', // Must be string "true" or "false"
-      paymentInfo: effectivePaymentInfo, // Format depends on paymentMode (see above)
-      paymentMode: paymentMode || 'Cash',
-      quickPay: 'Y',  // ALWAYS "Y" - the working example showed "Y"
+      custConvFee: typeof custConvFee === 'number' ? custConvFee : 1,  // Number (NOT string) - default 1
+      billerAdhoc: typeof billerAdhoc === 'boolean' ? billerAdhoc : true, // Boolean (NOT string) - default true
+      paymentInfo: effectivePaymentInfo,       // Format depends on paymentMode (Cash/Wallet)
+      paymentMode: paymentMode || 'Cash',      // "Cash" is production-tested default
+      quickPay: quickPay || 'N',               // "N" = bill fetch was done before payment
       splitPay: splitPay || 'N',
-      reqId, // CRITICAL: Unique request ID that links to fetchBill
+      reqId,                                   // CRITICAL: Must match fetchBill reqId
+    }
+    
+    // Include billerResponse if available (from fetchBill response) - pass EXACTLY as returned
+    if (billerResponse) {
+      requestBody.billerResponse = billerResponse
+    }
+    
+    // Include additionalInfo if available (from fetchBill response) - flat array format
+    if (additionalInfo && Array.isArray(additionalInfo) && additionalInfo.length > 0) {
+      requestBody.additionalInfo = additionalInfo
     }
     
     // billNumber: Only include if available from fetchBill response
     // NOT all billers return billNumber (e.g., ICICI Credit Card doesn't)
-    // Only add if we have a real value - don't send empty string
     if (billNumber && billNumber.trim() !== '') {
       requestBody.billNumber = billNumber
-      console.log('Including billNumber in request:', billNumber)
-    } else {
-      console.log('No billNumber available from fetchBill - omitting from request')
     }
     
-    // Remove any undefined or null values
+    // Remove any undefined or null values to keep request clean
     Object.keys(requestBody).forEach(key => {
       if (requestBody[key] === undefined || requestBody[key] === null) {
         delete requestBody[key]
       }
     })
-    
-    // NOTE: Do NOT send additionalInfo or billerResponse - they are NOT in the API spec
 
     // PayRequest endpoint: /api/ba/bbps/payRequest (same base URL as other endpoints)
     // According to API docs, it uses the same headers (partnerid, consumerkey, consumersecret)
@@ -369,25 +408,32 @@ export async function payRequest(
       }
     }
 
-    // Transform successful response
+    // Transform successful response - handle new response structure
+    // Response amounts are in PAISE (e.g., "10000" = ₹100)
+    const parseResponseAmount = (amountStr: string | undefined): number => {
+      if (!amountStr) return 0
+      const cleaned = String(amountStr).replace(/[,\s₹]/g, '')
+      const parsed = parseFloat(cleaned)
+      return isNaN(parsed) ? 0 : parsed
+    }
+    
     const paymentResponse: BBPSPaymentResponse = {
       success: true,
       transaction_id:
+        responseData.transaction_id || // UTR/Transaction ID (primary)
+        responseData.bbpsId || // BBPS transaction ID (fallback)
         responseData.txnRefId ||
-        responseData.transaction_id ||
         responseData.transactionId,
       agent_transaction_id: agentTransactionId,
-      status: 'success',
-      payment_status: responseData.responseReason || 'SUCCESS',
-      bill_amount: parseFloat(
-        responseData.RespAmount ||
-          responseData.bill_amount ||
-          amount.toString()
+      status: responseData.status || 'success',
+      payment_status: responseData.responseReason || responseData.status || 'SUCCESS',
+      bill_amount: parseResponseAmount(
+        responseData.RespAmount || // Amount in paise from response
+        responseData.bill_amount
       ),
-      amount_paid: parseFloat(
-        responseData.RespAmount ||
-          responseData.amount_paid ||
-          amount.toString()
+      amount_paid: parseResponseAmount(
+        responseData.RespAmount || // Amount in paise from response
+        responseData.amount_paid
       ),
       reqId,
     }

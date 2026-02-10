@@ -1,0 +1,30 @@
+Subject: Re: Request to Update Razorpay POS Webhook Notification URL - Ticket #17942295
+
+Dear Amirsohel,
+
+Thank you for your response and for proceeding with the webhook URL update. We appreciate your prompt action.
+
+Regarding your questions:
+
+IP WHITELISTING:
+No IP whitelisting is required. The webhook endpoint at https://api.samedaysolution.in/api/razorpay/notification is publicly accessible and accepts requests from any IP address. This is the standard configuration for webhook endpoints, as Razorpay servers may send notifications from various IP addresses.
+
+SSL CERTIFICATE:
+The SSL/TLS certificate is properly configured and active on api.samedaysolution.in. The domain has a valid certificate installed, and HTTPS is fully operational. You can verify this by accessing the URL directly - it should show a valid SSL connection.
+
+CONFIRMATION:
+- Webhook endpoint URL: https://api.samedaysolution.in/api/razorpay/notification
+- IP whitelisting: Not required (publicly accessible endpoint)
+- SSL certificate: Valid and active
+- Endpoint status: Ready to receive webhook notifications
+
+We look forward to receiving confirmation once the webhook URL has been updated in your system. Please proceed with the update and send a test notification when ready.
+
+Thank you for your continued support.
+
+Best regards,
+Manish Kumar Shah
+Team Sameday
+
+Ticket Reference: #17942295
+

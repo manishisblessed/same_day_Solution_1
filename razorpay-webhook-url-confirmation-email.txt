@@ -1,0 +1,27 @@
+Subject: Re: Request to Update Razorpay POS Webhook Notification URL - Ticket #17942295
+
+Dear Priya,
+
+Thank you for your message.
+
+CONFIRMATION:
+Yes, please update the webhook URL in the demo environment to:
+https://api.samedaysolution.in/api/razorpay/notification
+
+This is the correct URL that should replace the current webhook URL in the demo environment.
+
+We would appreciate it if you could:
+1. Update the webhook URL in the demo environment configuration
+2. Send a test transaction notification to verify the new endpoint
+3. Confirm once the change is complete
+
+Please let us know if you need any additional information.
+
+Thank you for your continued support.
+
+Best regards,
+Manish Kumar Shah
+Team Sameday
+
+Ticket Reference: #17942295
+

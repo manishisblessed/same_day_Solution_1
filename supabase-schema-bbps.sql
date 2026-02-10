@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS bbps_billers (
   support_bill_fetch BOOLEAN DEFAULT TRUE,
   support_partial_payment BOOLEAN DEFAULT FALSE,
   support_additional_info BOOLEAN DEFAULT FALSE,
+  payment_mode TEXT DEFAULT 'Cash', -- Payment mode (e.g., 'Cash', 'Wallet', 'UPI', etc.)
   metadata JSONB,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
@@ -37,6 +38,7 @@ CREATE TABLE IF NOT EXISTS bbps_transactions (
   status TEXT NOT NULL CHECK (status IN ('pending', 'initiated', 'success', 'failed', 'reversed', 'refunded')),
   payment_status TEXT, -- BBPS payment status
   bill_fetch_status TEXT, -- Bill fetch status
+  payment_mode TEXT DEFAULT 'Cash', -- Payment mode used (e.g., 'Cash', 'Wallet', 'UPI', etc.)
   due_date DATE,
   bill_date DATE,
   bill_number TEXT,

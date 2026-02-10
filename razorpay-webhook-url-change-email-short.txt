@@ -1,0 +1,21 @@
+Subject: Update Required: Razorpay POS Webhook URL Change
+
+Dear Razorpay Support Team,
+
+Thank you for configuring the webhook for our demo environment.
+
+We need to update the webhook notification URL:
+
+CURRENT: https://www.samedaysolution.in/api/razorpay/notification
+NEW:     https://api.samedaysolution.in/api/razorpay/notification
+
+REASON: The current URL points to our frontend (static hosting), while the new URL points to our backend API server where webhook processing and database connections are configured.
+
+The new endpoint is ready and tested. Please update the webhook URL and send a test notification to verify.
+
+Thank you for your assistance.
+
+Best regards,
+[Your Name]
+Same Day Solution Pvt. Ltd.
+

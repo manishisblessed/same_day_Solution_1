@@ -46,9 +46,23 @@ export async function POST(request: NextRequest) {
       trackType: track_type || 'TRANS_REF_ID',
     })
 
+    // Return response matching tested API format
     const response = NextResponse.json({
       success: true,
-      status,
+      status: 'success',
+      message: 'Detail Fetched',
+      data: {
+        reqId: status.reqId || body.reqId,
+        totalAmount: status.totalAmount || status.amount || 0,
+        serviceCharge: status.serviceCharge || 0,
+        transactionAmount: status.transactionAmount || status.amount || 0,
+        referenceNo: status.referenceNo || status.txn_reference_id,
+        transaction_id: status.transaction_id,
+        status: status.status || 'success',
+        remark: status.remark || status.response_reason || 'Successful',
+        compalainRegisterDes: status.compalainRegisterDes || {},
+        compalainRegisterStatus: status.compalainRegisterStatus || false,
+      },
     })
     
     return addCorsHeaders(request, response)

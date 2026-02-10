@@ -611,8 +611,27 @@ export async function fetchBillDetails(
 /**
  * Pay bill through BBPS API
  * POST /api/ba/bbps/payRequest
- * Request body: { name, sub_service_name, initChannel, amount, billerId, inputParams, mac, custConvFee, billerAdhoc, paymentInfo, paymentMode, quickPay, splitPay, additionalInfo, billerResponse, reqId }
- * Uses mock data in dev environment
+ * 
+ * PRODUCTION-TESTED JSON format (Feb 2026):
+ * {
+ *   "name": "Utility",
+ *   "sub_service_name": "Credit Card",  // MUST be exact category name
+ *   "initChannel": "AGT",
+ *   "amount": 100,                      // Number in RUPEES (NOT paise, NOT string)
+ *   "billerId": "ICIC00000NATSI",
+ *   "billerName": "ICICI Credit Card",  // REQUIRED
+ *   "inputParams": [{ "paramName": "...", "paramValue": "..." }],
+ *   "mac": "01-23-45-67-89-ab",
+ *   "custConvFee": 1,                   // Number (NOT string)
+ *   "billerAdhoc": true,                // Boolean (NOT string)
+ *   "paymentInfo": [{ "infoName": "Payment Account Info", "infoValue": "Cash Payment" }],
+ *   "paymentMode": "Cash",
+ *   "quickPay": "N",
+ *   "splitPay": "N",
+ *   "reqId": "...",                     // MUST match fetchBill reqId
+ *   "billerResponse": { "billAmount": "...", "billDate": "...", "customerName": "...", "dueDate": "..." },
+ *   "additionalInfo": [{ "infoName": "...", "infoValue": "..." }]
+ * }
  */
 export async function payBill(
   paymentRequest: BBPSPaymentRequest,
@@ -646,7 +665,7 @@ export async function payBill(
     } else if (paymentRequest.additional_info) {
       // Convert additional_info object to inputParams array
       Object.entries(paymentRequest.additional_info).forEach(([key, value]) => {
-        if (key !== 'inputParams' && key !== 'billerResponse' && key !== 'ip' && key !== 'initChannel' && key !== 'mac') {
+        if (key !== 'inputParams' && key !== 'billerResponse' && key !== 'additionalInfo' && key !== 'ip' && key !== 'initChannel' && key !== 'mac' && key !== 'name' && key !== 'sub_service_name' && key !== 'billerName') {
           inputParams.push({
             paramName: key,
             paramValue: value,
@@ -655,15 +674,48 @@ export async function payBill(
       })
     }
 
-    // Generate reqId if not provided
+    // Generate reqId if not provided - MUST match fetchBill reqId for payment to work
     const reqId = paymentRequest.additional_info?.reqId || generateReqId()
 
-    const requestBody = {
+    // Determine paymentMode - default to "Cash" (production tested)
+    const paymentMode = paymentRequest.additional_info?.paymentMode || 'Cash'
+    
+    // Build paymentInfo based on paymentMode - MUST match exact Sparkup API format
+    let paymentInfo: Array<{ infoName: string; infoValue: string }> = []
+    if (paymentMode === 'Cash') {
+      paymentInfo = [{ infoName: 'Payment Account Info', infoValue: 'Cash Payment' }]
+    } else if (paymentMode === 'Wallet') {
+      paymentInfo = [
+        { infoName: 'WalletName', infoValue: 'Wallet' },
+        { infoName: 'MobileNo', infoValue: paymentRequest.additional_info?.customerMobileNumber || '' }
+      ]
+    } else {
+      // Fallback to Cash format
+      paymentInfo = [{ infoName: 'Payment Account Info', infoValue: 'Cash Payment' }]
+    }
+
+    // Extract billerResponse from fetchBill data - pass EXACTLY as returned
+    const billerResponse = paymentRequest.additional_info?.billerResponse || undefined
+    
+    // Extract additionalInfo array from fetchBill data
+    let additionalInfo: Array<{ infoName: string; infoValue: string }> | undefined
+    const rawAdditionalInfo = paymentRequest.additional_info?.additionalInfo
+    if (rawAdditionalInfo) {
+      if (Array.isArray(rawAdditionalInfo)) {
+        additionalInfo = rawAdditionalInfo
+      } else if (rawAdditionalInfo.info && Array.isArray(rawAdditionalInfo.info)) {
+        additionalInfo = rawAdditionalInfo.info
+      }
+    }
+
+    // Build request body - EXACT format matching production-tested Postman request (Feb 2026)
+    const requestBody: Record<string, any> = {
       name: paymentRequest.additional_info?.name || 'Utility',
-      sub_service_name: paymentRequest.additional_info?.sub_service_name || 'BBPS Bill payment',
+      sub_service_name: paymentRequest.additional_info?.sub_service_name || paymentRequest.additional_info?.category || 'Utility',
       initChannel: paymentRequest.additional_info?.initChannel || 'AGT',
-      amount: paymentRequest.amount.toString(),
+      amount: paymentRequest.amount, // Number in RUPEES (NOT string, NOT paise)
       billerId: paymentRequest.biller_id,
+      billerName: paymentRequest.additional_info?.billerName || '', // REQUIRED per Sparkup API
       inputParams: inputParams.length > 0 ? inputParams : [
         {
           paramName: 'Consumer Number',
@@ -671,16 +723,35 @@ export async function payBill(
         }
       ],
       mac: paymentRequest.additional_info?.mac || '01-23-45-67-89-ab',
-      custConvFee: paymentRequest.additional_info?.custConvFee || '0.00',
-      billerAdhoc: paymentRequest.additional_info?.billerAdhoc || '0.00',
-      paymentInfo: paymentRequest.additional_info?.paymentInfo || [],
-      paymentMode: paymentRequest.additional_info?.paymentMode || 'Wallet',
-      quickPay: paymentRequest.additional_info?.quickPay || 'Y',
-      splitPay: paymentRequest.additional_info?.splitPay || 'N',
-      additionalInfo: paymentRequest.additional_info?.additionalInfo || {},
-      billerResponse: paymentRequest.additional_info?.billerResponse || {},
-      reqId: reqId,
+      custConvFee: 1, // Number (NOT string) - production tested value
+      billerAdhoc: true, // Boolean (NOT string) - production tested value
+      paymentInfo, // Format depends on paymentMode (Cash/Wallet)
+      paymentMode, // "Cash" (production tested default)
+      quickPay: 'N', // "N" = bill fetch was done before payment
+      splitPay: 'N',
+      reqId,
     }
+    
+    // Include billerResponse if available from fetchBill - pass EXACTLY as returned
+    if (billerResponse) {
+      requestBody.billerResponse = billerResponse
+    }
+    
+    // Include additionalInfo if available from fetchBill - flat array format
+    if (additionalInfo && Array.isArray(additionalInfo) && additionalInfo.length > 0) {
+      requestBody.additionalInfo = additionalInfo
+    }
+    
+    // Remove any undefined or null values
+    Object.keys(requestBody).forEach(key => {
+      if (requestBody[key] === undefined || requestBody[key] === null) {
+        delete requestBody[key]
+      }
+    })
+
+    console.log('=== BBPS PAY REQUEST (lib/bbps/service.ts) ===')
+    console.log('Full Request Body:', JSON.stringify(requestBody, null, 2))
+    console.log('===============================================')
 
     const response = await fetch(url, {
       method: 'POST',
