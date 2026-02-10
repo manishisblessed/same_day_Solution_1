@@ -794,11 +794,14 @@ export async function payBill(
 
 /**
  * Generate unique request ID for BBPS API
+ * MUST be exactly 35 characters (alphanumeric uppercase)
+ * Sparkup API validates: "Request Id must have 35 characters"
+ * Example from production-tested Postman: "6B9F2O2NGQ80B68O61DNHEMP11560411430"
  */
 function generateReqId(): string {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
   let result = ''
-  for (let i = 0; i < 32; i++) {
+  for (let i = 0; i < 35; i++) {
     result += chars.charAt(Math.floor(Math.random() * chars.length))
   }
   return result

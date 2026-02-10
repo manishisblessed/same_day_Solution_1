@@ -233,11 +233,12 @@ export class BBPSClient {
 
   /**
    * Generate request ID
+   * MUST be exactly 35 characters for Sparkup BBPS API
    */
   private generateReqId(): string {
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
     let result = ''
-    for (let i = 0; i < 32; i++) {
+    for (let i = 0; i < 35; i++) {
       result += chars.charAt(Math.floor(Math.random() * chars.length))
     }
     return result
