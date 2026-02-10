@@ -9,10 +9,13 @@ export const runtime = 'nodejs' // Force Node.js runtime (Supabase not compatibl
 export const dynamic = 'force-dynamic'
 
 /**
- * Razorpay POS Notification Webhook Endpoint
+ * Razorpay Unified Webhook Endpoint
  * 
- * This endpoint receives transaction notifications from Razorpay POS devices.
- * It implements idempotency using txnId as the unique key (UPSERT logic).
+ * This endpoint receives BOTH:
+ * 1. POS transaction notifications (from Razorpay POS devices) - txnId format
+ * 2. Standard Razorpay webhooks (from Payment Links, Checkout, etc.) - event/payload format
+ * 
+ * It auto-detects the payload format and normalizes to a common structure.
  * 
  * CRITICAL FLOW (FIX: Connects POS → Wallet → Hierarchy):
  * 1. Store transaction in razorpay_pos_transactions (for role-based visibility)
@@ -79,11 +82,95 @@ export async function POST(request: NextRequest) {
       payload = await request.json()
     }
 
+    // ========================================================
+    // AUTO-DETECT PAYLOAD FORMAT: Standard Razorpay vs POS
+    // ========================================================
+    // Standard Razorpay webhooks have an "event" field (e.g. "payment.captured")
+    // POS notifications have a "txnId" field directly
+    const isStandardWebhook = !!(payload.event && payload.payload)
+    
+    let normalizedPayload: any
+    
+    if (isStandardWebhook) {
+      // STANDARD RAZORPAY WEBHOOK FORMAT
+      // Extract payment entity from nested structure
+      console.log('[Webhook] Standard Razorpay format detected, event:', payload.event)
+      
+      const eventType = payload.event // e.g. "payment.captured", "payment.authorized", "payment.failed"
+      const paymentEntity = payload.payload?.payment?.entity
+      
+      if (!paymentEntity) {
+        console.error('Missing payment entity in standard webhook', payload)
+        return NextResponse.json(
+          { received: true, processed: false, error: 'Missing payment entity' },
+          { status: 200 }
+        )
+      }
+      
+      // Map standard Razorpay status to our POS-compatible format
+      let rzpStatus = 'PENDING'
+      if (eventType === 'payment.captured' || paymentEntity.status === 'captured') {
+        rzpStatus = 'AUTHORIZED' // Will be mapped to CAPTURED by mapTransactionStatus
+      } else if (eventType === 'payment.authorized' || paymentEntity.status === 'authorized') {
+        rzpStatus = 'AUTHORIZED'
+      } else if (eventType === 'payment.failed' || paymentEntity.status === 'failed') {
+        rzpStatus = 'FAILED'
+      } else if (paymentEntity.status === 'refunded') {
+        rzpStatus = 'REFUNDED'
+      }
+      
+      // Normalize to POS-like structure for unified processing
+      normalizedPayload = {
+        txnId: paymentEntity.id, // e.g. "pay_SEUH94IbT0mGz3"
+        amount: paymentEntity.amount ? paymentEntity.amount / 100 : 0, // Razorpay standard uses paise → convert to rupees
+        currencyCode: paymentEntity.currency?.toUpperCase() || 'INR',
+        status: rzpStatus,
+        paymentMode: (paymentEntity.method || '').toUpperCase(), // "upi" → "UPI", "card" → "CARD"
+        settlementStatus: paymentEntity.status === 'captured' ? 'SETTLED' : 'PENDING',
+        customerName: paymentEntity.notes?.customer_name || paymentEntity.email || '',
+        payerName: paymentEntity.notes?.customer_name || paymentEntity.contact || '',
+        merchantName: paymentEntity.notes?.merchant_name || '',
+        rrNumber: paymentEntity.acquirer_data?.rrn || '',
+        tid: paymentEntity.terminal_id || '',
+        mid: paymentEntity.notes?.mid || '',
+        deviceSerial: '',
+        txnType: 'PAYMENT_LINK',
+        postingDate: paymentEntity.created_at ? new Date(paymentEntity.created_at * 1000).toISOString() : new Date().toISOString(),
+        createdTime: paymentEntity.created_at ? paymentEntity.created_at * 1000 : Date.now(), // epoch millis
+        // Preserve original fields for reference
+        _source: 'standard_webhook',
+        _event: eventType,
+        _payment_id: paymentEntity.id,
+        _order_id: paymentEntity.order_id || '',
+        _email: paymentEntity.email || '',
+        _contact: paymentEntity.contact || '',
+        _description: paymentEntity.description || '',
+        _card_info: paymentEntity.card ? {
+          network: paymentEntity.card.network,
+          type: paymentEntity.card.type,
+          last4: paymentEntity.card.last4,
+          issuer: paymentEntity.card.issuer
+        } : null,
+        _vpa: paymentEntity.vpa || null, // UPI VPA
+        // Store full original payload for raw JSON view
+        _original_payload: payload
+      }
+      
+      console.log(`[Webhook] Normalized standard payment: ${paymentEntity.id}, ₹${normalizedPayload.amount}, ${rzpStatus}, ${normalizedPayload.paymentMode}`)
+    } else {
+      // POS NOTIFICATION FORMAT (original format)
+      console.log('[Webhook] POS notification format detected, txnId:', payload.txnId || payload.id)
+      normalizedPayload = { ...payload, _source: 'pos_notification' }
+    }
+
+    // ========================================================
+    // UNIFIED PROCESSING (works for both formats)
+    // ========================================================
+    
     // Extract mandatory fields
-    const txnId = payload.txnId || payload.id
+    const txnId = normalizedPayload.txnId || normalizedPayload.id
     if (!txnId) {
-      console.error('Missing txnId in Razorpay notification', payload)
-      // Return 200 OK but log error
+      console.error('Missing txnId in Razorpay notification', normalizedPayload)
       return NextResponse.json(
         { received: true, processed: false, error: 'Missing txnId field' },
         { status: 200 }
@@ -92,38 +179,43 @@ export async function POST(request: NextRequest) {
 
     // Map status using the reusable function
     // AUTHORIZED → CAPTURED, FAILED/VOIDED/REFUNDED → FAILED, else → PENDING
-    const mappedStatus = mapTransactionStatus(payload)
+    const mappedStatus = mapTransactionStatus(normalizedPayload)
 
     // Extract fields to persist
-    const orderNumber = payload.orderNumber || payload.externalRefNumber || null
-    const amount = payload.amount ? parseFloat(payload.amount) : null
-    const currency = payload.currencyCode || payload.currency || null
-    const paymentMode = payload.paymentMode || null
-    const settlementStatus = payload.settlementStatus || null
-    const merchantName = payload.merchantName || null
-    const rrNumber = payload.rrNumber || payload.rrn || null
-    const acquirerCode = payload.acquirerCode || null
+    const orderNumber = normalizedPayload.orderNumber || normalizedPayload.externalRefNumber || normalizedPayload._order_id || null
+    const amount = normalizedPayload.amount ? parseFloat(normalizedPayload.amount) : null
+    const currency = normalizedPayload.currencyCode || normalizedPayload.currency || null
+    const paymentMode = normalizedPayload.paymentMode || null
+    const settlementStatus = normalizedPayload.settlementStatus || null
+    const merchantName = normalizedPayload.merchantName || null
+    const rrNumber = normalizedPayload.rrNumber || normalizedPayload.rrn || null
+    const acquirerCode = normalizedPayload.acquirerCode || null
     // FIX: Extract device_serial and tid for mapping
-    const deviceSerial = payload.deviceSerial || payload.device_serial || payload.terminalId || null
-    const tid = payload.tid || payload.terminalId || null
+    const deviceSerial = normalizedPayload.deviceSerial || normalizedPayload.device_serial || normalizedPayload.terminalId || null
+    const tid = normalizedPayload.tid || normalizedPayload.terminalId || null
     
     // Parse created_time (can be epoch milliseconds or ISO string)
     let createdTime: Date | null = null
-    if (payload.createdTime) {
+    if (normalizedPayload.createdTime) {
       // If it's a number, treat as epoch milliseconds
-      if (typeof payload.createdTime === 'number') {
-        createdTime = new Date(payload.createdTime)
+      if (typeof normalizedPayload.createdTime === 'number') {
+        createdTime = new Date(normalizedPayload.createdTime)
       } else {
-        createdTime = new Date(payload.createdTime)
+        createdTime = new Date(normalizedPayload.createdTime)
       }
-    } else if (payload.created_at) {
-      createdTime = new Date(payload.created_at)
+    } else if (normalizedPayload.created_at) {
+      createdTime = new Date(normalizedPayload.created_at)
     }
     
     // If no valid date found, use current time
     if (!createdTime || isNaN(createdTime.getTime())) {
       createdTime = new Date()
     }
+    
+    // Build raw_data: for standard webhooks, include the original webhook payload
+    const rawDataToStore = isStandardWebhook 
+      ? { ...normalizedPayload, _original_webhook: normalizedPayload._original_payload }
+      : payload
 
     // FIX: Check if transaction already exists in razorpay_pos_transactions
     const { data: existingPosTransaction } = await supabase
@@ -135,7 +227,7 @@ export async function POST(request: NextRequest) {
     // FIX: Store in razorpay_pos_transactions (used by role-based visibility API)
     const posTransactionData: any = {
       txn_id: txnId,
-      status: payload.status || 'PENDING', // Raw status
+      status: normalizedPayload.status || 'PENDING', // Raw status
       display_status: mappedStatus === 'CAPTURED' ? 'SUCCESS' : mappedStatus === 'FAILED' ? 'FAILED' : 'PENDING',
       amount: amount || 0,
       payment_mode: paymentMode,
@@ -143,7 +235,7 @@ export async function POST(request: NextRequest) {
       tid: tid,
       merchant_name: merchantName,
       transaction_time: createdTime.toISOString(),
-      raw_data: payload
+      raw_data: rawDataToStore
     }
 
     let posResult
