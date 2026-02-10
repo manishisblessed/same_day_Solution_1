@@ -112,7 +112,25 @@ export async function GET(request: NextRequest) {
       // Map display_status back to frontend status: SUCCESS→CAPTURED
       status: txn.display_status === 'SUCCESS' ? 'CAPTURED' : (txn.display_status || txn.status || 'PENDING'),
       settlement_status: txn.raw_data?.settlementStatus || null,
-      created_time: txn.transaction_time
+      created_time: txn.transaction_time,
+      // Additional details from raw_data for expanded view
+      customer_name: txn.raw_data?.customerName || txn.raw_data?.payerName || null,
+      payer_name: txn.raw_data?.payerName || null,
+      tid: txn.raw_data?.tid || null,
+      mid: txn.raw_data?.mid || null,
+      rrn: txn.raw_data?.rrNumber || txn.raw_data?.rrn || null,
+      device_serial: txn.raw_data?.deviceSerial || null,
+      external_ref: txn.raw_data?.externalRefNumber || null,
+      card_brand: txn.raw_data?.paymentCardBrand || null,
+      card_type: txn.raw_data?.paymentCardType || null,
+      txn_type: txn.raw_data?.txnType || null,
+      currency: txn.raw_data?.currencyCode || null,
+      auth_code: txn.raw_data?.authCode || null,
+      customer_receipt_url: txn.raw_data?.customerReceiptUrl || null,
+      posting_date: txn.raw_data?.postingDate || null,
+      username: txn.raw_data?.username || null,
+      merchant_name: txn.raw_data?.merchantName || txn.merchant_name || null,
+      raw_data: txn.raw_data || null
     }))
 
     // Calculate pagination metadata
