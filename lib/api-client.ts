@@ -154,9 +154,12 @@ export async function apiFetch(
     ...(options.headers as Record<string, string> || {}),
   }
   
-  // For cross-origin requests, include the access token in Authorization header
-  // This is needed because cookies are domain-specific and won't be sent to subdomains
-  if (isCrossOrigin && typeof window !== 'undefined') {
+  // Always include the access token in Authorization header
+  // This is needed because:
+  // 1. Cross-origin: cookies are domain-specific and won't be sent to subdomains
+  // 2. Same-origin: Supabase SSR cookies can sometimes fail to be read server-side,
+  //    so the Bearer token serves as a reliable fallback for getCurrentUserWithFallback()
+  if (typeof window !== 'undefined') {
     const accessToken = await getAccessToken()
     if (accessToken) {
       headers['Authorization'] = `Bearer ${accessToken}`

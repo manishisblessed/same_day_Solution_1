@@ -1,0 +1,35 @@
+Subject: Request to Update POS Webhook URL in Production - Ticket #17942295
+
+Dear Priya,
+
+Thank you for your support with the demo environment webhook configuration. The test environment is working perfectly.
+
+We are now ready for production and need to configure the POS webhook in the **Live/Production environment**.
+
+**REQUEST:**
+Please update the POS webhook URL in production to:
+https://api.samedaysolution.in/api/razorpay/notification
+
+**CONFIRMATION NEEDED:**
+1. Webhook URL updated in production environment
+2. Test transaction sent to verify connectivity
+3. Webhook secret (if different from demo)
+4. Confirmation when change is complete
+
+**STATUS:**
+- Production endpoint is configured and ready
+- SSL certificate is valid
+- Endpoint supports both POS and standard Razorpay webhook formats
+
+We are planning to go live within the next few days. Please let us know the expected timeline.
+
+Thank you for your continued support.
+
+Best regards,
+Manish Kumar Shah
+Team Sameday
+
+Ticket Reference: #17942295
+
+
+

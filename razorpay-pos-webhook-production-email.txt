@@ -1,0 +1,52 @@
+Subject: Request to Update Razorpay POS Webhook URL in Production Environment - Ticket #17942295
+
+Dear Priya,
+
+Thank you for your excellent support in configuring the POS webhook for our demo/test environment. The webhook is working perfectly, and we can confirm that all test transactions are being received and processed successfully.
+
+We are now ready to move to production and need to configure the POS webhook URL in the **Live/Production environment**.
+
+**PRODUCTION WEBHOOK CONFIGURATION REQUEST:**
+
+**Environment:** Live/Production
+**Webhook URL:** https://api.samedaysolution.in/api/razorpay/notification
+
+**CURRENT STATUS:**
+- ✅ Demo/Test environment webhook is configured and tested successfully
+- ✅ Production webhook endpoint is fully configured and ready
+- ✅ SSL certificate is valid and active on api.samedaysolution.in
+- ✅ Database integration is complete and operational
+- ✅ Webhook endpoint successfully handles both POS notifications and standard Razorpay webhooks
+
+**REQUEST:**
+Please update the POS webhook notification URL in the **Production/Live environment** to:
+https://api.samedaysolution.in/api/razorpay/notification
+
+**ADDITIONAL INFORMATION:**
+- IP whitelisting: Not required (endpoint is publicly accessible)
+- SSL certificate: Valid and active
+- Endpoint status: Ready to receive production webhook notifications
+- Webhook format: Supports both POS notification format and standard Razorpay webhook format
+
+**VERIFICATION REQUEST:**
+We would appreciate it if you could:
+1. Update the webhook URL in the production environment configuration
+2. Send a test transaction notification to verify the production endpoint connectivity
+3. Confirm the webhook secret (if different from the demo environment)
+4. Confirm once the change is complete and production webhooks are active
+
+**TIMELINE:**
+We are planning to go live with POS transactions within the next few days. Please let us know the expected timeline for this update.
+
+Please let us know if you need any additional information or have any questions.
+
+Thank you for your continued support.
+
+Best regards,
+Manish Kumar Shah
+Team Sameday
+
+Ticket Reference: #17942295
+
+
+

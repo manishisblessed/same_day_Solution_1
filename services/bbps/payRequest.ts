@@ -261,48 +261,98 @@ export async function payRequest(
 
     // ========================================
     // Build request body - EXACT format matching PRODUCTION-TESTED Postman request (Feb 2026)
-    // This format has been verified to return perfect response from Sparkup API
+    // IMPORTANT: Only include fields that are in the working Postman request!
+    // Extra fields can cause Sparkup to reject the request.
+    //
+    // Working Postman format:
+    // {
+    //   "name": "Utility",
+    //   "sub_service_name": "Credit Card",
+    //   "initChannel": "AGT",
+    //   "amount": 100,
+    //   "billerId": "ICIC00000NATSI",
+    //   "billerName": "ICICI Credit Card",
+    //   "inputParams": [{ "paramName": "...", "paramValue": "..." }],
+    //   "mac": "01-23-45-67-89-ab",
+    //   "custConvFee": 1,
+    //   "billerAdhoc": true,
+    //   "paymentInfo": [{ "infoName": "Payment Account Info", "infoValue": "Cash Payment" }],
+    //   "paymentMode": "Cash",
+    //   "quickPay": "N",
+    //   "splitPay": "N",
+    //   "reqId": "6B9F2O2NGQ80B68O61DNHEMP11560411430",
+    //   "billerResponse": { "billAmount": "29899958", "billDate": "...", "customerName": "...", "dueDate": "..." },
+    //   "additionalInfo": [{ "infoName": "...", "infoValue": "..." }]
+    // }
     // ========================================
+    
+    // CRITICAL: Clean billerResponse to ONLY include the 4 fields from working Postman format
+    // Extra fields (billNumber, billPeriod, amountOptions, message, etc.) can cause rejection
+    let cleanBillerResponse: any = undefined
+    if (billerResponse) {
+      cleanBillerResponse = {
+        billAmount: String(billerResponse.billAmount || ''),
+        billDate: billerResponse.billDate || '',
+        customerName: billerResponse.customerName || '',
+        dueDate: billerResponse.dueDate || '',
+      }
+      // Remove empty string fields to match Postman (only include fields that have values)
+      Object.keys(cleanBillerResponse).forEach(key => {
+        if (!cleanBillerResponse[key]) {
+          delete cleanBillerResponse[key]
+        }
+      })
+    }
+    
+    // CRITICAL: Ensure additionalInfo is a FLAT array of {infoName, infoValue}
+    // NOT wrapped in { info: [...] } - must match Postman format exactly
+    let cleanAdditionalInfo: Array<{ infoName: string; infoValue: string }> | undefined
+    if (additionalInfo && Array.isArray(additionalInfo) && additionalInfo.length > 0) {
+      cleanAdditionalInfo = additionalInfo
+        .filter((item: any) => item && item.infoName && typeof item.infoName === 'string')
+        .map((item: any) => ({
+          infoName: String(item.infoName),
+          infoValue: String(item.infoValue || ''),
+        }))
+    }
+    
+    // CRITICAL: Ensure inputParams is a FLAT array of {paramName, paramValue}
+    // Values must be strings to match Postman format
+    const cleanInputParams = requestInputParams.map((p: any) => ({
+      paramName: String(p.paramName),
+      paramValue: String(p.paramValue),
+    }))
+    
     const requestBody: any = {
       name: name || 'Utility',
-      sub_service_name: subServiceName,       // MUST be exact category name (e.g., "Credit Card", "Electricity")
+      sub_service_name: subServiceName,                                   // MUST be exact category name
       initChannel: initChannel || 'AGT',
-      amount: amount,                          // Number in RUPEES (NOT string, NOT paise)
+      amount: amount,                                                      // Number in RUPEES (NOT string, NOT paise)
       billerId,
-      billerName: billerName || '',            // REQUIRED per Sparkup API
-      inputParams: requestInputParams,         // Array of { paramName, paramValue }
+      billerName: billerName || '',                                        // REQUIRED per Sparkup API
+      inputParams: cleanInputParams,                                       // Clean array of { paramName, paramValue }
       mac: mac || '01-23-45-67-89-ab',
-      custConvFee: typeof custConvFee === 'number' ? custConvFee : 1,  // Number (NOT string) - default 1
-      billerAdhoc: typeof billerAdhoc === 'boolean' ? billerAdhoc : true, // Boolean (NOT string) - default true
-      paymentInfo: effectivePaymentInfo,       // Format depends on paymentMode (Cash/Wallet)
-      paymentMode: paymentMode || 'Cash',      // "Cash" is production-tested default
-      quickPay: quickPay || 'N',               // "N" = bill fetch was done before payment
+      custConvFee: typeof custConvFee === 'number' ? custConvFee : 1,      // Number (NOT string)
+      billerAdhoc: typeof billerAdhoc === 'boolean' ? billerAdhoc : true,  // Boolean (NOT string)
+      paymentInfo: effectivePaymentInfo,                                   // Format depends on paymentMode
+      paymentMode: paymentMode || 'Cash',                                  // "Cash" is production-tested default
+      quickPay: quickPay || 'N',
       splitPay: splitPay || 'N',
-      reqId,                                   // CRITICAL: Must match fetchBill reqId
+      reqId,                                                               // CRITICAL: Must match fetchBill reqId
     }
     
-    // Include billerResponse if available (from fetchBill response) - pass EXACTLY as returned
-    if (billerResponse) {
-      requestBody.billerResponse = billerResponse
+    // Include CLEANED billerResponse (only billAmount, billDate, customerName, dueDate)
+    if (cleanBillerResponse && Object.keys(cleanBillerResponse).length > 0) {
+      requestBody.billerResponse = cleanBillerResponse
     }
     
-    // Include additionalInfo if available (from fetchBill response) - flat array format
-    if (additionalInfo && Array.isArray(additionalInfo) && additionalInfo.length > 0) {
-      requestBody.additionalInfo = additionalInfo
+    // Include CLEANED additionalInfo (flat array only)
+    if (cleanAdditionalInfo && cleanAdditionalInfo.length > 0) {
+      requestBody.additionalInfo = cleanAdditionalInfo
     }
     
-    // billNumber: Only include if available from fetchBill response
-    // NOT all billers return billNumber (e.g., ICICI Credit Card doesn't)
-    if (billNumber && billNumber.trim() !== '') {
-      requestBody.billNumber = billNumber
-    }
-    
-    // Remove any undefined or null values to keep request clean
-    Object.keys(requestBody).forEach(key => {
-      if (requestBody[key] === undefined || requestBody[key] === null) {
-        delete requestBody[key]
-      }
-    })
+    // NOTE: billNumber is NOT included - it's not in the working Postman format
+    // Including extra fields can cause Sparkup to reject the request
 
     // PayRequest endpoint: /api/ba/bbps/payRequest (same base URL as other endpoints)
     // According to API docs, it uses the same headers (partnerid, consumerkey, consumersecret)

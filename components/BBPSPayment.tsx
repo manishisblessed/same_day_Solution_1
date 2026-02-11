@@ -925,6 +925,8 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
         body: JSON.stringify({
           transaction_id: transactionId,
           track_type: 'TRANS_REF_ID',
+          // Include user_id for fallback auth when cookie auth doesn't work
+          user_id: user?.partner_id,
         }),
       })
       if (data.success && data.status) {
@@ -958,6 +960,8 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
           complaint_type: 'Transaction',
           description: complaintDescription.trim(),
           complaint_disposition: 'Amount deducted multiple times',
+          // Include user_id for fallback auth when cookie auth doesn't work
+          user_id: user?.partner_id,
         }),
       })
       if (data.success) {

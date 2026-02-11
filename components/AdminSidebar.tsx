@@ -24,6 +24,7 @@ const sidebarItems: SidebarItem[] = [
   { id: 'retailers', label: 'Retailers', icon: Users, href: '/admin?tab=retailers' },
   { id: 'distributors', label: 'Distributors', icon: Package, href: '/admin?tab=distributors' },
   { id: 'master-distributors', label: 'Master Distributors', icon: Crown, href: '/admin?tab=master-distributors' },
+  { id: 'mdr-schemes', label: 'MDR Schemes', icon: TrendingUp, href: '/admin/mdr-schemes' },
   { id: 'partners', label: 'Partners', icon: Building2, href: '/admin/partners', badge: undefined },
   { id: 'pos-machines', label: 'POS Machines', icon: CreditCard, href: '/admin?tab=pos-machines' },
   { id: 'razorpay-transactions', label: 'Razorpay Transactions', icon: Receipt, href: '/admin/razorpay-transactions' },

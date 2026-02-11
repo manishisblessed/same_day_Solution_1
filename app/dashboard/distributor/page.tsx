@@ -9,14 +9,15 @@ import {
   LogOut, Package, Network, BarChart3,
   ArrowUpRight, ArrowDownRight, UserPlus, Receipt, Wallet,
   ArrowUpCircle, ArrowDownCircle, Download, Search, Eye,
-  Settings, PieChart as PieChartIcon, Plus, X
+  Settings, PieChart as PieChartIcon, Plus, X, Percent,
+  Edit, Trash2, CreditCard, Smartphone, RefreshCw, AlertCircle
 } from 'lucide-react'
 import TransactionsTable from '@/components/TransactionsTable'
 import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
 import { motion } from 'framer-motion'
 import { apiFetch } from '@/lib/api-client'
 
-type TabType = 'dashboard' | 'wallet' | 'network' | 'commission' | 'analytics' | 'reports' | 'settings'
+type TabType = 'dashboard' | 'wallet' | 'network' | 'commission' | 'mdr-schemes' | 'analytics' | 'reports' | 'settings'
 
 function DistributorDashboardContent() {
   const { user, logout, loading: authLoading } = useAuth()
@@ -25,7 +26,7 @@ function DistributorDashboardContent() {
   
   const getInitialTab = (): TabType => {
     const tab = searchParams.get('tab')
-    if (tab && ['dashboard', 'wallet', 'network', 'commission', 'analytics', 'reports', 'settings'].includes(tab)) {
+    if (tab && ['dashboard', 'wallet', 'network', 'commission', 'mdr-schemes', 'analytics', 'reports', 'settings'].includes(tab)) {
       return tab as TabType
     }
     return 'dashboard'
@@ -218,6 +219,7 @@ function DistributorDashboardContent() {
     { id: 'wallet' as TabType, label: 'Wallet', icon: Wallet },
     { id: 'network' as TabType, label: 'Network', icon: Network },
     { id: 'commission' as TabType, label: 'Commission', icon: TrendingUp },
+    { id: 'mdr-schemes' as TabType, label: 'MDR Schemes', icon: Percent },
     { id: 'analytics' as TabType, label: 'Analytics', icon: BarChart3 },
     { id: 'reports' as TabType, label: 'Reports', icon: Download },
     { id: 'settings' as TabType, label: 'Settings', icon: Settings },
@@ -279,6 +281,7 @@ function DistributorDashboardContent() {
         {activeTab === 'wallet' && <WalletTab user={user} />}
         {activeTab === 'network' && <NetworkTab retailers={retailers} user={user} onRefresh={fetchDashboardData} />}
         {activeTab === 'commission' && <CommissionTab commissionData={commissionData} stats={stats} />}
+        {activeTab === 'mdr-schemes' && <MDRSchemesTab user={user} retailers={retailers} onRefresh={fetchDashboardData} />}
         {activeTab === 'analytics' && <AnalyticsTab categoryData={categoryData} />}
         {activeTab === 'reports' && <ReportsTab user={user} />}
         {activeTab === 'settings' && <SettingsTab />}
@@ -2011,6 +2014,461 @@ function ReportsTab({ user }: { user: any }) {
           </button>
         </div>
       </div>
+    </div>
+  )
+}
+
+// MDR Schemes Tab
+function MDRSchemesTab({ user, retailers, onRefresh }: { user: any, retailers: any[], onRefresh: () => void }) {
+  const [schemes, setSchemes] = useState<any[]>([])
+  const [loading, setLoading] = useState(false)
+  const [showModal, setShowModal] = useState(false)
+  const [editingScheme, setEditingScheme] = useState<any>(null)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [selectedRetailer, setSelectedRetailer] = useState('')
+
+  const [formData, setFormData] = useState({
+    retailer_id: '',
+    mode: 'CARD' as 'CARD' | 'UPI',
+    card_type: null as 'CREDIT' | 'DEBIT' | 'PREPAID' | null,
+    brand_type: '',
+    retailer_mdr_t1: '',
+    retailer_mdr_t0: '',
+    distributor_mdr_t1: '',
+    distributor_mdr_t0: '',
+    status: 'active' as 'active' | 'inactive',
+  })
+
+  useEffect(() => {
+    fetchSchemes()
+  }, [user])
+
+  const fetchSchemes = async () => {
+    if (!user?.partner_id) return
+    setLoading(true)
+    try {
+      const { data, error } = await supabase
+        .from('retailer_schemes')
+        .select('*, retailers(name, partner_id)')
+        .eq('distributor_id', user.partner_id)
+        .order('created_at', { ascending: false })
+
+      if (error) throw error
+      setSchemes(data || [])
+    } catch (error) {
+      console.error('Error fetching schemes:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!user?.partner_id) return
+    setLoading(true)
+
+    try {
+      const retailer_mdr_t1 = parseFloat(formData.retailer_mdr_t1)
+      const retailer_mdr_t0 = parseFloat(formData.retailer_mdr_t0)
+      const distributor_mdr_t1 = parseFloat(formData.distributor_mdr_t1)
+      const distributor_mdr_t0 = parseFloat(formData.distributor_mdr_t0)
+
+      // Validate
+      if (retailer_mdr_t1 < distributor_mdr_t1) {
+        alert('Retailer MDR T+1 must be >= Distributor MDR T+1')
+        return
+      }
+      if (retailer_mdr_t0 < distributor_mdr_t0) {
+        alert('Retailer MDR T+0 must be >= Distributor MDR T+0')
+        return
+      }
+
+      const schemeData = {
+        distributor_id: user.partner_id,
+        retailer_id: formData.retailer_id,
+        mode: formData.mode,
+        card_type: formData.card_type || null,
+        brand_type: formData.brand_type || null,
+        retailer_mdr_t1,
+        retailer_mdr_t0,
+        distributor_mdr_t1,
+        distributor_mdr_t0,
+        status: formData.status,
+        effective_date: new Date().toISOString(),
+      }
+
+      if (editingScheme) {
+        const { error } = await supabase
+          .from('retailer_schemes')
+          .update(schemeData)
+          .eq('id', editingScheme.id)
+        if (error) throw error
+      } else {
+        const { error } = await supabase
+          .from('retailer_schemes')
+          .insert(schemeData)
+        if (error) throw error
+      }
+
+      setShowModal(false)
+      setEditingScheme(null)
+      resetForm()
+      fetchSchemes()
+      onRefresh()
+    } catch (error: any) {
+      console.error('Error saving scheme:', error)
+      alert(error.message || 'Failed to save scheme')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const resetForm = () => {
+    setFormData({
+      retailer_id: '',
+      mode: 'CARD',
+      card_type: null,
+      brand_type: '',
+      retailer_mdr_t1: '',
+      retailer_mdr_t0: '',
+      distributor_mdr_t1: '',
+      distributor_mdr_t0: '',
+      status: 'active',
+    })
+  }
+
+  const handleEdit = (scheme: any) => {
+    setEditingScheme(scheme)
+    setFormData({
+      retailer_id: scheme.retailer_id,
+      mode: scheme.mode,
+      card_type: scheme.card_type,
+      brand_type: scheme.brand_type || '',
+      retailer_mdr_t1: scheme.retailer_mdr_t1.toString(),
+      retailer_mdr_t0: scheme.retailer_mdr_t0.toString(),
+      distributor_mdr_t1: scheme.distributor_mdr_t1.toString(),
+      distributor_mdr_t0: scheme.distributor_mdr_t0.toString(),
+      status: scheme.status,
+    })
+    setShowModal(true)
+  }
+
+  const handleDelete = async (id: string) => {
+    if (!confirm('Are you sure you want to delete this scheme?')) return
+    try {
+      const { error } = await supabase
+        .from('retailer_schemes')
+        .delete()
+        .eq('id', id)
+      if (error) throw error
+      fetchSchemes()
+    } catch (error: any) {
+      alert(error.message || 'Failed to delete scheme')
+    }
+  }
+
+  const filteredSchemes = schemes.filter(scheme => {
+    const matchesSearch = 
+      scheme.mode?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      scheme.retailers?.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      scheme.brand_type?.toLowerCase().includes(searchQuery.toLowerCase())
+    const matchesRetailer = !selectedRetailer || scheme.retailer_id === selectedRetailer
+    return matchesSearch && matchesRetailer
+  })
+
+  return (
+    <div className="space-y-6">
+      <div className="bg-white rounded-xl shadow-lg border border-gray-200 p-6">
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h3 className="text-xl font-bold text-gray-900">Retailer MDR Schemes</h3>
+            <p className="text-sm text-gray-600">Create custom MDR schemes for your retailers</p>
+          </div>
+          <button
+            onClick={() => {
+              setEditingScheme(null)
+              resetForm()
+              setShowModal(true)
+            }}
+            className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-purple-500 to-purple-600 text-white rounded-lg hover:shadow-lg transition-all"
+          >
+            <Plus className="w-4 h-4" />
+            Create Scheme
+          </button>
+        </div>
+
+        {/* Filters */}
+        <div className="mb-4 flex gap-4">
+          <div className="flex-1 relative">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
+            <input
+              type="text"
+              placeholder="Search schemes..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg"
+            />
+          </div>
+          <select
+            value={selectedRetailer}
+            onChange={(e) => setSelectedRetailer(e.target.value)}
+            className="px-4 py-2 border border-gray-300 rounded-lg"
+          >
+            <option value="">All Retailers</option>
+            {retailers.map((r) => (
+              <option key={r.partner_id} value={r.partner_id}>{r.name}</option>
+            ))}
+          </select>
+          <button
+            onClick={fetchSchemes}
+            className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+          >
+            <RefreshCw className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Schemes Table */}
+        {loading ? (
+          <div className="text-center py-12">Loading...</div>
+        ) : filteredSchemes.length === 0 ? (
+          <div className="text-center py-12 text-gray-500">No schemes found. Create your first scheme!</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Retailer</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Mode</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Card Type</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">RT MDR T+1</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">RT MDR T+0</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">DT MDR T+1</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">DT MDR T+0</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-200">
+                {filteredSchemes.map((scheme) => (
+                  <tr key={scheme.id} className="hover:bg-gray-50">
+                    <td className="px-4 py-3 text-sm">{scheme.retailers?.name || scheme.retailer_id}</td>
+                    <td className="px-4 py-3 text-sm">
+                      <div className="flex items-center gap-2">
+                        {scheme.mode === 'CARD' ? (
+                          <CreditCard className="w-4 h-4 text-blue-500" />
+                        ) : (
+                          <Smartphone className="w-4 h-4 text-green-500" />
+                        )}
+                        {scheme.mode}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-sm">{scheme.card_type || '-'}</td>
+                    <td className="px-4 py-3 text-sm font-medium">{scheme.retailer_mdr_t1}%</td>
+                    <td className="px-4 py-3 text-sm font-medium text-green-600">{scheme.retailer_mdr_t0}%</td>
+                    <td className="px-4 py-3 text-sm font-medium">{scheme.distributor_mdr_t1}%</td>
+                    <td className="px-4 py-3 text-sm font-medium text-green-600">{scheme.distributor_mdr_t0}%</td>
+                    <td className="px-4 py-3">
+                      <span className={`px-2 py-1 text-xs rounded-full ${
+                        scheme.status === 'active'
+                          ? 'bg-green-100 text-green-800'
+                          : 'bg-gray-100 text-gray-800'
+                      }`}>
+                        {scheme.status}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex gap-2">
+                        <button onClick={() => handleEdit(scheme)} className="p-1 text-blue-600 hover:text-blue-800">
+                          <Edit className="w-4 h-4" />
+                        </button>
+                        <button onClick={() => handleDelete(scheme.id)} className="p-1 text-red-600 hover:text-red-800">
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* Create/Edit Modal */}
+      {showModal && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setShowModal(false)}>
+          <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-2xl font-bold">{editingScheme ? 'Edit Scheme' : 'Create Retailer Scheme'}</h2>
+                <button onClick={() => setShowModal(false)} className="p-2 hover:bg-gray-100 rounded-lg">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <form onSubmit={handleSubmit} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1">Retailer *</label>
+                  <select
+                    value={formData.retailer_id}
+                    onChange={(e) => setFormData({ ...formData, retailer_id: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                    required
+                  >
+                    <option value="">Select Retailer</option>
+                    {retailers.map((r) => (
+                      <option key={r.partner_id} value={r.partner_id}>{r.name} ({r.partner_id})</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Payment Mode *</label>
+                    <select
+                      value={formData.mode}
+                      onChange={(e) => setFormData({ ...formData, mode: e.target.value as 'CARD' | 'UPI' })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                      required
+                    >
+                      <option value="CARD">CARD</option>
+                      <option value="UPI">UPI</option>
+                    </select>
+                  </div>
+
+                  {formData.mode === 'CARD' && (
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Card Type</label>
+                      <select
+                        value={formData.card_type || ''}
+                        onChange={(e) => setFormData({ ...formData, card_type: e.target.value as any || null })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                      >
+                        <option value="">All Card Types</option>
+                        <option value="CREDIT">CREDIT</option>
+                        <option value="DEBIT">DEBIT</option>
+                        <option value="PREPAID">PREPAID</option>
+                      </select>
+                    </div>
+                  )}
+
+                  {formData.mode === 'CARD' && (
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Brand Type (Optional)</label>
+                      <input
+                        type="text"
+                        value={formData.brand_type}
+                        onChange={(e) => setFormData({ ...formData, brand_type: e.target.value })}
+                        placeholder="VISA, MasterCard, etc."
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                      />
+                    </div>
+                  )}
+                </div>
+
+                <div className="border-t pt-4">
+                  <h3 className="text-lg font-semibold mb-4">MDR Rates</h3>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Retailer MDR T+1 (%) *</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        max="100"
+                        value={formData.retailer_mdr_t1}
+                        onChange={(e) => setFormData({ ...formData, retailer_mdr_t1: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Retailer MDR T+0 (%) *</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        max="100"
+                        value={formData.retailer_mdr_t0}
+                        onChange={(e) => setFormData({ ...formData, retailer_mdr_t0: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Distributor MDR T+1 (%) *</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        max="100"
+                        value={formData.distributor_mdr_t1}
+                        onChange={(e) => setFormData({ ...formData, distributor_mdr_t1: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Distributor MDR T+0 (%) *</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        max="100"
+                        value={formData.distributor_mdr_t0}
+                        onChange={(e) => setFormData({ ...formData, distributor_mdr_t0: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                        required
+                      />
+                    </div>
+                  </div>
+                  {formData.retailer_mdr_t1 && formData.distributor_mdr_t1 && parseFloat(formData.retailer_mdr_t1) < parseFloat(formData.distributor_mdr_t1) && (
+                    <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded text-sm text-red-700">
+                      <AlertCircle className="w-4 h-4 inline mr-1" />
+                      Retailer MDR T+1 must be &gt;= Distributor MDR T+1
+                    </div>
+                  )}
+                  {formData.retailer_mdr_t0 && formData.distributor_mdr_t0 && parseFloat(formData.retailer_mdr_t0) < parseFloat(formData.distributor_mdr_t0) && (
+                    <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded text-sm text-red-700">
+                      <AlertCircle className="w-4 h-4 inline mr-1" />
+                      Retailer MDR T+0 must be &gt;= Distributor MDR T+0
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium mb-1">Status</label>
+                  <select
+                    value={formData.status}
+                    onChange={(e) => setFormData({ ...formData, status: e.target.value as 'active' | 'inactive' })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                  >
+                    <option value="active">Active</option>
+                    <option value="inactive">Inactive</option>
+                  </select>
+                </div>
+
+                <div className="flex justify-end gap-3 pt-4">
+                  <button
+                    type="button"
+                    onClick={() => setShowModal(false)}
+                    className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="px-4 py-2 bg-gradient-to-r from-purple-500 to-purple-600 text-white rounded-lg hover:shadow-lg disabled:opacity-50"
+                  >
+                    {loading ? 'Saving...' : editingScheme ? 'Update' : 'Create'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

@@ -176,10 +176,28 @@ export class BBPSClient {
       )
 
       // Handle non-OK responses or error messages in response
-      if (!response.ok || responseData?.error || responseData?.message?.includes('Invalid XML')) {
+      // CRITICAL: Also check for Sparkup's success:false responses (HTTP 200 but API error)
+      // Sparkup returns HTTP 200 with { success: false, message: "..." } for business errors
+      // like "No fetch data found for given ref id." etc.
+      const isHttpError = !response.ok
+      const hasErrorField = !!responseData?.error
+      const hasInvalidXML = responseData?.message?.includes('Invalid XML')
+      const isSparkupError = responseData?.success === false  // Sparkup returns success:false for business errors
+      
+      if (isHttpError || hasErrorField || hasInvalidXML || isSparkupError) {
+        // Extract error message from ALL possible Sparkup error structures:
+        // 1. { data: { errorInfo: { error: { errorMessage: "..." } } } } (fetchBill errors)
+        // 2. { data: { responseReason: "..." } } (payRequest errors)
+        // 3. { message: "..." } (top-level errors)
+        // 4. { error: "..." } (generic errors)
         const errorMessage = 
+          responseData?.data?.errorInfo?.error?.errorMessage ||
+          responseData?.data?.errorInfo?.errorMessage ||
+          responseData?.data?.responseReason ||
+          responseData?.data?.errorMessage ||
+          responseData?.data?.error_message ||
+          responseData?.message ||
           responseData?.error || 
-          responseData?.message || 
           responseData?.responseReason ||
           response.statusText ||
           (typeof responseData === 'string' ? responseData : 'Unknown error')

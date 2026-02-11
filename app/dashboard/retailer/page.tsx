@@ -10,9 +10,10 @@ import {
   TrendingUp, DollarSign, Users, Activity, 
   ShoppingCart, CreditCard, ArrowUpRight, Menu,
   RefreshCw, Settings, X, Check, AlertCircle, Eye, Receipt, Wallet, Download,
-  Send, Banknote, Lock, EyeOff, Shield, Key
+  Send, Banknote, Lock, EyeOff, Shield, Key, Percent, Smartphone, Globe, Info
 } from 'lucide-react'
 import TransactionsTable from '@/components/TransactionsTable'
+import BBPSTransactionsTable from '@/components/BBPSTransactionsTable'
 import BBPSPayment from '@/components/BBPSPayment'
 import PayoutTransfer from '@/components/PayoutTransfer'
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
@@ -32,7 +33,7 @@ const RetailerSidebar = lazy(() =>
 // Import framer-motion with a fallback component for SSR safety
 import { motion } from 'framer-motion'
 
-type TabType = 'dashboard' | 'wallet' | 'services' | 'bbps' | 'payout' | 'transactions' | 'reports' | 'settings'
+type TabType = 'dashboard' | 'wallet' | 'services' | 'bbps' | 'payout' | 'transactions' | 'mdr-schemes' | 'reports' | 'settings'
 
 function RetailerDashboardContent() {
   const { user, loading: authLoading } = useAuth()
@@ -42,7 +43,7 @@ function RetailerDashboardContent() {
   
   const getInitialTab = (): TabType => {
     const tab = searchParams.get('tab')
-    if (tab && ['dashboard', 'wallet', 'services', 'bbps', 'payout', 'transactions', 'reports', 'settings'].includes(tab)) {
+    if (tab && ['dashboard', 'wallet', 'services', 'bbps', 'payout', 'transactions', 'mdr-schemes', 'reports', 'settings'].includes(tab)) {
       return tab as TabType
     }
     return 'dashboard'
@@ -79,7 +80,7 @@ function RetailerDashboardContent() {
 
   useEffect(() => {
     const tab = searchParams.get('tab')
-    if (tab && ['dashboard', 'wallet', 'services', 'bbps', 'payout', 'transactions', 'reports', 'settings'].includes(tab)) {
+    if (tab && ['dashboard', 'wallet', 'services', 'bbps', 'payout', 'transactions', 'mdr-schemes', 'reports', 'settings'].includes(tab)) {
       if (tab !== activeTab) {
         setActiveTab(tab as TabType)
       }
@@ -358,6 +359,7 @@ function RetailerDashboardContent() {
                 { id: 'bbps' as TabType, label: 'BBPS Payments', icon: Receipt },
                 { id: 'payout' as TabType, label: 'Settlement', icon: Banknote },
                 { id: 'transactions' as TabType, label: 'Transactions', icon: CreditCard },
+                { id: 'mdr-schemes' as TabType, label: 'MDR Schemes', icon: Percent },
                 { id: 'reports' as TabType, label: 'Reports', icon: TrendingUp },
               ].map((tab) => (
                 <button
@@ -385,7 +387,8 @@ function RetailerDashboardContent() {
           {activeTab === 'services' && <ServicesTab />}
           {activeTab === 'bbps' && <BBPSTab />}
           {activeTab === 'payout' && <PayoutTransfer title="Settlement to Bank Account" />}
-          {activeTab === 'transactions' && <TransactionsTable role="retailer" autoPoll={true} pollInterval={10000} />}
+          {activeTab === 'transactions' && <CombinedTransactionsTab />}
+          {activeTab === 'mdr-schemes' && <MDRSchemesTab user={user} />}
           {activeTab === 'reports' && <ReportsTab chartData={chartData} stats={stats} />}
           {activeTab === 'settings' && <SettingsTab user={user} />}
         </div>
@@ -809,7 +812,44 @@ function ServicesTab() {
   )
 }
 
-// Transactions Tab Component
+// Combined Transactions Tab - Shows both POS and BBPS transactions
+function CombinedTransactionsTab() {
+  const [txSubTab, setTxSubTab] = useState<'bbps' | 'pos'>('bbps')
+  
+  return (
+    <div className="space-y-4">
+      {/* Sub-tab navigation */}
+      <div className="flex items-center gap-1 bg-gray-100 dark:bg-gray-800 rounded-lg p-1 w-fit">
+        <button
+          onClick={() => setTxSubTab('bbps')}
+          className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${
+            txSubTab === 'bbps'
+              ? 'bg-white dark:bg-gray-700 text-blue-600 dark:text-blue-400 shadow-sm'
+              : 'text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200'
+          }`}
+        >
+          BBPS Transactions
+        </button>
+        <button
+          onClick={() => setTxSubTab('pos')}
+          className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${
+            txSubTab === 'pos'
+              ? 'bg-white dark:bg-gray-700 text-blue-600 dark:text-blue-400 shadow-sm'
+              : 'text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200'
+          }`}
+        >
+          POS Transactions
+        </button>
+      </div>
+      
+      {/* Content */}
+      {txSubTab === 'bbps' && <BBPSTransactionsTable autoPoll={true} pollInterval={15000} />}
+      {txSubTab === 'pos' && <TransactionsTable role="retailer" autoPoll={true} pollInterval={10000} />}
+    </div>
+  )
+}
+
+// Transactions Tab Component (legacy)
 function TransactionsTab({ transactions }: { transactions: any[] }) {
   return (
     <motion.div
@@ -1371,6 +1411,323 @@ function StatCard({ label, value, icon: Icon, gradient, delay }: {
 }
 
 // Settings Tab Component with TPIN Management
+// MDR Schemes Tab Component
+function MDRSchemesTab({ user }: { user: any }) {
+  const [loading, setLoading] = useState(false)
+  const [customSchemes, setCustomSchemes] = useState<any[]>([])
+  const [globalSchemes, setGlobalSchemes] = useState<any[]>([])
+  const [applicableSchemes, setApplicableSchemes] = useState<any[]>([])
+
+  useEffect(() => {
+    if (user?.partner_id) {
+      fetchSchemes()
+    }
+  }, [user])
+
+  const fetchSchemes = async () => {
+    if (!user?.partner_id) {
+      console.warn('MDR Schemes: No partner_id found for user')
+      return
+    }
+    setLoading(true)
+    try {
+      // Fetch custom schemes for this retailer
+      const { data: customData, error: customError } = await supabase
+        .from('retailer_schemes')
+        .select('*')
+        .eq('retailer_id', user.partner_id)
+        .eq('status', 'active')
+        .order('created_at', { ascending: false })
+
+      if (customError) {
+        console.error('Error fetching custom schemes:', customError)
+        throw customError
+      }
+
+      // Fetch global schemes
+      const { data: globalData, error: globalError } = await supabase
+        .from('global_schemes')
+        .select('*')
+        .eq('status', 'active')
+        .order('created_at', { ascending: false })
+
+      if (globalError) {
+        console.error('Error fetching global schemes:', globalError)
+        throw globalError
+      }
+
+      setCustomSchemes(customData || [])
+      setGlobalSchemes(globalData || [])
+
+      // Build applicable schemes (custom first, then global fallback)
+      const applicable: any[] = []
+      const modes = ['CARD', 'UPI']
+      
+      modes.forEach(mode => {
+        if (mode === 'UPI') {
+          // For UPI, check custom first, then global
+          const customScheme = customData?.find(s => s.mode === mode && !s.card_type && !s.brand_type)
+          const globalScheme = globalData?.find(s => s.mode === mode && !s.card_type && !s.brand_type)
+          
+          if (customScheme) {
+            applicable.push({ ...customScheme, scheme_type: 'custom', source: 'Distributor Custom Scheme' })
+          } else if (globalScheme) {
+            applicable.push({ ...globalScheme, scheme_type: 'global', source: 'Global Default Scheme' })
+          }
+        } else {
+          // For CARD, check different combinations
+          const cardTypes = [null, 'CREDIT', 'DEBIT', 'PREPAID']
+          cardTypes.forEach(cardType => {
+            const customScheme = customData?.find(s => 
+              s.mode === mode && 
+              (s.card_type === cardType || (!s.card_type && !cardType))
+            )
+            const globalScheme = globalData?.find(s => 
+              s.mode === mode && 
+              (s.card_type === cardType || (!s.card_type && !cardType))
+            )
+            
+            if (customScheme) {
+              applicable.push({ 
+                ...customScheme, 
+                scheme_type: 'custom', 
+                source: 'Distributor Custom Scheme',
+                display_card_type: cardType || 'All Card Types'
+              })
+            } else if (globalScheme) {
+              applicable.push({ 
+                ...globalScheme, 
+                scheme_type: 'global', 
+                source: 'Global Default Scheme',
+                display_card_type: cardType || 'All Card Types'
+              })
+            }
+          })
+        }
+      })
+
+      // Remove duplicates
+      const uniqueApplicable = applicable.filter((scheme, index, self) =>
+        index === self.findIndex(s => 
+          s.mode === scheme.mode && 
+          s.card_type === scheme.card_type && 
+          s.brand_type === scheme.brand_type
+        )
+      )
+
+      setApplicableSchemes(uniqueApplicable)
+    } catch (error) {
+      console.error('Error fetching schemes:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Info Banner */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 border border-blue-200 dark:border-blue-800 rounded-xl p-4"
+      >
+        <div className="flex items-start gap-3">
+          <Info className="w-5 h-5 text-blue-600 dark:text-blue-400 mt-0.5 flex-shrink-0" />
+          <div className="flex-1">
+            <h3 className="font-semibold text-blue-900 dark:text-blue-200 mb-1">MDR Scheme Information</h3>
+            <p className="text-sm text-blue-800 dark:text-blue-300">
+              Your MDR rates are determined by custom schemes set by your distributor or global default schemes. 
+              Custom schemes take priority over global schemes. T+0 settlement has higher MDR rates than T+1.
+            </p>
+          </div>
+        </div>
+      </motion.div>
+
+      {/* Applicable Schemes */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.1 }}
+        className="bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 p-6"
+      >
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h3 className="text-xl font-bold text-gray-900 dark:text-white">Applicable MDR Schemes</h3>
+            <p className="text-sm text-gray-600 dark:text-gray-400">Schemes that will be used for your transactions</p>
+          </div>
+          <button
+            onClick={fetchSchemes}
+            className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+          >
+            <RefreshCw className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />
+          </button>
+        </div>
+
+        {loading ? (
+          <div className="text-center py-12">
+            <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-600 mx-auto mb-4"></div>
+            <p className="text-gray-600 dark:text-gray-400">Loading schemes...</p>
+          </div>
+        ) : applicableSchemes.length === 0 ? (
+          <div className="text-center py-12">
+            <AlertCircle className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+            <p className="text-gray-600 dark:text-gray-400">No applicable schemes found</p>
+            <p className="text-sm text-gray-500 dark:text-gray-500 mt-2">
+              Contact your distributor or admin to set up MDR schemes
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {applicableSchemes.map((scheme, index) => (
+              <motion.div
+                key={index}
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ delay: index * 0.1 }}
+                className={`border-2 rounded-xl p-5 ${
+                  scheme.scheme_type === 'custom'
+                    ? 'border-purple-300 dark:border-purple-700 bg-purple-50 dark:bg-purple-900/20'
+                    : 'border-blue-300 dark:border-blue-700 bg-blue-50 dark:bg-blue-900/20'
+                }`}
+              >
+                <div className="flex items-start justify-between mb-4">
+                  <div className="flex items-center gap-2">
+                    {scheme.mode === 'CARD' ? (
+                      <CreditCard className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+                    ) : (
+                      <Smartphone className="w-5 h-5 text-green-600 dark:text-green-400" />
+                    )}
+                    <div>
+                      <h4 className="font-semibold text-gray-900 dark:text-white">{scheme.mode}</h4>
+                      {scheme.mode === 'CARD' && (
+                        <p className="text-xs text-gray-600 dark:text-gray-400">
+                          {scheme.display_card_type || scheme.card_type || 'All Types'}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                  <span className={`px-2 py-1 text-xs rounded-full ${
+                    scheme.scheme_type === 'custom'
+                      ? 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200'
+                      : 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200'
+                  }`}>
+                    {scheme.scheme_type === 'custom' ? 'Custom' : 'Global'}
+                  </span>
+                </div>
+
+                <div className="space-y-3">
+                  <div className="bg-white dark:bg-gray-700 rounded-lg p-3">
+                    <p className="text-xs text-gray-600 dark:text-gray-400 mb-2">Source</p>
+                    <p className="text-sm font-medium text-gray-900 dark:text-white">{scheme.source}</p>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="bg-white dark:bg-gray-700 rounded-lg p-3">
+                      <p className="text-xs text-gray-600 dark:text-gray-400 mb-1">Retailer MDR T+1</p>
+                      <p className="text-lg font-bold text-gray-900 dark:text-white">
+                        {scheme.retailer_mdr_t1 || scheme.rt_mdr_t1}%
+                      </p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Next-day settlement</p>
+                    </div>
+                    <div className="bg-white dark:bg-gray-700 rounded-lg p-3 border-2 border-green-300 dark:border-green-700">
+                      <p className="text-xs text-gray-600 dark:text-gray-400 mb-1">Retailer MDR T+0</p>
+                      <p className="text-lg font-bold text-green-600 dark:text-green-400">
+                        {scheme.retailer_mdr_t0 || scheme.rt_mdr_t0}%
+                      </p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Instant settlement</p>
+                    </div>
+                  </div>
+
+                  <div className="bg-gray-100 dark:bg-gray-700 rounded-lg p-3">
+                    <p className="text-xs text-gray-600 dark:text-gray-400 mb-1">Distributor MDR</p>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-700 dark:text-gray-300">T+1: {scheme.distributor_mdr_t1 || scheme.dt_mdr_t1}%</span>
+                      <span className="text-gray-700 dark:text-gray-300">T+0: {scheme.distributor_mdr_t0 || scheme.dt_mdr_t0}%</span>
+                    </div>
+                  </div>
+                </div>
+              </motion.div>
+            ))}
+          </div>
+        )}
+      </motion.div>
+
+      {/* Custom Schemes Detail */}
+      {customSchemes.length > 0 && (
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.2 }}
+          className="bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 p-6"
+        >
+          <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4">Custom Schemes (From Distributor)</h3>
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-gray-50 dark:bg-gray-700">
+                <tr>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Mode</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Card Type</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Brand</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">RT MDR T+1</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">RT MDR T+0</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Effective Date</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                {customSchemes.map((scheme) => (
+                  <tr key={scheme.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
+                    <td className="px-4 py-3 text-sm">{scheme.mode}</td>
+                    <td className="px-4 py-3 text-sm">{scheme.card_type || '-'}</td>
+                    <td className="px-4 py-3 text-sm">{scheme.brand_type || '-'}</td>
+                    <td className="px-4 py-3 text-sm font-medium">{scheme.retailer_mdr_t1}%</td>
+                    <td className="px-4 py-3 text-sm font-medium text-green-600 dark:text-green-400">{scheme.retailer_mdr_t0}%</td>
+                    <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">
+                      {new Date(scheme.effective_date).toLocaleDateString()}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </motion.div>
+      )}
+
+      {/* Settlement Type Info */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.3 }}
+        className="bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20 border border-green-200 dark:border-green-800 rounded-xl p-6"
+      >
+        <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+          <Info className="w-5 h-5 text-green-600 dark:text-green-400" />
+          Settlement Types Explained
+        </h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="bg-white dark:bg-gray-800 rounded-lg p-4 border border-green-200 dark:border-green-700">
+            <h4 className="font-semibold text-gray-900 dark:text-white mb-2">T+1 Settlement (Next-Day)</h4>
+            <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
+              Your wallet is credited the next business day after the transaction.
+            </p>
+            <p className="text-xs text-gray-500 dark:text-gray-500">
+              Lower MDR rate • Standard processing
+            </p>
+          </div>
+          <div className="bg-white dark:bg-gray-800 rounded-lg p-4 border-2 border-green-300 dark:border-green-600">
+            <h4 className="font-semibold text-gray-900 dark:text-white mb-2">T+0 Settlement (Instant)</h4>
+            <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
+              Your wallet is credited immediately after the transaction is captured.
+            </p>
+            <p className="text-xs text-gray-500 dark:text-gray-500">
+              Higher MDR rate • Instant processing
+            </p>
+          </div>
+        </div>
+      </motion.div>
+    </div>
+  )
+}
+
 function SettingsTab({ user }: { user: any }) {
   const [tpinStatus, setTpinStatus] = useState<{
     tpin_enabled: boolean

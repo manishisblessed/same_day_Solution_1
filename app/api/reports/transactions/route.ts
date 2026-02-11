@@ -68,7 +68,7 @@ export async function GET(request: NextRequest) {
         results = results.concat(bbpsData.map(tx => ({
           ...tx,
           service_type: 'bbps',
-          transaction_id: tx.id
+          bbps_transaction_id: tx.transaction_id, // Preserve Sparkup transaction ID
         })))
         total += bbpsCount || 0
       }

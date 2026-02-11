@@ -1,0 +1,9 @@
+{
+  "crons": [
+    {
+      "path": "/api/settlement/run-t1",
+      "schedule": "0 2 * * *"
+    }
+  ]
+}
+

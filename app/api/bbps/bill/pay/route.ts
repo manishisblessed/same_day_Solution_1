@@ -255,33 +255,61 @@ export async function POST(request: NextRequest) {
     // ========================================
     // Retailer pays: Bill Amount + Transaction Charges
     // The charge stays with us as profit
+    // Using add_ledger_entry which is proven to work correctly:
+    //   - Locks wallet row with FOR UPDATE (prevents race conditions)
+    //   - Updates wallets table balance
+    //   - Inserts proper ledger entry with opening/closing balance
+    let debitLedgerId: string | null = null
     try {
-      const { data: debitId, error: debitError } = await (supabase as any).rpc('debit_wallet_bbps', {
-        p_retailer_id: user.partner_id,
-        p_transaction_id: bbpsTransaction.id,
-        p_amount: totalAmountNeeded, // Wallet uses rupees - includes bill amount + charge
-        p_description: `BBPS Payment - ${biller_name || biller_id} - Consumer: ${consumer_number} (Charge: ₹${bbpsCharge})`,
+      console.log(`[BBPS Pay] 💰 Debiting retailer wallet: ₹${totalAmountNeeded} (Bill: ₹${billAmountInRupees} + Charge: ₹${bbpsCharge})`)
+      console.log(`[BBPS Pay] Retailer: ${user.partner_id}, Wallet balance before: ₹${walletBalance}`)
+      
+      const { data: ledgerId, error: debitError } = await supabase.rpc('add_ledger_entry', {
+        p_user_id: user.partner_id,
+        p_user_role: 'retailer',
+        p_wallet_type: 'primary',
+        p_fund_category: 'bbps',
+        p_service_type: 'bbps',
+        p_tx_type: 'BBPS_DEBIT',
+        p_credit: 0,
+        p_debit: totalAmountNeeded,
         p_reference_id: agentTransactionId,
+        p_transaction_id: bbpsTransaction.id,
+        p_status: 'completed',
+        p_remarks: `BBPS Payment - ${biller_name || biller_id} - Consumer: ${consumer_number} (Bill: ₹${billAmountInRupees}, Charge: ₹${bbpsCharge})`,
       })
 
       if (debitError) {
-        console.error('Error debiting wallet:', debitError)
+        console.error('[BBPS Pay] ❌ Error debiting wallet via add_ledger_entry:', debitError)
         // Update transaction status to failed
         await supabase
           .from('bbps_transactions')
           .update({ 
             status: 'failed',
-            error_message: 'Failed to debit wallet',
+            error_message: 'Failed to debit wallet: ' + debitError.message,
           })
           .eq('id', bbpsTransaction.id)
 
-        return NextResponse.json(
+        const response = NextResponse.json(
           { error: 'Failed to debit wallet: ' + debitError.message },
           { status: 500 }
         )
+        return addCorsHeaders(request, response)
       }
+      
+      debitLedgerId = ledgerId
+      console.log(`[BBPS Pay] ✅ Wallet debited successfully. Ledger ID: ${ledgerId}, New balance: ₹${walletBalance - totalAmountNeeded}`)
+      
+      // Update bbps_transactions to mark wallet as debited
+      await supabase
+        .from('bbps_transactions')
+        .update({ 
+          wallet_debited: true,
+          wallet_debit_id: ledgerId,
+        })
+        .eq('id', bbpsTransaction.id)
     } catch (debitError: any) {
-      console.error('Error debiting wallet:', debitError)
+      console.error('[BBPS Pay] ❌ Exception debiting wallet:', debitError)
       // Update transaction status to failed
       await supabase
         .from('bbps_transactions')
@@ -291,10 +319,11 @@ export async function POST(request: NextRequest) {
         })
         .eq('id', bbpsTransaction.id)
 
-      return NextResponse.json(
+      const response = NextResponse.json(
         { error: debitError.message || 'Failed to debit wallet' },
         { status: 500 }
       )
+      return addCorsHeaders(request, response)
     }
 
     // ========================================
@@ -383,79 +412,88 @@ export async function POST(request: NextRequest) {
     
     // ========================================
     // CRITICAL: Extract billerResponse and additionalInfo from fetchBill response
-    // These MUST be passed EXACTLY as returned by fetchBill - NO reconstruction/modification!
-    // SparkUp validates these values match what was stored during fetchBill.
-    // Modifying even a single value causes "additionalInfo value mismatch" error.
+    // These MUST match the EXACT format from the working Postman request:
+    //   billerResponse: { billAmount, billDate, customerName, dueDate } — ONLY these 4 fields
+    //   additionalInfo: [ { infoName, infoValue }, ... ] — FLAT array, NOT { info: [...] }
     // ========================================
     
-    // PASS billerResponse DIRECTLY from fetchBill - do NOT reconstruct!
+    // Extract billerResponse — ONLY include the 4 fields from working Postman format
     let billerResponse: any = undefined
     if (additional_info?.billerResponse) {
-      // Use the EXACT billerResponse object from fetchBill without modification
-      billerResponse = additional_info.billerResponse
-      console.log('[BBPS Pay] ✅ Using ORIGINAL billerResponse from fetchBill:', JSON.stringify(billerResponse, null, 2))
+      // Clean billerResponse to ONLY include required fields
+      // Extra fields (billNumber, billPeriod, amountOptions, etc.) can cause Sparkup to reject
+      const raw = additional_info.billerResponse
+      billerResponse = {}
+      if (raw.billAmount !== undefined && raw.billAmount !== null && raw.billAmount !== '') {
+        billerResponse.billAmount = String(raw.billAmount)
+      }
+      if (raw.billDate) billerResponse.billDate = raw.billDate
+      if (raw.customerName) billerResponse.customerName = raw.customerName
+      if (raw.dueDate) billerResponse.dueDate = raw.dueDate
+      
+      console.log('[BBPS Pay] ✅ Cleaned billerResponse (only 4 fields):', JSON.stringify(billerResponse, null, 2))
     } else if (bill_date || due_date || consumer_name) {
-      // Fallback: construct from available data (only if fetchBill didn't provide billerResponse)
-      const billAmountInPaiseStr = String(Math.round(billAmountInRupees * 100)) // Use Math.round to avoid floating point
+      // Fallback: construct from request body fields
+      const billAmountInPaiseStr = String(Math.round(billAmountInRupees * 100))
       billerResponse = {
         billAmount: billAmountInPaiseStr,
-        billDate: bill_date || undefined,
-        customerName: consumer_name || undefined,
-        dueDate: due_date || undefined,
       }
-      console.log('[BBPS Pay] ⚠️ billerResponse not in fetchBill data, constructed fallback:', JSON.stringify(billerResponse, null, 2))
-    } else {
-      console.log('[BBPS Pay] ❌ No billerResponse available')
+      if (bill_date) billerResponse.billDate = bill_date
+      if (consumer_name) billerResponse.customerName = consumer_name
+      if (due_date) billerResponse.dueDate = due_date
+      console.log('[BBPS Pay] ⚠️ billerResponse fallback:', JSON.stringify(billerResponse, null, 2))
     }
     
-    // EXTRACT additionalInfo array from fetchBill - MUST match exactly!
-    // fetchBill returns: additionalInfo: { info: [...] }
-    // payRequest expects: additionalInfo: [...]  (flat array, without the { info } wrapper)
+    // Extract additionalInfo as FLAT array — handle both formats:
+    //   Format 1 (from fetchBill raw): { info: [ {infoName, infoValue}, ... ] }
+    //   Format 2 (already flat): [ {infoName, infoValue}, ... ]
     let additionalInfoArray: Array<{ infoName: string; infoValue: string }> | undefined
     
-    if (additional_info?.additionalInfo) {
-      if (Array.isArray(additional_info.additionalInfo)) {
-        // Already a flat array - use directly
-        additionalInfoArray = additional_info.additionalInfo
-        console.log('[BBPS Pay] ✅ additionalInfo is flat array, using directly')
-      } else if (additional_info.additionalInfo.info && Array.isArray(additional_info.additionalInfo.info)) {
-        // Format from fetchBill: { info: [...] } - extract the inner array
-        additionalInfoArray = additional_info.additionalInfo.info
-        console.log('[BBPS Pay] ✅ additionalInfo extracted from { info: [...] } format')
-      } else {
-        console.log('[BBPS Pay] ⚠️ additionalInfo exists but not in expected format:', typeof additional_info.additionalInfo, JSON.stringify(additional_info.additionalInfo))
-      }
-    } else {
-      console.log('[BBPS Pay] ⚠️ No additionalInfo in additional_info object')
-      // Check alternative locations
-      if (additional_info?.data?.additionalInfo) {
-        if (Array.isArray(additional_info.data.additionalInfo)) {
-          additionalInfoArray = additional_info.data.additionalInfo
-        } else if (additional_info.data.additionalInfo.info && Array.isArray(additional_info.data.additionalInfo.info)) {
-          additionalInfoArray = additional_info.data.additionalInfo.info
-        }
-        console.log('[BBPS Pay] Found additionalInfo in alternative location (additional_info.data)')
+    const rawAdditionalInfo = additional_info?.additionalInfo
+    if (rawAdditionalInfo) {
+      if (Array.isArray(rawAdditionalInfo)) {
+        // Already flat array
+        additionalInfoArray = rawAdditionalInfo
+          .filter((item: any) => item && item.infoName)
+          .map((item: any) => ({ infoName: String(item.infoName), infoValue: String(item.infoValue || '') }))
+        console.log('[BBPS Pay] ✅ additionalInfo is flat array:', additionalInfoArray.length, 'items')
+      } else if (rawAdditionalInfo.info && Array.isArray(rawAdditionalInfo.info)) {
+        // Wrapped in { info: [...] } — extract inner array
+        additionalInfoArray = rawAdditionalInfo.info
+          .filter((item: any) => item && item.infoName)
+          .map((item: any) => ({ infoName: String(item.infoName), infoValue: String(item.infoValue || '') }))
+        console.log('[BBPS Pay] ✅ additionalInfo extracted from {info:[...]}:', additionalInfoArray?.length ?? 0, 'items')
       }
     }
     
-    // Log EXACT values being sent - critical for debugging "additionalInfo value mismatch"
-    console.log('=== BBPS Pay Request - EXACT VALUES FOR SPARKUP ===')
-    console.log('reqId (from fetchBill):', reqId || additional_info?.reqId || 'NOT PROVIDED!')
-    console.log('inputParams:', JSON.stringify(inputParams, null, 2))
-    console.log('billerResponse (EXACT from fetchBill):', JSON.stringify(billerResponse, null, 2))
-    console.log('additionalInfo (EXACT from fetchBill):', JSON.stringify(additionalInfoArray, null, 2))
-    console.log('billerAdhoc:', billerAdhocString)
+    // Also check nested locations
+    if (!additionalInfoArray) {
+      const nested = additional_info?.data?.additionalInfo
+      if (nested) {
+        const source = Array.isArray(nested) ? nested : (nested.info && Array.isArray(nested.info) ? nested.info : null)
+        if (source) {
+          additionalInfoArray = source
+            .filter((item: any) => item && item.infoName)
+            .map((item: any) => ({ infoName: String(item.infoName), infoValue: String(item.infoValue || '') }))
+          console.log('[BBPS Pay] ✅ additionalInfo from nested data:', additionalInfoArray?.length ?? 0, 'items')
+        }
+      }
+    }
+    
+    // Log values being sent to Sparkup
+    console.log('=== BBPS Pay Request — Values for Sparkup ===')
+    console.log('reqId:', reqId || additional_info?.reqId || 'NOT PROVIDED!')
+    console.log('billerId:', biller_id)
+    console.log('billerName:', biller_name)
+    console.log('amount (₹):', billAmountInRupees)
     console.log('subServiceName:', subServiceName)
-    if (!reqId && !additional_info?.reqId) {
-      console.warn('⚠️ WARNING: reqId is missing!')
-    }
-    if (!billerResponse) {
-      console.warn('⚠️ WARNING: billerResponse is missing! This may cause payment errors.')
-    }
-    if (!additionalInfoArray || additionalInfoArray.length === 0) {
-      console.warn('⚠️ WARNING: additionalInfo is missing or empty! This may cause "additionalInfo value mismatch" error.')
-    }
-    console.log('===================================================')
+    console.log('inputParams:', JSON.stringify(inputParams, null, 2))
+    console.log('billerResponse:', JSON.stringify(billerResponse, null, 2))
+    console.log('additionalInfo:', JSON.stringify(additionalInfoArray, null, 2))
+    if (!reqId && !additional_info?.reqId) console.warn('⚠️ reqId is missing!')
+    if (!billerResponse) console.warn('⚠️ billerResponse is missing!')
+    if (!additionalInfoArray || additionalInfoArray.length === 0) console.warn('⚠️ additionalInfo is missing or empty!')
+    console.log('==============================================')
 
     // Make payment to BBPS API using new service
     // IMPORTANT: Sparkup Pay Request API expects amount in RUPEES (not paise)
@@ -492,7 +530,7 @@ export async function POST(request: NextRequest) {
     
     const paymentResponse = await payRequest({
       billerId: biller_id,
-      billerName: biller_name, // NEW: Required per Sparkup API update (Jan 2026)
+      billerName: biller_name,
       consumerNumber: consumer_number,
       amount: billAmountInRupees, // Send in RUPEES to Sparkup API (not paise!)
       agentTransactionId: agentTransactionId,
@@ -503,13 +541,11 @@ export async function POST(request: NextRequest) {
       paymentInfo, // Will be overridden by payRequest based on paymentMode
       paymentMode: effectivePaymentMode, // "Cash", "Account", "Wallet", "UPI"
       quickPay: 'N', // "N" for non-quick pay (bill fetch was done) - as per tested API
-      customerMobileNumber, // NEW: For Wallet payment mode (Jan 2026 update)
+      customerMobileNumber,
       // CRITICAL: Pass the reqId from fetchBill to correlate payment with BBPS provider
-      // This reqId links the payment to the previously fetched bill data
       reqId: reqId || additional_info?.reqId,
-      // Bill number from fetchBill response - required by Sparkup
-      billNumber: bill_number || additional_info?.billerResponse?.billNumber || additional_info?.billNumber,
-      // Include billerResponse and additionalInfo from fetchBill response (as per tested API)
+      // NOTE: billNumber is NOT included — not in working Postman format
+      // Include CLEANED billerResponse and additionalInfo (matching Postman format exactly)
       billerResponse,
       additionalInfo: additionalInfoArray,
     })
@@ -533,15 +569,29 @@ export async function POST(request: NextRequest) {
       // Wallet uses rupees, so use totalAmountNeeded (includes charge)
       if (paymentResponse.success === false) {
         try {
-          await (supabase as any).rpc('refund_wallet_bbps', {
-            p_retailer_id: user.partner_id,
-            p_transaction_id: bbpsTransaction.id,
-            p_amount: totalAmountNeeded, // FIX: Refund full amount including charge
-            p_description: `BBPS Payment Refund - ${paymentResponse.error_message || 'Payment failed'} (Bill: ₹${billAmountInRupees}, Charge: ₹${bbpsCharge})`,
+          console.log(`[BBPS Pay] 🔄 Refunding retailer wallet: ₹${totalAmountNeeded} (payment failed)`)
+          const { data: refundLedgerId, error: refundError } = await supabase.rpc('add_ledger_entry', {
+            p_user_id: user.partner_id,
+            p_user_role: 'retailer',
+            p_wallet_type: 'primary',
+            p_fund_category: 'bbps',
+            p_service_type: 'bbps',
+            p_tx_type: 'BBPS_REFUND',
+            p_credit: totalAmountNeeded,
+            p_debit: 0,
             p_reference_id: `REFUND_${agentTransactionId}`,
+            p_transaction_id: bbpsTransaction.id,
+            p_status: 'completed',
+            p_remarks: `BBPS Payment Refund - ${paymentResponse.error_message || 'Payment failed'} (Bill: ₹${billAmountInRupees}, Charge: ₹${bbpsCharge})`,
           })
+          if (refundError) {
+            console.error('[BBPS Pay] ❌ Error refunding wallet:', refundError)
+            updateData.error_message = (updateData.error_message || '') + ' [REFUND_FAILED: Manual review required]'
+          } else {
+            console.log(`[BBPS Pay] ✅ Wallet refunded. Ledger ID: ${refundLedgerId}`)
+          }
         } catch (refundError) {
-          console.error('Error refunding wallet:', refundError)
+          console.error('[BBPS Pay] ❌ Exception refunding wallet:', refundError)
           // Log error but don't fail the response - flag for admin review
           updateData.error_message = (updateData.error_message || '') + ' [REFUND_FAILED: Manual review required]'
         }
@@ -553,6 +603,23 @@ export async function POST(request: NextRequest) {
       .update(updateData)
       .eq('id', bbpsTransaction.id)
 
+    // Get updated wallet balance after transaction
+    let newWalletBalance = walletBalance
+    try {
+      const { data: updatedBalance } = await supabase.rpc('get_wallet_balance_v2', {
+        p_user_id: user.partner_id,
+        p_wallet_type: 'primary'
+      })
+      newWalletBalance = updatedBalance || walletBalance
+    } catch (e) {
+      // Fallback to calculated balance
+      newWalletBalance = paymentResponse.success 
+        ? walletBalance - totalAmountNeeded 
+        : walletBalance
+    }
+    
+    console.log(`[BBPS Pay] Final wallet balance: ₹${newWalletBalance}`)
+
     const response = NextResponse.json({
       success: paymentResponse.success,
       transaction_id: bbpsTransaction.id,
@@ -562,7 +629,7 @@ export async function POST(request: NextRequest) {
       payment_status: updateData.payment_status,
       error_code: paymentResponse.error_code,
       error_message: paymentResponse.error_message,
-      wallet_balance: walletBalance - billAmountInRupees, // Wallet uses rupees
+      wallet_balance: newWalletBalance,
     })
     
     return addCorsHeaders(request, response)
