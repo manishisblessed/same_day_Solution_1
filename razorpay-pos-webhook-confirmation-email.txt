@@ -1,0 +1,33 @@
+Subject: Confirmation - POS Webhook Working Successfully in Production - Ticket #17942295
+
+Dear Priya,
+
+Thank you for configuring the POS webhook URL in our production environment.
+
+CONFIRMATION:
+We have successfully tested the production webhook and can confirm that POS transactions are being received and processed correctly.
+
+WEBHOOK DETAILS:
+- Production Webhook URL: https://api.samedaysolution.in/api/razorpay/notification
+- Production Org Code: REMRIZ3QQ3Y6FG_ASHVAM_LEA
+- Status: ✅ Active and Processing Transactions
+
+TEST RESULTS:
+- Multiple POS transactions have been successfully received
+- Transactions are being stored in our database
+- All transactions are visible in our admin panel
+- Webhook endpoint is responding correctly
+
+CURRENT STATUS:
+The POS payment system is now fully operational in production. We are processing live transactions and everything is working as expected.
+
+We appreciate your team's prompt support and assistance throughout this process.
+
+Thank you once again for your excellent support.
+
+Best regards,
+Manish Kumar Shah
+Team Sameday
+
+Ticket Reference: #17942295
+

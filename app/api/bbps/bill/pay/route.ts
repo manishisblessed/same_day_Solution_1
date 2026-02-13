@@ -194,12 +194,49 @@ export async function POST(request: NextRequest) {
     const walletBalance = balanceData || 0
     // billAmountInRupees already calculated above
     
-    // Calculate BBPS charge based on amount slabs
-    const { data: chargeData, error: chargeError } = await (supabase as any).rpc('calculate_transaction_charge', {
-      p_amount: billAmountInRupees,
-      p_transaction_type: 'bbps'
-    })
-    const bbpsCharge = chargeData || 20 // Default to ₹20 if calculation fails
+    // Calculate BBPS charge via Scheme Engine (fallback to legacy RPC)
+    let bbpsCharge = 20 // Default
+    let resolvedSchemeId: string | null = null
+    let resolvedSchemeName: string | null = null
+    
+    try {
+      // Try scheme-based charge calculation first
+      const { data: schemeResult } = await (supabase as any).rpc('resolve_scheme_for_user', {
+        p_user_id: user.partner_id,
+        p_user_role: 'retailer',
+        p_service_type: 'bbps',
+        p_distributor_id: null,
+        p_md_id: null,
+      })
+      
+      if (schemeResult && schemeResult.length > 0) {
+        const resolved = schemeResult[0]
+        resolvedSchemeId = resolved.scheme_id
+        resolvedSchemeName = resolved.scheme_name
+        
+        const { data: chargeResult } = await (supabase as any).rpc('calculate_bbps_charge_from_scheme', {
+          p_scheme_id: resolved.scheme_id,
+          p_amount: billAmountInRupees,
+          p_category: additional_info?.category || null,
+        })
+        
+        if (chargeResult && chargeResult.length > 0) {
+          bbpsCharge = parseFloat(chargeResult[0].retailer_charge) || 20
+          console.log(`[BBPS Pay] Scheme "${resolved.scheme_name}" resolved via ${resolved.resolved_via}, charge: ₹${bbpsCharge}`)
+        }
+      }
+    } catch (schemeErr) {
+      console.warn('[BBPS Pay] Scheme resolution failed, using legacy charge:', schemeErr)
+    }
+    
+    // Fallback to legacy RPC if no scheme resolved
+    if (!resolvedSchemeId) {
+      const { data: chargeData } = await (supabase as any).rpc('calculate_transaction_charge', {
+        p_amount: billAmountInRupees,
+        p_transaction_type: 'bbps'
+      })
+      bbpsCharge = chargeData || 20
+    }
     
     // Total amount needed (bill + charge)
     const totalAmountNeeded = billAmountInRupees + bbpsCharge
@@ -238,6 +275,8 @@ export async function POST(request: NextRequest) {
         bill_date: bill_date || null,
         bill_number: bill_number || null,
         additional_info: additional_info || {},
+        // Scheme linkage
+        ...(resolvedSchemeId ? { scheme_id: resolvedSchemeId, scheme_name: resolvedSchemeName, retailer_charge: bbpsCharge } : {}),
       })
       .select()
       .single()

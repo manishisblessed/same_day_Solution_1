@@ -213,9 +213,46 @@ export async function POST(request: NextRequest) {
       return addCorsHeaders(request, response)
     }
 
-    // Calculate charges
-    const chargesConfig = getPayoutCharges()
-    const charges = transferMode === 'IMPS' ? chargesConfig.imps : chargesConfig.neft
+    // Calculate charges via Scheme Engine (fallback to env config)
+    let charges = 0
+    let resolvedSchemeId: string | null = null
+    let resolvedSchemeName: string | null = null
+    
+    try {
+      const { data: schemeResult } = await (supabaseAdmin as any).rpc('resolve_scheme_for_user', {
+        p_user_id: user.partner_id,
+        p_user_role: 'retailer',
+        p_service_type: 'payout',
+        p_distributor_id: null,
+        p_md_id: null,
+      })
+      
+      if (schemeResult && schemeResult.length > 0) {
+        const resolved = schemeResult[0]
+        resolvedSchemeId = resolved.scheme_id
+        resolvedSchemeName = resolved.scheme_name
+        
+        const { data: chargeResult } = await (supabaseAdmin as any).rpc('calculate_payout_charge_from_scheme', {
+          p_scheme_id: resolved.scheme_id,
+          p_amount: amountNum,
+          p_transfer_mode: transferMode,
+        })
+        
+        if (chargeResult && chargeResult.length > 0) {
+          charges = parseFloat(chargeResult[0].retailer_charge) || 0
+          console.log(`[Payout] Scheme "${resolved.scheme_name}" resolved via ${resolved.resolved_via}, charge: ₹${charges}`)
+        }
+      }
+    } catch (schemeErr) {
+      console.warn('[Payout] Scheme resolution failed, using env config:', schemeErr)
+    }
+    
+    // Fallback to env-based charges if no scheme resolved
+    if (!resolvedSchemeId) {
+      const chargesConfig = getPayoutCharges()
+      charges = transferMode === 'IMPS' ? chargesConfig.imps : chargesConfig.neft
+    }
+    
     const totalAmount = amountNum + charges
 
     // Check retailer's wallet balance
@@ -325,6 +362,8 @@ export async function POST(request: NextRequest) {
         status: 'pending',
         remarks: remarks || null,
         wallet_debited: false,
+        // Scheme linkage
+        ...(resolvedSchemeId ? { scheme_id: resolvedSchemeId, scheme_name: resolvedSchemeName, retailer_charge: charges } : {}),
       })
       .select()
       .single()
