@@ -234,7 +234,9 @@ export async function POST(request: NextRequest) {
     let resolvedSchemeName: string | null = null
     
     try {
-      const { data: schemeResult } = await (supabaseAdmin as any).rpc('resolve_scheme_for_user', {
+      console.log(`[Payout] Resolving scheme: user=${user.partner_id}, dist=${distributorId}, md=${mdId}, amount=${amountNum}, mode=${transferMode}`)
+      
+      const { data: schemeResult, error: schemeError } = await (supabaseAdmin as any).rpc('resolve_scheme_for_user', {
         p_user_id: user.partner_id,
         p_user_role: 'retailer',
         p_service_type: 'payout',
@@ -242,24 +244,33 @@ export async function POST(request: NextRequest) {
         p_md_id: mdId,
       })
       
-      if (schemeResult && schemeResult.length > 0) {
+      if (schemeError) {
+        console.error('[Payout] Scheme RPC error:', schemeError)
+      } else if (schemeResult && schemeResult.length > 0) {
         const resolved = schemeResult[0]
         resolvedSchemeId = resolved.scheme_id
         resolvedSchemeName = resolved.scheme_name
+        console.log(`[Payout] Scheme resolved: "${resolved.scheme_name}" via ${resolved.resolved_via}`)
         
-        const { data: chargeResult } = await (supabaseAdmin as any).rpc('calculate_payout_charge_from_scheme', {
+        const { data: chargeResult, error: chargeError } = await (supabaseAdmin as any).rpc('calculate_payout_charge_from_scheme', {
           p_scheme_id: resolved.scheme_id,
           p_amount: amountNum,
           p_transfer_mode: transferMode,
         })
         
-        if (chargeResult && chargeResult.length > 0) {
+        if (chargeError) {
+          console.error('[Payout] Charge calculation RPC error:', chargeError)
+        } else if (chargeResult && chargeResult.length > 0) {
           charges = parseFloat(chargeResult[0].retailer_charge) || 0
-          console.log(`[Payout] Scheme "${resolved.scheme_name}" resolved via ${resolved.resolved_via}, charge: ₹${charges}`)
+          console.log(`[Payout] Scheme charge: ₹${charges}`)
+        } else {
+          console.warn(`[Payout] No charge slab found for scheme ${resolved.scheme_id}, amount=${amountNum}, mode=${transferMode}`)
         }
+      } else {
+        console.warn(`[Payout] No scheme found for user=${user.partner_id}`)
       }
     } catch (schemeErr) {
-      console.warn('[Payout] Scheme resolution failed, using env config:', schemeErr)
+      console.error('[Payout] Scheme resolution failed, using env config:', schemeErr)
     }
     
     // Fallback to env-based charges if no scheme resolved

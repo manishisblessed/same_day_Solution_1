@@ -216,7 +216,9 @@ export async function POST(request: NextRequest) {
     
     try {
       // Try scheme-based charge calculation first
-      const { data: schemeResult } = await (supabase as any).rpc('resolve_scheme_for_user', {
+      console.log(`[BBPS Pay] Resolving scheme: user=${user.partner_id}, dist=${distributorId}, md=${mdId}, amount=${billAmountInRupees}, category=${additional_info?.category}`)
+      
+      const { data: schemeResult, error: schemeError } = await (supabase as any).rpc('resolve_scheme_for_user', {
         p_user_id: user.partner_id,
         p_user_role: 'retailer',
         p_service_type: 'bbps',
@@ -224,24 +226,33 @@ export async function POST(request: NextRequest) {
         p_md_id: mdId,
       })
       
-      if (schemeResult && schemeResult.length > 0) {
+      if (schemeError) {
+        console.error('[BBPS Pay] Scheme RPC error:', schemeError)
+      } else if (schemeResult && schemeResult.length > 0) {
         const resolved = schemeResult[0]
         resolvedSchemeId = resolved.scheme_id
         resolvedSchemeName = resolved.scheme_name
+        console.log(`[BBPS Pay] Scheme resolved: "${resolved.scheme_name}" via ${resolved.resolved_via}`)
         
-        const { data: chargeResult } = await (supabase as any).rpc('calculate_bbps_charge_from_scheme', {
+        const { data: chargeResult, error: chargeError } = await (supabase as any).rpc('calculate_bbps_charge_from_scheme', {
           p_scheme_id: resolved.scheme_id,
           p_amount: billAmountInRupees,
           p_category: additional_info?.category || null,
         })
         
-        if (chargeResult && chargeResult.length > 0) {
+        if (chargeError) {
+          console.error('[BBPS Pay] Charge calculation RPC error:', chargeError)
+        } else if (chargeResult && chargeResult.length > 0) {
           bbpsCharge = parseFloat(chargeResult[0].retailer_charge) || 20
-          console.log(`[BBPS Pay] Scheme "${resolved.scheme_name}" resolved via ${resolved.resolved_via}, charge: ₹${bbpsCharge}`)
+          console.log(`[BBPS Pay] Scheme charge: ₹${bbpsCharge}`)
+        } else {
+          console.warn(`[BBPS Pay] No charge slab found for scheme ${resolved.scheme_id}, amount=${billAmountInRupees}, category=${additional_info?.category}`)
         }
+      } else {
+        console.warn(`[BBPS Pay] No scheme found for user=${user.partner_id}`)
       }
     } catch (schemeErr) {
-      console.warn('[BBPS Pay] Scheme resolution failed, using legacy charge:', schemeErr)
+      console.error('[BBPS Pay] Scheme resolution failed, using legacy charge:', schemeErr)
     }
     
     // Fallback to legacy RPC if no scheme resolved

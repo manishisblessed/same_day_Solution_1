@@ -1693,10 +1693,10 @@ function MDRSchemesTab({ user }: { user: any }) {
         <div className="flex items-start gap-3">
           <Info className="w-5 h-5 text-blue-600 dark:text-blue-400 mt-0.5 flex-shrink-0" />
           <div className="flex-1">
-            <h3 className="font-semibold text-blue-900 dark:text-blue-200 mb-1">MDR Scheme Information</h3>
+            <h3 className="font-semibold text-blue-900 dark:text-blue-200 mb-1">Scheme Information</h3>
             <p className="text-sm text-blue-800 dark:text-blue-300">
-              Your MDR rates are determined by schemes explicitly assigned to you by your distributor. 
-              Only schemes that are mapped to your account are shown here. T+0 settlement has higher MDR rates than T+1.
+              Your charges and rates (MDR, BBPS, Payout) are determined by schemes assigned to you by your distributor. 
+              Only schemes that are mapped to your account are shown here. These charges are automatically applied during transactions.
             </p>
           </div>
         </div>
@@ -1960,11 +1960,191 @@ function MDRSchemesTab({ user }: { user: any }) {
         )
       })()}
 
+      {/* BBPS Charges Section */}
+      {(() => {
+        const allBbpsCharges: any[] = []
+        const allSchemes = [...customSchemes, ...globalSchemes]
+        allSchemes.forEach((scheme: any) => {
+          if (scheme.bbps_commissions && Array.isArray(scheme.bbps_commissions) && scheme.bbps_commissions.length > 0) {
+            scheme.bbps_commissions.forEach((comm: any) => {
+              if (comm && comm.status === 'active') {
+                allBbpsCharges.push({
+                  ...comm,
+                  scheme_name: scheme.name,
+                  scheme_type: scheme.scheme_type,
+                  effective_date: scheme.mapping_effective_from || scheme.effective_from || comm.created_at,
+                })
+              }
+            })
+          }
+        })
+
+        if (allBbpsCharges.length === 0) return null
+
+        return (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.25 }}
+            className="bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 p-6"
+          >
+            <div className="flex items-center gap-2 mb-4">
+              <Receipt className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+              <h3 className="text-lg font-bold text-gray-900 dark:text-white">BBPS Charges</h3>
+              <span className="text-xs bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300 px-2 py-0.5 rounded-full">From Scheme</span>
+            </div>
+            <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">Transaction charges applicable for BBPS bill payments</p>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-gray-50 dark:bg-gray-700">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Category</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Amount Range</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Your Charge</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Your Commission</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Scheme</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Effective</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                  {allBbpsCharges.map((charge, index) => (
+                    <tr key={charge.id || index} className="hover:bg-gray-50 dark:hover:bg-gray-700">
+                      <td className="px-4 py-3 text-sm">
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
+                          !charge.category || charge.category === '' || charge.category.toLowerCase() === 'all'
+                            ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                            : 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200'
+                        }`}>
+                          {!charge.category || charge.category === '' || charge.category.toLowerCase() === 'all' 
+                            ? 'All Categories' 
+                            : charge.category}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-700 dark:text-gray-300">
+                        ₹{Number(charge.min_amount).toLocaleString('en-IN')} – ₹{Number(charge.max_amount).toLocaleString('en-IN')}
+                      </td>
+                      <td className="px-4 py-3 text-sm font-semibold text-red-600 dark:text-red-400">
+                        {charge.retailer_charge_type === 'percentage' 
+                          ? `${charge.retailer_charge}%` 
+                          : `₹${Number(charge.retailer_charge).toLocaleString('en-IN')}`}
+                      </td>
+                      <td className="px-4 py-3 text-sm font-semibold text-green-600 dark:text-green-400">
+                        {Number(charge.retailer_commission) > 0
+                          ? charge.retailer_commission_type === 'percentage' 
+                            ? `${charge.retailer_commission}%` 
+                            : `₹${Number(charge.retailer_commission).toLocaleString('en-IN')}`
+                          : '—'}
+                      </td>
+                      <td className="px-4 py-3 text-xs text-gray-500 dark:text-gray-400">{charge.scheme_name}</td>
+                      <td className="px-4 py-3 text-xs text-gray-500 dark:text-gray-400">
+                        {charge.effective_date ? new Date(charge.effective_date).toLocaleDateString('en-IN') : '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </motion.div>
+        )
+      })()}
+
+      {/* Payout / Settlement Charges Section */}
+      {(() => {
+        const allPayoutCharges: any[] = []
+        const allSchemes = [...customSchemes, ...globalSchemes]
+        allSchemes.forEach((scheme: any) => {
+          if (scheme.payout_charges && Array.isArray(scheme.payout_charges) && scheme.payout_charges.length > 0) {
+            scheme.payout_charges.forEach((charge: any) => {
+              if (charge && charge.status === 'active') {
+                allPayoutCharges.push({
+                  ...charge,
+                  scheme_name: scheme.name,
+                  scheme_type: scheme.scheme_type,
+                  effective_date: scheme.mapping_effective_from || scheme.effective_from || charge.created_at,
+                })
+              }
+            })
+          }
+        })
+
+        if (allPayoutCharges.length === 0) return null
+
+        // Sort: IMPS first, then NEFT, then by amount range
+        allPayoutCharges.sort((a, b) => {
+          if (a.transfer_mode !== b.transfer_mode) return a.transfer_mode === 'IMPS' ? -1 : 1
+          return (a.min_amount || 0) - (b.min_amount || 0)
+        })
+
+        return (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.3 }}
+            className="bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 p-6"
+          >
+            <div className="flex items-center gap-2 mb-4">
+              <Banknote className="w-5 h-5 text-green-600 dark:text-green-400" />
+              <h3 className="text-lg font-bold text-gray-900 dark:text-white">Payout / Settlement Charges</h3>
+              <span className="text-xs bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300 px-2 py-0.5 rounded-full">From Scheme</span>
+            </div>
+            <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">Charges for bank settlements (IMPS & NEFT transfers)</p>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-gray-50 dark:bg-gray-700">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Transfer Mode</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Amount Range</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Your Charge</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Your Commission</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Scheme</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Effective</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                  {allPayoutCharges.map((charge, index) => (
+                    <tr key={charge.id || index} className="hover:bg-gray-50 dark:hover:bg-gray-700">
+                      <td className="px-4 py-3 text-sm">
+                        <span className={`inline-flex items-center px-2.5 py-1 rounded-md text-xs font-bold ${
+                          charge.transfer_mode === 'IMPS'
+                            ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200'
+                            : 'bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200'
+                        }`}>
+                          {charge.transfer_mode}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-700 dark:text-gray-300">
+                        ₹{Number(charge.min_amount).toLocaleString('en-IN')} – ₹{Number(charge.max_amount).toLocaleString('en-IN')}
+                      </td>
+                      <td className="px-4 py-3 text-sm font-semibold text-red-600 dark:text-red-400">
+                        {charge.retailer_charge_type === 'percentage' 
+                          ? `${charge.retailer_charge}%` 
+                          : `₹${Number(charge.retailer_charge).toLocaleString('en-IN')}`}
+                      </td>
+                      <td className="px-4 py-3 text-sm font-semibold text-green-600 dark:text-green-400">
+                        {Number(charge.retailer_commission) > 0
+                          ? charge.retailer_commission_type === 'percentage' 
+                            ? `${charge.retailer_commission}%` 
+                            : `₹${Number(charge.retailer_commission).toLocaleString('en-IN')}`
+                          : '—'}
+                      </td>
+                      <td className="px-4 py-3 text-xs text-gray-500 dark:text-gray-400">{charge.scheme_name}</td>
+                      <td className="px-4 py-3 text-xs text-gray-500 dark:text-gray-400">
+                        {charge.effective_date ? new Date(charge.effective_date).toLocaleDateString('en-IN') : '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </motion.div>
+        )
+      })()}
+
       {/* Settlement Type Info */}
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.3 }}
+        transition={{ delay: 0.35 }}
         className="bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20 border border-green-200 dark:border-green-800 rounded-xl p-6"
       >
         <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4 flex items-center gap-2">

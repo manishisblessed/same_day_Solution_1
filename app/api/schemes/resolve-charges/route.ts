@@ -95,6 +95,8 @@ export async function GET(request: NextRequest) {
     }
 
     // Resolve scheme for user
+    console.log(`[resolve-charges] Resolving scheme: user=${user.partner_id}, role=${user.role}, service=${serviceType}, dist=${distributorId}, md=${mdId}`)
+    
     const { data: schemeResult, error: schemeError } = await supabaseAdmin.rpc('resolve_scheme_for_user', {
       p_user_id: user.partner_id,
       p_user_role: user.role,
@@ -103,14 +105,29 @@ export async function GET(request: NextRequest) {
       p_md_id: mdId,
     })
 
-    if (schemeError || !schemeResult || schemeResult.length === 0) {
+    if (schemeError) {
+      console.error(`[resolve-charges] RPC error:`, schemeError)
+      return NextResponse.json({
+        resolved: false,
+        scheme: null,
+        charges: null,
+        message: `Scheme resolution error: ${schemeError.message}`,
+        debug: { error: schemeError.message, code: schemeError.code },
+      })
+    }
+
+    if (!schemeResult || schemeResult.length === 0) {
+      console.warn(`[resolve-charges] No scheme found for user=${user.partner_id}, service=${serviceType}`)
       return NextResponse.json({
         resolved: false,
         scheme: null,
         charges: null,
         message: 'No scheme found for this user/service',
+        debug: { user_id: user.partner_id, role: user.role, service: serviceType, distributor_id: distributorId, md_id: mdId },
       })
     }
+    
+    console.log(`[resolve-charges] Scheme resolved: ${schemeResult[0].scheme_name} (${schemeResult[0].scheme_id}) via ${schemeResult[0].resolved_via}`)
 
     const resolved = schemeResult[0]
 
@@ -125,6 +142,12 @@ export async function GET(request: NextRequest) {
         p_amount: amount,
         p_transfer_mode: transferMode,
       })
+
+      if (chargeError) {
+        console.error(`[resolve-charges] Payout charge calc error:`, chargeError)
+      } else {
+        console.log(`[resolve-charges] Payout charge result:`, JSON.stringify(chargeResult))
+      }
 
       // Also fetch ALL payout charge slabs for this scheme so client can show charge per mode
       const { data: allSlabs } = await supabaseAdmin
@@ -160,6 +183,12 @@ export async function GET(request: NextRequest) {
         p_amount: amount,
         p_category: category || null,
       })
+
+      if (chargeError) {
+        console.error(`[resolve-charges] BBPS charge calc error:`, chargeError)
+      } else {
+        console.log(`[resolve-charges] BBPS charge result:`, JSON.stringify(chargeResult))
+      }
 
       return NextResponse.json({
         resolved: true,
