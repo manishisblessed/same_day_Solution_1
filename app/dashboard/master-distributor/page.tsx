@@ -1,33 +1,43 @@
 'use client'
 
-import { useState, useEffect, useMemo, Suspense } from 'react'
+import { useState, useEffect, useMemo, Suspense, useCallback } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useRouter, useSearchParams, usePathname } from 'next/navigation'
 import { supabase } from '@/lib/supabase/client'
 import MasterDistributorSidebar from '@/components/MasterDistributorSidebar'
+import MasterDistributorHeader from '@/components/MasterDistributorHeader'
 import { 
   TrendingUp, DollarSign, Users, Activity, 
   LogOut, Crown, Network, BarChart3,
   ArrowUpRight, Building2, Globe, Receipt, Wallet,
   ArrowUpCircle, ArrowDownCircle, Download, Search, Filter,
-  Eye, RefreshCw, Settings, Plus, X
+  Eye, RefreshCw, Settings, Plus, X, Menu, Layers,
+  Edit2, Trash2, ChevronDown, ChevronUp, Link2,
+  AlertCircle, CheckCircle, User, Bell, Shield, Sliders,
+  CreditCard, Banknote
 } from 'lucide-react'
 import TransactionsTable from '@/components/TransactionsTable'
 import { LineChart, Line, BarChart, Bar, AreaChart, Area, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
 import { motion, AnimatePresence } from 'framer-motion'
 import { apiFetch } from '@/lib/api-client'
 
-type TabType = 'dashboard' | 'wallet' | 'network' | 'commission' | 'analytics' | 'reports' | 'settings'
+type TabType = 'dashboard' | 'services' | 'distributors' | 'retailers' | 'wallet' | 'network' | 'commission' | 'analytics' | 'reports' | 'settings' | 'scheme-management'
+
+type ChangePasswordFormProps = {
+  onPasswordChange: (current: string, newPassword: string, confirm: string) => void
+  loading: boolean
+}
 
 function MasterDistributorDashboardContent() {
   const { user, logout, loading: authLoading } = useAuth()
   const router = useRouter()
   const searchParams = useSearchParams()
+  const pathname = usePathname()
   const [sidebarOpen, setSidebarOpen] = useState(false)
   
   const getInitialTab = (): TabType => {
     const tab = searchParams.get('tab')
-    if (tab && ['dashboard', 'wallet', 'network', 'commission', 'analytics', 'reports', 'settings'].includes(tab)) {
+    if (tab && ['dashboard', 'services', 'distributors', 'retailers', 'wallet', 'network', 'commission', 'analytics', 'reports', 'settings', 'scheme-management'].includes(tab)) {
       return tab as TabType
     }
     return 'dashboard'
@@ -66,11 +76,22 @@ function MasterDistributorDashboardContent() {
   }, [user, router, authLoading])
 
   useEffect(() => {
-    const tab = searchParams.get('tab')
-    if (tab && ['dashboard', 'wallet', 'network', 'commission', 'analytics', 'reports', 'settings'].includes(tab)) {
-      setActiveTab(tab as TabType)
+    // Redirect from old scheme-management route to tab-based route
+    if (pathname === '/dashboard/master-distributor/scheme-management') {
+      router.replace('/dashboard/master-distributor?tab=scheme-management', { scroll: false })
+      return
     }
-  }, [searchParams])
+    
+    const tab = searchParams.get('tab')
+    if (tab && ['dashboard', 'services', 'distributors', 'retailers', 'wallet', 'network', 'commission', 'analytics', 'reports', 'settings', 'scheme-management'].includes(tab)) {
+      setActiveTab(tab as TabType)
+    } else {
+      // Default to dashboard if no tab is specified (when on main dashboard page)
+      if (pathname === '/dashboard/master-distributor' || pathname === '/dashboard/master-distributor/') {
+        setActiveTab('dashboard')
+      }
+    }
+  }, [searchParams, pathname, router])
 
   const fetchDashboardData = async () => {
     if (!user) return
@@ -257,77 +278,72 @@ function MasterDistributorDashboardContent() {
   }
 
   const tabs = [
-    { id: 'dashboard' as TabType, label: 'Dashboard', icon: Activity },
+    { id: 'dashboard' as TabType, label: 'Dashboard', icon: Activity }, 
     { id: 'wallet' as TabType, label: 'Wallet', icon: Wallet },
-    { id: 'network' as TabType, label: 'Network', icon: Network },
+    { id: 'network' as TabType, label: 'Network', icon: Network },      
     { id: 'commission' as TabType, label: 'Commission', icon: TrendingUp },
     { id: 'analytics' as TabType, label: 'Analytics', icon: BarChart3 },
-    { id: 'reports' as TabType, label: 'Reports', icon: Download },
-    { id: 'settings' as TabType, label: 'Settings', icon: Settings },
+    { id: 'reports' as TabType, label: 'Reports', icon: Download },     
+    { id: 'settings' as TabType, label: 'Settings', icon: Settings },   
   ]
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-gray-50">
-      {/* Header */}
-      <div className="bg-white border-b border-gray-200 shadow-sm sticky top-0 z-40">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-                <Crown className="w-6 h-6 text-yellow-500" />
-                Master Distributor Dashboard
-              </h1>
-              <p className="text-sm text-gray-600">Welcome back, {user?.name || user?.email}</p>
-            </div>
-            <div className="flex items-center gap-4">
-              <div className="text-right">
-                <p className="text-sm text-gray-600">Partner ID</p>
-                <p className="text-sm font-semibold text-gray-900">{user?.partner_id}</p>
+    <div className="flex min-h-screen bg-gradient-to-br from-gray-50 via-white to-gray-50 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900 overflow-x-hidden">
+      <MasterDistributorHeader />
+      <MasterDistributorSidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+      
+      <div className="flex-1 lg:ml-56 min-w-0 overflow-x-hidden pt-16 md:pt-16">
+        {/* Mobile Menu Button */}
+        <button
+          onClick={() => setSidebarOpen(true)}
+          className="lg:hidden fixed top-20 left-2 md:left-4 z-30 p-2 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700"
+        >
+          <Menu className="w-5 h-5 text-gray-600 dark:text-gray-300" />
+        </button>
+
+        <div className="p-2 sm:p-3 md:p-4 lg:p-5 max-w-full h-[calc(100vh-4rem)] overflow-y-auto overflow-x-hidden">
+          {/* Page Header - Compact */}
+          <motion.div
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mb-4"
+          >
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-3">
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
+                  <h1 className="text-xl sm:text-2xl md:text-3xl font-bold bg-gradient-to-r from-yellow-600 to-yellow-700 bg-clip-text text-transparent">
+                    Master Distributor Dashboard
+                  </h1>
+                </div>
+                <p className="text-xs sm:text-sm text-gray-600 dark:text-gray-400 mt-1 line-clamp-2">
+                  Welcome back, {user?.name || user?.email}
+                </p>
               </div>
-              <button
-                onClick={handleLogout}
-                className="flex items-center gap-2 px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
-              >
-                <LogOut className="w-4 h-4" />
-                Logout
-              </button>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <button
+                  onClick={fetchDashboardData}
+                  className="p-2 rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                  title="Refresh"
+                >
+                  <RefreshCw className="w-4 h-4 text-gray-600 dark:text-gray-300" />
+                </button>
+              </div>
             </div>
-          </div>
-        </div>
-      </div>
+          </motion.div>
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Tabs */}
-        <div className="bg-white rounded-xl shadow-lg border border-gray-200 mb-6 overflow-hidden">
-          <div className="flex space-x-1 border-b border-gray-200 p-1 overflow-x-auto">
-            {tabs.map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => {
-                  setActiveTab(tab.id)
-                  router.push(`/dashboard/master-distributor?tab=${tab.id}`, { scroll: false })
-                }}
-                className={`relative flex items-center gap-2 px-4 py-2 text-sm font-medium transition-all duration-200 rounded-lg whitespace-nowrap flex-shrink-0 ${
-                  activeTab === tab.id
-                    ? 'bg-gradient-to-r from-yellow-500 to-yellow-600 text-white shadow-md'
-                    : 'text-gray-600 hover:bg-gray-100'
-                }`}
-              >
-                <tab.icon className="w-4 h-4" />
-                <span>{tab.label}</span>
-              </button>
-            ))}
-          </div>
+          {/* Tab Content - Direct rendering based on activeTab */}
+          {activeTab === 'dashboard' && <DashboardTab stats={stats} chartData={chartData} revenueData={revenueData} />}
+          {activeTab === 'services' && <ServicesTab />}
+          {activeTab === 'distributors' && <DistributorsTab distributors={distributors} retailers={retailers} user={user} onRefresh={fetchDashboardData} />}
+          {activeTab === 'retailers' && <RetailersTab distributors={distributors} retailers={retailers} user={user} onRefresh={fetchDashboardData} />}
+          {activeTab === 'wallet' && <WalletTab user={user} />}
+          {activeTab === 'network' && <NetworkTab distributors={distributors} retailers={retailers} user={user} onRefresh={fetchDashboardData} />}
+          {activeTab === 'commission' && <CommissionTab commissionData={commissionData} stats={stats} />}
+          {activeTab === 'analytics' && <AnalyticsTab categoryData={categoryData} revenueData={revenueData} />}
+          {activeTab === 'reports' && <ReportsTab user={user} />}
+          {activeTab === 'settings' && <SettingsTab />}
+          {activeTab === 'scheme-management' && <SchemeManagementTab user={user} />}
         </div>
-
-        {/* Tab Content */}
-        {activeTab === 'dashboard' && <DashboardTab stats={stats} chartData={chartData} revenueData={revenueData} />}
-        {activeTab === 'wallet' && <WalletTab user={user} />}
-        {activeTab === 'network' && <NetworkTab distributors={distributors} retailers={retailers} user={user} onRefresh={fetchDashboardData} />}
-        {activeTab === 'commission' && <CommissionTab commissionData={commissionData} stats={stats} />}
-        {activeTab === 'analytics' && <AnalyticsTab categoryData={categoryData} revenueData={revenueData} />}
-        {activeTab === 'reports' && <ReportsTab user={user} />}
-        {activeTab === 'settings' && <SettingsTab />}
       </div>
     </div>
   )
@@ -664,8 +680,8 @@ function WalletTab({ user }: { user: any }) {
 }
 
 // Network Tab - View and manage distributors and retailers
-function NetworkTab({ distributors, retailers, user, onRefresh }: { distributors: any[], retailers: any[], user: any, onRefresh: () => void }) {
-  const [selectedType, setSelectedType] = useState<'distributors' | 'retailers'>('distributors')
+function NetworkTab({ distributors, retailers, user, onRefresh, defaultView }: { distributors: any[], retailers: any[], user: any, onRefresh: () => void, defaultView?: 'distributors' | 'retailers' }) {
+  const [selectedType, setSelectedType] = useState<'distributors' | 'retailers'>(defaultView || 'distributors')
   const [searchTerm, setSearchTerm] = useState('')
   const [showFundTransfer, setShowFundTransfer] = useState(false)
   const [showMDRApproval, setShowMDRApproval] = useState(false)
@@ -766,53 +782,87 @@ function NetworkTab({ distributors, retailers, user, onRefresh }: { distributors
 
   return (
     <div className="space-y-6">
-      {/* Toggle between Distributors and Retailers */}
-      <div className="bg-white rounded-xl shadow-lg border border-gray-200 p-4">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex gap-4">
-            <button
-              onClick={() => setSelectedType('distributors')}
-              className={`px-6 py-2 rounded-lg font-medium transition-colors ${
-                selectedType === 'distributors'
-                  ? 'bg-yellow-500 text-white'
-                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-              }`}
-            >
-              Distributors ({distributors.length})
-            </button>
-            <button
-              onClick={() => setSelectedType('retailers')}
-              className={`px-6 py-2 rounded-lg font-medium transition-colors ${
-                selectedType === 'retailers'
-                  ? 'bg-yellow-500 text-white'
-                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-              }`}
-            >
-              Retailers ({retailers.length})
-            </button>
+      {/* Toggle between Distributors and Retailers - Hide if defaultView is set (coming from specific tab) */}
+      {!defaultView && (
+        <>
+          <div className="bg-white rounded-xl shadow-lg border border-gray-200 p-4">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex gap-4">
+                <button
+                  onClick={() => setSelectedType('distributors')}
+                  className={`px-6 py-2 rounded-lg font-medium transition-colors ${
+                    selectedType === 'distributors'
+                      ? 'bg-yellow-500 text-white'
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
+                >
+                  Distributors ({distributors.length})
+                </button>
+                <button
+                  onClick={() => setSelectedType('retailers')}
+                  className={`px-6 py-2 rounded-lg font-medium transition-colors ${
+                    selectedType === 'retailers'
+                      ? 'bg-yellow-500 text-white'
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
+                >
+                  Retailers ({retailers.length})
+                </button>
+              </div>
+              {selectedType === 'distributors' && (
+                <button
+                  onClick={() => setShowAddDistributor(true)}
+                  className="flex items-center gap-2 px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition-colors"
+                >
+                  <Plus className="w-4 h-4" />
+                  Add Distributor
+                </button>
+              )}
+            </div>
           </div>
-          {selectedType === 'distributors' && (
-            <button
-              onClick={() => setShowAddDistributor(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition-colors"
-            >
-              <Plus className="w-4 h-4" />
-              Add Distributor
-            </button>
-          )}
-        </div>
 
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
-          <input
-            type="text"
-            placeholder={`Search ${selectedType}...`}
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 border rounded-lg"
-          />
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
+            <input
+              type="text"
+              placeholder={`Search ${selectedType}...`}
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full pl-10 pr-4 py-2 border rounded-lg"
+            />
+          </div>
+        </>
+      )}
+      
+      {/* Search bar when defaultView is set */}
+      {defaultView && (
+        <div className="bg-white rounded-xl shadow-lg border border-gray-200 p-4">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold text-gray-900">
+              {defaultView === 'distributors' ? 'Distributors' : 'Retailers'} ({defaultView === 'distributors' ? distributors.length : retailers.length})
+            </h3>
+            {defaultView === 'distributors' && (
+              <button
+                onClick={() => setShowAddDistributor(true)}
+                className="flex items-center gap-2 px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition-colors"
+              >
+                <Plus className="w-4 h-4" />
+                Add Distributor
+              </button>
+            )}
+          </div>
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
+            <input
+              type="text"
+              placeholder={`Search ${defaultView}...`}
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full pl-10 pr-4 py-2 border rounded-lg"
+            />
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Users Table */}
       <div className="bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden">
@@ -2061,12 +2111,1683 @@ function ReportsTab({ user }: { user: any }) {
   )
 }
 
+// Services Tab
+function ServicesTab() {
+  const [services, setServices] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    fetchServicesData()
+  }, [])
+
+  const fetchServicesData = async () => {
+    setLoading(true)
+    try {
+      // Fetch real transaction data from database
+      const [bbpsData, aepsData, settlementData] = await Promise.all([
+        supabase
+          .from('bbps_transactions')
+          .select('bill_amount, created_at, status')
+          .eq('status', 'success'),
+        supabase
+          .from('aeps_transactions')
+          .select('amount, created_at, status')
+          .eq('status', 'success'),
+        supabase
+          .from('settlements')
+          .select('amount, created_at, status')
+          .eq('status', 'success')
+      ])
+
+      const bbpsTransactions = bbpsData.data || []
+      const aepsTransactions = aepsData.data || []
+      const settlementTransactions = settlementData.data || []
+
+      // Calculate real statistics
+      const bbpsCount = bbpsTransactions.length
+      const bbpsRevenue = bbpsTransactions.reduce((sum, t) => sum + parseFloat(t.bill_amount?.toString() || '0'), 0)
+
+      const aepsCount = aepsTransactions.length
+      const aepsRevenue = aepsTransactions.reduce((sum, t) => sum + parseFloat(t.amount?.toString() || '0'), 0)
+
+      const settlementCount = settlementTransactions.length
+      const settlementRevenue = settlementTransactions.reduce((sum, t) => sum + parseFloat(t.amount?.toString() || '0'), 0)
+
+      // Build services array with real data
+      const servicesList = [
+        { 
+          id: 'bbps', 
+          name: 'BBPS (Bill Payments)', 
+          icon: '📄', 
+          status: 'active', 
+          transactions: bbpsCount, 
+          revenue: `₹${bbpsRevenue.toLocaleString('en-IN', { maximumFractionDigits: 0 })}` 
+        },
+        { 
+          id: 'aeps', 
+          name: 'AEPS Services', 
+          icon: '👆', 
+          status: 'active', 
+          transactions: aepsCount, 
+          revenue: `₹${aepsRevenue.toLocaleString('en-IN', { maximumFractionDigits: 0 })}` 
+        },
+        { 
+          id: 'settlement', 
+          name: 'Settlement', 
+          icon: '💰', 
+          status: 'active', 
+          transactions: settlementCount, 
+          revenue: `₹${settlementRevenue.toLocaleString('en-IN', { maximumFractionDigits: 0 })}` 
+        },
+        { 
+          id: 'pos', 
+          name: 'POS Transactions', 
+          icon: '💳', 
+          status: 'active', 
+          transactions: 0, 
+          revenue: '₹0' 
+        },
+      ]
+
+      setServices(servicesList)
+    } catch (error) {
+      console.error('Error fetching services data:', error)
+      setServices([])
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-yellow-600"></div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        {services.map((service) => (
+          <motion.div
+            key={service.id}
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-white dark:bg-gray-800 rounded-lg shadow-md border border-gray-200 dark:border-gray-700 p-4 hover:shadow-lg transition-shadow"
+          >
+            <div className="flex items-start justify-between mb-3">
+              <div className="flex items-center gap-3">
+                <div className="text-3xl">{service.icon}</div>
+                <div className="flex-1 min-w-0">
+                  <h3 className="text-sm font-semibold text-gray-900 dark:text-white truncate">{service.name}</h3>
+                  <span className={`inline-block mt-1 px-2 py-0.5 text-xs rounded-full ${
+                    service.status === 'active' 
+                      ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400' 
+                      : 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
+                  }`}>
+                    {service.status}
+                  </span>
+                </div>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <div>
+                <p className="text-xs text-gray-600 dark:text-gray-400">Transactions</p>
+                <p className="text-lg font-bold text-gray-900 dark:text-white">{service.transactions}</p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-600 dark:text-gray-400">Revenue</p>
+                <p className="text-lg font-bold text-green-600 dark:text-green-400">{service.revenue}</p>
+              </div>
+            </div>
+          </motion.div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// Distributors Tab - Shows only distributors from NetworkTab
+function DistributorsTab({ distributors, retailers, user, onRefresh }: { distributors: any[], retailers: any[], user: any, onRefresh: () => void }) {
+  return (
+    <NetworkTab 
+      distributors={distributors} 
+      retailers={retailers} 
+      user={user} 
+      onRefresh={onRefresh}
+      defaultView="distributors"
+    />
+  )
+}
+
+// Retailers Tab - Shows only retailers from NetworkTab
+function RetailersTab({ distributors, retailers, user, onRefresh }: { distributors: any[], retailers: any[], user: any, onRefresh: () => void }) {
+  return (
+    <NetworkTab 
+      distributors={distributors} 
+      retailers={retailers} 
+      user={user} 
+      onRefresh={onRefresh}
+      defaultView="retailers"
+    />
+  )
+}
+
+// Scheme Management Tab
+function SchemeManagementTab({ user }: { user: any }) {
+  const [schemes, setSchemes] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [success, setSuccess] = useState('')
+  const [searchQuery, setSearchQuery] = useState('')
+  const [showCreateModal, setShowCreateModal] = useState(false)
+  const [expandedSchemeId, setExpandedSchemeId] = useState<string | null>(null)
+  const [editingScheme, setEditingScheme] = useState<any>(null)
+  const [showMappingModal, setShowMappingModal] = useState(false)
+  const [mappingSchemeId, setMappingSchemeId] = useState<string>('')
+  const [distributors, setDistributors] = useState<any[]>([])
+  const [showConfigModal, setShowConfigModal] = useState(false)
+  const [configSchemeId, setConfigSchemeId] = useState<string>('')
+  const [configType, setConfigType] = useState<'bbps' | 'payout' | 'mdr' | null>(null)
+
+  const [schemeForm, setSchemeForm] = useState({
+    name: '',
+    description: '',
+    scheme_type: 'custom' as 'custom',
+    service_scope: 'all' as string,
+    priority: 100,
+  })
+
+  const [bbpsForm, setBbpsForm] = useState({
+    category: '',
+    min_amount: 0,
+    max_amount: 999999999,
+    retailer_charge: 0,
+    retailer_charge_type: 'flat' as 'flat' | 'percentage',
+    retailer_commission: 0,
+    retailer_commission_type: 'flat' as 'flat' | 'percentage',
+    distributor_commission: 0,
+    distributor_commission_type: 'flat' as 'flat' | 'percentage',
+    md_commission: 0,
+    md_commission_type: 'flat' as 'flat' | 'percentage',
+    company_charge: 0,
+    company_charge_type: 'flat' as 'flat' | 'percentage',
+  })
+
+  const [payoutForm, setPayoutForm] = useState({
+    transfer_mode: 'IMPS' as 'IMPS' | 'NEFT',
+    min_amount: 0,
+    max_amount: 999999999,
+    retailer_charge: 0,
+    retailer_charge_type: 'flat' as 'flat' | 'percentage',
+    retailer_commission: 0,
+    retailer_commission_type: 'flat' as 'flat' | 'percentage',
+    distributor_commission: 0,
+    distributor_commission_type: 'flat' as 'flat' | 'percentage',
+    md_commission: 0,
+    md_commission_type: 'flat' as 'flat' | 'percentage',
+    company_charge: 0,
+    company_charge_type: 'flat' as 'flat' | 'percentage',
+  })
+
+  const [mdrForm, setMdrForm] = useState({
+    mode: 'CARD' as 'CARD' | 'UPI',
+    card_type: '' as string,
+    brand_type: '',
+    retailer_mdr_t1: 0,
+    retailer_mdr_t0: 0,
+    distributor_mdr_t1: 0,
+    distributor_mdr_t0: 0,
+    md_mdr_t1: 0,
+    md_mdr_t0: 0,
+  })
+
+  const fetchSchemes = useCallback(async () => {
+    if (!user?.partner_id) return
+    setLoading(true)
+    try {
+      let query = supabase
+        .from('schemes')
+        .select('*')
+        .eq('created_by_id', user.partner_id)
+        .eq('created_by_role', 'master_distributor')
+        .order('created_at', { ascending: false })
+      
+      const { data, error } = await query
+      if (error) throw error
+      
+      let filtered = data || []
+      if (searchQuery) {
+        filtered = filtered.filter(s => 
+          s.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          (s.description && s.description.toLowerCase().includes(searchQuery.toLowerCase()))
+        )
+      }
+      
+      // Fetch mapping counts
+      const schemeIds = filtered.map(s => s.id)
+      if (schemeIds.length > 0) {
+        const { data: mappings } = await supabase
+          .from('scheme_mappings')
+          .select('scheme_id')
+          .in('scheme_id', schemeIds)
+          .eq('status', 'active')
+        
+        const mappingCounts: Record<string, number> = {}
+        mappings?.forEach(m => {
+          mappingCounts[m.scheme_id] = (mappingCounts[m.scheme_id] || 0) + 1
+        })
+        
+        filtered = filtered.map(s => ({
+          ...s,
+          mapping_count: mappingCounts[s.id] || 0,
+        }))
+      }
+      
+      setSchemes(filtered)
+    } catch (err: any) {
+      setError(err.message)
+    } finally {
+      setLoading(false)
+    }
+  }, [user?.partner_id, searchQuery])
+
+  const fetchDistributors = async () => {
+    if (!user?.partner_id) return
+    try {
+      const { data, error } = await supabase
+        .from('distributors')
+        .select('partner_id, name, email, status')
+        .eq('master_distributor_id', user.partner_id)
+        .eq('status', 'active')
+      
+      if (error) throw error
+      setDistributors(data || [])
+    } catch (err: any) {
+      console.error('Error fetching distributors:', err)
+    }
+  }
+
+  useEffect(() => {
+    if (user?.partner_id) {
+      fetchSchemes()
+      fetchDistributors()
+    }
+  }, [user?.partner_id, fetchSchemes])
+
+  const toggleExpand = async (schemeId: string) => {
+    if (expandedSchemeId === schemeId) {
+      setExpandedSchemeId(null)
+      return
+    }
+    
+    const [bbps, payout, mdr, mappings] = await Promise.all([
+      supabase.from('scheme_bbps_commissions').select('*').eq('scheme_id', schemeId).eq('status', 'active').order('min_amount'),
+      supabase.from('scheme_payout_charges').select('*').eq('scheme_id', schemeId).eq('status', 'active').order('transfer_mode'),
+      supabase.from('scheme_mdr_rates').select('*').eq('scheme_id', schemeId).eq('status', 'active').order('mode'),
+      supabase.from('scheme_mappings').select('*').eq('scheme_id', schemeId).eq('status', 'active'),
+    ])
+
+    // Resolve entity names for mappings
+    let enrichedMappings = mappings.data || []
+    if (enrichedMappings.length > 0) {
+      const entityIds = enrichedMappings.map((m: any) => m.entity_id)
+      const [distNames, retNames] = await Promise.all([
+        supabase.from('distributors').select('partner_id, name, business_name').in('partner_id', entityIds),
+        supabase.from('retailers').select('partner_id, name, business_name').in('partner_id', entityIds),
+      ])
+      const nameMap: Record<string, string> = {}
+      distNames.data?.forEach((d: any) => { nameMap[d.partner_id] = d.business_name || d.name })
+      retNames.data?.forEach((r: any) => { nameMap[r.partner_id] = r.business_name || r.name })
+      enrichedMappings = enrichedMappings.map((m: any) => ({ ...m, entity_name: nameMap[m.entity_id] || null }))
+    }
+    
+    setSchemes(prev => prev.map(s => s.id === schemeId ? {
+      ...s,
+      bbps_commissions: bbps.data || [],
+      payout_charges: payout.data || [],
+      mdr_rates: mdr.data || [],
+      mappings: enrichedMappings,
+    } : s))
+    
+    setExpandedSchemeId(schemeId)
+  }
+
+  const openCreateModal = () => {
+    setSchemeForm({ name: '', description: '', scheme_type: 'custom', service_scope: 'all', priority: 100 })
+    setEditingScheme(null)
+    setShowCreateModal(true)
+  }
+
+  const handleSaveScheme = async () => {
+    if (!user?.partner_id) return
+    try {
+      if (editingScheme) {
+        const { error } = await supabase.from('schemes').update({
+          name: schemeForm.name,
+          description: schemeForm.description || null,
+          service_scope: schemeForm.service_scope,
+        }).eq('id', editingScheme.id)
+        if (error) throw error
+        setSuccess('Scheme updated successfully')
+      } else {
+        const { error } = await supabase.from('schemes').insert({
+          name: schemeForm.name,
+          description: schemeForm.description || null,
+          scheme_type: 'custom',
+          service_scope: schemeForm.service_scope,
+          priority: 100,
+          created_by_id: user.partner_id,
+          created_by_role: 'master_distributor',
+          status: 'active',
+        })
+        if (error) throw error
+        setSuccess('Scheme created successfully')
+      }
+      setShowCreateModal(false)
+      fetchSchemes()
+      setTimeout(() => setSuccess(''), 3000)
+    } catch (err: any) {
+      setError(err.message)
+      setTimeout(() => setError(''), 3000)
+    }
+  }
+
+  const openMappingModal = (schemeId: string) => {
+    setMappingSchemeId(schemeId)
+    setShowMappingModal(true)
+  }
+
+  const openConfigModal = (schemeId: string, type: 'bbps' | 'payout' | 'mdr') => {
+    setConfigSchemeId(schemeId)
+    setConfigType(type)
+    // Reset forms
+    setBbpsForm({ category: '', min_amount: 0, max_amount: 999999999, retailer_charge: 0, retailer_charge_type: 'flat', retailer_commission: 0, retailer_commission_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat', company_charge: 0, company_charge_type: 'flat' })
+    setPayoutForm({ transfer_mode: 'IMPS', min_amount: 0, max_amount: 999999999, retailer_charge: 0, retailer_charge_type: 'flat', retailer_commission: 0, retailer_commission_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat', company_charge: 0, company_charge_type: 'flat' })
+    setMdrForm({ mode: 'CARD', card_type: '', brand_type: '', retailer_mdr_t1: 0, retailer_mdr_t0: 0, distributor_mdr_t1: 0, distributor_mdr_t0: 0, md_mdr_t1: 0, md_mdr_t0: 0 })
+    setShowConfigModal(true)
+  }
+
+  const handleSaveConfig = async () => {
+    try {
+      if (configType === 'bbps') {
+        const { error } = await supabase.from('scheme_bbps_commissions').insert({
+          scheme_id: configSchemeId,
+          category: bbpsForm.category || null,
+          min_amount: bbpsForm.min_amount,
+          max_amount: bbpsForm.max_amount,
+          retailer_charge: bbpsForm.retailer_charge,
+          retailer_charge_type: bbpsForm.retailer_charge_type,
+          retailer_commission: bbpsForm.retailer_commission,
+          retailer_commission_type: bbpsForm.retailer_commission_type,
+          distributor_commission: bbpsForm.distributor_commission,
+          distributor_commission_type: bbpsForm.distributor_commission_type,
+          md_commission: bbpsForm.md_commission,
+          md_commission_type: bbpsForm.md_commission_type,
+          company_charge: bbpsForm.company_charge,
+          company_charge_type: bbpsForm.company_charge_type,
+          status: 'active',
+        })
+        if (error) throw error
+      } else if (configType === 'payout') {
+        const { error } = await supabase.from('scheme_payout_charges').insert({
+          scheme_id: configSchemeId,
+          transfer_mode: payoutForm.transfer_mode,
+          min_amount: payoutForm.min_amount,
+          max_amount: payoutForm.max_amount,
+          retailer_charge: payoutForm.retailer_charge,
+          retailer_charge_type: payoutForm.retailer_charge_type,
+          retailer_commission: payoutForm.retailer_commission,
+          retailer_commission_type: payoutForm.retailer_commission_type,
+          distributor_commission: payoutForm.distributor_commission,
+          distributor_commission_type: payoutForm.distributor_commission_type,
+          md_commission: payoutForm.md_commission,
+          md_commission_type: payoutForm.md_commission_type,
+          company_charge: payoutForm.company_charge,
+          company_charge_type: payoutForm.company_charge_type,
+          status: 'active',
+        })
+        if (error) throw error
+      } else if (configType === 'mdr') {
+        const { error } = await supabase.from('scheme_mdr_rates').insert({
+          scheme_id: configSchemeId,
+          mode: mdrForm.mode,
+          card_type: mdrForm.card_type || null,
+          brand_type: mdrForm.brand_type || null,
+          retailer_mdr_t1: mdrForm.retailer_mdr_t1,
+          retailer_mdr_t0: mdrForm.retailer_mdr_t0,
+          distributor_mdr_t1: mdrForm.distributor_mdr_t1,
+          distributor_mdr_t0: mdrForm.distributor_mdr_t0,
+          md_mdr_t1: mdrForm.md_mdr_t1,
+          md_mdr_t0: mdrForm.md_mdr_t0,
+          status: 'active',
+        })
+        if (error) throw error
+      }
+      setSuccess(`${configType?.toUpperCase()} configuration added successfully`)
+      setShowConfigModal(false)
+      // Refresh expanded scheme
+      if (expandedSchemeId === configSchemeId) {
+        toggleExpand(configSchemeId)
+      } else {
+        fetchSchemes()
+      }
+      setTimeout(() => setSuccess(''), 3000)
+    } catch (err: any) {
+      setError(err.message)
+      setTimeout(() => setError(''), 3000)
+    }
+  }
+
+  const handleDeleteConfig = async (table: string, id: string) => {
+    if (!confirm('Delete this configuration?')) return
+    try {
+      const { error } = await supabase.from(table).delete().eq('id', id)
+      if (error) throw error
+      setSuccess('Configuration deleted')
+      if (expandedSchemeId) toggleExpand(expandedSchemeId)
+      setTimeout(() => setSuccess(''), 3000)
+    } catch (err: any) {
+      setError(err.message)
+      setTimeout(() => setError(''), 3000)
+    }
+  }
+
+  const getAvailableBrands = (mode: string, cardType: string): string[] => {
+    if (mode === 'CARD') {
+      if (cardType === 'CREDIT') {
+        return ['Amex', 'Diners Club', 'MasterCard', 'RUPAY', 'VISA', 'Business', 'Corporate Card', 'International']
+      } else if (cardType === 'DEBIT') {
+        return ['MasterCard', 'RUPAY', 'VISA']
+      } else if (cardType === 'PREPAID') {
+        return ['MasterCard', 'VISA']
+      }
+      return []
+    } else if (mode === 'UPI') {
+      const effectiveCardType = cardType || 'UPI'
+      if (effectiveCardType === 'UPI') {
+        return ['UPI']
+      } else if (effectiveCardType === 'CREDIT') {
+        return ['RUPAY']
+      }
+      return []
+    }
+    return []
+  }
+
+  const handleMapScheme = async (distributorId: string) => {
+    try {
+      // Check if mapping already exists
+      const { data: existing } = await supabase
+        .from('scheme_mappings')
+        .select('id')
+        .eq('scheme_id', mappingSchemeId)
+        .eq('entity_id', distributorId)
+        .eq('entity_role', 'distributor')
+        .eq('status', 'active')
+        .maybeSingle()
+
+      if (existing) {
+        setError('Scheme already mapped to this distributor')
+        setTimeout(() => setError(''), 3000)
+        return
+      }
+
+      // Deactivate any existing mapping for this distributor
+      await supabase
+        .from('scheme_mappings')
+        .update({ status: 'inactive' })
+        .eq('entity_id', distributorId)
+        .eq('entity_role', 'distributor')
+
+      // Create new mapping
+      const { error } = await supabase.from('scheme_mappings').insert({
+        scheme_id: mappingSchemeId,
+        entity_id: distributorId,
+        entity_role: 'distributor',
+        assigned_by_id: user?.partner_id,
+        assigned_by_role: 'master_distributor',
+        status: 'active',
+        priority: 100,
+      })
+
+      if (error) throw error
+      setSuccess('Scheme mapped successfully')
+      setShowMappingModal(false)
+      fetchSchemes()
+      setTimeout(() => setSuccess(''), 3000)
+    } catch (err: any) {
+      setError(err.message)
+      setTimeout(() => setError(''), 3000)
+    }
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <h2 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
+            <Layers className="w-6 h-6 text-yellow-600" />
+            Scheme Management
+          </h2>
+          <p className="text-sm text-gray-500 mt-1">Create and assign custom schemes to your distributors</p>
+        </div>
+        <button
+          onClick={openCreateModal}
+          className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-yellow-600 to-yellow-700 text-white rounded-lg hover:opacity-90 transition font-medium text-sm whitespace-nowrap"
+        >
+          <Plus className="w-4 h-4" /> Create Scheme
+        </button>
+      </div>
+
+      {error && (
+        <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg flex items-center gap-2 text-red-700 dark:text-red-400 text-sm">
+          <AlertCircle className="w-4 h-4" /> {error}
+        </div>
+      )}
+      {success && (
+        <div className="p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg flex items-center gap-2 text-green-700 dark:text-green-400 text-sm">
+          <CheckCircle className="w-4 h-4" /> {success}
+        </div>
+      )}
+
+      <div className="relative flex-1 min-w-[200px] max-w-md">
+        <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+        <input
+          type="text"
+          placeholder="Search schemes..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          className="w-full pl-9 pr-4 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-sm"
+        />
+      </div>
+
+      {loading ? (
+        <div className="text-center py-12">Loading schemes...</div>
+      ) : schemes.length === 0 ? (
+        <div className="text-center py-12 text-gray-500">
+          <Layers className="w-12 h-12 mx-auto mb-4 text-gray-400" />
+          <p>No schemes created yet</p>
+          <button onClick={openCreateModal} className="mt-4 text-yellow-600 hover:underline">Create your first scheme</button>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {schemes.map((scheme) => (
+            <div key={scheme.id} className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-800 shadow-sm">
+              <div className="p-4 flex items-center justify-between cursor-pointer" onClick={() => toggleExpand(scheme.id)}>
+                <div className="flex items-center gap-3 flex-1">
+                  <Settings className="w-5 h-5 text-yellow-600" />
+                  <div className="flex-1 min-w-0">
+                    <h3 className="font-semibold text-gray-900 dark:text-white">{scheme.name}</h3>
+                    <p className="text-xs text-gray-500 mt-0.5">
+                      {scheme.service_scope} • {scheme.mapping_count || 0} mappings
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button onClick={(e) => { e.stopPropagation(); openConfigModal(scheme.id, 'bbps') }}
+                    className="p-1.5 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20 text-blue-600" title="Add BBPS Commission">
+                    <CreditCard className="w-4 h-4" />
+                  </button>
+                  <button onClick={(e) => { e.stopPropagation(); openConfigModal(scheme.id, 'payout') }}
+                    className="p-1.5 rounded-lg hover:bg-green-50 dark:hover:bg-green-900/20 text-green-600" title="Add Payout Charge">
+                    <Banknote className="w-4 h-4" />
+                  </button>
+                  <button onClick={(e) => { e.stopPropagation(); openConfigModal(scheme.id, 'mdr') }}
+                    className="p-1.5 rounded-lg hover:bg-orange-50 dark:hover:bg-orange-900/20 text-orange-600" title="Add MDR Rate">
+                    <TrendingUp className="w-4 h-4" />
+                  </button>
+                  <button onClick={(e) => { e.stopPropagation(); openMappingModal(scheme.id) }}
+                    className="p-1.5 rounded-lg hover:bg-purple-50 dark:hover:bg-purple-900/20 text-purple-600" title="Map to Distributor">
+                    <Link2 className="w-4 h-4" />
+                  </button>
+                  {expandedSchemeId === scheme.id ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}
+                </div>
+              </div>
+
+              {expandedSchemeId === scheme.id && (
+                <div className="border-t border-gray-200 dark:border-gray-800 p-4 space-y-4 bg-gray-50 dark:bg-gray-800/30">
+                  {scheme.description && (
+                    <p className="text-sm text-gray-600 dark:text-gray-400 italic">{scheme.description}</p>
+                  )}
+                  
+                  {/* BBPS Commissions */}
+                  <div>
+                    <h4 className="font-semibold text-sm text-blue-700 dark:text-blue-400 mb-2 flex items-center gap-1">
+                      <CreditCard className="w-4 h-4" /> BBPS Commissions ({scheme.bbps_commissions?.length || 0})
+                    </h4>
+                    {scheme.bbps_commissions && scheme.bbps_commissions.length > 0 ? (
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-xs">
+                          <thead>
+                            <tr className="bg-blue-50 dark:bg-blue-900/20">
+                              <th className="px-2 py-1.5 text-left">Category</th>
+                              <th className="px-2 py-1.5 text-left">Slab</th>
+                              <th className="px-2 py-1.5 text-right">Retailer Charge</th>
+                              <th className="px-2 py-1.5 text-right">Retailer Comm</th>
+                              <th className="px-2 py-1.5 text-right">Dist Comm</th>
+                              <th className="px-2 py-1.5 text-right">MD Comm</th>
+                              <th className="px-2 py-1.5 text-right">Company</th>
+                              <th className="px-2 py-1.5"></th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {scheme.bbps_commissions.map((c: any) => (
+                              <tr key={c.id} className="border-b border-gray-100 dark:border-gray-700">
+                                <td className="px-2 py-1.5">{c.category || 'All'}</td>
+                                <td className="px-2 py-1.5">{`₹${c.min_amount} - ₹${c.max_amount >= 999999 ? '∞' : c.max_amount}`}</td>
+                                <td className="px-2 py-1.5 text-right">{c.retailer_charge}{c.retailer_charge_type === 'percentage' ? '%' : '₹'}</td>
+                                <td className="px-2 py-1.5 text-right">{c.retailer_commission}{c.retailer_commission_type === 'percentage' ? '%' : '₹'}</td>
+                                <td className="px-2 py-1.5 text-right">{c.distributor_commission}{c.distributor_commission_type === 'percentage' ? '%' : '₹'}</td>
+                                <td className="px-2 py-1.5 text-right">{c.md_commission}{c.md_commission_type === 'percentage' ? '%' : '₹'}</td>
+                                <td className="px-2 py-1.5 text-right">{c.company_charge}{c.company_charge_type === 'percentage' ? '%' : '₹'}</td>
+                                <td className="px-2 py-1.5 text-right">
+                                  <button onClick={() => handleDeleteConfig('scheme_bbps_commissions', c.id)} className="text-red-400 hover:text-red-600">
+                                    <Trash2 className="w-3 h-3" />
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : (
+                      <p className="text-xs text-gray-400 italic">No BBPS commissions configured</p>
+                    )}
+                  </div>
+
+                  {/* Payout Charges */}
+                  <div>
+                    <h4 className="font-semibold text-sm text-green-700 dark:text-green-400 mb-2 flex items-center gap-1">
+                      <Banknote className="w-4 h-4" /> Payout Charges ({scheme.payout_charges?.length || 0})
+                    </h4>
+                    {scheme.payout_charges && scheme.payout_charges.length > 0 ? (
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-xs">
+                          <thead>
+                            <tr className="bg-green-50 dark:bg-green-900/20">
+                              <th className="px-2 py-1.5 text-left">Mode</th>
+                              <th className="px-2 py-1.5 text-left">Slab</th>
+                              <th className="px-2 py-1.5 text-right">Retailer Charge</th>
+                              <th className="px-2 py-1.5 text-right">Retailer Comm</th>
+                              <th className="px-2 py-1.5 text-right">Dist Comm</th>
+                              <th className="px-2 py-1.5 text-right">MD Comm</th>
+                              <th className="px-2 py-1.5 text-right">Company</th>
+                              <th className="px-2 py-1.5"></th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {scheme.payout_charges.map((c: any) => (
+                              <tr key={c.id} className="border-b border-gray-100 dark:border-gray-700">
+                                <td className="px-2 py-1.5">{c.transfer_mode}</td>
+                                <td className="px-2 py-1.5">{`₹${c.min_amount} - ₹${c.max_amount >= 999999 ? '∞' : c.max_amount}`}</td>
+                                <td className="px-2 py-1.5 text-right">{c.retailer_charge}{c.retailer_charge_type === 'percentage' ? '%' : '₹'}</td>
+                                <td className="px-2 py-1.5 text-right">{c.retailer_commission}{c.retailer_commission_type === 'percentage' ? '%' : '₹'}</td>
+                                <td className="px-2 py-1.5 text-right">{c.distributor_commission}{c.distributor_commission_type === 'percentage' ? '%' : '₹'}</td>
+                                <td className="px-2 py-1.5 text-right">{c.md_commission}{c.md_commission_type === 'percentage' ? '%' : '₹'}</td>
+                                <td className="px-2 py-1.5 text-right">{c.company_charge}{c.company_charge_type === 'percentage' ? '%' : '₹'}</td>
+                                <td className="px-2 py-1.5 text-right">
+                                  <button onClick={() => handleDeleteConfig('scheme_payout_charges', c.id)} className="text-red-400 hover:text-red-600">
+                                    <Trash2 className="w-3 h-3" />
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : (
+                      <p className="text-xs text-gray-400 italic">No payout charges configured</p>
+                    )}
+                  </div>
+
+                  {/* MDR Rates */}
+                  <div>
+                    <h4 className="font-semibold text-sm text-orange-700 dark:text-orange-400 mb-2 flex items-center gap-1">
+                      <TrendingUp className="w-4 h-4" /> MDR Rates ({scheme.mdr_rates?.length || 0})
+                    </h4>
+                    {scheme.mdr_rates && scheme.mdr_rates.length > 0 ? (
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-xs">
+                          <thead>
+                            <tr className="bg-orange-50 dark:bg-orange-900/20">
+                              <th className="px-2 py-1.5 text-left">Mode</th>
+                              <th className="px-2 py-1.5 text-left">Card Type</th>
+                              <th className="px-2 py-1.5 text-left">Brand</th>
+                              <th className="px-2 py-1.5 text-right">Ret T+1</th>
+                              <th className="px-2 py-1.5 text-right">Ret T+0</th>
+                              <th className="px-2 py-1.5 text-right">Dist T+1</th>
+                              <th className="px-2 py-1.5 text-right">Dist T+0</th>
+                              <th className="px-2 py-1.5 text-right">MD T+1</th>
+                              <th className="px-2 py-1.5 text-right">MD T+0</th>
+                              <th className="px-2 py-1.5"></th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {scheme.mdr_rates.map((c: any) => (
+                              <tr key={c.id} className="border-b border-gray-100 dark:border-gray-700">
+                                <td className="px-2 py-1.5">{c.mode}</td>
+                                <td className="px-2 py-1.5">{c.card_type || '-'}</td>
+                                <td className="px-2 py-1.5">{c.brand_type || '-'}</td>
+                                <td className="px-2 py-1.5 text-right">{c.retailer_mdr_t1}%</td>
+                                <td className="px-2 py-1.5 text-right">{c.retailer_mdr_t0}%</td>
+                                <td className="px-2 py-1.5 text-right">{c.distributor_mdr_t1}%</td>
+                                <td className="px-2 py-1.5 text-right">{c.distributor_mdr_t0}%</td>
+                                <td className="px-2 py-1.5 text-right">{c.md_mdr_t1}%</td>
+                                <td className="px-2 py-1.5 text-right">{c.md_mdr_t0}%</td>
+                                <td className="px-2 py-1.5 text-right">
+                                  <button onClick={() => handleDeleteConfig('scheme_mdr_rates', c.id)} className="text-red-400 hover:text-red-600">
+                                    <Trash2 className="w-3 h-3" />
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : (
+                      <p className="text-xs text-gray-400 italic">No MDR rates configured</p>
+                    )}
+                  </div>
+                  
+                  {/* Mapped Distributors */}
+                  <div>
+                    <h4 className="font-semibold text-sm mb-2">Mapped Distributors ({scheme.mappings?.length || 0})</h4>
+                    {scheme.mappings && scheme.mappings.length > 0 ? (
+                      <div className="space-y-1.5">
+                        {scheme.mappings.map((m: any) => (
+                          <div key={m.id} className="flex items-center gap-2 px-3 py-1.5 bg-teal-50 dark:bg-teal-900/20 rounded-lg text-xs">
+                            <span className="px-1.5 py-0.5 rounded bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-400 text-[10px] font-semibold uppercase">{m.entity_role}</span>
+                            {m.entity_name && (
+                              <span className="font-semibold text-gray-900 dark:text-white">{m.entity_name}</span>
+                            )}
+                            <span className="text-gray-500 dark:text-gray-400">({m.entity_id})</span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-gray-400 italic">No distributors mapped yet</p>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Create/Edit Modal */}
+      {showCreateModal && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-md p-6">
+            <h2 className="text-lg font-bold mb-4">{editingScheme ? 'Edit Scheme' : 'Create Scheme'}</h2>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-sm font-medium mb-1">Scheme Name</label>
+                <input type="text" value={schemeForm.name} onChange={(e) => setSchemeForm({ ...schemeForm, name: e.target.value })}
+                  className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" placeholder="e.g., Premium Distributor Plan" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Description</label>
+                <textarea value={schemeForm.description} onChange={(e) => setSchemeForm({ ...schemeForm, description: e.target.value })}
+                  className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" rows={3} placeholder="Optional description" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Service Scope</label>
+                <select value={schemeForm.service_scope} onChange={(e) => setSchemeForm({ ...schemeForm, service_scope: e.target.value })}
+                  className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700">
+                  <option value="all">All Services</option>
+                  <option value="bbps">BBPS Only</option>
+                  <option value="payout">Payout Only</option>
+                  <option value="mdr">MDR Only</option>
+                </select>
+              </div>
+            </div>
+            <div className="flex gap-3 mt-6">
+              <button onClick={() => setShowCreateModal(false)} className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg">Cancel</button>
+              <button onClick={handleSaveScheme} className="px-4 py-2 text-sm bg-yellow-600 text-white rounded-lg hover:bg-yellow-700">
+                {editingScheme ? 'Update' : 'Create'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Mapping Modal */}
+      {showMappingModal && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-md p-6">
+            <h2 className="text-lg font-bold mb-4">Map Scheme to Distributor</h2>
+            <div className="space-y-2 max-h-96 overflow-y-auto">
+              {distributors.length === 0 ? (
+                <p className="text-sm text-gray-500">No distributors available</p>
+              ) : (
+                distributors.map((dist) => (
+                  <button
+                    key={dist.partner_id}
+                    onClick={() => handleMapScheme(dist.partner_id)}
+                    className="w-full text-left p-3 border rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition"
+                  >
+                    <div className="font-medium">{dist.name}</div>
+                    <div className="text-xs text-gray-500">{dist.partner_id}</div>
+                  </button>
+                ))
+              )}
+            </div>
+            <button onClick={() => setShowMappingModal(false)} className="mt-4 px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg w-full">Close</button>
+          </div>
+        </div>
+      )}
+
+      {/* Configuration Modal (BBPS / Payout / MDR) */}
+      {showConfigModal && configType && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-lg p-6 my-8">
+            <h2 className="text-lg font-bold mb-4 flex items-center gap-2">
+              {configType === 'bbps' && <><CreditCard className="w-5 h-5 text-blue-600" /> Add BBPS Commission</>}
+              {configType === 'payout' && <><Banknote className="w-5 h-5 text-green-600" /> Add Payout Charge</>}
+              {configType === 'mdr' && <><TrendingUp className="w-5 h-5 text-orange-600" /> Add MDR Rate</>}
+            </h2>
+
+            {/* BBPS Form */}
+            {configType === 'bbps' && (
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-sm font-medium mb-1">Category (leave empty for all)</label>
+                  <select value={bbpsForm.category} onChange={(e) => setBbpsForm({ ...bbpsForm, category: e.target.value })}
+                    className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700">
+                    <option value="">All Categories</option>
+                    <option value="Electricity">Electricity</option>
+                    <option value="Gas">Gas</option>
+                    <option value="Water">Water</option>
+                    <option value="Insurance">Insurance</option>
+                    <option value="Credit Card">Credit Card</option>
+                    <option value="Loan">Loan</option>
+                    <option value="Broadband">Broadband</option>
+                    <option value="DTH">DTH</option>
+                    <option value="Mobile Postpaid">Mobile Postpaid</option>
+                    <option value="Mobile Prepaid">Mobile Prepaid</option>
+                    <option value="FASTag">FASTag</option>
+                    <option value="Municipal Tax">Municipal Tax</option>
+                  </select>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Min Amount (₹)</label>
+                    <input type="number" value={bbpsForm.min_amount} onChange={(e) => setBbpsForm({ ...bbpsForm, min_amount: parseFloat(e.target.value) || 0 })}
+                      className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Max Amount (₹)</label>
+                    <input type="number" value={bbpsForm.max_amount} onChange={(e) => setBbpsForm({ ...bbpsForm, max_amount: parseFloat(e.target.value) || 999999999 })}
+                      className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
+                  </div>
+                </div>
+                {[
+                  { label: 'Retailer Charge', key: 'retailer_charge', typeKey: 'retailer_charge_type' },
+                  { label: 'Retailer Commission', key: 'retailer_commission', typeKey: 'retailer_commission_type' },
+                  { label: 'Distributor Commission', key: 'distributor_commission', typeKey: 'distributor_commission_type' },
+                  { label: 'MD Commission', key: 'md_commission', typeKey: 'md_commission_type' },
+                  { label: 'Company Earning', key: 'company_charge', typeKey: 'company_charge_type' },
+                ].map(({ label, key, typeKey }) => (
+                  <div key={key} className="grid grid-cols-3 gap-2 items-end">
+                    <div className="col-span-2">
+                      <label className="block text-xs font-medium mb-1">{label}</label>
+                      <input type="number" step="0.01" value={(bbpsForm as any)[key]}
+                        onChange={(e) => setBbpsForm({ ...bbpsForm, [key]: parseFloat(e.target.value) || 0 })}
+                        className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
+                    </div>
+                    <div>
+                      <select value={(bbpsForm as any)[typeKey]}
+                        onChange={(e) => setBbpsForm({ ...bbpsForm, [typeKey]: e.target.value })}
+                        className="w-full px-2 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700">
+                        <option value="flat">₹ Flat</option>
+                        <option value="percentage">% Pct</option>
+                      </select>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Payout Form */}
+            {configType === 'payout' && (
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-sm font-medium mb-1">Transfer Mode</label>
+                  <select value={payoutForm.transfer_mode} onChange={(e) => setPayoutForm({ ...payoutForm, transfer_mode: e.target.value as any })}
+                    className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700">
+                    <option value="IMPS">IMPS</option>
+                    <option value="NEFT">NEFT</option>
+                  </select>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Min Amount (₹)</label>
+                    <input type="number" value={payoutForm.min_amount} onChange={(e) => setPayoutForm({ ...payoutForm, min_amount: parseFloat(e.target.value) || 0 })}
+                      className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Max Amount (₹)</label>
+                    <input type="number" value={payoutForm.max_amount} onChange={(e) => setPayoutForm({ ...payoutForm, max_amount: parseFloat(e.target.value) || 999999999 })}
+                      className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
+                  </div>
+                </div>
+                {[
+                  { label: 'Retailer Charge', key: 'retailer_charge', typeKey: 'retailer_charge_type' },
+                  { label: 'Retailer Commission', key: 'retailer_commission', typeKey: 'retailer_commission_type' },
+                  { label: 'Distributor Commission', key: 'distributor_commission', typeKey: 'distributor_commission_type' },
+                  { label: 'MD Commission', key: 'md_commission', typeKey: 'md_commission_type' },
+                  { label: 'Company Earning', key: 'company_charge', typeKey: 'company_charge_type' },
+                ].map(({ label, key, typeKey }) => (
+                  <div key={key} className="grid grid-cols-3 gap-2 items-end">
+                    <div className="col-span-2">
+                      <label className="block text-xs font-medium mb-1">{label}</label>
+                      <input type="number" step="0.01" value={(payoutForm as any)[key]}
+                        onChange={(e) => setPayoutForm({ ...payoutForm, [key]: parseFloat(e.target.value) || 0 })}
+                        className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
+                    </div>
+                    <div>
+                      <select value={(payoutForm as any)[typeKey]}
+                        onChange={(e) => setPayoutForm({ ...payoutForm, [typeKey]: e.target.value })}
+                        className="w-full px-2 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700">
+                        <option value="flat">₹ Flat</option>
+                        <option value="percentage">% Pct</option>
+                      </select>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* MDR Form */}
+            {configType === 'mdr' && (
+              <div className="space-y-3">
+                <div className="grid grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Mode</label>
+                    <select value={mdrForm.mode} onChange={(e) => {
+                      const newMode = e.target.value as 'CARD' | 'UPI'
+                      const defaultCardType = newMode === 'UPI' ? 'UPI' : ''
+                      const availableBrands = getAvailableBrands(newMode, defaultCardType)
+                      setMdrForm({ 
+                        ...mdrForm, 
+                        mode: newMode, 
+                        card_type: defaultCardType,
+                        brand_type: availableBrands.length > 0 && availableBrands.includes(mdrForm.brand_type) ? mdrForm.brand_type : ''
+                      })
+                    }}
+                      className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700">
+                      <option value="CARD">CARD</option>
+                      <option value="UPI">UPI</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Card Type</label>
+                    <select value={mdrForm.card_type} onChange={(e) => {
+                      const newCardType = e.target.value
+                      const availableBrands = getAvailableBrands(mdrForm.mode, newCardType)
+                      setMdrForm({ 
+                        ...mdrForm, 
+                        card_type: newCardType,
+                        brand_type: availableBrands.length > 0 && availableBrands.includes(mdrForm.brand_type) ? mdrForm.brand_type : ''
+                      })
+                    }}
+                      className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700">
+                      {mdrForm.mode === 'CARD' ? (
+                        <>
+                          <option value="">Any</option>
+                          <option value="CREDIT">CREDIT</option>
+                          <option value="DEBIT">DEBIT</option>
+                          <option value="PREPAID">PREPAID</option>
+                        </>
+                      ) : (
+                        <>
+                          <option value="UPI">UPI</option>
+                          <option value="CREDIT">CREDIT</option>
+                        </>
+                      )}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Brand</label>
+                    <select 
+                      value={mdrForm.brand_type} 
+                      onChange={(e) => setMdrForm({ ...mdrForm, brand_type: e.target.value })}
+                      className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700"
+                      disabled={getAvailableBrands(mdrForm.mode, mdrForm.card_type).length === 0}
+                    >
+                      <option value="">Select Brand</option>
+                      {getAvailableBrands(mdrForm.mode, mdrForm.card_type).map((brand) => (
+                        <option key={brand} value={brand}>{brand}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                <p className="text-xs text-gray-500">T+0 MDR = T+1 MDR + 1% (auto calculated if left as 0)</p>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium mb-1">Retailer MDR T+1 (%)</label>
+                    <input type="number" step="0.01" value={mdrForm.retailer_mdr_t1}
+                      onChange={(e) => {
+                        const t1 = parseFloat(e.target.value) || 0
+                        setMdrForm({ ...mdrForm, retailer_mdr_t1: t1, retailer_mdr_t0: mdrForm.retailer_mdr_t0 === 0 ? t1 + 1 : mdrForm.retailer_mdr_t0 })
+                      }}
+                      className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium mb-1">Retailer MDR T+0 (%)</label>
+                    <input type="number" step="0.01" value={mdrForm.retailer_mdr_t0}
+                      onChange={(e) => setMdrForm({ ...mdrForm, retailer_mdr_t0: parseFloat(e.target.value) || 0 })}
+                      className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium mb-1">Distributor MDR T+1 (%)</label>
+                    <input type="number" step="0.01" value={mdrForm.distributor_mdr_t1}
+                      onChange={(e) => {
+                        const t1 = parseFloat(e.target.value) || 0
+                        setMdrForm({ ...mdrForm, distributor_mdr_t1: t1, distributor_mdr_t0: mdrForm.distributor_mdr_t0 === 0 ? t1 + 1 : mdrForm.distributor_mdr_t0 })
+                      }}
+                      className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium mb-1">Distributor MDR T+0 (%)</label>
+                    <input type="number" step="0.01" value={mdrForm.distributor_mdr_t0}
+                      onChange={(e) => setMdrForm({ ...mdrForm, distributor_mdr_t0: parseFloat(e.target.value) || 0 })}
+                      className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium mb-1">MD MDR T+1 (%)</label>
+                    <input type="number" step="0.01" value={mdrForm.md_mdr_t1}
+                      onChange={(e) => {
+                        const t1 = parseFloat(e.target.value) || 0
+                        setMdrForm({ ...mdrForm, md_mdr_t1: t1, md_mdr_t0: mdrForm.md_mdr_t0 === 0 ? t1 + 1 : mdrForm.md_mdr_t0 })
+                      }}
+                      className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium mb-1">MD MDR T+0 (%)</label>
+                    <input type="number" step="0.01" value={mdrForm.md_mdr_t0}
+                      onChange={(e) => setMdrForm({ ...mdrForm, md_mdr_t0: parseFloat(e.target.value) || 0 })}
+                      className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2 mt-5">
+              <button onClick={() => setShowConfigModal(false)} className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg">Cancel</button>
+              <button onClick={handleSaveConfig} className="px-4 py-2 text-sm bg-yellow-600 text-white rounded-lg hover:bg-yellow-700">
+                Save Configuration
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// Change Password Form Component
+function ChangePasswordForm({ onPasswordChange, loading }: ChangePasswordFormProps) {
+  const [currentPassword, setCurrentPassword] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [showPasswords, setShowPasswords] = useState({ current: false, new: false, confirm: false })
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    onPasswordChange(currentPassword, newPassword, confirmPassword)
+    setCurrentPassword('')
+    setNewPassword('')
+    setConfirmPassword('')
+  }
+
+  return (
+    <div className="p-4 border border-gray-200 dark:border-gray-700 rounded-lg">
+      <h4 className="font-medium text-gray-900 dark:text-white mb-4">Change Password</h4>
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Current Password</label>
+          <div className="relative">
+            <input
+              type={showPasswords.current ? 'text' : 'password'}
+              value={currentPassword}
+              onChange={(e) => setCurrentPassword(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white pr-10"
+              required
+            />
+            <button
+              type="button"
+              onClick={() => setShowPasswords({ ...showPasswords, current: !showPasswords.current })}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+            >
+              <Eye className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">New Password</label>
+          <div className="relative">
+            <input
+              type={showPasswords.new ? 'text' : 'password'}
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white pr-10"
+              required
+              minLength={6}
+            />
+            <button
+              type="button"
+              onClick={() => setShowPasswords({ ...showPasswords, new: !showPasswords.new })}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+            >
+              <Eye className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Confirm New Password</label>
+          <div className="relative">
+            <input
+              type={showPasswords.confirm ? 'text' : 'password'}
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white pr-10"
+              required
+              minLength={6}
+            />
+            <button
+              type="button"
+              onClick={() => setShowPasswords({ ...showPasswords, confirm: !showPasswords.confirm })}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+            >
+              <Eye className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+        <button
+          type="submit"
+          disabled={loading}
+          className="w-full px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 disabled:opacity-50 transition-colors"
+        >
+          {loading ? 'Changing Password...' : 'Change Password'}
+        </button>
+      </form>
+    </div>
+  )
+}
+
 // Settings Tab
 function SettingsTab() {
+  const { user } = useAuth()
+  const [activeSection, setActiveSection] = useState<'profile' | 'account' | 'notifications' | 'security' | 'preferences'>('profile')
+  const [loading, setLoading] = useState(false)
+  const [success, setSuccess] = useState('')
+  const [error, setError] = useState('')
+  
+  const [profileData, setProfileData] = useState({
+    name: user?.name || '',
+    email: user?.email || '',
+    phone: '',
+    business_name: '',
+    address: '',
+    city: '',
+    state: '',
+    pincode: '',
+  })
+
+  const [accountSettings, setAccountSettings] = useState({
+    email_notifications: true,
+    sms_notifications: false,
+    push_notifications: true,
+    marketing_emails: false,
+  })
+
+  const [securitySettings, setSecuritySettings] = useState({
+    two_factor_enabled: false,
+    session_timeout: 30,
+  })
+
+  useEffect(() => {
+    if (user) {
+      setProfileData(prev => ({
+        ...prev,
+        name: user.name || '',
+        email: user.email || '',
+      }))
+    }
+  }, [user])
+
+  const fetchUserData = async () => {
+    if (!user?.partner_id) return
+    try {
+      const { data, error } = await supabase
+        .from('master_distributors')
+        .select('*')
+        .eq('partner_id', user.partner_id)
+        .maybeSingle()
+      
+      if (error) throw error
+      if (data) {
+        setProfileData({
+          name: data.name || user.name || '',
+          email: data.email || user.email || '',
+          phone: data.phone || '',
+          business_name: data.business_name || '',
+          address: data.address || '',
+          city: data.city || '',
+          state: data.state || '',
+          pincode: data.pincode || '',
+        })
+      }
+    } catch (err: any) {
+      console.error('Error fetching user data:', err)
+    }
+  }
+
+  useEffect(() => {
+    fetchUserData()
+  }, [user?.partner_id])
+
+  const handleSaveProfile = async () => {
+    if (!user?.partner_id) return
+    setLoading(true)
+    setError('')
+    setSuccess('')
+    
+    try {
+      const { error } = await supabase
+        .from('master_distributors')
+        .update({
+          name: profileData.name,
+          phone: profileData.phone,
+          business_name: profileData.business_name || null,
+          address: profileData.address || null,
+          city: profileData.city || null,
+          state: profileData.state || null,
+          pincode: profileData.pincode || null,
+        })
+        .eq('partner_id', user.partner_id)
+      
+      if (error) throw error
+      setSuccess('Profile updated successfully!')
+      setTimeout(() => setSuccess(''), 3000)
+    } catch (err: any) {
+      setError(err.message || 'Failed to update profile')
+      setTimeout(() => setError(''), 3000)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleChangePassword = async (currentPassword: string, newPassword: string, confirmPassword: string) => {
+    if (newPassword !== confirmPassword) {
+      setError('New passwords do not match')
+      setTimeout(() => setError(''), 3000)
+      return
+    }
+    
+    if (newPassword.length < 6) {
+      setError('Password must be at least 6 characters')
+      setTimeout(() => setError(''), 3000)
+      return
+    }
+
+    setLoading(true)
+    setError('')
+    setSuccess('')
+    
+    try {
+      // Update password using Supabase auth
+      const { error } = await supabase.auth.updateUser({
+        password: newPassword
+      })
+      
+      if (error) throw error
+      setSuccess('Password changed successfully!')
+      setTimeout(() => setSuccess(''), 3000)
+    } catch (err: any) {
+      setError(err.message || 'Failed to change password')
+      setTimeout(() => setError(''), 3000)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const settingsSections = [
+    { id: 'profile', label: 'Profile', icon: User },
+    { id: 'account', label: 'Account', icon: Settings },
+    { id: 'notifications', label: 'Notifications', icon: Bell },
+    { id: 'security', label: 'Security', icon: Shield },
+    { id: 'preferences', label: 'Preferences', icon: Sliders },
+  ]
+
   return (
-    <div className="bg-white rounded-xl shadow-lg border border-gray-200 p-6">
-      <h3 className="text-lg font-semibold mb-4">Settings</h3>
-      <p className="text-gray-600">Settings functionality coming soon...</p>
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
+            <Settings className="w-6 h-6 text-yellow-600" />
+            Settings
+          </h2>
+          <p className="text-sm text-gray-500 mt-1">Manage your account settings and preferences</p>
+        </div>
+      </div>
+
+      {error && (
+        <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg flex items-center gap-2 text-red-700 dark:text-red-400 text-sm">
+          <AlertCircle className="w-4 h-4" /> {error}
+        </div>
+      )}
+      {success && (
+        <div className="p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg flex items-center gap-2 text-green-700 dark:text-green-400 text-sm">
+          <CheckCircle className="w-4 h-4" /> {success}
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+        {/* Sidebar Navigation */}
+        <div className="lg:col-span-1">
+          <div className="bg-white dark:bg-gray-900 rounded-xl shadow-lg border border-gray-200 dark:border-gray-800 p-2">
+            <nav className="space-y-1">
+              {settingsSections.map((section) => {
+                const Icon = section.icon
+                return (
+                  <button
+                    key={section.id}
+                    onClick={() => setActiveSection(section.id as any)}
+                    className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                      activeSection === section.id
+                        ? 'bg-yellow-50 dark:bg-yellow-900/20 text-yellow-700 dark:text-yellow-400'
+                        : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
+                    }`}
+                  >
+                    <Icon className="w-4 h-4" />
+                    <span>{section.label}</span>
+                  </button>
+                )
+              })}
+            </nav>
+          </div>
+        </div>
+
+        {/* Main Content */}
+        <div className="lg:col-span-3">
+          <div className="bg-white dark:bg-gray-900 rounded-xl shadow-lg border border-gray-200 dark:border-gray-800 p-6">
+            {activeSection === 'profile' && (
+              <div className="space-y-6">
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Profile Information</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Full Name *</label>
+                      <input
+                        type="text"
+                        value={profileData.name}
+                        onChange={(e) => setProfileData({ ...profileData, name: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Email</label>
+                      <input
+                        type="email"
+                        value={profileData.email}
+                        disabled
+                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-gray-50 dark:bg-gray-800 text-gray-500 dark:text-gray-400 cursor-not-allowed"
+                      />
+                      <p className="text-xs text-gray-500 mt-1">Email cannot be changed</p>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Phone</label>
+                      <input
+                        type="tel"
+                        value={profileData.phone}
+                        onChange={(e) => setProfileData({ ...profileData, phone: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Business Name</label>
+                      <input
+                        type="text"
+                        value={profileData.business_name}
+                        onChange={(e) => setProfileData({ ...profileData, business_name: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                      />
+                    </div>
+                    <div className="md:col-span-2">
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Address</label>
+                      <input
+                        type="text"
+                        value={profileData.address}
+                        onChange={(e) => setProfileData({ ...profileData, address: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">City</label>
+                      <input
+                        type="text"
+                        value={profileData.city}
+                        onChange={(e) => setProfileData({ ...profileData, city: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">State</label>
+                      <input
+                        type="text"
+                        value={profileData.state}
+                        onChange={(e) => setProfileData({ ...profileData, state: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Pincode</label>
+                      <input
+                        type="text"
+                        value={profileData.pincode}
+                        onChange={(e) => setProfileData({ ...profileData, pincode: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                      />
+                    </div>
+                  </div>
+                  <div className="mt-6 flex justify-end">
+                    <button
+                      onClick={handleSaveProfile}
+                      disabled={loading}
+                      className="px-6 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 disabled:opacity-50 transition-colors"
+                    >
+                      {loading ? 'Saving...' : 'Save Changes'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {activeSection === 'account' && (
+              <div className="space-y-6">
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Account Settings</h3>
+                  <div className="space-y-4">
+                    <div className="p-4 border border-gray-200 dark:border-gray-700 rounded-lg">
+                      <div className="flex items-center justify-between mb-2">
+                        <div>
+                          <h4 className="font-medium text-gray-900 dark:text-white">Partner ID</h4>
+                          <p className="text-sm text-gray-500 dark:text-gray-400">Your unique partner identifier</p>
+                        </div>
+                        <span className="text-sm font-mono text-gray-700 dark:text-gray-300">{user?.partner_id || 'N/A'}</span>
+                      </div>
+                    </div>
+                    <div className="p-4 border border-gray-200 dark:border-gray-700 rounded-lg">
+                      <div className="flex items-center justify-between mb-2">
+                        <div>
+                          <h4 className="font-medium text-gray-900 dark:text-white">Account Status</h4>
+                          <p className="text-sm text-gray-500 dark:text-gray-400">Current account status</p>
+                        </div>
+                        <span className="px-3 py-1 bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-400 rounded-full text-sm font-medium">
+                          Active
+                        </span>
+                      </div>
+                    </div>
+                    <div className="p-4 border border-gray-200 dark:border-gray-700 rounded-lg">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h4 className="font-medium text-gray-900 dark:text-white">Account Type</h4>
+                          <p className="text-sm text-gray-500 dark:text-gray-400">Your role in the system</p>
+                        </div>
+                        <span className="text-sm text-gray-700 dark:text-gray-300">Master Distributor</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {activeSection === 'notifications' && (
+              <div className="space-y-6">
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Notification Preferences</h3>
+                  <div className="space-y-4">
+                    {Object.entries(accountSettings).map(([key, value]) => (
+                      <div key={key} className="flex items-center justify-between p-4 border border-gray-200 dark:border-gray-700 rounded-lg">
+                        <div>
+                          <h4 className="font-medium text-gray-900 dark:text-white capitalize">
+                            {key.replace(/_/g, ' ')}
+                          </h4>
+                          <p className="text-sm text-gray-500 dark:text-gray-400">
+                            {key.includes('email') && 'Receive email notifications'}
+                            {key.includes('sms') && 'Receive SMS notifications'}
+                            {key.includes('push') && 'Receive push notifications'}
+                            {key.includes('marketing') && 'Receive marketing and promotional emails'}
+                          </p>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={value}
+                            onChange={(e) => setAccountSettings({ ...accountSettings, [key]: e.target.checked })}
+                            className="sr-only peer"
+                          />
+                          <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-yellow-300 dark:peer-focus:ring-yellow-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-yellow-600"></div>
+                        </label>
+                      </div>
+                    ))}
+                    <div className="mt-6 flex justify-end">
+                      <button
+                        onClick={() => {
+                          setSuccess('Notification preferences saved!')
+                          setTimeout(() => setSuccess(''), 3000)
+                        }}
+                        className="px-6 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition-colors"
+                      >
+                        Save Preferences
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {activeSection === 'security' && (
+              <div className="space-y-6">
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Security Settings</h3>
+                  <div className="space-y-6">
+                    <ChangePasswordForm onPasswordChange={handleChangePassword} loading={loading} />
+                    <div className="p-4 border border-gray-200 dark:border-gray-700 rounded-lg">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h4 className="font-medium text-gray-900 dark:text-white">Two-Factor Authentication</h4>
+                          <p className="text-sm text-gray-500 dark:text-gray-400">Add an extra layer of security to your account</p>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={securitySettings.two_factor_enabled}
+                            onChange={(e) => setSecuritySettings({ ...securitySettings, two_factor_enabled: e.target.checked })}
+                            className="sr-only peer"
+                          />
+                          <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-yellow-300 dark:peer-focus:ring-yellow-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-yellow-600"></div>
+                        </label>
+                      </div>
+                    </div>
+                    <div className="p-4 border border-gray-200 dark:border-gray-700 rounded-lg">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h4 className="font-medium text-gray-900 dark:text-white">Session Timeout</h4>
+                          <p className="text-sm text-gray-500 dark:text-gray-400">Automatically log out after inactivity</p>
+                        </div>
+                        <select
+                          value={securitySettings.session_timeout}
+                          onChange={(e) => setSecuritySettings({ ...securitySettings, session_timeout: parseInt(e.target.value) })}
+                          className="px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                        >
+                          <option value={15}>15 minutes</option>
+                          <option value={30}>30 minutes</option>
+                          <option value={60}>1 hour</option>
+                          <option value={120}>2 hours</option>
+                          <option value={0}>Never</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {activeSection === 'preferences' && (
+              <div className="space-y-6">
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Preferences</h3>
+                  <div className="space-y-4">
+                    <div className="p-4 border border-gray-200 dark:border-gray-700 rounded-lg">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h4 className="font-medium text-gray-900 dark:text-white">Language</h4>
+                          <p className="text-sm text-gray-500 dark:text-gray-400">Select your preferred language</p>
+                        </div>
+                        <select className="px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white">
+                          <option value="en">English</option>
+                          <option value="hi">Hindi</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div className="p-4 border border-gray-200 dark:border-gray-700 rounded-lg">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h4 className="font-medium text-gray-900 dark:text-white">Date Format</h4>
+                          <p className="text-sm text-gray-500 dark:text-gray-400">Choose how dates are displayed</p>
+                        </div>
+                        <select className="px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white">
+                          <option value="dd/mm/yyyy">DD/MM/YYYY</option>
+                          <option value="mm/dd/yyyy">MM/DD/YYYY</option>
+                          <option value="yyyy-mm-dd">YYYY-MM-DD</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div className="p-4 border border-gray-200 dark:border-gray-700 rounded-lg">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h4 className="font-medium text-gray-900 dark:text-white">Time Zone</h4>
+                          <p className="text-sm text-gray-500 dark:text-gray-400">Your local time zone</p>
+                        </div>
+                        <select className="px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white">
+                          <option value="IST">IST (Indian Standard Time)</option>
+                          <option value="UTC">UTC</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
     </div>
   )
 }

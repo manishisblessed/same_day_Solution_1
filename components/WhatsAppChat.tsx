@@ -5,7 +5,7 @@ import Link from 'next/link'
 
 export default function WhatsAppChat() {
   // WhatsApp number (format: country code + number without + or spaces)
-  const whatsappNumber = '918130053898' // +91-8130053898
+  const whatsappNumber = '917090601025' // +91-7090601025
   const defaultMessage = 'Hello! I need help with Same Day Solution services.'
 
   const handleWhatsAppClick = () => {

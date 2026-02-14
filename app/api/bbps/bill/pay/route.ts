@@ -194,6 +194,21 @@ export async function POST(request: NextRequest) {
     const walletBalance = balanceData || 0
     // billAmountInRupees already calculated above
     
+    // Fetch retailer's distributor chain for proper scheme hierarchy resolution
+    let distributorId: string | null = null
+    let mdId: string | null = null
+    try {
+      const { data: retailerData } = await supabase
+        .from('retailers')
+        .select('distributor_id, master_distributor_id')
+        .eq('partner_id', user.partner_id)
+        .maybeSingle()
+      distributorId = retailerData?.distributor_id || null
+      mdId = retailerData?.master_distributor_id || null
+    } catch (e) {
+      console.warn('[BBPS Pay] Failed to fetch retailer hierarchy:', e)
+    }
+
     // Calculate BBPS charge via Scheme Engine (fallback to legacy RPC)
     let bbpsCharge = 20 // Default
     let resolvedSchemeId: string | null = null
@@ -205,8 +220,8 @@ export async function POST(request: NextRequest) {
         p_user_id: user.partner_id,
         p_user_role: 'retailer',
         p_service_type: 'bbps',
-        p_distributor_id: null,
-        p_md_id: null,
+        p_distributor_id: distributorId,
+        p_md_id: mdId,
       })
       
       if (schemeResult && schemeResult.length > 0) {

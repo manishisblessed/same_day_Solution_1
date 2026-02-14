@@ -1,11 +1,12 @@
 'use client'
 
 import { useState } from 'react'
-import { usePathname } from 'next/navigation'
+import { usePathname, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { 
   LayoutDashboard, ShoppingCart, Activity, 
-  Settings, TrendingUp, CreditCard, X, Menu, Zap
+  Settings, TrendingUp, CreditCard, X, Menu, Zap,
+  Wallet, Receipt, Banknote, Percent
 } from 'lucide-react'
 
 import { motion, AnimatePresence } from 'framer-motion'
@@ -19,20 +20,29 @@ interface SidebarItem {
 }
 
 const sidebarItems: SidebarItem[] = [
-  { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, href: '/dashboard/retailer' },
+  { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, href: '/dashboard/retailer?tab=dashboard' },
+  { id: 'wallet', label: 'Wallet', icon: Wallet, href: '/dashboard/retailer?tab=wallet' },
   { id: 'services', label: 'Services', icon: Activity, href: '/dashboard/retailer?tab=services' },
-  { id: 'transactions', label: 'Transactions', icon: ShoppingCart, href: '/dashboard/retailer?tab=transactions' },
+  { id: 'bbps', label: 'BBPS Payments', icon: Receipt, href: '/dashboard/retailer?tab=bbps' },
+  { id: 'payout', label: 'Settlement', icon: Banknote, href: '/dashboard/retailer?tab=payout' },
+  { id: 'transactions', label: 'Transactions', icon: CreditCard, href: '/dashboard/retailer?tab=transactions' },
+  { id: 'mdr-schemes', label: 'MDR Schemes', icon: Percent, href: '/dashboard/retailer?tab=mdr-schemes' },
   { id: 'reports', label: 'Reports', icon: TrendingUp, href: '/dashboard/retailer?tab=reports' },
-  { id: 'settings', label: 'Settings', icon: Settings, href: '/dashboard/retailer?tab=settings' },
 ]
 
 export default function RetailerSidebar({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
   const pathname = usePathname()
+  const searchParams = useSearchParams()
   const [hoveredItem, setHoveredItem] = useState<string | null>(null)
 
-  const isActive = (href: string) => {
-    if (href === '/dashboard/retailer') return pathname === '/dashboard/retailer'
-    return pathname.includes(href.split('?')[0])
+  const isActive = (item: SidebarItem) => {
+    const currentTab = searchParams.get('tab')
+    // Dashboard is active when no tab param or tab=dashboard
+    if (item.id === 'dashboard') {
+      return pathname === '/dashboard/retailer' && (!currentTab || currentTab === 'dashboard')
+    }
+    // Other items match by their id against the tab query param
+    return pathname === '/dashboard/retailer' && currentTab === item.id
   }
 
   return (
@@ -57,7 +67,6 @@ export default function RetailerSidebar({ isOpen, onClose }: { isOpen: boolean; 
               className="fixed left-0 top-0 bottom-0 w-64 bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-800 z-50 lg:hidden overflow-y-auto"
             >
               <SidebarContent 
-                pathname={pathname} 
                 isActive={isActive} 
                 hoveredItem={hoveredItem}
                 setHoveredItem={setHoveredItem}
@@ -71,7 +80,6 @@ export default function RetailerSidebar({ isOpen, onClose }: { isOpen: boolean; 
       {/* Desktop Sidebar */}
       <aside className="hidden lg:flex flex-col w-56 bg-gradient-to-b from-white to-gray-50 dark:from-gray-900 dark:to-gray-800 border-r border-gray-200 dark:border-gray-800 h-[calc(100vh-4rem)] fixed left-0 top-16 overflow-y-auto">
         <SidebarContent 
-          pathname={pathname} 
           isActive={isActive} 
           hoveredItem={hoveredItem}
           setHoveredItem={setHoveredItem}
@@ -82,14 +90,12 @@ export default function RetailerSidebar({ isOpen, onClose }: { isOpen: boolean; 
 }
 
 function SidebarContent({ 
-  pathname, 
   isActive, 
   hoveredItem, 
   setHoveredItem,
   onClose 
 }: { 
-  pathname: string
-  isActive: (href: string) => boolean
+  isActive: (item: SidebarItem) => boolean
   hoveredItem: string | null
   setHoveredItem: (id: string | null) => void
   onClose?: () => void
@@ -117,7 +123,7 @@ function SidebarContent({
       {/* Navigation - Compact */}
       <nav className="flex-1 p-2 space-y-1 overflow-y-auto">
         {sidebarItems.map((item) => {
-          const active = isActive(item.href)
+          const active = isActive(item)
           const Icon = item.icon
           
           return (

@@ -5,8 +5,8 @@ import { usePathname } from 'next/navigation'
 import Link from 'next/link'
 import { 
   LayoutDashboard, Users, Package, Crown, 
-  BarChart3, Settings, FileText, TrendingUp,
-  Activity, Zap, X, Menu, CreditCard, Receipt, CheckCircle2,
+  BarChart3, Settings, FileText,
+  Activity, X, Menu, CreditCard, Receipt, CheckCircle2,
   Building2, FileBarChart, Layers
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -25,12 +25,11 @@ const sidebarItems: SidebarItem[] = [
   { id: 'distributors', label: 'Distributors', icon: Package, href: '/admin?tab=distributors' },
   { id: 'master-distributors', label: 'Master Distributors', icon: Crown, href: '/admin?tab=master-distributors' },
   { id: 'scheme-management', label: 'Scheme Management', icon: Layers, href: '/admin/scheme-management' },
-  { id: 'mdr-schemes', label: 'MDR Schemes', icon: TrendingUp, href: '/admin/mdr-schemes' },
-  { id: 'partners', label: 'Partners', icon: Building2, href: '/admin/partners', badge: undefined },
+  { id: 'partners', label: 'Partners', icon: Building2, href: '/admin?tab=partners', badge: undefined },
   { id: 'pos-machines', label: 'POS Machines', icon: CreditCard, href: '/admin?tab=pos-machines' },
   { id: 'razorpay-transactions', label: 'Razorpay Transactions', icon: Receipt, href: '/admin/razorpay-transactions' },
   { id: 'services', label: 'Services', icon: Activity, href: '/admin?tab=services' },
-  { id: 'reports', label: 'Reports', icon: FileBarChart, href: '/admin/reports' },
+  { id: 'reports', label: 'Reports', icon: FileBarChart, href: '/admin?tab=reports' },
   { id: 'settings', label: 'Settings', icon: Settings, href: '/admin/settings' },
 ]
 
@@ -176,26 +175,6 @@ function SidebarContent({
           )
         })}
       </nav>
-
-      {/* Quick Stats */}
-      <div className="p-4 border-t border-gray-200 dark:border-gray-800">
-        <div className="bg-gradient-to-br from-primary-500/10 to-secondary-500/10 dark:from-primary-500/20 dark:to-secondary-500/20 rounded-xl p-4 border border-primary-200/50 dark:border-primary-800/50">
-          <div className="flex items-center space-x-2 mb-2">
-            <Zap className="w-4 h-4 text-primary-600 dark:text-primary-400" />
-            <span className="text-xs font-semibold text-gray-700 dark:text-gray-300">Quick Stats</span>
-          </div>
-          <div className="space-y-1">
-            <div className="flex justify-between text-xs">
-              <span className="text-gray-600 dark:text-gray-400">Total Users</span>
-              <span className="font-semibold text-gray-900 dark:text-white">-</span>
-            </div>
-            <div className="flex justify-between text-xs">
-              <span className="text-gray-600 dark:text-gray-400">Active Today</span>
-              <span className="font-semibold text-gray-900 dark:text-white">-</span>
-            </div>
-          </div>
-        </div>
-      </div>
     </div>
   )
 }

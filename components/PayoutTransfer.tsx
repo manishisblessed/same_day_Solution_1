@@ -121,10 +121,66 @@ export default function PayoutTransfer({ title }: PayoutTransferProps = {}) {
   const [savingBeneficiary, setSavingBeneficiary] = useState(false)
   const [showNewAccountForm, setShowNewAccountForm] = useState(false) // Track if user wants to add new account
   
-  // Charges
+  // Scheme-based charges
+  const [schemeCharges, setSchemeCharges] = useState<{
+    imps: number
+    neft: number
+    schemeName: string | null
+    resolved: boolean
+  }>({ imps: 5, neft: 3, schemeName: null, resolved: false })
+  const [loadingSchemeCharges, setLoadingSchemeCharges] = useState(false)
+
+  // Fetch scheme-based payout charges for the current user
+  const fetchSchemeCharges = useCallback(async () => {
+    if (!user?.partner_id) return
+    setLoadingSchemeCharges(true)
+    try {
+      const res = await fetch(`/api/schemes/resolve-charges?service_type=payout&amount=1&transfer_mode=IMPS&user_id=${user.partner_id}`)
+      const data = await res.json()
+      if (data.resolved && data.slabs && data.slabs.length > 0) {
+        // Parse slabs to get default IMPS/NEFT charges
+        const impsSlabs = data.slabs.filter((s: any) => s.transfer_mode === 'IMPS')
+        const neftSlabs = data.slabs.filter((s: any) => s.transfer_mode === 'NEFT')
+        // Use the first slab's charge as the default display charge
+        const impsCharge = impsSlabs.length > 0 ? parseFloat(impsSlabs[0].retailer_charge) || 5 : 5
+        const neftCharge = neftSlabs.length > 0 ? parseFloat(neftSlabs[0].retailer_charge) || 3 : 3
+        setSchemeCharges({
+          imps: impsCharge,
+          neft: neftCharge,
+          schemeName: data.scheme?.name || null,
+          resolved: true,
+        })
+      }
+    } catch (err) {
+      console.warn('[PayoutTransfer] Scheme charge fetch failed, using defaults:', err)
+    } finally {
+      setLoadingSchemeCharges(false)
+    }
+  }, [user?.partner_id])
+
+  // Fetch exact charge for the entered amount and selected transfer mode
+  const fetchExactCharge = useCallback(async (amt: number, mode: string) => {
+    if (!user?.partner_id || amt <= 0) return
+    try {
+      const res = await fetch(`/api/schemes/resolve-charges?service_type=payout&amount=${amt}&transfer_mode=${mode}&user_id=${user.partner_id}`)
+      const data = await res.json()
+      if (data.resolved && data.charges) {
+        const newCharge = data.charges.retailer_charge
+        setSchemeCharges(prev => ({
+          ...prev,
+          [mode === 'IMPS' ? 'imps' : 'neft']: newCharge,
+          schemeName: data.scheme?.name || prev.schemeName,
+          resolved: true,
+        }))
+      }
+    } catch (err) {
+      console.warn('[PayoutTransfer] Exact charge fetch failed:', err)
+    }
+  }, [user?.partner_id])
+
   const charges = useMemo(() => {
-    return transferMode === 'IMPS' ? 5 : 3
-  }, [transferMode])
+    return transferMode === 'IMPS' ? schemeCharges.imps : schemeCharges.neft
+  }, [transferMode, schemeCharges])
   
   const amountNum = useMemo(() => {
     const num = parseFloat(amount)
@@ -511,10 +567,20 @@ export default function PayoutTransfer({ title }: PayoutTransferProps = {}) {
     fetchBanks()
     fetchRecentTransactions()
     fetchSavedBeneficiaries()
+    fetchSchemeCharges()
     
     const interval = setInterval(fetchWalletBalance, 15000)
     return () => clearInterval(interval)
-  }, [fetchWalletBalance, fetchBanks, fetchRecentTransactions, fetchSavedBeneficiaries])
+  }, [fetchWalletBalance, fetchBanks, fetchRecentTransactions, fetchSavedBeneficiaries, fetchSchemeCharges])
+
+  // Fetch exact charge when amount or transfer mode changes (debounced)
+  useEffect(() => {
+    if (amountNum <= 0) return
+    const timer = setTimeout(() => {
+      fetchExactCharge(amountNum, transferMode)
+    }, 500) // Debounce 500ms
+    return () => clearTimeout(timer)
+  }, [amountNum, transferMode, fetchExactCharge])
 
   // Auto-poll disabled - user can manually check status via "Check Status" button
   // This prevents unnecessary spinning animations and API calls
@@ -1386,7 +1452,6 @@ export default function PayoutTransfer({ title }: PayoutTransferProps = {}) {
                       }`}
                     >
                       IMPS (Instant)
-                      <span className="block text-xs opacity-70">₹5 charges</span>
                     </button>
                     <button
                       onClick={() => setTransferMode('NEFT')}
@@ -1397,7 +1462,6 @@ export default function PayoutTransfer({ title }: PayoutTransferProps = {}) {
                       }`}
                     >
                       NEFT
-                      <span className="block text-xs opacity-70">₹3 charges</span>
                     </button>
                   </div>
                 </div>
@@ -1421,6 +1485,12 @@ export default function PayoutTransfer({ title }: PayoutTransferProps = {}) {
               {/* Amount Summary */}
               {amountNum > 0 && (
                 <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4">
+                  {schemeCharges.resolved && schemeCharges.schemeName && (
+                    <div className="text-xs text-purple-600 dark:text-purple-400 mb-2 flex items-center gap-1">
+                      <span className="inline-block w-2 h-2 bg-purple-500 rounded-full"></span>
+                      Scheme: {schemeCharges.schemeName}
+                    </div>
+                  )}
                   <div className="flex justify-between text-sm mb-2">
                     <span className="text-gray-600 dark:text-gray-400">Transfer Amount</span>
                     <span className="text-gray-900 dark:text-white">₹{amountNum.toLocaleString('en-IN')}</span>

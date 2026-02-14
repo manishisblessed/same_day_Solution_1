@@ -279,7 +279,7 @@ export default function SessionTimer({
 
       // Session expired - time reached 0
       if (currentTime <= 0) {
-        console.log('⏰ SessionTimer: Time reached 0 - session expired!')
+        console.log('⏰ SessionTimer: Time reached 0 - session expired! Auto-logging out immediately...')
         isExpiredRef.current = true
         showWarningRef.current = false
         setIsExpired(true)
@@ -289,6 +289,11 @@ export default function SessionTimer({
         if (timerRef.current) {
           clearInterval(timerRef.current)
           timerRef.current = null
+        }
+
+        // Immediately logout when session expires (no delay)
+        if (!logoutInProgressRef.current) {
+          handleLogoutRef.current()
         }
       }
     }, 1000)
@@ -302,22 +307,18 @@ export default function SessionTimer({
   }, [user]) // Only depends on user - warningTime is read from ref
 
   // ========================================
-  // AUTO LOGOUT when session expires
+  // AUTO LOGOUT when session expires (Safety Net)
   // ========================================
-  // CRITICAL FIX: Uses handleLogoutRef instead of handleLogout in deps.
-  // This prevents the effect from restarting (and clearing timers) when
-  // AuthContext re-renders and creates a new logout function reference.
+  // This is a safety net in case the immediate logout in the timer interval doesn't fire
+  // The primary logout happens immediately when time reaches 0 in the countdown interval
   useEffect(() => {
     if (isExpired && !logoutInProgressRef.current) {
-      console.log('⏰ SessionTimer: isExpired=true, auto logout in 2 seconds...')
+      console.log('⏰ SessionTimer: isExpired=true, safety net - forcing logout immediately...')
       
-      // Give 2 seconds to show the "Session Expired" modal, then force logout
-      const logoutTimer = setTimeout(() => {
-        console.log('⏰ SessionTimer: Executing auto logout now!')
-        handleLogoutRef.current()
-      }, 2000)
+      // Immediate logout (no delay) - this is a safety net
+      handleLogoutRef.current()
       
-      // Safety net: if the primary logout somehow doesn't fire, force redirect after 5 seconds
+      // Additional safety net: if logout still doesn't happen after 3 seconds, force redirect
       const safetyTimer = setTimeout(() => {
         if (!logoutInProgressRef.current) {
           console.log('⏰ SessionTimer: Safety net - forcing redirect!')
@@ -328,10 +329,9 @@ export default function SessionTimer({
           const redirectPath = userRole === 'admin' ? '/admin/login' : loginPath
           window.location.href = redirectPath
         }
-      }, 5000)
+      }, 3000)
       
       return () => {
-        clearTimeout(logoutTimer)
         clearTimeout(safetyTimer)
       }
     }

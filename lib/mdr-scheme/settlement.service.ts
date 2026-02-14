@@ -22,6 +22,8 @@ import type { GlobalScheme, RetailerScheme } from '@/types/mdr-scheme.types';
 
 /**
  * Calculate MDR and fees for a transaction
+ * First tries the new scheme management system (schemes + scheme_mdr_rates + scheme_mappings),
+ * then falls back to the legacy system (retailer_schemes / global_schemes).
  */
 export async function calculateMDR(
   input: SettlementCalculationInput
@@ -32,44 +34,141 @@ export async function calculateMDR(
     const card_type = normalizeCardType(input.card_type || undefined);
     const brand_type = normalizeBrandType(input.brand_type || undefined);
 
-    // Get scheme (retailer scheme first, then global scheme)
-    const { scheme, scheme_type } = await getSchemeForTransaction({
-      mode,
-      card_type,
-      brand_type,
-      retailer_id: input.retailer_id,
-      distributor_id: input.distributor_id || undefined,
-    });
+    let retailer_mdr: number | null = null;
+    let distributor_mdr: number | null = null;
+    let usedSchemeId: string | null = null;
+    let usedSchemeType: 'global' | 'custom' = 'global';
 
-    if (!scheme) {
-      return {
-        success: false,
-        error: `No active scheme found for mode: ${mode}, card_type: ${card_type || 'N/A'}, brand_type: ${brand_type || 'N/A'}`,
-      };
+    // ================================================================
+    // Try NEW scheme management system first (scheme_mdr_rates)
+    // ================================================================
+    try {
+      const supabase = getSupabaseAdmin();
+      
+      // Get retailer's distributor chain for proper hierarchy resolution
+      let distributorId: string | null = input.distributor_id || null;
+      let mdId: string | null = null;
+      
+      const { data: retailerData } = await supabase
+        .from('retailers')
+        .select('distributor_id, master_distributor_id')
+        .eq('partner_id', input.retailer_id)
+        .maybeSingle();
+      
+      if (retailerData) {
+        distributorId = retailerData.distributor_id || distributorId;
+        mdId = retailerData.master_distributor_id || null;
+      }
+
+      const { data: schemeResult } = await supabase.rpc('resolve_scheme_for_user', {
+        p_user_id: input.retailer_id,
+        p_user_role: 'retailer',
+        p_service_type: 'mdr',
+        p_distributor_id: distributorId,
+        p_md_id: mdId,
+      });
+
+      if (schemeResult && schemeResult.length > 0) {
+        const resolved = schemeResult[0];
+        
+        // Look for matching MDR rate in scheme_mdr_rates
+        let query = supabase
+          .from('scheme_mdr_rates')
+          .select('*')
+          .eq('scheme_id', resolved.scheme_id)
+          .eq('status', 'active')
+          .eq('mode', mode);
+        
+        if (card_type) query = query.eq('card_type', card_type);
+        if (brand_type) query = query.eq('brand_type', brand_type);
+        
+        const { data: mdrRates } = await query.limit(1);
+        
+        // If exact match not found, try without brand_type
+        let mdrRate = mdrRates && mdrRates.length > 0 ? mdrRates[0] : null;
+        if (!mdrRate && brand_type) {
+          const { data: fallbackRates } = await supabase
+            .from('scheme_mdr_rates')
+            .select('*')
+            .eq('scheme_id', resolved.scheme_id)
+            .eq('status', 'active')
+            .eq('mode', mode)
+            .is('brand_type', null)
+            .limit(1);
+          mdrRate = fallbackRates && fallbackRates.length > 0 ? fallbackRates[0] : null;
+        }
+        // If still not found, try without card_type too
+        if (!mdrRate && card_type) {
+          const { data: fallbackRates } = await supabase
+            .from('scheme_mdr_rates')
+            .select('*')
+            .eq('scheme_id', resolved.scheme_id)
+            .eq('status', 'active')
+            .eq('mode', mode)
+            .is('card_type', null)
+            .is('brand_type', null)
+            .limit(1);
+          mdrRate = fallbackRates && fallbackRates.length > 0 ? fallbackRates[0] : null;
+        }
+
+        if (mdrRate) {
+          if (input.settlement_type === 'T0') {
+            retailer_mdr = parseFloat(mdrRate.retailer_mdr_t0) || 0;
+            distributor_mdr = parseFloat(mdrRate.distributor_mdr_t0) || 0;
+          } else {
+            retailer_mdr = parseFloat(mdrRate.retailer_mdr_t1) || 0;
+            distributor_mdr = parseFloat(mdrRate.distributor_mdr_t1) || 0;
+          }
+          usedSchemeId = resolved.scheme_id;
+          usedSchemeType = (resolved.scheme_type === 'global' ? 'global' : 'custom') as 'global' | 'custom';
+          console.log(`[MDR] New scheme "${resolved.scheme_name}" resolved via ${resolved.resolved_via}, retailer_mdr: ${retailer_mdr}%, distributor_mdr: ${distributor_mdr}%`);
+        }
+      }
+    } catch (newSchemeErr) {
+      console.warn('[MDR] New scheme resolution failed, trying legacy:', newSchemeErr);
     }
 
-    // Extract MDR rates based on settlement type
-    let retailer_mdr: number;
-    let distributor_mdr: number;
+    // ================================================================
+    // Fallback to LEGACY scheme system (retailer_schemes / global_schemes)
+    // ================================================================
+    if (retailer_mdr === null || distributor_mdr === null) {
+      const { scheme, scheme_type } = await getSchemeForTransaction({
+        mode,
+        card_type,
+        brand_type,
+        retailer_id: input.retailer_id,
+        distributor_id: input.distributor_id || undefined,
+      });
 
-    if (scheme_type === 'custom') {
-      const customScheme = scheme as RetailerScheme;
-      if (input.settlement_type === 'T0') {
-        retailer_mdr = customScheme.retailer_mdr_t0;
-        distributor_mdr = customScheme.distributor_mdr_t0;
-      } else {
-        retailer_mdr = customScheme.retailer_mdr_t1;
-        distributor_mdr = customScheme.distributor_mdr_t1;
+      if (!scheme) {
+        return {
+          success: false,
+          error: `No active scheme found for mode: ${mode}, card_type: ${card_type || 'N/A'}, brand_type: ${brand_type || 'N/A'}`,
+        };
       }
-    } else {
-      const globalScheme = scheme as GlobalScheme;
-      if (input.settlement_type === 'T0') {
-        retailer_mdr = globalScheme.rt_mdr_t0;
-        distributor_mdr = globalScheme.dt_mdr_t0;
+
+      if (scheme_type === 'custom') {
+        const customScheme = scheme as RetailerScheme;
+        if (input.settlement_type === 'T0') {
+          retailer_mdr = customScheme.retailer_mdr_t0;
+          distributor_mdr = customScheme.distributor_mdr_t0;
+        } else {
+          retailer_mdr = customScheme.retailer_mdr_t1;
+          distributor_mdr = customScheme.distributor_mdr_t1;
+        }
       } else {
-        retailer_mdr = globalScheme.rt_mdr_t1;
-        distributor_mdr = globalScheme.dt_mdr_t1;
+        const globalScheme = scheme as GlobalScheme;
+        if (input.settlement_type === 'T0') {
+          retailer_mdr = globalScheme.rt_mdr_t0;
+          distributor_mdr = globalScheme.dt_mdr_t0;
+        } else {
+          retailer_mdr = globalScheme.rt_mdr_t1;
+          distributor_mdr = globalScheme.dt_mdr_t1;
+        }
       }
+
+      usedSchemeId = scheme.id;
+      usedSchemeType = scheme_type || 'global';
     }
 
     // Calculate fees (with 4 decimal precision)
@@ -109,8 +208,8 @@ export async function calculateMDR(
         distributor_margin,
         company_earning,
         retailer_settlement_amount,
-        scheme_type: scheme_type || 'global',
-        scheme_id: scheme.id,
+        scheme_type: usedSchemeType,
+        scheme_id: usedSchemeId || '',
       },
     };
   } catch (error: any) {

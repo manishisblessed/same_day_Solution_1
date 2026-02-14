@@ -10,7 +10,8 @@ import {
   TrendingUp, DollarSign, Users, Activity, 
   ShoppingCart, CreditCard, ArrowUpRight, Menu,
   RefreshCw, Settings, X, Check, AlertCircle, Eye, Receipt, Wallet, Download,
-  Send, Banknote, Lock, EyeOff, Shield, Key, Percent, Smartphone, Globe, Info
+  Send, Banknote, Lock, EyeOff, Shield, Key, Percent, Smartphone, Globe, Info,
+  Network, Link2, Building2, Phone, Mail, Calendar
 } from 'lucide-react'
 import TransactionsTable from '@/components/TransactionsTable'
 import BBPSTransactionsTable from '@/components/BBPSTransactionsTable'
@@ -84,6 +85,9 @@ function RetailerDashboardContent() {
       if (tab !== activeTab) {
         setActiveTab(tab as TabType)
       }
+    } else if (!tab && activeTab !== 'dashboard') {
+      // If no tab param, default to dashboard
+      setActiveTab('dashboard')
     }
   }, [searchParams, activeTab])
 
@@ -344,45 +348,8 @@ function RetailerDashboardContent() {
             </div>
           </motion.div>
 
-          {/* Tabs */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.1 }}
-            className="bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 mb-6 overflow-hidden"
-          >
-            <div className="flex space-x-1 border-b border-gray-200 dark:border-gray-700 p-1 overflow-x-auto">
-              {[
-                { id: 'dashboard' as TabType, label: 'Dashboard', icon: Activity },
-                { id: 'wallet' as TabType, label: 'Wallet', icon: Wallet },
-                { id: 'services' as TabType, label: 'Services', icon: ShoppingCart },
-                { id: 'bbps' as TabType, label: 'BBPS Payments', icon: Receipt },
-                { id: 'payout' as TabType, label: 'Settlement', icon: Banknote },
-                { id: 'transactions' as TabType, label: 'Transactions', icon: CreditCard },
-                { id: 'mdr-schemes' as TabType, label: 'MDR Schemes', icon: Percent },
-                { id: 'reports' as TabType, label: 'Reports', icon: TrendingUp },
-              ].map((tab) => (
-                <button
-                  key={tab.id}
-                  onClick={() => {
-                    setActiveTab(tab.id)
-                    router.push(`/dashboard/retailer?tab=${tab.id}`, { scroll: false })
-                  }}
-                  className={`relative flex items-center gap-2 px-4 py-2 text-sm font-medium transition-all duration-200 rounded-lg whitespace-nowrap flex-shrink-0 ${
-                    activeTab === tab.id
-                      ? 'bg-gradient-to-r from-blue-500 to-blue-600 text-white shadow-md'
-                      : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
-                  }`}
-                >
-                  <tab.icon className="w-4 h-4" />
-                  <span>{tab.label}</span>
-                </button>
-              ))}
-            </div>
-          </motion.div>
-
           {/* Tab Content */}
-          {activeTab === 'dashboard' && <DashboardTab stats={stats} chartData={chartData} recentTransactions={recentTransactions} />}
+          {activeTab === 'dashboard' && <DashboardTab user={user} stats={stats} chartData={chartData} recentTransactions={recentTransactions} />}
           {activeTab === 'wallet' && <WalletTab user={user} />}
           {activeTab === 'services' && <ServicesTab />}
           {activeTab === 'bbps' && <BBPSTab />}
@@ -397,8 +364,182 @@ function RetailerDashboardContent() {
   )
 }
 
+// Distributor Connection Card Component
+function DistributorConnectionCard({ user }: { user: any }) {
+  const [distributorInfo, setDistributorInfo] = useState<any>(null)
+  const [schemesCount, setSchemesCount] = useState(0)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    if (user?.partner_id) {
+      fetchDistributorInfo()
+    }
+  }, [user])
+
+  const fetchDistributorInfo = async () => {
+    if (!user?.partner_id) return
+    setLoading(true)
+    try {
+      // Fetch retailer data to get distributor_id
+      const { data: retailerData } = await supabase
+        .from('retailers')
+        .select('distributor_id, created_at')
+        .eq('partner_id', user.partner_id)
+        .maybeSingle()
+
+      if (!retailerData?.distributor_id) {
+        setLoading(false)
+        return
+      }
+
+      // Fetch distributor information
+      const { data: distributorData } = await supabase
+        .from('distributors')
+        .select('partner_id, name, email, phone, business_name, status, created_at')
+        .eq('partner_id', retailerData.distributor_id)
+        .maybeSingle()
+
+      if (distributorData) {
+        setDistributorInfo({
+          ...distributorData,
+          connected_at: retailerData.created_at
+        })
+      }
+
+      // Fetch count of active schemes assigned by this distributor
+      const { data: schemesData } = await supabase
+        .from('scheme_mappings')
+        .select('id', { count: 'exact' })
+        .eq('entity_id', user.partner_id)
+        .eq('entity_role', 'retailer')
+        .eq('assigned_by_id', retailerData.distributor_id)
+        .eq('status', 'active')
+
+      setSchemesCount(schemesData?.length || 0)
+    } catch (error) {
+      console.error('Error fetching distributor info:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  if (loading) {
+    return (
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="bg-white dark:bg-gray-800 rounded-lg shadow-md border border-gray-200 dark:border-gray-700 p-4 mb-4"
+      >
+        <div className="flex items-center justify-center py-4">
+          <RefreshCw className="w-5 h-5 animate-spin text-gray-400" />
+        </div>
+      </motion.div>
+    )
+  }
+
+  if (!distributorInfo) {
+    return null
+  }
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: 0.1 }}
+      className="bg-gradient-to-r from-purple-50 to-indigo-50 dark:from-purple-900/20 dark:to-indigo-900/20 border-2 border-purple-200 dark:border-purple-800 rounded-xl shadow-lg p-6 mb-4"
+    >
+      <div className="flex items-start justify-between mb-4">
+        <div className="flex items-center gap-3">
+          <div className="p-3 bg-purple-100 dark:bg-purple-900/30 rounded-lg">
+            <Network className="w-6 h-6 text-purple-600 dark:text-purple-400" />
+          </div>
+          <div>
+            <h3 className="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
+              Connected to Distributor
+              <span className="px-2 py-0.5 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 text-xs font-semibold rounded-full flex items-center gap-1">
+                <Check className="w-3 h-3" />
+                Active
+              </span>
+            </h3>
+            <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+              You are assigned and managed by your distributor
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+        <div className="bg-white dark:bg-gray-800 rounded-lg p-4 border border-purple-100 dark:border-purple-900/30">
+          <div className="flex items-center gap-2 mb-2">
+            <Building2 className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+            <span className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Distributor Name</span>
+          </div>
+          <p className="text-lg font-semibold text-gray-900 dark:text-white">
+            {distributorInfo.business_name || distributorInfo.name}
+          </p>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+            Partner ID: {distributorInfo.partner_id}
+          </p>
+        </div>
+
+        <div className="bg-white dark:bg-gray-800 rounded-lg p-4 border border-purple-100 dark:border-purple-900/30">
+          <div className="flex items-center gap-2 mb-2">
+            <Link2 className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+            <span className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Active Schemes</span>
+          </div>
+          <p className="text-lg font-semibold text-gray-900 dark:text-white">
+            {schemesCount} {schemesCount === 1 ? 'Scheme' : 'Schemes'}
+          </p>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+            Assigned by distributor
+          </p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="flex items-center gap-3 text-sm">
+          <Mail className="w-4 h-4 text-gray-400" />
+          <div>
+            <span className="text-gray-500 dark:text-gray-400">Email: </span>
+            <span className="text-gray-900 dark:text-white font-medium">{distributorInfo.email}</span>
+          </div>
+        </div>
+        <div className="flex items-center gap-3 text-sm">
+          <Phone className="w-4 h-4 text-gray-400" />
+          <div>
+            <span className="text-gray-500 dark:text-gray-400">Phone: </span>
+            <span className="text-gray-900 dark:text-white font-medium">{distributorInfo.phone}</span>
+          </div>
+        </div>
+        {distributorInfo.connected_at && (
+          <div className="flex items-center gap-3 text-sm">
+            <Calendar className="w-4 h-4 text-gray-400" />
+            <div>
+              <span className="text-gray-500 dark:text-gray-400">Connected: </span>
+              <span className="text-gray-900 dark:text-white font-medium">
+                {new Date(distributorInfo.connected_at).toLocaleDateString('en-IN', {
+                  year: 'numeric',
+                  month: 'long',
+                  day: 'numeric'
+                })}
+              </span>
+            </div>
+          </div>
+        )}
+        <div className="flex items-center gap-3 text-sm">
+          <div className="w-2 h-2 rounded-full bg-green-500"></div>
+          <div>
+            <span className="text-gray-500 dark:text-gray-400">Status: </span>
+            <span className="text-gray-900 dark:text-white font-medium capitalize">{distributorInfo.status}</span>
+          </div>
+        </div>
+      </div>
+    </motion.div>
+  )
+}
+
 // Dashboard Tab Component
-function DashboardTab({ stats, chartData, recentTransactions }: { stats: any, chartData: any[], recentTransactions: any[] }) {
+function DashboardTab({ user, stats, chartData, recentTransactions }: { user: any, stats: any, chartData: any[], recentTransactions: any[] }) {
   return (
     <>
       {/* Stats Cards */}
@@ -1431,80 +1572,95 @@ function MDRSchemesTab({ user }: { user: any }) {
     }
     setLoading(true)
     try {
-      // Fetch custom schemes for this retailer
-      const { data: customData, error: customError } = await supabase
-        .from('retailer_schemes')
-        .select('*')
-        .eq('retailer_id', user.partner_id)
+      // Fetch schemes mapped to this retailer from scheme_mappings
+      const { data: mappingsData, error: mappingsError } = await supabase
+        .from('scheme_mappings')
+        .select(`
+          *,
+          scheme:schemes (
+            id,
+            name,
+            description,
+            scheme_type,
+            service_scope,
+            status,
+            priority,
+            effective_from,
+            effective_to,
+            bbps_commissions:scheme_bbps_commissions (*),
+            payout_charges:scheme_payout_charges (*),
+            mdr_rates:scheme_mdr_rates (*)
+          )
+        `)
+        .eq('entity_id', user.partner_id)
+        .eq('entity_role', 'retailer')
         .eq('status', 'active')
-        .order('created_at', { ascending: false })
+        .order('priority', { ascending: true })
 
-      if (customError) {
-        console.error('Error fetching custom schemes:', customError)
-        throw customError
+      if (mappingsError) {
+        console.error('Error fetching scheme mappings:', mappingsError)
+        throw mappingsError
       }
 
-      // Fetch global schemes
-      const { data: globalData, error: globalError } = await supabase
-        .from('global_schemes')
-        .select('*')
-        .eq('status', 'active')
-        .order('created_at', { ascending: false })
+      // Extract schemes from mappings (only show schemes that are explicitly mapped to this retailer)
+      const now = new Date()
+      const mappedSchemes = (mappingsData || []).map((m: any) => ({
+        ...m.scheme,
+        mapping_id: m.id,
+        mapping_effective_from: m.effective_from, // Effective date from mapping
+        mapping_effective_to: m.effective_to,
+        assigned_by: m.assigned_by_id,
+        assigned_by_role: m.assigned_by_role,
+      })).filter((s: any) => {
+        if (!s || !s.id) return false
+        // Filter out expired mappings (effective_to has passed)
+        if (s.mapping_effective_to && new Date(s.mapping_effective_to) < now) return false
+        // Filter out not-yet-active mappings (effective_from is in the future)
+        if (s.mapping_effective_from && new Date(s.mapping_effective_from) > now) return false
+        // Filter out expired schemes
+        if (s.effective_to && new Date(s.effective_to) < now) return false
+        // Filter out not-yet-active schemes
+        if (s.effective_from && new Date(s.effective_from) > now) return false
+        // Only show active schemes
+        if (s.status !== 'active') return false
+        return true
+      })
 
-      if (globalError) {
-        console.error('Error fetching global schemes:', globalError)
-        throw globalError
-      }
+      // Separate custom and global schemes from mappings
+      const customSchemesList = mappedSchemes.filter((s: any) => s.scheme_type === 'custom')
+      const globalSchemesList = mappedSchemes.filter((s: any) => s.scheme_type === 'global')
 
-      setCustomSchemes(customData || [])
-      setGlobalSchemes(globalData || [])
+      setCustomSchemes(customSchemesList || [])
+      setGlobalSchemes(globalSchemesList || [])
 
-      // Build applicable schemes (custom first, then global fallback)
+      // Build applicable schemes from MDR rates (only from explicitly mapped schemes)
       const applicable: any[] = []
-      const modes = ['CARD', 'UPI']
       
-      modes.forEach(mode => {
-        if (mode === 'UPI') {
-          // For UPI, check custom first, then global
-          const customScheme = customData?.find(s => s.mode === mode && !s.card_type && !s.brand_type)
-          const globalScheme = globalData?.find(s => s.mode === mode && !s.card_type && !s.brand_type)
-          
-          if (customScheme) {
-            applicable.push({ ...customScheme, scheme_type: 'custom', source: 'Distributor Custom Scheme' })
-          } else if (globalScheme) {
-            applicable.push({ ...globalScheme, scheme_type: 'global', source: 'Global Default Scheme' })
-          }
-        } else {
-          // For CARD, check different combinations
-          const cardTypes = [null, 'CREDIT', 'DEBIT', 'PREPAID']
-          cardTypes.forEach(cardType => {
-            const customScheme = customData?.find(s => 
-              s.mode === mode && 
-              (s.card_type === cardType || (!s.card_type && !cardType))
-            )
-            const globalScheme = globalData?.find(s => 
-              s.mode === mode && 
-              (s.card_type === cardType || (!s.card_type && !cardType))
-            )
-            
-            if (customScheme) {
-              applicable.push({ 
-                ...customScheme, 
-                scheme_type: 'custom', 
-                source: 'Distributor Custom Scheme',
-                display_card_type: cardType || 'All Card Types'
-              })
-            } else if (globalScheme) {
-              applicable.push({ 
-                ...globalScheme, 
-                scheme_type: 'global', 
-                source: 'Global Default Scheme',
-                display_card_type: cardType || 'All Card Types'
-              })
-            }
+      // Get all MDR rates from mapped schemes (both custom and global that are mapped)
+      const mappedMdrRates: any[] = []
+      mappedSchemes.forEach((scheme: any) => {
+        if (scheme.mdr_rates && scheme.mdr_rates.length > 0) {
+          scheme.mdr_rates.forEach((rate: any) => {
+            mappedMdrRates.push({
+              ...rate,
+              scheme_name: scheme.name,
+              scheme_type: scheme.scheme_type,
+              source: scheme.scheme_type === 'global' ? 'Global Scheme (Mapped)' : 'Custom Scheme (Mapped)'
+            })
           })
         }
       })
+      
+      // Deduplicate by mode, card_type, and brand_type (mapped schemes take priority)
+      const uniqueRates = mappedMdrRates.filter((rate, index, self) =>
+        index === self.findIndex(r => 
+          r.mode === rate.mode && 
+          r.card_type === rate.card_type && 
+          r.brand_type === rate.brand_type
+        )
+      )
+      
+      applicable.push(...uniqueRates)
 
       // Remove duplicates
       const uniqueApplicable = applicable.filter((scheme, index, self) =>
@@ -1525,6 +1681,9 @@ function MDRSchemesTab({ user }: { user: any }) {
 
   return (
     <div className="space-y-6">
+      {/* Distributor Connection Card */}
+      <DistributorConnectionCard user={user} />
+      
       {/* Info Banner */}
       <motion.div
         initial={{ opacity: 0, y: 20 }}
@@ -1536,8 +1695,8 @@ function MDRSchemesTab({ user }: { user: any }) {
           <div className="flex-1">
             <h3 className="font-semibold text-blue-900 dark:text-blue-200 mb-1">MDR Scheme Information</h3>
             <p className="text-sm text-blue-800 dark:text-blue-300">
-              Your MDR rates are determined by custom schemes set by your distributor or global default schemes. 
-              Custom schemes take priority over global schemes. T+0 settlement has higher MDR rates than T+1.
+              Your MDR rates are determined by schemes explicitly assigned to you by your distributor. 
+              Only schemes that are mapped to your account are shown here. T+0 settlement has higher MDR rates than T+1.
             </p>
           </div>
         </div>
@@ -1591,22 +1750,32 @@ function MDRSchemesTab({ user }: { user: any }) {
                 }`}
               >
                 <div className="flex items-start justify-between mb-4">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-1">
                     {scheme.mode === 'CARD' ? (
                       <CreditCard className="w-5 h-5 text-blue-600 dark:text-blue-400" />
                     ) : (
                       <Smartphone className="w-5 h-5 text-green-600 dark:text-green-400" />
                     )}
-                    <div>
-                      <h4 className="font-semibold text-gray-900 dark:text-white">{scheme.mode}</h4>
-                      {scheme.mode === 'CARD' && (
-                        <p className="text-xs text-gray-600 dark:text-gray-400">
-                          {scheme.display_card_type || scheme.card_type || 'All Types'}
+                    <div className="flex-1 min-w-0">
+                      <h4 className="font-semibold text-gray-900 dark:text-white">
+                        {scheme.mode}
+                        {scheme.mode === 'CARD' && scheme.card_type && (
+                          <span className="ml-2 text-sm font-normal text-gray-600 dark:text-gray-400">
+                            {scheme.display_card_type || scheme.card_type}
+                          </span>
+                        )}
+                      </h4>
+                      {scheme.brand_type && (
+                        <p className="text-xs text-gray-600 dark:text-gray-400 mt-0.5">
+                          Brand: {scheme.display_brand_type || scheme.brand_type}
                         </p>
+                      )}
+                      {scheme.mode === 'CARD' && !scheme.card_type && (
+                        <p className="text-xs text-gray-500 dark:text-gray-500 mt-0.5">All Card Types</p>
                       )}
                     </div>
                   </div>
-                  <span className={`px-2 py-1 text-xs rounded-full ${
+                  <span className={`px-2 py-1 text-xs rounded-full flex-shrink-0 ${
                     scheme.scheme_type === 'custom'
                       ? 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200'
                       : 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200'
@@ -1617,22 +1786,33 @@ function MDRSchemesTab({ user }: { user: any }) {
 
                 <div className="space-y-3">
                   <div className="bg-white dark:bg-gray-700 rounded-lg p-3">
-                    <p className="text-xs text-gray-600 dark:text-gray-400 mb-2">Source</p>
+                    <p className="text-xs text-gray-600 dark:text-gray-400 mb-1">Source</p>
                     <p className="text-sm font-medium text-gray-900 dark:text-white">{scheme.source}</p>
+                    {scheme.scheme_name && (
+                      <p className="text-xs text-gray-500 dark:text-gray-500 mt-1">Scheme: {scheme.scheme_name}</p>
+                    )}
                   </div>
 
                   <div className="grid grid-cols-2 gap-3">
                     <div className="bg-white dark:bg-gray-700 rounded-lg p-3">
                       <p className="text-xs text-gray-600 dark:text-gray-400 mb-1">Retailer MDR T+1</p>
                       <p className="text-lg font-bold text-gray-900 dark:text-white">
-                        {scheme.retailer_mdr_t1 || scheme.rt_mdr_t1}%
+                        {scheme.retailer_mdr_t1 !== null && scheme.retailer_mdr_t1 !== undefined 
+                          ? `${scheme.retailer_mdr_t1}%` 
+                          : scheme.rt_mdr_t1 !== null && scheme.rt_mdr_t1 !== undefined 
+                          ? `${scheme.rt_mdr_t1}%` 
+                          : 'N/A'}
                       </p>
                       <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Next-day settlement</p>
                     </div>
                     <div className="bg-white dark:bg-gray-700 rounded-lg p-3 border-2 border-green-300 dark:border-green-700">
                       <p className="text-xs text-gray-600 dark:text-gray-400 mb-1">Retailer MDR T+0</p>
                       <p className="text-lg font-bold text-green-600 dark:text-green-400">
-                        {scheme.retailer_mdr_t0 || scheme.rt_mdr_t0}%
+                        {scheme.retailer_mdr_t0 !== null && scheme.retailer_mdr_t0 !== undefined 
+                          ? `${scheme.retailer_mdr_t0}%` 
+                          : scheme.rt_mdr_t0 !== null && scheme.rt_mdr_t0 !== undefined 
+                          ? `${scheme.rt_mdr_t0}%` 
+                          : 'N/A'}
                       </p>
                       <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Instant settlement</p>
                     </div>
@@ -1641,10 +1821,55 @@ function MDRSchemesTab({ user }: { user: any }) {
                   <div className="bg-gray-100 dark:bg-gray-700 rounded-lg p-3">
                     <p className="text-xs text-gray-600 dark:text-gray-400 mb-1">Distributor MDR</p>
                     <div className="flex justify-between text-sm">
-                      <span className="text-gray-700 dark:text-gray-300">T+1: {scheme.distributor_mdr_t1 || scheme.dt_mdr_t1}%</span>
-                      <span className="text-gray-700 dark:text-gray-300">T+0: {scheme.distributor_mdr_t0 || scheme.dt_mdr_t0}%</span>
+                      <span className="text-gray-700 dark:text-gray-300">
+                        T+1: {scheme.distributor_mdr_t1 !== null && scheme.distributor_mdr_t1 !== undefined 
+                          ? `${scheme.distributor_mdr_t1}%` 
+                          : scheme.dt_mdr_t1 !== null && scheme.dt_mdr_t1 !== undefined 
+                          ? `${scheme.dt_mdr_t1}%` 
+                          : 'N/A'}
+                      </span>
+                      <span className="text-gray-700 dark:text-gray-300">
+                        T+0: {scheme.distributor_mdr_t0 !== null && scheme.distributor_mdr_t0 !== undefined 
+                          ? `${scheme.distributor_mdr_t0}%` 
+                          : scheme.dt_mdr_t0 !== null && scheme.dt_mdr_t0 !== undefined 
+                          ? `${scheme.dt_mdr_t0}%` 
+                          : 'N/A'}
+                      </span>
                     </div>
                   </div>
+
+                  {/* Additional Details */}
+                  {(scheme.effective_date || scheme.card_type || scheme.brand_type) && (
+                    <div className="bg-white dark:bg-gray-700 rounded-lg p-3 border border-gray-200 dark:border-gray-600">
+                      <p className="text-xs text-gray-600 dark:text-gray-400 mb-2">Additional Details</p>
+                      <div className="space-y-1 text-xs">
+                        {scheme.effective_date && (
+                          <div className="flex justify-between">
+                            <span className="text-gray-500 dark:text-gray-400">Effective Date:</span>
+                            <span className="text-gray-900 dark:text-white font-medium">
+                              {new Date(scheme.effective_date).toLocaleDateString('en-IN')}
+                            </span>
+                          </div>
+                        )}
+                        {scheme.mode === 'CARD' && scheme.card_type && (
+                          <div className="flex justify-between">
+                            <span className="text-gray-500 dark:text-gray-400">Card Type:</span>
+                            <span className="text-gray-900 dark:text-white font-medium">
+                              {scheme.display_card_type || scheme.card_type}
+                            </span>
+                          </div>
+                        )}
+                        {scheme.brand_type && (
+                          <div className="flex justify-between">
+                            <span className="text-gray-500 dark:text-gray-400">Brand:</span>
+                            <span className="text-gray-900 dark:text-white font-medium">
+                              {scheme.display_brand_type || scheme.brand_type}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </motion.div>
             ))}
@@ -1653,44 +1878,87 @@ function MDRSchemesTab({ user }: { user: any }) {
       </motion.div>
 
       {/* Custom Schemes Detail */}
-      {customSchemes.length > 0 && (
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.2 }}
-          className="bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 p-6"
-        >
-          <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4">Custom Schemes (From Distributor)</h3>
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-gray-50 dark:bg-gray-700">
-                <tr>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Mode</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Card Type</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Brand</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">RT MDR T+1</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">RT MDR T+0</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Effective Date</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                {customSchemes.map((scheme) => (
-                  <tr key={scheme.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
-                    <td className="px-4 py-3 text-sm">{scheme.mode}</td>
-                    <td className="px-4 py-3 text-sm">{scheme.card_type || '-'}</td>
-                    <td className="px-4 py-3 text-sm">{scheme.brand_type || '-'}</td>
-                    <td className="px-4 py-3 text-sm font-medium">{scheme.retailer_mdr_t1}%</td>
-                    <td className="px-4 py-3 text-sm font-medium text-green-600 dark:text-green-400">{scheme.retailer_mdr_t0}%</td>
-                    <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">
-                      {new Date(scheme.effective_date).toLocaleDateString()}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </motion.div>
-      )}
+      {customSchemes.length > 0 && (() => {
+        // Extract all MDR rates from custom schemes for the table
+        const customMdrRates: any[] = []
+        customSchemes.forEach((scheme: any) => {
+          if (scheme.mdr_rates && Array.isArray(scheme.mdr_rates) && scheme.mdr_rates.length > 0) {
+            scheme.mdr_rates.forEach((rate: any) => {
+              if (rate && rate.status === 'active') {
+                // Determine effective date: mapping > scheme > rate created_at
+                const effectiveDate = scheme.mapping_effective_from || scheme.effective_from || rate.created_at
+                customMdrRates.push({
+                  ...rate,
+                  scheme_name: scheme.name,
+                  scheme_id: scheme.id,
+                  effective_date: effectiveDate
+                })
+              }
+            })
+          }
+        })
+
+        return (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.2 }}
+            className="bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 p-6"
+          >
+            <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4">Custom Schemes (From Distributor)</h3>
+            {customMdrRates.length > 0 ? (
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead className="bg-gray-50 dark:bg-gray-700">
+                    <tr>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Mode</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Card Type</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Brand</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">RT MDR T+1</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">RT MDR T+0</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Effective Date</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                    {customMdrRates.map((rate, index) => (
+                      <tr key={`${rate.scheme_id}-${rate.id || index}`} className="hover:bg-gray-50 dark:hover:bg-gray-700">
+                        <td className="px-4 py-3 text-sm font-medium">{rate.mode || '-'}</td>
+                        <td className="px-4 py-3 text-sm">{rate.display_card_type || rate.card_type || '-'}</td>
+                        <td className="px-4 py-3 text-sm">{rate.display_brand_type || rate.brand_type || '-'}</td>
+                        <td className="px-4 py-3 text-sm font-medium">
+                          {rate.retailer_mdr_t1 !== null && rate.retailer_mdr_t1 !== undefined 
+                            ? `${rate.retailer_mdr_t1}%` 
+                            : rate.rt_mdr_t1 !== null && rate.rt_mdr_t1 !== undefined 
+                            ? `${rate.rt_mdr_t1}%` 
+                            : '-'}
+                        </td>
+                        <td className="px-4 py-3 text-sm font-medium text-green-600 dark:text-green-400">
+                          {rate.retailer_mdr_t0 !== null && rate.retailer_mdr_t0 !== undefined 
+                            ? `${rate.retailer_mdr_t0}%` 
+                            : rate.rt_mdr_t0 !== null && rate.rt_mdr_t0 !== undefined 
+                            ? `${rate.rt_mdr_t0}%` 
+                            : '-'}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">
+                          {rate.effective_date ? new Date(rate.effective_date).toLocaleDateString('en-IN') : '-'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="text-center py-8">
+                <AlertCircle className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                <p className="text-gray-600 dark:text-gray-400">No MDR rates configured for custom schemes</p>
+                <p className="text-sm text-gray-500 dark:text-gray-500 mt-2">
+                  Contact your distributor to configure MDR rates for the assigned schemes
+                </p>
+              </div>
+            )}
+          </motion.div>
+        )
+      })()}
 
       {/* Settlement Type Info */}
       <motion.div

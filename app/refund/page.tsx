@@ -270,7 +270,7 @@ export default function Refund() {
                 <p className="text-gray-700 mb-2"><strong>Refund Department</strong></p>
                 <p className="text-gray-700 mb-2">Same Day Solution Pvt. Ltd.</p>
                 <p className="text-gray-700 mb-2">Email: refunds@samedaysolution.in</p>
-                <p className="text-gray-700 mb-2">Phone: +91-8130053898</p>
+                <p className="text-gray-700 mb-2">Phone: +91-7090601025</p>
                 <p className="text-gray-700">Address: TF-11B, 3rd Floor, Eros Metro Mall, Dwarka Sector-14, New Delhi-110078</p>
                 <p className="text-gray-700 mt-4 text-sm">
                   <strong>Business Hours:</strong> Monday to Friday, 9:00 AM to 6:00 PM IST

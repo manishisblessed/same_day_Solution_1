@@ -33,6 +33,10 @@ interface Scheme {
   mdr_rates?: any[]
   mappings?: any[]
   mapping_count?: number
+  // Creator details (resolved from partner tables)
+  creator_name?: string | null
+  creator_email?: string | null
+  creator_role_label?: string | null
 }
 
 // ============================================================================
@@ -113,6 +117,40 @@ export default function SchemeManagementPage() {
           mapping_count: mappingCounts[s.id] || 0,
         }))
       }
+
+      // Fetch creator details for schemes created by MD/Distributor
+      const creatorIds = Array.from(new Set(filtered.filter(s => s.created_by_id).map(s => s.created_by_id)))
+      if (creatorIds.length > 0) {
+        // Fetch from partner tables in parallel (admin_users don't have partner_id - admin schemes have null created_by_id)
+        const [mdData, distData] = await Promise.all([
+          supabase.from('master_distributors').select('partner_id, name, business_name, email').in('partner_id', creatorIds),
+          supabase.from('distributors').select('partner_id, name, business_name, email').in('partner_id', creatorIds),
+        ])
+
+        const creatorMap: Record<string, { name: string; email: string; role_label: string }> = {}
+        
+        mdData.data?.forEach((md: any) => {
+          creatorMap[md.partner_id] = {
+            name: md.business_name || md.name,
+            email: md.email,
+            role_label: 'Master Distributor',
+          }
+        })
+        distData.data?.forEach((d: any) => {
+          creatorMap[d.partner_id] = {
+            name: d.business_name || d.name,
+            email: d.email,
+            role_label: 'Distributor',
+          }
+        })
+
+        filtered = filtered.map(s => ({
+          ...s,
+          creator_name: s.created_by_id ? creatorMap[s.created_by_id]?.name || null : null,
+          creator_email: s.created_by_id ? creatorMap[s.created_by_id]?.email || null : null,
+          creator_role_label: s.created_by_id ? creatorMap[s.created_by_id]?.role_label || null : null,
+        }))
+      }
       
       setSchemes(filtered)
     } catch (err: any) {
@@ -155,13 +193,29 @@ export default function SchemeManagementPage() {
       supabase.from('scheme_mdr_rates').select('*').eq('scheme_id', schemeId).eq('status', 'active').order('mode'),
       supabase.from('scheme_mappings').select('*').eq('scheme_id', schemeId).eq('status', 'active'),
     ])
+
+    // Resolve entity names for mappings
+    let enrichedMappings = mappings.data || []
+    if (enrichedMappings.length > 0) {
+      const entityIds = enrichedMappings.map((m: any) => m.entity_id)
+      const [retNames, distNames, mdNames] = await Promise.all([
+        supabase.from('retailers').select('partner_id, name, business_name').in('partner_id', entityIds),
+        supabase.from('distributors').select('partner_id, name, business_name').in('partner_id', entityIds),
+        supabase.from('master_distributors').select('partner_id, name, business_name').in('partner_id', entityIds),
+      ])
+      const nameMap: Record<string, string> = {}
+      retNames.data?.forEach((r: any) => { nameMap[r.partner_id] = r.business_name || r.name })
+      distNames.data?.forEach((d: any) => { nameMap[d.partner_id] = d.business_name || d.name })
+      mdNames.data?.forEach((md: any) => { nameMap[md.partner_id] = md.business_name || md.name })
+      enrichedMappings = enrichedMappings.map((m: any) => ({ ...m, entity_name: nameMap[m.entity_id] || null }))
+    }
     
     setSchemes(prev => prev.map(s => s.id === schemeId ? {
       ...s,
       bbps_commissions: bbps.data || [],
       payout_charges: payout.data || [],
       mdr_rates: mdr.data || [],
-      mappings: mappings.data || [],
+      mappings: enrichedMappings,
     } : s))
     
     setExpandedSchemeId(schemeId)
@@ -452,6 +506,30 @@ export default function SchemeManagementPage() {
     return []
   }
 
+  // Get available brands based on mode and card type
+  const getAvailableBrands = (mode: string, cardType: string): string[] => {
+    if (mode === 'CARD') {
+      if (cardType === 'CREDIT') {
+        return ['Amex', 'Diners Club', 'MasterCard', 'RUPAY', 'VISA', 'Business', 'Corporate Card', 'International']
+      } else if (cardType === 'DEBIT') {
+        return ['MasterCard', 'RUPAY', 'VISA']
+      } else if (cardType === 'PREPAID') {
+        return ['MasterCard', 'VISA']
+      }
+      return []
+    } else if (mode === 'UPI') {
+      // For UPI mode, treat empty card_type as 'UPI'
+      const effectiveCardType = cardType || 'UPI'
+      if (effectiveCardType === 'UPI') {
+        return ['UPI']
+      } else if (effectiveCardType === 'CREDIT') {
+        return ['RUPAY']
+      }
+      return []
+    }
+    return []
+  }
+
   // Auto-clear messages
   useEffect(() => {
     if (error || success) {
@@ -486,11 +564,11 @@ export default function SchemeManagementPage() {
     <div className="flex min-h-screen bg-gray-50 dark:bg-gray-950">
       <AdminSidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       
-      <main className="flex-1 lg:ml-56 p-4 md:p-6">
-        {/* Header */}
-        <div className="mb-6">
-          <div className="flex items-center justify-between mb-4">
-            <div>
+      <main className="flex-1 lg:ml-56 p-4 md:p-6 pt-20">
+        {/* Header - Sticky to prevent hiding */}
+        <div className="mb-6 sticky top-20 z-10 bg-gray-50 dark:bg-gray-950 pb-4 -mx-4 md:-mx-6 px-4 md:px-6 pt-2 border-b border-gray-200 dark:border-gray-800">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-4">
+            <div className="flex-1 min-w-0">
               <h1 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
                 <Layers className="w-7 h-7 text-primary-600" />
                 Scheme Management
@@ -499,7 +577,7 @@ export default function SchemeManagementPage() {
             </div>
             <button
               onClick={openCreateModal}
-              className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-primary-600 to-secondary-600 text-white rounded-lg hover:opacity-90 transition font-medium text-sm"
+              className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-primary-600 to-secondary-600 text-white rounded-lg hover:opacity-90 transition font-medium text-sm whitespace-nowrap flex-shrink-0"
             >
               <Plus className="w-4 h-4" /> Create Scheme
             </button>
@@ -553,6 +631,7 @@ export default function SchemeManagementPage() {
         </div>
 
         {/* Schemes List */}
+        <div className="pt-6">
         {loading ? (
           <div className="text-center py-12 text-gray-500">Loading schemes...</div>
         ) : schemes.length === 0 ? (
@@ -572,7 +651,7 @@ export default function SchemeManagementPage() {
                     </div>
                     <div>
                       <h3 className="font-semibold text-gray-900 dark:text-white">{scheme.name}</h3>
-                      <div className="flex items-center gap-2 mt-1">
+                      <div className="flex items-center gap-2 mt-1 flex-wrap">
                         <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${schemeTypeColor(scheme.scheme_type)}`}>
                           {scheme.scheme_type}
                         </span>
@@ -586,6 +665,25 @@ export default function SchemeManagementPage() {
                             <Users className="w-3 h-3" /> {scheme.mapping_count} mapped
                           </span>
                         ) : null}
+                        {/* Creator Info */}
+                        {scheme.creator_name && (
+                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${
+                            scheme.creator_role_label === 'Master Distributor'
+                              ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400'
+                              : scheme.creator_role_label === 'Distributor'
+                              ? 'bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-400'
+                              : 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300'
+                          }`} title={`Created by ${scheme.creator_name} (${scheme.creator_email || ''}) - ${scheme.creator_role_label}`}>
+                            <Users className="w-3 h-3" />
+                            {scheme.creator_role_label}: {scheme.creator_name}
+                          </span>
+                        )}
+                        {scheme.created_by_role && !scheme.creator_name && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400" title={`Created by: ${scheme.created_by_id || 'Unknown'}`}>
+                            <Users className="w-3 h-3" />
+                            {scheme.created_by_role === 'master_distributor' ? 'MD' : scheme.created_by_role === 'distributor' ? 'Distributor' : scheme.created_by_role}: {scheme.created_by_id || 'Unknown'}
+                          </span>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -627,6 +725,52 @@ export default function SchemeManagementPage() {
                   <div className="border-t border-gray-200 dark:border-gray-800 p-4 space-y-4 bg-gray-50 dark:bg-gray-800/30">
                     {scheme.description && (
                       <p className="text-sm text-gray-600 dark:text-gray-400 italic">{scheme.description}</p>
+                    )}
+
+                    {/* Creator Info Card */}
+                    {scheme.created_by_id && (
+                      <div className={`rounded-lg border p-3 ${
+                        scheme.created_by_role === 'master_distributor'
+                          ? 'bg-indigo-50 border-indigo-200 dark:bg-indigo-900/20 dark:border-indigo-800'
+                          : scheme.created_by_role === 'distributor'
+                          ? 'bg-teal-50 border-teal-200 dark:bg-teal-900/20 dark:border-teal-800'
+                          : 'bg-gray-50 border-gray-200 dark:bg-gray-800 dark:border-gray-700'
+                      }`}>
+                        <div className="flex items-center gap-2 mb-1">
+                          <Users className={`w-4 h-4 ${
+                            scheme.created_by_role === 'master_distributor'
+                              ? 'text-indigo-600 dark:text-indigo-400'
+                              : scheme.created_by_role === 'distributor'
+                              ? 'text-teal-600 dark:text-teal-400'
+                              : 'text-gray-600 dark:text-gray-400'
+                          }`} />
+                          <span className="text-xs font-semibold uppercase text-gray-500 dark:text-gray-400">Created By</span>
+                        </div>
+                        <div className="flex items-center gap-4 flex-wrap">
+                          <div>
+                            <span className="text-sm font-semibold text-gray-900 dark:text-white">
+                              {scheme.creator_name || scheme.created_by_id}
+                            </span>
+                            {scheme.creator_email && (
+                              <span className="text-xs text-gray-500 dark:text-gray-400 ml-2">
+                                ({scheme.creator_email})
+                              </span>
+                            )}
+                          </div>
+                          <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                            scheme.created_by_role === 'master_distributor'
+                              ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-800 dark:text-indigo-300'
+                              : scheme.created_by_role === 'distributor'
+                              ? 'bg-teal-100 text-teal-700 dark:bg-teal-800 dark:text-teal-300'
+                              : 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300'
+                          }`}>
+                            {scheme.creator_role_label || scheme.created_by_role}
+                          </span>
+                          <span className="text-xs text-gray-500 dark:text-gray-400">
+                            ID: {scheme.created_by_id}
+                          </span>
+                        </div>
+                      </div>
                     )}
                     
                     {/* BBPS Commissions */}
@@ -731,6 +875,7 @@ export default function SchemeManagementPage() {
                               <tr className="bg-orange-50 dark:bg-orange-900/20">
                                 <th className="px-2 py-1.5 text-left">Mode</th>
                                 <th className="px-2 py-1.5 text-left">Card Type</th>
+                                <th className="px-2 py-1.5 text-left">Brand Type</th>
                                 <th className="px-2 py-1.5 text-right">RT T+1</th>
                                 <th className="px-2 py-1.5 text-right">RT T+0</th>
                                 <th className="px-2 py-1.5 text-right">DT T+1</th>
@@ -745,6 +890,7 @@ export default function SchemeManagementPage() {
                                 <tr key={r.id} className="border-b border-gray-100 dark:border-gray-700">
                                   <td className="px-2 py-1.5 font-medium">{r.mode}</td>
                                   <td className="px-2 py-1.5">{r.card_type || '-'}</td>
+                                  <td className="px-2 py-1.5">{r.brand_type || '-'}</td>
                                   <td className="px-2 py-1.5 text-right">{r.retailer_mdr_t1}%</td>
                                   <td className="px-2 py-1.5 text-right">{r.retailer_mdr_t0}%</td>
                                   <td className="px-2 py-1.5 text-right">{r.distributor_mdr_t1}%</td>
@@ -775,10 +921,17 @@ export default function SchemeManagementPage() {
                         <div className="flex flex-wrap gap-2">
                           {scheme.mappings.map((m: any) => (
                             <div key={m.id} className="flex items-center gap-2 px-3 py-1.5 bg-purple-50 dark:bg-purple-900/20 rounded-lg text-xs">
-                              <span className="font-medium">{m.entity_role}</span>
-                              <span className="text-gray-600 dark:text-gray-400">{m.entity_id}</span>
-                              {m.service_type && <span className="text-purple-600">({m.service_type})</span>}
-                              <button onClick={() => handleDeleteMapping(m.id)} className="text-red-400 hover:text-red-600">
+                              <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase ${
+                                m.entity_role === 'retailer' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' :
+                                m.entity_role === 'distributor' ? 'bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-400' :
+                                'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400'
+                              }`}>{m.entity_role === 'master_distributor' ? 'MD' : m.entity_role}</span>
+                              {m.entity_name && (
+                                <span className="font-semibold text-gray-900 dark:text-white">{m.entity_name}</span>
+                              )}
+                              <span className="text-gray-500 dark:text-gray-400">({m.entity_id})</span>
+                              {m.service_type && <span className="text-purple-600">• {m.service_type}</span>}
+                              <button onClick={() => handleDeleteMapping(m.id)} className="text-red-400 hover:text-red-600 ml-1">
                                 <X className="w-3 h-3" />
                               </button>
                             </div>
@@ -794,6 +947,7 @@ export default function SchemeManagementPage() {
             ))}
           </div>
         )}
+        </div>
 
         {/* ================================================================ */}
         {/* CREATE/EDIT SCHEME MODAL */}
@@ -980,7 +1134,17 @@ export default function SchemeManagementPage() {
                   <div className="grid grid-cols-3 gap-3">
                     <div>
                       <label className="block text-sm font-medium mb-1">Mode</label>
-                      <select value={mdrForm.mode} onChange={(e) => setMdrForm({ ...mdrForm, mode: e.target.value as any })}
+                      <select value={mdrForm.mode} onChange={(e) => {
+                        const newMode = e.target.value as 'CARD' | 'UPI'
+                        const defaultCardType = newMode === 'UPI' ? 'UPI' : ''
+                        const availableBrands = getAvailableBrands(newMode, defaultCardType)
+                        setMdrForm({ 
+                          ...mdrForm, 
+                          mode: newMode, 
+                          card_type: defaultCardType,
+                          brand_type: availableBrands.length > 0 && availableBrands.includes(mdrForm.brand_type) ? mdrForm.brand_type : ''
+                        })
+                      }}
                         className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700">
                         <option value="CARD">CARD</option>
                         <option value="UPI">UPI</option>
@@ -988,18 +1152,44 @@ export default function SchemeManagementPage() {
                     </div>
                     <div>
                       <label className="block text-sm font-medium mb-1">Card Type</label>
-                      <select value={mdrForm.card_type} onChange={(e) => setMdrForm({ ...mdrForm, card_type: e.target.value })}
+                      <select value={mdrForm.card_type} onChange={(e) => {
+                        const newCardType = e.target.value
+                        const availableBrands = getAvailableBrands(mdrForm.mode, newCardType)
+                        setMdrForm({ 
+                          ...mdrForm, 
+                          card_type: newCardType,
+                          brand_type: availableBrands.length > 0 && availableBrands.includes(mdrForm.brand_type) ? mdrForm.brand_type : ''
+                        })
+                      }}
                         className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700">
-                        <option value="">Any</option>
-                        <option value="CREDIT">CREDIT</option>
-                        <option value="DEBIT">DEBIT</option>
-                        <option value="PREPAID">PREPAID</option>
+                        {mdrForm.mode === 'CARD' ? (
+                          <>
+                            <option value="">Any</option>
+                            <option value="CREDIT">CREDIT</option>
+                            <option value="DEBIT">DEBIT</option>
+                            <option value="PREPAID">PREPAID</option>
+                          </>
+                        ) : (
+                          <>
+                            <option value="UPI">UPI</option>
+                            <option value="CREDIT">CREDIT</option>
+                          </>
+                        )}
                       </select>
                     </div>
                     <div>
                       <label className="block text-sm font-medium mb-1">Brand</label>
-                      <input type="text" value={mdrForm.brand_type} onChange={(e) => setMdrForm({ ...mdrForm, brand_type: e.target.value })}
-                        className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" placeholder="VISA, MC..." />
+                      <select 
+                        value={mdrForm.brand_type} 
+                        onChange={(e) => setMdrForm({ ...mdrForm, brand_type: e.target.value })}
+                        className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700"
+                        disabled={getAvailableBrands(mdrForm.mode, mdrForm.card_type).length === 0}
+                      >
+                        <option value="">Select Brand</option>
+                        {getAvailableBrands(mdrForm.mode, mdrForm.card_type).map((brand) => (
+                          <option key={brand} value={brand}>{brand}</option>
+                        ))}
+                      </select>
                     </div>
                   </div>
                   <p className="text-xs text-gray-500">T+0 MDR = T+1 MDR + 1% (auto calculated if left as 0)</p>

@@ -60,7 +60,7 @@ export default function Grievance() {
                 <p className="text-gray-700 mb-2"><strong>Grievance Officer</strong></p>
                 <p className="text-gray-700 mb-2">Same Day Solution Pvt. Ltd.</p>
                 <p className="text-gray-700 mb-2">Email: grievance@samedaysolution.in</p>
-                <p className="text-gray-700 mb-2">Phone: +91-8130053898</p>
+                <p className="text-gray-700 mb-2">Phone: +91-7090601025</p>
                 <p className="text-gray-700">Address: TF-11B, 3rd Floor, Eros Metro Mall, Dwarka Sector-14, New Delhi-110078</p>
                 <p className="text-gray-700 mt-4 text-sm">
                   <strong>Response Time:</strong> Within 30 days from the date of receipt of grievance
@@ -221,7 +221,7 @@ export default function Grievance() {
                 <p className="text-gray-700 mb-2"><strong>Grievance Officer</strong></p>
                 <p className="text-gray-700 mb-2">Same Day Solution Pvt. Ltd.</p>
                 <p className="text-gray-700 mb-2">Email: grievance@samedaysolution.in</p>
-                <p className="text-gray-700 mb-2">Phone: +91-8130053898</p>
+                <p className="text-gray-700 mb-2">Phone: +91-7090601025</p>
                 <p className="text-gray-700 mb-2">Address: TF-11B, 3rd Floor, Eros Metro Mall, Dwarka Sector-14, New Delhi-110078</p>
                 <p className="text-gray-700 mt-4">
                   <strong>Business Hours:</strong> Monday to Friday, 9:00 AM to 6:00 PM IST

@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '@/contexts/AuthContext'
+import Image from 'next/image'
 import { 
   Bell, Search, Settings, LogOut, User, Moon, Sun, 
   ChevronDown, Package
@@ -90,20 +91,31 @@ export default function DistributorHeader() {
         <div className="flex items-center justify-between h-16">
           {/* Logo & Title */}
           <div className="flex items-center space-x-4">
-            <div className="flex items-center space-x-3">
-              <div className="relative">
-                <div className="absolute inset-0 bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl blur opacity-75"></div>
-                <div className="relative bg-gradient-to-br from-purple-600 to-purple-700 p-2 rounded-xl">
-                  <Package className="w-6 h-6 text-white" />
+            <button 
+              onClick={() => {
+                router.push('/dashboard/distributor')
+              }}
+              className="flex items-center space-x-3 hover:opacity-80 transition-opacity cursor-pointer"
+            >
+              <div className="relative flex items-center space-x-3">
+                <div className="relative w-12 h-12 flex-shrink-0">
+                  <Image
+                    src="/LOGO_Same_Day.jpeg"
+                    alt="Same Day Solution"
+                    width={48}
+                    height={48}
+                    className="object-contain"
+                    priority
+                  />
+                </div>
+                <div className="text-left">
+                  <h1 className="text-xl font-bold text-gray-900 dark:text-white">
+                    Same Day Solution
+                  </h1>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Pvt. Ltd.</p>
                 </div>
               </div>
-              <div>
-                <h1 className="text-xl font-bold bg-gradient-to-r from-purple-600 to-purple-700 bg-clip-text text-transparent">
-                  Distributor Portal
-                </h1>
-                <p className="text-xs text-gray-500 dark:text-gray-400">Network Management</p>
-              </div>
-            </div>
+            </button>
           </div>
 
           {/* Search Bar */}
@@ -244,6 +256,7 @@ export default function DistributorHeader() {
                       <button
                         onClick={() => {
                           setIsUserMenuOpen(false)
+                          router.push('/dashboard/distributor?tab=settings')
                         }}
                         className="w-full flex items-center space-x-3 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
                       >

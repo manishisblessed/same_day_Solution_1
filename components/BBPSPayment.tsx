@@ -331,12 +331,27 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
     }
   }
 
-  // Calculate BBPS charges for a given amount
+  // Calculate BBPS charges for a given amount using scheme engine
   const fetchBBPSCharges = async (amountInRupees: number): Promise<number> => {
     try {
       setLoadingCharges(true)
       
-      // Try to get charge from Supabase RPC
+      // Try scheme-based charge resolution first
+      if (user?.partner_id) {
+        try {
+          const category = selectedCategory || selectedBiller?.category || ''
+          const res = await fetch(`/api/schemes/resolve-charges?service_type=bbps&amount=${amountInRupees}&category=${encodeURIComponent(category)}&user_id=${user.partner_id}`)
+          const schemeData = await res.json()
+          if (schemeData.resolved && schemeData.charges) {
+            console.log(`[BBPS] Scheme "${schemeData.scheme?.name}" charge: ₹${schemeData.charges.retailer_charge}`)
+            return schemeData.charges.retailer_charge
+          }
+        } catch (schemeErr) {
+          console.warn('[BBPS] Scheme charge resolution failed, using legacy:', schemeErr)
+        }
+      }
+      
+      // Fallback: Try legacy Supabase RPC
       const { data: chargeData, error } = await supabase.rpc('calculate_transaction_charge', {
         p_amount: amountInRupees,
         p_transaction_type: 'bbps'
@@ -347,7 +362,6 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
       }
       
       // Fallback: Calculate charge locally based on common BBPS slabs
-      // These are typical charges - should match backend
       if (amountInRupees <= 500) return 5
       if (amountInRupees <= 1000) return 10
       if (amountInRupees <= 2000) return 15

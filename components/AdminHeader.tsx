@@ -87,17 +87,23 @@ export default function AdminHeader() {
               }}
               className="flex items-center space-x-3 hover:opacity-80 transition-opacity cursor-pointer"
             >
-              <div className="relative">
-                <div className="absolute inset-0 bg-gradient-to-br from-primary-500 to-secondary-500 rounded-xl blur opacity-75"></div>
-                <div className="relative bg-gradient-to-br from-primary-600 to-secondary-600 p-2 rounded-xl">
-                  <Shield className="w-6 h-6 text-white" />
+              <div className="relative flex items-center space-x-3">
+                <div className="relative w-12 h-12 flex-shrink-0">
+                  <Image
+                    src="/LOGO_Same_Day.jpeg"
+                    alt="Same Day Solution"
+                    width={48}
+                    height={48}
+                    className="object-contain"
+                    priority
+                  />
                 </div>
-              </div>
-              <div className="text-left">
-                <h1 className="text-xl font-bold bg-gradient-to-r from-primary-600 to-secondary-600 bg-clip-text text-transparent">
-                  Admin Portal
-                </h1>
-                <p className="text-xs text-gray-500 dark:text-gray-400">Control Center</p>
+                <div className="text-left">
+                  <h1 className="text-xl font-bold text-gray-900 dark:text-white">
+                    Same Day Solution
+                  </h1>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Pvt. Ltd.</p>
+                </div>
               </div>
             </button>
           </div>

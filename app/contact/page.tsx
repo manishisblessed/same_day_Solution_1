@@ -201,7 +201,7 @@ export default function Contact() {
                     </div>
                     <div>
                       <h3 className="text-lg font-semibold text-gray-900 mb-1">Phone</h3>
-                      <p className="text-gray-600">+91-8130053898</p>
+                      <p className="text-gray-600">+91-7090601025</p>
                     </div>
                   </div>
                 </div>

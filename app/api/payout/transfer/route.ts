@@ -213,6 +213,21 @@ export async function POST(request: NextRequest) {
       return addCorsHeaders(request, response)
     }
 
+    // Fetch retailer's distributor chain for proper scheme hierarchy resolution
+    let distributorId: string | null = null
+    let mdId: string | null = null
+    try {
+      const { data: retailerData } = await supabaseAdmin
+        .from('retailers')
+        .select('distributor_id, master_distributor_id')
+        .eq('partner_id', user.partner_id)
+        .maybeSingle()
+      distributorId = retailerData?.distributor_id || null
+      mdId = retailerData?.master_distributor_id || null
+    } catch (e) {
+      console.warn('[Payout] Failed to fetch retailer hierarchy:', e)
+    }
+
     // Calculate charges via Scheme Engine (fallback to env config)
     let charges = 0
     let resolvedSchemeId: string | null = null
@@ -223,8 +238,8 @@ export async function POST(request: NextRequest) {
         p_user_id: user.partner_id,
         p_user_role: 'retailer',
         p_service_type: 'payout',
-        p_distributor_id: null,
-        p_md_id: null,
+        p_distributor_id: distributorId,
+        p_md_id: mdId,
       })
       
       if (schemeResult && schemeResult.length > 0) {

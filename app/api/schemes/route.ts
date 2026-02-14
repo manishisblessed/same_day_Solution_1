@@ -27,10 +27,7 @@ export async function GET(request: NextRequest) {
     };
 
     // Non-admin users can only see their own custom schemes + all global/golden
-    if (user.role !== 'admin') {
-      // They'll see global+golden + their own customs
-      // This is handled in the response filter below
-    }
+    // This is handled in the response filter below
 
     const { data, error } = await getSchemes(filters);
     if (error) {
@@ -62,10 +59,39 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Only admin can create global/golden schemes
+    // Retailers cannot create schemes
+    if (user.role === 'retailer') {
+      return NextResponse.json({ error: 'Retailers cannot create schemes' }, { status: 403 });
+    }
+
     const body = await request.json();
+
+    // Only admin can create global/golden schemes
     if ((body.scheme_type === 'global' || body.scheme_type === 'golden') && user.role !== 'admin') {
       return NextResponse.json({ error: 'Only admin can create global/golden schemes' }, { status: 403 });
+    }
+
+    // Input validation
+    if (!body.name || typeof body.name !== 'string' || body.name.trim().length === 0) {
+      return NextResponse.json({ error: 'Scheme name is required' }, { status: 400 });
+    }
+    if (body.name.length > 200) {
+      return NextResponse.json({ error: 'Scheme name must be 200 characters or less' }, { status: 400 });
+    }
+
+    // Validate scheme_type
+    if (!body.scheme_type || !['global', 'golden', 'custom'].includes(body.scheme_type)) {
+      return NextResponse.json({ error: 'Invalid scheme_type. Must be global, golden, or custom' }, { status: 400 });
+    }
+
+    // Validate service_scope
+    if (body.service_scope && !['all', 'bbps', 'payout', 'mdr', 'settlement'].includes(body.service_scope)) {
+      return NextResponse.json({ error: 'Invalid service_scope' }, { status: 400 });
+    }
+
+    // Non-admin can only create custom schemes
+    if (user.role !== 'admin' && body.scheme_type !== 'custom') {
+      return NextResponse.json({ error: 'Only admin can create non-custom schemes' }, { status: 403 });
     }
 
     const { data, error } = await createScheme(body, user.partner_id, user.role);
@@ -79,4 +105,3 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }
-
