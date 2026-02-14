@@ -135,15 +135,30 @@ export default function PayoutTransfer({ title }: PayoutTransferProps = {}) {
     if (!user?.partner_id) return
     setLoadingSchemeCharges(true)
     try {
-      const res = await fetch(`/api/schemes/resolve-charges?service_type=payout&amount=1&transfer_mode=IMPS&user_id=${user.partner_id}`)
+      // Fetch with minimum transfer amount (100) to get accurate default charges
+      const res = await fetch(`/api/schemes/resolve-charges?service_type=payout&amount=100&transfer_mode=IMPS&user_id=${user.partner_id}`)
       const data = await res.json()
-      if (data.resolved && data.slabs && data.slabs.length > 0) {
-        // Parse slabs to get default IMPS/NEFT charges
-        const impsSlabs = data.slabs.filter((s: any) => s.transfer_mode === 'IMPS')
-        const neftSlabs = data.slabs.filter((s: any) => s.transfer_mode === 'NEFT')
-        // Use the first slab's charge as the default display charge
-        const impsCharge = impsSlabs.length > 0 ? parseFloat(impsSlabs[0].retailer_charge) || 5 : 5
-        const neftCharge = neftSlabs.length > 0 ? parseFloat(neftSlabs[0].retailer_charge) || 3 : 3
+      if (data.resolved) {
+        // Use the calculated charge from the API (for amount=100) instead of first slab
+        let impsCharge = 5 // default fallback
+        let neftCharge = 3 // default fallback
+        
+        if (data.charges) {
+          // If we have calculated charges, use them (this is for IMPS since we fetched with IMPS mode)
+          impsCharge = parseFloat(data.charges.retailer_charge) || 5
+        }
+        
+        // Fetch NEFT charge separately
+        try {
+          const neftRes = await fetch(`/api/schemes/resolve-charges?service_type=payout&amount=100&transfer_mode=NEFT&user_id=${user.partner_id}`)
+          const neftData = await neftRes.json()
+          if (neftData.resolved && neftData.charges) {
+            neftCharge = parseFloat(neftData.charges.retailer_charge) || 3
+          }
+        } catch (neftErr) {
+          console.warn('[PayoutTransfer] NEFT charge fetch failed, using default:', neftErr)
+        }
+        
         setSchemeCharges({
           imps: impsCharge,
           neft: neftCharge,
