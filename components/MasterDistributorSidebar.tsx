@@ -6,7 +6,7 @@ import Link from 'next/link'
 import Image from 'next/image'
 import { 
   LayoutDashboard, Crown, Activity, 
-  Settings, TrendingUp, Users, Network, Package, X, Menu, Zap, Layers
+  Settings, TrendingUp, Users, Network, Package, X, Menu, Layers, CreditCard
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 
@@ -23,6 +23,7 @@ const sidebarItems: SidebarItem[] = [
   { id: 'services', label: 'Services', icon: Activity, href: '/dashboard/master-distributor?tab=services' },
   { id: 'distributors', label: 'Distributors', icon: Package, href: '/dashboard/master-distributor?tab=distributors' },
   { id: 'retailers', label: 'Retailers', icon: Users, href: '/dashboard/master-distributor?tab=retailers' },
+  { id: 'pos-machines', label: 'POS Machines', icon: CreditCard, href: '/dashboard/master-distributor?tab=pos-machines' },
   { id: 'scheme-management', label: 'Scheme Management', icon: Layers, href: '/dashboard/master-distributor?tab=scheme-management' },
   { id: 'network', label: 'Network', icon: Network, href: '/dashboard/master-distributor?tab=network' },
   { id: 'reports', label: 'Reports', icon: TrendingUp, href: '/dashboard/master-distributor?tab=reports' },
@@ -187,26 +188,6 @@ function SidebarContent({
           )
         })}
       </nav>
-
-      {/* Quick Stats */}
-      <div className="p-4 border-t border-gray-200 dark:border-gray-800">
-        <div className="bg-gradient-to-br from-yellow-500/10 to-yellow-600/10 dark:from-yellow-500/20 dark:to-yellow-600/20 rounded-xl p-4 border border-yellow-200/50 dark:border-yellow-800/50">
-          <div className="flex items-center space-x-2 mb-2">
-            <Zap className="w-4 h-4 text-yellow-600 dark:text-yellow-400" />
-            <span className="text-xs font-semibold text-gray-700 dark:text-gray-300">Quick Stats</span>
-          </div>
-          <div className="space-y-1">
-            <div className="flex justify-between text-xs">
-              <span className="text-gray-600 dark:text-gray-400">Total Network</span>
-              <span className="font-semibold text-gray-900 dark:text-white">-</span>
-            </div>
-            <div className="flex justify-between text-xs">
-              <span className="text-gray-600 dark:text-gray-400">Network Revenue</span>
-              <span className="font-semibold text-gray-900 dark:text-white">-</span>
-            </div>
-          </div>
-        </div>
-      </div>
     </div>
   )
 }

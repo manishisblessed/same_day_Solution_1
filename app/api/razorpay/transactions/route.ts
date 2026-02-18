@@ -46,6 +46,36 @@ export async function GET(request: NextRequest) {
     const page = parseInt(searchParams.get('page') || '1')
     const limit = parseInt(searchParams.get('limit') || '20')
     const offset = (page - 1) * limit
+    const machineId = searchParams.get('machine_id')
+    const deviceSerial = searchParams.get('device_serial')
+
+    // Resolve machine_id to device_serial if needed
+    let targetDeviceSerial = deviceSerial
+    if (machineId && !deviceSerial) {
+      const { data: machine } = await supabase
+        .from('pos_machines')
+        .select('serial_number')
+        .eq('machine_id', machineId)
+        .single()
+
+      if (machine?.serial_number) {
+        targetDeviceSerial = machine.serial_number
+      } else if (machineId) {
+        // Machine ID provided but not found
+        return NextResponse.json({
+          success: true,
+          data: [],
+          pagination: {
+            page,
+            limit,
+            total: 0,
+            totalPages: 0,
+            hasNextPage: false,
+            hasPrevPage: false
+          }
+        })
+      }
+    }
 
     // For admin, return all transactions (use admin endpoint logic)
     if (user.role === 'admin') {
@@ -53,7 +83,13 @@ export async function GET(request: NextRequest) {
         .from('razorpay_pos_transactions')
         .select('*', { count: 'exact' })
         .order('transaction_time', { ascending: false, nullsFirst: false })
-        .range(offset, offset + limit - 1)
+
+      // Apply device_serial filter if provided
+      if (targetDeviceSerial) {
+        query = query.eq('device_serial', targetDeviceSerial)
+      }
+
+      query = query.range(offset, offset + limit - 1)
 
       const { data: transactions, error, count } = await query
 
@@ -65,13 +101,35 @@ export async function GET(request: NextRequest) {
         )
       }
 
+      // Enrich with machine_id
+      const uniqueSerials = Array.from(new Set((transactions || []).map((t: any) => t.device_serial).filter(Boolean)))
+      const machineMap = new Map<string, string>()
+      
+      if (uniqueSerials.length > 0) {
+        const { data: machines } = await supabase
+          .from('pos_machines')
+          .select('machine_id, serial_number')
+          .in('serial_number', uniqueSerials)
+        
+        machines?.forEach((m: any) => {
+          if (m.serial_number) {
+            machineMap.set(m.serial_number, m.machine_id)
+          }
+        })
+      }
+
+      const enriched = (transactions || []).map((tx: any) => ({
+        ...tx,
+        machine_id: machineMap.get(tx.device_serial || '') || null
+      }))
+
       const totalPages = count ? Math.ceil(count / limit) : 1
       const hasNextPage = page < totalPages
       const hasPrevPage = page > 1
 
       return NextResponse.json({
         success: true,
-        data: transactions || [],
+        data: enriched,
         pagination: {
           page,
           limit,
@@ -134,6 +192,27 @@ export async function GET(request: NextRequest) {
       })
     }
 
+    // If machine_id or device_serial filter provided, validate access
+    if (targetDeviceSerial) {
+      if (!deviceSerials.includes(targetDeviceSerial)) {
+        // Device not in user's access list
+        return NextResponse.json({
+          success: true,
+          data: [],
+          pagination: {
+            page,
+            limit,
+            total: 0,
+            totalPages: 0,
+            hasNextPage: false,
+            hasPrevPage: false
+          }
+        })
+      }
+      // Filter to specific device
+      deviceSerials = [targetDeviceSerial]
+    }
+
     // Fetch transactions for these device serials
     let query = supabase
       .from('razorpay_pos_transactions')
@@ -152,6 +231,28 @@ export async function GET(request: NextRequest) {
       )
     }
 
+    // Enrich with machine_id
+    const uniqueSerials = Array.from(new Set((transactions || []).map((t: any) => t.device_serial).filter(Boolean)))
+    const machineMap = new Map<string, string>()
+    
+    if (uniqueSerials.length > 0) {
+      const { data: machines } = await supabase
+        .from('pos_machines')
+        .select('machine_id, serial_number')
+        .in('serial_number', uniqueSerials)
+      
+      machines?.forEach((m: any) => {
+        if (m.serial_number) {
+          machineMap.set(m.serial_number, m.machine_id)
+        }
+      })
+    }
+
+    const enriched = (transactions || []).map((tx: any) => ({
+      ...tx,
+      machine_id: machineMap.get(tx.device_serial || '') || null
+    }))
+
     // Calculate pagination metadata
     const totalPages = count ? Math.ceil(count / limit) : 1
     const hasNextPage = page < totalPages
@@ -159,7 +260,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      data: transactions || [],
+      data: enriched,
       pagination: {
         page,
         limit,

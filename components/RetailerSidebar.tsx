@@ -5,8 +5,8 @@ import { usePathname, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { 
   LayoutDashboard, ShoppingCart, Activity, 
-  Settings, TrendingUp, CreditCard, X, Menu, Zap,
-  Wallet, Receipt, Banknote, Percent
+  Settings, TrendingUp, CreditCard, X, Menu,
+  Wallet, Receipt, Banknote, Percent, BookOpen
 } from 'lucide-react'
 
 import { motion, AnimatePresence } from 'framer-motion'
@@ -26,6 +26,8 @@ const sidebarItems: SidebarItem[] = [
   { id: 'bbps', label: 'BBPS Payments', icon: Receipt, href: '/dashboard/retailer?tab=bbps' },
   { id: 'payout', label: 'Settlement', icon: Banknote, href: '/dashboard/retailer?tab=payout' },
   { id: 'transactions', label: 'Transactions', icon: CreditCard, href: '/dashboard/retailer?tab=transactions' },
+  { id: 'ledger', label: 'Ledger', icon: BookOpen, href: '/dashboard/retailer?tab=ledger' },
+  { id: 'pos-machines', label: 'My POS Machines', icon: CreditCard, href: '/dashboard/retailer?tab=pos-machines' },
   { id: 'mdr-schemes', label: 'MDR Schemes', icon: Percent, href: '/dashboard/retailer?tab=mdr-schemes' },
   { id: 'reports', label: 'Reports', icon: TrendingUp, href: '/dashboard/retailer?tab=reports' },
 ]
@@ -166,26 +168,6 @@ function SidebarContent({
           )
         })}
       </nav>
-
-      {/* Quick Stats */}
-      <div className="p-4 border-t border-gray-200 dark:border-gray-800">
-        <div className="bg-gradient-to-br from-blue-500/10 to-blue-600/10 dark:from-blue-500/20 dark:to-blue-600/20 rounded-xl p-4 border border-blue-200/50 dark:border-blue-800/50">
-          <div className="flex items-center space-x-2 mb-2">
-            <Zap className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-            <span className="text-xs font-semibold text-gray-700 dark:text-gray-300">Quick Stats</span>
-          </div>
-          <div className="space-y-1">
-            <div className="flex justify-between text-xs">
-              <span className="text-gray-600 dark:text-gray-400">Today's Sales</span>
-              <span className="font-semibold text-gray-900 dark:text-white">-</span>
-            </div>
-            <div className="flex justify-between text-xs">
-              <span className="text-gray-600 dark:text-gray-400">Active Services</span>
-              <span className="font-semibold text-gray-900 dark:text-white">-</span>
-            </div>
-          </div>
-        </div>
-      </div>
     </div>
   )
 }

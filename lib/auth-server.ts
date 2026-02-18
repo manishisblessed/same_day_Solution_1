@@ -9,6 +9,8 @@ import { ReadonlyRequestCookies } from 'next/dist/server/web/spec-extension/adap
  * Look up user role from database tables
  */
 async function getUserRole(supabase: any, email: string, userId: string): Promise<AuthUser | null> {
+  console.log('[getUserRole] Looking up role for:', email)
+  
   // Check which table the user belongs to
   // Use maybeSingle() instead of single() to avoid 406 errors when user doesn't belong to a table
   const [retailer, distributor, masterDistributor, admin] = await Promise.all([
@@ -18,7 +20,13 @@ async function getUserRole(supabase: any, email: string, userId: string): Promis
     supabase.from('admin_users').select('*').eq('email', email).maybeSingle(),
   ])
 
+  if (retailer.error) console.error('[getUserRole] Retailer lookup error:', retailer.error)
+  if (distributor.error) console.error('[getUserRole] Distributor lookup error:', distributor.error)
+  if (masterDistributor.error) console.error('[getUserRole] MasterDistributor lookup error:', masterDistributor.error)
+  if (admin.error) console.error('[getUserRole] Admin lookup error:', admin.error)
+
   if (retailer.data && !retailer.error) {
+    console.log('[getUserRole] Found retailer:', retailer.data.name)
     return {
       id: userId,
       email: email,
@@ -28,6 +36,7 @@ async function getUserRole(supabase: any, email: string, userId: string): Promis
     }
   }
   if (distributor.data && !distributor.error) {
+    console.log('[getUserRole] Found distributor:', distributor.data.name)
     return {
       id: userId,
       email: email,
@@ -37,6 +46,7 @@ async function getUserRole(supabase: any, email: string, userId: string): Promis
     }
   }
   if (masterDistributor.data && !masterDistributor.error) {
+    console.log('[getUserRole] Found master_distributor:', masterDistributor.data.name)
     return {
       id: userId,
       email: email,
@@ -46,6 +56,7 @@ async function getUserRole(supabase: any, email: string, userId: string): Promis
     }
   }
   if (admin.data && !admin.error) {
+    console.log('[getUserRole] Found admin:', admin.data.name)
     return {
       id: userId,
       email: email,
@@ -54,6 +65,7 @@ async function getUserRole(supabase: any, email: string, userId: string): Promis
     }
   }
 
+  console.error('[getUserRole] User not found in any table:', email)
   return null
 }
 
@@ -205,23 +217,37 @@ export async function getCurrentUserFromToken(
 export async function getCurrentUserWithFallback(
   request: NextRequest
 ): Promise<{ user: AuthUser | null; method: 'cookies' | 'token' | 'none' }> {
-  // First try cookies
-  const cookieUser = await getCurrentUserServer()
-  if (cookieUser) {
-    return { user: cookieUser, method: 'cookies' }
-  }
-
-  // Fallback to Authorization header
+  // First try Authorization header (more reliable for API routes)
   const authHeader = request.headers.get('authorization')
-  if (authHeader) {
-    console.log('[Auth Fallback] Cookies failed, trying Authorization header...')
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    console.log('[Auth] Trying Authorization header first...')
     const tokenUser = await getCurrentUserFromToken(authHeader)
     if (tokenUser) {
+      console.log('[Auth] Success via Authorization header:', tokenUser.email, tokenUser.role)
       return { user: tokenUser, method: 'token' }
+    } else {
+      console.log('[Auth] Authorization header failed')
     }
   }
 
+  // Fallback to cookies
+  console.log('[Auth] Trying cookies...')
+  const cookieUser = await getCurrentUserServer()
+  if (cookieUser) {
+    console.log('[Auth] Success via cookies:', cookieUser.email, cookieUser.role)
+    return { user: cookieUser, method: 'cookies' }
+  } else {
+    console.log('[Auth] Cookies failed')
+  }
+
+  console.error('[Auth] All authentication methods failed')
+  console.error('[Auth] Request headers:', {
+    authorization: request.headers.get('authorization') ? 'Present' : 'Missing',
+    cookie: request.headers.get('cookie') ? 'Present' : 'Missing'
+  })
+
   return { user: null, method: 'none' }
 }
+
 
 

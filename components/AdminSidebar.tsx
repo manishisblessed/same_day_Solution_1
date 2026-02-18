@@ -7,7 +7,7 @@ import {
   LayoutDashboard, Users, Package, Crown, 
   BarChart3, Settings, FileText,
   Activity, X, Menu, CreditCard, Receipt, CheckCircle2,
-  Building2, FileBarChart, Layers
+  Building2, FileBarChart, Layers, Key
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 
@@ -27,6 +27,7 @@ const sidebarItems: SidebarItem[] = [
   { id: 'scheme-management', label: 'Scheme Management', icon: Layers, href: '/admin/scheme-management' },
   { id: 'partners', label: 'Partners', icon: Building2, href: '/admin?tab=partners', badge: undefined },
   { id: 'pos-machines', label: 'POS Machines', icon: CreditCard, href: '/admin?tab=pos-machines' },
+  { id: 'pos-partner-api', label: 'POS Partner API', icon: Key, href: '/admin?tab=pos-partner-api' },
   { id: 'razorpay-transactions', label: 'Razorpay Transactions', icon: Receipt, href: '/admin/razorpay-transactions' },
   { id: 'services', label: 'Services', icon: Activity, href: '/admin?tab=services' },
   { id: 'reports', label: 'Reports', icon: FileBarChart, href: '/admin?tab=reports' },

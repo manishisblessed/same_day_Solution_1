@@ -20,10 +20,11 @@ import {
   CheckCircle2, AlertTriangle, XCircle, Zap, Globe, Smartphone, FileDown
 } from 'lucide-react'
 import TransactionsTable from '@/components/TransactionsTable'
+import POSPartnerAPIManagement from '@/components/POSPartnerAPIManagement'
 import { motion, AnimatePresence } from 'framer-motion'
 import { apiFetch } from '@/lib/api-client'
 
-type TabType = 'dashboard' | 'retailers' | 'distributors' | 'master-distributors' | 'services' | 'pos-machines' | 'transactions' | 'partners' | 'reports'
+type TabType = 'dashboard' | 'retailers' | 'distributors' | 'master-distributors' | 'services' | 'pos-machines' | 'transactions' | 'partners' | 'pos-partner-api' | 'reports'
 type SortField = 'name' | 'email' | 'partner_id' | 'created_at' | 'status'
 type SortDirection = 'asc' | 'desc'
 
@@ -36,7 +37,7 @@ function AdminDashboardContent() {
   // Initialize activeTab from URL or default to 'dashboard'
   const getInitialTab = (): TabType => {
     const tab = searchParams.get('tab')
-    if (tab && ['dashboard', 'retailers', 'distributors', 'master-distributors', 'pos-machines', 'services', 'transactions', 'partners', 'reports'].includes(tab)) {
+    if (tab && ['dashboard', 'retailers', 'distributors', 'master-distributors', 'pos-machines', 'pos-partner-api', 'services', 'transactions', 'partners', 'reports'].includes(tab)) {
       return tab as TabType
     }
     return 'dashboard'
@@ -74,6 +75,7 @@ function AdminDashboardContent() {
   const [retailers, setRetailers] = useState<Retailer[]>([])
   const [distributors, setDistributors] = useState<Distributor[]>([])
   const [masterDistributors, setMasterDistributors] = useState<MasterDistributor[]>([])
+  const [partners, setPartners] = useState<any[]>([])
   const [posMachines, setPosMachines] = useState<POSMachine[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -100,7 +102,7 @@ function AdminDashboardContent() {
   // Sync activeTab with URL query params
   useEffect(() => {
     const tab = searchParams.get('tab')
-    if (tab && ['dashboard', 'retailers', 'distributors', 'master-distributors', 'pos-machines', 'services', 'transactions', 'partners', 'reports'].includes(tab)) {
+    if (tab && ['dashboard', 'retailers', 'distributors', 'master-distributors', 'pos-machines', 'pos-partner-api', 'services', 'transactions', 'partners', 'reports'].includes(tab)) {
       if (tab !== activeTab) {
         setActiveTab(tab as TabType)
       }
@@ -176,15 +178,17 @@ function AdminDashboardContent() {
           .order('created_at', { ascending: false })
         if (error) throw error
         setPosMachines(data || [])
-        // Also fetch retailers, distributors, and master distributors for dropdowns
-        const [{ data: retailersData }, { data: distributorsData }, { data: masterDistributorsData }] = await Promise.all([
+        // Also fetch retailers, distributors, master distributors, and partners for dropdowns
+        const [{ data: retailersData }, { data: distributorsData }, { data: masterDistributorsData }, { data: partnersData }] = await Promise.all([
           supabase.from('retailers').select('*').order('name'),
           supabase.from('distributors').select('*').order('name'),
-          supabase.from('master_distributors').select('*').order('name')
+          supabase.from('master_distributors').select('*').order('name'),
+          supabase.from('partners').select('id, name, email, business_name, status').eq('status', 'active').order('name')
         ])
         if (retailersData) setRetailers(retailersData)
         if (distributorsData) setDistributors(distributorsData)
         if (masterDistributorsData) setMasterDistributors(masterDistributorsData)
+        if (partnersData) setPartners(partnersData)
       } else {
         const { data, error } = await supabase
           .from('master_distributors')
@@ -434,6 +438,7 @@ function AdminDashboardContent() {
               retailers={retailers}
               distributors={distributors}
               masterDistributors={masterDistributors}
+              partners={partners}
               posMachines={posMachines}
               onRefresh={fetchData}
               onAdd={() => setShowModal(true)}
@@ -443,6 +448,8 @@ function AdminDashboardContent() {
               }}
               onDelete={handleDelete}
             />
+          ) : activeTab === 'pos-partner-api' ? (
+            <POSPartnerAPIManagement />
           ) : activeTab === 'partners' ? (
             <PartnersTab />
           ) : activeTab === 'reports' ? (
@@ -1113,6 +1120,7 @@ function AdminDashboardContent() {
             retailers={retailers}
             distributors={distributors}
             masterDistributors={masterDistributors}
+            partners={partners}
             onClose={() => {
               setShowModal(false)
               setEditingItem(null)
@@ -2746,7 +2754,7 @@ function PartnerModal({
         name: formData.name,
         email: formData.email,
         phone: formData.phone,
-        business_name: formData.business_name || null,
+        business_name: formData.business_name || formData.name, // Use name if business_name not provided (required field)
         address: formData.address || null,
         city: formData.city || null,
         state: formData.state || null,
@@ -4228,6 +4236,7 @@ function POSMachinesTab({
   retailers,
   distributors,
   masterDistributors,
+  partners,
   posMachines,
   onRefresh,
   onAdd,
@@ -4237,6 +4246,7 @@ function POSMachinesTab({
   retailers: Retailer[]
   distributors: Distributor[]
   masterDistributors: MasterDistributor[]
+  partners: any[]
   posMachines: POSMachine[]
   onRefresh: () => void
   onAdd: () => void
@@ -4260,8 +4270,11 @@ function POSMachinesTab({
       const matchesSearch = 
         machine.machine_id.toLowerCase().includes(searchTerm.toLowerCase()) ||
         machine.serial_number?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        machine.retailer_id.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        retailers.find(r => r.partner_id === machine.retailer_id)?.name.toLowerCase().includes(searchTerm.toLowerCase())
+        machine.mid?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        machine.tid?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        machine.brand?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        machine.retailer_id?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        retailers.find(r => r.partner_id === machine.retailer_id)?.name?.toLowerCase().includes(searchTerm.toLowerCase())
       
       const matchesStatus = statusFilter === 'all' || machine.status === statusFilter
       const matchesType = typeFilter === 'all' || machine.machine_type === typeFilter
@@ -4307,6 +4320,12 @@ function POSMachinesTab({
     if (!masterDistributorId) return '-'
     const masterDistributor = masterDistributors.find(md => md.partner_id === masterDistributorId)
     return masterDistributor?.name || masterDistributorId
+  }
+
+  const getPartnerName = (partnerId?: string) => {
+    if (!partnerId) return '-'
+    const partner = partners.find(p => p.id === partnerId)
+    return partner?.name || partnerId
   }
 
   const getStatusColor = (status: string) => {
@@ -4535,10 +4554,13 @@ function POSMachinesTab({
                 }}>
                   Machine ID <ArrowUpDown className="w-3 h-3 inline" />
                 </th>
+                <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700 dark:text-gray-300">MID / TID</th>
+                <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700 dark:text-gray-300">Brand</th>
                 <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700 dark:text-gray-300">Type</th>
                 <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700 dark:text-gray-300">Retailer</th>
                 <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700 dark:text-gray-300">Distributor</th>
                 <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700 dark:text-gray-300">Master Distributor</th>
+                <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700 dark:text-gray-300">Partner</th>
                 <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700 dark:text-gray-300">Status</th>
                 <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700 dark:text-gray-300">Inventory Status</th>
                 <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700 dark:text-gray-300">Delivery Date</th>
@@ -4549,7 +4571,7 @@ function POSMachinesTab({
             <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
               {filteredMachines.length === 0 ? (
                 <tr>
-                  <td colSpan={11} className="px-3 py-8 text-center text-sm text-gray-500 dark:text-gray-400">
+                  <td colSpan={15} className="px-3 py-8 text-center text-sm text-gray-500 dark:text-gray-400">
                     No POS machines found
                   </td>
                 </tr>
@@ -4583,10 +4605,27 @@ function POSMachinesTab({
                         </div>
                       </div>
                     </td>
+                    <td className="px-3 py-2 text-sm text-gray-700 dark:text-gray-300">
+                      <div className="text-xs">
+                        {machine.mid && <div><span className="font-medium">MID:</span> {machine.mid}</div>}
+                        {machine.tid && <div><span className="font-medium">TID:</span> {machine.tid}</div>}
+                        {!machine.mid && !machine.tid && <span className="text-gray-400">-</span>}
+                      </div>
+                    </td>
+                    <td className="px-3 py-2 text-sm text-gray-700 dark:text-gray-300">
+                      {machine.brand ? (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400">
+                          {machine.brand}
+                        </span>
+                      ) : (
+                        <span className="text-gray-400">-</span>
+                      )}
+                    </td>
                     <td className="px-3 py-2 text-sm text-gray-700 dark:text-gray-300">{machine.machine_type}</td>
-                    <td className="px-3 py-2 text-sm text-gray-700 dark:text-gray-300">{getRetailerName(machine.retailer_id)}</td>
+                    <td className="px-3 py-2 text-sm text-gray-700 dark:text-gray-300">{machine.retailer_id ? getRetailerName(machine.retailer_id) : '-'}</td>
                     <td className="px-3 py-2 text-sm text-gray-700 dark:text-gray-300">{getDistributorName(machine.distributor_id)}</td>
                     <td className="px-3 py-2 text-sm text-gray-700 dark:text-gray-300">{getMasterDistributorName(machine.master_distributor_id)}</td>
+                    <td className="px-3 py-2 text-sm text-gray-700 dark:text-gray-300">{getPartnerName(machine.partner_id)}</td>
                     <td className="px-3 py-2">
                       <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${getStatusColor(machine.status)}`}>
                         {machine.status}
@@ -4599,6 +4638,7 @@ function POSMachinesTab({
                         machine.inventory_status === 'assigned_to_retailer' ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400' :
                         machine.inventory_status === 'assigned_to_distributor' ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400' :
                         machine.inventory_status === 'assigned_to_master_distributor' ? 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400' :
+                        machine.inventory_status === 'assigned_to_partner' ? 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400' :
                         machine.inventory_status === 'damaged_from_bank' ? 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400' :
                         'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300'
                       }`}>
@@ -4756,7 +4796,7 @@ function POSMachinesTab({
                     <li><strong>Required columns:</strong> machine_id, retailer_id</li>
                     <li><strong>Optional columns:</strong> serial_number, distributor_id, master_distributor_id, machine_type, inventory_status, status, delivery_date, installation_date, location, city, state, pincode, notes</li>
                     <li><strong>machine_type:</strong> POS, WPOS, or Mini-ATM</li>
-                    <li><strong>inventory_status:</strong> in_stock, received_from_bank, assigned_to_master_distributor, assigned_to_distributor, assigned_to_retailer, damaged_from_bank</li>
+                    <li><strong>inventory_status:</strong> in_stock, received_from_bank, assigned_to_master_distributor, assigned_to_distributor, assigned_to_retailer, assigned_to_partner, damaged_from_bank</li>
                     <li><strong>status:</strong> active, inactive, maintenance, damaged, returned</li>
                     <li>All partner IDs (retailer_id, distributor_id, master_distributor_id) must exist in the system</li>
                     <li>Machine IDs and Serial Numbers must be unique</li>
@@ -4809,6 +4849,7 @@ function POSMachineModal({
   retailers,
   distributors,
   masterDistributors,
+  partners,
   onClose,
   onSuccess,
 }: {
@@ -4816,18 +4857,23 @@ function POSMachineModal({
   retailers: Retailer[]
   distributors: Distributor[]
   masterDistributors: MasterDistributor[]
+  partners: any[]
   onClose: () => void
   onSuccess: () => void
 }) {
   const [formData, setFormData] = useState({
     machine_id: '',
     serial_number: '',
+    mid: '',
+    tid: '',
+    brand: '' as '' | 'RAZORPAY' | 'PINELAB' | 'PAYTM' | 'ICICI' | 'HDFC' | 'AXIS' | 'OTHER',
     retailer_id: '',
     distributor_id: '',
     master_distributor_id: '',
+    partner_id: '',
     machine_type: 'POS' as 'POS' | 'WPOS' | 'Mini-ATM',
     status: 'active' as 'active' | 'inactive' | 'maintenance' | 'damaged' | 'returned',
-    inventory_status: 'in_stock' as 'in_stock' | 'received_from_bank' | 'assigned_to_master_distributor' | 'assigned_to_distributor' | 'assigned_to_retailer' | 'damaged_from_bank',
+    inventory_status: 'in_stock' as 'in_stock' | 'received_from_bank' | 'assigned_to_master_distributor' | 'assigned_to_distributor' | 'assigned_to_retailer' | 'assigned_to_partner' | 'damaged_from_bank',
     delivery_date: '',
     installation_date: '',
     location: '',
@@ -4843,9 +4889,13 @@ function POSMachineModal({
       setFormData({
         machine_id: item.machine_id || '',
         serial_number: item.serial_number || '',
+        mid: item.mid || '',
+        tid: item.tid || '',
+        brand: item.brand || '',
         retailer_id: item.retailer_id || '',
         distributor_id: item.distributor_id || '',
         master_distributor_id: item.master_distributor_id || '',
+        partner_id: item.partner_id || '',
         machine_type: item.machine_type || 'POS',
         status: item.status || 'active',
         inventory_status: item.inventory_status || 'in_stock',
@@ -4883,27 +4933,56 @@ function POSMachineModal({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    
-    if (!formData.retailer_id) {
-      alert('Retailer is required')
+
+    // For hierarchical flow: machines can be added to inventory without retailer
+    // Only require retailer when inventory_status is 'assigned_to_retailer'
+    const isDirectAssignToRetailer = formData.inventory_status === 'assigned_to_retailer'
+    const isAssignToDistributor = formData.inventory_status === 'assigned_to_distributor'
+    const isAssignToMD = formData.inventory_status === 'assigned_to_master_distributor'
+    const isAssignToPartner = formData.inventory_status === 'assigned_to_partner'
+
+    if (isDirectAssignToRetailer && !formData.retailer_id) {
+      alert('Retailer is required when assigning directly to retailer')
       return
     }
 
-    // Validate hierarchy
-    const retailer = retailers.find(r => r.partner_id === formData.retailer_id)
-    if (!retailer) {
-      alert('Invalid retailer selected')
+    if (isAssignToDistributor && !formData.distributor_id) {
+      alert('Distributor is required when assigning to distributor')
       return
     }
 
-    if (!retailer.distributor_id) {
-      alert('Selected retailer must be assigned to a distributor')
+    if (isAssignToMD && !formData.master_distributor_id) {
+      alert('Master Distributor is required when assigning to master distributor')
       return
     }
 
-    if (!retailer.master_distributor_id) {
-      alert('Selected retailer must be assigned to a master distributor')
+    if (isAssignToPartner && !formData.partner_id) {
+      alert('Partner is required when assigning to partner')
       return
+    }
+
+    // If assigning to retailer, validate the full hierarchy
+    let resolvedDistributorId = formData.distributor_id || null
+    let resolvedMDId = formData.master_distributor_id || null
+
+    if (formData.retailer_id) {
+      const retailer = retailers.find(r => r.partner_id === formData.retailer_id)
+      if (!retailer) {
+        alert('Invalid retailer selected')
+        return
+      }
+      if (isDirectAssignToRetailer) {
+        if (!retailer.distributor_id) {
+          alert('Selected retailer must be assigned to a distributor')
+          return
+        }
+        if (!retailer.master_distributor_id) {
+          alert('Selected retailer must be assigned to a master distributor')
+          return
+        }
+        resolvedDistributorId = retailer.distributor_id
+        resolvedMDId = retailer.master_distributor_id
+      }
     }
 
     setLoading(true)
@@ -4912,9 +4991,13 @@ function POSMachineModal({
       const machineData: any = {
         machine_id: formData.machine_id,
         serial_number: formData.serial_number || null,
-        retailer_id: formData.retailer_id,
-        distributor_id: retailer.distributor_id,
-        master_distributor_id: retailer.master_distributor_id,
+        mid: formData.mid || null,
+        tid: formData.tid || null,
+        brand: formData.brand || null,
+        retailer_id: isAssignToPartner ? null : (formData.retailer_id || null),
+        distributor_id: isAssignToPartner ? null : resolvedDistributorId,
+        master_distributor_id: isAssignToPartner ? null : resolvedMDId,
+        partner_id: isAssignToPartner ? formData.partner_id || null : null,
         machine_type: formData.machine_type,
         status: formData.status,
         inventory_status: formData.inventory_status,
@@ -4982,13 +5065,51 @@ function POSMachineModal({
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Serial Number</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Device Serial Number</label>
               <input
                 type="text"
                 value={formData.serial_number}
                 onChange={(e) => setFormData({ ...formData, serial_number: e.target.value })}
+                placeholder="e.g., 2841154268"
                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
               />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">MID (Merchant ID)</label>
+              <input
+                type="text"
+                value={formData.mid}
+                onChange={(e) => setFormData({ ...formData, mid: e.target.value })}
+                placeholder="e.g., 7568516041"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">TID (Terminal ID)</label>
+              <input
+                type="text"
+                value={formData.tid}
+                onChange={(e) => setFormData({ ...formData, tid: e.target.value })}
+                placeholder="e.g., 29196333"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Brand</label>
+              <select
+                value={formData.brand}
+                onChange={(e) => setFormData({ ...formData, brand: e.target.value as any })}
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+              >
+                <option value="">Select Brand</option>
+                <option value="RAZORPAY">RAZORPAY</option>
+                <option value="PINELAB">PINELAB</option>
+                <option value="PAYTM">PAYTM</option>
+                <option value="ICICI">ICICI</option>
+                <option value="HDFC">HDFC</option>
+                <option value="AXIS">AXIS</option>
+                <option value="OTHER">OTHER</option>
+              </select>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Machine Type *</label>
@@ -5039,28 +5160,75 @@ function POSMachineModal({
                 <option value="assigned_to_master_distributor">Assigned to Master Distributor</option>
                 <option value="assigned_to_distributor">Assigned to Distributor</option>
                 <option value="assigned_to_retailer">Assigned to Retailer</option>
+                <option value="assigned_to_partner">Assigned to Partner</option>
                 <option value="damaged_from_bank">Damaged from Bank</option>
+              </select>
+            </div>
+            {/* Hierarchical Flow Info */}
+            <div className="col-span-1 md:col-span-2">
+              <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3 text-xs text-blue-800 dark:text-blue-300">
+                <strong>💡 Hierarchical Assignment:</strong> Set inventory status to "In Stock" or "Received from Bank" to add to inventory. Then assign to Master Distributor via the POS assignment flow (MD → Distributor → Retailer). Or set "Assigned to Retailer" for direct assignment. You can also assign directly to a Partner by selecting "Assigned to Partner" status.
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Master Distributor {formData.inventory_status === 'assigned_to_master_distributor' && <span className="text-red-500">*</span>}
+              </label>
+              <select
+                value={formData.master_distributor_id}
+                onChange={(e) => setFormData({ ...formData, master_distributor_id: e.target.value })}
+                required={formData.inventory_status === 'assigned_to_master_distributor'}
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+              >
+                <option value="">Select Master Distributor (Optional)</option>
+                {masterDistributors
+                  .filter(md => md.status === 'active')
+                  .map((md) => (
+                    <option key={md.id} value={md.partner_id}>
+                      {md.partner_id} - {md.name}
+                    </option>
+                  ))}
               </select>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Retailer * <span className="text-xs text-gray-500 dark:text-gray-400">(Required)</span>
+                Distributor {formData.inventory_status === 'assigned_to_distributor' && <span className="text-red-500">*</span>}
               </label>
               <select
-                required
+                value={formData.distributor_id}
+                onChange={(e) => setFormData({ ...formData, distributor_id: e.target.value })}
+                required={formData.inventory_status === 'assigned_to_distributor'}
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+              >
+                <option value="">Select Distributor (Optional)</option>
+                {distributors
+                  .filter(d => d.status === 'active' && (!formData.master_distributor_id || d.master_distributor_id === formData.master_distributor_id))
+                  .map((d) => (
+                    <option key={d.id} value={d.partner_id}>
+                      {d.partner_id} - {d.name}
+                    </option>
+                  ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Retailer {formData.inventory_status === 'assigned_to_retailer' && <span className="text-red-500">*</span>}
+              </label>
+              <select
                 value={formData.retailer_id}
                 onChange={(e) => {
                   const retailer = retailers.find(r => r.partner_id === e.target.value)
                   setFormData({ 
                     ...formData, 
                     retailer_id: e.target.value,
-                    distributor_id: retailer?.distributor_id || '',
-                    master_distributor_id: retailer?.master_distributor_id || ''
+                    distributor_id: retailer?.distributor_id || formData.distributor_id,
+                    master_distributor_id: retailer?.master_distributor_id || formData.master_distributor_id
                   })
                 }}
+                required={formData.inventory_status === 'assigned_to_retailer'}
                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
               >
-                <option value="">Select Retailer</option>
+                <option value="">Select Retailer (Optional)</option>
                 {retailers
                   .filter(r => r.status === 'active')
                   .map((r) => (
@@ -5069,27 +5237,32 @@ function POSMachineModal({
                     </option>
                   ))}
               </select>
-              {retailers.filter(r => r.status === 'active').length === 0 && (
+              {formData.inventory_status === 'assigned_to_retailer' && retailers.filter(r => r.status === 'active').length === 0 && (
                 <p className="text-xs text-red-500 mt-1">No active retailers available. Please create one first.</p>
               )}
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Distributor</label>
-              <input
-                type="text"
-                value={formData.distributor_id ? distributors.find(d => d.partner_id === formData.distributor_id)?.name || formData.distributor_id : 'Auto-filled from Retailer'}
-                disabled
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 cursor-not-allowed"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Master Distributor</label>
-              <input
-                type="text"
-                value={formData.master_distributor_id ? masterDistributors.find(md => md.partner_id === formData.master_distributor_id)?.name || formData.master_distributor_id : 'Auto-filled from Retailer'}
-                disabled
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 cursor-not-allowed"
-              />
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Partner {formData.inventory_status === 'assigned_to_partner' && <span className="text-red-500">*</span>}
+              </label>
+              <select
+                value={formData.partner_id}
+                onChange={(e) => setFormData({ ...formData, partner_id: e.target.value })}
+                required={formData.inventory_status === 'assigned_to_partner'}
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+              >
+                <option value="">Select Partner (Optional)</option>
+                {partners
+                  .filter(p => p.status === 'active')
+                  .map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name} {p.business_name ? `(${p.business_name})` : ''} - {p.email}
+                    </option>
+                  ))}
+              </select>
+              {formData.inventory_status === 'assigned_to_partner' && partners.filter(p => p.status === 'active').length === 0 && (
+                <p className="text-xs text-red-500 mt-1">No active partners available. Please create one first.</p>
+              )}
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Delivery Date</label>
@@ -5356,13 +5529,39 @@ function CreatePartnerModal({
     setLoading(true)
 
     try {
+      // Map form fields to database columns
+      // contact_email -> email, contact_phone -> phone
+      const partnerData: any = {
+        name: formData.name,
+        email: formData.contact_email, // Map contact_email to email
+        phone: formData.contact_phone, // Map contact_phone to phone
+        business_name: formData.business_name || formData.name, // Use name if business_name not provided (required field)
+        address: formData.address || null,
+        city: formData.city || null,
+        state: formData.state || null,
+        pincode: formData.pincode || null,
+        gst_number: formData.gst_number || null, // Optional - GST Number
+        status: formData.status,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      }
+
+      // Store optional branding fields in metadata JSONB column
+      const metadata: any = {}
+      if (formData.subdomain) metadata.subdomain = formData.subdomain
+      if (formData.logo_url) metadata.logo_url = formData.logo_url // Optional - Logo URL
+      if (formData.primary_color) metadata.primary_color = formData.primary_color
+      if (formData.secondary_color) metadata.secondary_color = formData.secondary_color
+      if (formData.partner_type) metadata.partner_type = formData.partner_type
+      if (formData.notes) metadata.notes = formData.notes
+
+      if (Object.keys(metadata).length > 0) {
+        partnerData.metadata = metadata
+      }
+
       const { data, error } = await supabase
         .from('partners')
-        .insert([{
-          ...formData,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        }])
+        .insert([partnerData])
         .select()
 
       if (error) throw error

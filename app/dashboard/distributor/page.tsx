@@ -20,8 +20,9 @@ import TransactionsTable from '@/components/TransactionsTable'
 import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
 import { motion } from 'framer-motion'
 import { apiFetch } from '@/lib/api-client'
+import POSMachinesTab from '@/components/POSMachinesTab'
 
-type TabType = 'dashboard' | 'wallet' | 'network' | 'commission' | 'mdr-schemes' | 'analytics' | 'reports' | 'settings' | 'scheme-management'
+type TabType = 'dashboard' | 'wallet' | 'network' | 'commission' | 'mdr-schemes' | 'analytics' | 'reports' | 'settings' | 'scheme-management' | 'pos-machines'
 
 type ChangePasswordFormProps = {
   onPasswordChange: (current: string, newPassword: string, confirm: string) => void
@@ -36,7 +37,7 @@ function DistributorDashboardContent() {
   
   const getInitialTab = (): TabType => {
     const tab = searchParams.get('tab')
-    if (tab && ['dashboard', 'wallet', 'network', 'commission', 'mdr-schemes', 'analytics', 'reports', 'settings', 'scheme-management'].includes(tab)) {
+    if (tab && ['dashboard', 'wallet', 'network', 'commission', 'mdr-schemes', 'analytics', 'reports', 'settings', 'scheme-management', 'pos-machines'].includes(tab)) {
       return tab as TabType
     }
     return 'dashboard'
@@ -213,7 +214,7 @@ function DistributorDashboardContent() {
     }
     
     const tab = searchParams.get('tab')
-    if (tab && ['dashboard', 'wallet', 'network', 'commission', 'mdr-schemes', 'analytics', 'reports', 'settings', 'scheme-management'].includes(tab)) {
+    if (tab && ['dashboard', 'wallet', 'network', 'commission', 'mdr-schemes', 'analytics', 'reports', 'settings', 'scheme-management', 'pos-machines'].includes(tab)) {
       setActiveTab(tab as TabType)
     } else {
       // Default to dashboard if no tab is specified (when on main dashboard page)
@@ -301,6 +302,7 @@ function DistributorDashboardContent() {
           {activeTab === 'reports' && <ReportsTab user={user} />}
           {activeTab === 'settings' && <SettingsTab />}
           {activeTab === 'scheme-management' && <SchemeManagementTab user={user} retailers={retailers} onRefresh={fetchDashboardData} />}
+          {activeTab === 'pos-machines' && <POSMachinesTab user={user} accentColor="purple" />}
         </div>
       </div>
     </div>

@@ -20,8 +20,9 @@ import TransactionsTable from '@/components/TransactionsTable'
 import { LineChart, Line, BarChart, Bar, AreaChart, Area, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
 import { motion, AnimatePresence } from 'framer-motion'
 import { apiFetch } from '@/lib/api-client'
+import POSMachinesTab from '@/components/POSMachinesTab'
 
-type TabType = 'dashboard' | 'services' | 'distributors' | 'retailers' | 'wallet' | 'network' | 'commission' | 'analytics' | 'reports' | 'settings' | 'scheme-management'
+type TabType = 'dashboard' | 'services' | 'distributors' | 'retailers' | 'wallet' | 'network' | 'commission' | 'analytics' | 'reports' | 'settings' | 'scheme-management' | 'pos-machines'
 
 type ChangePasswordFormProps = {
   onPasswordChange: (current: string, newPassword: string, confirm: string) => void
@@ -37,7 +38,7 @@ function MasterDistributorDashboardContent() {
   
   const getInitialTab = (): TabType => {
     const tab = searchParams.get('tab')
-    if (tab && ['dashboard', 'services', 'distributors', 'retailers', 'wallet', 'network', 'commission', 'analytics', 'reports', 'settings', 'scheme-management'].includes(tab)) {
+    if (tab && ['dashboard', 'services', 'distributors', 'retailers', 'wallet', 'network', 'commission', 'analytics', 'reports', 'settings', 'scheme-management', 'pos-machines'].includes(tab)) {
       return tab as TabType
     }
     return 'dashboard'
@@ -83,7 +84,7 @@ function MasterDistributorDashboardContent() {
     }
     
     const tab = searchParams.get('tab')
-    if (tab && ['dashboard', 'services', 'distributors', 'retailers', 'wallet', 'network', 'commission', 'analytics', 'reports', 'settings', 'scheme-management'].includes(tab)) {
+    if (tab && ['dashboard', 'services', 'distributors', 'retailers', 'wallet', 'network', 'commission', 'analytics', 'reports', 'settings', 'scheme-management', 'pos-machines'].includes(tab)) {
       setActiveTab(tab as TabType)
     } else {
       // Default to dashboard if no tab is specified (when on main dashboard page)
@@ -343,6 +344,7 @@ function MasterDistributorDashboardContent() {
           {activeTab === 'reports' && <ReportsTab user={user} />}
           {activeTab === 'settings' && <SettingsTab />}
           {activeTab === 'scheme-management' && <SchemeManagementTab user={user} />}
+          {activeTab === 'pos-machines' && <POSMachinesTab user={user} accentColor="yellow" />}
         </div>
       </div>
     </div>

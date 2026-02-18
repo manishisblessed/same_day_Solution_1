@@ -134,13 +134,20 @@ export interface AuthUser {
 export interface POSMachine {
   id: string
   machine_id: string
-  serial_number?: string
-  retailer_id: string
+  serial_number?: string  // Device Serial Number (e.g., 2841154268)
+  mid?: string  // Merchant ID (e.g., 7568516041)
+  tid?: string  // Terminal ID (e.g., 29196333)
+  brand?: 'RAZORPAY' | 'PINELAB' | 'PAYTM' | 'ICICI' | 'HDFC' | 'AXIS' | 'OTHER'
+  retailer_id?: string  // nullable for hierarchical assignment (MD/Distributor can hold without retailer)
   distributor_id?: string
   master_distributor_id?: string
+  partner_id?: string  // UUID reference to partners table - allows direct assignment to co-branding partners
   machine_type: 'POS' | 'WPOS' | 'Mini-ATM'
   status: 'active' | 'inactive' | 'maintenance' | 'damaged' | 'returned'
-  inventory_status?: 'in_stock' | 'received_from_bank' | 'assigned_to_master_distributor' | 'assigned_to_distributor' | 'assigned_to_retailer' | 'damaged_from_bank'
+  inventory_status?: 'in_stock' | 'received_from_bank' | 'assigned_to_master_distributor' | 'assigned_to_distributor' | 'assigned_to_retailer' | 'assigned_to_partner' | 'damaged_from_bank'
+  assigned_by?: string
+  assigned_by_role?: 'admin' | 'master_distributor' | 'distributor'
+  last_assigned_at?: string
   delivery_date?: string
   installation_date?: string
   location?: string
@@ -150,6 +157,22 @@ export interface POSMachine {
   notes?: string
   created_at: string
   updated_at: string
+}
+
+// POS Assignment History (audit trail)
+export interface POSAssignmentHistory {
+  id: string
+  pos_machine_id: string
+  machine_id: string
+  action: 'created' | 'assigned_to_master_distributor' | 'assigned_to_distributor' | 'assigned_to_retailer' | 'assigned_to_partner' | 'unassigned_from_master_distributor' | 'unassigned_from_distributor' | 'unassigned_from_retailer' | 'unassigned_from_partner' | 'reassigned'
+  assigned_by: string
+  assigned_by_role: 'admin' | 'master_distributor' | 'distributor'
+  assigned_to?: string
+  assigned_to_role?: 'master_distributor' | 'distributor' | 'retailer' | 'partner'
+  previous_holder?: string
+  previous_holder_role?: 'master_distributor' | 'distributor' | 'retailer' | 'partner'
+  notes?: string
+  created_at: string
 }
 
 // Razorpay POS Transaction Types

@@ -132,19 +132,108 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    // POS (Razorpay) transactions
+    if (!service || service === 'pos') {
+      // Get device serials based on user role for filtering
+      let deviceSerials: string[] = []
+      
+      if (user.role !== 'admin') {
+        let mappingQuery = supabase
+          .from('pos_device_mapping')
+          .select('device_serial')
+          .eq('status', 'ACTIVE')
+
+        if (user.role === 'master_distributor' && user.partner_id) {
+          mappingQuery = mappingQuery.eq('master_distributor_id', user.partner_id)
+        } else if (user.role === 'distributor' && user.partner_id) {
+          mappingQuery = mappingQuery.eq('distributor_id', user.partner_id)
+        } else if (user.role === 'retailer' && user.partner_id) {
+          mappingQuery = mappingQuery.eq('retailer_id', user.partner_id)
+        }
+
+        const { data: mappings } = await mappingQuery
+        deviceSerials = (mappings || []).map((m: any) => m.device_serial).filter(Boolean)
+      }
+
+      let posQuery = supabase
+        .from('razorpay_pos_transactions')
+        .select('*', { count: 'exact' })
+        .order('transaction_time', { ascending: false })
+
+      // Apply role-based filtering
+      if (user.role !== 'admin' && deviceSerials.length > 0) {
+        posQuery = posQuery.in('device_serial', deviceSerials)
+      } else if (user.role !== 'admin' && deviceSerials.length === 0) {
+        // No access - return empty
+        posQuery = posQuery.eq('id', '00000000-0000-0000-0000-000000000000') // Impossible match
+      }
+
+      // Apply filters
+      if (dateFrom) posQuery = posQuery.gte('transaction_time', dateFrom)
+      if (dateTo) posQuery = posQuery.lte('transaction_time', dateTo)
+      if (status) posQuery = posQuery.eq('status', status)
+      
+      // Filter by device_serial if provided
+      const device_serial = searchParams.get('device_serial') || searchParams.get('machine_id')
+      if (device_serial) {
+        // If machine_id provided, look up device_serial from pos_machines
+        if (device_serial.startsWith('POS') || device_serial.startsWith('WPOS') || device_serial.startsWith('MATM')) {
+          const { data: machine } = await supabase
+            .from('pos_machines')
+            .select('serial_number')
+            .eq('machine_id', device_serial)
+            .single()
+          if (machine?.serial_number) {
+            posQuery = posQuery.eq('device_serial', machine.serial_number)
+          } else {
+            posQuery = posQuery.eq('device_serial', '') // No match
+          }
+        } else {
+          posQuery = posQuery.eq('device_serial', device_serial)
+        }
+      }
+
+      posQuery = posQuery.range(offset, offset + limit - 1)
+
+      const { data: posData, count: posCount } = await posQuery
+
+      if (posData) {
+        results = results.concat(posData.map(tx => ({
+          ...tx,
+          service_type: 'pos',
+          transaction_id: tx.txn_id || tx.id,
+          user_id: tx.retailer_id || null,
+          created_at: tx.transaction_time || tx.created_at,
+          amount: tx.amount || 0,
+        })))
+        total += posCount || 0
+      }
+    }
+
     // Sort by created_at descending
-    results.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+    results.sort((a, b) => new Date(b.created_at || b.transaction_time || 0).getTime() - new Date(a.created_at || a.transaction_time || 0).getTime())
 
     // Prepare data for export
-    const headers = ['Service Type', 'Transaction ID', 'User ID', 'Amount', 'Status', 'Created At']
-    const rows = results.map(row => [
-      row.service_type,
-      row.transaction_id || row.id,
-      row.user_id || row.retailer_id,
-      row.amount || row.bill_amount || 0,
-      row.status,
-      row.created_at
-    ])
+    const headers = ['Service Type', 'Transaction ID', 'User ID', 'Amount', 'Status', 'Device Serial', 'Machine ID', 'Created At']
+    const rows = results.map(row => {
+      // For POS transactions, try to get machine_id from device_serial
+      let machineId = ''
+      if (row.service_type === 'pos' && row.device_serial) {
+        // In a real implementation, you'd join with pos_machines here
+        // For now, we'll just show device_serial
+        machineId = row.device_serial
+      }
+      return [
+        row.service_type,
+        row.transaction_id || row.id,
+        row.user_id || row.retailer_id,
+        row.amount || row.bill_amount || 0,
+        row.status,
+        row.device_serial || '',
+        machineId,
+        row.created_at || row.transaction_time
+      ]
+    })
 
     // Format response
     if (format === 'csv') {

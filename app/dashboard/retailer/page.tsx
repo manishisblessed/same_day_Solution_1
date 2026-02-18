@@ -33,8 +33,10 @@ const RetailerSidebar = lazy(() =>
 
 // Import framer-motion with a fallback component for SSR safety
 import { motion } from 'framer-motion'
+import POSMachinesTab from '@/components/POSMachinesTab'
+import POSTransactionsTable from '@/components/POSTransactionsTable'
 
-type TabType = 'dashboard' | 'wallet' | 'services' | 'bbps' | 'payout' | 'transactions' | 'mdr-schemes' | 'reports' | 'settings'
+type TabType = 'dashboard' | 'wallet' | 'services' | 'bbps' | 'payout' | 'transactions' | 'ledger' | 'mdr-schemes' | 'reports' | 'settings' | 'pos-machines'
 
 function RetailerDashboardContent() {
   const { user, loading: authLoading } = useAuth()
@@ -44,7 +46,7 @@ function RetailerDashboardContent() {
   
   const getInitialTab = (): TabType => {
     const tab = searchParams.get('tab')
-    if (tab && ['dashboard', 'wallet', 'services', 'bbps', 'payout', 'transactions', 'mdr-schemes', 'reports', 'settings'].includes(tab)) {
+    if (tab && ['dashboard', 'wallet', 'services', 'bbps', 'payout', 'transactions', 'ledger', 'mdr-schemes', 'reports', 'settings', 'pos-machines'].includes(tab)) {
       return tab as TabType
     }
     return 'dashboard'
@@ -81,7 +83,7 @@ function RetailerDashboardContent() {
 
   useEffect(() => {
     const tab = searchParams.get('tab')
-    if (tab && ['dashboard', 'wallet', 'services', 'bbps', 'payout', 'transactions', 'mdr-schemes', 'reports', 'settings'].includes(tab)) {
+    if (tab && ['dashboard', 'wallet', 'services', 'bbps', 'payout', 'transactions', 'ledger', 'mdr-schemes', 'reports', 'settings', 'pos-machines'].includes(tab)) {
       if (tab !== activeTab) {
         setActiveTab(tab as TabType)
       }
@@ -189,9 +191,46 @@ function RetailerDashboardContent() {
         .order('created_at', { ascending: false })
         .limit(1000)
 
-      // Calculate real stats from ledger
-      const totalTransactions = ledgerData?.length || 0
-      const totalRevenue = ledgerData?.reduce((sum, entry) => sum + (entry.credit || 0), 0) || 0
+      // Fetch POS transactions
+      let posTransactions: any[] = []
+      try {
+        // Get device serials for this retailer
+        const { data: mappings } = await supabase
+          .from('pos_device_mapping')
+          .select('device_serial')
+          .eq('retailer_id', user.partner_id)
+          .eq('status', 'ACTIVE')
+
+        const deviceSerials = (mappings || []).map((m: any) => m.device_serial).filter(Boolean)
+
+        if (deviceSerials.length > 0) {
+          // Fetch POS transactions for these devices
+          const { data: posData } = await supabase
+            .from('razorpay_pos_transactions')
+            .select('*')
+            .in('device_serial', deviceSerials)
+            .order('transaction_time', { ascending: false })
+            .limit(1000)
+
+          posTransactions = posData || []
+        }
+      } catch (posError) {
+        console.error('Error fetching POS transactions:', posError)
+        // Continue without POS transactions if there's an error
+      }
+
+      // Combine ledger and POS transactions for stats
+      const ledgerTransactions = ledgerData?.length || 0
+      const posTransactionsCount = posTransactions.length
+      const totalTransactions = ledgerTransactions + posTransactionsCount
+
+      // Calculate revenue from ledger (credits)
+      const ledgerRevenue = ledgerData?.reduce((sum, entry) => sum + (entry.credit || 0), 0) || 0
+      // Calculate revenue from POS transactions (only successful ones)
+      const posRevenue = posTransactions
+        .filter(tx => (tx.display_status || tx.status || '').toUpperCase() === 'SUCCESS' || (tx.status || '').toUpperCase() === 'CAPTURED')
+        .reduce((sum, tx) => sum + (parseFloat(tx.amount || 0) / 100 || 0), 0) // Amount is in paise, convert to rupees
+      const totalRevenue = ledgerRevenue + posRevenue
       
       // Fetch commission data
       const { data: commissionData } = await supabase
@@ -208,32 +247,58 @@ function RetailerDashboardContent() {
         walletBalance,
       })
 
-      // Get recent transactions from ledger (last 5)
+      // Combine recent transactions from both ledger and POS
       const recentLedgerEntries = (ledgerData || []).slice(0, 5).map(entry => ({
         id: entry.id,
         type: entry.service_type || entry.transaction_type || 'Transaction',
         amount: entry.credit || entry.debit || 0,
         status: entry.status || 'completed',
         date: new Date(entry.created_at).toLocaleDateString(),
-        customer: 'Customer', // Can be enhanced with actual customer data if available
+        customer: 'Customer',
+        source: 'ledger',
+        timestamp: new Date(entry.created_at).getTime(),
       }))
 
-      setRecentTransactions(recentLedgerEntries)
+      const recentPOSEntries = posTransactions.slice(0, 5).map(tx => ({
+        id: tx.txn_id || tx.id,
+        type: 'POS Transaction',
+        amount: parseFloat(tx.amount || 0) / 100 || 0, // Convert from paise to rupees
+        status: (tx.display_status || tx.status || 'PENDING').toLowerCase(),
+        date: tx.transaction_time ? new Date(tx.transaction_time).toLocaleDateString() : new Date().toLocaleDateString(),
+        customer: 'POS Customer',
+        source: 'pos',
+        timestamp: tx.transaction_time ? new Date(tx.transaction_time).getTime() : new Date().getTime(),
+      }))
 
-      // Calculate weekly chart data from ledger
+      // Combine and sort by timestamp (most recent first), then take top 5
+      const allRecentTransactions = [...recentLedgerEntries, ...recentPOSEntries]
+        .sort((a, b) => b.timestamp - a.timestamp)
+        .slice(0, 5)
+        .map(({ timestamp, source, ...rest }) => rest) // Remove internal fields
+
+      setRecentTransactions(allRecentTransactions)
+
+      // Calculate weekly chart data from both ledger and POS
       const now = new Date()
       const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
       
-      const weeklyData = (ledgerData || []).filter(entry => {
+      const weeklyLedgerData = (ledgerData || []).filter(entry => {
         const entryDate = new Date(entry.created_at)
         return entryDate >= weekAgo
+      })
+
+      const weeklyPOSData = posTransactions.filter(tx => {
+        if (!tx.transaction_time) return false
+        const txDate = new Date(tx.transaction_time)
+        return txDate >= weekAgo
       })
 
       // Group by day of week
       const dayMap: Record<string, { transactions: number; revenue: number }> = {}
       const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
       
-      weeklyData.forEach(entry => {
+      // Process ledger data
+      weeklyLedgerData.forEach(entry => {
         const entryDate = new Date(entry.created_at)
         const dayName = dayNames[entryDate.getDay()]
         
@@ -243,6 +308,23 @@ function RetailerDashboardContent() {
         
         dayMap[dayName].transactions += 1
         dayMap[dayName].revenue += (entry.credit || 0)
+      })
+
+      // Process POS data
+      weeklyPOSData.forEach(tx => {
+        const txDate = new Date(tx.transaction_time)
+        const dayName = dayNames[txDate.getDay()]
+        
+        if (!dayMap[dayName]) {
+          dayMap[dayName] = { transactions: 0, revenue: 0 }
+        }
+        
+        // Only count successful POS transactions
+        const isSuccess = (tx.display_status || tx.status || '').toUpperCase() === 'SUCCESS' || (tx.status || '').toUpperCase() === 'CAPTURED'
+        if (isSuccess) {
+          dayMap[dayName].transactions += 1
+          dayMap[dayName].revenue += (parseFloat(tx.amount || 0) / 100 || 0) // Convert from paise to rupees
+        }
       })
 
       // Create chart data in order (Mon-Sun)
@@ -354,8 +436,10 @@ function RetailerDashboardContent() {
           {activeTab === 'services' && <ServicesTab />}
           {activeTab === 'bbps' && <BBPSTab />}
           {activeTab === 'payout' && <PayoutTransfer title="Settlement to Bank Account" />}
-          {activeTab === 'transactions' && <CombinedTransactionsTab />}
+          {activeTab === 'transactions' && <POSTransactionsTable autoPoll={true} pollInterval={15000} />}
+          {activeTab === 'ledger' && <BBPSTransactionsTable autoPoll={true} pollInterval={15000} />}
           {activeTab === 'mdr-schemes' && <MDRSchemesTab user={user} />}
+          {activeTab === 'pos-machines' && <POSMachinesTab user={user} accentColor="blue" />}
           {activeTab === 'reports' && <ReportsTab chartData={chartData} stats={stats} />}
           {activeTab === 'settings' && <SettingsTab user={user} />}
         </div>
@@ -953,42 +1037,6 @@ function ServicesTab() {
   )
 }
 
-// Combined Transactions Tab - Shows both POS and BBPS transactions
-function CombinedTransactionsTab() {
-  const [txSubTab, setTxSubTab] = useState<'bbps' | 'pos'>('bbps')
-  
-  return (
-    <div className="space-y-4">
-      {/* Sub-tab navigation */}
-      <div className="flex items-center gap-1 bg-gray-100 dark:bg-gray-800 rounded-lg p-1 w-fit">
-        <button
-          onClick={() => setTxSubTab('bbps')}
-          className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${
-            txSubTab === 'bbps'
-              ? 'bg-white dark:bg-gray-700 text-blue-600 dark:text-blue-400 shadow-sm'
-              : 'text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200'
-          }`}
-        >
-          BBPS Transactions
-        </button>
-        <button
-          onClick={() => setTxSubTab('pos')}
-          className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${
-            txSubTab === 'pos'
-              ? 'bg-white dark:bg-gray-700 text-blue-600 dark:text-blue-400 shadow-sm'
-              : 'text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200'
-          }`}
-        >
-          POS Transactions
-        </button>
-      </div>
-      
-      {/* Content */}
-      {txSubTab === 'bbps' && <BBPSTransactionsTable autoPoll={true} pollInterval={15000} />}
-      {txSubTab === 'pos' && <TransactionsTable role="retailer" autoPoll={true} pollInterval={10000} />}
-    </div>
-  )
-}
 
 // Transactions Tab Component (legacy)
 function TransactionsTab({ transactions }: { transactions: any[] }) {
