@@ -58,7 +58,22 @@ export default function POSPartnerAPIManagement() {
     setError(null)
     try {
       const res = await apiFetch('/api/admin/pos-partner-api')
-      const result = await res.json()
+      
+      // Read response as text first to handle HTML error pages gracefully
+      const text = await res.text()
+      let result: any
+      try {
+        result = JSON.parse(text)
+      } catch {
+        // Response is not JSON (likely HTML 404 page from server)
+        console.error('Error fetching partners: Non-JSON response received (status ' + res.status + ')')
+        if (res.status === 404) {
+          setError('POS Partner API endpoint not found. The server may need redeployment.')
+        } else {
+          setError(`Server returned an unexpected response (${res.status}). Please try again later.`)
+        }
+        return
+      }
       
       if (!res.ok) {
         // Handle HTTP error status codes
@@ -102,7 +117,16 @@ export default function POSPartnerAPIManagement() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       })
-      const result = await res.json()
+      // Read response as text first to handle HTML error pages
+      const text = await res.text()
+      let result: any
+      try {
+        result = JSON.parse(text)
+      } catch {
+        throw new Error(res.status === 404
+          ? 'POS Partner API endpoint not found. The server may need redeployment.'
+          : `Server returned an unexpected response (${res.status})`)
+      }
       if (!res.ok || !result.success) {
         throw new Error(result.error || 'Action failed')
       }

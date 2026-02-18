@@ -80,6 +80,27 @@ const nextConfig = {
     
     return config
   },
+  // CORS headers for static assets (fonts, etc.)
+  // Prevents CORS errors when assets are loaded cross-origin
+  // (e.g., from api.samedaysolution.in to samedaysolution.in)
+  async headers() {
+    return [
+      {
+        source: '/_next/static/:path*',
+        headers: [
+          { key: 'Access-Control-Allow-Origin', value: '*' },
+          { key: 'Access-Control-Allow-Methods', value: 'GET' },
+        ],
+      },
+      {
+        source: '/fonts/:path*',
+        headers: [
+          { key: 'Access-Control-Allow-Origin', value: '*' },
+          { key: 'Access-Control-Allow-Methods', value: 'GET' },
+        ],
+      },
+    ]
+  },
   // Note: Content-Type headers are handled by middleware.ts
   // This allows file upload routes (multipart/form-data) to work correctly
 }

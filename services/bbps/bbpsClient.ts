@@ -120,14 +120,23 @@ export class BBPSClient {
       const responseText = await response.text()
       let responseData: any
       
-      // Log raw response for debugging
-      if (!response.ok || responseText.includes('Invalid XML') || responseText.includes('XML')) {
+      // Check if this is an expected error (IP whitelist in local dev)
+      const isExpectedIPWhitelistError = 
+        response.status === 401 && 
+        (responseText.includes('not whitelisted') || responseText.includes('whitelisted'))
+      
+      // Log raw response for debugging (but suppress expected IP whitelist errors in dev)
+      if ((!response.ok || responseText.includes('Invalid XML') || responseText.includes('XML')) && 
+          !(isExpectedIPWhitelistError && process.env.NODE_ENV === 'development')) {
         console.error('[BBPS Client] Non-JSON or error response:', {
           status: response.status,
           statusText: response.statusText,
           responseText: responseText.substring(0, 500), // First 500 chars
           url,
         })
+      } else if (isExpectedIPWhitelistError && process.env.NODE_ENV === 'development') {
+        // Quietly log expected dev error (only once per request)
+        console.log('[BBPS Client] IP not whitelisted (expected in local dev) - skipping verbose error log')
       }
       
       try {
@@ -202,12 +211,24 @@ export class BBPSClient {
           response.statusText ||
           (typeof responseData === 'string' ? responseData : 'Unknown error')
         
-        logBBPSApiError(
-          `${method} ${endpoint}`,
-          requestId,
-          `HTTP ${response.status}: ${errorMessage}`,
-          billerId
-        )
+        // Only log if not an expected IP whitelist error in dev
+        const isExpectedIPWhitelistError = 
+          process.env.NODE_ENV === 'development' &&
+          (errorMessage.includes('not whitelisted') || 
+           errorMessage.includes('whitelisted') ||
+           errorMessage.includes('IP is not whitelisted'))
+        
+        if (!isExpectedIPWhitelistError) {
+          logBBPSApiError(
+            `${method} ${endpoint}`,
+            requestId,
+            `HTTP ${response.status}: ${errorMessage}`,
+            billerId
+          )
+        } else {
+          // Quietly log expected dev error
+          console.log(`[BBPS API] IP whitelist error (expected in local dev): ${method} ${endpoint}`)
+        }
 
         return {
           success: false,

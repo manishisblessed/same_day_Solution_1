@@ -83,6 +83,7 @@ export function logBBPSApiCall(
 
 /**
  * Log BBPS API error (without exposing secrets)
+ * Suppresses expected IP whitelist errors in development mode
  */
 export function logBBPSApiError(
   apiName: string,
@@ -91,6 +92,20 @@ export function logBBPSApiError(
   billerId?: string
 ): void {
   const errorMessage = error instanceof Error ? error.message : error
+  
+  // Suppress expected IP whitelist errors in development (local IP not whitelisted)
+  const isExpectedIPWhitelistError = 
+    process.env.NODE_ENV === 'development' &&
+    (errorMessage.includes('not whitelisted') || 
+     errorMessage.includes('whitelisted') ||
+     errorMessage.includes('IP is not whitelisted'))
+  
+  if (isExpectedIPWhitelistError) {
+    // Quietly log once per request instead of spamming console
+    console.log(`[BBPS API] IP whitelist error (expected in local dev): ${apiName} - ${errorMessage.substring(0, 50)}...`)
+    return
+  }
+  
   const logData: Record<string, any> = {
     api: apiName,
     reqId,
