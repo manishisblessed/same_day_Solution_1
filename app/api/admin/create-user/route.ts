@@ -190,7 +190,11 @@ export async function POST(request: NextRequest) {
     }
 
     // Validate hierarchy requirements
-    if (tableName === 'distributors') {
+    if (tableName === 'partners') {
+      // Partners don't have hierarchy requirements - they're standalone
+      // If partner record already exists (has id), we'll update it instead of inserting
+      // This allows creating password for existing partners
+    } else if (tableName === 'distributors') {
       if (!userData.master_distributor_id) {
         await supabase.auth.admin.deleteUser(authData.user.id)
         return NextResponse.json(
@@ -355,12 +359,24 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Insert into appropriate table (with timeout)
-    const insertPromise = supabase
-      .from(tableName)
-      .insert([userData])
-      .select()
-      .single()
+    // Insert or update into appropriate table (with timeout)
+    let insertPromise
+    if (tableName === 'partners' && userData.id) {
+      // Partner record already exists, just update it (don't insert)
+      insertPromise = supabase
+        .from(tableName)
+        .update(userData)
+        .eq('id', userData.id)
+        .select()
+        .single()
+    } else {
+      // Insert new record
+      insertPromise = supabase
+        .from(tableName)
+        .insert([userData])
+        .select()
+        .single()
+    }
     
     const insertTimeoutPromise = new Promise((_, reject) =>
       setTimeout(() => reject(new Error('Insert timeout')), 15000)

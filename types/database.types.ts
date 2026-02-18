@@ -1,4 +1,4 @@
-export type UserRole = 'retailer' | 'distributor' | 'master_distributor' | 'admin'
+export type UserRole = 'retailer' | 'distributor' | 'master_distributor' | 'admin' | 'partner'
 
 export interface Retailer {
   retailer_mdr_rate?: number // MDR rate charged to retailer (e.g., 0.02 for 2%)
@@ -118,6 +118,26 @@ export interface AdminUser {
   name: string
   role: 'admin'
   created_at: string
+}
+
+export interface Partner {
+  id: string
+  name: string
+  business_name: string
+  email: string
+  phone: string
+  gst_number?: string
+  pan_number?: string
+  address?: string
+  city?: string
+  state?: string
+  pincode?: string
+  status: 'active' | 'inactive' | 'suspended'
+  webhook_url?: string
+  ip_whitelist?: string[]
+  metadata?: Record<string, any>
+  created_at: string
+  updated_at: string
 }
 
 export interface AuthUser {

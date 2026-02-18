@@ -68,7 +68,7 @@ export async function POST(request: NextRequest) {
           // Assign to Partner
           const { data: partner, error: partnerError } = await supabase
             .from('partners')
-            .select('id, name, status')
+            .select('id, name, status, business_name')
             .eq('id', assign_to)
             .single()
 
@@ -128,6 +128,74 @@ export async function POST(request: NextRequest) {
             }
           }
 
+          // Sync to partner_pos_machines table (for Partner API)
+          // First, get or create a default retailer for this partner
+          let retailerId: string | null = null
+          const { data: existingRetailer } = await supabase
+            .from('partner_retailers')
+            .select('id')
+            .eq('partner_id', assign_to)
+            .limit(1)
+            .single()
+
+          if (existingRetailer) {
+            retailerId = existingRetailer.id
+          } else {
+            // Create a default retailer for this partner
+            const { data: newRetailer, error: retailerError } = await supabase
+              .from('partner_retailers')
+              .insert({
+                partner_id: assign_to,
+                retailer_code: `RET-${partner.name.toUpperCase().replace(/\s+/g, '-')}-001`,
+                name: `${partner.name} Default Retailer`,
+                business_name: partner.business_name || partner.name,
+                status: 'active',
+              })
+              .select('id')
+              .single()
+
+            if (retailerError || !newRetailer) {
+              console.error('Error creating default retailer for partner:', retailerError)
+              // Continue anyway - retailer_id can be null
+            } else {
+              retailerId = newRetailer.id
+            }
+          }
+
+          // Insert or update partner_pos_machines
+          if (machine.tid) {
+            // Check if entry already exists
+            const { data: existingPartnerMachine } = await supabase
+              .from('partner_pos_machines')
+              .select('id')
+              .eq('terminal_id', machine.tid)
+              .single()
+
+            const partnerMachineData: any = {
+              partner_id: assign_to,
+              retailer_id: retailerId,
+              terminal_id: machine.tid,
+              device_serial: machine.serial_number || null,
+              machine_model: machine.brand === 'RAZORPAY' ? 'Razorpay POS' : machine.brand || 'POS',
+              status: machine.status === 'active' ? 'active' : 'inactive',
+              activated_at: machine.installation_date || new Date().toISOString(),
+              metadata: machine.mid ? { mid: machine.mid } : {},
+            }
+
+            if (existingPartnerMachine) {
+              // Update existing entry
+              await supabase
+                .from('partner_pos_machines')
+                .update(partnerMachineData)
+                .eq('id', existingPartnerMachine.id)
+            } else {
+              // Insert new entry
+              await supabase
+                .from('partner_pos_machines')
+                .insert(partnerMachineData)
+            }
+          }
+
           // Record history
           await supabase.from('pos_assignment_history').insert({
             pos_machine_id: machine_id,
@@ -166,6 +234,14 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ 
               error: `Machine is currently "${machine.inventory_status}". Only in_stock or received_from_bank machines can be assigned to a Master Distributor.` 
             }, { status: 400 })
+          }
+
+          // Remove from partner_pos_machines if machine was previously assigned to partner
+          if (machine.partner_id && machine.tid) {
+            await supabase
+              .from('partner_pos_machines')
+              .delete()
+              .eq('terminal_id', machine.tid)
           }
 
           // Update machine - clear partner assignment when assigning to MD

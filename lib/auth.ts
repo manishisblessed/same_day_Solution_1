@@ -55,12 +55,17 @@ export async function signIn(email: string, password: string, role: UserRole) {
       case 'admin':
         tableName = 'admin_users'
         break
+      case 'partner':
+        tableName = 'partners'
+        break
     }
 
     let query = supabase.from(tableName).select('*').eq('email', email)
     
     // Admin users don't have status field
-    if (role !== 'admin') {
+    if (role !== 'admin' && role !== 'partner') {
+      query = query.eq('status', 'active')
+    } else if (role === 'partner') {
       query = query.eq('status', 'active')
     }
     
@@ -77,7 +82,7 @@ export async function signIn(email: string, password: string, role: UserRole) {
       id: authData.user.id,
       email: authData.user.email!,
       role,
-      partner_id: userData.partner_id,
+      partner_id: role === 'partner' ? userData.id : userData.partner_id,
       name: userData.name,
     }
 
@@ -99,11 +104,12 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
 
     // Check which table the user belongs to
     // Use maybeSingle() instead of single() to avoid 406 errors when user doesn't belong to a table
-    const [retailer, distributor, masterDistributor, admin] = await Promise.all([
+    const [retailer, distributor, masterDistributor, admin, partner] = await Promise.all([
       supabase.from('retailers').select('*').eq('email', user.email!).maybeSingle(),
       supabase.from('distributors').select('*').eq('email', user.email!).maybeSingle(),
       supabase.from('master_distributors').select('*').eq('email', user.email!).maybeSingle(),
       supabase.from('admin_users').select('*').eq('email', user.email!).maybeSingle(),
+      supabase.from('partners').select('*').eq('email', user.email!).maybeSingle(),
     ])
 
     if (retailer.data && !retailer.error) {
@@ -139,6 +145,15 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
         email: user.email!,
         role: 'admin',
         name: admin.data.name,
+      }
+    }
+    if (partner.data && !partner.error) {
+      return {
+        id: user.id,
+        email: user.email!,
+        role: 'partner',
+        partner_id: partner.data.id,
+        name: partner.data.name,
       }
     }
 

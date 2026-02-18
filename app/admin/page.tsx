@@ -5010,6 +5010,7 @@ function POSMachineModal({
         notes: formData.notes || null,
       }
 
+      let savedMachineId: string
       if (item) {
         const { error } = await supabase
           .from('pos_machines')
@@ -5017,12 +5018,35 @@ function POSMachineModal({
           .eq('id', item.id)
 
         if (error) throw error
+        savedMachineId = item.id
       } else {
-        const { error } = await supabase
+        const { data: inserted, error } = await supabase
           .from('pos_machines')
           .insert([machineData])
+          .select('id')
+          .single()
 
         if (error) throw error
+        savedMachineId = inserted.id
+      }
+
+      // Sync to partner_pos_machines if assigned to partner
+      if (isAssignToPartner && formData.partner_id) {
+        try {
+          const syncResponse = await fetch('/api/admin/sync-partner-pos-machine', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ machine_id: savedMachineId }),
+          })
+          const syncResult = await syncResponse.json()
+          if (!syncResult.success) {
+            console.warn('Failed to sync to partner_pos_machines:', syncResult.error)
+            // Don't fail the whole operation, just log a warning
+          }
+        } catch (syncError) {
+          console.error('Error syncing to partner_pos_machines:', syncError)
+          // Don't fail the whole operation
+        }
       }
 
       onSuccess()
@@ -5358,6 +5382,7 @@ function PartnersTab() {
   const [searchTerm, setSearchTerm] = useState('')
   const [filter, setFilter] = useState<'all' | 'active' | 'pending' | 'suspended'>('all')
   const [showCreateModal, setShowCreateModal] = useState(false)
+  const [showPasswordModal, setShowPasswordModal] = useState<any>(null)
 
   useEffect(() => {
     fetchPartners()
@@ -5472,9 +5497,18 @@ function PartnersTab() {
                   {partner.status || 'unknown'}
                 </span>
               </div>
-              {partner.contact_email && (
-                <p className="text-sm text-gray-600 dark:text-gray-400">{partner.contact_email}</p>
+              {partner.email && (
+                <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">{partner.email}</p>
               )}
+              <div className="mt-3 flex gap-2">
+                <button
+                  onClick={() => setShowPasswordModal(partner)}
+                  className="flex-1 px-3 py-1.5 text-xs bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors flex items-center justify-center gap-1"
+                >
+                  <Key className="w-3 h-3" />
+                  Set Password
+                </button>
+              </div>
             </div>
           ))}
         </div>
@@ -5487,6 +5521,16 @@ function PartnersTab() {
             onClose={() => setShowCreateModal(false)}
             onSuccess={() => {
               setShowCreateModal(false)
+              fetchPartners()
+            }}
+          />
+        )}
+        {showPasswordModal && (
+          <SetPartnerPasswordModal
+            partner={showPasswordModal}
+            onClose={() => setShowPasswordModal(null)}
+            onSuccess={() => {
+              setShowPasswordModal(null)
               fetchPartners()
             }}
           />
@@ -5511,6 +5555,7 @@ function CreatePartnerModal({
     subdomain: '',
     contact_email: '',
     contact_phone: '',
+    password: '',
     business_name: '',
     address: '',
     city: '',
@@ -5529,6 +5574,19 @@ function CreatePartnerModal({
     setLoading(true)
 
     try {
+      // Validate email and password if password is provided
+      if (formData.password && formData.password.length < 8) {
+        alert('Password must be at least 8 characters long')
+        setLoading(false)
+        return
+      }
+
+      if (!formData.contact_email) {
+        alert('Email is required')
+        setLoading(false)
+        return
+      }
+
       // Map form fields to database columns
       // contact_email -> email, contact_phone -> phone
       const partnerData: any = {
@@ -5559,12 +5617,55 @@ function CreatePartnerModal({
         partnerData.metadata = metadata
       }
 
-      const { data, error } = await supabase
-        .from('partners')
-        .insert([partnerData])
-        .select()
+      // If password is provided, create auth user first
+      if (formData.password) {
+        // Get auth token for API call
+        const { data: { session } } = await supabase.auth.getSession()
+        const authHeaders: HeadersInit = {}
+        if (session?.access_token) {
+          authHeaders['Authorization'] = `Bearer ${session.access_token}`
+        }
 
-      if (error) throw error
+        // Create partner record first
+        const { data: createdPartner, error: partnerError } = await supabase
+          .from('partners')
+          .insert([partnerData])
+          .select()
+          .single()
+
+        if (partnerError) throw partnerError
+
+        // Create auth user using the create-user API
+        const response = await apiFetch('/api/admin/create-user', {
+          method: 'POST',
+          headers: authHeaders,
+          body: JSON.stringify({
+            email: formData.contact_email,
+            password: formData.password,
+            role: 'partner',
+            tableName: 'partners',
+            userData: {
+              id: createdPartner.id,
+              ...partnerData
+            },
+          }),
+        })
+
+        if (!response.ok) {
+          // If auth user creation fails, delete the partner record
+          await supabase.from('partners').delete().eq('id', createdPartner.id)
+          const errorData = await response.json()
+          throw new Error(errorData.error || 'Failed to create authentication user')
+        }
+      } else {
+        // No password provided, just create partner record
+        const { data, error } = await supabase
+          .from('partners')
+          .insert([partnerData])
+          .select()
+
+        if (error) throw error
+      }
 
       onSuccess()
     } catch (error: any) {
@@ -5750,6 +5851,22 @@ function CreatePartnerModal({
                   placeholder="+91 9876543210"
                 />
               </div>
+
+              <div className="md:col-span-2">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Password (for login)
+                </label>
+                <input
+                  type="password"
+                  value={formData.password}
+                  onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+                  placeholder="Leave empty to create without login access"
+                />
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                  Minimum 8 characters. Partner can login with email and password if provided.
+                </p>
+              </div>
             </div>
           </div>
 
@@ -5930,6 +6047,197 @@ function CreatePartnerModal({
                 <>
                   <Plus className="w-4 h-4" />
                   Create Partner
+                </>
+              )}
+            </button>
+          </div>
+        </form>
+      </motion.div>
+    </div>
+  )
+}
+
+// Set Partner Password Modal Component
+function SetPartnerPasswordModal({
+  partner,
+  onClose,
+  onSuccess
+}: {
+  partner: any
+  onClose: () => void
+  onSuccess: () => void
+}) {
+  const [loading, setLoading] = useState(false)
+  const [password, setPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
+
+  // Helper to get auth token for API calls
+  const getAuthToken = async (): Promise<string | null> => {
+    const { data: { session } } = await supabase.auth.getSession()
+    return session?.access_token || null
+  }
+
+  // Helper to make authenticated API calls
+  const fetchWithAuth = async (url: string, options: RequestInit = {}): Promise<Response> => {
+    const token = await getAuthToken()
+    const headers = new Headers(options.headers || {})
+    if (token) {
+      headers.set('Authorization', `Bearer ${token}`)
+    }
+    return fetch(url, {
+      ...options,
+      headers,
+      credentials: 'include'
+    })
+  }
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    
+    if (!password) {
+      alert('Password is required')
+      return
+    }
+    
+    if (password.length < 8) {
+      alert('Password must be at least 8 characters long')
+      return
+    }
+    
+    if (password !== confirmPassword) {
+      alert('Passwords do not match')
+      return
+    }
+
+    setLoading(true)
+
+    try {
+      // Call API route to set partner password (server-side only operation)
+      const response = await fetchWithAuth('/api/admin/set-partner-password', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          partner_id: partner.id,
+          password,
+        }),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.message || data.error || 'Failed to set password')
+      }
+
+      alert('Password set successfully! Partner can now login with email and password.')
+      onSuccess()
+    } catch (error: any) {
+      console.error('Error setting partner password:', error)
+      alert(error.message || 'Failed to set password')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+        exit={{ opacity: 0, scale: 0.95 }}
+        className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-md w-full"
+      >
+        <div className="sticky top-0 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-4 flex items-center justify-between">
+          <h2 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
+            <Key className="w-6 h-6 text-primary-600" />
+            Set Partner Password
+          </h2>
+          <button
+            onClick={onClose}
+            className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+          >
+            <X className="w-5 h-5 text-gray-500" />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              Partner Email
+            </label>
+            <input
+              type="email"
+              value={partner.email || ''}
+              disabled
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-gray-50 dark:bg-gray-900 text-gray-500 dark:text-gray-400 cursor-not-allowed"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              New Password <span className="text-red-500">*</span>
+            </label>
+            <div className="relative">
+              <input
+                type={showPassword ? 'text' : 'password'}
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white pr-10"
+                placeholder="Enter password (min 8 characters)"
+                minLength={8}
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+              >
+                {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+              </button>
+            </div>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+              Minimum 8 characters
+            </p>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              Confirm Password <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="password"
+              required
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+              placeholder="Re-enter password"
+            />
+          </div>
+
+          <div className="flex flex-col sm:flex-row justify-end gap-3 pt-4 border-t border-gray-200 dark:border-gray-700">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={loading}
+              className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+            >
+              {loading ? (
+                <>
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                  Setting...
+                </>
+              ) : (
+                <>
+                  <Key className="w-4 h-4" />
+                  Set Password
                 </>
               )}
             </button>

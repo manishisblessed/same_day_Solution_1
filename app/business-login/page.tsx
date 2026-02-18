@@ -11,7 +11,7 @@ import { AlertCircle, Loader2 } from 'lucide-react'
 export default function BusinessLogin() {
   const { user, login, loading: authLoading } = useAuth()
   const router = useRouter()
-  const [userType, setUserType] = useState<'retailer' | 'distributor' | 'master-distributor' | null>(null)
+  const [userType, setUserType] = useState<'retailer' | 'distributor' | 'master-distributor' | 'partner' | null>(null)
   const [formData, setFormData] = useState({
     email: '',
     password: '',
@@ -41,6 +41,7 @@ export default function BusinessLogin() {
       if (user.role === 'retailer') router.push('/dashboard/retailer')
       else if (user.role === 'distributor') router.push('/dashboard/distributor')
       else if (user.role === 'master_distributor') router.push('/dashboard/master-distributor')
+      else if (user.role === 'partner') router.push('/dashboard/partner')
     }
   }, [user, router, authLoading])
 
@@ -70,8 +71,8 @@ export default function BusinessLogin() {
     setLoading(true)
 
     try {
-      const role = userType === 'master-distributor' ? 'master_distributor' : userType
-      await login(formData.email, formData.password, role!)
+      let role: string = userType === 'master-distributor' ? 'master_distributor' : userType!
+      await login(formData.email, formData.password, role as any)
       
       // Wait for session cookies to be fully processed by the browser
       // This is critical - without this delay, the redirect may happen before cookies are set
@@ -85,6 +86,8 @@ export default function BusinessLogin() {
         router.push('/dashboard/distributor')
       } else if (userType === 'master-distributor') {
         router.push('/dashboard/master-distributor')
+      } else if (userType === 'partner') {
+        router.push('/dashboard/partner')
       }
     } catch (err: any) {
       setError(err.message || 'Invalid credentials')
@@ -110,6 +113,12 @@ export default function BusinessLogin() {
       title: 'Master Distributor',
       icon: '🌟',
       description: 'Login to master distributor dashboard for advanced analytics',
+    },
+    {
+      id: 'partner',
+      title: 'Partner',
+      icon: '🤝',
+      description: 'VIP Partner Portal - Access premium features and advanced tools',
     },
   ]
 

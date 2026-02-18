@@ -77,6 +77,124 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    // For partners, query pos_transactions table (Partner API table)
+    if (user.role === 'partner' && user.partner_id) {
+      // Get query parameters for date filtering
+      const dateFrom = searchParams.get('date_from')
+      const dateTo = searchParams.get('date_to')
+      const status = searchParams.get('status')
+      const terminalId = searchParams.get('tid') || searchParams.get('terminal_id')
+
+      // Build query for pos_transactions table
+      let query = supabase
+        .from('pos_transactions')
+        .select(`
+          id,
+          razorpay_txn_id,
+          external_ref,
+          terminal_id,
+          amount,
+          status,
+          rrn,
+          card_brand,
+          card_type,
+          payment_mode,
+          settlement_status,
+          device_serial,
+          txn_time,
+          created_at,
+          partner_id,
+          retailer_id
+        `, { count: 'exact' })
+        .eq('partner_id', user.partner_id)
+        .order('txn_time', { ascending: false, nullsFirst: false })
+
+      // Apply filters
+      if (dateFrom) {
+        query = query.gte('txn_time', dateFrom)
+      }
+      if (dateTo) {
+        query = query.lte('txn_time', dateTo)
+      }
+      if (status && status !== 'all') {
+        query = query.eq('status', status.toUpperCase())
+      }
+      if (terminalId) {
+        query = query.eq('terminal_id', terminalId)
+      }
+      if (targetDeviceSerial) {
+        query = query.eq('device_serial', targetDeviceSerial)
+      }
+
+      query = query.range(offset, offset + limit - 1)
+
+      const { data: transactions, error, count } = await query
+
+      if (error) {
+        console.error('Error fetching POS transactions for partner:', error)
+        return NextResponse.json(
+          { error: 'Failed to fetch transactions' },
+          { status: 500 }
+        )
+      }
+
+      // Get retailer info for enrichment
+      const retailerIds = Array.from(new Set((transactions || []).map((t: any) => t.retailer_id).filter(Boolean)))
+      const retailerMap = new Map<string, any>()
+      
+      if (retailerIds.length > 0) {
+        const { data: retailers } = await supabase
+          .from('partner_retailers')
+          .select('id, retailer_code, name')
+          .in('id', retailerIds)
+        
+        retailers?.forEach((r: any) => {
+          retailerMap.set(r.id, r)
+        })
+      }
+
+      // Transform to match expected format
+      const enriched = (transactions || []).map((tx: any) => {
+        const retailer = retailerMap.get(tx.retailer_id)
+        return {
+          id: tx.id,
+          txn_id: tx.razorpay_txn_id,
+          external_ref: tx.external_ref,
+          tid: tx.terminal_id,
+          device_serial: tx.device_serial,
+          amount: tx.amount ? tx.amount / 100 : 0, // Convert from paisa to rupees
+          status: tx.status,
+          display_status: tx.status === 'CAPTURED' ? 'SUCCESS' : tx.status,
+          payment_mode: tx.payment_mode,
+          card_brand: tx.card_brand,
+          card_type: tx.card_type,
+          rrn: tx.rrn,
+          settlement_status: tx.settlement_status,
+          transaction_time: tx.txn_time,
+          created_at: tx.created_at,
+          retailer_code: retailer?.retailer_code || null,
+          retailer_name: retailer?.name || null,
+        }
+      })
+
+      const totalPages = count ? Math.ceil(count / limit) : 1
+      const hasNextPage = page < totalPages
+      const hasPrevPage = page > 1
+
+      return NextResponse.json({
+        success: true,
+        data: enriched,
+        pagination: {
+          page,
+          limit,
+          total: count || 0,
+          totalPages,
+          hasNextPage,
+          hasPrevPage
+        }
+      })
+    }
+
     // For admin, return all transactions (use admin endpoint logic)
     if (user.role === 'admin') {
       let query = supabase
@@ -157,6 +275,7 @@ export async function GET(request: NextRequest) {
     } else if (user.role === 'retailer') {
       mappingQuery = mappingQuery.eq('retailer_id', user.partner_id)
     } else {
+      // Partner role already handled above, other roles not supported
       return NextResponse.json(
         { error: 'Invalid user role' },
         { status: 403 }

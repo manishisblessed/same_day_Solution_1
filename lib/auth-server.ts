@@ -13,17 +13,19 @@ async function getUserRole(supabase: any, email: string, userId: string): Promis
   
   // Check which table the user belongs to
   // Use maybeSingle() instead of single() to avoid 406 errors when user doesn't belong to a table
-  const [retailer, distributor, masterDistributor, admin] = await Promise.all([
+  const [retailer, distributor, masterDistributor, admin, partner] = await Promise.all([
     supabase.from('retailers').select('*').eq('email', email).maybeSingle(),
     supabase.from('distributors').select('*').eq('email', email).maybeSingle(),
     supabase.from('master_distributors').select('*').eq('email', email).maybeSingle(),
     supabase.from('admin_users').select('*').eq('email', email).maybeSingle(),
+    supabase.from('partners').select('*').eq('email', email).maybeSingle(),
   ])
 
   if (retailer.error) console.error('[getUserRole] Retailer lookup error:', retailer.error)
   if (distributor.error) console.error('[getUserRole] Distributor lookup error:', distributor.error)
   if (masterDistributor.error) console.error('[getUserRole] MasterDistributor lookup error:', masterDistributor.error)
   if (admin.error) console.error('[getUserRole] Admin lookup error:', admin.error)
+  if (partner.error) console.error('[getUserRole] Partner lookup error:', partner.error)
 
   if (retailer.data && !retailer.error) {
     console.log('[getUserRole] Found retailer:', retailer.data.name)
@@ -62,6 +64,16 @@ async function getUserRole(supabase: any, email: string, userId: string): Promis
       email: email,
       role: 'admin',
       name: admin.data.name,
+    }
+  }
+  if (partner.data && !partner.error) {
+    console.log('[getUserRole] Found partner:', partner.data.name)
+    return {
+      id: userId,
+      email: email,
+      role: 'partner',
+      partner_id: partner.data.id,
+      name: partner.data.name,
     }
   }
 
