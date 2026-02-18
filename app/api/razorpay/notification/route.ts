@@ -371,6 +371,94 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // FIX: Also sync to pos_transactions table for Partner API
+    // This ensures transactions are visible via the Partner API endpoint
+    if (tid) {
+      try {
+        // Check if terminal_id exists in partner_pos_machines
+        const { data: partnerMachine } = await supabase
+          .from('partner_pos_machines')
+          .select('partner_id, retailer_id, status')
+          .eq('terminal_id', tid)
+          .eq('status', 'active')
+          .maybeSingle()
+
+        if (partnerMachine && partnerMachine.partner_id) {
+          // Parse transaction time
+          const txnTime = createdTime || new Date()
+          
+          // Check if transaction already exists in pos_transactions
+          const { data: existingPosTxn } = await supabase
+            .from('pos_transactions')
+            .select('id, status')
+            .eq('razorpay_txn_id', txnId)
+            .gte('txn_time', new Date(txnTime.getTime() - 24 * 60 * 60 * 1000).toISOString())
+            .lte('txn_time', new Date(txnTime.getTime() + 24 * 60 * 60 * 1000).toISOString())
+            .maybeSingle()
+
+          const posTxnData: any = {
+            partner_id: partnerMachine.partner_id,
+            retailer_id: partnerMachine.retailer_id,
+            terminal_id: tid,
+            razorpay_txn_id: txnId,
+            external_ref: normalizedPayload.externalRefNumber || normalizedPayload.external_ref || null,
+            amount: amount || 0, // Amount in paisa
+            status: mappedStatus || 'AUTHORIZED',
+            rrn: rrNumber || null,
+            card_brand: normalizedPayload.paymentCardBrand || normalizedPayload.card_brand || null,
+            card_type: normalizedPayload.paymentCardType || normalizedPayload.card_type || null,
+            payment_mode: paymentMode || null,
+            settlement_status: normalizedPayload.settlementStatus || normalizedPayload.settlement_status || 'PENDING',
+            device_serial: deviceSerial || null,
+            txn_time: txnTime.toISOString(),
+            raw_payload: rawDataToStore,
+            updated_at: new Date().toISOString()
+          }
+
+          if (existingPosTxn) {
+            // Allow status progression: AUTHORIZED → CAPTURED
+            const statusOrder: Record<string, number> = { AUTHORIZED: 1, CAPTURED: 2, FAILED: 3, REFUNDED: 4, VOIDED: 5 }
+            const newStatusRank = statusOrder[mappedStatus || 'AUTHORIZED'] || 0
+            const existingStatusRank = statusOrder[existingPosTxn.status] || 0
+
+            if (newStatusRank > existingStatusRank) {
+              // Update status
+              await supabase
+                .from('pos_transactions')
+                .update({
+                  status: mappedStatus || 'AUTHORIZED',
+                  settlement_status: posTxnData.settlement_status,
+                  updated_at: new Date().toISOString()
+                })
+                .eq('id', existingPosTxn.id)
+              
+              console.log(`Updated pos_transactions status for txnId: ${txnId}`)
+            }
+          } else {
+            // Insert new transaction
+            const { error: posTxnError } = await supabase
+              .from('pos_transactions')
+              .insert(posTxnData)
+
+            if (posTxnError) {
+              console.error('Error inserting into pos_transactions:', posTxnError)
+            } else {
+              console.log(`Synced transaction to pos_transactions for partner: ${partnerMachine.partner_id}, txnId: ${txnId}`)
+              
+              // Update last_txn_at on partner_pos_machines
+              await supabase
+                .from('partner_pos_machines')
+                .update({ last_txn_at: txnTime.toISOString() })
+                .eq('terminal_id', tid)
+            }
+          }
+        }
+      } catch (posTxnError) {
+        // Log but don't fail - this is a sync operation
+        console.error('Error syncing to pos_transactions (non-blocking):', posTxnError)
+      }
+    }
+
     // Return success response (always return 200 to prevent Razorpay retries)
     return NextResponse.json({
       received: true,

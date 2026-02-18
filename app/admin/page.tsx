@@ -5383,6 +5383,7 @@ function PartnersTab() {
   const [filter, setFilter] = useState<'all' | 'active' | 'pending' | 'suspended'>('all')
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [showPasswordModal, setShowPasswordModal] = useState<any>(null)
+  const [editingPartner, setEditingPartner] = useState<any>(null)
 
   useEffect(() => {
     fetchPartners()
@@ -5502,6 +5503,13 @@ function PartnersTab() {
               )}
               <div className="mt-3 flex gap-2">
                 <button
+                  onClick={() => setEditingPartner(partner)}
+                  className="flex-1 px-3 py-1.5 text-xs bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors flex items-center justify-center gap-1"
+                >
+                  <Edit className="w-3 h-3" />
+                  Edit
+                </button>
+                <button
                   onClick={() => setShowPasswordModal(partner)}
                   className="flex-1 px-3 py-1.5 text-xs bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors flex items-center justify-center gap-1"
                 >
@@ -5521,6 +5529,16 @@ function PartnersTab() {
             onClose={() => setShowCreateModal(false)}
             onSuccess={() => {
               setShowCreateModal(false)
+              fetchPartners()
+            }}
+          />
+        )}
+        {editingPartner && (
+          <EditPartnerModal
+            partner={editingPartner}
+            onClose={() => setEditingPartner(null)}
+            onSuccess={() => {
+              setEditingPartner(null)
               fetchPartners()
             }}
           />
@@ -6047,6 +6065,462 @@ function CreatePartnerModal({
                 <>
                   <Plus className="w-4 h-4" />
                   Create Partner
+                </>
+              )}
+            </button>
+          </div>
+        </form>
+      </motion.div>
+    </div>
+  )
+}
+
+// Edit Partner Modal Component
+function EditPartnerModal({
+  partner,
+  onClose,
+  onSuccess
+}: {
+  partner: any
+  onClose: () => void
+  onSuccess: () => void
+}) {
+  const [loading, setLoading] = useState(false)
+  
+  // Extract metadata fields
+  const metadata = partner.metadata || {}
+  
+  const [formData, setFormData] = useState({
+    name: partner.name || '',
+    partner_type: (metadata.partner_type || 'B2B') as 'B2B' | 'B2C',
+    subdomain: metadata.subdomain || '',
+    contact_email: partner.email || '',
+    contact_phone: partner.phone || '',
+    business_name: partner.business_name || '',
+    address: partner.address || '',
+    city: partner.city || '',
+    state: partner.state || '',
+    pincode: partner.pincode || '',
+    gst_number: partner.gst_number || '',
+    primary_color: metadata.primary_color || '#3B82F6',
+    secondary_color: metadata.secondary_color || '#10B981',
+    logo_url: metadata.logo_url || '',
+    status: (partner.status || 'pending') as 'active' | 'pending' | 'suspended',
+    notes: metadata.notes || ''
+  })
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setLoading(true)
+
+    try {
+      if (!formData.contact_email) {
+        alert('Email is required')
+        setLoading(false)
+        return
+      }
+
+      // Map form fields to database columns
+      const partnerData: any = {
+        name: formData.name,
+        email: formData.contact_email,
+        phone: formData.contact_phone,
+        business_name: formData.business_name || formData.name,
+        address: formData.address || null,
+        city: formData.city || null,
+        state: formData.state || null,
+        pincode: formData.pincode || null,
+        gst_number: formData.gst_number || null,
+        status: formData.status,
+        updated_at: new Date().toISOString()
+      }
+
+      // Store optional branding fields in metadata JSONB column
+      const updatedMetadata: any = {}
+      if (formData.subdomain) updatedMetadata.subdomain = formData.subdomain
+      if (formData.logo_url) updatedMetadata.logo_url = formData.logo_url
+      if (formData.primary_color) updatedMetadata.primary_color = formData.primary_color
+      if (formData.secondary_color) updatedMetadata.secondary_color = formData.secondary_color
+      if (formData.partner_type) updatedMetadata.partner_type = formData.partner_type
+      if (formData.notes) updatedMetadata.notes = formData.notes
+
+      // Merge with existing metadata to preserve other fields
+      const finalMetadata = { ...metadata, ...updatedMetadata }
+      if (Object.keys(finalMetadata).length > 0) {
+        partnerData.metadata = finalMetadata
+      }
+
+      // Update partner record
+      const { error } = await supabase
+        .from('partners')
+        .update(partnerData)
+        .eq('id', partner.id)
+
+      if (error) throw error
+
+      onSuccess()
+    } catch (error: any) {
+      console.error('Error updating partner:', error)
+      alert(error.message || 'Failed to update partner')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+        exit={{ opacity: 0, scale: 0.95 }}
+        className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto"
+      >
+        <div className="sticky top-0 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-4 flex items-center justify-between">
+          <h2 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
+            <Edit className="w-6 h-6 text-primary-600" />
+            Edit Partner
+          </h2>
+          <button
+            onClick={onClose}
+            className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+          >
+            <X className="w-5 h-5 text-gray-500" />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="p-6 space-y-6">
+          {/* Partner Type Selection */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              Partner Type <span className="text-red-500">*</span>
+            </label>
+            <div className="grid grid-cols-2 gap-4">
+              <button
+                type="button"
+                onClick={() => setFormData({ ...formData, partner_type: 'B2B' })}
+                className={`p-4 rounded-lg border-2 transition-all ${
+                  formData.partner_type === 'B2B'
+                    ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20'
+                    : 'border-gray-200 dark:border-gray-700 hover:border-gray-300'
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <Building2 className={`w-6 h-6 ${
+                    formData.partner_type === 'B2B' ? 'text-primary-600' : 'text-gray-400'
+                  }`} />
+                  <div className="text-left">
+                    <p className={`font-semibold ${
+                      formData.partner_type === 'B2B' ? 'text-primary-600' : 'text-gray-600 dark:text-gray-400'
+                    }`}>
+                      B2B (Business to Business)
+                    </p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                      For business partnerships
+                    </p>
+                  </div>
+                </div>
+              </button>
+              <button
+                type="button"
+                onClick={() => setFormData({ ...formData, partner_type: 'B2C' })}
+                className={`p-4 rounded-lg border-2 transition-all ${
+                  formData.partner_type === 'B2C'
+                    ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20'
+                    : 'border-gray-200 dark:border-gray-700 hover:border-gray-300'
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <Users className={`w-6 h-6 ${
+                    formData.partner_type === 'B2C' ? 'text-primary-600' : 'text-gray-400'
+                  }`} />
+                  <div className="text-left">
+                    <p className={`font-semibold ${
+                      formData.partner_type === 'B2C' ? 'text-primary-600' : 'text-gray-600 dark:text-gray-400'
+                    }`}>
+                      B2C (Business to Consumer)
+                    </p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                      For consumer-facing services
+                    </p>
+                  </div>
+                </div>
+              </button>
+            </div>
+          </div>
+
+          {/* Basic Information */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Partner Name <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="text"
+                required
+                value={formData.name}
+                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+                placeholder="Enter partner name"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Business Name
+              </label>
+              <input
+                type="text"
+                value={formData.business_name}
+                onChange={(e) => setFormData({ ...formData, business_name: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+                placeholder="Enter business name"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Subdomain
+              </label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={formData.subdomain}
+                  onChange={(e) => setFormData({ ...formData, subdomain: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '') })}
+                  className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+                  placeholder="subdomain"
+                />
+                <span className="text-sm text-gray-500 dark:text-gray-400">.samedaysolution.in</span>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Status <span className="text-red-500">*</span>
+              </label>
+              <select
+                required
+                value={formData.status}
+                onChange={(e) => setFormData({ ...formData, status: e.target.value as any })}
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+              >
+                <option value="pending">Pending</option>
+                <option value="active">Active</option>
+                <option value="suspended">Suspended</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Contact Information */}
+          <div>
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Contact Information</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Email <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="email"
+                  required
+                  value={formData.contact_email}
+                  onChange={(e) => setFormData({ ...formData, contact_email: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+                  placeholder="contact@partner.com"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Phone <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="tel"
+                  required
+                  value={formData.contact_phone}
+                  onChange={(e) => setFormData({ ...formData, contact_phone: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+                  placeholder="+91 9876543210"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Address Information */}
+          <div>
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Address Information</h3>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Address
+                </label>
+                <textarea
+                  value={formData.address}
+                  onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+                  rows={2}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+                  placeholder="Enter full address"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    City
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.city}
+                    onChange={(e) => setFormData({ ...formData, city: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+                    placeholder="City"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    State
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.state}
+                    onChange={(e) => setFormData({ ...formData, state: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+                    placeholder="State"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Pincode
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.pincode}
+                    onChange={(e) => setFormData({ ...formData, pincode: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+                    placeholder="123456"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Business Details */}
+          <div>
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Business Details</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  GST Number
+                </label>
+                <input
+                  type="text"
+                  value={formData.gst_number}
+                  onChange={(e) => setFormData({ ...formData, gst_number: e.target.value.toUpperCase() })}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+                  placeholder="29ABCDE1234F1Z5"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Branding */}
+          <div>
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Branding</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Primary Color
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="color"
+                    value={formData.primary_color}
+                    onChange={(e) => setFormData({ ...formData, primary_color: e.target.value })}
+                    className="w-16 h-10 border border-gray-300 dark:border-gray-700 rounded-lg cursor-pointer"
+                  />
+                  <input
+                    type="text"
+                    value={formData.primary_color}
+                    onChange={(e) => setFormData({ ...formData, primary_color: e.target.value })}
+                    className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+                    placeholder="#3B82F6"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Secondary Color
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="color"
+                    value={formData.secondary_color}
+                    onChange={(e) => setFormData({ ...formData, secondary_color: e.target.value })}
+                    className="w-16 h-10 border border-gray-300 dark:border-gray-700 rounded-lg cursor-pointer"
+                  />
+                  <input
+                    type="text"
+                    value={formData.secondary_color}
+                    onChange={(e) => setFormData({ ...formData, secondary_color: e.target.value })}
+                    className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+                    placeholder="#10B981"
+                  />
+                </div>
+              </div>
+
+              <div className="md:col-span-2">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Logo URL
+                </label>
+                <input
+                  type="url"
+                  value={formData.logo_url}
+                  onChange={(e) => setFormData({ ...formData, logo_url: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+                  placeholder="https://example.com/logo.png"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Notes */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              Notes
+            </label>
+            <textarea
+              value={formData.notes}
+              onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+              rows={3}
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+              placeholder="Additional notes about this partner..."
+            />
+          </div>
+
+          {/* Form Actions */}
+          <div className="flex flex-col sm:flex-row justify-end gap-3 pt-4 border-t border-gray-200 dark:border-gray-700">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={loading}
+              className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+            >
+              {loading ? (
+                <>
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                  Updating...
+                </>
+              ) : (
+                <>
+                  <Edit className="w-4 h-4" />
+                  Update Partner
                 </>
               )}
             </button>
