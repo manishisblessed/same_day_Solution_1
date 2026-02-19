@@ -6,8 +6,12 @@ const logger = require('../utils/logger');
 
 /**
  * Fetch POS transactions for a partner with filters and pagination.
+ * 
  * CRITICAL: Always filters by validated partner_id from auth middleware.
  * Never trusts terminal_id from request without partner validation.
+ * 
+ * Queries razorpay_pos_transactions (the actual data source populated by webhooks)
+ * and maps terminals via partner_pos_machines + pos_machines to filter by partner.
  */
 async function getTransactions({
   partnerId,
@@ -23,98 +27,185 @@ async function getTransactions({
   // Enforce max page size
   pageSize = Math.min(pageSize, config.security.maxPageSize);
 
-  const conditions = ['pt.partner_id = $1'];
-  const params = [partnerId];
-  let paramIndex = 2;
+  // =========================================================================
+  // Step 1: Get all TIDs and device serials belonging to this partner
+  // =========================================================================
+  const machineQuery = `
+    SELECT terminal_id AS tid, device_serial AS serial
+    FROM partner_pos_machines
+    WHERE partner_id = $1 AND status = 'active'
+    UNION
+    SELECT tid, serial_number AS serial
+    FROM pos_machines
+    WHERE partner_id = $1 AND status IN ('active', 'inactive')
+  `;
+
+  const machineResult = await db.query(machineQuery, [partnerId]);
+  const tids = [];
+  const serials = [];
+
+  for (const row of machineResult.rows) {
+    if (row.tid) tids.push(row.tid);
+    if (row.serial) serials.push(row.serial);
+  }
+
+  // Deduplicate
+  const uniqueTids = [...new Set(tids)];
+  const uniqueSerials = [...new Set(serials)];
+
+  logger.info('Partner transaction query - machines found', {
+    partnerId,
+    tids: uniqueTids,
+    serials: uniqueSerials,
+  });
+
+  if (uniqueTids.length === 0 && uniqueSerials.length === 0) {
+    return {
+      transactions: [],
+      total: 0,
+      page,
+      pageSize,
+      summary: {
+        total_transactions: 0,
+        total_amount_paisa: 0,
+        total_amount_rupees: '0.00',
+        authorized_count: 0,
+        captured_count: 0,
+        failed_count: 0,
+        refunded_count: 0,
+        captured_amount_paisa: 0,
+        captured_amount_rupees: '0.00',
+        terminal_count: 0,
+      },
+    };
+  }
+
+  // =========================================================================
+  // Step 2: Build WHERE conditions for razorpay_pos_transactions
+  // =========================================================================
+  const conditions = [];
+  const params = [];
+  let paramIndex = 1;
+
+  // Machine ownership filter (TID or device serial must match)
+  const ownershipParts = [];
+  if (uniqueTids.length > 0) {
+    ownershipParts.push(`rpt.tid = ANY($${paramIndex})`);
+    params.push(uniqueTids);
+    paramIndex++;
+  }
+  if (uniqueSerials.length > 0) {
+    ownershipParts.push(`rpt.device_serial = ANY($${paramIndex})`);
+    params.push(uniqueSerials);
+    paramIndex++;
+  }
+  conditions.push(`(${ownershipParts.join(' OR ')})`);
 
   // Date range filter
   if (dateFrom) {
-    conditions.push(`pt.txn_time >= $${paramIndex}`);
+    conditions.push(`rpt.transaction_time >= $${paramIndex}`);
     params.push(dateFrom);
     paramIndex++;
   }
   if (dateTo) {
-    conditions.push(`pt.txn_time <= $${paramIndex}`);
+    conditions.push(`rpt.transaction_time <= $${paramIndex}`);
     params.push(dateTo);
     paramIndex++;
   }
 
-  // Status filter
+  // Status filter (map CAPTURED to SUCCESS for display_status column)
   if (status) {
-    conditions.push(`pt.status = $${paramIndex}`);
-    params.push(status.toUpperCase());
+    const displayStatus = status.toUpperCase() === 'CAPTURED' ? 'SUCCESS' : status.toUpperCase();
+    conditions.push(`rpt.display_status = $${paramIndex}`);
+    params.push(displayStatus);
     paramIndex++;
   }
 
   // Terminal filter (validated against partner ownership)
   if (terminalId) {
-    conditions.push(`pt.terminal_id = $${paramIndex}`);
+    if (!uniqueTids.includes(terminalId)) {
+      // Terminal not owned by this partner - return empty
+      return {
+        transactions: [],
+        total: 0,
+        page,
+        pageSize,
+        summary: {
+          total_transactions: 0,
+          total_amount_paisa: 0,
+          total_amount_rupees: '0.00',
+          authorized_count: 0,
+          captured_count: 0,
+          failed_count: 0,
+          refunded_count: 0,
+          captured_amount_paisa: 0,
+          captured_amount_rupees: '0.00',
+          terminal_count: 0,
+        },
+      };
+    }
+    conditions.push(`rpt.tid = $${paramIndex}`);
     params.push(terminalId);
     paramIndex++;
   }
 
   // Payment mode filter
   if (paymentMode) {
-    conditions.push(`pt.payment_mode = $${paramIndex}`);
+    conditions.push(`rpt.payment_mode = $${paramIndex}`);
     params.push(paymentMode.toUpperCase());
-    paramIndex++;
-  }
-
-  // Settlement status filter
-  if (settlementStatus) {
-    conditions.push(`pt.settlement_status = $${paramIndex}`);
-    params.push(settlementStatus.toUpperCase());
     paramIndex++;
   }
 
   const whereClause = conditions.join(' AND ');
   const offset = (page - 1) * pageSize;
 
-  // Count query (for pagination)
+  // =========================================================================
+  // Step 3: Count, summary, and data queries on razorpay_pos_transactions
+  // =========================================================================
   const countQuery = `
     SELECT COUNT(*) AS total
-    FROM pos_transactions pt
+    FROM razorpay_pos_transactions rpt
     WHERE ${whereClause}
   `;
 
-  // Summary query (aggregates)
   const summaryQuery = `
     SELECT 
       COUNT(*) AS total_transactions,
-      COALESCE(SUM(pt.amount), 0) AS total_amount,
-      COUNT(*) FILTER (WHERE pt.status = 'AUTHORIZED') AS authorized_count,
-      COUNT(*) FILTER (WHERE pt.status = 'CAPTURED') AS captured_count,
-      COUNT(*) FILTER (WHERE pt.status = 'FAILED') AS failed_count,
-      COUNT(*) FILTER (WHERE pt.status = 'REFUNDED') AS refunded_count,
-      COALESCE(SUM(pt.amount) FILTER (WHERE pt.status = 'CAPTURED'), 0) AS captured_amount,
-      COUNT(DISTINCT pt.terminal_id) AS terminal_count
-    FROM pos_transactions pt
+      COALESCE(SUM(rpt.amount), 0) AS total_amount,
+      COUNT(*) FILTER (WHERE rpt.display_status = 'AUTHORIZED' OR rpt.status = 'AUTHORIZED') AS authorized_count,
+      COUNT(*) FILTER (WHERE rpt.display_status = 'SUCCESS' OR rpt.status = 'CAPTURED') AS captured_count,
+      COUNT(*) FILTER (WHERE rpt.display_status = 'FAILED' OR rpt.status = 'FAILED') AS failed_count,
+      COUNT(*) FILTER (WHERE rpt.display_status = 'REFUNDED' OR rpt.status = 'REFUNDED') AS refunded_count,
+      COALESCE(SUM(rpt.amount) FILTER (WHERE rpt.display_status = 'SUCCESS' OR rpt.status = 'CAPTURED'), 0) AS captured_amount,
+      COUNT(DISTINCT rpt.tid) AS terminal_count
+    FROM razorpay_pos_transactions rpt
     WHERE ${whereClause}
   `;
 
-  // Data query with pagination
   const dataQuery = `
     SELECT 
-      pt.id,
-      pt.razorpay_txn_id,
-      pt.external_ref,
-      pt.terminal_id,
-      pt.amount,
-      pt.status,
-      pt.rrn,
-      pt.card_brand,
-      pt.card_type,
-      pt.payment_mode,
-      pt.settlement_status,
-      pt.device_serial,
-      pt.txn_time,
-      pt.created_at,
-      pr.retailer_code,
-      pr.name AS retailer_name
-    FROM pos_transactions pt
-    LEFT JOIN partner_retailers pr ON pr.id = pt.retailer_id
+      rpt.id,
+      rpt.txn_id AS razorpay_txn_id,
+      rpt.raw_data->>'externalRefNumber' AS external_ref,
+      rpt.tid AS terminal_id,
+      rpt.amount,
+      CASE 
+        WHEN rpt.display_status = 'SUCCESS' THEN 'CAPTURED'
+        ELSE COALESCE(rpt.display_status, rpt.status, 'PENDING')
+      END AS status,
+      rpt.raw_data->>'rrNumber' AS rrn,
+      COALESCE(rpt.raw_data->>'paymentCardBrand', rpt.raw_data->>'cardBrand') AS card_brand,
+      COALESCE(rpt.raw_data->>'paymentCardType', rpt.raw_data->>'cardType') AS card_type,
+      rpt.payment_mode,
+      COALESCE(rpt.raw_data->>'settlementStatus', 'PENDING') AS settlement_status,
+      rpt.device_serial,
+      rpt.transaction_time AS txn_time,
+      rpt.created_at,
+      NULL AS retailer_code,
+      NULL AS retailer_name
+    FROM razorpay_pos_transactions rpt
     WHERE ${whereClause}
-    ORDER BY pt.txn_time DESC
+    ORDER BY rpt.transaction_time DESC
     LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
   `;
 
@@ -128,22 +219,31 @@ async function getTransactions({
   const total = parseInt(countResult.rows[0].total, 10);
   const summary = summaryResult.rows[0];
 
-  // Convert amounts from paisa to rupees in summary
+  // razorpay_pos_transactions stores amount in rupees, convert to paisa for API response
+  const totalAmountPaisa = Math.round(parseFloat(summary.total_amount) * 100);
+  const capturedAmountPaisa = Math.round(parseFloat(summary.captured_amount) * 100);
+
   const formattedSummary = {
     total_transactions: parseInt(summary.total_transactions, 10),
-    total_amount_paisa: parseInt(summary.total_amount, 10),
-    total_amount_rupees: (parseInt(summary.total_amount, 10) / 100).toFixed(2),
+    total_amount_paisa: totalAmountPaisa,
+    total_amount_rupees: (totalAmountPaisa / 100).toFixed(2),
     authorized_count: parseInt(summary.authorized_count, 10),
     captured_count: parseInt(summary.captured_count, 10),
     failed_count: parseInt(summary.failed_count, 10),
     refunded_count: parseInt(summary.refunded_count, 10),
-    captured_amount_paisa: parseInt(summary.captured_amount, 10),
-    captured_amount_rupees: (parseInt(summary.captured_amount, 10) / 100).toFixed(2),
+    captured_amount_paisa: capturedAmountPaisa,
+    captured_amount_rupees: (capturedAmountPaisa / 100).toFixed(2),
     terminal_count: parseInt(summary.terminal_count, 10),
   };
 
+  // Convert amounts in data rows from rupees to paisa
+  const formattedTransactions = dataResult.rows.map(row => ({
+    ...row,
+    amount: Math.round(parseFloat(row.amount) * 100),
+  }));
+
   return {
-    transactions: dataResult.rows,
+    transactions: formattedTransactions,
     total,
     page,
     pageSize,
@@ -292,5 +392,4 @@ module.exports = {
   getTransactions,
   processWebhookTransaction,
 };
-
 
