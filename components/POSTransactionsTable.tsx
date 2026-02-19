@@ -40,7 +40,8 @@ export default function POSTransactionsTable({
   const [selectedTxn, setSelectedTxn] = useState<RazorpayPOSTransaction | null>(null)
 
   const fetchTransactions = useCallback(async () => {
-    if (!user?.partner_id) return
+    // Admin users don't have partner_id, but should still see all transactions
+    if (!user?.partner_id && user?.role !== 'admin') return
 
     try {
       setLoading(true)
@@ -70,7 +71,7 @@ export default function POSTransactionsTable({
     } finally {
       setLoading(false)
     }
-  }, [user?.partner_id, page, limit, statusFilter, dateFrom, dateTo, tidFilter])
+  }, [user?.partner_id, user?.role, page, limit, statusFilter, dateFrom, dateTo, tidFilter])
 
   useEffect(() => {
     fetchTransactions()

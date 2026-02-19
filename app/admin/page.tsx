@@ -21,6 +21,7 @@ import {
   Shield
 } from 'lucide-react'
 import TransactionsTable from '@/components/TransactionsTable'
+import POSTransactionsTable from '@/components/POSTransactionsTable'
 import POSPartnerAPIManagement from '@/components/POSPartnerAPIManagement'
 import { motion, AnimatePresence } from 'framer-motion'
 import { apiFetch } from '@/lib/api-client'
@@ -431,7 +432,7 @@ function AdminDashboardContent() {
               masterDistributors={masterDistributors}
             />
           ) : activeTab === 'transactions' ? (
-            <TransactionsTable role="admin" autoPoll={true} pollInterval={10000} />
+            <POSTransactionsTable autoPoll={true} pollInterval={10000} />
           ) : activeTab === 'services' ? (
             <ServicesManagementTab />
           ) : activeTab === 'pos-machines' ? (
