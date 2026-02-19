@@ -44,6 +44,25 @@ async function checkSettlementLimits(
   user_role: string,
   amount: number
 ): Promise<{ allowed: boolean; reason?: string }> {
+  // First check retailer-specific settlement limit tier (per-transaction limit)
+  if (user_role === 'retailer') {
+    const { data: retailer } = await supabase
+      .from('retailers')
+      .select('settlement_limit_tier')
+      .eq('partner_id', user_id)
+      .single()
+
+    if (retailer?.settlement_limit_tier) {
+      const limitTier = parseFloat(retailer.settlement_limit_tier.toString())
+      if (amount > limitTier) {
+        return {
+          allowed: false,
+          reason: `Settlement amount ₹${amount} exceeds your limit of ₹${limitTier.toLocaleString('en-IN')}. Please contact admin to increase your limit.`
+        }
+      }
+    }
+  }
+
   // Get daily settlement limit
   const { data: limit } = await supabase
     .from('user_limits')

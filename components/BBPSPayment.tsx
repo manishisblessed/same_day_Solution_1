@@ -186,16 +186,36 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
   const [prepaidAmount, setPrepaidAmount] = useState<string>('')
   const [showPrepaidConfirm, setShowPrepaidConfirm] = useState(false)
   const [prepaidCharges, setPrepaidCharges] = useState<number>(0)
+  const [bbpsLimitTier, setBbpsLimitTier] = useState<number>(49999)
 
   // Ref for auto-scrolling to consumer details form
   const consumerDetailsRef = useRef<HTMLDivElement>(null)
 
-  // Fetch wallet balance when user is available
+  // Fetch wallet balance and BBPS limit when user is available
   useEffect(() => {
     if (user?.partner_id) {
       fetchWalletBalance()
+      fetchBBPSLimit()
     }
   }, [user?.partner_id])
+
+  // Fetch BBPS limit tier for the retailer
+  const fetchBBPSLimit = async () => {
+    if (!user?.partner_id) return
+    try {
+      const { data, error } = await supabase
+        .from('retailers')
+        .select('bbps_limit_tier')
+        .eq('partner_id', user.partner_id)
+        .single()
+      
+      if (!error && data?.bbps_limit_tier) {
+        setBbpsLimitTier(parseFloat(data.bbps_limit_tier.toString()))
+      }
+    } catch (err) {
+      console.error('Error fetching BBPS limit:', err)
+    }
+  }
 
   // Fetch categories (re-fetch when categoryFilter changes)
   useEffect(() => {
@@ -486,6 +506,13 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
     // Minimum payment check (₹100 for any payment)
     if (selectedAmount < customMinAmount) {
       setError(`Amount must be at least ₹${customMinAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`)
+      return
+    }
+    
+    // Check BBPS limit tier
+    if (selectedAmount > bbpsLimitTier) {
+      setError(`Amount exceeds your BBPS payment limit of ₹${bbpsLimitTier.toLocaleString('en-IN')}. Please contact admin to increase your limit.`)
+      setCustomAmountError(`Amount exceeds your BBPS payment limit of ₹${bbpsLimitTier.toLocaleString('en-IN')}`)
       return
     }
     
@@ -1949,6 +1976,8 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
                             setCustomAmountError(`Amount must be at least ₹${customMinAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`)
                           } else if (numValue > billAmtInRupees) {
                             setCustomAmountError(`Amount cannot exceed bill amount of ${formatPaiseAsRupees(billDetails.bill_amount)}`)
+                          } else if (numValue > bbpsLimitTier) {
+                            setCustomAmountError(`Amount exceeds your BBPS payment limit of ₹${bbpsLimitTier.toLocaleString('en-IN')}. Please contact admin to increase your limit.`)
                           } else {
                             setCustomAmountError(null)
                           }
@@ -1974,6 +2003,16 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
                       <span className="text-gray-600 dark:text-gray-400">
                         Max: {formatPaiseAsRupees(billDetails.bill_amount)}
                       </span>
+                    </div>
+                    <div className="mt-2 p-2 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded text-xs">
+                      <span className="text-blue-800 dark:text-blue-300 font-medium">
+                        Your BBPS Payment Limit: ₹{bbpsLimitTier.toLocaleString('en-IN')}
+                      </span>
+                      {bbpsLimitTier > 49999 && (
+                        <span className="ml-2 text-blue-600 dark:text-blue-400">
+                          (Enhanced limit enabled)
+                        </span>
+                      )}
                     </div>
                     {customAmount && parseFloat(customAmount) > 0 && !customAmountError && (
                       <div className="mt-2 text-xs text-purple-700 dark:text-purple-300 font-medium">

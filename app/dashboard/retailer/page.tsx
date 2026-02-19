@@ -1123,6 +1123,8 @@ function WalletTab({ user }: { user: any }) {
   const [ledgerEntries, setLedgerEntries] = useState<any[]>([])
   const [showSettlement, setShowSettlement] = useState(false)
   const [settlementAmount, setSettlementAmount] = useState('')
+  const [settlementLimitTier, setSettlementLimitTier] = useState<number>(100000)
+  const [settlementAmountError, setSettlementAmountError] = useState<string | null>(null)
   const [bankDetails, setBankDetails] = useState({
     account_number: '',
     ifsc: '',
@@ -1131,7 +1133,26 @@ function WalletTab({ user }: { user: any }) {
 
   useEffect(() => {
     fetchWalletData()
+    fetchSettlementLimit()
   }, [user])
+
+  // Fetch settlement limit tier for the retailer
+  const fetchSettlementLimit = async () => {
+    if (!user?.partner_id) return
+    try {
+      const { data, error } = await supabase
+        .from('retailers')
+        .select('settlement_limit_tier')
+        .eq('partner_id', user.partner_id)
+        .single()
+      
+      if (!error && data?.settlement_limit_tier) {
+        setSettlementLimitTier(parseFloat(data.settlement_limit_tier.toString()))
+      }
+    } catch (err) {
+      console.error('Error fetching settlement limit:', err)
+    }
+  }
 
   const fetchWalletData = async () => {
     if (!user?.partner_id) return
@@ -1184,6 +1205,15 @@ function WalletTab({ user }: { user: any }) {
   const handleSettlement = async () => {
     if (!settlementAmount || parseFloat(settlementAmount) <= 0) {
       alert('Please enter a valid settlement amount')
+      return
+    }
+
+    const amount = parseFloat(settlementAmount)
+    
+    // Check settlement limit tier
+    if (amount > settlementLimitTier) {
+      alert(`Amount exceeds your settlement limit of ₹${settlementLimitTier.toLocaleString('en-IN')}. Please contact admin to increase your limit.`)
+      setSettlementAmountError(`Amount exceeds your settlement limit of ₹${settlementLimitTier.toLocaleString('en-IN')}`)
       return
     }
 
@@ -1285,11 +1315,47 @@ function WalletTab({ user }: { user: any }) {
                 <input
                   type="number"
                   value={settlementAmount}
-                  onChange={(e) => setSettlementAmount(e.target.value)}
-                  className="w-full px-4 py-2 border rounded-lg"
+                  onChange={(e) => {
+                    const value = e.target.value
+                    if (value === '' || /^\d*\.?\d*$/.test(value)) {
+                      setSettlementAmount(value)
+                      setSettlementAmountError(null)
+                    }
+                  }}
+                  onBlur={() => {
+                    const numValue = parseFloat(settlementAmount)
+                    if (settlementAmount && !isNaN(numValue)) {
+                      if (numValue > settlementLimitTier) {
+                        setSettlementAmountError(`Amount exceeds your settlement limit of ₹${settlementLimitTier.toLocaleString('en-IN')}. Please contact admin to increase your limit.`)
+                      } else if (numValue <= 0) {
+                        setSettlementAmountError('Amount must be greater than 0')
+                      } else {
+                        setSettlementAmountError(null)
+                      }
+                    }
+                  }}
+                  className={`w-full px-4 py-2 border rounded-lg ${
+                    settlementAmountError ? 'border-red-500' : ''
+                  }`}
                   placeholder="Enter amount"
-                  max="200000"
+                  max={settlementLimitTier}
+                  min="1"
                 />
+                {settlementAmountError && (
+                  <p className="mt-1 text-xs text-red-600 dark:text-red-400">
+                    {settlementAmountError}
+                  </p>
+                )}
+                <div className="mt-2 p-2 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded text-xs">
+                  <span className="text-blue-800 dark:text-blue-300 font-medium">
+                    Your Settlement Payment Limit: ₹{settlementLimitTier.toLocaleString('en-IN')}
+                  </span>
+                  {settlementLimitTier > 100000 && (
+                    <span className="ml-2 text-blue-600 dark:text-blue-400">
+                      (Enhanced limit enabled)
+                    </span>
+                  )}
+                </div>
               </div>
               <div>
                 <label className="block text-sm font-medium mb-1">Bank Account Number</label>

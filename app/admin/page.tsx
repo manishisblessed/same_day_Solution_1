@@ -66,6 +66,14 @@ function AdminDashboardContent() {
   const [showPassword, setShowPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
   const [resettingPassword, setResettingPassword] = useState(false)
+  const [showBBPSLimitModal, setShowBBPSLimitModal] = useState(false)
+  const [selectedRetailerForLimit, setSelectedRetailerForLimit] = useState<any>(null)
+  const [bbpsLimitTier, setBbpsLimitTier] = useState<49999 | 99999 | 189999>(49999)
+  const [updatingLimit, setUpdatingLimit] = useState(false)
+  const [showSettlementLimitModal, setShowSettlementLimitModal] = useState(false)
+  const [selectedRetailerForSettlementLimit, setSelectedRetailerForSettlementLimit] = useState<any>(null)
+  const [settlementLimitTier, setSettlementLimitTier] = useState<100000 | 150000 | 200000>(100000)
+  const [updatingSettlementLimit, setUpdatingSettlementLimit] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive' | 'suspended'>('all')
   const [sortField, setSortField] = useState<SortField>('created_at')
@@ -743,6 +751,32 @@ function AdminDashboardContent() {
                             >
                               <LogIn className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
                             </button>
+                            {activeTab === 'retailers' && (
+                              <>
+                                <button
+                                  onClick={() => {
+                                    setSelectedRetailerForLimit(item)
+                                    setBbpsLimitTier(item.bbps_limit_tier || 49999)
+                                    setShowBBPSLimitModal(true)
+                                  }}
+                                  className="p-1 sm:p-1.5 text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded transition-colors"
+                                  title="Set BBPS Limit"
+                                >
+                                  <TrendingUp className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    setSelectedRetailerForSettlementLimit(item)
+                                    setSettlementLimitTier(item.settlement_limit_tier || 100000)
+                                    setShowSettlementLimitModal(true)
+                                  }}
+                                  className="p-1 sm:p-1.5 text-teal-600 hover:bg-teal-50 dark:hover:bg-teal-900/20 rounded transition-colors"
+                                  title="Set Settlement Limit"
+                                >
+                                  <DollarSign className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
+                                </button>
+                              </>
+                            )}
                             <button
                               onClick={() => {
                                 setSelectedUserForReset(item)
@@ -1103,6 +1137,250 @@ function AdminDashboardContent() {
                     setSelectedUserForReset(null)
                     setNewPassword('')
                     setConfirmPassword('')
+                  }}
+                  className="flex-1 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 py-2 px-4 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
+      {/* BBPS Limit Tier Modal */}
+      {showBBPSLimitModal && selectedRetailerForLimit && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-md w-full p-6"
+          >
+            <h3 className="text-xl font-bold mb-4 text-gray-900 dark:text-white">
+              Set BBPS Payment Limit
+            </h3>
+            <div className="mb-4 space-y-2">
+              <p className="text-sm text-gray-600 dark:text-gray-400">Retailer: {selectedRetailerForLimit.name}</p>
+              <p className="text-sm text-gray-600 dark:text-gray-400">Partner ID: {selectedRetailerForLimit.partner_id}</p>
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                Current Limit: ₹{(selectedRetailerForLimit.bbps_limit_tier || 49999).toLocaleString('en-IN')}
+              </p>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">
+                  Select BBPS Payment Limit Tier
+                </label>
+                <div className="space-y-2">
+                  <label className="flex items-center p-3 border rounded-lg cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
+                    <input
+                      type="radio"
+                      name="bbps_limit_tier"
+                      value="49999"
+                      checked={bbpsLimitTier === 49999}
+                      onChange={() => setBbpsLimitTier(49999)}
+                      className="mr-3"
+                    />
+                    <div className="flex-1">
+                      <div className="font-medium text-gray-900 dark:text-white">₹49,999 (Default)</div>
+                      <div className="text-xs text-gray-500 dark:text-gray-400">Standard limit for all retailers</div>
+                    </div>
+                  </label>
+                  <label className="flex items-center p-3 border rounded-lg cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
+                    <input
+                      type="radio"
+                      name="bbps_limit_tier"
+                      value="99999"
+                      checked={bbpsLimitTier === 99999}
+                      onChange={() => setBbpsLimitTier(99999)}
+                      className="mr-3"
+                    />
+                    <div className="flex-1">
+                      <div className="font-medium text-gray-900 dark:text-white">₹99,999</div>
+                      <div className="text-xs text-gray-500 dark:text-gray-400">Higher limit - ensure scheme charges are configured</div>
+                    </div>
+                  </label>
+                  <label className="flex items-center p-3 border rounded-lg cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
+                    <input
+                      type="radio"
+                      name="bbps_limit_tier"
+                      value="189999"
+                      checked={bbpsLimitTier === 189999}
+                      onChange={() => setBbpsLimitTier(189999)}
+                      className="mr-3"
+                    />
+                    <div className="flex-1">
+                      <div className="font-medium text-gray-900 dark:text-white">₹1,89,999</div>
+                      <div className="text-xs text-gray-500 dark:text-gray-400">Maximum limit - ensure scheme charges are configured</div>
+                    </div>
+                  </label>
+                </div>
+                <div className="mt-3 p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg">
+                  <p className="text-xs text-yellow-800 dark:text-yellow-300">
+                    <strong>Note:</strong> For limits above ₹49,999, ensure the retailer's scheme has charges configured for the higher amount ranges.
+                  </p>
+                </div>
+              </div>
+              <div className="flex gap-3">
+                <button
+                  onClick={async () => {
+                    setUpdatingLimit(true)
+                    try {
+                      const response = await apiFetch('/api/admin/retailers/bbps-limit', {
+                        method: 'POST',
+                        body: JSON.stringify({
+                          retailer_id: selectedRetailerForLimit.partner_id,
+                          bbps_limit_tier: bbpsLimitTier
+                        })
+                      })
+
+                      const data = await response.json()
+                      if (data.success) {
+                        alert(data.message || 'BBPS limit updated successfully!')
+                        setShowBBPSLimitModal(false)
+                        setSelectedRetailerForLimit(null)
+                        fetchData()
+                      } else {
+                        alert(data.error || 'Failed to update BBPS limit')
+                      }
+                    } catch (error: any) {
+                      console.error('BBPS limit update error:', error)
+                      alert(error.message || 'Failed to update BBPS limit')
+                    } finally {
+                      setUpdatingLimit(false)
+                    }
+                  }}
+                  disabled={updatingLimit}
+                  className="flex-1 py-2 px-4 rounded-lg text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {updatingLimit ? 'Updating...' : 'Update Limit'}
+                </button>
+                <button
+                  onClick={() => {
+                    setShowBBPSLimitModal(false)
+                    setSelectedRetailerForLimit(null)
+                  }}
+                  className="flex-1 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 py-2 px-4 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
+      {/* Settlement Limit Tier Modal */}
+      {showSettlementLimitModal && selectedRetailerForSettlementLimit && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-md w-full p-6"
+          >
+            <h3 className="text-xl font-bold mb-4 text-gray-900 dark:text-white">
+              Set Settlement Payment Limit
+            </h3>
+            <div className="mb-4 space-y-2">
+              <p className="text-sm text-gray-600 dark:text-gray-400">Retailer: {selectedRetailerForSettlementLimit.name}</p>
+              <p className="text-sm text-gray-600 dark:text-gray-400">Partner ID: {selectedRetailerForSettlementLimit.partner_id}</p>
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                Current Limit: ₹{(selectedRetailerForSettlementLimit.settlement_limit_tier || 100000).toLocaleString('en-IN')}
+              </p>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">
+                  Select Settlement Payment Limit Tier
+                </label>
+                <div className="space-y-2">
+                  <label className="flex items-center p-3 border rounded-lg cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
+                    <input
+                      type="radio"
+                      name="settlement_limit_tier"
+                      value="100000"
+                      checked={settlementLimitTier === 100000}
+                      onChange={() => setSettlementLimitTier(100000)}
+                      className="mr-3"
+                    />
+                    <div className="flex-1">
+                      <div className="font-medium text-gray-900 dark:text-white">₹1,00,000 (Default)</div>
+                      <div className="text-xs text-gray-500 dark:text-gray-400">Standard limit for all retailers</div>
+                    </div>
+                  </label>
+                  <label className="flex items-center p-3 border rounded-lg cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
+                    <input
+                      type="radio"
+                      name="settlement_limit_tier"
+                      value="150000"
+                      checked={settlementLimitTier === 150000}
+                      onChange={() => setSettlementLimitTier(150000)}
+                      className="mr-3"
+                    />
+                    <div className="flex-1">
+                      <div className="font-medium text-gray-900 dark:text-white">₹1,50,000</div>
+                      <div className="text-xs text-gray-500 dark:text-gray-400">Higher limit - ensure scheme charges are configured</div>
+                    </div>
+                  </label>
+                  <label className="flex items-center p-3 border rounded-lg cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
+                    <input
+                      type="radio"
+                      name="settlement_limit_tier"
+                      value="200000"
+                      checked={settlementLimitTier === 200000}
+                      onChange={() => setSettlementLimitTier(200000)}
+                      className="mr-3"
+                    />
+                    <div className="flex-1">
+                      <div className="font-medium text-gray-900 dark:text-white">₹2,00,000</div>
+                      <div className="text-xs text-gray-500 dark:text-gray-400">Maximum limit - ensure scheme charges are configured</div>
+                    </div>
+                  </label>
+                </div>
+                <div className="mt-3 p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg">
+                  <p className="text-xs text-yellow-800 dark:text-yellow-300">
+                    <strong>Note:</strong> For limits above ₹1,00,000, ensure the retailer's scheme has charges configured for the higher amount ranges.
+                  </p>
+                </div>
+              </div>
+              <div className="flex gap-3">
+                <button
+                  onClick={async () => {
+                    setUpdatingSettlementLimit(true)
+                    try {
+                      const response = await apiFetch('/api/admin/retailers/settlement-limit', {
+                        method: 'POST',
+                        body: JSON.stringify({
+                          retailer_id: selectedRetailerForSettlementLimit.partner_id,
+                          settlement_limit_tier: settlementLimitTier
+                        })
+                      })
+
+                      const data = await response.json()
+                      if (data.success) {
+                        alert(data.message || 'Settlement limit updated successfully!')
+                        setShowSettlementLimitModal(false)
+                        setSelectedRetailerForSettlementLimit(null)
+                        fetchData()
+                      } else {
+                        alert(data.error || 'Failed to update settlement limit')
+                      }
+                    } catch (error: any) {
+                      console.error('Settlement limit update error:', error)
+                      alert(error.message || 'Failed to update settlement limit')
+                    } finally {
+                      setUpdatingSettlementLimit(false)
+                    }
+                  }}
+                  disabled={updatingSettlementLimit}
+                  className="flex-1 py-2 px-4 rounded-lg text-white bg-teal-600 hover:bg-teal-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {updatingSettlementLimit ? 'Updating...' : 'Update Limit'}
+                </button>
+                <button
+                  onClick={() => {
+                    setShowSettlementLimitModal(false)
+                    setSelectedRetailerForSettlementLimit(null)
                   }}
                   className="flex-1 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 py-2 px-4 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600"
                 >

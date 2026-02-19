@@ -121,9 +121,34 @@ export async function checkDailyTransactionLimit(
 }
 
 /**
- * Check BBPS limit slabs
+ * Check BBPS limit slabs - now checks retailer-specific limit tier
  */
-export async function checkBBPSLimitSlab(amount: number): Promise<LimitCheckResult> {
+export async function checkBBPSLimitSlab(
+  amount: number,
+  retailerId?: string
+): Promise<LimitCheckResult> {
+  // If retailer ID provided, check their specific limit tier
+  if (retailerId) {
+    const { data: retailer } = await getSupabase()
+      .from('retailers')
+      .select('bbps_limit_tier')
+      .eq('partner_id', retailerId)
+      .single()
+
+    if (retailer?.bbps_limit_tier) {
+      const limitTier = parseFloat(retailer.bbps_limit_tier.toString())
+      if (amount > limitTier) {
+        return {
+          allowed: false,
+          reason: `BBPS payment amount ₹${amount} exceeds your limit of ₹${limitTier.toLocaleString('en-IN')}. Please contact admin to increase your limit.`,
+          limit_amount: limitTier
+        }
+      }
+      return { allowed: true, limit_amount: limitTier }
+    }
+  }
+
+  // Fallback: Check global limit slabs (for backward compatibility)
   const { data: slab } = await getSupabase()
     .from('bbps_limit_slabs')
     .select('min_amount, max_amount, is_enabled')
@@ -168,7 +193,7 @@ export async function checkAllLimits(
 
   // Check BBPS limit slabs if BBPS transaction
   if (service_type === 'bbps') {
-    const bbpsCheck = await checkBBPSLimitSlab(amount)
+    const bbpsCheck = await checkBBPSLimitSlab(amount, user_id)
     if (!bbpsCheck.allowed) {
       return bbpsCheck
     }
