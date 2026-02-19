@@ -15,16 +15,25 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserFromRequest } from '@/lib/auth-server-request'
-import { createClient } from '@supabase/supabase-js'
+import { createClient, SupabaseClient } from '@supabase/supabase-js'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  { auth: { persistSession: false } }
-)
+// Lazy-initialize supabaseAdmin to prevent module-level crashes if env vars are missing
+let _supabaseAdmin: SupabaseClient | null = null
+
+function getSupabaseAdmin(): SupabaseClient {
+  if (!_supabaseAdmin) {
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL
+    const key = process.env.SUPABASE_SERVICE_ROLE_KEY
+    if (!url || !key) {
+      throw new Error('Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY environment variable')
+    }
+    _supabaseAdmin = createClient(url, key, { auth: { persistSession: false } })
+  }
+  return _supabaseAdmin
+}
 
 // ============================================================================
 // DIRECT TABLE QUERY FALLBACKS
@@ -53,7 +62,7 @@ async function resolveSchemeDirectQuery(
 
   // Helper to check scheme mapping + scheme validity
   const findMapping = async (entityId: string, entityRole: string, resolvedVia: string): Promise<ResolvedSchemeInfo | null> => {
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await getSupabaseAdmin()
       .from('scheme_mappings')
       .select(`
         scheme_id,
@@ -114,7 +123,7 @@ async function resolveSchemeDirectQuery(
   }
 
   // 4. Global scheme fallback
-  const { data: globalSchemes } = await supabaseAdmin
+  const { data: globalSchemes } = await getSupabaseAdmin()
     .from('schemes')
     .select('id, name, scheme_type, status, service_scope, effective_from, effective_to')
     .eq('scheme_type', 'global')
@@ -154,7 +163,7 @@ async function calculateBBPSChargeDirectQuery(
   md_commission: number
   company_earning: number
 } | null> {
-  const { data: slabs, error } = await supabaseAdmin
+  const { data: slabs, error } = await getSupabaseAdmin()
     .from('scheme_bbps_commissions')
     .select('*')
     .eq('scheme_id', schemeId)
@@ -219,7 +228,7 @@ async function calculatePayoutChargeDirectQuery(
   md_commission: number
   company_earning: number
 } | null> {
-  const { data: slabs, error } = await supabaseAdmin
+  const { data: slabs, error } = await getSupabaseAdmin()
     .from('scheme_payout_charges')
     .select('*')
     .eq('scheme_id', schemeId)
@@ -279,7 +288,7 @@ export async function GET(request: NextRequest) {
 
     // Fallback auth using user_id query param
     if ((!user || !user.partner_id) && userId) {
-      const { data: retailer } = await supabaseAdmin
+      const { data: retailer } = await getSupabaseAdmin()
         .from('retailers')
         .select('partner_id, name, email, distributor_id, master_distributor_id')
         .eq('partner_id', userId)
@@ -305,7 +314,7 @@ export async function GET(request: NextRequest) {
     let mdId: string | null = null
 
     if (user.role === 'retailer') {
-      const { data: retailerData } = await supabaseAdmin
+      const { data: retailerData } = await getSupabaseAdmin()
         .from('retailers')
         .select('distributor_id, master_distributor_id')
         .eq('partner_id', user.partner_id)
@@ -314,7 +323,7 @@ export async function GET(request: NextRequest) {
       distributorId = retailerData?.distributor_id || null
       mdId = retailerData?.master_distributor_id || null
     } else if (user.role === 'distributor') {
-      const { data: distData } = await supabaseAdmin
+      const { data: distData } = await getSupabaseAdmin()
         .from('distributors')
         .select('master_distributor_id')
         .eq('partner_id', user.partner_id)
@@ -333,7 +342,7 @@ export async function GET(request: NextRequest) {
 
     // Try RPC first
     try {
-      const { data: schemeResult, error: schemeError } = await supabaseAdmin.rpc('resolve_scheme_for_user', {
+      const { data: schemeResult, error: schemeError } = await getSupabaseAdmin().rpc('resolve_scheme_for_user', {
         p_user_id: user.partner_id,
         p_user_role: user.role,
         p_service_type: serviceType,
@@ -392,7 +401,7 @@ export async function GET(request: NextRequest) {
       let charges: any = null
       
       try {
-        const { data: chargeResult, error: chargeError } = await supabaseAdmin.rpc('calculate_payout_charge_from_scheme', {
+        const { data: chargeResult, error: chargeError } = await getSupabaseAdmin().rpc('calculate_payout_charge_from_scheme', {
           p_scheme_id: resolved.scheme_id,
           p_amount: amount,
           p_transfer_mode: transferMode,
@@ -430,7 +439,7 @@ export async function GET(request: NextRequest) {
       }
 
       // Also fetch ALL payout charge slabs for this scheme so client can show charge per mode
-      const { data: allSlabs } = await supabaseAdmin
+      const { data: allSlabs } = await getSupabaseAdmin()
         .from('scheme_payout_charges')
         .select('transfer_mode, min_amount, max_amount, retailer_charge, retailer_charge_type')
         .eq('scheme_id', resolved.scheme_id)
@@ -457,7 +466,7 @@ export async function GET(request: NextRequest) {
       let charges: any = null
       
       try {
-        const { data: chargeResult, error: chargeError } = await supabaseAdmin.rpc('calculate_bbps_charge_from_scheme', {
+        const { data: chargeResult, error: chargeError } = await getSupabaseAdmin().rpc('calculate_bbps_charge_from_scheme', {
           p_scheme_id: resolved.scheme_id,
           p_amount: amount,
           p_category: category || null,
@@ -508,7 +517,7 @@ export async function GET(request: NextRequest) {
 
     if (serviceType === 'mdr') {
       // Return MDR rates from the resolved scheme
-      const { data: mdrRates } = await supabaseAdmin
+      const { data: mdrRates } = await getSupabaseAdmin()
         .from('scheme_mdr_rates')
         .select('*')
         .eq('scheme_id', resolved.scheme_id)

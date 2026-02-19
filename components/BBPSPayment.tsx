@@ -341,10 +341,19 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
         try {
           const category = selectedCategory || selectedBiller?.category || ''
           const res = await fetch(`/api/schemes/resolve-charges?service_type=bbps&amount=${amountInRupees}&category=${encodeURIComponent(category)}&user_id=${user.partner_id}`)
-          const schemeData = await res.json()
-          if (schemeData.resolved && schemeData.charges) {
-            console.log(`[BBPS] Scheme "${schemeData.scheme?.name}" charge: ₹${schemeData.charges.retailer_charge}`)
-            return schemeData.charges.retailer_charge
+          if (res.ok) {
+            const contentType = res.headers.get('content-type') || ''
+            if (contentType.includes('application/json')) {
+              const schemeData = await res.json()
+              if (schemeData.resolved && schemeData.charges) {
+                console.log(`[BBPS] Scheme "${schemeData.scheme?.name}" charge: ₹${schemeData.charges.retailer_charge}`)
+                return schemeData.charges.retailer_charge
+              }
+            } else {
+              console.warn(`[BBPS] Scheme charge API returned non-JSON response (${contentType})`)
+            }
+          } else {
+            console.warn(`[BBPS] Scheme charge API returned ${res.status}, falling back to legacy`)
           }
         } catch (schemeErr) {
           console.warn('[BBPS] Scheme charge resolution failed, using legacy:', schemeErr)

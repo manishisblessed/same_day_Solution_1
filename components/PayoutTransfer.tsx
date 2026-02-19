@@ -137,6 +137,15 @@ export default function PayoutTransfer({ title }: PayoutTransferProps = {}) {
     try {
       // Fetch with minimum transfer amount (100) to get accurate default charges
       const res = await fetch(`/api/schemes/resolve-charges?service_type=payout&amount=100&transfer_mode=IMPS&user_id=${user.partner_id}`)
+      if (!res.ok) {
+        console.warn(`[PayoutTransfer] Scheme charge API returned ${res.status}, using defaults`)
+        return
+      }
+      const contentType = res.headers.get('content-type') || ''
+      if (!contentType.includes('application/json')) {
+        console.warn(`[PayoutTransfer] Scheme charge API returned non-JSON (${contentType}), using defaults`)
+        return
+      }
       const data = await res.json()
       if (data.resolved) {
         let impsCharge = 5 // default fallback
@@ -164,6 +173,15 @@ export default function PayoutTransfer({ title }: PayoutTransferProps = {}) {
     if (!user?.partner_id || amt <= 0) return
     try {
       const res = await fetch(`/api/schemes/resolve-charges?service_type=payout&amount=${amt}&transfer_mode=IMPS&user_id=${user.partner_id}`)
+      if (!res.ok) {
+        console.warn(`[PayoutTransfer] Exact charge API returned ${res.status}`)
+        return
+      }
+      const contentType = res.headers.get('content-type') || ''
+      if (!contentType.includes('application/json')) {
+        console.warn(`[PayoutTransfer] Exact charge API returned non-JSON (${contentType})`)
+        return
+      }
       const data = await res.json()
       if (data.resolved && data.charges) {
         const newCharge = data.charges.retailer_charge
