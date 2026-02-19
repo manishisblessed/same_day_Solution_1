@@ -224,6 +224,29 @@ export async function POST(request: NextRequest) {
       .eq('txn_id', txnId)
       .maybeSingle()
 
+    // Extract all detailed fields from payload for dedicated columns
+    const customerName = normalizedPayload.customerName || normalizedPayload.payerName || null
+    const payerName = normalizedPayload.payerName || null
+    const username = normalizedPayload.username || null
+    const txnType = normalizedPayload.txnType || 'CHARGE'
+    const authCode = normalizedPayload.authCode || null
+    const cardNumber = normalizedPayload.cardNumber || normalizedPayload.maskedCardNumber || normalizedPayload.cardLastFourDigit || null
+    const issuingBank = normalizedPayload.issuingBankName || normalizedPayload.bankName || normalizedPayload.issuingBank || null
+    const cardClassification = normalizedPayload.cardClassification || normalizedPayload.cardCategory || null
+    const midCode = normalizedPayload.mid || normalizedPayload.merchantId || null
+    const cardBrand = normalizedPayload.paymentCardBrand || normalizedPayload.cardBrand || null
+    const cardType = normalizedPayload.paymentCardType || normalizedPayload.cardType || null
+    const currencyCode = normalizedPayload.currencyCode || normalizedPayload.currency || 'INR'
+    const customerReceiptUrl = normalizedPayload.customerReceiptUrl || normalizedPayload.receiptUrl || null
+    const postingDateStr = normalizedPayload.postingDate || null
+    const settlementStatusVal = normalizedPayload.settlementStatus || null
+    const externalRef = normalizedPayload.externalRefNumber || normalizedPayload.external_ref || null
+
+    let postingDateParsed: Date | null = null
+    if (postingDateStr) {
+      try { postingDateParsed = new Date(postingDateStr) } catch { /* ignore */ }
+    }
+
     // FIX: Store in razorpay_pos_transactions (used by role-based visibility API)
     const posTransactionData: any = {
       txn_id: txnId,
@@ -235,7 +258,25 @@ export async function POST(request: NextRequest) {
       tid: tid,
       merchant_name: merchantName,
       transaction_time: createdTime.toISOString(),
-      raw_data: rawDataToStore
+      raw_data: rawDataToStore,
+      // New detailed fields
+      customer_name: customerName,
+      payer_name: payerName,
+      username: username,
+      txn_type: txnType,
+      auth_code: authCode,
+      card_number: cardNumber,
+      issuing_bank: issuingBank,
+      card_classification: cardClassification,
+      mid_code: midCode,
+      card_brand: cardBrand,
+      card_type: cardType,
+      currency: currencyCode,
+      rrn: rrNumber,
+      external_ref: externalRef,
+      settlement_status: settlementStatusVal,
+      receipt_url: customerReceiptUrl,
+      posting_date: postingDateParsed?.toISOString() || null,
     }
 
     let posResult
@@ -401,18 +442,31 @@ export async function POST(request: NextRequest) {
             retailer_id: partnerMachine.retailer_id,
             terminal_id: tid,
             razorpay_txn_id: txnId,
-            external_ref: normalizedPayload.externalRefNumber || normalizedPayload.external_ref || null,
+            external_ref: externalRef,
             amount: amount ? Math.round(amount * 100) : 0, // Convert rupees to paisa (BIGINT)
             status: mappedStatus || 'AUTHORIZED',
             rrn: rrNumber || null,
-            card_brand: normalizedPayload.paymentCardBrand || normalizedPayload.card_brand || null,
-            card_type: normalizedPayload.paymentCardType || normalizedPayload.card_type || null,
+            card_brand: cardBrand,
+            card_type: cardType,
             payment_mode: paymentMode || null,
-            settlement_status: normalizedPayload.settlementStatus || normalizedPayload.settlement_status || 'PENDING',
+            settlement_status: settlementStatusVal || 'PENDING',
             device_serial: deviceSerial || null,
             txn_time: txnTime.toISOString(),
             raw_payload: rawDataToStore,
-            updated_at: new Date().toISOString()
+            updated_at: new Date().toISOString(),
+            // New detailed fields
+            customer_name: customerName,
+            payer_name: payerName,
+            username: username,
+            txn_type: txnType,
+            auth_code: authCode,
+            card_number: cardNumber,
+            issuing_bank: issuingBank,
+            card_classification: cardClassification,
+            mid: midCode,
+            currency: currencyCode,
+            receipt_url: customerReceiptUrl,
+            posting_date: postingDateParsed?.toISOString() || null,
           }
 
           if (existingPosTxn) {

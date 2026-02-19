@@ -186,23 +186,37 @@ async function getTransactions({
     SELECT 
       rpt.id,
       rpt.txn_id AS razorpay_txn_id,
-      rpt.raw_data->>'externalRefNumber' AS external_ref,
+      COALESCE(rpt.external_ref, rpt.raw_data->>'externalRefNumber') AS external_ref,
       rpt.tid AS terminal_id,
       rpt.amount,
       CASE 
         WHEN rpt.display_status = 'SUCCESS' THEN 'CAPTURED'
         ELSE COALESCE(rpt.display_status, rpt.status, 'PENDING')
       END AS status,
-      rpt.raw_data->>'rrNumber' AS rrn,
-      COALESCE(rpt.raw_data->>'paymentCardBrand', rpt.raw_data->>'cardBrand') AS card_brand,
-      COALESCE(rpt.raw_data->>'paymentCardType', rpt.raw_data->>'cardType') AS card_type,
+      COALESCE(rpt.rrn, rpt.raw_data->>'rrNumber') AS rrn,
+      COALESCE(rpt.card_brand, rpt.raw_data->>'paymentCardBrand', rpt.raw_data->>'cardBrand') AS card_brand,
+      COALESCE(rpt.card_type, rpt.raw_data->>'paymentCardType', rpt.raw_data->>'cardType') AS card_type,
       rpt.payment_mode,
-      COALESCE(rpt.raw_data->>'settlementStatus', 'PENDING') AS settlement_status,
+      COALESCE(rpt.settlement_status, rpt.raw_data->>'settlementStatus', 'PENDING') AS settlement_status,
       rpt.device_serial,
       rpt.transaction_time AS txn_time,
       rpt.created_at,
       NULL AS retailer_code,
-      NULL AS retailer_name
+      NULL AS retailer_name,
+      COALESCE(rpt.customer_name, rpt.raw_data->>'customerName', rpt.raw_data->>'payerName') AS customer_name,
+      COALESCE(rpt.payer_name, rpt.raw_data->>'payerName') AS payer_name,
+      COALESCE(rpt.username, rpt.raw_data->>'username') AS username,
+      COALESCE(rpt.txn_type, rpt.raw_data->>'txnType', 'CHARGE') AS txn_type,
+      COALESCE(rpt.auth_code, rpt.raw_data->>'authCode') AS auth_code,
+      COALESCE(rpt.card_number, rpt.raw_data->>'cardNumber', rpt.raw_data->>'maskedCardNumber') AS card_number,
+      COALESCE(rpt.issuing_bank, rpt.raw_data->>'issuingBankName', rpt.raw_data->>'bankName', rpt.raw_data->>'issuingBank') AS issuing_bank,
+      COALESCE(rpt.card_classification, rpt.raw_data->>'cardClassification', rpt.raw_data->>'cardCategory') AS card_classification,
+      COALESCE(rpt.mid_code, rpt.raw_data->>'mid', rpt.raw_data->>'merchantId') AS mid,
+      COALESCE(rpt.currency, rpt.raw_data->>'currencyCode', 'INR') AS currency,
+      rpt.settled_on,
+      COALESCE(rpt.receipt_url, rpt.raw_data->>'customerReceiptUrl', rpt.raw_data->>'receiptUrl') AS receipt_url,
+      rpt.posting_date,
+      rpt.merchant_name
     FROM razorpay_pos_transactions rpt
     WHERE ${whereClause}
     ORDER BY rpt.transaction_time DESC
@@ -340,14 +354,32 @@ async function processWebhookTransaction(payload) {
     return { success: true, action: 'duplicate', transactionId: existing.id };
   }
 
+  // Extract additional detail fields from payload
+  const customerName = payload.customerName || payload.payerName || null;
+  const payerName = payload.payerName || null;
+  const username = payload.username || null;
+  const txnType = payload.txnType || 'CHARGE';
+  const authCode = payload.authCode || null;
+  const cardNumber = payload.cardNumber || payload.maskedCardNumber || payload.cardLastFourDigit || null;
+  const issuingBank = payload.issuingBankName || payload.bankName || payload.issuingBank || null;
+  const cardClassification = payload.cardClassification || payload.cardCategory || null;
+  const mid = payload.mid || payload.merchantId || null;
+  const currency = payload.currencyCode || payload.currency || 'INR';
+  const receiptUrl = payload.customerReceiptUrl || payload.receiptUrl || null;
+  const postingDateVal = postingDate ? new Date(postingDate) : null;
+
   // Insert new transaction
   const insertResult = await db.query(
     `INSERT INTO pos_transactions (
       partner_id, retailer_id, terminal_id,
       razorpay_txn_id, external_ref, amount, status,
       rrn, card_brand, card_type, payment_mode,
-      settlement_status, device_serial, txn_time, raw_payload
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+      settlement_status, device_serial, txn_time, raw_payload,
+      customer_name, payer_name, username, txn_type, auth_code,
+      card_number, issuing_bank, card_classification, mid, currency,
+      receipt_url, posting_date
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
+              $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27)
     RETURNING id`,
     [
       machine.partner_id,
@@ -365,6 +397,18 @@ async function processWebhookTransaction(payload) {
       deviceSerial || null,
       txnTime,
       JSON.stringify(payload),
+      customerName,
+      payerName,
+      username,
+      txnType,
+      authCode,
+      cardNumber,
+      issuingBank,
+      cardClassification,
+      mid,
+      currency,
+      receiptUrl,
+      postingDateVal,
     ]
   );
 

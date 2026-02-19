@@ -139,29 +139,15 @@ export default function PayoutTransfer({ title }: PayoutTransferProps = {}) {
       const res = await fetch(`/api/schemes/resolve-charges?service_type=payout&amount=100&transfer_mode=IMPS&user_id=${user.partner_id}`)
       const data = await res.json()
       if (data.resolved) {
-        // Use the calculated charge from the API (for amount=100) instead of first slab
         let impsCharge = 5 // default fallback
-        let neftCharge = 3 // default fallback
         
         if (data.charges) {
-          // If we have calculated charges, use them (this is for IMPS since we fetched with IMPS mode)
           impsCharge = parseFloat(data.charges.retailer_charge) || 5
-        }
-        
-        // Fetch NEFT charge separately
-        try {
-          const neftRes = await fetch(`/api/schemes/resolve-charges?service_type=payout&amount=100&transfer_mode=NEFT&user_id=${user.partner_id}`)
-          const neftData = await neftRes.json()
-          if (neftData.resolved && neftData.charges) {
-            neftCharge = parseFloat(neftData.charges.retailer_charge) || 3
-          }
-        } catch (neftErr) {
-          console.warn('[PayoutTransfer] NEFT charge fetch failed, using default:', neftErr)
         }
         
         setSchemeCharges({
           imps: impsCharge,
-          neft: neftCharge,
+          neft: 0,
           schemeName: data.scheme?.name || null,
           resolved: true,
         })
@@ -173,17 +159,17 @@ export default function PayoutTransfer({ title }: PayoutTransferProps = {}) {
     }
   }, [user?.partner_id])
 
-  // Fetch exact charge for the entered amount and selected transfer mode
-  const fetchExactCharge = useCallback(async (amt: number, mode: string) => {
+  // Fetch exact charge for the entered amount (always IMPS)
+  const fetchExactCharge = useCallback(async (amt: number, _mode?: string) => {
     if (!user?.partner_id || amt <= 0) return
     try {
-      const res = await fetch(`/api/schemes/resolve-charges?service_type=payout&amount=${amt}&transfer_mode=${mode}&user_id=${user.partner_id}`)
+      const res = await fetch(`/api/schemes/resolve-charges?service_type=payout&amount=${amt}&transfer_mode=IMPS&user_id=${user.partner_id}`)
       const data = await res.json()
       if (data.resolved && data.charges) {
         const newCharge = data.charges.retailer_charge
         setSchemeCharges(prev => ({
           ...prev,
-          [mode === 'IMPS' ? 'imps' : 'neft']: newCharge,
+          imps: newCharge,
           schemeName: data.scheme?.name || prev.schemeName,
           resolved: true,
         }))
@@ -194,8 +180,8 @@ export default function PayoutTransfer({ title }: PayoutTransferProps = {}) {
   }, [user?.partner_id])
 
   const charges = useMemo(() => {
-    return transferMode === 'IMPS' ? schemeCharges.imps : schemeCharges.neft
-  }, [transferMode, schemeCharges])
+    return schemeCharges.imps
+  }, [schemeCharges])
   
   const amountNum = useMemo(() => {
     const num = parseFloat(amount)
@@ -456,7 +442,7 @@ export default function PayoutTransfer({ title }: PayoutTransferProps = {}) {
           code: '',
           ifsc: beneficiary.ifsc_code,
           isIMPS: true,
-          isNEFT: true,
+          isNEFT: false,
           isACVerification: true,
           isPopular: false,
         })
@@ -588,14 +574,14 @@ export default function PayoutTransfer({ title }: PayoutTransferProps = {}) {
     return () => clearInterval(interval)
   }, [fetchWalletBalance, fetchBanks, fetchRecentTransactions, fetchSavedBeneficiaries, fetchSchemeCharges])
 
-  // Fetch exact charge when amount or transfer mode changes (debounced)
+  // Fetch exact charge when amount changes (debounced)
   useEffect(() => {
     if (amountNum <= 0) return
     const timer = setTimeout(() => {
-      fetchExactCharge(amountNum, transferMode)
+      fetchExactCharge(amountNum)
     }, 500) // Debounce 500ms
     return () => clearTimeout(timer)
-  }, [amountNum, transferMode, fetchExactCharge])
+  }, [amountNum, fetchExactCharge])
 
   // Auto-poll disabled - user can manually check status via "Check Status" button
   // This prevents unnecessary spinning animations and API calls
@@ -959,7 +945,7 @@ export default function PayoutTransfer({ title }: PayoutTransferProps = {}) {
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
           <div>
             <h2 className="text-2xl font-bold text-gray-900 dark:text-white">{title || 'Bank Transfer (Payout)'}</h2>
-            <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">Transfer money to any bank account via IMPS/NEFT</p>
+            <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">Transfer money to any bank account via IMPS</p>
           </div>
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2">
@@ -1162,7 +1148,6 @@ export default function PayoutTransfer({ title }: PayoutTransferProps = {}) {
                         <span className="text-gray-900 dark:text-white">{bank.bankName}</span>
                         <div className="flex gap-1">
                           {bank.isIMPS && <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded">IMPS</span>}
-                          {bank.isNEFT && <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded">NEFT</span>}
                         </div>
                       </div>
                     ))}
@@ -1458,26 +1443,11 @@ export default function PayoutTransfer({ title }: PayoutTransferProps = {}) {
                     Transfer Mode
                   </label>
                   <div className="flex gap-2">
-                    <button
-                      onClick={() => setTransferMode('IMPS')}
-                      className={`flex-1 px-4 py-2 rounded-lg border-2 transition-colors ${
-                        transferMode === 'IMPS' 
-                          ? 'border-blue-600 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400' 
-                          : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300'
-                      }`}
+                    <div
+                      className="flex-1 px-4 py-2 rounded-lg border-2 border-blue-600 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400 text-center font-medium"
                     >
                       IMPS (Instant)
-                    </button>
-                    <button
-                      onClick={() => setTransferMode('NEFT')}
-                      className={`flex-1 px-4 py-2 rounded-lg border-2 transition-colors ${
-                        transferMode === 'NEFT' 
-                          ? 'border-blue-600 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400' 
-                          : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300'
-                      }`}
-                    >
-                      NEFT
-                    </button>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1511,7 +1481,7 @@ export default function PayoutTransfer({ title }: PayoutTransferProps = {}) {
                     <span className="text-gray-900 dark:text-white">₹{amountNum.toLocaleString('en-IN')}</span>
                   </div>
                   <div className="flex justify-between text-sm mb-2">
-                    <span className="text-gray-600 dark:text-gray-400">Charges ({transferMode})</span>
+                    <span className="text-gray-600 dark:text-gray-400">Charges (IMPS)</span>
                     <span className="text-gray-900 dark:text-white">₹{charges}</span>
                   </div>
                   <div className="border-t border-gray-300 dark:border-gray-600 pt-2 flex justify-between font-semibold">
@@ -1562,7 +1532,7 @@ export default function PayoutTransfer({ title }: PayoutTransferProps = {}) {
                 </div>
                 <div className="flex justify-between">
                   <span className="text-gray-600 dark:text-gray-400">Transfer Mode</span>
-                  <span className="font-semibold text-gray-900 dark:text-white">{transferMode}</span>
+                  <span className="font-semibold text-gray-900 dark:text-white">IMPS (Instant)</span>
                 </div>
                 <div className="border-t border-gray-300 dark:border-gray-600 pt-3">
                   <div className="flex justify-between">

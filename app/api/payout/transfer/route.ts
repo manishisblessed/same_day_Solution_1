@@ -228,7 +228,7 @@ export async function POST(request: NextRequest) {
       console.warn('[Payout] Failed to fetch retailer hierarchy:', e)
     }
 
-    // Calculate charges via Scheme Engine (fallback to env config)
+    // Calculate charges via Scheme Engine (with direct query fallback)
     let charges = 0
     let resolvedSchemeId: string | null = null
     let resolvedSchemeName: string | null = null
@@ -250,7 +250,7 @@ export async function POST(request: NextRequest) {
         const resolved = schemeResult[0]
         resolvedSchemeId = resolved.scheme_id
         resolvedSchemeName = resolved.scheme_name
-        console.log(`[Payout] Scheme resolved: "${resolved.scheme_name}" via ${resolved.resolved_via}`)
+        console.log(`[Payout] Scheme resolved via RPC: "${resolved.scheme_name}" via ${resolved.resolved_via}`)
         
         const { data: chargeResult, error: chargeError } = await (supabaseAdmin as any).rpc('calculate_payout_charge_from_scheme', {
           p_scheme_id: resolved.scheme_id,
@@ -260,21 +260,107 @@ export async function POST(request: NextRequest) {
         
         if (chargeError) {
           console.error('[Payout] Charge calculation RPC error:', chargeError)
-        } else if (chargeResult && chargeResult.length > 0) {
-          charges = parseFloat(chargeResult[0].retailer_charge) || 0
-          console.log(`[Payout] Scheme charge: ₹${charges}`)
+        } else if (chargeResult && chargeResult.length > 0 && parseFloat(chargeResult[0].retailer_charge) > 0) {
+          charges = parseFloat(chargeResult[0].retailer_charge)
+          console.log(`[Payout] Scheme charge via RPC: ₹${charges}`)
         } else {
-          console.warn(`[Payout] No charge slab found for scheme ${resolved.scheme_id}, amount=${amountNum}, mode=${transferMode}`)
+          console.warn(`[Payout] RPC charge slab returned 0, trying direct query for scheme ${resolved.scheme_id}, amount=${amountNum}, mode=${transferMode}`)
+          // Fallback: Direct table query for payout charge
+          const { data: slabs } = await supabaseAdmin
+            .from('scheme_payout_charges')
+            .select('*')
+            .eq('scheme_id', resolved.scheme_id)
+            .eq('status', 'active')
+            .lte('min_amount', amountNum)
+            .gte('max_amount', amountNum)
+            .order('min_amount', { ascending: false })
+
+          if (slabs && slabs.length > 0) {
+            const matchingSlab = slabs.find((s: any) => s.transfer_mode.toUpperCase() === transferMode.toUpperCase())
+            if (matchingSlab) {
+              const rc = parseFloat(matchingSlab.retailer_charge) || 0
+              charges = matchingSlab.retailer_charge_type === 'percentage'
+                ? Math.round(amountNum * rc / 100 * 100) / 100
+                : rc
+              console.log(`[Payout] Scheme charge via direct query: ₹${charges}`)
+            }
+          }
         }
       } else {
-        console.warn(`[Payout] No scheme found for user=${user.partner_id}`)
+        console.warn(`[Payout] No scheme found via RPC for user=${user.partner_id}, trying direct query...`)
       }
     } catch (schemeErr) {
-      console.error('[Payout] Scheme resolution failed, using env config:', schemeErr)
+      console.error('[Payout] Scheme resolution RPC failed:', schemeErr)
     }
     
-    // Fallback to env-based charges if no scheme resolved
+    // Fallback: Direct table query for scheme resolution (if RPC failed)
     if (!resolvedSchemeId) {
+      try {
+        console.log(`[Payout] Attempting direct table query scheme resolution...`)
+        const now = new Date().toISOString()
+        const { data: mappings } = await supabaseAdmin
+          .from('scheme_mappings')
+          .select(`
+            scheme_id,
+            service_type,
+            effective_from,
+            effective_to,
+            scheme:schemes!inner (
+              id, name, scheme_type, status, effective_from, effective_to
+            )
+          `)
+          .eq('entity_id', user.partner_id)
+          .eq('entity_role', 'retailer')
+          .eq('status', 'active')
+          .lte('effective_from', now)
+          .order('priority', { ascending: true })
+          .limit(5)
+
+        if (mappings && mappings.length > 0) {
+          for (const mapping of mappings as any[]) {
+            const scheme = mapping.scheme as any
+            if (!scheme || scheme.status !== 'active') continue
+            if (mapping.effective_to && new Date(mapping.effective_to) <= new Date()) continue
+            if (new Date(scheme.effective_from) > new Date()) continue
+            if (scheme.effective_to && new Date(scheme.effective_to) <= new Date()) continue
+            const svcType = mapping.service_type
+            if (svcType && svcType !== 'all' && svcType !== 'payout') continue
+
+            resolvedSchemeId = scheme.id
+            resolvedSchemeName = scheme.name
+            console.log(`[Payout] Scheme resolved via direct query: "${scheme.name}" (${scheme.id})`)
+
+            // Now get payout charge from this scheme
+            const { data: slabs } = await supabaseAdmin
+              .from('scheme_payout_charges')
+              .select('*')
+              .eq('scheme_id', scheme.id)
+              .eq('status', 'active')
+              .lte('min_amount', amountNum)
+              .gte('max_amount', amountNum)
+              .order('min_amount', { ascending: false })
+
+            if (slabs && slabs.length > 0) {
+              const matchingSlab = slabs.find((s: any) => s.transfer_mode.toUpperCase() === transferMode.toUpperCase())
+              if (matchingSlab) {
+                const rc = parseFloat(matchingSlab.retailer_charge) || 0
+                charges = matchingSlab.retailer_charge_type === 'percentage'
+                  ? Math.round(amountNum * rc / 100 * 100) / 100
+                  : rc
+                console.log(`[Payout] Scheme charge via direct query: ₹${charges}`)
+              }
+            }
+            break
+          }
+        }
+      } catch (directErr) {
+        console.error('[Payout] Direct query scheme resolution failed:', directErr)
+      }
+    }
+    
+    // Final fallback to env-based charges if no scheme resolved at all
+    if (!resolvedSchemeId) {
+      console.warn(`[Payout] No scheme resolved (RPC + direct query failed), using env config`)
       const chargesConfig = getPayoutCharges()
       charges = transferMode === 'IMPS' ? chargesConfig.imps : chargesConfig.neft
     }
@@ -486,12 +572,13 @@ export async function POST(request: NextRequest) {
         client_ref_id: clientRefId,
         status: 'PROCESSING',
         amount: amountNum,
-        charges,
+        charges,  // Always use scheme-based charges
         total_debited: totalAmount,
         account_number: accountNumber.replace(/\d(?=\d{4})/g, '*'),
         account_holder_name: accountHolderName,
         bank_name: bankName,
         transfer_mode: transferMode,
+        ...(resolvedSchemeName ? { scheme_name: resolvedSchemeName } : {}),
       })
       return addCorsHeaders(request, response)
     }
@@ -558,13 +645,14 @@ export async function POST(request: NextRequest) {
       provider_txn_id: transferResult.transaction_id,
       client_ref_id: transferResult.client_ref_id || clientRefId,
       status: (transferResult.status || 'processing').toUpperCase(),
-      amount: transferResult.amount || amountNum,
-      charges: transferResult.charges || charges,
-      total_debited: transferResult.total_amount || totalAmount,
+      amount: amountNum,
+      charges,  // Always use scheme-based charges (not transfer service config charges)
+      total_debited: totalAmount,  // Always use scheme-calculated total
       account_number: accountNumber.replace(/\d(?=\d{4})/g, '*'),
       account_holder_name: accountHolderName,
       bank_name: bankName,
       transfer_mode: transferMode,
+      ...(resolvedSchemeName ? { scheme_name: resolvedSchemeName } : {}),
     })
     
     return addCorsHeaders(request, response)

@@ -209,13 +209,13 @@ export async function POST(request: NextRequest) {
       console.warn('[BBPS Pay] Failed to fetch retailer hierarchy:', e)
     }
 
-    // Calculate BBPS charge via Scheme Engine (fallback to legacy RPC)
+    // Calculate BBPS charge via Scheme Engine (with direct query fallback)
     let bbpsCharge = 20 // Default
     let resolvedSchemeId: string | null = null
     let resolvedSchemeName: string | null = null
     
     try {
-      // Try scheme-based charge calculation first
+      // Try scheme-based charge calculation first (RPC)
       console.log(`[BBPS Pay] Resolving scheme: user=${user.partner_id}, dist=${distributorId}, md=${mdId}, amount=${billAmountInRupees}, category=${additional_info?.category}`)
       
       const { data: schemeResult, error: schemeError } = await (supabase as any).rpc('resolve_scheme_for_user', {
@@ -232,7 +232,7 @@ export async function POST(request: NextRequest) {
         const resolved = schemeResult[0]
         resolvedSchemeId = resolved.scheme_id
         resolvedSchemeName = resolved.scheme_name
-        console.log(`[BBPS Pay] Scheme resolved: "${resolved.scheme_name}" via ${resolved.resolved_via}`)
+        console.log(`[BBPS Pay] Scheme resolved via RPC: "${resolved.scheme_name}" via ${resolved.resolved_via}`)
         
         const { data: chargeResult, error: chargeError } = await (supabase as any).rpc('calculate_bbps_charge_from_scheme', {
           p_scheme_id: resolved.scheme_id,
@@ -242,21 +242,116 @@ export async function POST(request: NextRequest) {
         
         if (chargeError) {
           console.error('[BBPS Pay] Charge calculation RPC error:', chargeError)
-        } else if (chargeResult && chargeResult.length > 0) {
-          bbpsCharge = parseFloat(chargeResult[0].retailer_charge) || 20
-          console.log(`[BBPS Pay] Scheme charge: ₹${bbpsCharge}`)
+        } else if (chargeResult && chargeResult.length > 0 && parseFloat(chargeResult[0].retailer_charge) > 0) {
+          bbpsCharge = parseFloat(chargeResult[0].retailer_charge)
+          console.log(`[BBPS Pay] Scheme charge via RPC: ₹${bbpsCharge}`)
         } else {
-          console.warn(`[BBPS Pay] No charge slab found for scheme ${resolved.scheme_id}, amount=${billAmountInRupees}, category=${additional_info?.category}`)
+          console.warn(`[BBPS Pay] RPC charge slab returned 0 for scheme ${resolved.scheme_id}, trying direct query...`)
+          // Fallback: Direct table query for BBPS charge
+          const { data: slabs } = await supabase
+            .from('scheme_bbps_commissions')
+            .select('*')
+            .eq('scheme_id', resolved.scheme_id)
+            .eq('status', 'active')
+            .lte('min_amount', billAmountInRupees)
+            .gte('max_amount', billAmountInRupees)
+            .order('min_amount', { ascending: false })
+
+          if (slabs && slabs.length > 0) {
+            // Find best slab (prefer wildcard category match)
+            const cat = additional_info?.category || null
+            const bestSlab = slabs.find((s: any) => {
+              const sc = s.category
+              return !sc || sc === '' || sc.toLowerCase() === 'all' || sc.toLowerCase() === 'all categories' || sc === cat || !cat
+            })
+            if (bestSlab) {
+              const rc = parseFloat(bestSlab.retailer_charge) || 0
+              bbpsCharge = bestSlab.retailer_charge_type === 'percentage'
+                ? Math.round(billAmountInRupees * rc / 100 * 100) / 100
+                : rc
+              console.log(`[BBPS Pay] Scheme charge via direct query: ₹${bbpsCharge}`)
+            }
+          }
         }
       } else {
-        console.warn(`[BBPS Pay] No scheme found for user=${user.partner_id}`)
+        console.warn(`[BBPS Pay] No scheme found via RPC for user=${user.partner_id}, trying direct query...`)
       }
     } catch (schemeErr) {
-      console.error('[BBPS Pay] Scheme resolution failed, using legacy charge:', schemeErr)
+      console.error('[BBPS Pay] Scheme resolution RPC failed:', schemeErr)
     }
     
-    // Fallback to legacy RPC if no scheme resolved
+    // Fallback: Direct table query for scheme resolution (if RPC failed)
     if (!resolvedSchemeId) {
+      try {
+        console.log(`[BBPS Pay] Attempting direct table query scheme resolution...`)
+        const now = new Date().toISOString()
+        const { data: mappings } = await supabase
+          .from('scheme_mappings')
+          .select(`
+            scheme_id,
+            service_type,
+            effective_from,
+            effective_to,
+            scheme:schemes!inner (
+              id, name, scheme_type, status, effective_from, effective_to
+            )
+          `)
+          .eq('entity_id', user.partner_id)
+          .eq('entity_role', 'retailer')
+          .eq('status', 'active')
+          .lte('effective_from', now)
+          .order('priority', { ascending: true })
+          .limit(5)
+
+        if (mappings && mappings.length > 0) {
+          for (const mapping of mappings as any[]) {
+            const scheme = mapping.scheme as any
+            if (!scheme || scheme.status !== 'active') continue
+            if (mapping.effective_to && new Date(mapping.effective_to) <= new Date()) continue
+            if (new Date(scheme.effective_from) > new Date()) continue
+            if (scheme.effective_to && new Date(scheme.effective_to) <= new Date()) continue
+            const svcType = mapping.service_type
+            if (svcType && svcType !== 'all' && svcType !== 'bbps') continue
+
+            resolvedSchemeId = scheme.id
+            resolvedSchemeName = scheme.name
+            console.log(`[BBPS Pay] Scheme resolved via direct query: "${scheme.name}" (${scheme.id})`)
+
+            // Now get BBPS charge from this scheme
+            const { data: slabs } = await supabase
+              .from('scheme_bbps_commissions')
+              .select('*')
+              .eq('scheme_id', scheme.id)
+              .eq('status', 'active')
+              .lte('min_amount', billAmountInRupees)
+              .gte('max_amount', billAmountInRupees)
+              .order('min_amount', { ascending: false })
+
+            if (slabs && slabs.length > 0) {
+              const cat = additional_info?.category || null
+              const bestSlab = slabs.find((s: any) => {
+                const sc = s.category
+                return !sc || sc === '' || sc.toLowerCase() === 'all' || sc.toLowerCase() === 'all categories' || sc === cat || !cat
+              })
+              if (bestSlab) {
+                const rc = parseFloat(bestSlab.retailer_charge) || 0
+                bbpsCharge = bestSlab.retailer_charge_type === 'percentage'
+                  ? Math.round(billAmountInRupees * rc / 100 * 100) / 100
+                  : rc
+                console.log(`[BBPS Pay] Scheme charge via direct query: ₹${bbpsCharge}`)
+              }
+            }
+            break
+          }
+        }
+      } catch (directErr) {
+        console.error('[BBPS Pay] Direct query scheme resolution failed:', directErr)
+      }
+    }
+    
+    // Final fallback to legacy RPC if no scheme resolved at all
+    if (!resolvedSchemeId) {
+      console.warn(`[BBPS Pay] No scheme resolved (RPC + direct query failed), using legacy charge`)
       const { data: chargeData } = await (supabase as any).rpc('calculate_transaction_charge', {
         p_amount: billAmountInRupees,
         p_transaction_type: 'bbps'

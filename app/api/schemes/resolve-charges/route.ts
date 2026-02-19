@@ -26,6 +26,235 @@ const supabaseAdmin = createClient(
   { auth: { persistSession: false } }
 )
 
+// ============================================================================
+// DIRECT TABLE QUERY FALLBACKS
+// These bypass RPC functions entirely to avoid SECURITY INVOKER / RLS issues
+// ============================================================================
+
+interface ResolvedSchemeInfo {
+  scheme_id: string
+  scheme_name: string
+  scheme_type: string
+  resolved_via: string
+}
+
+/**
+ * Resolve scheme for a user via direct table queries (no RPC)
+ * Follows the same priority: retailer → distributor → MD → global
+ */
+async function resolveSchemeDirectQuery(
+  userId: string,
+  userRole: string,
+  serviceType: string,
+  distributorId: string | null,
+  mdId: string | null
+): Promise<ResolvedSchemeInfo | null> {
+  const now = new Date().toISOString()
+
+  // Helper to check scheme mapping + scheme validity
+  const findMapping = async (entityId: string, entityRole: string, resolvedVia: string): Promise<ResolvedSchemeInfo | null> => {
+    const { data, error } = await supabaseAdmin
+      .from('scheme_mappings')
+      .select(`
+        scheme_id,
+        service_type,
+        effective_from,
+        effective_to,
+        scheme:schemes!inner (
+          id, name, scheme_type, status, effective_from, effective_to
+        )
+      `)
+      .eq('entity_id', entityId)
+      .eq('entity_role', entityRole)
+      .eq('status', 'active')
+      .lte('effective_from', now)
+      .order('priority', { ascending: true })
+      .order('created_at', { ascending: false })
+      .limit(10)
+
+    if (error || !data || data.length === 0) return null
+
+    // Filter in JS for conditions that are hard to express in PostgREST
+    for (const mapping of data as any[]) {
+      const scheme = mapping.scheme as any
+      if (!scheme || scheme.status !== 'active') continue
+      // Check mapping effective_to
+      if (mapping.effective_to && new Date(mapping.effective_to) <= new Date()) continue
+      // Check scheme dates
+      if (new Date(scheme.effective_from) > new Date()) continue
+      if (scheme.effective_to && new Date(scheme.effective_to) <= new Date()) continue
+      // Check service_type match
+      const svcType = mapping.service_type
+      if (svcType && svcType !== 'all' && svcType !== serviceType) continue
+
+      return {
+        scheme_id: scheme.id,
+        scheme_name: scheme.name,
+        scheme_type: scheme.scheme_type,
+        resolved_via: resolvedVia,
+      }
+    }
+    return null
+  }
+
+  // 1. Direct retailer mapping
+  const retailerMatch = await findMapping(userId, userRole, 'retailer_mapping')
+  if (retailerMatch) return retailerMatch
+
+  // 2. Distributor mapping
+  if (distributorId) {
+    const distMatch = await findMapping(distributorId, 'distributor', 'distributor_mapping')
+    if (distMatch) return distMatch
+  }
+
+  // 3. Master distributor mapping
+  if (mdId) {
+    const mdMatch = await findMapping(mdId, 'master_distributor', 'md_mapping')
+    if (mdMatch) return mdMatch
+  }
+
+  // 4. Global scheme fallback
+  const { data: globalSchemes } = await supabaseAdmin
+    .from('schemes')
+    .select('id, name, scheme_type, status, service_scope, effective_from, effective_to')
+    .eq('scheme_type', 'global')
+    .eq('status', 'active')
+    .lte('effective_from', now)
+    .order('priority', { ascending: true })
+    .order('created_at', { ascending: false })
+    .limit(5)
+
+  if (globalSchemes) {
+    for (const scheme of globalSchemes as any[]) {
+      if (scheme.service_scope !== serviceType && scheme.service_scope !== 'all') continue
+      if (scheme.effective_to && new Date(scheme.effective_to) <= new Date()) continue
+      return {
+        scheme_id: scheme.id,
+        scheme_name: scheme.name,
+        scheme_type: scheme.scheme_type,
+        resolved_via: 'global',
+      }
+    }
+  }
+
+  return null
+}
+
+/**
+ * Calculate BBPS charge from scheme via direct table query (no RPC)
+ */
+async function calculateBBPSChargeDirectQuery(
+  schemeId: string,
+  amount: number,
+  category: string | null
+): Promise<{
+  retailer_charge: number
+  retailer_commission: number
+  distributor_commission: number
+  md_commission: number
+  company_earning: number
+} | null> {
+  const { data: slabs, error } = await supabaseAdmin
+    .from('scheme_bbps_commissions')
+    .select('*')
+    .eq('scheme_id', schemeId)
+    .eq('status', 'active')
+    .lte('min_amount', amount)
+    .gte('max_amount', amount)
+    .order('min_amount', { ascending: false })
+
+  if (error || !slabs || slabs.length === 0) return null
+
+  // Find best matching slab (prefer exact category match over wildcard)
+  let bestSlab: any = null
+
+  for (const slab of slabs) {
+    const slabCategory = slab.category
+    // Category matching: NULL, empty, or 'all'/'All Categories' = applies to all
+    const isWildcard = !slabCategory || slabCategory === '' || 
+      slabCategory.toLowerCase() === 'all' || 
+      slabCategory.toLowerCase() === 'all categories'
+    const isExactMatch = slabCategory && category && slabCategory === category
+
+    if (isExactMatch) {
+      bestSlab = slab
+      break // Exact match takes priority
+    }
+    if (isWildcard && !bestSlab) {
+      bestSlab = slab
+    }
+    if (!category && !bestSlab) {
+      bestSlab = slab // No category filter, use any matching slab
+    }
+  }
+
+  if (!bestSlab) return null
+
+  // Calculate amounts (flat or percentage)
+  const calc = (value: number, type: string) => {
+    if (type === 'percentage') return Math.round(amount * value / 100 * 100) / 100
+    return value
+  }
+
+  return {
+    retailer_charge: calc(parseFloat(bestSlab.retailer_charge) || 0, bestSlab.retailer_charge_type),
+    retailer_commission: calc(parseFloat(bestSlab.retailer_commission) || 0, bestSlab.retailer_commission_type),
+    distributor_commission: calc(parseFloat(bestSlab.distributor_commission) || 0, bestSlab.distributor_commission_type),
+    md_commission: calc(parseFloat(bestSlab.md_commission) || 0, bestSlab.md_commission_type),
+    company_earning: calc(parseFloat(bestSlab.company_charge) || 0, bestSlab.company_charge_type),
+  }
+}
+
+/**
+ * Calculate Payout charge from scheme via direct table query (no RPC)
+ */
+async function calculatePayoutChargeDirectQuery(
+  schemeId: string,
+  amount: number,
+  transferMode: string
+): Promise<{
+  retailer_charge: number
+  retailer_commission: number
+  distributor_commission: number
+  md_commission: number
+  company_earning: number
+} | null> {
+  const { data: slabs, error } = await supabaseAdmin
+    .from('scheme_payout_charges')
+    .select('*')
+    .eq('scheme_id', schemeId)
+    .eq('status', 'active')
+    .lte('min_amount', amount)
+    .gte('max_amount', amount)
+    .order('min_amount', { ascending: false })
+
+  if (error || !slabs || slabs.length === 0) return null
+
+  // Find matching slab by transfer mode (case-insensitive)
+  const matchingSlab = slabs.find((s: any) => 
+    s.transfer_mode.toUpperCase() === transferMode.toUpperCase()
+  )
+
+  if (!matchingSlab) return null
+
+  const calc = (value: number, type: string) => {
+    if (type === 'percentage') return Math.round(amount * value / 100 * 100) / 100
+    return value
+  }
+
+  return {
+    retailer_charge: calc(parseFloat(matchingSlab.retailer_charge) || 0, matchingSlab.retailer_charge_type),
+    retailer_commission: calc(parseFloat(matchingSlab.retailer_commission) || 0, matchingSlab.retailer_commission_type),
+    distributor_commission: calc(parseFloat(matchingSlab.distributor_commission) || 0, matchingSlab.distributor_commission_type),
+    md_commission: calc(parseFloat(matchingSlab.md_commission) || 0, matchingSlab.md_commission_type),
+    company_earning: calc(parseFloat(matchingSlab.company_charge) || 0, matchingSlab.company_charge_type),
+  }
+}
+
+// ============================================================================
+// MAIN API HANDLER
+// ============================================================================
+
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
@@ -94,59 +323,110 @@ export async function GET(request: NextRequest) {
       mdId = distData?.master_distributor_id || null
     }
 
-    // Resolve scheme for user
+    // ================================================================
+    // SCHEME RESOLUTION: Try RPC first, fallback to direct queries
+    // ================================================================
     console.log(`[resolve-charges] Resolving scheme: user=${user.partner_id}, role=${user.role}, service=${serviceType}, dist=${distributorId}, md=${mdId}`)
     
-    const { data: schemeResult, error: schemeError } = await supabaseAdmin.rpc('resolve_scheme_for_user', {
-      p_user_id: user.partner_id,
-      p_user_role: user.role,
-      p_service_type: serviceType,
-      p_distributor_id: distributorId,
-      p_md_id: mdId,
-    })
+    let resolved: ResolvedSchemeInfo | null = null
+    let resolutionMethod = 'rpc'
 
-    if (schemeError) {
-      console.error(`[resolve-charges] RPC error:`, schemeError)
-      return NextResponse.json({
-        resolved: false,
-        scheme: null,
-        charges: null,
-        message: `Scheme resolution error: ${schemeError.message}`,
-        debug: { error: schemeError.message, code: schemeError.code },
+    // Try RPC first
+    try {
+      const { data: schemeResult, error: schemeError } = await supabaseAdmin.rpc('resolve_scheme_for_user', {
+        p_user_id: user.partner_id,
+        p_user_role: user.role,
+        p_service_type: serviceType,
+        p_distributor_id: distributorId,
+        p_md_id: mdId,
       })
+
+      if (schemeError) {
+        console.error(`[resolve-charges] RPC error:`, schemeError)
+      } else if (schemeResult && schemeResult.length > 0) {
+        resolved = {
+          scheme_id: schemeResult[0].scheme_id,
+          scheme_name: schemeResult[0].scheme_name,
+          scheme_type: schemeResult[0].scheme_type,
+          resolved_via: schemeResult[0].resolved_via,
+        }
+      }
+    } catch (rpcErr: any) {
+      console.error(`[resolve-charges] RPC call failed:`, rpcErr.message)
     }
 
-    if (!schemeResult || schemeResult.length === 0) {
-      console.warn(`[resolve-charges] No scheme found for user=${user.partner_id}, service=${serviceType}`)
+    // Fallback: Direct table queries if RPC failed
+    if (!resolved) {
+      console.warn(`[resolve-charges] RPC returned no results, trying direct table query fallback...`)
+      resolutionMethod = 'direct_query'
+      resolved = await resolveSchemeDirectQuery(user.partner_id, user.role, serviceType, distributorId, mdId)
+      
+      if (resolved) {
+        console.log(`[resolve-charges] Direct query resolved: ${resolved.scheme_name} (${resolved.scheme_id}) via ${resolved.resolved_via}`)
+      }
+    } else {
+      console.log(`[resolve-charges] RPC resolved: ${resolved.scheme_name} (${resolved.scheme_id}) via ${resolved.resolved_via}`)
+    }
+
+    if (!resolved) {
+      console.warn(`[resolve-charges] No scheme found for user=${user.partner_id}, service=${serviceType} (tried both RPC and direct query)`)
       return NextResponse.json({
         resolved: false,
         scheme: null,
         charges: null,
         message: 'No scheme found for this user/service',
-        debug: { user_id: user.partner_id, role: user.role, service: serviceType, distributor_id: distributorId, md_id: mdId },
+        debug: { user_id: user.partner_id, role: user.role, service: serviceType, distributor_id: distributorId, md_id: mdId, resolution_method: resolutionMethod },
       })
     }
-    
-    console.log(`[resolve-charges] Scheme resolved: ${schemeResult[0].scheme_name} (${schemeResult[0].scheme_id}) via ${schemeResult[0].resolved_via}`)
 
-    const resolved = schemeResult[0]
+    // ================================================================
+    // CHARGE CALCULATION
+    // ================================================================
 
-    // Calculate charges based on service type
     if (serviceType === 'payout') {
       if (!transferMode) {
         return NextResponse.json({ error: 'transfer_mode is required for payout' }, { status: 400 })
       }
 
-      const { data: chargeResult, error: chargeError } = await supabaseAdmin.rpc('calculate_payout_charge_from_scheme', {
-        p_scheme_id: resolved.scheme_id,
-        p_amount: amount,
-        p_transfer_mode: transferMode,
-      })
+      // Try RPC charge calculation first
+      let charges: any = null
+      
+      try {
+        const { data: chargeResult, error: chargeError } = await supabaseAdmin.rpc('calculate_payout_charge_from_scheme', {
+          p_scheme_id: resolved.scheme_id,
+          p_amount: amount,
+          p_transfer_mode: transferMode,
+        })
 
-      if (chargeError) {
-        console.error(`[resolve-charges] Payout charge calc error:`, chargeError)
-      } else {
-        console.log(`[resolve-charges] Payout charge result:`, JSON.stringify(chargeResult))
+        if (!chargeError && chargeResult && chargeResult.length > 0) {
+          const rc = parseFloat(chargeResult[0].retailer_charge)
+          // Only accept if charge > 0 (0 means no slab found in RPC)
+          if (rc > 0 || (chargeResult[0].retailer_charge !== null && chargeResult[0].retailer_charge !== undefined)) {
+            charges = {
+              retailer_charge: rc || 0,
+              retailer_commission: parseFloat(chargeResult[0].retailer_commission) || 0,
+              distributor_commission: parseFloat(chargeResult[0].distributor_commission) || 0,
+              md_commission: parseFloat(chargeResult[0].md_commission) || 0,
+              company_earning: parseFloat(chargeResult[0].company_earning) || 0,
+            }
+            console.log(`[resolve-charges] Payout charge via RPC: ₹${charges.retailer_charge}`)
+          }
+        }
+        if (chargeError) {
+          console.error(`[resolve-charges] Payout charge RPC error:`, chargeError)
+        }
+      } catch (err: any) {
+        console.error(`[resolve-charges] Payout charge RPC failed:`, err.message)
+      }
+
+      // Fallback: Direct query charge calculation
+      if (!charges || charges.retailer_charge === 0) {
+        console.warn(`[resolve-charges] Payout RPC charge was 0 or null, trying direct query...`)
+        const directCharges = await calculatePayoutChargeDirectQuery(resolved.scheme_id, amount, transferMode)
+        if (directCharges && directCharges.retailer_charge > 0) {
+          charges = directCharges
+          console.log(`[resolve-charges] Payout charge via direct query: ₹${charges.retailer_charge}`)
+        }
       }
 
       // Also fetch ALL payout charge slabs for this scheme so client can show charge per mode
@@ -166,28 +446,51 @@ export async function GET(request: NextRequest) {
           type: resolved.scheme_type,
           resolved_via: resolved.resolved_via,
         },
-        charges: chargeResult && chargeResult.length > 0 ? {
-          retailer_charge: parseFloat(chargeResult[0].retailer_charge) || 0,
-          retailer_commission: parseFloat(chargeResult[0].retailer_commission) || 0,
-          distributor_commission: parseFloat(chargeResult[0].distributor_commission) || 0,
-          md_commission: parseFloat(chargeResult[0].md_commission) || 0,
-          company_earning: parseFloat(chargeResult[0].company_earning) || 0,
-        } : null,
+        charges: charges,
         slabs: allSlabs || [],
+        _debug: { resolution_method: resolutionMethod },
       })
     }
 
     if (serviceType === 'bbps') {
-      const { data: chargeResult, error: chargeError } = await supabaseAdmin.rpc('calculate_bbps_charge_from_scheme', {
-        p_scheme_id: resolved.scheme_id,
-        p_amount: amount,
-        p_category: category || null,
-      })
+      // Try RPC charge calculation first
+      let charges: any = null
+      
+      try {
+        const { data: chargeResult, error: chargeError } = await supabaseAdmin.rpc('calculate_bbps_charge_from_scheme', {
+          p_scheme_id: resolved.scheme_id,
+          p_amount: amount,
+          p_category: category || null,
+        })
 
-      if (chargeError) {
-        console.error(`[resolve-charges] BBPS charge calc error:`, chargeError)
-      } else {
-        console.log(`[resolve-charges] BBPS charge result:`, JSON.stringify(chargeResult))
+        if (!chargeError && chargeResult && chargeResult.length > 0) {
+          const rc = parseFloat(chargeResult[0].retailer_charge)
+          if (rc > 0 || (chargeResult[0].retailer_charge !== null && chargeResult[0].retailer_charge !== undefined)) {
+            charges = {
+              retailer_charge: rc || 0,
+              retailer_commission: parseFloat(chargeResult[0].retailer_commission) || 0,
+              distributor_commission: parseFloat(chargeResult[0].distributor_commission) || 0,
+              md_commission: parseFloat(chargeResult[0].md_commission) || 0,
+              company_earning: parseFloat(chargeResult[0].company_earning) || 0,
+            }
+            console.log(`[resolve-charges] BBPS charge via RPC: ₹${charges.retailer_charge}`)
+          }
+        }
+        if (chargeError) {
+          console.error(`[resolve-charges] BBPS charge RPC error:`, chargeError)
+        }
+      } catch (err: any) {
+        console.error(`[resolve-charges] BBPS charge RPC failed:`, err.message)
+      }
+
+      // Fallback: Direct query charge calculation
+      if (!charges || charges.retailer_charge === 0) {
+        console.warn(`[resolve-charges] BBPS RPC charge was 0 or null, trying direct query...`)
+        const directCharges = await calculateBBPSChargeDirectQuery(resolved.scheme_id, amount, category || null)
+        if (directCharges) {
+          charges = directCharges
+          console.log(`[resolve-charges] BBPS charge via direct query: ₹${charges.retailer_charge}`)
+        }
       }
 
       return NextResponse.json({
@@ -198,13 +501,8 @@ export async function GET(request: NextRequest) {
           type: resolved.scheme_type,
           resolved_via: resolved.resolved_via,
         },
-        charges: chargeResult && chargeResult.length > 0 ? {
-          retailer_charge: parseFloat(chargeResult[0].retailer_charge) || 0,
-          retailer_commission: parseFloat(chargeResult[0].retailer_commission) || 0,
-          distributor_commission: parseFloat(chargeResult[0].distributor_commission) || 0,
-          md_commission: parseFloat(chargeResult[0].md_commission) || 0,
-          company_earning: parseFloat(chargeResult[0].company_earning) || 0,
-        } : null,
+        charges: charges,
+        _debug: { resolution_method: resolutionMethod },
       })
     }
 
@@ -242,6 +540,7 @@ export async function GET(request: NextRequest) {
           brand_type: rate.brand_type,
         } : null,
         all_rates: filteredRates,
+        _debug: { resolution_method: resolutionMethod },
       })
     }
 
@@ -252,4 +551,3 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: err.message }, { status: 500 })
   }
 }
-

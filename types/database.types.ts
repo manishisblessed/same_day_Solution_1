@@ -401,6 +401,25 @@ export interface RazorpayPOSTransaction {
   created_at: string
   updated_at: string
   raw_data?: Record<string, any>
+  // Detailed fields
+  customer_name: string | null
+  payer_name: string | null
+  username: string | null
+  txn_type: string | null
+  auth_code: string | null
+  card_number: string | null
+  issuing_bank: string | null
+  card_classification: string | null
+  mid_code: string | null
+  card_brand: string | null
+  card_type: string | null
+  currency: string | null
+  rrn: string | null
+  external_ref: string | null
+  settlement_status: string | null
+  settled_on: string | null
+  receipt_url: string | null
+  posting_date: string | null
 }
 
 // POS Device Mapping Types (Phase 2)
