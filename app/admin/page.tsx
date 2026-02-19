@@ -17,7 +17,8 @@ import {
   DollarSign, PiggyBank, ArrowRightLeft, BarChart3, PieChart, LineChart,
   Building2, Briefcase, Phone, Mail, Clock, Percent, IndianRupee,
   FileBarChart, Printer, Sheet, BadgeIndianRupee, Banknote,
-  CheckCircle2, AlertTriangle, XCircle, Zap, Globe, Smartphone, FileDown
+  CheckCircle2, AlertTriangle, XCircle, Zap, Globe, Smartphone, FileDown,
+  Shield
 } from 'lucide-react'
 import TransactionsTable from '@/components/TransactionsTable'
 import POSPartnerAPIManagement from '@/components/POSPartnerAPIManagement'
@@ -5383,6 +5384,7 @@ function PartnersTab() {
   const [filter, setFilter] = useState<'all' | 'active' | 'pending' | 'suspended'>('all')
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [showPasswordModal, setShowPasswordModal] = useState<any>(null)
+  const [showWhitelistModal, setShowWhitelistModal] = useState<any>(null)
   const [editingPartner, setEditingPartner] = useState<any>(null)
 
   useEffect(() => {
@@ -5517,6 +5519,15 @@ function PartnersTab() {
                   Set Password
                 </button>
               </div>
+              <div className="mt-2">
+                <button
+                  onClick={() => setShowWhitelistModal(partner)}
+                  className="w-full px-3 py-1.5 text-xs bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors flex items-center justify-center gap-1"
+                >
+                  <Shield className="w-3 h-3" />
+                  IP Whitelist
+                </button>
+              </div>
             </div>
           ))}
         </div>
@@ -5549,6 +5560,16 @@ function PartnersTab() {
             onClose={() => setShowPasswordModal(null)}
             onSuccess={() => {
               setShowPasswordModal(null)
+              fetchPartners()
+            }}
+          />
+        )}
+        {showWhitelistModal && (
+          <IPWhitelistModal
+            partner={showWhitelistModal}
+            onClose={() => setShowWhitelistModal(null)}
+            onSuccess={() => {
+              setShowWhitelistModal(null)
               fetchPartners()
             }}
           />
@@ -7103,6 +7124,170 @@ function ReportsTab() {
         )}
       </div>
     </div>
+  )
+}
+
+// IP Whitelist Modal Component
+function IPWhitelistModal({
+  partner,
+  onClose,
+  onSuccess
+}: {
+  partner: any
+  onClose: () => void
+  onSuccess: () => void
+}) {
+  const [whitelistIps, setWhitelistIps] = useState<string>('')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    // Load existing IP whitelist
+    if (partner?.ip_whitelist && Array.isArray(partner.ip_whitelist)) {
+      setWhitelistIps(partner.ip_whitelist.join('\n'))
+    } else {
+      setWhitelistIps('')
+    }
+  }, [partner])
+
+  const handleSubmit = async () => {
+    setLoading(true)
+    setError(null)
+
+    try {
+      // Parse IPs from textarea (one per line, trim whitespace, filter empty)
+      const ips = whitelistIps
+        .split('\n')
+        .map(ip => ip.trim())
+        .filter(ip => ip.length > 0)
+
+      // Validate IP format (supports IPv4 and CIDR notation)
+      const ipRegex = /^(\d{1,3}\.){3}\d{1,3}(\/\d{1,2})?$/
+      const invalidIps = ips.filter(ip => !ipRegex.test(ip))
+      
+      if (invalidIps.length > 0) {
+        setError(`Invalid IP addresses: ${invalidIps.join(', ')}`)
+        setLoading(false)
+        return
+      }
+
+      // Get auth token
+      const { data: { session } } = await supabase.auth.getSession()
+      const authHeaders: HeadersInit = {
+        'Content-Type': 'application/json'
+      }
+      if (session?.access_token) {
+        authHeaders['Authorization'] = `Bearer ${session.access_token}`
+      }
+
+      // Call API to update whitelist
+      const response = await apiFetch('/api/admin/pos-partner-api', {
+        method: 'POST',
+        headers: authHeaders,
+        body: JSON.stringify({
+          action: 'update_whitelist',
+          partner_id: partner.id,
+          ip_whitelist: ips
+        })
+      })
+
+      const result = await response.json()
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to update IP whitelist')
+      }
+
+      onSuccess()
+    } catch (err: any) {
+      console.error('Error updating IP whitelist:', err)
+      setError(err.message || 'Failed to update IP whitelist')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
+      onClick={onClose}
+    >
+      <motion.div
+        initial={{ scale: 0.95, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        exit={{ scale: 0.95, opacity: 0 }}
+        onClick={(e) => e.stopPropagation()}
+        className="bg-white dark:bg-gray-800 rounded-2xl w-full max-w-md shadow-2xl"
+      >
+        <div className="px-6 py-4 bg-gradient-to-r from-purple-500 to-indigo-600 rounded-t-2xl flex items-center justify-between">
+          <h3 className="text-lg font-bold text-white flex items-center gap-2">
+            <Shield className="w-5 h-5" />
+            IP Whitelist — {partner?.name || 'Partner'}
+          </h3>
+          <button
+            onClick={onClose}
+            className="p-1 hover:bg-white/20 rounded-lg transition-colors"
+          >
+            <X className="w-5 h-5 text-white" />
+          </button>
+        </div>
+
+        <div className="p-6 space-y-4">
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            Enter partner&apos;s server IP addresses (one per line). Only these IPs will be allowed to call the API.
+            Supports IPv4 addresses and CIDR notation (e.g., 192.168.1.0/24).
+          </p>
+
+          {error && (
+            <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+              <p className="text-sm text-red-800 dark:text-red-400">{error}</p>
+            </div>
+          )}
+
+          <textarea
+            rows={8}
+            value={whitelistIps}
+            onChange={(e) => setWhitelistIps(e.target.value)}
+            placeholder="203.0.113.50&#10;198.51.100.25&#10;192.168.1.100&#10;10.0.0.0/24"
+            className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 font-mono text-sm text-gray-900 dark:text-white focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+          />
+
+          <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+            <AlertCircle className="w-4 h-4" />
+            <span>Leave empty to block all IPs. At least one IP must be whitelisted for API access.</span>
+          </div>
+
+          <div className="flex gap-3 pt-2">
+            <button
+              onClick={onClose}
+              disabled={loading}
+              className="flex-1 py-2.5 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 text-sm font-medium transition-colors disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleSubmit}
+              disabled={loading}
+              className="flex-1 py-2.5 bg-purple-600 text-white rounded-lg hover:bg-purple-700 text-sm font-medium flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
+            >
+              {loading ? (
+                <>
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                <>
+                  <Check className="w-4 h-4" />
+                  Save Whitelist
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+      </motion.div>
+    </motion.div>
   )
 }
 

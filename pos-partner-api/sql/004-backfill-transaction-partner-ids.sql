@@ -82,3 +82,4 @@ WHERE pt.partner_id IS NULL
 ORDER BY pt.txn_time DESC
 LIMIT 20;
 
+

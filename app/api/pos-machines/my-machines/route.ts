@@ -67,6 +67,10 @@ export async function GET(request: NextRequest) {
           .eq('retailer_id', user.partner_id!)
           .neq('inventory_status', 'assigned_to_partner') // Exclude machines assigned to partners
         break
+      case 'partner':
+        // Partner sees machines where partner_id matches
+        query = query.eq('partner_id', user.partner_id!)
+        break
       default:
         return NextResponse.json({ error: 'Unauthorized role' }, { status: 403 })
     }

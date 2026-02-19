@@ -5,6 +5,7 @@ const config = require('../config');
 const { verifyHmacSignature } = require('../utils/crypto');
 const { UnauthorizedError } = require('../utils/errors');
 const logger = require('../utils/logger');
+const { isIpWhitelisted, extractClientIp } = require('../utils/ipUtils');
 
 /**
  * Partner HMAC Authentication Middleware
@@ -92,12 +93,24 @@ async function authMiddleware(req, res, next) {
       );
     }
 
-    const clientIp = req.ip || req.connection.remoteAddress;
-    const normalizedIp = clientIp.replace('::ffff:', '');
-    if (!keyRecord.ip_whitelist.includes(normalizedIp)) {
+    // Extract and check client IP (supports CIDR notation)
+    const clientIp = extractClientIp(req);
+    if (!clientIp) {
+      logger.warn('Could not extract client IP', {
+        partnerId: keyRecord.partner_id,
+        headers: {
+          'x-forwarded-for': req.headers['x-forwarded-for'],
+          'x-real-ip': req.headers['x-real-ip'],
+          'req.ip': req.ip,
+        },
+      });
+      throw new UnauthorizedError('Could not determine client IP address');
+    }
+
+    if (!isIpWhitelisted(req, keyRecord.ip_whitelist)) {
       logger.warn('IP not in whitelist', {
         partnerId: keyRecord.partner_id,
-        clientIp: normalizedIp,
+        clientIp: clientIp,
         whitelist: keyRecord.ip_whitelist,
       });
       throw new UnauthorizedError('IP address not authorized');

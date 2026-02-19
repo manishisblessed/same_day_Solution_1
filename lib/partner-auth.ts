@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import crypto from 'crypto'
+import { extractClientIpFromHeaders, isIpWhitelisted } from './ip-utils'
 
 export interface PartnerAuthResult {
   partner: {
@@ -171,16 +172,35 @@ export async function authenticatePartner(
     } as PartnerAuthError
   }
 
-  // Get client IP
-  const forwardedFor = request.headers.get('x-forwarded-for')
-  const realIp = request.headers.get('x-real-ip')
-  const clientIp = forwardedFor?.split(',')[0] || realIp || 'unknown'
-  const normalizedIp = clientIp.replace('::ffff:', '')
-
-  if (!ipWhitelist.includes(normalizedIp)) {
+  // Extract client IP from headers (supports proxy headers and CIDR notation)
+  const clientIp = extractClientIpFromHeaders(request.headers)
+  
+  if (!clientIp) {
+    console.error('[Partner Auth] Could not extract client IP', {
+      partnerId: partner.id,
+      headers: {
+        'x-forwarded-for': request.headers.get('x-forwarded-for'),
+        'x-real-ip': request.headers.get('x-real-ip'),
+      },
+    })
     throw {
       code: 'UNAUTHORIZED',
-      message: 'IP address not authorized',
+      message: 'Could not determine client IP address. Ensure your server is behind a proxy that sets x-forwarded-for or x-real-ip headers.',
+      status: 401,
+    } as PartnerAuthError
+  }
+
+  // Check IP whitelist (supports exact IPs and CIDR notation)
+  if (!isIpWhitelisted(clientIp, ipWhitelist)) {
+    console.warn('[Partner Auth] IP not whitelisted', {
+      partnerId: partner.id,
+      partnerName: partner.name,
+      clientIp: clientIp,
+      whitelist: ipWhitelist,
+    })
+    throw {
+      code: 'UNAUTHORIZED',
+      message: `IP address ${clientIp} is not authorized. Please contact admin to whitelist your server IP.`,
       status: 401,
     } as PartnerAuthError
   }

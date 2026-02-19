@@ -402,7 +402,7 @@ export async function POST(request: NextRequest) {
             terminal_id: tid,
             razorpay_txn_id: txnId,
             external_ref: normalizedPayload.externalRefNumber || normalizedPayload.external_ref || null,
-            amount: amount || 0, // Amount in paisa
+            amount: amount ? Math.round(amount * 100) : 0, // Convert rupees to paisa (BIGINT)
             status: mappedStatus || 'AUTHORIZED',
             rrn: rrNumber || null,
             card_brand: normalizedPayload.paymentCardBrand || normalizedPayload.card_brand || null,

@@ -163,32 +163,12 @@ function PartnerDashboardContent() {
         .limit(1000)
 
       // Fetch POS transactions
+      // NOTE: Partners should use the Partner API (/api/partner/pos-transactions) to view transactions
+      // The main dashboard only shows transactions for retailers, not partners
+      // This prevents duplicate transaction visibility between retailer and partner dashboards
       let posTransactions: any[] = []
-      try {
-        // Get device serials for this partner (check both retailer_id and partner_id)
-        const { data: mappings } = await supabase
-          .from('pos_device_mapping')
-          .select('device_serial')
-          .or(`retailer_id.eq.${user.partner_id},partner_id.eq.${user.partner_id}`)
-          .eq('status', 'ACTIVE')
-
-        const deviceSerials = (mappings || []).map((m: any) => m.device_serial).filter(Boolean)
-
-        if (deviceSerials.length > 0) {
-          // Fetch POS transactions for these devices
-          const { data: posData } = await supabase
-            .from('razorpay_pos_transactions')
-            .select('*')
-            .in('device_serial', deviceSerials)
-            .order('transaction_time', { ascending: false })
-            .limit(1000)
-
-          posTransactions = posData || []
-        }
-      } catch (posError) {
-        console.error('Error fetching POS transactions:', posError)
-        // Continue without POS transactions if there's an error
-      }
+      // Partners use the Partner API which queries pos_transactions table directly
+      // We don't query pos_device_mapping here to avoid showing retailer transactions on partner dashboard
 
       // Combine ledger and POS transactions for stats
       const ledgerTransactions = ledgerData?.length || 0
