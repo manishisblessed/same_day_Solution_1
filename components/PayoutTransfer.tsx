@@ -138,7 +138,13 @@ export default function PayoutTransfer({ title }: PayoutTransferProps = {}) {
       // Fetch with minimum transfer amount (100) to get accurate default charges
       const res = await fetch(`/api/schemes/resolve-charges?service_type=payout&amount=100&transfer_mode=IMPS&user_id=${user.partner_id}`)
       if (!res.ok) {
-        console.warn(`[PayoutTransfer] Scheme charge API returned ${res.status}, using defaults`)
+        // Log the response body to see the actual error
+        try {
+          const errBody = await res.text()
+          console.warn(`[PayoutTransfer] Scheme charge API returned ${res.status}, body: ${errBody.substring(0, 500)}`)
+        } catch { 
+          console.warn(`[PayoutTransfer] Scheme charge API returned ${res.status}, using defaults`)
+        }
         return
       }
       const contentType = res.headers.get('content-type') || ''
@@ -174,7 +180,12 @@ export default function PayoutTransfer({ title }: PayoutTransferProps = {}) {
     try {
       const res = await fetch(`/api/schemes/resolve-charges?service_type=payout&amount=${amt}&transfer_mode=IMPS&user_id=${user.partner_id}`)
       if (!res.ok) {
-        console.warn(`[PayoutTransfer] Exact charge API returned ${res.status}`)
+        try {
+          const errBody = await res.text()
+          console.warn(`[PayoutTransfer] Exact charge API returned ${res.status}, body: ${errBody.substring(0, 500)}`)
+        } catch {
+          console.warn(`[PayoutTransfer] Exact charge API returned ${res.status}`)
+        }
         return
       }
       const contentType = res.headers.get('content-type') || ''

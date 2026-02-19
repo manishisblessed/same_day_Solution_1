@@ -11,29 +11,15 @@
  *   card_type: 'CREDIT' | 'DEBIT' | 'PREPAID' (optional for mdr)
  *   brand_type: string (optional for mdr)
  *   settlement_type: 'T+1' | 'T+0' (optional for mdr)
+ *   user_id: string (fallback auth via query param)
  */
 
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserFromRequest } from '@/lib/auth-server-request'
-import { createClient, SupabaseClient } from '@supabase/supabase-js'
+import { getSupabaseAdmin } from '@/lib/supabase/server-admin'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
-
-// Lazy-initialize supabaseAdmin to prevent module-level crashes if env vars are missing
-let _supabaseAdmin: SupabaseClient | null = null
-
-function getSupabaseAdmin(): SupabaseClient {
-  if (!_supabaseAdmin) {
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-    const key = process.env.SUPABASE_SERVICE_ROLE_KEY
-    if (!url || !key) {
-      throw new Error('Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY environment variable')
-    }
-    _supabaseAdmin = createClient(url, key, { auth: { persistSession: false } })
-  }
-  return _supabaseAdmin
-}
 
 // ============================================================================
 // DIRECT TABLE QUERY FALLBACKS
@@ -62,48 +48,57 @@ async function resolveSchemeDirectQuery(
 
   // Helper to check scheme mapping + scheme validity
   const findMapping = async (entityId: string, entityRole: string, resolvedVia: string): Promise<ResolvedSchemeInfo | null> => {
-    const { data, error } = await getSupabaseAdmin()
-      .from('scheme_mappings')
-      .select(`
-        scheme_id,
-        service_type,
-        effective_from,
-        effective_to,
-        scheme:schemes!inner (
-          id, name, scheme_type, status, effective_from, effective_to
-        )
-      `)
-      .eq('entity_id', entityId)
-      .eq('entity_role', entityRole)
-      .eq('status', 'active')
-      .lte('effective_from', now)
-      .order('priority', { ascending: true })
-      .order('created_at', { ascending: false })
-      .limit(10)
+    try {
+      const { data, error } = await getSupabaseAdmin()
+        .from('scheme_mappings')
+        .select(`
+          scheme_id,
+          service_type,
+          effective_from,
+          effective_to,
+          scheme:schemes!inner (
+            id, name, scheme_type, status, effective_from, effective_to
+          )
+        `)
+        .eq('entity_id', entityId)
+        .eq('entity_role', entityRole)
+        .eq('status', 'active')
+        .lte('effective_from', now)
+        .order('priority', { ascending: true })
+        .order('created_at', { ascending: false })
+        .limit(10)
 
-    if (error || !data || data.length === 0) return null
-
-    // Filter in JS for conditions that are hard to express in PostgREST
-    for (const mapping of data as any[]) {
-      const scheme = mapping.scheme as any
-      if (!scheme || scheme.status !== 'active') continue
-      // Check mapping effective_to
-      if (mapping.effective_to && new Date(mapping.effective_to) <= new Date()) continue
-      // Check scheme dates
-      if (new Date(scheme.effective_from) > new Date()) continue
-      if (scheme.effective_to && new Date(scheme.effective_to) <= new Date()) continue
-      // Check service_type match
-      const svcType = mapping.service_type
-      if (svcType && svcType !== 'all' && svcType !== serviceType) continue
-
-      return {
-        scheme_id: scheme.id,
-        scheme_name: scheme.name,
-        scheme_type: scheme.scheme_type,
-        resolved_via: resolvedVia,
+      if (error) {
+        console.error(`[resolve-charges] findMapping error for ${entityId}/${entityRole}:`, error.message)
+        return null
       }
+      if (!data || data.length === 0) return null
+
+      // Filter in JS for conditions that are hard to express in PostgREST
+      for (const mapping of data as any[]) {
+        const scheme = mapping.scheme as any
+        if (!scheme || scheme.status !== 'active') continue
+        // Check mapping effective_to
+        if (mapping.effective_to && new Date(mapping.effective_to) <= new Date()) continue
+        // Check scheme dates
+        if (new Date(scheme.effective_from) > new Date()) continue
+        if (scheme.effective_to && new Date(scheme.effective_to) <= new Date()) continue
+        // Check service_type match
+        const svcType = mapping.service_type
+        if (svcType && svcType !== 'all' && svcType !== serviceType) continue
+
+        return {
+          scheme_id: scheme.id,
+          scheme_name: scheme.name,
+          scheme_type: scheme.scheme_type,
+          resolved_via: resolvedVia,
+        }
+      }
+      return null
+    } catch (err: any) {
+      console.error(`[resolve-charges] findMapping exception for ${entityId}/${entityRole}:`, err.message)
+      return null
     }
-    return null
   }
 
   // 1. Direct retailer mapping
@@ -123,27 +118,36 @@ async function resolveSchemeDirectQuery(
   }
 
   // 4. Global scheme fallback
-  const { data: globalSchemes } = await getSupabaseAdmin()
-    .from('schemes')
-    .select('id, name, scheme_type, status, service_scope, effective_from, effective_to')
-    .eq('scheme_type', 'global')
-    .eq('status', 'active')
-    .lte('effective_from', now)
-    .order('priority', { ascending: true })
-    .order('created_at', { ascending: false })
-    .limit(5)
+  try {
+    const { data: globalSchemes, error: globalError } = await getSupabaseAdmin()
+      .from('schemes')
+      .select('id, name, scheme_type, status, service_scope, effective_from, effective_to')
+      .eq('scheme_type', 'global')
+      .eq('status', 'active')
+      .lte('effective_from', now)
+      .order('priority', { ascending: true })
+      .order('created_at', { ascending: false })
+      .limit(5)
 
-  if (globalSchemes) {
-    for (const scheme of globalSchemes as any[]) {
-      if (scheme.service_scope !== serviceType && scheme.service_scope !== 'all') continue
-      if (scheme.effective_to && new Date(scheme.effective_to) <= new Date()) continue
-      return {
-        scheme_id: scheme.id,
-        scheme_name: scheme.name,
-        scheme_type: scheme.scheme_type,
-        resolved_via: 'global',
+    if (globalError) {
+      console.error(`[resolve-charges] Global scheme query error:`, globalError.message)
+      return null
+    }
+
+    if (globalSchemes) {
+      for (const scheme of globalSchemes as any[]) {
+        if (scheme.service_scope !== serviceType && scheme.service_scope !== 'all') continue
+        if (scheme.effective_to && new Date(scheme.effective_to) <= new Date()) continue
+        return {
+          scheme_id: scheme.id,
+          scheme_name: scheme.name,
+          scheme_type: scheme.scheme_type,
+          resolved_via: 'global',
+        }
       }
     }
+  } catch (err: any) {
+    console.error(`[resolve-charges] Global scheme query exception:`, err.message)
   }
 
   return null
@@ -163,54 +167,63 @@ async function calculateBBPSChargeDirectQuery(
   md_commission: number
   company_earning: number
 } | null> {
-  const { data: slabs, error } = await getSupabaseAdmin()
-    .from('scheme_bbps_commissions')
-    .select('*')
-    .eq('scheme_id', schemeId)
-    .eq('status', 'active')
-    .lte('min_amount', amount)
-    .gte('max_amount', amount)
-    .order('min_amount', { ascending: false })
+  try {
+    const { data: slabs, error } = await getSupabaseAdmin()
+      .from('scheme_bbps_commissions')
+      .select('*')
+      .eq('scheme_id', schemeId)
+      .eq('status', 'active')
+      .lte('min_amount', amount)
+      .gte('max_amount', amount)
+      .order('min_amount', { ascending: false })
 
-  if (error || !slabs || slabs.length === 0) return null
-
-  // Find best matching slab (prefer exact category match over wildcard)
-  let bestSlab: any = null
-
-  for (const slab of slabs) {
-    const slabCategory = slab.category
-    // Category matching: NULL, empty, or 'all'/'All Categories' = applies to all
-    const isWildcard = !slabCategory || slabCategory === '' || 
-      slabCategory.toLowerCase() === 'all' || 
-      slabCategory.toLowerCase() === 'all categories'
-    const isExactMatch = slabCategory && category && slabCategory === category
-
-    if (isExactMatch) {
-      bestSlab = slab
-      break // Exact match takes priority
+    if (error) {
+      console.error(`[resolve-charges] BBPS direct query error:`, error.message)
+      return null
     }
-    if (isWildcard && !bestSlab) {
-      bestSlab = slab
+    if (!slabs || slabs.length === 0) return null
+
+    // Find best matching slab (prefer exact category match over wildcard)
+    let bestSlab: any = null
+
+    for (const slab of slabs) {
+      const slabCategory = slab.category
+      // Category matching: NULL, empty, or 'all'/'All Categories' = applies to all
+      const isWildcard = !slabCategory || slabCategory === '' || 
+        slabCategory.toLowerCase() === 'all' || 
+        slabCategory.toLowerCase() === 'all categories'
+      const isExactMatch = slabCategory && category && slabCategory === category
+
+      if (isExactMatch) {
+        bestSlab = slab
+        break // Exact match takes priority
+      }
+      if (isWildcard && !bestSlab) {
+        bestSlab = slab
+      }
+      if (!category && !bestSlab) {
+        bestSlab = slab // No category filter, use any matching slab
+      }
     }
-    if (!category && !bestSlab) {
-      bestSlab = slab // No category filter, use any matching slab
+
+    if (!bestSlab) return null
+
+    // Calculate amounts (flat or percentage)
+    const calc = (value: number, type: string) => {
+      if (type === 'percentage') return Math.round(amount * value / 100 * 100) / 100
+      return value
     }
-  }
 
-  if (!bestSlab) return null
-
-  // Calculate amounts (flat or percentage)
-  const calc = (value: number, type: string) => {
-    if (type === 'percentage') return Math.round(amount * value / 100 * 100) / 100
-    return value
-  }
-
-  return {
-    retailer_charge: calc(parseFloat(bestSlab.retailer_charge) || 0, bestSlab.retailer_charge_type),
-    retailer_commission: calc(parseFloat(bestSlab.retailer_commission) || 0, bestSlab.retailer_commission_type),
-    distributor_commission: calc(parseFloat(bestSlab.distributor_commission) || 0, bestSlab.distributor_commission_type),
-    md_commission: calc(parseFloat(bestSlab.md_commission) || 0, bestSlab.md_commission_type),
-    company_earning: calc(parseFloat(bestSlab.company_charge) || 0, bestSlab.company_charge_type),
+    return {
+      retailer_charge: calc(parseFloat(bestSlab.retailer_charge) || 0, bestSlab.retailer_charge_type),
+      retailer_commission: calc(parseFloat(bestSlab.retailer_commission) || 0, bestSlab.retailer_commission_type),
+      distributor_commission: calc(parseFloat(bestSlab.distributor_commission) || 0, bestSlab.distributor_commission_type),
+      md_commission: calc(parseFloat(bestSlab.md_commission) || 0, bestSlab.md_commission_type),
+      company_earning: calc(parseFloat(bestSlab.company_charge) || 0, bestSlab.company_charge_type),
+    }
+  } catch (err: any) {
+    console.error(`[resolve-charges] BBPS direct query exception:`, err.message)
+    return null
   }
 }
 
@@ -228,35 +241,44 @@ async function calculatePayoutChargeDirectQuery(
   md_commission: number
   company_earning: number
 } | null> {
-  const { data: slabs, error } = await getSupabaseAdmin()
-    .from('scheme_payout_charges')
-    .select('*')
-    .eq('scheme_id', schemeId)
-    .eq('status', 'active')
-    .lte('min_amount', amount)
-    .gte('max_amount', amount)
-    .order('min_amount', { ascending: false })
+  try {
+    const { data: slabs, error } = await getSupabaseAdmin()
+      .from('scheme_payout_charges')
+      .select('*')
+      .eq('scheme_id', schemeId)
+      .eq('status', 'active')
+      .lte('min_amount', amount)
+      .gte('max_amount', amount)
+      .order('min_amount', { ascending: false })
 
-  if (error || !slabs || slabs.length === 0) return null
+    if (error) {
+      console.error(`[resolve-charges] Payout direct query error:`, error.message)
+      return null
+    }
+    if (!slabs || slabs.length === 0) return null
 
-  // Find matching slab by transfer mode (case-insensitive)
-  const matchingSlab = slabs.find((s: any) => 
-    s.transfer_mode.toUpperCase() === transferMode.toUpperCase()
-  )
+    // Find matching slab by transfer mode (case-insensitive)
+    const matchingSlab = slabs.find((s: any) => 
+      s.transfer_mode.toUpperCase() === transferMode.toUpperCase()
+    )
 
-  if (!matchingSlab) return null
+    if (!matchingSlab) return null
 
-  const calc = (value: number, type: string) => {
-    if (type === 'percentage') return Math.round(amount * value / 100 * 100) / 100
-    return value
-  }
+    const calc = (value: number, type: string) => {
+      if (type === 'percentage') return Math.round(amount * value / 100 * 100) / 100
+      return value
+    }
 
-  return {
-    retailer_charge: calc(parseFloat(matchingSlab.retailer_charge) || 0, matchingSlab.retailer_charge_type),
-    retailer_commission: calc(parseFloat(matchingSlab.retailer_commission) || 0, matchingSlab.retailer_commission_type),
-    distributor_commission: calc(parseFloat(matchingSlab.distributor_commission) || 0, matchingSlab.distributor_commission_type),
-    md_commission: calc(parseFloat(matchingSlab.md_commission) || 0, matchingSlab.md_commission_type),
-    company_earning: calc(parseFloat(matchingSlab.company_charge) || 0, matchingSlab.company_charge_type),
+    return {
+      retailer_charge: calc(parseFloat(matchingSlab.retailer_charge) || 0, matchingSlab.retailer_charge_type),
+      retailer_commission: calc(parseFloat(matchingSlab.retailer_commission) || 0, matchingSlab.retailer_commission_type),
+      distributor_commission: calc(parseFloat(matchingSlab.distributor_commission) || 0, matchingSlab.distributor_commission_type),
+      md_commission: calc(parseFloat(matchingSlab.md_commission) || 0, matchingSlab.md_commission_type),
+      company_earning: calc(parseFloat(matchingSlab.company_charge) || 0, matchingSlab.company_charge_type),
+    }
+  } catch (err: any) {
+    console.error(`[resolve-charges] Payout direct query exception:`, err.message)
+    return null
   }
 }
 
@@ -283,53 +305,95 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'service_type is required' }, { status: 400 })
     }
 
-    // Get user
-    let user = await getCurrentUserFromRequest(request)
+    // Step 1: Verify Supabase admin client can be created
+    let adminClient
+    try {
+      adminClient = getSupabaseAdmin()
+    } catch (envErr: any) {
+      console.error(`[resolve-charges] CRITICAL: Cannot create Supabase admin client:`, envErr.message)
+      return NextResponse.json({ 
+        error: 'Server configuration error', 
+        detail: envErr.message,
+        step: 'supabase_admin_init'
+      }, { status: 500 })
+    }
+
+    // Step 2: Get user (try cookie auth first, then user_id param)
+    let user = null
+    try {
+      user = await getCurrentUserFromRequest(request)
+    } catch (authErr: any) {
+      console.warn(`[resolve-charges] getCurrentUserFromRequest threw:`, authErr.message)
+      // Continue to fallback
+    }
 
     // Fallback auth using user_id query param
     if ((!user || !user.partner_id) && userId) {
-      const { data: retailer } = await getSupabaseAdmin()
-        .from('retailers')
-        .select('partner_id, name, email, distributor_id, master_distributor_id')
-        .eq('partner_id', userId)
-        .maybeSingle()
+      try {
+        const { data: retailer, error: retailerError } = await adminClient
+          .from('retailers')
+          .select('partner_id, name, email, distributor_id, master_distributor_id')
+          .eq('partner_id', userId)
+          .maybeSingle()
 
-      if (retailer) {
-        user = {
-          id: userId,
-          email: retailer.email,
-          role: 'retailer',
-          partner_id: retailer.partner_id,
-          name: retailer.name,
+        if (retailerError) {
+          console.error(`[resolve-charges] Retailer lookup error:`, retailerError.message)
+        } else if (retailer) {
+          user = {
+            id: userId,
+            email: retailer.email,
+            role: 'retailer' as const,
+            partner_id: retailer.partner_id,
+            name: retailer.name,
+          }
         }
+      } catch (lookupErr: any) {
+        console.error(`[resolve-charges] Retailer lookup exception:`, lookupErr.message)
       }
     }
 
     if (!user || !user.partner_id) {
-      return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
+      return NextResponse.json({ 
+        error: 'Authentication required', 
+        detail: 'Could not authenticate user via cookies or user_id param',
+        user_id_provided: !!userId
+      }, { status: 401 })
     }
 
-    // Get the retailer's distributor chain for proper scheme hierarchy resolution
+    // Step 3: Get the retailer's distributor chain for proper scheme hierarchy resolution
     let distributorId: string | null = null
     let mdId: string | null = null
 
-    if (user.role === 'retailer') {
-      const { data: retailerData } = await getSupabaseAdmin()
-        .from('retailers')
-        .select('distributor_id, master_distributor_id')
-        .eq('partner_id', user.partner_id)
-        .maybeSingle()
+    try {
+      if (user.role === 'retailer') {
+        const { data: retailerData, error: retErr } = await adminClient
+          .from('retailers')
+          .select('distributor_id, master_distributor_id')
+          .eq('partner_id', user.partner_id)
+          .maybeSingle()
 
-      distributorId = retailerData?.distributor_id || null
-      mdId = retailerData?.master_distributor_id || null
-    } else if (user.role === 'distributor') {
-      const { data: distData } = await getSupabaseAdmin()
-        .from('distributors')
-        .select('master_distributor_id')
-        .eq('partner_id', user.partner_id)
-        .maybeSingle()
+        if (retErr) {
+          console.error(`[resolve-charges] Distributor chain lookup error:`, retErr.message)
+        } else {
+          distributorId = retailerData?.distributor_id || null
+          mdId = retailerData?.master_distributor_id || null
+        }
+      } else if (user.role === 'distributor') {
+        const { data: distData, error: distErr } = await adminClient
+          .from('distributors')
+          .select('master_distributor_id')
+          .eq('partner_id', user.partner_id)
+          .maybeSingle()
 
-      mdId = distData?.master_distributor_id || null
+        if (distErr) {
+          console.error(`[resolve-charges] MD lookup error:`, distErr.message)
+        } else {
+          mdId = distData?.master_distributor_id || null
+        }
+      }
+    } catch (chainErr: any) {
+      console.error(`[resolve-charges] Distributor chain exception:`, chainErr.message)
+      // Continue without chain info - will still try global scheme
     }
 
     // ================================================================
@@ -342,7 +406,7 @@ export async function GET(request: NextRequest) {
 
     // Try RPC first
     try {
-      const { data: schemeResult, error: schemeError } = await getSupabaseAdmin().rpc('resolve_scheme_for_user', {
+      const { data: schemeResult, error: schemeError } = await adminClient.rpc('resolve_scheme_for_user', {
         p_user_id: user.partner_id,
         p_user_role: user.role,
         p_service_type: serviceType,
@@ -351,7 +415,7 @@ export async function GET(request: NextRequest) {
       })
 
       if (schemeError) {
-        console.error(`[resolve-charges] RPC error:`, schemeError)
+        console.error(`[resolve-charges] RPC error:`, schemeError.message, schemeError.code, schemeError.details)
       } else if (schemeResult && schemeResult.length > 0) {
         resolved = {
           scheme_id: schemeResult[0].scheme_id,
@@ -401,7 +465,7 @@ export async function GET(request: NextRequest) {
       let charges: any = null
       
       try {
-        const { data: chargeResult, error: chargeError } = await getSupabaseAdmin().rpc('calculate_payout_charge_from_scheme', {
+        const { data: chargeResult, error: chargeError } = await adminClient.rpc('calculate_payout_charge_from_scheme', {
           p_scheme_id: resolved.scheme_id,
           p_amount: amount,
           p_transfer_mode: transferMode,
@@ -422,7 +486,7 @@ export async function GET(request: NextRequest) {
           }
         }
         if (chargeError) {
-          console.error(`[resolve-charges] Payout charge RPC error:`, chargeError)
+          console.error(`[resolve-charges] Payout charge RPC error:`, chargeError.message, chargeError.code)
         }
       } catch (err: any) {
         console.error(`[resolve-charges] Payout charge RPC failed:`, err.message)
@@ -439,13 +503,19 @@ export async function GET(request: NextRequest) {
       }
 
       // Also fetch ALL payout charge slabs for this scheme so client can show charge per mode
-      const { data: allSlabs } = await getSupabaseAdmin()
-        .from('scheme_payout_charges')
-        .select('transfer_mode, min_amount, max_amount, retailer_charge, retailer_charge_type')
-        .eq('scheme_id', resolved.scheme_id)
-        .eq('status', 'active')
-        .order('transfer_mode')
-        .order('min_amount')
+      let allSlabs: any[] = []
+      try {
+        const { data: slabData } = await adminClient
+          .from('scheme_payout_charges')
+          .select('transfer_mode, min_amount, max_amount, retailer_charge, retailer_charge_type')
+          .eq('scheme_id', resolved.scheme_id)
+          .eq('status', 'active')
+          .order('transfer_mode')
+          .order('min_amount')
+        allSlabs = slabData || []
+      } catch (slabErr: any) {
+        console.error(`[resolve-charges] Slab fetch error:`, slabErr.message)
+      }
 
       return NextResponse.json({
         resolved: true,
@@ -456,7 +526,7 @@ export async function GET(request: NextRequest) {
           resolved_via: resolved.resolved_via,
         },
         charges: charges,
-        slabs: allSlabs || [],
+        slabs: allSlabs,
         _debug: { resolution_method: resolutionMethod },
       })
     }
@@ -466,7 +536,7 @@ export async function GET(request: NextRequest) {
       let charges: any = null
       
       try {
-        const { data: chargeResult, error: chargeError } = await getSupabaseAdmin().rpc('calculate_bbps_charge_from_scheme', {
+        const { data: chargeResult, error: chargeError } = await adminClient.rpc('calculate_bbps_charge_from_scheme', {
           p_scheme_id: resolved.scheme_id,
           p_amount: amount,
           p_category: category || null,
@@ -486,7 +556,7 @@ export async function GET(request: NextRequest) {
           }
         }
         if (chargeError) {
-          console.error(`[resolve-charges] BBPS charge RPC error:`, chargeError)
+          console.error(`[resolve-charges] BBPS charge RPC error:`, chargeError.message, chargeError.code)
         }
       } catch (err: any) {
         console.error(`[resolve-charges] BBPS charge RPC failed:`, err.message)
@@ -517,14 +587,20 @@ export async function GET(request: NextRequest) {
 
     if (serviceType === 'mdr') {
       // Return MDR rates from the resolved scheme
-      const { data: mdrRates } = await getSupabaseAdmin()
-        .from('scheme_mdr_rates')
-        .select('*')
-        .eq('scheme_id', resolved.scheme_id)
-        .eq('status', 'active')
+      let mdrRates: any[] = []
+      try {
+        const { data } = await adminClient
+          .from('scheme_mdr_rates')
+          .select('*')
+          .eq('scheme_id', resolved.scheme_id)
+          .eq('status', 'active')
+        mdrRates = data || []
+      } catch (mdrErr: any) {
+        console.error(`[resolve-charges] MDR rates fetch error:`, mdrErr.message)
+      }
 
       // Filter by mode/card_type/brand if provided
-      let filteredRates = mdrRates || []
+      let filteredRates = mdrRates
       if (mode) filteredRates = filteredRates.filter((r: any) => r.mode === mode)
       if (cardType) filteredRates = filteredRates.filter((r: any) => r.card_type === cardType)
       if (brandType) filteredRates = filteredRates.filter((r: any) => r.brand_type === brandType)
@@ -556,7 +632,11 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Invalid service_type' }, { status: 400 })
 
   } catch (err: any) {
-    console.error('[API /api/schemes/resolve-charges]', err)
-    return NextResponse.json({ error: err.message }, { status: 500 })
+    console.error('[API /api/schemes/resolve-charges] Unhandled error:', err?.message || err, err?.stack)
+    return NextResponse.json({ 
+      error: err?.message || 'Internal server error', 
+      step: 'unhandled',
+      stack: process.env.NODE_ENV === 'development' ? err?.stack : undefined
+    }, { status: 500 })
   }
 }
