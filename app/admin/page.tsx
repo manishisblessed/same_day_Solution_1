@@ -2359,11 +2359,10 @@ function PartnerModal({
       setLoadingParents(true)
       try {
         if (type === 'distributors' || type === 'retailers') {
-          // Fetch active master distributors
+          // Fetch master distributors - include all for editing (so existing MD shows up even if inactive)
           const { data, error } = await supabase
             .from('master_distributors')
             .select('id, partner_id, name, email, status')
-            .eq('status', 'active')
             .order('name', { ascending: true })
           
           if (error) throw error
@@ -2371,11 +2370,10 @@ function PartnerModal({
         }
 
         if (type === 'retailers') {
-          // Fetch active distributors
+          // Fetch distributors - include all for editing (so existing distributor shows up even if inactive)
           const { data, error } = await supabase
             .from('distributors')
             .select('id, partner_id, name, email, status, master_distributor_id')
-            .eq('status', 'active')
             .order('name', { ascending: true })
           
           if (error) throw error
@@ -2392,17 +2390,31 @@ function PartnerModal({
   }, [type])
 
   // Update distributors when master distributor changes for retailers
+  // Only clear distributor_id if distributors have been loaded (not during initial loading)
+  const [parentsLoaded, setParentsLoaded] = useState(false)
   useEffect(() => {
-    if (type === 'retailers' && formData.master_distributor_id) {
+    if (!loadingParents && distributors.length >= 0) {
+      // Small delay to ensure parents are fully loaded before allowing clears
+      setParentsLoaded(!loadingParents && (distributors.length > 0 || type !== 'retailers'))
+    }
+  }, [loadingParents, distributors, type])
+
+  useEffect(() => {
+    if (type === 'retailers' && formData.master_distributor_id && parentsLoaded) {
       const filtered = distributors.filter(
         (d: any) => d.master_distributor_id === formData.master_distributor_id
       )
       // If distributor was selected but doesn't match master, clear it
+      // But only if user manually changed the master distributor (not initial load)
       if (formData.distributor_id && !filtered.find((d: any) => d.partner_id === formData.distributor_id)) {
-        setFormData(prev => ({ ...prev, distributor_id: '' }))
+        // Check if this is an edit and the distributor_id matches the original item
+        // Don't clear if it's the original value (distributor might be inactive but still valid)
+        if (!item || formData.distributor_id !== (item.distributor_id || '')) {
+          setFormData(prev => ({ ...prev, distributor_id: '' }))
+        }
       }
     }
-  }, [formData.master_distributor_id, type, distributors])
+  }, [formData.master_distributor_id, type, distributors, parentsLoaded])
 
   useEffect(() => {
     if (item) {
@@ -2587,19 +2599,32 @@ function PartnerModal({
     // Validate hierarchy requirements (for edits)
     if (item) {
       if (type === 'distributors' && !formData.master_distributor_id) {
-        alert('Master Distributor is required to create a Distributor')
-        return
+        // For edits, use the existing value from the item if form field is empty
+        if (item.master_distributor_id) {
+          formData.master_distributor_id = item.master_distributor_id
+        } else {
+          alert('Master Distributor is required for a Distributor')
+          return
+        }
       }
       if (type === 'retailers') {
+        // For edits, fall back to existing item values if form fields were cleared by race condition
+        if (!formData.distributor_id && item.distributor_id) {
+          formData.distributor_id = item.distributor_id
+        }
+        if (!formData.master_distributor_id && item.master_distributor_id) {
+          formData.master_distributor_id = item.master_distributor_id
+        }
+        
         if (!formData.distributor_id) {
-          alert('Distributor is required to create a Retailer')
+          alert('Distributor is required for a Retailer')
           return
         }
         if (!formData.master_distributor_id) {
-          alert('Master Distributor is required to create a Retailer')
+          alert('Master Distributor is required for a Retailer')
           return
         }
-        // Validate that distributor belongs to selected master distributor
+        // Validate that distributor belongs to selected master distributor (only if both changed)
         const selectedDistributor = distributors.find((d: any) => d.partner_id === formData.distributor_id)
         if (selectedDistributor && selectedDistributor.master_distributor_id !== formData.master_distributor_id) {
           alert('Selected Distributor does not belong to the selected Master Distributor')
