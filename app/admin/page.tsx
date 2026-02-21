@@ -5338,19 +5338,16 @@ function POSMachineModal({
       // Sync to partner_pos_machines if assigned to partner
       if (isAssignToPartner && formData.partner_id) {
         try {
-          const syncResponse = await fetch('/api/admin/sync-partner-pos-machine', {
+          const syncResponse = await apiFetch('/api/admin/sync-partner-pos-machine', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ machine_id: savedMachineId }),
           })
           const syncResult = await syncResponse.json()
           if (!syncResult.success) {
             console.warn('Failed to sync to partner_pos_machines:', syncResult.error)
-            // Don't fail the whole operation, just log a warning
           }
         } catch (syncError) {
           console.error('Error syncing to partner_pos_machines:', syncError)
-          // Don't fail the whole operation
         }
       }
 
