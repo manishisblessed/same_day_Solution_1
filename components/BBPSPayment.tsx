@@ -181,6 +181,8 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
   const [loadingCharges, setLoadingCharges] = useState(false)
   const [tpin, setTpin] = useState('')
   const [tpinError, setTpinError] = useState<string | null>(null)
+  const [panNumber, setPanNumber] = useState('')
+  const [panError, setPanError] = useState<string | null>(null)
   
   // Prepaid recharge states
   const [prepaidAmount, setPrepaidAmount] = useState<string>('')
@@ -859,6 +861,17 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
     // Clear any previous T-PIN errors
     setTpinError(null)
 
+    // PAN validation for amounts above ₹49,999
+    const preCheckAmount = getSelectedAmount()
+    if (preCheckAmount > 49999) {
+      const panRegex = /^[A-Z]{5}[0-9]{4}[A-Z]$/
+      if (!panNumber || !panRegex.test(panNumber.trim().toUpperCase())) {
+        setPanError('Valid PAN number is required for payments above ₹49,999')
+        return
+      }
+    }
+    setPanError(null)
+
     try {
       setPaying(true)
       setError(null)
@@ -922,6 +935,8 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
           user_id: user?.partner_id,
           // Include T-PIN for server-side verification
           tpin: tpin,
+          // PAN number for payments above ₹49,999
+          ...(panNumber ? { pan_number: panNumber.trim().toUpperCase() } : {}),
         }),
       })
       setPaymentResult(data)
@@ -934,6 +949,7 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
         setCustomAmount('')
         setAmountType('full')
         setTpin('')
+        setPanNumber('')
         setPaymentCharges(0)
         // Auto-check transaction status after 2 seconds
         if (data.bbps_transaction_id) {
@@ -949,6 +965,9 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
       const errorMsg = error.message || 'Payment failed'
       if (errorMsg.includes('504') || errorMsg.includes('Gateway Time') || errorMsg.includes('timeout')) {
         setError('Payment request timed out. This does NOT mean the payment failed - it may still be processing. Please check your transaction history in 2-3 minutes to verify the payment status. Do NOT retry the payment.')
+      } else if (errorMsg.includes('PAN number is required') || errorMsg.includes('pan_required')) {
+        setPanError('Valid PAN number is required for payments above ₹49,999')
+        setError('Please enter a valid PAN number to proceed.')
       } else if (errorMsg.includes('Invalid T-PIN') || errorMsg.includes('T-PIN')) {
         setTpinError('Incorrect T-PIN. Please check and try again.')
         setError('Incorrect T-PIN. Please check and try again.')
@@ -1118,6 +1137,16 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
 
     setTpinError(null)
 
+    // PAN validation for prepaid amounts above ₹49,999
+    if (amount > 49999) {
+      const panRegex = /^[A-Z]{5}[0-9]{4}[A-Z]$/
+      if (!panNumber || !panRegex.test(panNumber.trim().toUpperCase())) {
+        setPanError('Valid PAN number is required for payments above ₹49,999')
+        return
+      }
+    }
+    setPanError(null)
+
     try {
       setPaying(true)
       setError(null)
@@ -1153,6 +1182,7 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
           },
           user_id: user?.partner_id,
           tpin: tpin,
+          ...(panNumber ? { pan_number: panNumber.trim().toUpperCase() } : {}),
         }),
       })
 
@@ -1734,6 +1764,35 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
                 </table>
               </div>
 
+              {/* PAN Number Input — required for prepaid recharges above ₹49,999 */}
+              {parseFloat(prepaidAmount) > 49999 && (
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    PAN Number
+                    <span className="text-xs text-red-500 ml-1">* Required for payments above ₹49,999</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={panNumber}
+                    onChange={(e) => {
+                      setPanNumber(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10))
+                      setPanError(null)
+                    }}
+                    placeholder="e.g. ABCDE1234F"
+                    maxLength={10}
+                    className={`w-full px-4 py-2 border rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white font-mono tracking-wider focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
+                      panError ? 'border-red-500' : 'border-gray-300 dark:border-gray-600'
+                    }`}
+                  />
+                  {panError && (
+                    <p className="text-xs text-red-500 mt-1">{panError}</p>
+                  )}
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                    PAN is mandatory for transactions exceeding ₹49,999 as per RBI guidelines
+                  </p>
+                </div>
+              )}
+
               {/* T-PIN Input */}
               <div className="mb-4">
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
@@ -1762,6 +1821,8 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
                     setShowPrepaidConfirm(false)
                     setTpin('')
                     setTpinError(null)
+                    setPanNumber('')
+                    setPanError(null)
                   }}
                   className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700"
                 >
@@ -2155,6 +2216,35 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
                 </p>
               </div>
 
+              {/* PAN Number Input — required for payments above ₹49,999 */}
+              {getSelectedAmount() > 49999 && (
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    PAN Number
+                    <span className="text-xs text-red-500 ml-1">* Required for payments above ₹49,999</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={panNumber}
+                    onChange={(e) => {
+                      setPanNumber(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10))
+                      setPanError(null)
+                    }}
+                    placeholder="e.g. ABCDE1234F"
+                    maxLength={10}
+                    className={`w-full px-4 py-3 border rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white font-mono tracking-wider focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
+                      panError ? 'border-red-500' : 'border-gray-300 dark:border-gray-600'
+                    }`}
+                  />
+                  {panError && (
+                    <p className="text-sm text-red-600 dark:text-red-400 mt-1">{panError}</p>
+                  )}
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                    PAN is mandatory for transactions exceeding ₹49,999 as per RBI guidelines
+                  </p>
+                </div>
+              )}
+
               {/* Wallet Balance Info */}
               {walletBalance !== null && (
                 <div className="mb-4 p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
@@ -2169,7 +2259,7 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
 
               <button
                 onClick={payBill}
-                disabled={paying || (tpin.length > 0 && tpin.length < 4)}
+                disabled={paying || (tpin.length > 0 && tpin.length < 4) || (getSelectedAmount() > 49999 && panNumber.length !== 10)}
                 className="w-full px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center gap-2 font-semibold"
               >
                 {paying ? (

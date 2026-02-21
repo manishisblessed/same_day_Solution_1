@@ -73,7 +73,7 @@ export async function POST(request: NextRequest) {
       )
       return addCorsHeaders(request, response)
     }
-    const { biller_id, consumer_number, amount, biller_name, consumer_name, due_date, bill_date, bill_number, additional_info, biller_category, tpin, reqId, payment_mode, is_prepaid } = body
+    const { biller_id, consumer_number, amount, biller_name, consumer_name, due_date, bill_date, bill_number, additional_info, biller_category, tpin, reqId, payment_mode, is_prepaid, pan_number } = body
 
     if (!biller_id || !consumer_number || !amount) {
       const response = NextResponse.json(
@@ -90,6 +90,19 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       )
       return addCorsHeaders(request, response)
+    }
+
+    // PAN number is required for payments above ₹49,999
+    const billAmountForPanCheck = parseFloat(amount)
+    const PAN_THRESHOLD_PAISE = 49999 * 100 // ₹49,999 in paise
+    if (!isNaN(billAmountForPanCheck) && billAmountForPanCheck > PAN_THRESHOLD_PAISE) {
+      if (!pan_number || typeof pan_number !== 'string' || !/^[A-Z]{5}[0-9]{4}[A-Z]$/.test(pan_number.trim().toUpperCase())) {
+        const response = NextResponse.json(
+          { error: 'Valid PAN number is required for payments above ₹49,999', pan_required: true },
+          { status: 400 }
+        )
+        return addCorsHeaders(request, response)
+      }
     }
 
     // Verify T-PIN if provided (optional security feature)
@@ -396,6 +409,8 @@ export async function POST(request: NextRequest) {
         bill_date: bill_date || null,
         bill_number: bill_number || null,
         additional_info: additional_info || {},
+        // PAN number (required for payments above ₹49,999)
+        ...(pan_number ? { pan_number: pan_number.trim().toUpperCase() } : {}),
         // Scheme linkage
         ...(resolvedSchemeId ? { scheme_id: resolvedSchemeId, scheme_name: resolvedSchemeName, retailer_charge: bbpsCharge } : {}),
       })
