@@ -37,9 +37,8 @@ export async function getCurrentUserFromRequest(
     )
     
     if (supabaseCookies.length === 0) {
-      console.error('No Supabase session cookies found')
-      console.error('Available cookies:', allCookies.map(c => c.name).join(', ') || 'none')
-      console.error('Cookie header from request:', request.headers.get('cookie') ? 'Present' : 'Missing')
+      // Cross-origin requests (e.g. Amplify → EC2) won't have Supabase cookies.
+      // Callers should fall back to body-based auth (user_id + Bearer token).
       return null
     }
 

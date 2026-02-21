@@ -408,32 +408,23 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
   // Helper to get minimum amount from bill details
   const getMinimumAmount = (): number | null => {
     // Try multiple paths to find the additional info
-    const additionalInfo = billDetails?.additional_info?.additionalInfo?.info || 
+    const additionalInfo = billDetails?.additional_info?.additionalInfo?.info ||
                           billDetails?.additional_info?.billerResponse?.additionalInfo?.info ||
                           billDetails?.additional_info?.info ||
                           []
-    
-    // Debug logging
-    console.log('getMinimumAmount - billDetails.additional_info:', billDetails?.additional_info)
-    console.log('getMinimumAmount - additionalInfo array:', additionalInfo)
-    
+
     if (!additionalInfo || additionalInfo.length === 0) {
-      console.log('getMinimumAmount - No additionalInfo found')
       return null
     }
-    
-    const minAmountInfo = additionalInfo.find((item: { infoName: string; infoValue: string }) => 
-      item.infoName?.toLowerCase().includes('minimum') || 
+
+    const minAmountInfo = additionalInfo.find((item: { infoName: string; infoValue: string }) =>
+      item.infoName?.toLowerCase().includes('minimum') ||
       item.infoName?.toLowerCase().includes('min due') ||
       item.infoName?.toLowerCase().includes('min payable')
     )
-    
-    console.log('getMinimumAmount - minAmountInfo found:', minAmountInfo)
-    
+
     if (minAmountInfo?.infoValue) {
       const parsed = parseFloat(minAmountInfo.infoValue)
-      const billAmountRupees = billDetails ? paiseToRupees(billDetails.bill_amount) : 0
-      console.log('getMinimumAmount - parsed:', parsed, 'billAmountRupees:', billAmountRupees, 'condition:', parsed < billAmountRupees)
       return isNaN(parsed) ? null : parsed
     }
     return null
@@ -841,7 +832,13 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
       }
     } catch (error: any) {
       console.error('Error fetching bill:', error)
-      setError(error.message || 'Failed to fetch bill details')
+      const errorMsg = error.message || 'Failed to fetch bill details'
+      // Rate limit from Sparkup / backend 429
+      if (errorMsg.toLowerCase().includes('too many request')) {
+        setError('Too many requests for this biller. Please wait 1–2 minutes before fetching the bill again.')
+      } else {
+        setError(errorMsg)
+      }
     } finally {
       setLoadingBill(false)
     }
@@ -952,8 +949,13 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
       const errorMsg = error.message || 'Payment failed'
       if (errorMsg.includes('504') || errorMsg.includes('Gateway Time') || errorMsg.includes('timeout')) {
         setError('Payment request timed out. This does NOT mean the payment failed - it may still be processing. Please check your transaction history in 2-3 minutes to verify the payment status. Do NOT retry the payment.')
+      } else if (errorMsg.includes('Invalid T-PIN') || errorMsg.includes('T-PIN')) {
+        setTpinError('Incorrect T-PIN. Please check and try again.')
+        setError('Incorrect T-PIN. Please check and try again.')
       } else if (errorMsg.includes('Too many request')) {
         setError('Too many payment requests. Please wait 30 seconds before trying again.')
+      } else if (errorMsg.includes('technical issues') || errorMsg.includes('try again after sometime')) {
+        setError('Payment provider is temporarily unable to process. Your wallet has been refunded. Please try again after some time.')
       } else {
         setError(errorMsg)
       }
@@ -1896,15 +1898,6 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
                   {(() => {
                     const minAmount = getMinimumAmount()
                     const billAmtInRupees = paiseToRupees(billDetails.bill_amount)
-                    console.log('MIN BUTTON CHECK:', { 
-                      minAmount, 
-                      billAmountRaw: billDetails.bill_amount,
-                      billAmtInRupees,
-                      condition1: minAmount !== null,
-                      condition2: minAmount && minAmount > 0,
-                      condition3: minAmount && minAmount < billAmtInRupees,
-                      shouldShow: minAmount !== null && minAmount > 0 && minAmount < billAmtInRupees
-                    })
                     if (minAmount !== null && minAmount > 0 && minAmount < billAmtInRupees) {
                       return (
                         <button

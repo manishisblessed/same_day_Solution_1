@@ -39,7 +39,7 @@ export async function POST(request: NextRequest) {
           partner_id: retailer.partner_id,
           name: retailer.name,
         }
-        console.log('[BBPS Complaint Track] Using fallback auth with user_id:', user.email)
+        // Fallback auth active (cross-origin — no Supabase cookies)
       }
     }
     

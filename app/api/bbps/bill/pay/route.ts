@@ -52,7 +52,7 @@ export async function POST(request: NextRequest) {
           partner_id: retailer.partner_id,
           name: retailer.name,
         }
-        console.log('BBPS Pay: Using fallback auth with user_id from request body:', user.email)
+        // Fallback auth active (cross-origin — no Supabase cookies)
       }
     }
     

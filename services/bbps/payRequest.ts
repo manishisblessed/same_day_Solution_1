@@ -374,19 +374,34 @@ export async function payRequest(
     console.log('Full Request Body:', JSON.stringify(requestBody, null, 2))
     console.log('===========================================')
     
-    // Make API request
-    const response = await bbpsClient.request<BBPSPayRequestResponse>({
+    // Make API request (with one retry on transient "technical issues" from Sparkup)
+    let response = await bbpsClient.request<BBPSPayRequestResponse>({
       method: 'POST',
       endpoint: '/bbps/payRequest',
       body: requestBody,
       reqId,
       billerId,
-      includeAuthToken: false, // API docs show same headers as other endpoints, no Bearer token
+      includeAuthToken: false,
     })
+
+    // Retry once if Sparkup returns a transient "technical issues" error
+    const isTransientError = !response.success &&
+      (response.error?.includes('technical issues') || response.error?.includes('try again'))
+    if (isTransientError) {
+      console.warn(`[BBPS payRequest] Transient error from Sparkup, retrying in 3s... (${response.error})`)
+      await new Promise(r => setTimeout(r, 3000))
+      response = await bbpsClient.request<BBPSPayRequestResponse>({
+        method: 'POST',
+        endpoint: '/bbps/payRequest',
+        body: requestBody,
+        reqId,
+        billerId,
+        includeAuthToken: false,
+      })
+    }
 
     const apiResponse = response.data
 
-    // 🔍 DETAILED LOGGING: Log full Sparkup API response for debugging
     console.log('=== SPARKUP PAY REQUEST RESPONSE ===')
     console.log('Request ID:', reqId)
     console.log('Biller ID:', billerId)

@@ -60,7 +60,7 @@ export async function POST(request: NextRequest) {
           partner_id: retailer.partner_id,
           name: retailer.name,
         }
-        console.log('Using fallback auth with user_id from request body:', user.email)
+        // Fallback auth active (cross-origin — no Supabase cookies)
       }
     }
     
@@ -290,13 +290,19 @@ export async function POST(request: NextRequest) {
     // Determine appropriate status code
     // 200 for informational messages (like "no bill due" - this is actually good news!)
     // 400 for business logic errors (like "invalid consumer number", etc.)
+    // 429 for rate limit (e.g. "Too many request for that Biller" from Sparkup)
     // 500 for actual server/network errors
     let statusCode = 500
     let messageType = 'error'
-    
+    let userMessage = errorMessage
+
     if (isInfoMessage) {
       statusCode = 200 // Treat as success - it's informational
       messageType = 'info'
+    } else if (errorMessage.toLowerCase().includes('too many request')) {
+      statusCode = 429
+      messageType = 'error'
+      userMessage = 'Too many requests for this biller. Please wait 1–2 minutes before fetching the bill again.'
     } else if (errorMessage.includes('invalid') || 
                errorMessage.includes('not found') ||
                errorMessage.includes('required')) {
@@ -308,8 +314,8 @@ export async function POST(request: NextRequest) {
       { 
         success: isInfoMessage, // true for info messages, false for errors
         messageType: messageType, // 'info' or 'error'
-        error: errorMessage,
-        message: errorMessage, // Also include as message for consistency
+        error: userMessage,
+        message: userMessage, // User-friendly message (e.g. rate limit)
         details: process.env.NODE_ENV === 'development' ? error.stack : undefined,
       },
       { status: statusCode }

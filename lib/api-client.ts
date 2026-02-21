@@ -284,6 +284,8 @@ export async function apiFetchJson<T = any>(
       throw new Error(errorData.error || errorData.message || 'Resource not found')
     } else if (response.status === 504) {
       throw new Error('Request timed out. The payment may still be processing - please check your transaction history before retrying.')
+    } else if (response.status === 429) {
+      throw new Error(errorData.error || errorData.message || 'Too many requests. Please wait a minute and try again.')
     } else if (response.status >= 500) {
       // For 500 errors, use backend error message if available, otherwise show generic message
       throw new Error(errorData.error || errorData.message || 'Server error, please try again later')
