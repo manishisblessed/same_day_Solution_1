@@ -17,6 +17,7 @@ import TransactionsTable from '@/components/TransactionsTable'
 import BBPSTransactionsTable from '@/components/BBPSTransactionsTable'
 import BBPSPayment from '@/components/BBPSPayment'
 import PayoutTransfer from '@/components/PayoutTransfer'
+import LedgerTab from '@/components/LedgerTab'
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
 
 // Lazy load RetailerSidebar to prevent module loading errors from breaking the page
@@ -437,7 +438,7 @@ function RetailerDashboardContent() {
           {activeTab === 'bbps' && <BBPSTab />}
           {activeTab === 'payout' && <PayoutTransfer title="Settlement to Bank Account" />}
           {activeTab === 'transactions' && <POSTransactionsTable autoPoll={true} pollInterval={15000} />}
-          {activeTab === 'ledger' && <BBPSTransactionsTable autoPoll={true} pollInterval={15000} />}
+          {activeTab === 'ledger' && <LedgerTab user={user} />}
           {activeTab === 'mdr-schemes' && <MDRSchemesTab user={user} />}
           {activeTab === 'pos-machines' && <POSMachinesTab user={user} accentColor="blue" />}
           {activeTab === 'reports' && <ReportsTab chartData={chartData} stats={stats} />}

@@ -115,6 +115,19 @@
                   "  const json = pm.response.json();",
                   "  pm.expect(json.pagination).to.be.an('object');",
                   "  pm.expect(json.pagination).to.have.property('total_records');",
+                  "});",
+                  "",
+                  "pm.test('Transactions include card_classification', function() {",
+                  "  const json = pm.response.json();",
+                  "  if (json.data && json.data.length > 0) {",
+                  "    json.data.forEach(function(txn) {",
+                  "      pm.expect(txn).to.have.property('card_classification');",
+                  "      // card_classification can be a string or null",
+                  "      if (txn.card_classification !== null) {",
+                  "        pm.expect(txn.card_classification).to.be.a('string');",
+                  "      }",
+                  "    });",
+                  "  }",
                   "});"
                 ]
               }
@@ -504,7 +517,7 @@
               "host": ["{{base_url}}"],
               "path": ["api", "partner", "pos-transactions", "export"]
             },
-            "description": "Create an async export job in CSV format.\n\n### Supported Formats\n| Format | Description |\n|--------|-------------|\n| `csv` | Comma-separated values |\n| `excel` | Microsoft Excel (.xlsx) |\n| `pdf` | PDF report |\n| `zip` | ZIP archive with CSV + PDF |\n\n### Daily Limit\nDefault: 10 exports/day. Contact admin to increase.\n\n### Response\nReturns a `job_id` — use it in the Export Status endpoint to check progress."
+            "description": "Create an async export job in CSV format.\n\n### Supported Formats\n| Format | Description |\n|--------|-------------|\n| `csv` | Comma-separated values |\n| `excel` | Microsoft Excel (.xlsx) |\n| `pdf` | PDF report |\n| `zip` | ZIP archive with CSV + PDF |\n\n### Export Fields\nAll exported files include all transaction fields, including:\n- `card_classification` - Card tier/classification (PLATINUM, GOLD, SIGNATURE, etc.)\n- All other transaction fields as documented in the Get POS Transactions endpoint\n\n### Daily Limit\nDefault: 10 exports/day. Contact admin to increase.\n\n### Response\nReturns a `job_id` — use it in the Export Status endpoint to check progress."
           },
           "response": [
             {
@@ -595,7 +608,7 @@
               "host": ["{{base_url}}"],
               "path": ["api", "partner", "pos-transactions", "export"]
             },
-            "description": "Create an async export job in Excel (.xlsx) format."
+            "description": "Create an async export job in Excel (.xlsx) format.\n\n### Export Fields\nAll exported files include all transaction fields, including `card_classification` and all other fields as documented in the Get POS Transactions endpoint."
           },
           "response": []
         },
@@ -671,7 +684,7 @@
               "host": ["{{base_url}}"],
               "path": ["api", "partner", "pos-transactions", "export"]
             },
-            "description": "Create an async export job in ZIP format (contains CSV + PDF)."
+            "description": "Create an async export job in ZIP format (contains CSV + PDF).\n\n### Export Fields\nAll exported files include all transaction fields, including `card_classification` and all other fields as documented in the Get POS Transactions endpoint."
           },
           "response": []
         },

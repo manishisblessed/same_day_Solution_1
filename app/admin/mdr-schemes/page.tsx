@@ -22,6 +22,7 @@ interface GlobalScheme {
   mode: PaymentMode
   card_type: CardType
   brand_type: string | null
+  card_classification: string | null
   rt_mdr_t1: number
   rt_mdr_t0: number
   dt_mdr_t1: number
@@ -47,6 +48,7 @@ export default function AdminMDRSchemes() {
     mode: 'CARD' as PaymentMode,
     card_type: null as CardType,
     brand_type: '',
+    card_classification: '',
     rt_mdr_t1: '',
     dt_mdr_t1: '',
     status: 'active' as SchemeStatus,
@@ -111,6 +113,7 @@ export default function AdminMDRSchemes() {
         mode: formData.mode,
         card_type: formData.card_type || null,
         brand_type: formData.brand_type || null,
+        card_classification: formData.card_classification || null,
         rt_mdr_t1,
         rt_mdr_t0,
         dt_mdr_t1,
@@ -142,6 +145,7 @@ export default function AdminMDRSchemes() {
         mode: 'CARD',
         card_type: null,
         brand_type: '',
+        card_classification: '',
         rt_mdr_t1: '',
         dt_mdr_t1: '',
         status: 'active',
@@ -161,6 +165,7 @@ export default function AdminMDRSchemes() {
       mode: scheme.mode,
       card_type: scheme.card_type,
       brand_type: scheme.brand_type || '',
+      card_classification: scheme.card_classification || '',
       rt_mdr_t1: scheme.rt_mdr_t1.toString(),
       dt_mdr_t1: scheme.dt_mdr_t1.toString(),
       status: scheme.status,
@@ -227,6 +232,7 @@ export default function AdminMDRSchemes() {
                   mode: 'CARD',
                   card_type: null,
                   brand_type: '',
+                  card_classification: '',
                   rt_mdr_t1: '',
                   dt_mdr_t1: '',
                   status: 'active',
@@ -286,6 +292,7 @@ export default function AdminMDRSchemes() {
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Mode</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Card Type</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Brand</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Classification</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">RT MDR T+1</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">RT MDR T+0</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">DT MDR T+1</th>
@@ -309,6 +316,7 @@ export default function AdminMDRSchemes() {
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm">{scheme.card_type || '-'}</td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm">{scheme.brand_type || '-'}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm">{scheme.card_classification || '-'}</td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">{scheme.rt_mdr_t1}%</td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-green-600">{scheme.rt_mdr_t0}%</td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">{scheme.dt_mdr_t1}%</td>
@@ -419,6 +427,31 @@ export default function AdminMDRSchemes() {
                           placeholder="VISA, MasterCard, etc."
                           className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                         />
+                      </div>
+                    )}
+
+                    {formData.mode === 'CARD' && (
+                      <div>
+                        <label className="block text-sm font-medium mb-1">Card Classification</label>
+                        <select
+                          value={formData.card_classification}
+                          onChange={(e) => setFormData({ ...formData, card_classification: e.target.value })}
+                          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                        >
+                          <option value="">All Classifications</option>
+                          <option value="CLASSIC">CLASSIC</option>
+                          <option value="GOLD">GOLD</option>
+                          <option value="PLATINUM">PLATINUM</option>
+                          <option value="TITANIUM">TITANIUM</option>
+                          <option value="SIGNATURE">SIGNATURE</option>
+                          <option value="INFINITE">INFINITE</option>
+                          <option value="WORLD">WORLD</option>
+                          <option value="BUSINESS">BUSINESS</option>
+                          <option value="CORPORATE">CORPORATE</option>
+                          <option value="PREMIUM">PREMIUM</option>
+                          <option value="STANDARD">STANDARD</option>
+                          <option value="OTHER">OTHER</option>
+                        </select>
                       </div>
                     )}
                   </div>

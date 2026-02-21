@@ -116,6 +116,7 @@ export interface SchemeMDRRate {
   mode: PaymentMode;
   card_type: CardType | null;
   brand_type: string | null;
+  card_classification: string | null; // PLATINUM, GOLD, CLASSIC, BUSINESS, STANDARD, etc.
   
   retailer_mdr_t1: number;
   retailer_mdr_t0: number;
@@ -234,6 +235,7 @@ export interface CreateMDRRateInput {
   mode: PaymentMode;
   card_type?: CardType;
   brand_type?: string;
+  card_classification?: string; // PLATINUM, GOLD, CLASSIC, BUSINESS, etc.
   retailer_mdr_t1: number;
   retailer_mdr_t0: number;
   distributor_mdr_t1: number;

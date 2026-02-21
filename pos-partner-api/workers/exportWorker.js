@@ -68,10 +68,24 @@ const CSV_COLUMNS = [
   { key: 'rrn', header: 'RRN' },
   { key: 'card_brand', header: 'Card Brand' },
   { key: 'card_type', header: 'Card Type' },
+  { key: 'card_number', header: 'Card Number' },
+  { key: 'issuing_bank', header: 'Issuing Bank' },
+  { key: 'card_classification', header: 'Card Classification' },
   { key: 'payment_mode', header: 'Payment Mode' },
   { key: 'settlement_status', header: 'Settlement Status' },
   { key: 'device_serial', header: 'Device Serial' },
+  { key: 'customer_name', header: 'Customer Name' },
+  { key: 'payer_name', header: 'Payer Name' },
+  { key: 'username', header: 'Username' },
+  { key: 'txn_type', header: 'Txn Type' },
+  { key: 'auth_code', header: 'Auth Code' },
+  { key: 'mid', header: 'MID' },
+  { key: 'currency', header: 'Currency' },
+  { key: 'receipt_url', header: 'Receipt URL' },
+  { key: 'merchant_name', header: 'Merchant Name' },
   { key: 'txn_time', header: 'Transaction Time' },
+  { key: 'posting_date', header: 'Posting Date' },
+  { key: 'settled_on', header: 'Settled On' },
 ];
 
 // ============================================================================
@@ -313,10 +327,24 @@ function buildExportQuery(filters) {
       pt.rrn,
       pt.card_brand,
       pt.card_type,
+      pt.card_number,
+      pt.issuing_bank,
+      pt.card_classification,
       pt.payment_mode,
       pt.settlement_status,
       pt.device_serial,
-      pt.txn_time
+      pt.customer_name,
+      pt.payer_name,
+      pt.username,
+      pt.txn_type,
+      pt.auth_code,
+      pt.mid,
+      pt.currency,
+      pt.receipt_url,
+      pt.merchant_name,
+      pt.txn_time,
+      pt.posting_date,
+      pt.settled_on
     FROM pos_transactions pt
     LEFT JOIN partner_retailers pr ON pr.id = pt.retailer_id
     ${whereClause}

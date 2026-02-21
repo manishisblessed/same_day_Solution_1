@@ -342,6 +342,7 @@ export default function SchemeManagementPage() {
     mode: 'CARD' as 'CARD' | 'UPI',
     card_type: '' as string,
     brand_type: '',
+    card_classification: '',
     retailer_mdr_t1: 0,
     retailer_mdr_t0: 0,
     distributor_mdr_t1: 0,
@@ -356,7 +357,7 @@ export default function SchemeManagementPage() {
     // Reset forms
     setBbpsForm({ category: '', min_amount: 0, max_amount: 999999999, retailer_charge: 0, retailer_charge_type: 'flat', retailer_commission: 0, retailer_commission_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat', company_charge: 0, company_charge_type: 'flat' })
     setPayoutForm({ transfer_mode: 'IMPS', min_amount: 0, max_amount: 999999999, retailer_charge: 0, retailer_charge_type: 'flat', retailer_commission: 0, retailer_commission_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat', company_charge: 0, company_charge_type: 'flat' })
-    setMdrForm({ mode: 'CARD', card_type: '', brand_type: '', retailer_mdr_t1: 0, retailer_mdr_t0: 0, distributor_mdr_t1: 0, distributor_mdr_t0: 0, md_mdr_t1: 0, md_mdr_t0: 0 })
+    setMdrForm({ mode: 'CARD', card_type: '', brand_type: '', card_classification: '', retailer_mdr_t1: 0, retailer_mdr_t0: 0, distributor_mdr_t1: 0, distributor_mdr_t0: 0, md_mdr_t1: 0, md_mdr_t0: 0 })
     setShowConfigModal(true)
   }
 
@@ -406,6 +407,7 @@ export default function SchemeManagementPage() {
           mode: mdrForm.mode,
           card_type: mdrForm.card_type || null,
           brand_type: mdrForm.brand_type || null,
+          card_classification: mdrForm.card_classification || null,
           retailer_mdr_t1: mdrForm.retailer_mdr_t1,
           retailer_mdr_t0: mdrForm.retailer_mdr_t0,
           distributor_mdr_t1: mdrForm.distributor_mdr_t1,
@@ -1131,7 +1133,7 @@ export default function SchemeManagementPage() {
               {/* MDR Form */}
               {configType === 'mdr' && (
                 <div className="space-y-3">
-                  <div className="grid grid-cols-3 gap-3">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                     <div>
                       <label className="block text-sm font-medium mb-1">Mode</label>
                       <select value={mdrForm.mode} onChange={(e) => {
@@ -1142,7 +1144,8 @@ export default function SchemeManagementPage() {
                           ...mdrForm, 
                           mode: newMode, 
                           card_type: defaultCardType,
-                          brand_type: availableBrands.length > 0 && availableBrands.includes(mdrForm.brand_type) ? mdrForm.brand_type : ''
+                          brand_type: availableBrands.length > 0 && availableBrands.includes(mdrForm.brand_type) ? mdrForm.brand_type : '',
+                          card_classification: ''
                         })
                       }}
                         className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700">
@@ -1189,6 +1192,29 @@ export default function SchemeManagementPage() {
                         {getAvailableBrands(mdrForm.mode, mdrForm.card_type).map((brand) => (
                           <option key={brand} value={brand}>{brand}</option>
                         ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Classification</label>
+                      <select
+                        value={mdrForm.card_classification}
+                        onChange={(e) => setMdrForm({ ...mdrForm, card_classification: e.target.value })}
+                        className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700"
+                        disabled={mdrForm.mode === 'UPI'}
+                      >
+                        <option value="">Any</option>
+                        <option value="CLASSIC">CLASSIC</option>
+                        <option value="GOLD">GOLD</option>
+                        <option value="PLATINUM">PLATINUM</option>
+                        <option value="TITANIUM">TITANIUM</option>
+                        <option value="SIGNATURE">SIGNATURE</option>
+                        <option value="INFINITE">INFINITE</option>
+                        <option value="WORLD">WORLD</option>
+                        <option value="BUSINESS">BUSINESS</option>
+                        <option value="CORPORATE">CORPORATE</option>
+                        <option value="PREMIUM">PREMIUM</option>
+                        <option value="STANDARD">STANDARD</option>
+                        <option value="OTHER">OTHER</option>
                       </select>
                     </div>
                   </div>

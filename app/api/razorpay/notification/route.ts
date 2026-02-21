@@ -318,11 +318,16 @@ export async function POST(request: NextRequest) {
       posResult = data
     }
 
-    // FIX: Process wallet credit for CAPTURED transactions
-    let walletCredited = existingPosTransaction?.wallet_credited || false
+    // ================================================================
+    // INSTACASH FLOW: Do NOT auto-credit wallet on CAPTURED.
+    // Instead, store retailer hierarchy info on the transaction.
+    // Wallet credit happens later via:
+    //   - InstaCash (T+0): Retailer selects transactions for instant settlement
+    //   - Auto T+1: Cron job processes remaining unsettled transactions next day
+    // ================================================================
     let retailerMapping: any = null
     
-    if (mappedStatus === 'CAPTURED' && !walletCredited && deviceSerial && amount && amount > 0) {
+    if (mappedStatus === 'CAPTURED' && deviceSerial && amount && amount > 0) {
       // Look up device mapping to get retailer hierarchy
       const { data: deviceMapping, error: mappingError } = await supabase
         .from('pos_device_mapping')
@@ -337,78 +342,26 @@ export async function POST(request: NextRequest) {
 
       if (deviceMapping && deviceMapping.retailer_id) {
         retailerMapping = deviceMapping
-        
-        // Calculate MDR
         const grossAmount = amount // Amount is already in rupees from Razorpay POS
-        const { mdr, netAmount } = calculateMDR(grossAmount)
 
-        try {
-          // FIX: Credit wallet using add_ledger_entry (atomic operation with row-level locking)
-          const { data: ledgerId, error: ledgerError } = await supabase.rpc('add_ledger_entry', {
-            p_user_id: deviceMapping.retailer_id,
-            p_user_role: 'retailer',
-            p_wallet_type: 'primary',
-            p_fund_category: 'online', // POS transactions are online fund category
-            p_service_type: 'pos',
-            p_tx_type: 'POS_CREDIT',
-            p_credit: netAmount,
-            p_debit: 0,
-            p_reference_id: txnId,
-            p_transaction_id: posResult?.id || null,
-            p_status: 'completed',
-            p_remarks: `POS Transaction Credit - TID: ${tid || 'N/A'}, RRN: ${rrNumber || 'N/A'}, Gross: ₹${grossAmount}, MDR: ₹${mdr}, Net: ₹${netAmount}`
+        // Store retailer hierarchy on transaction (but do NOT credit wallet)
+        // wallet_credited stays false — settlement happens via InstaCash or T+1 cron
+        await supabase
+          .from('razorpay_pos_transactions')
+          .update({
+            retailer_id: deviceMapping.retailer_id,
+            distributor_id: deviceMapping.distributor_id,
+            master_distributor_id: deviceMapping.master_distributor_id,
+            gross_amount: grossAmount,
+            // wallet_credited: false (default - NOT crediting here)
+            // settlement_mode: null (unsettled - waiting for InstaCash or T+1)
           })
+          .eq('txn_id', txnId)
 
-          if (ledgerError) {
-            console.error('Error crediting wallet:', ledgerError)
-          } else {
-            walletCredited = true
-            console.log(`Wallet credited for retailer ${deviceMapping.retailer_id}, amount: ${netAmount}, ledger_id: ${ledgerId}`)
-
-            // Update transaction with wallet credit info
-            await supabase
-              .from('razorpay_pos_transactions')
-              .update({
-                wallet_credited: true,
-                wallet_credit_id: ledgerId,
-                retailer_id: deviceMapping.retailer_id,
-                distributor_id: deviceMapping.distributor_id,
-                master_distributor_id: deviceMapping.master_distributor_id,
-                gross_amount: grossAmount,
-                mdr_amount: mdr,
-                net_amount: netAmount
-              })
-              .eq('txn_id', txnId)
-
-            // FIX: Process commission distribution (if applicable)
-            if (deviceMapping.distributor_id || deviceMapping.master_distributor_id) {
-              try {
-                // Commission calculation uses process_transaction_commission RPC if available
-                // This distributes commission to distributor and master_distributor
-                const { error: commissionError } = await supabase.rpc('process_transaction_commission', {
-                  p_transaction_id: posResult?.id,
-                  p_transaction_type: 'pos',
-                  p_gross_amount: grossAmount,
-                  p_retailer_id: deviceMapping.retailer_id,
-                  p_distributor_id: deviceMapping.distributor_id || null,
-                  p_master_distributor_id: deviceMapping.master_distributor_id || null
-                })
-
-                if (commissionError) {
-                  // Log but don't fail - commission can be processed manually
-                  console.error('Error processing commission (non-blocking):', commissionError)
-                }
-              } catch (commError) {
-                console.error('Commission processing error (non-blocking):', commError)
-              }
-            }
-          }
-        } catch (walletError) {
-          console.error('Wallet credit error:', walletError)
-        }
+        console.log(`[InstaCash] Transaction ${txnId} CAPTURED for retailer ${deviceMapping.retailer_id}, amount: ₹${grossAmount}. Awaiting settlement via InstaCash (T+0) or Auto-T+1.`)
       } else {
         // Device not mapped - log for admin review
-        console.warn(`No device mapping found for device_serial: ${deviceSerial}. Transaction stored but wallet NOT credited.`)
+        console.warn(`No device mapping found for device_serial: ${deviceSerial}. Transaction stored but cannot be settled until mapped.`)
       }
     }
 
@@ -514,6 +467,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Return success response (always return 200 to prevent Razorpay retries)
+    const walletCredited = (posResult as { wallet_credited?: boolean })?.wallet_credited ?? false
     return NextResponse.json({
       received: true,
       processed: true,
@@ -521,7 +475,7 @@ export async function POST(request: NextRequest) {
       txnId: txnId,
       action: isNewTransaction ? 'created' : 'updated',
       status: mappedStatus,
-      walletCredited: walletCredited,
+      walletCredited,
       retailerMapped: !!retailerMapping
     })
 

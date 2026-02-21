@@ -79,12 +79,8 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: 'Partner is not active' }, { status: 400 })
           }
 
-          // Machine must be in_stock or received_from_bank to assign to Partner
-          if (machine.inventory_status && !['in_stock', 'received_from_bank'].includes(machine.inventory_status)) {
-            return NextResponse.json({ 
-              error: `Machine is currently "${machine.inventory_status}". Only in_stock or received_from_bank machines can be assigned to a Partner.` 
-            }, { status: 400 })
-          }
+          // Admin can reassign machines from any status to Partner (including from retailer/distributor/MD)
+          // No status restriction for admin - they can reassign from any assignment status
 
           // Update machine - clear hierarchical assignments when assigning to partner
           const { error: updateError } = await supabase

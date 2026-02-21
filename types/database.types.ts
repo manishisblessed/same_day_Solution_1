@@ -387,6 +387,8 @@ export interface BBPSBiller {
 }
 
 // Razorpay POS Transaction Types (Phase 1)
+export type InstaCashSettlementMode = 'INSTACASH' | 'AUTO_T1'
+
 export interface RazorpayPOSTransaction {
   id: string
   txn_id: string
@@ -420,6 +422,60 @@ export interface RazorpayPOSTransaction {
   settled_on: string | null
   receipt_url: string | null
   posting_date: string | null
+  // InstaCash / Settlement tracking
+  settlement_mode: InstaCashSettlementMode | null
+  wallet_credited: boolean
+  wallet_credit_id: string | null
+  retailer_id: string | null
+  distributor_id: string | null
+  master_distributor_id: string | null
+  gross_amount: number | null
+  mdr_amount: number | null
+  net_amount: number | null
+  mdr_rate: number | null
+  mdr_scheme_id: string | null
+  mdr_scheme_type: string | null
+  instacash_requested_at: string | null
+  instacash_batch_id: string | null
+  auto_settled_at: string | null
+}
+
+// InstaCash Batch Types
+export interface InstaCashBatch {
+  id: string
+  retailer_id: string
+  total_transactions: number
+  total_gross_amount: number
+  total_mdr_amount: number
+  total_net_amount: number
+  status: 'processing' | 'completed' | 'partial' | 'failed'
+  success_count: number
+  failed_count: number
+  wallet_credit_id: string | null
+  requested_at: string
+  completed_at: string | null
+  created_at: string
+  metadata: Record<string, any> | null
+}
+
+export interface InstaCashBatchItem {
+  id: string
+  batch_id: string
+  pos_transaction_id: string
+  txn_id: string
+  gross_amount: number
+  mdr_rate: number
+  mdr_amount: number
+  net_amount: number
+  card_type: string | null
+  card_brand: string | null
+  card_classification: string | null
+  payment_mode: string | null
+  scheme_id: string | null
+  scheme_type: string | null
+  status: 'pending' | 'settled' | 'failed' | 'skipped'
+  error_message: string | null
+  created_at: string
 }
 
 // POS Device Mapping Types (Phase 2)

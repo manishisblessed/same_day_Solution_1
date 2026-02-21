@@ -21,6 +21,7 @@ export interface GlobalScheme {
   mode: PaymentMode;
   card_type: CardType | null;
   brand_type: string | null; // VISA, MasterCard, etc.
+  card_classification: string | null; // PLATINUM, GOLD, CLASSIC, BUSINESS, etc.
   
   rt_mdr_t1: number; // Retailer MDR T+1
   rt_mdr_t0: number; // Retailer MDR T+0 (should be T+1 + 1%)
@@ -45,6 +46,7 @@ export interface RetailerScheme {
   mode: PaymentMode;
   card_type: CardType | null;
   brand_type: string | null;
+  card_classification: string | null;
   
   retailer_mdr_t1: number;
   retailer_mdr_t0: number;
@@ -71,6 +73,7 @@ export interface Transaction {
   mode: PaymentMode;
   card_type: CardType | null;
   brand_type: string | null;
+  card_classification: string | null;
   
   retailer_id: string;
   distributor_id: string | null;
@@ -114,6 +117,7 @@ export interface SchemeQueryParams {
   mode: PaymentMode;
   card_type?: CardType | null;
   brand_type?: string | null;
+  card_classification?: string | null;
   retailer_id?: string;
   distributor_id?: string;
 }
@@ -144,6 +148,7 @@ export interface SettlementCalculationInput {
   mode: PaymentMode;
   card_type?: CardType | null;
   brand_type?: string | null;
+  card_classification?: string | null;
   retailer_id: string;
   distributor_id?: string | null;
 }
@@ -169,6 +174,7 @@ export interface CreateTransactionInput {
   mode: PaymentMode;
   card_type?: CardType | null;
   brand_type?: string | null;
+  card_classification?: string | null;
   retailer_id: string;
   distributor_id?: string | null;
   metadata?: Record<string, any>;
@@ -181,6 +187,7 @@ export interface CreateGlobalSchemeInput {
   mode: PaymentMode;
   card_type?: CardType | null;
   brand_type?: string | null;
+  card_classification?: string | null;
   rt_mdr_t1: number;
   dt_mdr_t1: number;
   status?: SchemeStatus;
@@ -196,6 +203,7 @@ export interface CreateRetailerSchemeInput {
   mode: PaymentMode;
   card_type?: CardType | null;
   brand_type?: string | null;
+  card_classification?: string | null;
   retailer_mdr_t1: number;
   retailer_mdr_t0: number;
   distributor_mdr_t1: number;

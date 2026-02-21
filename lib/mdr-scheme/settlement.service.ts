@@ -33,6 +33,7 @@ export async function calculateMDR(
     const mode = normalizePaymentMode(input.mode);
     const card_type = normalizeCardType(input.card_type || undefined);
     const brand_type = normalizeBrandType(input.brand_type || undefined);
+    const card_classification = input.card_classification?.toUpperCase()?.trim() || null;
 
     let retailer_mdr: number | null = null;
     let distributor_mdr: number | null = null;
@@ -41,6 +42,11 @@ export async function calculateMDR(
 
     // ================================================================
     // Try NEW scheme management system first (scheme_mdr_rates)
+    // Enhanced with card_classification fallback chain:
+    //   1. Exact: mode + card_type + brand_type + card_classification
+    //   2. Without classification: mode + card_type + brand_type + classification=NULL
+    //   3. Without brand: mode + card_type + brand=NULL + classification=NULL
+    //   4. Without card_type: mode + card_type=NULL + brand=NULL + classification=NULL
     // ================================================================
     try {
       const supabase = getSupabaseAdmin();
@@ -70,45 +76,59 @@ export async function calculateMDR(
 
       if (schemeResult && schemeResult.length > 0) {
         const resolved = schemeResult[0];
-        
-        // Look for matching MDR rate in scheme_mdr_rates
-        let query = supabase
-          .from('scheme_mdr_rates')
-          .select('*')
-          .eq('scheme_id', resolved.scheme_id)
-          .eq('status', 'active')
-          .eq('mode', mode);
-        
-        if (card_type) query = query.eq('card_type', card_type);
-        if (brand_type) query = query.eq('brand_type', brand_type);
-        
-        const { data: mdrRates } = await query.limit(1);
-        
-        // If exact match not found, try without brand_type
-        let mdrRate = mdrRates && mdrRates.length > 0 ? mdrRates[0] : null;
-        if (!mdrRate && brand_type) {
-          const { data: fallbackRates } = await supabase
+        let mdrRate: any = null;
+
+        // Helper to find MDR rate with specific criteria
+        const findMDRRate = async (
+          schemeId: string,
+          m: string,
+          ct: string | null,
+          bt: string | null,
+          cc: string | null
+        ) => {
+          let q = supabase
             .from('scheme_mdr_rates')
             .select('*')
-            .eq('scheme_id', resolved.scheme_id)
+            .eq('scheme_id', schemeId)
             .eq('status', 'active')
-            .eq('mode', mode)
-            .is('brand_type', null)
-            .limit(1);
-          mdrRate = fallbackRates && fallbackRates.length > 0 ? fallbackRates[0] : null;
+            .eq('mode', m);
+          
+          if (ct) q = q.eq('card_type', ct);
+          else q = q.is('card_type', null);
+          
+          if (bt) q = q.eq('brand_type', bt);
+          else q = q.is('brand_type', null);
+          
+          if (cc) q = q.eq('card_classification', cc);
+          else q = q.is('card_classification', null);
+          
+          const { data } = await q.limit(1);
+          return data && data.length > 0 ? data[0] : null;
+        };
+
+        // Fallback chain: most specific → least specific
+        // Step 1: Exact match (mode + card_type + brand_type + card_classification)
+        if (card_type && brand_type && card_classification) {
+          mdrRate = await findMDRRate(resolved.scheme_id, mode, card_type, brand_type, card_classification);
+          if (mdrRate) console.log(`[MDR] Matched: ${mode}/${card_type}/${brand_type}/${card_classification}`);
         }
-        // If still not found, try without card_type too
+
+        // Step 2: Without card_classification
+        if (!mdrRate && card_type && brand_type) {
+          mdrRate = await findMDRRate(resolved.scheme_id, mode, card_type, brand_type, null);
+          if (mdrRate) console.log(`[MDR] Fallback match: ${mode}/${card_type}/${brand_type}/ANY`);
+        }
+
+        // Step 3: Without brand_type (card_type only)
         if (!mdrRate && card_type) {
-          const { data: fallbackRates } = await supabase
-            .from('scheme_mdr_rates')
-            .select('*')
-            .eq('scheme_id', resolved.scheme_id)
-            .eq('status', 'active')
-            .eq('mode', mode)
-            .is('card_type', null)
-            .is('brand_type', null)
-            .limit(1);
-          mdrRate = fallbackRates && fallbackRates.length > 0 ? fallbackRates[0] : null;
+          mdrRate = await findMDRRate(resolved.scheme_id, mode, card_type, null, null);
+          if (mdrRate) console.log(`[MDR] Fallback match: ${mode}/${card_type}/ANY/ANY`);
+        }
+
+        // Step 4: Mode only (most generic)
+        if (!mdrRate) {
+          mdrRate = await findMDRRate(resolved.scheme_id, mode, null, null, null);
+          if (mdrRate) console.log(`[MDR] Fallback match: ${mode}/ANY/ANY/ANY`);
         }
 
         if (mdrRate) {
@@ -121,7 +141,7 @@ export async function calculateMDR(
           }
           usedSchemeId = resolved.scheme_id;
           usedSchemeType = (resolved.scheme_type === 'global' ? 'global' : 'custom') as 'global' | 'custom';
-          console.log(`[MDR] New scheme "${resolved.scheme_name}" resolved via ${resolved.resolved_via}, retailer_mdr: ${retailer_mdr}%, distributor_mdr: ${distributor_mdr}%`);
+          console.log(`[MDR] Scheme "${resolved.scheme_name}" resolved via ${resolved.resolved_via}, retailer_mdr: ${retailer_mdr}%, distributor_mdr: ${distributor_mdr}%, classification: ${card_classification || 'N/A'}`);
         }
       }
     } catch (newSchemeErr) {
