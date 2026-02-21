@@ -85,7 +85,7 @@ WHERE acquiring_bank IS NULL
     OR raw_payload->>'acquiringBankName' IS NOT NULL
     OR raw_payload->>'acquirerCode' IS NOT NULL);
 
--- Also backfill other fields that may be null in razorpay_pos_transactions
+-- Backfill all detailed fields that may be null in razorpay_pos_transactions
 UPDATE razorpay_pos_transactions
 SET
   card_number = COALESCE(card_number, raw_data->>'cardNumber', raw_data->>'maskedCardNumber'),
@@ -93,7 +93,17 @@ SET
   card_classification = COALESCE(card_classification, raw_data->>'cardClassification', raw_data->>'cardCategory'),
   card_brand = COALESCE(card_brand, raw_data->>'paymentCardBrand', raw_data->>'cardBrand'),
   card_type = COALESCE(card_type, raw_data->>'paymentCardType', raw_data->>'cardType'),
-  merchant_name = COALESCE(merchant_name, raw_data->>'merchantName')
+  merchant_name = COALESCE(merchant_name, raw_data->>'merchantName'),
+  customer_name = COALESCE(customer_name, raw_data->>'customerName', raw_data->>'payerName'),
+  payer_name = COALESCE(payer_name, raw_data->>'payerName'),
+  username = COALESCE(username, raw_data->>'username'),
+  auth_code = COALESCE(auth_code, raw_data->>'authCode'),
+  rrn = COALESCE(rrn, raw_data->>'rrNumber', raw_data->>'rrn'),
+  external_ref = COALESCE(external_ref, raw_data->>'externalRefNumber'),
+  mid_code = COALESCE(mid_code, raw_data->>'mid', raw_data->>'merchantId'),
+  receipt_url = COALESCE(receipt_url, raw_data->>'customerReceiptUrl', raw_data->>'receiptUrl')
 WHERE raw_data IS NOT NULL
   AND (card_number IS NULL OR issuing_bank IS NULL OR card_classification IS NULL
-       OR card_brand IS NULL OR card_type IS NULL OR merchant_name IS NULL);
+       OR card_brand IS NULL OR card_type IS NULL OR merchant_name IS NULL
+       OR customer_name IS NULL OR auth_code IS NULL OR rrn IS NULL
+       OR external_ref IS NULL OR mid_code IS NULL OR receipt_url IS NULL);

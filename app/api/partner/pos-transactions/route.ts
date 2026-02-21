@@ -21,7 +21,6 @@ export const fetchCache = 'force-no-store'
  * - status: AUTHORIZED | CAPTURED | FAILED | REFUNDED | VOIDED (optional)
  * - terminal_id: Filter by TID (optional)
  * - payment_mode: CARD | UPI | NFC (optional)
- * - settlement_status: PENDING | SETTLED | FAILED (optional)
  * - page: Page number (default: 1)
  * - page_size: Records per page (default: 50, max: 100)
  */
@@ -90,7 +89,6 @@ export async function POST(request: NextRequest) {
       status,
       terminal_id,
       payment_mode,
-      settlement_status,
       page = 1,
       page_size = 50,
     } = body
@@ -216,14 +214,12 @@ export async function POST(request: NextRequest) {
         },
         summary: {
           total_transactions: 0,
-          total_amount_paisa: 0,
-          total_amount_rupees: '0.00',
+          total_amount: '0.00',
           authorized_count: 0,
           captured_count: 0,
           failed_count: 0,
           refunded_count: 0,
-          captured_amount_paisa: 0,
-          captured_amount_rupees: '0.00',
+          captured_amount: '0.00',
           terminal_count: 0,
         },
       })
@@ -251,14 +247,12 @@ export async function POST(request: NextRequest) {
         },
         summary: {
           total_transactions: 0,
-          total_amount_paisa: 0,
-          total_amount_rupees: '0.00',
+          total_amount: '0.00',
           authorized_count: 0,
           captured_count: 0,
           failed_count: 0,
           refunded_count: 0,
-          captured_amount_paisa: 0,
-          captured_amount_rupees: '0.00',
+          captured_amount: '0.00',
           terminal_count: 0,
         },
       })
@@ -329,65 +323,55 @@ export async function POST(request: NextRequest) {
 
     // Calculate summary
     const allTransactions = allTxns || []
-    const totalAmountPaisa = allTransactions.reduce((sum: number, t: any) => {
-      const amt = parseFloat(t.amount) || 0
-      // razorpay_pos_transactions stores amount in rupees; convert to paisa
-      return sum + Math.round(amt * 100)
-    }, 0)
 
-    const authorizedCount = allTransactions.filter((t: any) => {
-      const s = (t.display_status || t.status || '').toUpperCase()
-      return s === 'AUTHORIZED'
-    }).length
+    const getStatus = (t: any) => (t.display_status || t.status || '').toUpperCase()
+    const getAmountRupees = (t: any) => parseFloat(t.amount) || 0
 
-    const capturedCount = allTransactions.filter((t: any) => {
-      const s = (t.display_status || t.status || '').toUpperCase()
-      return s === 'SUCCESS' || s === 'CAPTURED'
-    }).length
-
-    const failedCount = allTransactions.filter((t: any) => {
-      const s = (t.display_status || t.status || '').toUpperCase()
-      return s === 'FAILED'
-    }).length
-
-    const refundedCount = allTransactions.filter((t: any) => {
-      const s = (t.display_status || t.status || '').toUpperCase()
-      return s === 'REFUNDED'
-    }).length
-
-    const capturedAmountPaisa = allTransactions
-      .filter((t: any) => {
-        const s = (t.display_status || t.status || '').toUpperCase()
-        return s === 'SUCCESS' || s === 'CAPTURED'
-      })
-      .reduce((sum: number, t: any) => {
-        const amt = parseFloat(t.amount) || 0
-        return sum + Math.round(amt * 100)
-      }, 0)
-
+    const totalAmount = allTransactions.reduce((sum: number, t: any) => sum + getAmountRupees(t), 0)
+    const authorizedCount = allTransactions.filter((t: any) => getStatus(t) === 'AUTHORIZED').length
+    const capturedCount = allTransactions.filter((t: any) => getStatus(t) === 'SUCCESS' || getStatus(t) === 'CAPTURED').length
+    const failedCount = allTransactions.filter((t: any) => getStatus(t) === 'FAILED').length
+    const refundedCount = allTransactions.filter((t: any) => getStatus(t) === 'REFUNDED').length
+    const capturedAmount = allTransactions
+      .filter((t: any) => getStatus(t) === 'SUCCESS' || getStatus(t) === 'CAPTURED')
+      .reduce((sum: number, t: any) => sum + getAmountRupees(t), 0)
     const uniqueTerminals = new Set(allTransactions.map((t: any) => t.tid).filter(Boolean))
 
     // ========================================================================
-    // Step 5: Format response (matching Postman collection schema)
+    // Step 5: Format response — use dedicated columns with raw_data fallback
     // ========================================================================
-    const formattedTransactions = (transactions || []).map((tx: any) => ({
-      id: tx.id,
-      razorpay_txn_id: tx.txn_id,
-      external_ref: tx.raw_data?.externalRefNumber || null,
-      terminal_id: tx.tid,
-      amount: Math.round((parseFloat(tx.amount) || 0) * 100), // Convert rupees to paisa
-      status: tx.display_status === 'SUCCESS' ? 'CAPTURED' : (tx.display_status || tx.status || 'PENDING'),
-      rrn: tx.raw_data?.rrNumber || null,
-      card_brand: tx.raw_data?.paymentCardBrand || tx.raw_data?.cardBrand || null,
-      card_type: tx.raw_data?.paymentCardType || tx.raw_data?.cardType || null,
-      payment_mode: tx.payment_mode || null,
-      settlement_status: tx.raw_data?.settlementStatus || 'PENDING',
-      device_serial: tx.device_serial,
-      txn_time: tx.transaction_time,
-      created_at: tx.created_at,
-      retailer_code: null,  // TODO: enrich from mapping if needed
-      retailer_name: null,
-    }))
+    const formattedTransactions = (transactions || []).map((tx: any) => {
+      const rd = tx.raw_data || {}
+      return {
+        id: tx.id,
+        razorpay_txn_id: tx.txn_id,
+        external_ref: tx.external_ref || rd.externalRefNumber || null,
+        terminal_id: tx.tid,
+        amount: (parseFloat(tx.amount) || 0).toFixed(2),
+        status: tx.display_status === 'SUCCESS' ? 'CAPTURED' : (tx.display_status || tx.status || 'PENDING'),
+        rrn: tx.rrn || rd.rrNumber || null,
+        card_brand: tx.card_brand || rd.paymentCardBrand || rd.cardBrand || null,
+        card_type: tx.card_type || rd.paymentCardType || rd.cardType || null,
+        payment_mode: tx.payment_mode || null,
+        device_serial: tx.device_serial,
+        txn_time: tx.transaction_time,
+        created_at: tx.created_at,
+        customer_name: tx.customer_name || rd.customerName || rd.payerName || null,
+        payer_name: tx.payer_name || rd.payerName || null,
+        username: tx.username || rd.username || null,
+        txn_type: tx.txn_type || rd.txnType || 'CHARGE',
+        auth_code: tx.auth_code || rd.authCode || null,
+        card_number: tx.card_number || rd.cardNumber || rd.maskedCardNumber || null,
+        issuing_bank: tx.issuing_bank || rd.issuingBankName || rd.bankName || rd.issuingBank || null,
+        card_classification: tx.card_classification || rd.cardClassification || rd.cardCategory || null,
+        card_txn_type: tx.card_txn_type || rd.cardTxnType || rd.cardTransactionType || rd.entryMode || null,
+        acquiring_bank: tx.acquiring_bank || rd.acquiringBank || rd.acquiringBankName || rd.acquirerCode || null,
+        mid: tx.mid_code || rd.mid || rd.merchantId || null,
+        currency: tx.currency || rd.currencyCode || 'INR',
+        receipt_url: tx.receipt_url || rd.customerReceiptUrl || rd.receiptUrl || null,
+        posting_date: tx.posting_date || null,
+      }
+    })
 
     const totalRecords = count || 0
     const totalPages = totalRecords > 0 ? Math.ceil(totalRecords / pageSizeNum) : 0
@@ -405,14 +389,12 @@ export async function POST(request: NextRequest) {
       },
       summary: {
         total_transactions: allTransactions.length,
-        total_amount_paisa: totalAmountPaisa,
-        total_amount_rupees: (totalAmountPaisa / 100).toFixed(2),
+        total_amount: totalAmount.toFixed(2),
         authorized_count: authorizedCount,
         captured_count: capturedCount,
         failed_count: failedCount,
         refunded_count: refundedCount,
-        captured_amount_paisa: capturedAmountPaisa,
-        captured_amount_rupees: (capturedAmountPaisa / 100).toFixed(2),
+        captured_amount: capturedAmount.toFixed(2),
         terminal_count: uniqueTerminals.size,
       },
     })
