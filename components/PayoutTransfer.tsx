@@ -113,6 +113,7 @@ export default function PayoutTransfer({ title }: PayoutTransferProps = {}) {
   const [recentTransactions, setRecentTransactions] = useState<PayoutTransaction[]>([])
   const [loadingTransactions, setLoadingTransactions] = useState(false)
   const [activeView, setActiveView] = useState<'transfer' | 'history'>('transfer')
+  const [checkingStatusId, setCheckingStatusId] = useState<string | null>(null)
   
   // Saved beneficiaries - Show saved accounts first if available
   const [savedBeneficiaries, setSavedBeneficiaries] = useState<SavedBeneficiary[]>([])
@@ -352,6 +353,32 @@ export default function PayoutTransfer({ title }: PayoutTransferProps = {}) {
       console.error('Error polling transaction status:', err)
     }
     return null
+  }, [user?.partner_id])
+
+  // Check status for a specific transaction in the history list
+  const checkHistoryTxStatus = useCallback(async (txId: string) => {
+    if (!user?.partner_id || !txId) return
+    setCheckingStatusId(txId)
+    try {
+      const result = await apiFetchJson<{
+        success: boolean
+        transaction?: { id: string; status: string; rrn?: string; failure_reason?: string; completed_at?: string }
+      }>(`/api/payout/status?transactionId=${txId}&user_id=${user.partner_id}`)
+
+      if (result.success && result.transaction) {
+        setRecentTransactions(prev =>
+          prev.map(tx =>
+            tx.id === txId
+              ? { ...tx, status: result.transaction!.status.toUpperCase(), rrn: result.transaction!.rrn || tx.rrn, failure_reason: result.transaction!.failure_reason, completed_at: result.transaction!.completed_at }
+              : tx
+          )
+        )
+      }
+    } catch (err) {
+      console.error('Error checking transaction status:', err)
+    } finally {
+      setCheckingStatusId(null)
+    }
   }, [user?.partner_id])
 
   // Fetch saved beneficiaries
@@ -630,6 +657,21 @@ export default function PayoutTransfer({ title }: PayoutTransferProps = {}) {
     
     return () => clearTimeout(timer)
   }, [step, transferResult?.id, transferResult?.status, pollTransactionStatus, fetchRecentTransactions])
+
+  // Auto-check status for PENDING/PROCESSING transactions when history loads
+  useEffect(() => {
+    if (activeView !== 'history' || recentTransactions.length === 0) return
+    const pendingTxs = recentTransactions.filter(tx =>
+      ['PENDING', 'PROCESSING'].includes(tx.status.toUpperCase())
+    )
+    if (pendingTxs.length === 0) return
+    // Check up to 5 pending transactions in parallel
+    pendingTxs.slice(0, 5).forEach(tx => {
+      checkHistoryTxStatus(tx.id)
+    })
+  // Only run when activeView switches to 'history' (not on every recentTransactions change)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeView])
 
   // Initialize sender details from user profile
   useEffect(() => {
@@ -1760,9 +1802,21 @@ export default function PayoutTransfer({ title }: PayoutTransferProps = {}) {
                       <td className="px-4 py-3 text-sm font-semibold text-gray-900 dark:text-gray-200">₹{tx.amount.toLocaleString('en-IN')}</td>
                       <td className="px-4 py-3 text-sm text-gray-900 dark:text-gray-200">{tx.transfer_mode}</td>
                       <td className="px-4 py-3">
-                        <span className={`px-2 py-0.5 rounded text-xs font-semibold ${getStatusColor(tx.status)}`}>
-                          {tx.status}
-                        </span>
+                        <div className="flex items-center gap-2">
+                          <span className={`px-2 py-0.5 rounded text-xs font-semibold ${getStatusColor(tx.status)}`}>
+                            {tx.status}
+                          </span>
+                          {['PENDING', 'PROCESSING'].includes(tx.status.toUpperCase()) && (
+                            <button
+                              onClick={() => checkHistoryTxStatus(tx.id)}
+                              disabled={checkingStatusId === tx.id}
+                              className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 disabled:opacity-50"
+                              title="Check latest status"
+                            >
+                              <RefreshCw className={`w-3.5 h-3.5 ${checkingStatusId === tx.id ? 'animate-spin' : ''}`} />
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))}

@@ -133,35 +133,9 @@ export async function GET(request: NextRequest) {
     // For timeout transactions without UTR, we can't check - they stay as processing
     if (['pending', 'processing'].includes(transaction.status)) {
       if (!transaction.transaction_id) {
-        // No UTR available - can't check status with SparkUp
-        // For transactions older than 5 minutes without UTR, assume success (money was likely transferred)
-        const txAge = Date.now() - new Date(transaction.created_at).getTime()
-        const fiveMinutes = 5 * 60 * 1000
-        
-        if (txAge > fiveMinutes) {
-          // Mark as success after 5 minutes (money was debited, likely transferred)
-          await supabaseAdmin
-            .from('payout_transactions')
-            .update({ 
-              status: 'success',
-              completed_at: new Date().toISOString(),
-              updated_at: new Date().toISOString()
-            })
-            .eq('id', transaction.id)
-          
-          // Update ledger status
-          if (transaction.wallet_debit_id) {
-            await supabaseAdmin
-              .from('wallet_ledger')
-              .update({ status: 'completed' })
-              .eq('id', transaction.wallet_debit_id)
-          }
-          
-          transaction.status = 'success'
-          transaction.completed_at = new Date().toISOString()
-        }
-        
-        // Return current status (can't check with provider)
+        // No UTR available — can't verify with SparkUp.
+        // DO NOT auto-mark as success; wallet was debited but transfer
+        // may not have completed. Keep as PENDING for manual review.
         const response = NextResponse.json({
           success: true,
           transaction: {
