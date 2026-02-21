@@ -17,7 +17,6 @@ const logger = require('../utils/logger');
  *   status          - AUTHORIZED | CAPTURED | FAILED | REFUNDED | VOIDED
  *   terminal_id     - Filter by terminal
  *   payment_mode    - CARD | UPI | NFC
- *   settlement_status - PENDING | SETTLED | FAILED
  *   page            - Page number (default 1)
  *   page_size       - Records per page (default 50, max 100)
  */
@@ -31,7 +30,6 @@ async function getTransactions(req, res, next) {
       status,
       terminal_id,
       payment_mode,
-      settlement_status,
       page = 1,
       page_size = 50,
     } = req.body;
@@ -80,7 +78,6 @@ async function getTransactions(req, res, next) {
       status: status || null,
       terminalId: terminal_id || null,
       paymentMode: payment_mode || null,
-      settlementStatus: settlement_status || null,
       page: pageNum,
       pageSize: pageSizeNum,
     });

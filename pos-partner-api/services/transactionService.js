@@ -20,7 +20,6 @@ async function getTransactions({
   status,
   terminalId,
   paymentMode,
-  settlementStatus,
   page = 1,
   pageSize = 50,
 }) {
@@ -67,14 +66,12 @@ async function getTransactions({
       pageSize,
       summary: {
         total_transactions: 0,
-        total_amount_paisa: 0,
-        total_amount_rupees: '0.00',
+        total_amount: '0.00',
         authorized_count: 0,
         captured_count: 0,
         failed_count: 0,
         refunded_count: 0,
-        captured_amount_paisa: 0,
-        captured_amount_rupees: '0.00',
+        captured_amount: '0.00',
         terminal_count: 0,
       },
     };
@@ -124,7 +121,6 @@ async function getTransactions({
   // Terminal filter (validated against partner ownership)
   if (terminalId) {
     if (!uniqueTids.includes(terminalId)) {
-      // Terminal not owned by this partner - return empty
       return {
         transactions: [],
         total: 0,
@@ -132,14 +128,12 @@ async function getTransactions({
         pageSize,
         summary: {
           total_transactions: 0,
-          total_amount_paisa: 0,
-          total_amount_rupees: '0.00',
+          total_amount: '0.00',
           authorized_count: 0,
           captured_count: 0,
           failed_count: 0,
           refunded_count: 0,
-          captured_amount_paisa: 0,
-          captured_amount_rupees: '0.00',
+          captured_amount: '0.00',
           terminal_count: 0,
         },
       };
@@ -188,7 +182,7 @@ async function getTransactions({
       rpt.txn_id AS razorpay_txn_id,
       COALESCE(rpt.external_ref, rpt.raw_data->>'externalRefNumber') AS external_ref,
       rpt.tid AS terminal_id,
-      rpt.amount,
+      TO_CHAR(rpt.amount, 'FM999999999990.00') AS amount,
       CASE 
         WHEN rpt.display_status = 'SUCCESS' THEN 'CAPTURED'
         ELSE COALESCE(rpt.display_status, rpt.status, 'PENDING')
@@ -197,12 +191,9 @@ async function getTransactions({
       COALESCE(rpt.card_brand, rpt.raw_data->>'paymentCardBrand', rpt.raw_data->>'cardBrand') AS card_brand,
       COALESCE(rpt.card_type, rpt.raw_data->>'paymentCardType', rpt.raw_data->>'cardType') AS card_type,
       rpt.payment_mode,
-      COALESCE(rpt.settlement_status, rpt.raw_data->>'settlementStatus', 'PENDING') AS settlement_status,
       rpt.device_serial,
       rpt.transaction_time AS txn_time,
       rpt.created_at,
-      NULL AS retailer_code,
-      NULL AS retailer_name,
       COALESCE(rpt.customer_name, rpt.raw_data->>'customerName', rpt.raw_data->>'payerName') AS customer_name,
       COALESCE(rpt.payer_name, rpt.raw_data->>'payerName') AS payer_name,
       COALESCE(rpt.username, rpt.raw_data->>'username') AS username,
@@ -211,12 +202,12 @@ async function getTransactions({
       COALESCE(rpt.card_number, rpt.raw_data->>'cardNumber', rpt.raw_data->>'maskedCardNumber') AS card_number,
       COALESCE(rpt.issuing_bank, rpt.raw_data->>'issuingBankName', rpt.raw_data->>'bankName', rpt.raw_data->>'issuingBank') AS issuing_bank,
       COALESCE(rpt.card_classification, rpt.raw_data->>'cardClassification', rpt.raw_data->>'cardCategory') AS card_classification,
+      COALESCE(rpt.card_txn_type, rpt.raw_data->>'cardTxnType', rpt.raw_data->>'cardTransactionType', rpt.raw_data->>'entryMode') AS card_txn_type,
+      COALESCE(rpt.acquiring_bank, rpt.raw_data->>'acquiringBank', rpt.raw_data->>'acquiringBankName', rpt.raw_data->>'acquirerCode') AS acquiring_bank,
       COALESCE(rpt.mid_code, rpt.raw_data->>'mid', rpt.raw_data->>'merchantId') AS mid,
       COALESCE(rpt.currency, rpt.raw_data->>'currencyCode', 'INR') AS currency,
-      rpt.settled_on,
       COALESCE(rpt.receipt_url, rpt.raw_data->>'customerReceiptUrl', rpt.raw_data->>'receiptUrl') AS receipt_url,
-      rpt.posting_date,
-      rpt.merchant_name
+      rpt.posting_date
     FROM razorpay_pos_transactions rpt
     WHERE ${whereClause}
     ORDER BY rpt.transaction_time DESC
@@ -233,31 +224,19 @@ async function getTransactions({
   const total = parseInt(countResult.rows[0].total, 10);
   const summary = summaryResult.rows[0];
 
-  // razorpay_pos_transactions stores amount in rupees, convert to paisa for API response
-  const totalAmountPaisa = Math.round(parseFloat(summary.total_amount) * 100);
-  const capturedAmountPaisa = Math.round(parseFloat(summary.captured_amount) * 100);
-
   const formattedSummary = {
     total_transactions: parseInt(summary.total_transactions, 10),
-    total_amount_paisa: totalAmountPaisa,
-    total_amount_rupees: (totalAmountPaisa / 100).toFixed(2),
+    total_amount: parseFloat(summary.total_amount).toFixed(2),
     authorized_count: parseInt(summary.authorized_count, 10),
     captured_count: parseInt(summary.captured_count, 10),
     failed_count: parseInt(summary.failed_count, 10),
     refunded_count: parseInt(summary.refunded_count, 10),
-    captured_amount_paisa: capturedAmountPaisa,
-    captured_amount_rupees: (capturedAmountPaisa / 100).toFixed(2),
+    captured_amount: parseFloat(summary.captured_amount).toFixed(2),
     terminal_count: parseInt(summary.terminal_count, 10),
   };
 
-  // Convert amounts in data rows from rupees to paisa
-  const formattedTransactions = dataResult.rows.map(row => ({
-    ...row,
-    amount: Math.round(parseFloat(row.amount) * 100),
-  }));
-
   return {
-    transactions: formattedTransactions,
+    transactions: dataResult.rows,
     total,
     page,
     pageSize,
@@ -367,6 +346,9 @@ async function processWebhookTransaction(payload) {
   const currency = payload.currencyCode || payload.currency || 'INR';
   const receiptUrl = payload.customerReceiptUrl || payload.receiptUrl || null;
   const postingDateVal = postingDate ? new Date(postingDate) : null;
+  const cardTxnType = payload.cardTxnType || payload.cardTransactionType || payload.entryMode || null;
+  const acquiringBank = payload.acquiringBank || payload.acquiringBankName || payload.acquirerCode || null;
+  const merchantName = payload.merchantName || null;
 
   // Insert new transaction
   const insertResult = await db.query(
@@ -377,9 +359,9 @@ async function processWebhookTransaction(payload) {
       settlement_status, device_serial, txn_time, raw_payload,
       customer_name, payer_name, username, txn_type, auth_code,
       card_number, issuing_bank, card_classification, mid, currency,
-      receipt_url, posting_date
+      receipt_url, posting_date, card_txn_type, acquiring_bank, merchant_name
     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
-              $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27)
+              $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30)
     RETURNING id`,
     [
       machine.partner_id,
@@ -409,6 +391,9 @@ async function processWebhookTransaction(payload) {
       currency,
       receiptUrl,
       postingDateVal,
+      cardTxnType,
+      acquiringBank,
+      merchantName,
     ]
   );
 

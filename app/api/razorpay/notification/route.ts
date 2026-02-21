@@ -238,6 +238,8 @@ export async function POST(request: NextRequest) {
     const cardType = normalizedPayload.paymentCardType || normalizedPayload.cardType || null
     const currencyCode = normalizedPayload.currencyCode || normalizedPayload.currency || 'INR'
     const customerReceiptUrl = normalizedPayload.customerReceiptUrl || normalizedPayload.receiptUrl || null
+    const cardTxnType = normalizedPayload.cardTxnType || normalizedPayload.cardTransactionType || normalizedPayload.entryMode || null
+    const acquiringBank = normalizedPayload.acquiringBank || normalizedPayload.acquiringBankName || normalizedPayload.acquirerCode || null
     const postingDateStr = normalizedPayload.postingDate || null
     const settlementStatusVal = normalizedPayload.settlementStatus || null
     const externalRef = normalizedPayload.externalRefNumber || normalizedPayload.external_ref || null
@@ -277,6 +279,8 @@ export async function POST(request: NextRequest) {
       settlement_status: settlementStatusVal,
       receipt_url: customerReceiptUrl,
       posting_date: postingDateParsed?.toISOString() || null,
+      card_txn_type: cardTxnType,
+      acquiring_bank: acquiringBank,
     }
 
     let posResult
@@ -420,6 +424,9 @@ export async function POST(request: NextRequest) {
             currency: currencyCode,
             receipt_url: customerReceiptUrl,
             posting_date: postingDateParsed?.toISOString() || null,
+            card_txn_type: cardTxnType,
+            acquiring_bank: acquiringBank,
+            merchant_name: merchantName,
           }
 
           if (existingPosTxn) {
