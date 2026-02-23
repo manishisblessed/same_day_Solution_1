@@ -6,7 +6,7 @@ import Link from 'next/link'
 import Image from 'next/image'
 import { 
   LayoutDashboard, Package, Activity, 
-  Settings, TrendingUp, Users, Network, X, Menu, Layers, CreditCard
+  Settings, TrendingUp, Users, Network, X, Menu, Layers, CreditCard, FileText
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 
@@ -25,6 +25,7 @@ const sidebarItems: SidebarItem[] = [
   { id: 'pos-machines', label: 'POS Machines', icon: CreditCard, href: '/dashboard/distributor?tab=pos-machines' },
   { id: 'scheme-management', label: 'Scheme Management', icon: Layers, href: '/dashboard/distributor?tab=scheme-management' },
   { id: 'network', label: 'Network', icon: Network, href: '/dashboard/distributor?tab=network' },
+  { id: 'service-txn-report', label: 'Service Txn Report', icon: FileText, href: '/dashboard/distributor/service-transaction-report' },
   { id: 'reports', label: 'Reports', icon: TrendingUp, href: '/dashboard/distributor?tab=reports' },
   { id: 'settings', label: 'Settings', icon: Settings, href: '/dashboard/distributor?tab=settings' },
 ]

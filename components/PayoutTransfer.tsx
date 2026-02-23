@@ -381,6 +381,22 @@ export default function PayoutTransfer({ title }: PayoutTransferProps = {}) {
     }
   }, [user?.partner_id])
 
+  // Trigger server-side pending check for this retailer's transactions
+  const triggerPendingCheck = useCallback(async () => {
+    if (!user?.partner_id) return
+    try {
+      await apiFetchJson('/api/payout/check-pending', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ retailer_id: user.partner_id }),
+      })
+      // Refresh transactions after server-side check
+      fetchRecentTransactions()
+    } catch (err) {
+      console.error('Error triggering pending check:', err)
+    }
+  }, [user?.partner_id, fetchRecentTransactions])
+
   // Fetch saved beneficiaries
   const fetchSavedBeneficiaries = useCallback(async () => {
     if (!user?.partner_id) {
@@ -618,7 +634,7 @@ export default function PayoutTransfer({ title }: PayoutTransferProps = {}) {
     }
   }
 
-  // Initial load
+  // Initial load — also trigger server-side pending check to resolve stuck transactions
   useEffect(() => {
     fetchWalletBalance()
     fetchBanks()
@@ -626,9 +642,17 @@ export default function PayoutTransfer({ title }: PayoutTransferProps = {}) {
     fetchSavedBeneficiaries()
     fetchSchemeCharges()
     
+    // Auto-resolve any stuck pending transactions on load
+    const pendingCheckTimer = setTimeout(() => {
+      triggerPendingCheck()
+    }, 2000)
+    
     const interval = setInterval(fetchWalletBalance, 15000)
-    return () => clearInterval(interval)
-  }, [fetchWalletBalance, fetchBanks, fetchRecentTransactions, fetchSavedBeneficiaries, fetchSchemeCharges])
+    return () => {
+      clearInterval(interval)
+      clearTimeout(pendingCheckTimer)
+    }
+  }, [fetchWalletBalance, fetchBanks, fetchRecentTransactions, fetchSavedBeneficiaries, fetchSchemeCharges, triggerPendingCheck])
 
   // Fetch exact charge when amount changes (debounced)
   useEffect(() => {
@@ -639,37 +663,82 @@ export default function PayoutTransfer({ title }: PayoutTransferProps = {}) {
     return () => clearTimeout(timer)
   }, [amountNum, fetchExactCharge])
 
-  // Auto-poll disabled - user can manually check status via "Check Status" button
-  // This prevents unnecessary spinning animations and API calls
-  // Status will be updated when user clicks "Check Status" or views "Recent Transfers"
+  // Auto-poll pending transactions after transfer — check every 10s for up to 5 min
   useEffect(() => {
     if (step !== 'result' || !transferResult?.id) return
     
     const currentStatus = transferResult.status?.toUpperCase()
-    // Only do a single status check after 3 seconds for processing transactions
     if (!['PENDING', 'PROCESSING'].includes(currentStatus)) return
     
-    // Do ONE status check after 3 seconds, no continuous polling
-    const timer = setTimeout(async () => {
-      await pollTransactionStatus(transferResult.id)
-      fetchRecentTransactions()
+    let attemptCount = 0
+    const maxAttempts = 30 // 30 × 10s = 5 minutes
+    
+    const check = async () => {
+      const status = await pollTransactionStatus(transferResult.id)
+      attemptCount++
+      if (status) {
+        const upper = status.toUpperCase()
+        if (upper === 'SUCCESS' || upper === 'FAILED' || upper === 'REFUNDED') {
+          fetchRecentTransactions()
+          return true
+        }
+      }
+      return false
+    }
+
+    // First check after 3 seconds
+    const initialTimer = setTimeout(async () => {
+      const done = await check()
+      if (done) return
+
+      // Then poll every 10 seconds
+      const interval = setInterval(async () => {
+        if (attemptCount >= maxAttempts) {
+          clearInterval(interval)
+          triggerPendingCheck()
+          return
+        }
+        const done = await check()
+        if (done) {
+          clearInterval(interval)
+        }
+      }, 10000)
+
+      // Cleanup interval
+      return () => clearInterval(interval)
     }, 3000)
     
-    return () => clearTimeout(timer)
-  }, [step, transferResult?.id, transferResult?.status, pollTransactionStatus, fetchRecentTransactions])
+    return () => clearTimeout(initialTimer)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, transferResult?.id])
 
-  // Auto-check status for PENDING/PROCESSING transactions when history loads
+  // Auto-check pending transactions: trigger server-side check + poll while on history tab
   useEffect(() => {
-    if (activeView !== 'history' || recentTransactions.length === 0) return
+    if (activeView !== 'history') return
+    
+    const hasPending = recentTransactions.some(tx =>
+      ['PENDING', 'PROCESSING'].includes(tx.status.toUpperCase())
+    )
+
+    if (!hasPending) return
+
+    // Immediately trigger a server-side batch check
+    triggerPendingCheck()
+
+    // Also check individual transactions in parallel (up to 5)
     const pendingTxs = recentTransactions.filter(tx =>
       ['PENDING', 'PROCESSING'].includes(tx.status.toUpperCase())
     )
-    if (pendingTxs.length === 0) return
-    // Check up to 5 pending transactions in parallel
     pendingTxs.slice(0, 5).forEach(tx => {
       checkHistoryTxStatus(tx.id)
     })
-  // Only run when activeView switches to 'history' (not on every recentTransactions change)
+
+    // Continue polling every 30s while pending transactions exist
+    const interval = setInterval(() => {
+      triggerPendingCheck()
+    }, 30000)
+
+    return () => clearInterval(interval)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeView])
 

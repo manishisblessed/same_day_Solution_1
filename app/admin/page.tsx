@@ -2008,10 +2008,48 @@ function AdminDashboardOverview({
   )
 }
 
-// Services Management Component
+// All services config
+const ALL_SERVICES = [
+  { key: 'banking_payments', label: 'Banking & Payments', icon: '🏦', short: 'Banking' },
+  { key: 'mini_atm_pos', label: 'Mini-ATM, POS & WPOS', icon: '🏧', short: 'POS' },
+  { key: 'aeps', label: 'AEPS Services', icon: '👆', short: 'AEPS' },
+  { key: 'aadhaar_pay', label: 'Aadhaar Pay', icon: '💳', short: 'AadhaarPay' },
+  { key: 'dmt', label: 'Domestic Money Transfer', icon: '💸', short: 'DMT' },
+  { key: 'bbps', label: 'Utility Bill Payments (BBPS)', icon: '📄', short: 'BBPS' },
+  { key: 'recharge', label: 'Mobile Recharge', icon: '📱', short: 'Recharge' },
+  { key: 'travel', label: 'Travel Services', icon: '✈️', short: 'Travel' },
+  { key: 'cash_management', label: 'Cash Management', icon: '💰', short: 'Cash' },
+  { key: 'lic', label: 'LIC Bill Payment', icon: '🛡️', short: 'LIC' },
+  { key: 'insurance', label: 'Insurance', icon: '🏥', short: 'Insurance' },
+] as const
+
+const SERVICE_FIELDS = ALL_SERVICES.map(s => `${s.key}_enabled`)
+
+// Services Management Component with Permission Control
 function ServicesManagementTab() {
+  type ServiceSubTab = 'overview' | 'permissions'
+  const [subTab, setSubTab] = useState<ServiceSubTab>('permissions')
   const [services, setServices] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  const [allUsers, setAllUsers] = useState<any[]>([])
+  const [usersLoading, setUsersLoading] = useState(false)
+  const [userSearch, setUserSearch] = useState('')
+  const [roleFilter, setRoleFilter] = useState<'all' | 'retailer' | 'distributor' | 'master_distributor'>('all')
+  const [serviceFilter, setServiceFilter] = useState<string>('all')
+  const [selectedUsers, setSelectedUsers] = useState<Set<string>>(new Set())
+  const [userPage, setUserPage] = useState(1)
+  const [togglingUser, setTogglingUser] = useState<string | null>(null)
+  const [bulkAction, setBulkAction] = useState(false)
+  const [roleToggling, setRoleToggling] = useState<string | null>(null)
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
+  const [confirmModal, setConfirmModal] = useState<{
+    open: boolean
+    title: string
+    message: string
+    onConfirm: () => void
+  }>({ open: false, title: '', message: '', onConfirm: () => {} })
+  const usersPerPage = 15
+
   const [bbpsProviderBalance, setBbpsProviderBalance] = useState<{
     balance: number | null
     lien: number | null
@@ -2028,13 +2066,11 @@ function ServicesManagementTab() {
     lastChecked: null
   })
 
-  // Fetch SparkUpTech BBPS Provider Balance
   const fetchBBPSProviderBalance = async () => {
     setBbpsProviderBalance(prev => ({ ...prev, loading: true, error: null }))
     try {
       const response = await apiFetch('/api/bbps/wallet-balance')
       const data = await response.json()
-      
       if (data.success) {
         setBbpsProviderBalance({
           balance: data.balance || 0,
@@ -2045,112 +2081,268 @@ function ServicesManagementTab() {
           lastChecked: data.last_checked || new Date().toISOString()
         })
       } else {
-        setBbpsProviderBalance({
-          balance: null,
-          lien: null,
-          available: null,
-          loading: false,
-          error: data.error || 'Failed to fetch BBPS balance',
-          lastChecked: new Date().toISOString()
-        })
+        setBbpsProviderBalance({ balance: null, lien: null, available: null, loading: false, error: data.error || 'Failed to fetch BBPS balance', lastChecked: new Date().toISOString() })
       }
     } catch (error: any) {
-      setBbpsProviderBalance({
-        balance: null,
-        lien: null,
-        available: null,
-        loading: false,
-        error: error.message || 'Failed to fetch BBPS balance',
-        lastChecked: new Date().toISOString()
-      })
+      setBbpsProviderBalance({ balance: null, lien: null, available: null, loading: false, error: error.message || 'Failed to fetch BBPS balance', lastChecked: new Date().toISOString() })
+    }
+  }
+
+  const fetchServicesData = async () => {
+    setLoading(true)
+    try {
+      const [bbpsData, aepsData, settlementData] = await Promise.all([
+        supabase.from('bbps_transactions').select('bill_amount, created_at, status').eq('status', 'success'),
+        supabase.from('aeps_transactions').select('amount, created_at, status').eq('status', 'success'),
+        supabase.from('settlements').select('amount, created_at, status').eq('status', 'success')
+      ])
+      const bbpsTransactions = bbpsData.data || []
+      const aepsTransactions = aepsData.data || []
+      const settlementTransactions = settlementData.data || []
+      const bbpsCount = bbpsTransactions.length
+      const bbpsRevenue = bbpsTransactions.reduce((sum, t) => sum + parseFloat(t.bill_amount?.toString() || '0'), 0)
+      const aepsCount = aepsTransactions.length
+      const aepsRevenue = aepsTransactions.reduce((sum, t) => sum + parseFloat(t.amount?.toString() || '0'), 0)
+      const settlementCount = settlementTransactions.length
+      const settlementRevenue = settlementTransactions.reduce((sum, t) => sum + parseFloat(t.amount?.toString() || '0'), 0)
+      setServices([
+        { id: 'bbps', name: 'BBPS (Bill Payments)', icon: '📄', status: 'active', transactions: bbpsCount, revenue: `₹${bbpsRevenue.toLocaleString('en-IN', { maximumFractionDigits: 0 })}` },
+        { id: 'aeps', name: 'AEPS Services', icon: '👆', status: 'active', transactions: aepsCount, revenue: `₹${aepsRevenue.toLocaleString('en-IN', { maximumFractionDigits: 0 })}` },
+        { id: 'settlement', name: 'Settlement', icon: '💰', status: 'active', transactions: settlementCount, revenue: `₹${settlementRevenue.toLocaleString('en-IN', { maximumFractionDigits: 0 })}` },
+        { id: 'pos', name: 'POS Transactions', icon: '💳', status: 'active', transactions: 0, revenue: '₹0' },
+      ])
+    } catch (error) {
+      console.error('Error fetching services data:', error)
+      setServices([])
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const fetchAllUsers = async () => {
+    setUsersLoading(true)
+    try {
+      const baseFields = 'partner_id, name, email, phone, business_name, status, created_at'
+      const allFieldsList = SERVICE_FIELDS.join(', ')
+      const serviceFields = `${baseFields}, ${allFieldsList}`
+
+      const defaultServices: Record<string, boolean> = {}
+      ALL_SERVICES.forEach(s => { defaultServices[`${s.key}_enabled`] = false })
+
+      const fetchTable = async (table: string, role: string) => {
+        const { data, error } = await supabase.from(table).select(serviceFields).order('created_at', { ascending: false })
+        if (error) {
+          console.warn(`Service columns not found in ${table}, fetching without them:`, error.message)
+          const { data: fallbackData } = await supabase.from(table).select(baseFields).order('created_at', { ascending: false })
+          return (fallbackData || []).map(u => ({ ...u, role, ...defaultServices }))
+        }
+        return (data || []).map(u => {
+          const user = { ...u, role }
+          ALL_SERVICES.forEach(s => {
+            const field = `${s.key}_enabled`
+            user[field] = u[field] ?? false
+          })
+          return user
+        })
+      }
+
+      const [retailers, distributors, mds] = await Promise.all([
+        fetchTable('retailers', 'retailer'),
+        fetchTable('distributors', 'distributor'),
+        fetchTable('master_distributors', 'master_distributor'),
+      ])
+
+      setAllUsers([...retailers, ...distributors, ...mds])
+    } catch (error) {
+      console.error('Error fetching users:', error)
+      setAllUsers([])
+    } finally {
+      setUsersLoading(false)
     }
   }
 
   useEffect(() => {
     fetchServicesData()
     fetchBBPSProviderBalance()
-    
-    // Auto-refresh BBPS balance every 60 seconds
+    fetchAllUsers()
     const interval = setInterval(fetchBBPSProviderBalance, 60000)
     return () => clearInterval(interval)
   }, [])
 
-  const fetchServicesData = async () => {
-    setLoading(true)
+  useEffect(() => {
+    setUserPage(1)
+    setSelectedUsers(new Set())
+  }, [userSearch, roleFilter, serviceFilter])
+
+  const showToast = (message: string, type: 'success' | 'error') => {
+    setToast({ message, type })
+    setTimeout(() => setToast(null), 3500)
+  }
+
+  const handleToggleService = async (userId: string, userRole: string, serviceType: string, enabled: boolean) => {
+    setTogglingUser(`${userId}-${serviceType}`)
     try {
-      // Fetch real transaction data from database
-      const [bbpsData, aepsData, settlementData] = await Promise.all([
-        supabase
-          .from('bbps_transactions')
-          .select('bill_amount, created_at, status')
-          .eq('status', 'success'),
-        supabase
-          .from('aeps_transactions')
-          .select('amount, created_at, status')
-          .eq('status', 'success'),
-        supabase
-          .from('settlements')
-          .select('amount, created_at, status')
-          .eq('status', 'success')
-      ])
-
-      const bbpsTransactions = bbpsData.data || []
-      const aepsTransactions = aepsData.data || []
-      const settlementTransactions = settlementData.data || []
-
-      // Calculate real statistics
-      const bbpsCount = bbpsTransactions.length
-      const bbpsRevenue = bbpsTransactions.reduce((sum, t) => sum + parseFloat(t.bill_amount?.toString() || '0'), 0)
-
-      const aepsCount = aepsTransactions.length
-      const aepsRevenue = aepsTransactions.reduce((sum, t) => sum + parseFloat(t.amount?.toString() || '0'), 0)
-
-      const settlementCount = settlementTransactions.length
-      const settlementRevenue = settlementTransactions.reduce((sum, t) => sum + parseFloat(t.amount?.toString() || '0'), 0)
-
-      // Build services array with real data
-      const servicesList = [
-        { 
-          id: 'bbps', 
-          name: 'BBPS (Bill Payments)', 
-          icon: '📄', 
-          status: 'active', 
-          transactions: bbpsCount, 
-          revenue: `₹${bbpsRevenue.toLocaleString('en-IN', { maximumFractionDigits: 0 })}` 
-        },
-        { 
-          id: 'aeps', 
-          name: 'AEPS Services', 
-          icon: '👆', 
-          status: 'active', 
-          transactions: aepsCount, 
-          revenue: `₹${aepsRevenue.toLocaleString('en-IN', { maximumFractionDigits: 0 })}` 
-        },
-        { 
-          id: 'settlement', 
-          name: 'Settlement', 
-          icon: '💰', 
-          status: 'active', 
-          transactions: settlementCount, 
-          revenue: `₹${settlementRevenue.toLocaleString('en-IN', { maximumFractionDigits: 0 })}` 
-        },
-        { 
-          id: 'pos', 
-          name: 'POS Transactions', 
-          icon: '💳', 
-          status: 'active', 
-          transactions: 0, 
-          revenue: '₹0' 
-        },
-      ]
-
-      setServices(servicesList)
-    } catch (error) {
-      console.error('Error fetching services data:', error)
-      // Fallback to empty services if error
-      setServices([])
+      const response = await apiFetch('/api/admin/user/services/toggle', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: userId, user_role: userRole, service_type: serviceType, enabled })
+      })
+      const data = await response.json()
+      if (data.success) {
+        setAllUsers(prev => prev.map(u => u.partner_id === userId ? { ...u, [`${serviceType}_enabled`]: enabled } : u))
+        showToast(`${serviceType.toUpperCase()} ${enabled ? 'enabled' : 'disabled'} successfully`, 'success')
+      } else {
+        showToast(data.error || 'Failed to toggle service', 'error')
+      }
+    } catch {
+      showToast('Failed to toggle service', 'error')
     } finally {
-      setLoading(false)
+      setTogglingUser(null)
+    }
+  }
+
+  const handleRoleToggle = async (userRole: string, serviceType: string, enabled: boolean) => {
+    const roleLabel = userRole.replace('_', ' ')
+    setConfirmModal({
+      open: true,
+      title: `${enabled ? 'Enable' : 'Disable'} ${serviceType.toUpperCase()} for all ${roleLabel}s?`,
+      message: `This will ${enabled ? 'enable' : 'disable'} ${serviceType.toUpperCase()} for every ${roleLabel} in the system. This action can be reversed.`,
+      onConfirm: async () => {
+        setConfirmModal(prev => ({ ...prev, open: false }))
+        setRoleToggling(`${userRole}-${serviceType}`)
+        try {
+          const response = await apiFetch('/api/admin/user/services/role-toggle', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ user_role: userRole, service_type: serviceType, enabled })
+          })
+          const data = await response.json()
+          if (data.success) {
+            setAllUsers(prev => prev.map(u => u.role === userRole ? { ...u, [`${serviceType}_enabled`]: enabled } : u))
+            showToast(data.message, 'success')
+          } else {
+            showToast(data.error || 'Failed to toggle service', 'error')
+          }
+        } catch {
+          showToast('Failed to toggle service by role', 'error')
+        } finally {
+          setRoleToggling(null)
+        }
+      }
+    })
+  }
+
+  const handleBulkToggle = async (serviceType: string, enabled: boolean) => {
+    if (selectedUsers.size === 0) return
+    const usersToToggle = allUsers.filter(u => selectedUsers.has(u.partner_id)).map(u => ({ user_id: u.partner_id, user_role: u.role }))
+    setConfirmModal({
+      open: true,
+      title: `${enabled ? 'Enable' : 'Disable'} ${serviceType.toUpperCase()} for ${usersToToggle.length} selected users?`,
+      message: `This will ${enabled ? 'enable' : 'disable'} ${serviceType.toUpperCase()} for the selected users.`,
+      onConfirm: async () => {
+        setConfirmModal(prev => ({ ...prev, open: false }))
+        setBulkAction(true)
+        try {
+          const response = await apiFetch('/api/admin/user/services/bulk-toggle', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ users: usersToToggle, service_type: serviceType, enabled })
+          })
+          const data = await response.json()
+          if (data.success) {
+            const successIds = new Set(data.results.filter((r: any) => r.success).map((r: any) => r.user_id))
+            setAllUsers(prev => prev.map(u => successIds.has(u.partner_id) ? { ...u, [`${serviceType}_enabled`]: enabled } : u))
+            showToast(data.message, 'success')
+            setSelectedUsers(new Set())
+          } else {
+            showToast(data.error || 'Bulk toggle failed', 'error')
+          }
+        } catch {
+          showToast('Bulk toggle failed', 'error')
+        } finally {
+          setBulkAction(false)
+        }
+      }
+    })
+  }
+
+  const filteredUsers = useMemo(() => {
+    return allUsers.filter(u => {
+      if (roleFilter !== 'all' && u.role !== roleFilter) return false
+      if (serviceFilter !== 'all') {
+        const match = serviceFilter.match(/^(.+)_(enabled|disabled)$/)
+        if (match) {
+          const field = `${match[1]}_enabled`
+          const wantEnabled = match[2] === 'enabled'
+          if (wantEnabled && !u[field]) return false
+          if (!wantEnabled && u[field]) return false
+        }
+      }
+      if (userSearch) {
+        const q = userSearch.toLowerCase()
+        return (u.name?.toLowerCase().includes(q) || u.email?.toLowerCase().includes(q) || u.partner_id?.toLowerCase().includes(q) || u.business_name?.toLowerCase().includes(q) || u.phone?.includes(q))
+      }
+      return true
+    })
+  }, [allUsers, roleFilter, serviceFilter, userSearch])
+
+  const totalUserPages = Math.ceil(filteredUsers.length / usersPerPage)
+  const paginatedUsers = filteredUsers.slice((userPage - 1) * usersPerPage, userPage * usersPerPage)
+
+  const roleCounts = useMemo(() => {
+    const counts: Record<string, { total: number; services: Record<string, number> }> = {
+      retailer: { total: 0, services: {} },
+      distributor: { total: 0, services: {} },
+      master_distributor: { total: 0, services: {} },
+    }
+    ALL_SERVICES.forEach(s => {
+      counts.retailer.services[s.key] = 0
+      counts.distributor.services[s.key] = 0
+      counts.master_distributor.services[s.key] = 0
+    })
+    allUsers.forEach(u => {
+      if (counts[u.role]) {
+        counts[u.role].total++
+        ALL_SERVICES.forEach(s => {
+          if (u[`${s.key}_enabled`]) counts[u.role].services[s.key]++
+        })
+      }
+    })
+    return counts
+  }, [allUsers])
+
+  const toggleSelectAll = () => {
+    if (selectedUsers.size === paginatedUsers.length) {
+      setSelectedUsers(new Set())
+    } else {
+      setSelectedUsers(new Set(paginatedUsers.map(u => u.partner_id)))
+    }
+  }
+
+  const toggleSelectUser = (partnerId: string) => {
+    setSelectedUsers(prev => {
+      const next = new Set(prev)
+      if (next.has(partnerId)) next.delete(partnerId)
+      else next.add(partnerId)
+      return next
+    })
+  }
+
+  const roleLabel = (role: string) => {
+    switch (role) {
+      case 'retailer': return 'Retailer'
+      case 'distributor': return 'Distributor'
+      case 'master_distributor': return 'Master Distributor'
+      default: return role
+    }
+  }
+
+  const roleBadgeColor = (role: string) => {
+    switch (role) {
+      case 'retailer': return 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400'
+      case 'distributor': return 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400'
+      case 'master_distributor': return 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400'
+      default: return 'bg-gray-100 text-gray-800'
     }
   }
 
@@ -2164,82 +2356,533 @@ function ServicesManagementTab() {
 
   return (
     <div className="space-y-3">
-      {/* Services Grid */}
-      <motion.div
-        transition={{ delay: 0.1 }}
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2 sm:gap-3"
-      >
-        {services.map((service, idx) => (
+      {/* Toast */}
+      <AnimatePresence>
+        {toast && (
           <motion.div
-            key={service.id}
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ delay: idx * 0.05 }}
-            className="bg-white dark:bg-gray-800 rounded-lg shadow-md border border-gray-200 dark:border-gray-700 p-4 hover:shadow-lg transition-shadow"
+            initial={{ opacity: 0, y: -30 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -30 }}
+            className={`fixed top-20 right-4 z-50 px-4 py-3 rounded-lg shadow-lg text-sm font-medium ${
+              toast.type === 'success' ? 'bg-green-600 text-white' : 'bg-red-600 text-white'
+            }`}
           >
-            <div className="flex items-start justify-between mb-3">
-              <div className="flex items-center gap-3">
-                <div className="text-3xl">{service.icon}</div>
-                <div className="flex-1 min-w-0">
-                  <h3 className="text-sm font-semibold text-gray-900 dark:text-white truncate">{service.name}</h3>
-                  <span className={`inline-block mt-1 px-2 py-0.5 text-xs rounded-full ${
-                    service.status === 'active' 
-                      ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400' 
-                      : 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
-                  }`}>
-                    {service.status}
-                  </span>
-                </div>
-              </div>
-            </div>
-            <div className="space-y-2 pt-3 border-t border-gray-200 dark:border-gray-700">
-              <div className="flex justify-between text-xs">
-                <span className="text-gray-600 dark:text-gray-400">Transactions</span>
-                <span className="font-semibold text-gray-900 dark:text-white">{service.transactions.toLocaleString()}</span>
-              </div>
-              <div className="flex justify-between text-xs">
-                <span className="text-gray-600 dark:text-gray-400">Revenue</span>
-                <span className="font-semibold text-green-600 dark:text-green-400">{service.revenue}</span>
-              </div>
-            </div>
-            <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700 flex gap-2">
-              <button className="flex-1 px-2 py-1.5 text-xs bg-primary-50 dark:bg-primary-900/20 text-primary-600 dark:text-primary-400 rounded hover:bg-primary-100 dark:hover:bg-primary-900/30 transition-colors">
-                Manage
-              </button>
-              <button className="px-2 py-1.5 text-xs bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors">
-                <Settings className="w-3.5 h-3.5" />
-              </button>
+            <div className="flex items-center gap-2">
+              {toast.type === 'success' ? <CheckCircle2 className="w-4 h-4" /> : <XCircle className="w-4 h-4" />}
+              {toast.message}
             </div>
           </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Confirmation Modal */}
+      <AnimatePresence>
+        {confirmModal.open && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
+            onClick={() => setConfirmModal(prev => ({ ...prev, open: false }))}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-white dark:bg-gray-800 rounded-xl shadow-xl p-6 max-w-md w-full"
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-10 h-10 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center">
+                  <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400" />
+                </div>
+                <h3 className="text-base font-semibold text-gray-900 dark:text-white">{confirmModal.title}</h3>
+              </div>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-6">{confirmModal.message}</p>
+              <div className="flex gap-3 justify-end">
+                <button
+                  onClick={() => setConfirmModal(prev => ({ ...prev, open: false }))}
+                  className="px-4 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={confirmModal.onConfirm}
+                  className="px-4 py-2 text-sm rounded-lg bg-primary-600 text-white hover:bg-primary-700 transition-colors"
+                >
+                  Confirm
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Sub-tab Navigation */}
+      <div className="flex items-center gap-2 border-b border-gray-200 dark:border-gray-700 pb-2">
+        {[
+          { id: 'permissions' as ServiceSubTab, label: 'Permission Control', icon: Shield },
+          { id: 'overview' as ServiceSubTab, label: 'Service Overview', icon: Activity },
+        ].map(tab => (
+          <button
+            key={tab.id}
+            onClick={() => setSubTab(tab.id)}
+            className={`flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg transition-all ${
+              subTab === tab.id
+                ? 'bg-gradient-to-r from-primary-500 to-secondary-500 text-white shadow-md'
+                : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
+            }`}
+          >
+            <tab.icon className="w-4 h-4" />
+            {tab.label}
+          </button>
         ))}
+      </div>
+
+      {subTab === 'overview' ? (
+        <ServiceOverviewPanel services={services} bbpsProviderBalance={bbpsProviderBalance} onRefreshBalance={fetchBBPSProviderBalance} />
+      ) : (
+        <>
+          {/* Role-wise Service Activation */}
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}>
+            <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-2 flex items-center gap-2">
+              <Crown className="w-4 h-4 text-amber-500" />
+              Role-wise Service Activation
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              {(['retailer', 'distributor', 'master_distributor'] as const).map((role) => {
+                const counts = roleCounts[role]
+                const roleIcons: Record<string, any> = { retailer: Users, distributor: Package, master_distributor: Crown }
+                const RoleIcon = roleIcons[role]
+                const gradients: Record<string, string> = {
+                  retailer: 'from-blue-500 to-blue-600',
+                  distributor: 'from-purple-500 to-purple-600',
+                  master_distributor: 'from-amber-500 to-amber-600',
+                }
+                return (
+                  <motion.div
+                    key={role}
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    className="bg-white dark:bg-gray-800 rounded-lg shadow-md border border-gray-200 dark:border-gray-700 overflow-hidden"
+                  >
+                    <div className={`bg-gradient-to-r ${gradients[role]} px-4 py-3 flex items-center gap-2`}>
+                      <RoleIcon className="w-4 h-4 text-white" />
+                      <span className="text-sm font-semibold text-white">{roleLabel(role)}s</span>
+                      <span className="ml-auto text-xs text-white/80">{counts.total} users</span>
+                    </div>
+                    <div className="p-3 space-y-2 max-h-[400px] overflow-y-auto">
+                      {ALL_SERVICES.map(service => {
+                        const enabledCount = counts.services[service.key] || 0
+                        const toggleKey = `${role}-${service.key}`
+                        return (
+                          <div key={service.key} className="flex items-center justify-between gap-2">
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-sm">{service.icon}</span>
+                                <span className="text-xs font-medium text-gray-900 dark:text-white truncate">{service.short}</span>
+                                <span className="text-[10px] text-gray-400 dark:text-gray-500 ml-auto mr-1">
+                                  {enabledCount}/{counts.total}
+                                </span>
+                              </div>
+                              <div className="mt-0.5 h-1 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                                <div
+                                  className="h-full bg-green-500 rounded-full transition-all duration-500"
+                                  style={{ width: counts.total > 0 ? `${(enabledCount / counts.total) * 100}%` : '0%' }}
+                                />
+                              </div>
+                            </div>
+                            <div className="flex gap-1 shrink-0">
+                              <button
+                                disabled={roleToggling === toggleKey}
+                                onClick={() => handleRoleToggle(role, service.key, true)}
+                                className="px-1.5 py-0.5 text-[10px] rounded bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400 hover:bg-green-100 dark:hover:bg-green-900/40 transition-colors disabled:opacity-50"
+                              >
+                                {roleToggling === toggleKey ? <RefreshCw className="w-2.5 h-2.5 animate-spin" /> : 'On'}
+                              </button>
+                              <button
+                                disabled={roleToggling === toggleKey}
+                                onClick={() => handleRoleToggle(role, service.key, false)}
+                                className="px-1.5 py-0.5 text-[10px] rounded bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/40 transition-colors disabled:opacity-50"
+                              >
+                                Off
+                              </button>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </motion.div>
+                )
+              })}
+            </div>
+          </motion.div>
+
+          {/* User-wise Service Control */}
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}
+            className="bg-white dark:bg-gray-800 rounded-lg shadow-md border border-gray-200 dark:border-gray-700"
+          >
+            {/* Header + Search */}
+            <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+              <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                <h3 className="text-sm font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+                  <Users className="w-4 h-4 text-primary-500" />
+                  User-wise Service Control
+                  <span className="text-xs font-normal text-gray-500 dark:text-gray-400">({filteredUsers.length} users)</span>
+                </h3>
+                <div className="flex-1" />
+                <button
+                  onClick={() => { fetchAllUsers() }}
+                  disabled={usersLoading}
+                  className="px-3 py-1.5 text-xs rounded-lg border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors flex items-center gap-1.5 disabled:opacity-50"
+                >
+                  <RefreshCw className={`w-3 h-3 ${usersLoading ? 'animate-spin' : ''}`} />
+                  Refresh
+                </button>
+              </div>
+              <div className="flex flex-col sm:flex-row gap-2 mt-3">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                  <input
+                    type="text"
+                    placeholder="Search by name, email, ID, phone..."
+                    value={userSearch}
+                    onChange={e => setUserSearch(e.target.value)}
+                    className="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  />
+                </div>
+                <select
+                  value={roleFilter}
+                  onChange={e => setRoleFilter(e.target.value as any)}
+                  className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500"
+                >
+                  <option value="all">All Roles</option>
+                  <option value="retailer">Retailers</option>
+                  <option value="distributor">Distributors</option>
+                  <option value="master_distributor">Master Distributors</option>
+                </select>
+                <select
+                  value={serviceFilter}
+                  onChange={e => setServiceFilter(e.target.value)}
+                  className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500"
+                >
+                  <option value="all">All Services</option>
+                  {ALL_SERVICES.map(s => (
+                    <optgroup key={s.key} label={`${s.icon} ${s.short}`}>
+                      <option value={`${s.key}_enabled`}>{s.short} Enabled</option>
+                      <option value={`${s.key}_disabled`}>{s.short} Disabled</option>
+                    </optgroup>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* Bulk Action Bar */}
+            <AnimatePresence>
+              {selectedUsers.size > 0 && (
+                <motion.div
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: 'auto', opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  className="overflow-hidden"
+                >
+                  <div className="px-4 py-3 bg-primary-50 dark:bg-primary-900/20 border-b border-primary-200 dark:border-primary-800">
+                    <div className="flex flex-wrap items-center gap-2 mb-2">
+                      <span className="text-xs font-medium text-primary-700 dark:text-primary-300">
+                        {selectedUsers.size} user{selectedUsers.size > 1 ? 's' : ''} selected
+                      </span>
+                      <div className="h-4 w-px bg-primary-300 dark:bg-primary-600" />
+                      <select
+                        id="bulk-service-select"
+                        defaultValue="aeps"
+                        className="px-2 py-1 text-xs border border-primary-300 dark:border-primary-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                      >
+                        {ALL_SERVICES.map(s => (
+                          <option key={s.key} value={s.key}>{s.icon} {s.short}</option>
+                        ))}
+                      </select>
+                      <button disabled={bulkAction}
+                        onClick={() => {
+                          const sel = (document.getElementById('bulk-service-select') as HTMLSelectElement)?.value || 'aeps'
+                          handleBulkToggle(sel as any, true)
+                        }}
+                        className="px-2.5 py-1 text-xs rounded bg-green-600 text-white hover:bg-green-700 transition-colors disabled:opacity-50 flex items-center gap-1"
+                      >
+                        {bulkAction ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
+                        Enable
+                      </button>
+                      <button disabled={bulkAction}
+                        onClick={() => {
+                          const sel = (document.getElementById('bulk-service-select') as HTMLSelectElement)?.value || 'aeps'
+                          handleBulkToggle(sel as any, false)
+                        }}
+                        className="px-2.5 py-1 text-xs rounded bg-red-600 text-white hover:bg-red-700 transition-colors disabled:opacity-50 flex items-center gap-1"
+                      >
+                        <X className="w-3 h-3" /> Disable
+                      </button>
+                      <button onClick={() => setSelectedUsers(new Set())}
+                        className="ml-auto px-2.5 py-1 text-xs rounded border border-primary-300 dark:border-primary-600 text-primary-700 dark:text-primary-300 hover:bg-primary-100 dark:hover:bg-primary-900/40 transition-colors"
+                      >
+                        Clear Selection
+                      </button>
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* Users Table */}
+            {usersLoading ? (
+              <div className="flex items-center justify-center py-12">
+                <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-primary-600"></div>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm" style={{ minWidth: '900px' }}>
+                  <thead>
+                    <tr className="border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50">
+                      <th className="px-3 py-3 text-left w-8">
+                        <input
+                          type="checkbox"
+                          checked={paginatedUsers.length > 0 && selectedUsers.size === paginatedUsers.length}
+                          onChange={toggleSelectAll}
+                          className="rounded border-gray-300 dark:border-gray-600 text-primary-600 focus:ring-primary-500"
+                        />
+                      </th>
+                      <th className="px-3 py-3 text-left text-xs font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wider">User</th>
+                      <th className="px-2 py-3 text-left text-xs font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wider">Role</th>
+                      {ALL_SERVICES.map(s => (
+                        <th key={s.key} className="px-1 py-3 text-center text-[10px] font-semibold text-gray-600 dark:text-gray-400 uppercase" title={s.label}>
+                          <div className="flex flex-col items-center gap-0.5">
+                            <span>{s.icon}</span>
+                            <span className="leading-tight">{s.short}</span>
+                          </div>
+                        </th>
+                      ))}
+                      <th className="px-2 py-3 text-center text-xs font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wider">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                    {paginatedUsers.length === 0 ? (
+                      <tr>
+                        <td colSpan={3 + ALL_SERVICES.length + 1} className="px-4 py-8 text-center text-sm text-gray-500 dark:text-gray-400">
+                          No users found matching your filters.
+                        </td>
+                      </tr>
+                    ) : paginatedUsers.map(user => (
+                      <tr key={user.partner_id} className={`hover:bg-gray-50 dark:hover:bg-gray-900/30 transition-colors ${selectedUsers.has(user.partner_id) ? 'bg-primary-50/50 dark:bg-primary-900/10' : ''}`}>
+                        <td className="px-3 py-2.5">
+                          <input
+                            type="checkbox"
+                            checked={selectedUsers.has(user.partner_id)}
+                            onChange={() => toggleSelectUser(user.partner_id)}
+                            className="rounded border-gray-300 dark:border-gray-600 text-primary-600 focus:ring-primary-500"
+                          />
+                        </td>
+                        <td className="px-3 py-2.5">
+                          <p className="font-medium text-gray-900 dark:text-white text-xs">{user.name}</p>
+                          <p className="text-[10px] text-gray-500 dark:text-gray-400">{user.email}</p>
+                        </td>
+                        <td className="px-2 py-2.5">
+                          <span className={`inline-block px-1.5 py-0.5 text-[10px] rounded-full font-medium ${roleBadgeColor(user.role)}`}>
+                            {roleLabel(user.role)}
+                          </span>
+                        </td>
+                        {ALL_SERVICES.map(s => {
+                          const field = `${s.key}_enabled`
+                          const isEnabled = user[field]
+                          const isToggling = togglingUser === `${user.partner_id}-${s.key}`
+                          return (
+                            <td key={s.key} className="px-1 py-2.5 text-center">
+                              <button
+                                disabled={isToggling}
+                                onClick={() => handleToggleService(user.partner_id, user.role, s.key, !isEnabled)}
+                                className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors duration-200 focus:outline-none disabled:opacity-50 ${
+                                  isEnabled ? 'bg-green-500' : 'bg-gray-300 dark:bg-gray-600'
+                                }`}
+                                title={`${s.label}: ${isEnabled ? 'Enabled' : 'Disabled'}`}
+                              >
+                                <span className={`inline-block h-3 w-3 transform rounded-full bg-white shadow transition-transform duration-200 ${
+                                  isEnabled ? 'translate-x-3' : 'translate-x-0.5'
+                                }`} />
+                              </button>
+                            </td>
+                          )
+                        })}
+                        <td className="px-2 py-2.5 text-center">
+                          <span className={`inline-block px-1.5 py-0.5 text-[10px] rounded-full font-medium ${
+                            user.status === 'active' ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400' :
+                            user.status === 'suspended' ? 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400' :
+                            'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
+                          }`}>{user.status}</span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {/* Pagination */}
+            {totalUserPages > 1 && (
+              <div className="px-4 py-3 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between">
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  Showing {((userPage - 1) * usersPerPage) + 1}-{Math.min(userPage * usersPerPage, filteredUsers.length)} of {filteredUsers.length}
+                </p>
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => setUserPage(p => Math.max(1, p - 1))}
+                    disabled={userPage === 1}
+                    className="p-1.5 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 transition-colors"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+                  {Array.from({ length: Math.min(5, totalUserPages) }, (_, i) => {
+                    let page: number
+                    if (totalUserPages <= 5) {
+                      page = i + 1
+                    } else if (userPage <= 3) {
+                      page = i + 1
+                    } else if (userPage >= totalUserPages - 2) {
+                      page = totalUserPages - 4 + i
+                    } else {
+                      page = userPage - 2 + i
+                    }
+                    return (
+                      <button
+                        key={page}
+                        onClick={() => setUserPage(page)}
+                        className={`w-8 h-8 text-xs rounded-lg transition-colors ${
+                          userPage === page
+                            ? 'bg-primary-600 text-white'
+                            : 'border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'
+                        }`}
+                      >
+                        {page}
+                      </button>
+                    )
+                  })}
+                  <button
+                    onClick={() => setUserPage(p => Math.min(totalUserPages, p + 1))}
+                    disabled={userPage === totalUserPages}
+                    className="p-1.5 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 transition-colors"
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            )}
+          </motion.div>
+        </>
+      )}
+    </div>
+  )
+}
+
+function ServiceOverviewPanel({ services, bbpsProviderBalance, onRefreshBalance }: {
+  services: any[]
+  bbpsProviderBalance: { balance: number | null; lien: number | null; available: number | null; loading: boolean; error: string | null; lastChecked: string | null }
+  onRefreshBalance: () => void
+}) {
+  return (
+    <>
+      {/* BBPS Provider Balance */}
+      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
+        className="bg-gradient-to-r from-blue-600 to-blue-700 rounded-lg shadow-md p-4 text-white"
+      >
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-sm font-semibold flex items-center gap-2">
+            <Wallet className="w-4 h-4" />
+            BBPS Provider Balance (SparkUpTech)
+          </h3>
+          <button onClick={onRefreshBalance} disabled={bbpsProviderBalance.loading}
+            className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 transition-colors disabled:opacity-50"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${bbpsProviderBalance.loading ? 'animate-spin' : ''}`} />
+          </button>
+        </div>
+        {bbpsProviderBalance.error ? (
+          <p className="text-xs text-red-200">{bbpsProviderBalance.error}</p>
+        ) : (
+          <div className="grid grid-cols-3 gap-4">
+            <div>
+              <p className="text-xs text-blue-200">Total Balance</p>
+              <p className="text-xl font-bold">₹{(bbpsProviderBalance.balance || 0).toLocaleString('en-IN')}</p>
+            </div>
+            <div>
+              <p className="text-xs text-blue-200">Lien Amount</p>
+              <p className="text-xl font-bold">₹{(bbpsProviderBalance.lien || 0).toLocaleString('en-IN')}</p>
+            </div>
+            <div>
+              <p className="text-xs text-blue-200">Available</p>
+              <p className="text-xl font-bold text-green-300">₹{(bbpsProviderBalance.available || 0).toLocaleString('en-IN')}</p>
+            </div>
+          </div>
+        )}
+        {bbpsProviderBalance.lastChecked && (
+          <p className="text-xs text-blue-200 mt-2">Last checked: {new Date(bbpsProviderBalance.lastChecked).toLocaleString('en-IN')}</p>
+        )}
       </motion.div>
 
-      {/* Service Statistics Summary */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.2 }}
+      {/* All 11 Services Grid */}
+      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}
+        className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 sm:gap-3"
+      >
+        {ALL_SERVICES.map((service, idx) => {
+          const matchedService = services.find(s => s.id === service.key)
+          return (
+            <motion.div key={service.key} initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: idx * 0.03 }}
+              className="bg-white dark:bg-gray-800 rounded-lg shadow-md border border-gray-200 dark:border-gray-700 p-3 hover:shadow-lg transition-shadow"
+            >
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-2xl">{service.icon}</span>
+                <div className="flex-1 min-w-0">
+                  <h3 className="text-xs font-semibold text-gray-900 dark:text-white truncate">{service.label}</h3>
+                  <span className="inline-block mt-0.5 px-1.5 py-0.5 text-[10px] rounded-full bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400">active</span>
+                </div>
+              </div>
+              {matchedService ? (
+                <div className="space-y-1 pt-2 border-t border-gray-200 dark:border-gray-700">
+                  <div className="flex justify-between text-xs">
+                    <span className="text-gray-500 dark:text-gray-400">Txns</span>
+                    <span className="font-semibold text-gray-900 dark:text-white">{matchedService.transactions.toLocaleString()}</span>
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-gray-500 dark:text-gray-400">Revenue</span>
+                    <span className="font-semibold text-green-600 dark:text-green-400">{matchedService.revenue}</span>
+                  </div>
+                </div>
+              ) : (
+                <div className="pt-2 border-t border-gray-200 dark:border-gray-700">
+                  <p className="text-[10px] text-gray-400 dark:text-gray-500 italic">Coming soon</p>
+                </div>
+              )}
+            </motion.div>
+          )
+        })}
+      </motion.div>
+
+      {/* Summary Stats */}
+      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}
         className="bg-white dark:bg-gray-800 rounded-lg shadow-md border border-gray-200 dark:border-gray-700 p-3 sm:p-4"
       >
-        <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">Service Overview</h3>
-        <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
-          <div>
+        <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">Platform Statistics</h3>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
+          <div className="p-3 bg-gray-50 dark:bg-gray-900/30 rounded-lg">
             <p className="text-xs text-gray-600 dark:text-gray-400 mb-1">Total Services</p>
-            <p className="text-lg sm:text-xl font-bold text-gray-900 dark:text-white">{services.length}</p>
+            <p className="text-xl font-bold text-gray-900 dark:text-white">{ALL_SERVICES.length}</p>
           </div>
-          <div>
-            <p className="text-xs text-gray-600 dark:text-gray-400 mb-1">Active Services</p>
-            <p className="text-lg sm:text-xl font-bold text-green-600 dark:text-green-400">{services.filter(s => s.status === 'active').length}</p>
+          <div className="p-3 bg-green-50 dark:bg-green-900/10 rounded-lg">
+            <p className="text-xs text-gray-600 dark:text-gray-400 mb-1">Active (with data)</p>
+            <p className="text-xl font-bold text-green-600 dark:text-green-400">{services.filter(s => s.transactions > 0).length}</p>
           </div>
-          <div>
+          <div className="p-3 bg-blue-50 dark:bg-blue-900/10 rounded-lg">
             <p className="text-xs text-gray-600 dark:text-gray-400 mb-1">Total Transactions</p>
-            <p className="text-lg sm:text-xl font-bold text-gray-900 dark:text-white">{services.reduce((sum, s) => sum + s.transactions, 0).toLocaleString()}</p>
+            <p className="text-xl font-bold text-gray-900 dark:text-white">{services.reduce((sum, s) => sum + s.transactions, 0).toLocaleString()}</p>
           </div>
-          <div>
+          <div className="p-3 bg-amber-50 dark:bg-amber-900/10 rounded-lg">
             <p className="text-xs text-gray-600 dark:text-gray-400 mb-1">Total Revenue</p>
-            <p className="text-lg sm:text-xl font-bold text-green-600 dark:text-green-400">
+            <p className="text-xl font-bold text-green-600 dark:text-green-400">
               ₹{services.reduce((sum, s) => {
                 const revenueStr = s.revenue.replace('₹', '').replace(/,/g, '')
                 return sum + parseFloat(revenueStr || '0')
@@ -2248,7 +2891,7 @@ function ServicesManagementTab() {
           </div>
         </div>
       </motion.div>
-    </div>
+    </>
   )
 }
 

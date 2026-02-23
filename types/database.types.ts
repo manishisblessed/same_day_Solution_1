@@ -17,6 +17,17 @@ export interface Retailer {
   master_distributor_id?: string
   status: 'active' | 'inactive' | 'suspended'
   commission_rate?: number
+  banking_payments_enabled?: boolean
+  mini_atm_pos_enabled?: boolean
+  aeps_enabled?: boolean
+  aadhaar_pay_enabled?: boolean
+  dmt_enabled?: boolean
+  bbps_enabled?: boolean
+  recharge_enabled?: boolean
+  travel_enabled?: boolean
+  cash_management_enabled?: boolean
+  lic_enabled?: boolean
+  insurance_enabled?: boolean
   // Bank account details (mandatory)
   bank_name?: string
   account_number?: string
@@ -52,6 +63,17 @@ export interface Distributor {
   master_distributor_id?: string
   status: 'active' | 'inactive' | 'suspended'
   commission_rate?: number
+  banking_payments_enabled?: boolean
+  mini_atm_pos_enabled?: boolean
+  aeps_enabled?: boolean
+  aadhaar_pay_enabled?: boolean
+  dmt_enabled?: boolean
+  bbps_enabled?: boolean
+  recharge_enabled?: boolean
+  travel_enabled?: boolean
+  cash_management_enabled?: boolean
+  lic_enabled?: boolean
+  insurance_enabled?: boolean
   approved_mdr_rate?: number // MDR rate approved by master distributor (e.g., 0.015 for 1.5%)
   mdr_approved_by?: string // Master distributor partner_id who approved
   mdr_approved_at?: string // Timestamp when MDR was approved
@@ -89,6 +111,17 @@ export interface MasterDistributor {
   gst_number?: string
   status: 'active' | 'inactive' | 'suspended'
   commission_rate?: number
+  banking_payments_enabled?: boolean
+  mini_atm_pos_enabled?: boolean
+  aeps_enabled?: boolean
+  aadhaar_pay_enabled?: boolean
+  dmt_enabled?: boolean
+  bbps_enabled?: boolean
+  recharge_enabled?: boolean
+  travel_enabled?: boolean
+  cash_management_enabled?: boolean
+  lic_enabled?: boolean
+  insurance_enabled?: boolean
   approved_mdr_rate?: number // MDR rate approved by company/admin (e.g., 0.01 for 1%)
   mdr_approved_by?: string // Admin user ID who approved
   mdr_approved_at?: string // Timestamp when MDR was approved
