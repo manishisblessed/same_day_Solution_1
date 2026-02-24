@@ -112,6 +112,7 @@ WHERE raw_data IS NOT NULL
        OR external_ref IS NULL OR mid_code IS NULL OR receipt_url IS NULL);
 
 -- Same for pos_transactions table using raw_payload
+-- NOTE: pos_transactions uses "mid" (not "mid_code") as the column name
 UPDATE pos_transactions
 SET
   card_number = COALESCE(card_number, raw_payload->>'formattedPan', raw_payload->>'cardNumber'),
@@ -123,9 +124,9 @@ SET
   auth_code = COALESCE(auth_code, raw_payload->>'authCode'),
   rrn = COALESCE(rrn, raw_payload->>'rrNumber'),
   external_ref = COALESCE(external_ref, raw_payload->>'externalRefNumber'),
-  mid_code = COALESCE(mid_code, raw_payload->>'mid'),
+  mid = COALESCE(mid, raw_payload->>'mid'),
   receipt_url = COALESCE(receipt_url, raw_payload->>'customerReceiptUrl')
 WHERE raw_payload IS NOT NULL
   AND (card_number IS NULL OR card_brand IS NULL OR card_type IS NULL
        OR customer_name IS NULL OR auth_code IS NULL OR rrn IS NULL
-       OR external_ref IS NULL OR mid_code IS NULL OR receipt_url IS NULL);
+       OR external_ref IS NULL OR mid IS NULL OR receipt_url IS NULL);

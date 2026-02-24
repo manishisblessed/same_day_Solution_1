@@ -717,6 +717,7 @@ export async function POST(request: NextRequest) {
       paymentMode: effectivePaymentMode, // "Cash", "Account", "Wallet", "UPI"
       quickPay: 'N', // "N" for non-quick pay (bill fetch was done) - as per tested API
       customerMobileNumber,
+      customerPan: pan_number || undefined,
       // CRITICAL: Pass the reqId from fetchBill to correlate payment with BBPS provider
       reqId: reqId || additional_info?.reqId,
       // NOTE: billNumber is NOT included — not in working Postman format

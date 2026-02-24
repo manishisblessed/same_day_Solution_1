@@ -40,7 +40,7 @@ export default function RetailerServiceTransactionReportPage() {
         <RetailerSidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       </Suspense>
 
-      <div className="lg:ml-56">
+      <div className="flex-1 lg:ml-56 min-w-0 overflow-x-hidden pt-16">
         <div className="lg:hidden p-4">
           <button onClick={() => setSidebarOpen(true)} className="p-2 rounded-lg bg-white dark:bg-gray-800 shadow">
             <Menu className="w-5 h-5" />

@@ -60,6 +60,7 @@ export interface PayRequestParams {
   splitPay?: string // "Y" or "N"
   reqId?: string // CRITICAL: Must be reqId from fetchBill response
   customerMobileNumber?: string // NEW: Required for Wallet payment mode
+  customerPan?: string // Required for payments above ₹49,999 (up to ₹2,00,000)
   billNumber?: string // Bill number from fetchBill response (required by Sparkup)
   billerResponse?: { // Bill details from fetchBill response - pass EXACTLY as returned by fetchBill
     billAmount?: string
@@ -160,6 +161,7 @@ export async function payRequest(
     splitPay = 'N',
     reqId: providedReqId,
     customerMobileNumber, // NEW: Required for Wallet payment mode
+    customerPan, // Required for payments above ₹49,999
     billNumber, // Bill number from fetchBill response
     billerResponse, // Bill details from fetchBill response
     additionalInfo, // Additional info from fetchBill response
@@ -249,6 +251,17 @@ export async function payRequest(
         { infoName: 'WalletName', infoValue: 'Wallet' },
         { infoName: 'MobileNo', infoValue: customerMobileNumber || '' }
       ]
+    } else if (mode === 'UPI') {
+      // UPI mode requires VPA (Virtual Payment Address)
+      // Look for VPA in provided paymentInfo from frontend
+      const vpaInfo = paymentInfo.find(p => p.infoName === 'VPA')
+      if (vpaInfo) {
+        effectivePaymentInfo = [{ infoName: 'VPA', infoValue: vpaInfo.infoValue }]
+      } else {
+        effectivePaymentInfo = paymentInfo.length > 0 ? paymentInfo : [
+          { infoName: 'VPA', infoValue: '' }
+        ]
+      }
     } else {
       // Default to Cash format
       effectivePaymentInfo = [
@@ -341,6 +354,11 @@ export async function payRequest(
       reqId,                                                               // CRITICAL: Must match fetchBill reqId
     }
     
+    // Include customerPan for payments above ₹49,999 (Sparkup requires it for amounts ≥ ₹50,000)
+    if (customerPan && customerPan.trim() !== '') {
+      requestBody.customerPan = customerPan.trim().toUpperCase()
+    }
+
     // Include CLEANED billerResponse (only billAmount, billDate, customerName, dueDate)
     if (cleanBillerResponse && Object.keys(cleanBillerResponse).length > 0) {
       requestBody.billerResponse = cleanBillerResponse

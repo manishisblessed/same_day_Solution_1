@@ -30,7 +30,7 @@ export default function DistributorServiceTransactionReportPage() {
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-800">
       <DistributorSidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
 
-      <div className="lg:ml-56">
+      <div className="flex-1 lg:ml-56 min-w-0 overflow-x-hidden pt-16 md:pt-16">
         <div className="lg:hidden p-4">
           <button onClick={() => setSidebarOpen(true)} className="p-2 rounded-lg bg-white dark:bg-gray-800 shadow">
             <Menu className="w-5 h-5" />

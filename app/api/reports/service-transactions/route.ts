@@ -5,12 +5,13 @@ import { createClient } from '@supabase/supabase-js'
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-type ServiceType = 'all' | 'pos' | 'bbps' | 'aeps' | 'payout' | 'settlement'
+type ServiceType = 'all' | 'pos' | 'bbps' | 'aeps' | 'settlement'
 
 interface NormalizedTransaction {
   id: string
   service_type: string
   transaction_id: string
+  tid: string | null
   amount: number
   status: string
   commission: number
@@ -109,14 +110,7 @@ export async function GET(request: NextRequest) {
       total += count
     }
 
-    // Fetch Payout transactions
-    if (service === 'all' || service === 'payout') {
-      const { data, count } = await fetchPayoutTransactions(supabase, user, downline, { dateFrom, dateTo, status, search, limit, offset })
-      results = results.concat(data)
-      total += count
-    }
-
-    // Fetch Settlement transactions
+    // Fetch Settlement transactions (includes both settlements and payout_transactions)
     if (service === 'all' || service === 'settlement') {
       const { data, count } = await fetchSettlementTransactions(supabase, user, downline, { dateFrom, dateTo, status, search, limit, offset })
       results = results.concat(data)
@@ -284,6 +278,7 @@ async function fetchPOSTransactions(supabase: any, user: any, downline: Downline
     id: tx.id,
     service_type: 'POS',
     transaction_id: tx.txn_id || tx.id,
+    tid: tx.tid || null,
     amount: tx.amount || 0,
     status: tx.display_status || tx.status || 'PENDING',
     commission: 0,
@@ -348,6 +343,7 @@ async function fetchBBPSTransactions(supabase: any, user: any, downline: Downlin
     id: tx.id,
     service_type: 'BBPS',
     transaction_id: tx.transaction_id || tx.id,
+    tid: null,
     amount: tx.amount_paid || tx.bill_amount || 0,
     status: tx.status || 'pending',
     commission: tx.commission_amount || 0,
@@ -412,6 +408,7 @@ async function fetchAEPSTransactions(supabase: any, user: any, downline: Downlin
     id: tx.id,
     service_type: 'AEPS',
     transaction_id: tx.id,
+    tid: null,
     amount: tx.amount || 0,
     status: tx.status || 'pending',
     commission: tx.commission_amount || 0,
@@ -437,132 +434,143 @@ async function fetchAEPSTransactions(supabase: any, user: any, downline: Downlin
   return { data: normalized, count: count || 0 }
 }
 
-async function fetchPayoutTransactions(supabase: any, user: any, downline: DownlineInfo, filters: FetchFilters) {
-  let query = supabase
-    .from('payouts')
-    .select('*', { count: 'exact' })
-    .order('created_at', { ascending: false })
-
-  if (user.role === 'retailer') {
-    query = query.eq('retailer_id', user.partner_id)
-  } else if (user.role === 'distributor') {
-    if (downline.retailerIds.length > 0) {
-      query = query.in('retailer_id', downline.retailerIds)
-    } else {
-      return { data: [], count: 0 }
-    }
-  } else if (user.role === 'master_distributor') {
-    if (downline.retailerIds.length > 0) {
-      query = query.in('retailer_id', downline.retailerIds)
-    } else {
-      return { data: [], count: 0 }
-    }
-  }
-
-  if (filters.dateFrom) query = query.gte('created_at', filters.dateFrom)
-  if (filters.dateTo) query = query.lte('created_at', filters.dateTo)
-  if (filters.status) query = query.eq('status', filters.status)
-  if (filters.search) query = query.ilike('id', `%${filters.search}%`)
-
-  query = query.range(filters.offset, filters.offset + filters.limit - 1)
-
-  const { data, count, error } = await query
-  if (error) {
-    console.error('[Payout fetch error]', error)
-    return { data: [], count: 0 }
-  }
-
-  const normalized: NormalizedTransaction[] = (data || []).map((tx: any) => ({
-    id: tx.id,
-    service_type: 'Payout',
-    transaction_id: tx.transaction_id || tx.id,
-    amount: tx.amount || 0,
-    status: tx.status || 'pending',
-    commission: tx.commission_amount || 0,
-    mdr: tx.charge_amount || 0,
-    mdr_rate: 0,
-    settlement_type: tx.transfer_mode || 'IMPS',
-    scheme_name: '-',
-    scheme_id: tx.scheme_id || null,
-    retailer_id: tx.retailer_id,
-    retailer_name: null,
-    distributor_id: null,
-    distributor_name: null,
-    master_distributor_id: null,
-    md_name: null,
-    payment_mode: tx.transfer_mode || 'IMPS',
-    card_type: null,
-    device_serial: null,
-    description: tx.beneficiary_name ? `Payout to ${tx.beneficiary_name}` : 'Payout',
-    created_at: tx.created_at,
-    raw: tx,
-  }))
-
-  return { data: normalized, count: count || 0 }
-}
-
 async function fetchSettlementTransactions(supabase: any, user: any, downline: DownlineInfo, filters: FetchFilters) {
-  let query = supabase
-    .from('settlements')
-    .select('*', { count: 'exact' })
-    .order('created_at', { ascending: false })
+  let allResults: NormalizedTransaction[] = []
+  let totalCount = 0
 
-  if (user.role === 'retailer') {
-    query = query.eq('user_id', user.partner_id)
-  } else if (user.role === 'distributor') {
-    if (downline.retailerIds.length > 0) {
-      query = query.in('user_id', downline.retailerIds)
-    } else {
-      return { data: [], count: 0 }
+  // 1. Query `settlements` table (wallet-to-bank settlements)
+  try {
+    let sQuery = supabase
+      .from('settlements')
+      .select('*', { count: 'exact' })
+      .order('created_at', { ascending: false })
+
+    if (user.role === 'retailer') {
+      sQuery = sQuery.eq('user_id', user.partner_id)
+    } else if (user.role === 'distributor') {
+      if (downline.retailerIds.length > 0) {
+        sQuery = sQuery.in('user_id', downline.retailerIds)
+      } else {
+        sQuery = sQuery.eq('user_id', '__none__')
+      }
+    } else if (user.role === 'master_distributor') {
+      if (downline.retailerIds.length > 0) {
+        sQuery = sQuery.in('user_id', downline.retailerIds)
+      } else {
+        sQuery = sQuery.eq('user_id', '__none__')
+      }
     }
-  } else if (user.role === 'master_distributor') {
-    if (downline.retailerIds.length > 0) {
-      query = query.in('user_id', downline.retailerIds)
-    } else {
-      return { data: [], count: 0 }
+
+    if (filters.dateFrom) sQuery = sQuery.gte('created_at', filters.dateFrom)
+    if (filters.dateTo) sQuery = sQuery.lte('created_at', filters.dateTo)
+    if (filters.status) sQuery = sQuery.eq('status', filters.status)
+
+    sQuery = sQuery.range(filters.offset, filters.offset + filters.limit - 1)
+
+    const { data: sData, count: sCount, error: sError } = await sQuery
+    if (sError) {
+      console.error('[Settlement table fetch error]', sError)
+    } else if (sData) {
+      totalCount += sCount || 0
+      allResults = allResults.concat(sData.map((tx: any) => ({
+        id: tx.id,
+        service_type: 'Settlement',
+        transaction_id: tx.id,
+        tid: null,
+        amount: tx.amount || 0,
+        status: tx.status || 'pending',
+        commission: 0,
+        mdr: tx.charge || 0,
+        mdr_rate: 0,
+        settlement_type: tx.settlement_mode || 'T1',
+        scheme_name: '-',
+        scheme_id: null,
+        retailer_id: tx.user_id,
+        retailer_name: null,
+        distributor_id: null,
+        distributor_name: null,
+        master_distributor_id: null,
+        md_name: null,
+        payment_mode: tx.settlement_mode || 'Settlement',
+        card_type: null,
+        device_serial: null,
+        description: `Settlement - ${tx.settlement_mode || 'Bank Transfer'} (${tx.bank_account_name || 'N/A'})`,
+        created_at: tx.created_at,
+        raw: tx,
+      })))
     }
+  } catch (err) {
+    console.error('[Settlement table error]', err)
   }
 
-  if (filters.dateFrom) query = query.gte('created_at', filters.dateFrom)
-  if (filters.dateTo) query = query.lte('created_at', filters.dateTo)
-  if (filters.status) query = query.eq('status', filters.status)
-  if (filters.search) query = query.ilike('id', `%${filters.search}%`)
+  // 2. Query `payout_transactions` table (bank transfer payouts)
+  try {
+    let pQuery = supabase
+      .from('payout_transactions')
+      .select('*', { count: 'exact' })
+      .order('created_at', { ascending: false })
 
-  query = query.range(filters.offset, filters.offset + filters.limit - 1)
+    if (user.role === 'retailer') {
+      pQuery = pQuery.eq('retailer_id', user.partner_id)
+    } else if (user.role === 'distributor') {
+      if (downline.retailerIds.length > 0) {
+        pQuery = pQuery.in('retailer_id', downline.retailerIds)
+      } else {
+        pQuery = pQuery.eq('retailer_id', '__none__')
+      }
+    } else if (user.role === 'master_distributor') {
+      if (downline.retailerIds.length > 0) {
+        pQuery = pQuery.in('retailer_id', downline.retailerIds)
+      } else {
+        pQuery = pQuery.eq('retailer_id', '__none__')
+      }
+    }
 
-  const { data, count, error } = await query
-  if (error) {
-    console.error('[Settlement fetch error]', error)
-    return { data: [], count: 0 }
+    if (filters.dateFrom) pQuery = pQuery.gte('created_at', filters.dateFrom)
+    if (filters.dateTo) pQuery = pQuery.lte('created_at', filters.dateTo)
+    if (filters.status) pQuery = pQuery.eq('status', filters.status)
+
+    pQuery = pQuery.range(filters.offset, filters.offset + filters.limit - 1)
+
+    const { data: pData, count: pCount, error: pError } = await pQuery
+    if (pError) {
+      console.error('[Payout transactions fetch error]', pError)
+    } else if (pData) {
+      totalCount += pCount || 0
+      allResults = allResults.concat(pData.map((tx: any) => ({
+        id: tx.id,
+        service_type: 'Settlement',
+        transaction_id: tx.transaction_id || tx.client_ref_id || tx.id,
+        tid: null,
+        amount: tx.amount || 0,
+        status: tx.status || 'pending',
+        commission: 0,
+        mdr: tx.charges || 0,
+        mdr_rate: 0,
+        settlement_type: tx.transfer_mode || 'IMPS',
+        scheme_name: tx.scheme_name || '-',
+        scheme_id: tx.scheme_id || null,
+        retailer_id: tx.retailer_id,
+        retailer_name: null,
+        distributor_id: null,
+        distributor_name: null,
+        master_distributor_id: null,
+        md_name: null,
+        payment_mode: tx.transfer_mode || 'IMPS',
+        card_type: null,
+        device_serial: null,
+        description: tx.account_holder_name
+          ? `Settlement to ${tx.account_holder_name} (${tx.transfer_mode || 'IMPS'})`
+          : `Settlement - ${tx.transfer_mode || 'Bank Transfer'}`,
+        created_at: tx.created_at,
+        raw: tx,
+      })))
+    }
+  } catch (err) {
+    console.error('[Payout transactions error]', err)
   }
 
-  const normalized: NormalizedTransaction[] = (data || []).map((tx: any) => ({
-    id: tx.id,
-    service_type: 'Settlement',
-    transaction_id: tx.id,
-    amount: tx.amount || 0,
-    status: tx.status || 'pending',
-    commission: 0,
-    mdr: tx.charge_amount || 0,
-    mdr_rate: 0,
-    settlement_type: tx.settlement_type || tx.service_type || 'T1',
-    scheme_name: '-',
-    scheme_id: null,
-    retailer_id: tx.user_id,
-    retailer_name: null,
-    distributor_id: null,
-    distributor_name: null,
-    master_distributor_id: null,
-    md_name: null,
-    payment_mode: 'Settlement',
-    card_type: null,
-    device_serial: null,
-    description: tx.service_type ? `Settlement - ${tx.service_type}` : 'Settlement',
-    created_at: tx.created_at,
-    raw: tx,
-  }))
-
-  return { data: normalized, count: count || 0 }
+  return { data: allResults, count: totalCount }
 }
 
 // ============================================================================
@@ -602,9 +610,12 @@ async function enrichUserNames(supabase: any, results: NormalizedTransaction[]) 
 
 function generateCSV(results: NormalizedTransaction[], summary: any, dateFrom: string | null, dateTo: string | null, service: string) {
   const headers = [
-    'Date', 'Service', 'Transaction ID', 'Amount (₹)', 'Status',
+    'Date', 'Service', 'Transaction ID', 'TID', 'Amount (₹)', 'Status',
     'Commission (₹)', 'MDR (₹)', 'MDR Rate (%)', 'Settlement Type',
-    'Scheme Name', 'Retailer', 'Distributor', 'Master Distributor',
+    'Scheme Name',
+    'Retailer Name', 'Retailer ID',
+    'Distributor Name', 'Distributor ID',
+    'MD Name', 'MD ID',
     'Payment Mode', 'Card Type', 'Device Serial', 'Description'
   ]
 
@@ -612,6 +623,7 @@ function generateCSV(results: NormalizedTransaction[], summary: any, dateFrom: s
     new Date(r.created_at).toLocaleString('en-IN'),
     r.service_type,
     r.transaction_id,
+    r.tid || '-',
     r.amount.toFixed(2),
     r.status,
     r.commission.toFixed(2),
@@ -619,9 +631,12 @@ function generateCSV(results: NormalizedTransaction[], summary: any, dateFrom: s
     (r.mdr_rate * 100).toFixed(3),
     r.settlement_type,
     r.scheme_name,
-    r.retailer_name || r.retailer_id || '-',
-    r.distributor_name || r.distributor_id || '-',
-    r.md_name || r.master_distributor_id || '-',
+    r.retailer_name || '-',
+    r.retailer_id || '-',
+    r.distributor_name || '-',
+    r.distributor_id || '-',
+    r.md_name || '-',
+    r.master_distributor_id || '-',
     r.payment_mode || '-',
     r.card_type || '-',
     r.device_serial || '-',
@@ -693,8 +708,7 @@ function generatePDF(results: NormalizedTransaction[], summary: any, dateFrom: s
     .badge-pos { background: #DBEAFE; color: #1E40AF; }
     .badge-bbps { background: #D1FAE5; color: #065F46; }
     .badge-aeps { background: #FEF3C7; color: #92400E; }
-    .badge-payout { background: #EDE9FE; color: #5B21B6; }
-    .badge-settlement { background: #FCE7F3; color: #9D174D; }
+    .badge-settlement { background: #EDE9FE; color: #5B21B6; }
     .footer { margin-top: 20px; text-align: center; font-size: 10px; color: #888; border-top: 1px solid #E5E7EB; padding-top: 10px; }
     .amount { font-family: monospace; text-align: right; }
     @media print { body { padding: 15px; font-size: 9px; } th { font-size: 8px; } td { font-size: 8px; padding: 4px; } }
@@ -746,7 +760,7 @@ function generatePDF(results: NormalizedTransaction[], summary: any, dateFrom: s
         <th>#</th>
         <th>Date</th>
         <th>Service</th>
-        <th>Transaction ID</th>
+        <th>Txn ID / TID</th>
         <th>Amount</th>
         <th>Status</th>
         <th>Commission</th>
@@ -754,6 +768,11 @@ function generatePDF(results: NormalizedTransaction[], summary: any, dateFrom: s
         <th>Settlement</th>
         <th>Scheme</th>
         <th>Retailer</th>
+        <th>Retailer ID</th>
+        <th>Distributor</th>
+        <th>Distributor ID</th>
+        <th>MD</th>
+        <th>MD ID</th>
       </tr>
     </thead>
     <tbody>
@@ -762,14 +781,19 @@ function generatePDF(results: NormalizedTransaction[], summary: any, dateFrom: s
         <td>${i + 1}</td>
         <td>${new Date(r.created_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: '2-digit', hour: '2-digit', minute: '2-digit' })}</td>
         <td><span class="badge badge-${r.service_type.toLowerCase()}">${r.service_type}</span></td>
-        <td style="font-family: monospace; font-size: 9px;">${r.transaction_id.length > 16 ? r.transaction_id.slice(0, 16) + '...' : r.transaction_id}</td>
+        <td style="font-family: monospace; font-size: 9px;">${r.transaction_id.length > 16 ? r.transaction_id.slice(0, 16) + '...' : r.transaction_id}${r.tid ? '<br/>TID: ' + r.tid : ''}</td>
         <td class="amount">₹${r.amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
         <td class="${['success', 'captured', 'SUCCESS', 'CAPTURED'].includes(r.status) ? 'status-success' : ['failed', 'FAILED'].includes(r.status) ? 'status-failed' : 'status-pending'}">${r.status}</td>
         <td class="amount">₹${r.commission.toFixed(2)}</td>
         <td class="amount">₹${r.mdr.toFixed(2)}</td>
         <td>${r.settlement_type}</td>
         <td>${r.scheme_name}</td>
-        <td>${r.retailer_name || r.retailer_id?.slice(0, 8) || '-'}</td>
+        <td>${r.retailer_name || '-'}</td>
+        <td style="font-family: monospace; font-size: 8px;">${r.retailer_id || '-'}</td>
+        <td>${r.distributor_name || '-'}</td>
+        <td style="font-family: monospace; font-size: 8px;">${r.distributor_id || '-'}</td>
+        <td>${r.md_name || '-'}</td>
+        <td style="font-family: monospace; font-size: 8px;">${r.master_distributor_id || '-'}</td>
       </tr>`).join('')}
     </tbody>
   </table>

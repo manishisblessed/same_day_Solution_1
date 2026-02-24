@@ -20,6 +20,7 @@ interface Transaction {
   id: string
   service_type: string
   transaction_id: string
+  tid: string | null
   amount: number
   status: string
   commission: number
@@ -60,7 +61,7 @@ interface Pagination {
   totalPages: number
 }
 
-type ServiceFilter = 'all' | 'pos' | 'bbps' | 'aeps' | 'payout' | 'settlement'
+type ServiceFilter = 'all' | 'pos' | 'bbps' | 'aeps' | 'settlement'
 type DatePreset = 'today' | 'yesterday' | 'week' | 'month' | 'quarter' | 'custom'
 
 interface ServiceTransactionReportProps {
@@ -107,8 +108,7 @@ export default function ServiceTransactionReport({ userRole, userName }: Service
     { value: 'pos', label: 'POS', icon: CreditCard, color: 'blue' },
     { value: 'bbps', label: 'BBPS', icon: Receipt, color: 'green' },
     { value: 'aeps', label: 'AEPS', icon: Smartphone, color: 'amber' },
-    { value: 'payout', label: 'Payout', icon: Banknote, color: 'purple' },
-    { value: 'settlement', label: 'Settlement', icon: IndianRupee, color: 'pink' },
+    { value: 'settlement', label: 'Settlement', icon: Banknote, color: 'purple' },
   ]
 
   // ============================================================================
@@ -271,8 +271,7 @@ export default function ServiceTransactionReport({ userRole, userName }: Service
       'POS': 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
       'BBPS': 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
       'AEPS': 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
-      'Payout': 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400',
-      'Settlement': 'bg-pink-100 text-pink-700 dark:bg-pink-900/30 dark:text-pink-400',
+      'Settlement': 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400',
     }
     return map[service] || 'bg-gray-100 text-gray-700 dark:bg-gray-900/30 dark:text-gray-400'
   }
@@ -296,15 +295,15 @@ export default function ServiceTransactionReport({ userRole, userName }: Service
       {/* Header */}
       <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }}>
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-4">
             <div className="p-3 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl shadow-lg">
-              <FileBarChart className="w-7 h-7 text-white" />
+              <FileBarChart className="w-8 h-8 text-white" />
             </div>
             <div>
               <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
                 Service Transaction Report
               </h1>
-              <p className="text-sm text-gray-500 dark:text-gray-400">
+              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
                 {roleLabel} view &middot; {userName || ''}
               </p>
             </div>
@@ -492,8 +491,12 @@ export default function ServiceTransactionReport({ userRole, userName }: Service
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase">MDR</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase">Settlement</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase">Scheme</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase">Retailer</th>
                 {userRole !== 'retailer' && (
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase">Retailer</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase">Distributor</th>
+                )}
+                {(userRole === 'admin' || userRole === 'master_distributor') && (
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase">MD</th>
                 )}
                 <th className="px-4 py-3 text-center text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase">Action</th>
               </tr>
@@ -501,7 +504,7 @@ export default function ServiceTransactionReport({ userRole, userName }: Service
             <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
               {loading ? (
                 <tr>
-                  <td colSpan={userRole !== 'retailer' ? 11 : 10} className="px-6 py-16 text-center">
+                  <td colSpan={20} className="px-6 py-16 text-center">
                     <div className="flex flex-col items-center gap-3">
                       <Loader2 className="w-8 h-8 text-indigo-500 animate-spin" />
                       <span className="text-sm text-gray-500">Loading transactions...</span>
@@ -510,7 +513,7 @@ export default function ServiceTransactionReport({ userRole, userName }: Service
                 </tr>
               ) : sorted.length === 0 ? (
                 <tr>
-                  <td colSpan={userRole !== 'retailer' ? 11 : 10} className="px-6 py-16 text-center text-gray-500 dark:text-gray-400">
+                  <td colSpan={20} className="px-6 py-16 text-center text-gray-500 dark:text-gray-400">
                     <div className="flex flex-col items-center gap-2">
                       <Receipt className="w-10 h-10 text-gray-300" />
                       <span>No transactions found for the selected criteria</span>
@@ -536,8 +539,15 @@ export default function ServiceTransactionReport({ userRole, userName }: Service
                         {txn.service_type}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-xs font-mono text-gray-600 dark:text-gray-400 max-w-[140px] truncate" title={txn.transaction_id}>
-                      {txn.transaction_id}
+                    <td className="px-4 py-3 max-w-[160px]" title={txn.transaction_id}>
+                      <span className="text-xs font-mono text-gray-600 dark:text-gray-400 block truncate">
+                        {txn.transaction_id}
+                      </span>
+                      {txn.tid && (
+                        <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-semibold mt-0.5 block">
+                          TID: {txn.tid}
+                        </span>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-sm font-semibold text-gray-900 dark:text-white whitespace-nowrap">
                       {formatCurrency(txn.amount)}
@@ -567,9 +577,32 @@ export default function ServiceTransactionReport({ userRole, userName }: Service
                     <td className="px-4 py-3 text-sm text-gray-700 dark:text-gray-300 max-w-[120px] truncate" title={txn.scheme_name}>
                       {txn.scheme_name !== '-' ? txn.scheme_name : '-'}
                     </td>
+                    <td className="px-4 py-3 max-w-[130px]">
+                      {txn.retailer_id ? (
+                        <>
+                          <span className="text-xs text-gray-900 dark:text-white block truncate">{txn.retailer_name || '-'}</span>
+                          <span className="text-[10px] font-mono text-gray-400 block truncate" title={txn.retailer_id}>{txn.retailer_id}</span>
+                        </>
+                      ) : <span className="text-sm text-gray-400">-</span>}
+                    </td>
                     {userRole !== 'retailer' && (
-                      <td className="px-4 py-3 text-sm text-gray-700 dark:text-gray-300 max-w-[120px] truncate" title={txn.retailer_name || txn.retailer_id || ''}>
-                        {txn.retailer_name || txn.retailer_id?.slice(0, 8) || '-'}
+                      <td className="px-4 py-3 max-w-[130px]">
+                        {txn.distributor_id ? (
+                          <>
+                            <span className="text-xs text-gray-900 dark:text-white block truncate">{txn.distributor_name || '-'}</span>
+                            <span className="text-[10px] font-mono text-gray-400 block truncate" title={txn.distributor_id}>{txn.distributor_id}</span>
+                          </>
+                        ) : <span className="text-sm text-gray-400">-</span>}
+                      </td>
+                    )}
+                    {(userRole === 'admin' || userRole === 'master_distributor') && (
+                      <td className="px-4 py-3 max-w-[130px]">
+                        {txn.master_distributor_id ? (
+                          <>
+                            <span className="text-xs text-gray-900 dark:text-white block truncate">{txn.md_name || '-'}</span>
+                            <span className="text-[10px] font-mono text-gray-400 block truncate" title={txn.master_distributor_id}>{txn.master_distributor_id}</span>
+                          </>
+                        ) : <span className="text-sm text-gray-400">-</span>}
                       </td>
                     )}
                     <td className="px-4 py-3 text-center">
@@ -727,8 +760,7 @@ function ViewTransactionModal({ txn, userRole, onClose }: { txn: Transaction; us
                 txn.service_type === 'POS' ? 'bg-blue-100 text-blue-700' :
                 txn.service_type === 'BBPS' ? 'bg-green-100 text-green-700' :
                 txn.service_type === 'AEPS' ? 'bg-amber-100 text-amber-700' :
-                txn.service_type === 'Payout' ? 'bg-purple-100 text-purple-700' :
-                'bg-pink-100 text-pink-700'
+                'bg-purple-100 text-purple-700'
               }`}>
                 {txn.service_type}
               </span>
@@ -739,6 +771,7 @@ function ViewTransactionModal({ txn, userRole, onClose }: { txn: Transaction; us
           <div className="bg-gray-50 dark:bg-gray-900/50 rounded-xl p-4">
             <h4 className="text-xs font-semibold text-gray-400 uppercase mb-2">Transaction Info</h4>
             <DetailRow label="Transaction ID" value={txn.transaction_id} mono />
+            <DetailRow label="TID" value={txn.tid} mono />
             <DetailRow label="Date" value={new Date(txn.created_at).toLocaleString('en-IN')} />
             <DetailRow label="Payment Mode" value={txn.payment_mode} />
             <DetailRow label="Card Type" value={txn.card_type} />
@@ -758,14 +791,15 @@ function ViewTransactionModal({ txn, userRole, onClose }: { txn: Transaction; us
           </div>
 
           {/* Hierarchy */}
-          {userRole !== 'retailer' && (
-            <div className="bg-gray-50 dark:bg-gray-900/50 rounded-xl p-4">
-              <h4 className="text-xs font-semibold text-gray-400 uppercase mb-2">Hierarchy</h4>
-              <DetailRow label="Retailer" value={txn.retailer_name || txn.retailer_id} />
-              <DetailRow label="Distributor" value={txn.distributor_name || txn.distributor_id} />
-              <DetailRow label="Master Distributor" value={txn.md_name || txn.master_distributor_id} />
-            </div>
-          )}
+          <div className="bg-gray-50 dark:bg-gray-900/50 rounded-xl p-4">
+            <h4 className="text-xs font-semibold text-gray-400 uppercase mb-2">Hierarchy</h4>
+            <DetailRow label="Retailer Name" value={txn.retailer_name} />
+            <DetailRow label="Retailer ID" value={txn.retailer_id} mono />
+            <DetailRow label="Distributor Name" value={txn.distributor_name} />
+            <DetailRow label="Distributor ID" value={txn.distributor_id} mono />
+            <DetailRow label="MD Name" value={txn.md_name} />
+            <DetailRow label="MD ID" value={txn.master_distributor_id} mono />
+          </div>
         </div>
       </motion.div>
     </motion.div>

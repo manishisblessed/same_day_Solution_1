@@ -30,15 +30,15 @@ export default function AdminServiceTransactionReportPage() {
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-800">
       <AdminSidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
 
-      <div className="lg:ml-56">
+      <div className="lg:pl-56">
         {/* Mobile menu button */}
-        <div className="lg:hidden p-4">
+        <div className="lg:hidden p-4 pt-20">
           <button onClick={() => setSidebarOpen(true)} className="p-2 rounded-lg bg-white dark:bg-gray-800 shadow">
             <Menu className="w-5 h-5" />
           </button>
         </div>
 
-        <div className="p-6">
+        <div className="pt-20 p-6 space-y-6">
           <ServiceTransactionReport userRole="admin" userName={user.name || user.email} />
         </div>
       </div>
