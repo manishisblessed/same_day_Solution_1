@@ -36,6 +36,7 @@ const RetailerSidebar = lazy(() =>
 import { motion } from 'framer-motion'
 import POSMachinesTab from '@/components/POSMachinesTab'
 import POSTransactionsTable from '@/components/POSTransactionsTable'
+import ServiceTransactionReport from '@/components/ServiceTransactionReport'
 
 type TabType = 'dashboard' | 'wallet' | 'services' | 'bbps' | 'payout' | 'transactions' | 'ledger' | 'mdr-schemes' | 'reports' | 'settings' | 'pos-machines'
 
@@ -1535,6 +1536,9 @@ function ReportsTab({ chartData, stats }: { chartData: any[], stats: any }) {
 
   return (
     <div className="space-y-6">
+      {/* Service Transaction Report */}
+      <ServiceTransactionReport userRole="retailer" userName={user?.name || user?.email} />
+
       {/* Performance Charts */}
       <motion.div
         initial={{ opacity: 0, y: 20 }}

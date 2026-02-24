@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation'
 import Link from 'next/link'
 import { 
   LayoutDashboard, Users, Package, Crown, 
-  BarChart3, Settings, FileText,
+  BarChart3, Settings,
   Activity, X, Menu, CreditCard, Receipt, CheckCircle2,
   Building2, FileBarChart, Layers, Key
 } from 'lucide-react'
@@ -30,7 +30,6 @@ const sidebarItems: SidebarItem[] = [
   { id: 'pos-partner-api', label: 'POS Partner API', icon: Key, href: '/admin?tab=pos-partner-api' },
   { id: 'razorpay-transactions', label: 'Razorpay Transactions', icon: Receipt, href: '/admin/razorpay-transactions' },
   { id: 'services', label: 'Services', icon: Activity, href: '/admin?tab=services' },
-  { id: 'service-txn-report', label: 'Service Transaction Report', icon: FileText, href: '/admin/service-transaction-report' },
   { id: 'reports', label: 'Reports', icon: FileBarChart, href: '/admin?tab=reports' },
   { id: 'settings', label: 'Settings', icon: Settings, href: '/admin/settings' },
 ]

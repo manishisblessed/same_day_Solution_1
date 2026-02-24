@@ -36,6 +36,7 @@ import { motion } from 'framer-motion'
 import POSMachinesTab from '@/components/POSMachinesTab'
 import POSTransactionsTable from '@/components/POSTransactionsTable'
 import POSPartnerAPIManagement from '@/components/POSPartnerAPIManagement'
+import ServiceTransactionReport from '@/components/ServiceTransactionReport'
 import { Crown, Sparkles, BarChart3, Zap } from 'lucide-react'
 
 type TabType = 'dashboard' | 'wallet' | 'services' | 'bbps' | 'payout' | 'transactions' | 'ledger' | 'mdr-schemes' | 'reports' | 'settings' | 'pos-machines' | 'api-management' | 'analytics'
@@ -1408,6 +1409,9 @@ function ReportsTab({ chartData, stats }: { chartData: any[], stats: any }) {
 
   return (
     <div className="space-y-6">
+      {/* Service Transaction Report */}
+      <ServiceTransactionReport userRole="retailer" userName={user?.name || user?.email} />
+
       {/* Performance Charts */}
       <motion.div
         initial={{ opacity: 0, y: 20 }}

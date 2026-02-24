@@ -23,6 +23,7 @@ import {
 import TransactionsTable from '@/components/TransactionsTable'
 import POSTransactionsTable from '@/components/POSTransactionsTable'
 import POSPartnerAPIManagement from '@/components/POSPartnerAPIManagement'
+import ServiceTransactionReport from '@/components/ServiceTransactionReport'
 import { motion, AnimatePresence } from 'framer-motion'
 import { apiFetch } from '@/lib/api-client'
 
@@ -7812,6 +7813,9 @@ function ReportsTab() {
 
   return (
     <div className="space-y-4">
+      {/* Service Transaction Report */}
+      <ServiceTransactionReport userRole="admin" />
+
       {/* Header */}
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md border border-gray-200 dark:border-gray-700 p-4">
         <div className="flex items-center justify-between mb-4">

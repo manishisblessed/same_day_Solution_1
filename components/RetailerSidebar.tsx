@@ -6,7 +6,7 @@ import Link from 'next/link'
 import { 
   LayoutDashboard, ShoppingCart, Activity, 
   Settings, TrendingUp, CreditCard, X, Menu,
-  Wallet, Receipt, Banknote, Percent, BookOpen, FileText
+  Wallet, Receipt, Banknote, Percent, BookOpen
 } from 'lucide-react'
 
 import { motion, AnimatePresence } from 'framer-motion'
@@ -29,7 +29,6 @@ const sidebarItems: SidebarItem[] = [
   { id: 'ledger', label: 'Ledger', icon: BookOpen, href: '/dashboard/retailer?tab=ledger' },
   { id: 'pos-machines', label: 'My POS Machines', icon: CreditCard, href: '/dashboard/retailer?tab=pos-machines' },
   { id: 'mdr-schemes', label: 'MDR Schemes', icon: Percent, href: '/dashboard/retailer?tab=mdr-schemes' },
-  { id: 'service-txn-report', label: 'Service Txn Report', icon: FileText, href: '/dashboard/retailer/service-transaction-report' },
   { id: 'reports', label: 'Reports', icon: TrendingUp, href: '/dashboard/retailer?tab=reports' },
 ]
 

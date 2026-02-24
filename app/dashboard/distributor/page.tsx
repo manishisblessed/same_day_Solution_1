@@ -21,6 +21,7 @@ import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, Cart
 import { motion } from 'framer-motion'
 import { apiFetch } from '@/lib/api-client'
 import POSMachinesTab from '@/components/POSMachinesTab'
+import ServiceTransactionReport from '@/components/ServiceTransactionReport'
 
 type TabType = 'dashboard' | 'wallet' | 'network' | 'commission' | 'mdr-schemes' | 'analytics' | 'reports' | 'settings' | 'scheme-management' | 'pos-machines'
 
@@ -1977,6 +1978,9 @@ function ReportsTab({ user }: { user: any }) {
 
   return (
     <div className="space-y-6">
+      {/* Service Transaction Report */}
+      <ServiceTransactionReport userRole="distributor" userName={user?.name || user?.email} />
+
       <div className="bg-white rounded-xl shadow-lg border border-gray-200 p-6">
         <h3 className="text-lg font-semibold mb-4">Download Reports</h3>
         <div className="space-y-4">
