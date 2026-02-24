@@ -445,6 +445,8 @@ export interface RazorpayPOSTransaction {
   card_number: string | null
   issuing_bank: string | null
   card_classification: string | null
+  card_txn_type: string | null
+  acquiring_bank: string | null
   mid_code: string | null
   card_brand: string | null
   card_type: string | null
