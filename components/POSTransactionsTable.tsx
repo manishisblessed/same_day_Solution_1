@@ -774,6 +774,11 @@ export default function POSTransactionsTable({
                               {txn.card_classification}
                             </span>
                           )}
+                          {txn.issuing_bank && (
+                            <span className="block text-[10px] text-blue-500 dark:text-blue-400 mt-0.5">
+                              {txn.issuing_bank}
+                            </span>
+                          )}
                         </div>
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap">
@@ -901,6 +906,15 @@ export default function POSTransactionsTable({
                   )}
                   {selectedTxn.card_classification && (
                     <DetailRow label="Card Classification" value={selectedTxn.card_classification} />
+                  )}
+                  {selectedTxn.card_txn_type && (
+                    <DetailRow label="Card Txn Type" value={selectedTxn.card_txn_type} />
+                  )}
+                  {selectedTxn.issuing_bank && (
+                    <DetailRow label="Issuing Bank" value={selectedTxn.issuing_bank} />
+                  )}
+                  {selectedTxn.acquiring_bank && (
+                    <DetailRow label="Acquiring Bank" value={selectedTxn.acquiring_bank} />
                   )}
                   {selectedTxn.rrn && (
                     <DetailRow label="RRN" value={selectedTxn.rrn} mono />

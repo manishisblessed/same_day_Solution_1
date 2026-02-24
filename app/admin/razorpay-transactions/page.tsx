@@ -30,6 +30,7 @@ import {
   Calendar,
   IndianRupee,
   Download,
+  Upload,
   FileText,
   FileSpreadsheet,
   Archive,
@@ -108,6 +109,12 @@ export default function RazorpayTransactionsPage() {
   const [exporting, setExporting] = useState<string | null>(null)
   const [showExportMenu, setShowExportMenu] = useState(false)
   const exportMenuRef = useRef<HTMLDivElement>(null)
+
+  // Report upload (enrich) state
+  const [showEnrichModal, setShowEnrichModal] = useState(false)
+  const [enrichUploading, setEnrichUploading] = useState(false)
+  const [enrichResult, setEnrichResult] = useState<any>(null)
+  const enrichFileRef = useRef<HTMLInputElement>(null)
 
   // Test transaction modal state
   const [showTestModal, setShowTestModal] = useState(false)
@@ -321,6 +328,33 @@ export default function RazorpayTransactionsPage() {
     URL.revokeObjectURL(url)
   }
 
+  const handleEnrichUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    setEnrichUploading(true)
+    setEnrichResult(null)
+
+    try {
+      const text = await file.text()
+      const response = await apiFetch('/api/admin/razorpay-transactions/enrich', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ report_text: text }),
+      })
+      const result = await response.json()
+      setEnrichResult(result)
+      if (result.success && result.summary?.updated > 0) {
+        setTimeout(() => fetchTransactions(), 1000)
+      }
+    } catch (err: any) {
+      setEnrichResult({ success: false, error: err.message })
+    } finally {
+      setEnrichUploading(false)
+      if (enrichFileRef.current) enrichFileRef.current.value = ''
+    }
+  }
+
   // Reset all filters
   const resetFilters = () => {
     setStatusFilter('all')
@@ -505,6 +539,15 @@ export default function RazorpayTransactionsPage() {
                   )}
                 </AnimatePresence>
               </div>
+
+              {/* Upload Razorpay Report (Enrich) */}
+              <button
+                onClick={() => { setShowEnrichModal(true); setEnrichResult(null) }}
+                className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors whitespace-nowrap"
+              >
+                <Upload className="w-4 h-4" />
+                Upload Report
+              </button>
 
               {/* Test Transaction Button */}
               <button
@@ -1293,6 +1336,122 @@ export default function RazorpayTransactionsPage() {
                       Send Test
                     </>
                   )}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Enrich / Upload Report Modal */}
+      <AnimatePresence>
+        {showEnrichModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+            onClick={() => setShowEnrichModal(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between p-5 border-b border-gray-200 dark:border-gray-700">
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+                  <Upload className="w-5 h-5 text-indigo-500" />
+                  Upload Razorpay Report
+                </h2>
+                <button
+                  onClick={() => setShowEnrichModal(false)}
+                  className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="p-5 space-y-4">
+                <p className="text-sm text-gray-500 dark:text-gray-400">
+                  Upload the Razorpay POS transaction report (tab-separated .txt/.csv) to enrich existing transactions with fields not available via webhook:
+                </p>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-indigo-50 dark:bg-indigo-900/20 rounded-lg text-indigo-700 dark:text-indigo-400">
+                    <CheckCircle2 className="w-3 h-3" /> Card Classification
+                  </div>
+                  <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-indigo-50 dark:bg-indigo-900/20 rounded-lg text-indigo-700 dark:text-indigo-400">
+                    <CheckCircle2 className="w-3 h-3" /> Card Txn Type
+                  </div>
+                  <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-indigo-50 dark:bg-indigo-900/20 rounded-lg text-indigo-700 dark:text-indigo-400">
+                    <CheckCircle2 className="w-3 h-3" /> Issuing Bank
+                  </div>
+                  <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-indigo-50 dark:bg-indigo-900/20 rounded-lg text-indigo-700 dark:text-indigo-400">
+                    <CheckCircle2 className="w-3 h-3" /> Acquiring Bank
+                  </div>
+                </div>
+
+                <div className="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl p-6 text-center hover:border-indigo-400 dark:hover:border-indigo-500 transition-colors">
+                  <input
+                    ref={enrichFileRef}
+                    type="file"
+                    accept=".txt,.csv,.tsv"
+                    onChange={handleEnrichUpload}
+                    className="hidden"
+                    id="enrich-file-input"
+                  />
+                  <label htmlFor="enrich-file-input" className="cursor-pointer">
+                    {enrichUploading ? (
+                      <div className="flex flex-col items-center gap-2">
+                        <Loader2 className="w-8 h-8 text-indigo-500 animate-spin" />
+                        <span className="text-sm text-gray-600 dark:text-gray-400">Processing report...</span>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col items-center gap-2">
+                        <Upload className="w-8 h-8 text-gray-400" />
+                        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Click to select Razorpay report file</span>
+                        <span className="text-xs text-gray-500">.txt or .csv (tab-separated)</span>
+                      </div>
+                    )}
+                  </label>
+                </div>
+
+                {enrichResult && (
+                  <div className={`p-4 rounded-lg text-sm ${
+                    enrichResult.success
+                      ? 'bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 text-green-800 dark:text-green-400'
+                      : 'bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-800 dark:text-red-400'
+                  }`}>
+                    {enrichResult.success ? (
+                      <div>
+                        <div className="flex items-center gap-1 font-medium mb-2">
+                          <CheckCircle2 className="w-4 h-4" />
+                          Report processed successfully
+                        </div>
+                        <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                          <p>Total in report: <span className="font-semibold">{enrichResult.summary?.total_in_report}</span></p>
+                          <p>Updated: <span className="font-semibold text-green-600">{enrichResult.summary?.updated}</span></p>
+                          <p>Skipped: <span className="font-semibold">{enrichResult.summary?.skipped}</span></p>
+                          <p>Not found: <span className="font-semibold text-amber-600">{enrichResult.summary?.not_found}</span></p>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-1">
+                        <XCircle className="w-4 h-4" />
+                        {enrichResult.error || 'Upload failed'}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              <div className="flex items-center justify-end gap-3 p-5 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50">
+                <button
+                  onClick={() => setShowEnrichModal(false)}
+                  className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                >
+                  Close
                 </button>
               </div>
             </motion.div>
