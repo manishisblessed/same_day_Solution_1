@@ -361,7 +361,7 @@ export async function POST(request: NextRequest) {
         username: tx.username || rd.username || null,
         txn_type: tx.txn_type || rd.txnType || 'CHARGE',
         auth_code: tx.auth_code || rd.authCode || null,
-        card_number: tx.card_number || rd.cardNumber || rd.maskedCardNumber || null,
+        card_number: tx.card_number || rd.formattedPan || rd.cardNumber || rd.maskedCardNumber || null,
         issuing_bank: tx.issuing_bank || rd.issuingBankName || rd.bankName || rd.issuingBank || null,
         card_classification: tx.card_classification || rd.cardClassification || rd.cardCategory || null,
         card_txn_type: tx.card_txn_type || rd.cardTxnType || rd.cardTransactionType || rd.entryMode || null,

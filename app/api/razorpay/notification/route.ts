@@ -230,7 +230,7 @@ export async function POST(request: NextRequest) {
     const username = normalizedPayload.username || null
     const txnType = normalizedPayload.txnType || 'CHARGE'
     const authCode = normalizedPayload.authCode || null
-    const cardNumber = normalizedPayload.cardNumber || normalizedPayload.maskedCardNumber || normalizedPayload.cardLastFourDigit || null
+    const cardNumber = normalizedPayload.formattedPan || normalizedPayload.cardNumber || normalizedPayload.maskedCardNumber || null
     const issuingBank = normalizedPayload.issuingBankName || normalizedPayload.bankName || normalizedPayload.issuingBank || null
     const cardClassification = normalizedPayload.cardClassification || normalizedPayload.cardCategory || null
     const midCode = normalizedPayload.mid || normalizedPayload.merchantId || null

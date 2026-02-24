@@ -85,15 +85,19 @@ WHERE acquiring_bank IS NULL
     OR raw_payload->>'acquiringBankName' IS NOT NULL
     OR raw_payload->>'acquirerCode' IS NOT NULL);
 
--- Backfill all detailed fields that may be null in razorpay_pos_transactions
+-- ============================================================================
+-- Backfill all detailed fields from raw_data JSONB
+-- NOTE: Razorpay confirmed the following about POS webhook payloads:
+--   - Card number is sent as "formattedPan" (e.g. "4147-67XX-XXXX-6666")
+--   - cardClassification is NOT sent in webhook (report-only)
+--   - cardTxnType / entryMode is NOT sent in webhook (report-only)
+--   - issuingBankName / acquiringBank are NOT sent in webhook (report-only)
+-- ============================================================================
 UPDATE razorpay_pos_transactions
 SET
-  card_number = COALESCE(card_number, raw_data->>'cardNumber', raw_data->>'maskedCardNumber'),
-  issuing_bank = COALESCE(issuing_bank, raw_data->>'issuingBankName', raw_data->>'bankName', raw_data->>'issuingBank'),
-  card_classification = COALESCE(card_classification, raw_data->>'cardClassification', raw_data->>'cardCategory'),
+  card_number = COALESCE(card_number, raw_data->>'formattedPan', raw_data->>'cardNumber', raw_data->>'maskedCardNumber'),
   card_brand = COALESCE(card_brand, raw_data->>'paymentCardBrand', raw_data->>'cardBrand'),
   card_type = COALESCE(card_type, raw_data->>'paymentCardType', raw_data->>'cardType'),
-  merchant_name = COALESCE(merchant_name, raw_data->>'merchantName'),
   customer_name = COALESCE(customer_name, raw_data->>'customerName', raw_data->>'payerName'),
   payer_name = COALESCE(payer_name, raw_data->>'payerName'),
   username = COALESCE(username, raw_data->>'username'),
@@ -103,7 +107,25 @@ SET
   mid_code = COALESCE(mid_code, raw_data->>'mid', raw_data->>'merchantId'),
   receipt_url = COALESCE(receipt_url, raw_data->>'customerReceiptUrl', raw_data->>'receiptUrl')
 WHERE raw_data IS NOT NULL
-  AND (card_number IS NULL OR issuing_bank IS NULL OR card_classification IS NULL
-       OR card_brand IS NULL OR card_type IS NULL OR merchant_name IS NULL
+  AND (card_number IS NULL OR card_brand IS NULL OR card_type IS NULL
+       OR customer_name IS NULL OR auth_code IS NULL OR rrn IS NULL
+       OR external_ref IS NULL OR mid_code IS NULL OR receipt_url IS NULL);
+
+-- Same for pos_transactions table using raw_payload
+UPDATE pos_transactions
+SET
+  card_number = COALESCE(card_number, raw_payload->>'formattedPan', raw_payload->>'cardNumber'),
+  card_brand = COALESCE(card_brand, raw_payload->>'paymentCardBrand'),
+  card_type = COALESCE(card_type, raw_payload->>'paymentCardType'),
+  customer_name = COALESCE(customer_name, raw_payload->>'customerName', raw_payload->>'payerName'),
+  payer_name = COALESCE(payer_name, raw_payload->>'payerName'),
+  username = COALESCE(username, raw_payload->>'username'),
+  auth_code = COALESCE(auth_code, raw_payload->>'authCode'),
+  rrn = COALESCE(rrn, raw_payload->>'rrNumber'),
+  external_ref = COALESCE(external_ref, raw_payload->>'externalRefNumber'),
+  mid_code = COALESCE(mid_code, raw_payload->>'mid'),
+  receipt_url = COALESCE(receipt_url, raw_payload->>'customerReceiptUrl')
+WHERE raw_payload IS NOT NULL
+  AND (card_number IS NULL OR card_brand IS NULL OR card_type IS NULL
        OR customer_name IS NULL OR auth_code IS NULL OR rrn IS NULL
        OR external_ref IS NULL OR mid_code IS NULL OR receipt_url IS NULL);

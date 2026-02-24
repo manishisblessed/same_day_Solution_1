@@ -199,7 +199,7 @@ async function getTransactions({
       COALESCE(rpt.username, rpt.raw_data->>'username') AS username,
       COALESCE(rpt.txn_type, rpt.raw_data->>'txnType', 'CHARGE') AS txn_type,
       COALESCE(rpt.auth_code, rpt.raw_data->>'authCode') AS auth_code,
-      COALESCE(rpt.card_number, rpt.raw_data->>'cardNumber', rpt.raw_data->>'maskedCardNumber') AS card_number,
+      COALESCE(rpt.card_number, rpt.raw_data->>'formattedPan', rpt.raw_data->>'cardNumber', rpt.raw_data->>'maskedCardNumber') AS card_number,
       COALESCE(rpt.issuing_bank, rpt.raw_data->>'issuingBankName', rpt.raw_data->>'bankName', rpt.raw_data->>'issuingBank') AS issuing_bank,
       COALESCE(rpt.card_classification, rpt.raw_data->>'cardClassification', rpt.raw_data->>'cardCategory') AS card_classification,
       COALESCE(rpt.card_txn_type, rpt.raw_data->>'cardTxnType', rpt.raw_data->>'cardTransactionType', rpt.raw_data->>'entryMode') AS card_txn_type,
@@ -339,7 +339,7 @@ async function processWebhookTransaction(payload) {
   const username = payload.username || null;
   const txnType = payload.txnType || 'CHARGE';
   const authCode = payload.authCode || null;
-  const cardNumber = payload.cardNumber || payload.maskedCardNumber || payload.cardLastFourDigit || null;
+  const cardNumber = payload.formattedPan || payload.cardNumber || payload.maskedCardNumber || null;
   const issuingBank = payload.issuingBankName || payload.bankName || payload.issuingBank || null;
   const cardClassification = payload.cardClassification || payload.cardCategory || null;
   const mid = payload.mid || payload.merchantId || null;
