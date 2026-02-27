@@ -406,18 +406,19 @@ export async function POST(
   }
 }
 
+/** GET: URL verification / health check — Razorpay expects 200 for webhook URL validation */
 export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ merchant: string }> }
 ) {
   const { merchant } = await params
-  const merchantSlug = merchant.toLowerCase()
+  const merchantSlug = merchant?.toLowerCase() ?? ''
   const merchantName = VALID_MERCHANTS[merchantSlug]
 
   if (!merchantName) {
     return NextResponse.json(
       { error: `Unknown merchant: ${merchant}`, valid_merchants: Object.keys(VALID_MERCHANTS) },
-      { status: 404 }
+      { status: 200 }
     )
   }
 
