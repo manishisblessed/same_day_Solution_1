@@ -250,6 +250,7 @@ export async function POST(request: NextRequest) {
     }
 
     // FIX: Store in razorpay_pos_transactions (used by role-based visibility API)
+    // Base URL = ASHVAM LEARNING PRIVATE LIMITED
     const posTransactionData: any = {
       txn_id: txnId,
       status: normalizedPayload.status || 'PENDING', // Raw status
@@ -259,6 +260,7 @@ export async function POST(request: NextRequest) {
       device_serial: deviceSerial,
       tid: tid,
       merchant_name: merchantName,
+      merchant_slug: 'ashvam', // Base URL belongs to ASHVAM LEARNING PRIVATE LIMITED
       transaction_time: createdTime.toISOString(),
       raw_data: rawDataToStore,
       // New detailed fields
@@ -323,10 +325,10 @@ export async function POST(request: NextRequest) {
     }
 
     // ================================================================
-    // INSTACASH FLOW: Do NOT auto-credit wallet on CAPTURED.
+    // PULSE PAY FLOW: Do NOT auto-credit wallet on CAPTURED.
     // Instead, store retailer hierarchy info on the transaction.
     // Wallet credit happens later via:
-    //   - InstaCash (T+0): Retailer selects transactions for instant settlement
+    //   - Pulse Pay (T+0): Retailer selects transactions for instant settlement
     //   - Auto T+1: Cron job processes remaining unsettled transactions next day
     // ================================================================
     let retailerMapping: any = null
@@ -349,7 +351,7 @@ export async function POST(request: NextRequest) {
         const grossAmount = amount // Amount is already in rupees from Razorpay POS
 
         // Store retailer hierarchy on transaction (but do NOT credit wallet)
-        // wallet_credited stays false — settlement happens via InstaCash or T+1 cron
+        // wallet_credited stays false — settlement happens via Pulse Pay or T+1 cron
         await supabase
           .from('razorpay_pos_transactions')
           .update({
@@ -358,11 +360,11 @@ export async function POST(request: NextRequest) {
             master_distributor_id: deviceMapping.master_distributor_id,
             gross_amount: grossAmount,
             // wallet_credited: false (default - NOT crediting here)
-            // settlement_mode: null (unsettled - waiting for InstaCash or T+1)
+            // settlement_mode: null (unsettled - waiting for Pulse Pay or T+1)
           })
           .eq('txn_id', txnId)
 
-        console.log(`[InstaCash] Transaction ${txnId} CAPTURED for retailer ${deviceMapping.retailer_id}, amount: ₹${grossAmount}. Awaiting settlement via InstaCash (T+0) or Auto-T+1.`)
+        console.log(`[PulsePay] Transaction ${txnId} CAPTURED for retailer ${deviceMapping.retailer_id}, amount: ₹${grossAmount}. Awaiting settlement via Pulse Pay (T+0) or Auto-T+1.`)
       } else {
         // Device not mapped - log for admin review
         console.warn(`No device mapping found for device_serial: ${deviceSerial}. Transaction stored but cannot be settled until mapped.`)

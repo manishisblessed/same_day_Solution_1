@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { createClient } from '@supabase/supabase-js'
 import { addCorsHeaders } from '@/lib/cors'
@@ -101,6 +102,9 @@ export async function GET(request: NextRequest) {
         { status: 500 }
       )
     }
+
+    const ctx = getRequestContext(request)
+    logActivityFromContext(ctx, user, { activity_type: 'report_ledger', activity_category: 'report' }).catch(() => {})
 
     // Prepare data for export
     const headers = ['ID', 'User ID', 'Wallet Type', 'Fund Category', 'Service Type', 'Transaction Type', 'Credit', 'Debit', 'Opening Balance', 'Closing Balance', 'Status', 'Created At']

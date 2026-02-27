@@ -1,5 +1,6 @@
 /**
- * InstaCash API - Instant T+0 Settlement for POS Transactions
+ * Pulse Pay (₹) API - Instant T+0 Settlement for POS Transactions
+ * (Formerly InstaCash)
  * 
  * POST /api/pos/instacash
  *   - Retailer selects specific unsettled POS transactions
@@ -8,13 +9,14 @@
  *   - Creates audit batch for tracking
  * 
  * GET /api/pos/instacash?batch_id=xxx
- *   - Get details of a specific InstaCash batch
+ *   - Get details of a specific Pulse Pay batch
  * 
  * GET /api/pos/instacash/unsettled
  *   - Get all unsettled transactions for the current retailer
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { getSupabaseAdmin } from '@/lib/supabase/server-admin'
 import {
@@ -26,7 +28,7 @@ export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 /**
- * POST - Process InstaCash (Instant T+0 Settlement)
+ * POST - Process Pulse Pay (Instant T+0 Settlement)
  * 
  * Body:
  * {
@@ -44,10 +46,10 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Only retailers can use InstaCash
+    // Only retailers can use Pulse Pay
     if (user.role !== 'retailer' && user.role !== 'admin') {
       return NextResponse.json(
-        { success: false, error: 'InstaCash is only available for retailers.' },
+        { success: false, error: 'Pulse Pay is only available for retailers.' },
         { status: 403 }
       )
     }
@@ -58,14 +60,14 @@ export async function POST(request: NextRequest) {
 
     if (!transaction_ids || !Array.isArray(transaction_ids) || transaction_ids.length === 0) {
       return NextResponse.json(
-        { success: false, error: 'Please select at least one transaction for InstaCash.' },
+        { success: false, error: 'Please select at least one transaction for Pulse Pay.' },
         { status: 400 }
       )
     }
 
     if (transaction_ids.length > 50) {
       return NextResponse.json(
-        { success: false, error: 'Maximum 50 transactions per InstaCash batch.' },
+        { success: false, error: 'Maximum 50 transactions per Pulse Pay batch.' },
         { status: 400 }
       )
     }
@@ -73,31 +75,68 @@ export async function POST(request: NextRequest) {
     const supabase = getSupabaseAdmin()
     const retailerId = user.partner_id
 
-    // 3. Fetch and validate selected transactions
+    // 3. Resolve retailer's TIDs and device serials (same logic as GET /api/razorpay/transactions)
+    let retailerTids: string[] = []
+    let retailerSerials: string[] = []
+
+    const { data: deviceMappings } = await supabase
+      .from('pos_device_mapping')
+      .select('device_serial, tid')
+      .eq('retailer_id', retailerId)
+      .eq('status', 'ACTIVE')
+
+    if (deviceMappings) {
+      retailerSerials.push(...deviceMappings.map((m: any) => m.device_serial).filter(Boolean))
+      retailerTids.push(...deviceMappings.map((m: any) => m.tid).filter(Boolean))
+    }
+
+    const { data: retailerMachines } = await supabase
+      .from('pos_machines')
+      .select('tid, serial_number')
+      .eq('retailer_id', retailerId)
+      .in('status', ['active', 'inactive'])
+
+    if (retailerMachines) {
+      retailerTids.push(...retailerMachines.map((m: any) => m.tid).filter(Boolean))
+      retailerSerials.push(...retailerMachines.map((m: any) => m.serial_number).filter(Boolean))
+    }
+
+    retailerTids = Array.from(new Set(retailerTids))
+    retailerSerials = Array.from(new Set(retailerSerials))
+
+    // 4. Fetch and validate selected transactions
     const { data: transactions, error: txnError } = await supabase
       .from('razorpay_pos_transactions')
       .select('*')
       .in('id', transaction_ids)
-      .eq('retailer_id', retailerId)
-      .eq('display_status', 'SUCCESS')
+      .or('display_status.ilike.SUCCESS,display_status.ilike.CAPTURED')
 
     if (txnError) {
-      console.error('[InstaCash] Error fetching transactions:', txnError)
+      console.error('[PulsePay] Error fetching transactions:', txnError)
       return NextResponse.json(
         { success: false, error: 'Failed to fetch transactions.' },
         { status: 500 }
       )
     }
 
-    if (!transactions || transactions.length === 0) {
+    // Filter to only transactions belonging to this retailer (by TID/device_serial or retailer_id)
+    const ownedTransactions = (transactions || []).filter((t: any) =>
+      t.retailer_id === retailerId ||
+      (t.tid && retailerTids.includes(t.tid)) ||
+      (t.device_serial && retailerSerials.includes(t.device_serial))
+    )
+
+    console.log(`[PulsePay] Query: retailer=${retailerId}, requested=${transaction_ids.length}, found=${transactions?.length || 0}, owned=${ownedTransactions.length}, TIDs=[${retailerTids.join(',')}], serials=[${retailerSerials.join(',')}]`)
+
+    if (ownedTransactions.length === 0) {
       return NextResponse.json(
         { success: false, error: 'No valid transactions found. Ensure they belong to you and are captured.' },
         { status: 400 }
       )
     }
 
-    // 4. Duplicate check - ensure none are already settled
-    const alreadySettled = transactions.filter(t => t.wallet_credited === true || t.settlement_mode)
+    // 5. Duplicate check - ensure none are already settled
+    const alreadySettled = ownedTransactions.filter(t => t.wallet_credited === true || t.settlement_mode)
     if (alreadySettled.length > 0) {
       const settledIds = alreadySettled.map(t => t.txn_id).join(', ')
       return NextResponse.json(
@@ -110,8 +149,8 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // 5. Additional duplicate check - ensure not in any pending InstaCash batch
-    const txnIds = transactions.map(t => t.id)
+    // 6. Additional duplicate check - ensure not in any pending Pulse Pay batch
+    const txnIds = ownedTransactions.map(t => t.id)
     const { data: existingBatchItems } = await supabase
       .from('instacash_batch_items')
       .select('pos_transaction_id, txn_id, status')
@@ -122,7 +161,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { 
           success: false, 
-          error: `${existingBatchItems.length} transaction(s) are already in a pending/settled InstaCash batch.`,
+          error: `${existingBatchItems.length} transaction(s) are already in a pending/settled Pulse Pay batch.`,
           conflicting: existingBatchItems
         },
         { status: 409 }
@@ -138,12 +177,12 @@ export async function POST(request: NextRequest) {
 
     const distributorId = retailerData?.distributor_id || null
 
-    // 7. Create InstaCash batch
+    // 7. Create Pulse Pay batch
     const { data: batch, error: batchError } = await supabase
       .from('instacash_batches')
       .insert({
         retailer_id: retailerId,
-        total_transactions: transactions.length,
+        total_transactions: ownedTransactions.length,
         status: 'processing',
         metadata: {
           user_agent: request.headers.get('user-agent'),
@@ -154,14 +193,14 @@ export async function POST(request: NextRequest) {
       .single()
 
     if (batchError || !batch) {
-      console.error('[InstaCash] Error creating batch:', batchError)
+      console.error('[PulsePay] Error creating batch:', batchError)
       return NextResponse.json(
-        { success: false, error: 'Failed to create InstaCash batch.' },
+        { success: false, error: 'Failed to create Pulse Pay batch.' },
         { status: 500 }
       )
     }
 
-    console.log(`[InstaCash] Batch ${batch.id} created for retailer ${retailerId} with ${transactions.length} transactions`)
+    console.log(`[PulsePay] Batch ${batch.id} created for retailer ${retailerId} with ${ownedTransactions.length} transactions`)
 
     // 8. Process each transaction: calculate MDR and create batch items
     let totalGrossAmount = 0
@@ -171,7 +210,7 @@ export async function POST(request: NextRequest) {
     let failedCount = 0
     const batchItems: any[] = []
 
-    for (const txn of transactions) {
+    for (const txn of ownedTransactions) {
       const grossAmount = parseFloat(txn.gross_amount || txn.amount || '0')
       if (grossAmount <= 0) {
         batchItems.push({
@@ -252,7 +291,7 @@ export async function POST(request: NextRequest) {
           status: 'failed',
           error_message: mdrResult.error || 'MDR calculation failed'
         })
-        console.warn(`[InstaCash] MDR calc failed for txn ${txn.txn_id}: ${mdrResult.error}`)
+        console.warn(`[PulsePay] MDR calc failed for txn ${txn.txn_id}: ${mdrResult.error}`)
       }
     }
 
@@ -263,14 +302,14 @@ export async function POST(request: NextRequest) {
         .insert(batchItems)
 
       if (itemsError) {
-        console.error('[InstaCash] Error inserting batch items:', itemsError)
+        console.error('[PulsePay] Error inserting batch items:', itemsError)
         // Update batch status to failed
         await supabase
           .from('instacash_batches')
           .update({ status: 'failed', completed_at: new Date().toISOString() })
           .eq('id', batch.id)
         return NextResponse.json(
-          { success: false, error: 'Failed to process InstaCash batch items.' },
+          { success: false, error: 'Failed to process Pulse Pay batch items.' },
           { status: 500 }
         )
       }
@@ -292,26 +331,26 @@ export async function POST(request: NextRequest) {
           p_reference_id: `INSTACASH-${batch.id}`,
           p_transaction_id: batch.id,
           p_status: 'completed',
-          p_remarks: `⚡ InstaCash - ${successCount} txn(s), Gross: ₹${totalGrossAmount.toFixed(2)}, MDR: ₹${totalMdrAmount.toFixed(2)}, Net: ₹${totalNetAmount.toFixed(2)}`
+          p_remarks: `⚡ Pulse Pay - ${successCount} txn(s), Gross: ₹${totalGrossAmount.toFixed(2)}, MDR: ₹${totalMdrAmount.toFixed(2)}, Net: ₹${totalNetAmount.toFixed(2)}`
         })
 
         if (ledgerError) {
-          console.error('[InstaCash] Wallet credit error:', ledgerError)
+          console.error('[PulsePay] Wallet credit error:', ledgerError)
           // Mark batch as failed
           await supabase
             .from('instacash_batches')
             .update({ status: 'failed', completed_at: new Date().toISOString() })
             .eq('id', batch.id)
           return NextResponse.json(
-            { success: false, error: 'Failed to credit wallet. InstaCash batch cancelled.' },
+            { success: false, error: 'Failed to credit wallet. Pulse Pay batch cancelled.' },
             { status: 500 }
           )
         }
 
         walletCreditId = ledgerId
-        console.log(`[InstaCash] Wallet credited: ₹${totalNetAmount.toFixed(2)} for retailer ${retailerId}, ledger_id: ${ledgerId}`)
+        console.log(`[PulsePay] Wallet credited: ₹${totalNetAmount.toFixed(2)} for retailer ${retailerId}, ledger_id: ${ledgerId}`)
       } catch (walletErr) {
-        console.error('[InstaCash] Wallet credit exception:', walletErr)
+        console.error('[PulsePay] Wallet credit exception:', walletErr)
         await supabase
           .from('instacash_batches')
           .update({ status: 'failed', completed_at: new Date().toISOString() })
@@ -336,25 +375,33 @@ export async function POST(request: NextRequest) {
         .eq('status', 'pending')
     }
 
-    // 12. Update razorpay_pos_transactions - mark as settled via InstaCash
-    for (const txn of transactions) {
+    // 12. Update razorpay_pos_transactions - mark as settled via Pulse Pay
+    for (const txn of ownedTransactions) {
       const item = batchItems.find(i => i.pos_transaction_id === txn.id && (i.status === 'pending' || i.status === 'settled'))
       if (item) {
-        await supabase
+        const updatePayload: Record<string, any> = {
+          wallet_credited: true,
+          settlement_mode: 'INSTACASH',
+          mdr_rate: item.mdr_rate,
+          mdr_amount: item.mdr_amount,
+          net_amount: item.net_amount,
+          instacash_requested_at: new Date().toISOString(),
+          instacash_batch_id: batch.id,
+        }
+        if (walletCreditId) updatePayload.wallet_credit_id = walletCreditId
+        if (item.scheme_id) updatePayload.mdr_scheme_id = item.scheme_id
+        if (item.scheme_type) updatePayload.mdr_scheme_type = item.scheme_type
+
+        const { error: updateError, count: updateCount } = await supabase
           .from('razorpay_pos_transactions')
-          .update({
-            wallet_credited: true,
-            wallet_credit_id: walletCreditId,
-            settlement_mode: 'INSTACASH',
-            mdr_rate: item.mdr_rate,
-            mdr_amount: item.mdr_amount,
-            net_amount: item.net_amount,
-            mdr_scheme_id: item.scheme_id,
-            mdr_scheme_type: item.scheme_type,
-            instacash_requested_at: new Date().toISOString(),
-            instacash_batch_id: batch.id,
-          })
+          .update(updatePayload, { count: 'exact' })
           .eq('id', txn.id)
+
+        if (updateError) {
+          console.error(`[PulsePay] CRITICAL: Failed to update txn ${txn.txn_id} (id=${txn.id}) status:`, updateError.message, updateError.details)
+        } else {
+          console.log(`[PulsePay] Txn ${txn.txn_id} (id=${txn.id}) marked as INSTACASH settled (rows updated: ${updateCount})`)
+        }
       }
     }
 
@@ -377,34 +424,67 @@ export async function POST(request: NextRequest) {
       })
       .eq('id', batch.id)
 
-    console.log(`[InstaCash] Batch ${batch.id} completed: ${successCount} settled, ${failedCount} failed, net: ₹${totalNetAmount.toFixed(2)}`)
+    console.log(`[PulsePay] Batch ${batch.id} completed: ${successCount} settled, ${failedCount} failed, net: ₹${totalNetAmount.toFixed(2)}`)
+
+    const ctx = getRequestContext(request)
+    logActivityFromContext(ctx, user, {
+      activity_type: 'pos_instacash',
+      activity_category: 'pos',
+      activity_description: `Pulse Pay T+0 settlement for ${successCount} transactions`,
+      reference_table: 'instacash_batches',
+      reference_id: batch.id,
+    }).catch(() => {})
+
+    const failedItems = batchItems.filter(i => i.status === 'failed' || i.status === 'skipped')
+    const failureReasons = Array.from(new Set(failedItems.map(i => i.error_message).filter(Boolean)))
+
+    if (successCount === 0) {
+      return NextResponse.json({
+        success: false,
+        batch_id: batch.id,
+        error: `Pulse Pay failed for all ${failedCount} transaction(s). ${failureReasons.join('; ')}`,
+        summary: {
+          total_transactions: ownedTransactions.length,
+          settled: 0,
+          failed: failedCount,
+          total_gross_amount: 0,
+          total_mdr_amount: 0,
+          total_net_amount: 0,
+          wallet_credit_id: null,
+          failure_reasons: failureReasons,
+        },
+      }, { status: 422 })
+    }
 
     return NextResponse.json({
       success: true,
       batch_id: batch.id,
       summary: {
-        total_transactions: transactions.length,
+        total_transactions: ownedTransactions.length,
         settled: successCount,
         failed: failedCount,
         total_gross_amount: totalGrossAmount,
         total_mdr_amount: totalMdrAmount,
         total_net_amount: totalNetAmount,
         wallet_credit_id: walletCreditId,
+        failure_reasons: failureReasons.length > 0 ? failureReasons : undefined,
       },
-      message: `⚡ InstaCash complete! ${successCount} transaction(s) settled. ₹${totalNetAmount.toFixed(2)} credited to your wallet.`
+      message: failedCount > 0
+        ? `⚡ Pulse Pay partial: ${successCount} settled, ${failedCount} failed. ₹${totalNetAmount.toFixed(2)} credited. Failed: ${failureReasons.join('; ')}`
+        : `⚡ Pulse Pay complete! ${successCount} transaction(s) settled. ₹${totalNetAmount.toFixed(2)} credited to your wallet.`
     })
 
   } catch (error: any) {
-    console.error('[InstaCash] Error:', error)
+    console.error('[PulsePay] Error:', error)
     return NextResponse.json(
-      { success: false, error: error.message || 'InstaCash processing failed.' },
+      { success: false, error: error.message || 'Pulse Pay processing failed.' },
       { status: 500 }
     )
   }
 }
 
 /**
- * GET - Fetch unsettled transactions or batch details
+ * GET - Fetch unsettled transactions or Pulse Pay batch details
  * 
  * Query params:
  *   batch_id: string  - Get specific batch details
@@ -422,7 +502,23 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url)
     const batchId = searchParams.get('batch_id')
+    const checkMode = searchParams.get('check_mode')
     const supabase = getSupabaseAdmin()
+
+    // Quick check for settlement mode (used by POSTransactionsTable)
+    if (checkMode) {
+      const table = user.role === 'distributor' ? 'distributors' : 'retailers'
+      const { data: entity } = await supabase
+        .from(table)
+        .select('settlement_mode_allowed')
+        .eq('partner_id', user.partner_id)
+        .maybeSingle()
+
+      return NextResponse.json({
+        success: true,
+        settlement_mode_allowed: entity?.settlement_mode_allowed || 'T1',
+      })
+    }
 
     if (batchId) {
       // Get batch details with items
@@ -458,20 +554,20 @@ export async function GET(request: NextRequest) {
       .from('razorpay_pos_transactions')
       .select('id, txn_id, amount, gross_amount, payment_mode, card_brand, card_type, card_classification, tid, device_serial, transaction_time, display_status, settlement_mode, wallet_credited, rrn, customer_name, merchant_name')
       .eq('retailer_id', user.partner_id)
-      .eq('display_status', 'SUCCESS')
+      .or('display_status.ilike.SUCCESS,display_status.ilike.CAPTURED')
       .eq('wallet_credited', false)
       .is('settlement_mode', null)
       .order('transaction_time', { ascending: false })
 
     if (unsettledError) {
-      console.error('[InstaCash] Error fetching unsettled:', unsettledError)
+      console.error('[PulsePay] Error fetching unsettled:', unsettledError)
       return NextResponse.json(
         { success: false, error: 'Failed to fetch unsettled transactions.' },
         { status: 500 }
       )
     }
 
-    // Also get recent InstaCash batches
+    // Also get recent Pulse Pay batches
     const { data: recentBatches } = await supabase
       .from('instacash_batches')
       .select('*')
@@ -487,7 +583,7 @@ export async function GET(request: NextRequest) {
     })
 
   } catch (error: any) {
-    console.error('[InstaCash] GET Error:', error)
+    console.error('[PulsePay] GET Error:', error)
     return NextResponse.json(
       { success: false, error: error.message || 'Failed to fetch data.' },
       { status: 500 }

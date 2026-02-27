@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger'
 import { createClient } from '@supabase/supabase-js'
 import { TransactionFilters, TransactionListResponse } from '@/types/database.types'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
@@ -123,6 +124,9 @@ export async function GET(request: NextRequest) {
       limit: filters.limit || 50,
       totalPages
     }
+
+    const ctx = getRequestContext(request)
+    logActivityFromContext(ctx, user, { activity_type: 'view_transactions', activity_category: 'report' }).catch(() => {})
 
     return NextResponse.json(response)
   } catch (error: any) {

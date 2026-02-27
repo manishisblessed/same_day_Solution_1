@@ -105,6 +105,7 @@ export default function MasterDistributorHeader() {
                     width={48}
                     height={48}
                     className="object-contain"
+                    style={{ width: 'auto', height: 'auto' }}
                     priority
                   />
                 </div>

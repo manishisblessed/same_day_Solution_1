@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback, useRef } from 'react'
+import React, { useState, useEffect, useCallback, useRef, Suspense } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useRouter } from 'next/navigation'
 import AdminSidebar from '@/components/AdminSidebar'
@@ -60,6 +60,8 @@ interface RazorpayTransaction {
   mid: string | null
   device_serial: string | null
   merchant_name: string | null
+  // Company (POS webhook source)
+  merchant_slug?: string | null
   // Transaction Details
   txn_type: string | null
   auth_code: string | null
@@ -83,6 +85,14 @@ interface RazorpayTransaction {
 }
 
 export default function RazorpayTransactionsPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center"><Loader2 className="w-8 h-8 animate-spin text-primary-600" /></div>}>
+      <RazorpayTransactionsPageContent />
+    </Suspense>
+  )
+}
+
+function RazorpayTransactionsPageContent() {
   const { user, loading: authLoading } = useAuth()
   const router = useRouter()
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -103,6 +113,7 @@ export default function RazorpayTransactionsPage() {
   const [paymentModeFilter, setPaymentModeFilter] = useState('all')
   const [searchQuery, setSearchQuery] = useState('')
   const [settlementFilter, setSettlementFilter] = useState('all')
+  const [companyFilter, setCompanyFilter] = useState<string>('all')
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false)
 
   // Export
@@ -127,7 +138,7 @@ export default function RazorpayTransactionsPage() {
   const limit = 20
 
   // Search debounce
-  const searchTimerRef = useRef<NodeJS.Timeout | null>(null)
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [debouncedSearch, setDebouncedSearch] = useState('')
 
   // Debounce search input
@@ -177,6 +188,7 @@ export default function RazorpayTransactionsPage() {
       if (paymentModeFilter !== 'all') params.set('payment_mode', paymentModeFilter)
       if (debouncedSearch) params.set('search', debouncedSearch)
       if (settlementFilter !== 'all') params.set('settlement_status', settlementFilter)
+      if (companyFilter !== 'all') params.set('merchant_slug', companyFilter)
 
       const response = await apiFetch(`/api/admin/razorpay-transactions?${params.toString()}`)
       
@@ -211,7 +223,7 @@ export default function RazorpayTransactionsPage() {
         setLoading(false)
       }
     }
-  }, [user, page, limit, statusFilter, dateFrom, dateTo, paymentModeFilter, debouncedSearch, settlementFilter])
+  }, [user, page, limit, statusFilter, dateFrom, dateTo, paymentModeFilter, debouncedSearch, settlementFilter, companyFilter])
 
   // Initial fetch and auto-refresh polling
   useEffect(() => {
@@ -219,7 +231,7 @@ export default function RazorpayTransactionsPage() {
 
     fetchTransactions()
 
-    let pollInterval: NodeJS.Timeout | null = null
+    let pollInterval: ReturnType<typeof setInterval> | null = null
     if (autoRefresh) {
       pollInterval = setInterval(() => {
         fetchTransactions(true)
@@ -273,6 +285,7 @@ export default function RazorpayTransactionsPage() {
       if (paymentModeFilter !== 'all') params.set('payment_mode', paymentModeFilter)
       if (debouncedSearch) params.set('search', debouncedSearch)
       if (settlementFilter !== 'all') params.set('settlement_status', settlementFilter)
+      if (companyFilter !== 'all') params.set('merchant_slug', companyFilter)
 
       const response = await apiFetch(`/api/admin/razorpay-transactions/export?${params.toString()}`)
       
@@ -363,10 +376,11 @@ export default function RazorpayTransactionsPage() {
     setPaymentModeFilter('all')
     setSearchQuery('')
     setSettlementFilter('all')
+    setCompanyFilter('all')
     setPage(1)
   }
 
-  const hasActiveFilters = statusFilter !== 'all' || dateFrom || dateTo || paymentModeFilter !== 'all' || searchQuery || settlementFilter !== 'all'
+  const hasActiveFilters = statusFilter !== 'all' || dateFrom || dateTo || paymentModeFilter !== 'all' || searchQuery || settlementFilter !== 'all' || companyFilter !== 'all'
 
   // Format date
   const formatDate = (dateString: string | null) => {
@@ -711,6 +725,23 @@ export default function RazorpayTransactionsPage() {
                     30 Days
                   </button>
                 </div>
+
+                {/* Company (POS) Filter */}
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <Building className="w-4 h-4 text-gray-400 flex-shrink-0" />
+                  <select
+                    value={companyFilter}
+                    onChange={(e) => { setCompanyFilter(e.target.value); setPage(1) }}
+                    className="px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-primary-500 focus:border-transparent min-w-[200px]"
+                    title="Filter by company"
+                  >
+                    <option value="all">All Companies</option>
+                    <option value="ashvam">ASHVAM LEARNING PRIVATE LIMITED</option>
+                    <option value="teachway">Teachway Education Private Limited</option>
+                    <option value="newscenaric">New Scenaric Travels</option>
+                    <option value="lagoon">LAGOON CRAFT LABS SOLUTIONS PRIVATE LIMITED</option>
+                  </select>
+                </div>
               </div>
 
               {/* Status Filter Pills + Advanced Toggle */}
@@ -841,6 +872,9 @@ export default function RazorpayTransactionsPage() {
                       Consumer
                     </th>
                     <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                      Company
+                    </th>
+                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                       Amount (₹)
                     </th>
                     <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
@@ -878,7 +912,7 @@ export default function RazorpayTransactionsPage() {
                 <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
                   {transactions.length === 0 ? (
                     <tr>
-                      <td colSpan={15} className="px-6 py-12 text-center text-gray-500 dark:text-gray-400">
+                      <td colSpan={16} className="px-6 py-12 text-center text-gray-500 dark:text-gray-400">
                         <div className="flex flex-col items-center gap-2">
                           {loading ? (
                             <>
@@ -899,10 +933,9 @@ export default function RazorpayTransactionsPage() {
                     </tr>
                   ) : (
                     transactions.map((txn) => (
-                      <>
+                      <React.Fragment key={txn.txn_id}>
                         {/* Main Row */}
                         <motion.tr
-                          key={txn.txn_id}
                           initial={{ opacity: 0 }}
                           animate={{ opacity: 1 }}
                           className={`hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors cursor-pointer ${
@@ -936,6 +969,17 @@ export default function RazorpayTransactionsPage() {
                           </td>
                           <td className="px-3 py-3 whitespace-nowrap text-xs text-gray-600 dark:text-gray-400 max-w-[140px] truncate" title={txn.customer_name || txn.payer_name || '-'}>
                             {txn.customer_name || txn.payer_name || '-'}
+                          </td>
+                          <td className="px-3 py-3 whitespace-nowrap text-xs text-gray-600 dark:text-gray-400 max-w-[140px] truncate" title={
+                            txn.merchant_slug === 'ashvam' ? 'ASHVAM LEARNING PRIVATE LIMITED' :
+                            txn.merchant_slug === 'teachway' ? 'Teachway Education Private Limited' :
+                            txn.merchant_slug === 'newscenaric' ? 'New Scenaric Travels' :
+                            txn.merchant_slug === 'lagoon' ? 'LAGOON CRAFT LABS SOLUTIONS PRIVATE LIMITED' : (txn.merchant_slug || 'ASHVAM')
+                          }>
+                            {txn.merchant_slug === 'ashvam' ? 'ASHVAM' :
+                             txn.merchant_slug === 'teachway' ? 'Teachway' :
+                             txn.merchant_slug === 'newscenaric' ? 'New Scenaric' :
+                             txn.merchant_slug === 'lagoon' ? 'Lagoon' : (txn.merchant_slug ? String(txn.merchant_slug) : 'ASHVAM')}
                           </td>
                           <td className="px-3 py-3 whitespace-nowrap text-xs font-semibold text-gray-900 dark:text-gray-100">
                             {formatAmount(txn.amount)}
@@ -1055,6 +1099,12 @@ export default function RazorpayTransactionsPage() {
                                       {/* Status Info */}
                                       <DetailItem label="Status" value={txn.status} />
                                       <DetailItem label="Settlement Status" value={txn.settlement_status} />
+                                      <DetailItem icon={<Building className="w-4 h-4" />} label="Company" value={
+                                        txn.merchant_slug === 'ashvam' ? 'ASHVAM LEARNING PRIVATE LIMITED' :
+                                        txn.merchant_slug === 'teachway' ? 'Teachway Education Private Limited' :
+                                        txn.merchant_slug === 'newscenaric' ? 'New Scenaric Travels' :
+                                        txn.merchant_slug === 'lagoon' ? 'LAGOON CRAFT LABS SOLUTIONS PRIVATE LIMITED' : (txn.merchant_slug || 'ASHVAM LEARNING PRIVATE LIMITED')
+                                      } />
                                       
                                       {/* Dates */}
                                       <DetailItem icon={<Calendar className="w-4 h-4" />} label="Transaction Time" value={formatDate(txn.created_time)} />
@@ -1124,7 +1174,7 @@ export default function RazorpayTransactionsPage() {
                             </motion.tr>
                           )}
                         </AnimatePresence>
-                      </>
+                      </React.Fragment>
                     ))
                   )}
                 </tbody>

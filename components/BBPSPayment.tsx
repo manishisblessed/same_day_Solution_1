@@ -3,8 +3,10 @@
 import { useState, useEffect, useRef } from 'react'
 import { 
   Search, Loader2, CheckCircle, XCircle, Wallet, Receipt, 
-  AlertCircle, RefreshCw, FileText, Clock, MessageSquare, History
+  AlertCircle, RefreshCw, FileText, Clock, MessageSquare, History,
+  Download, X, Printer
 } from 'lucide-react'
+import { jsPDF } from 'jspdf'
 import { motion, AnimatePresence } from 'framer-motion'
 import { paiseToRupees, formatPaiseAsRupees } from '@/lib/bbps/currency'
 import { apiFetch, apiFetchJson } from '@/lib/api-client'
@@ -99,6 +101,27 @@ interface TransactionStatus {
   response_reason?: string
 }
 
+interface ReceiptData {
+  success: boolean
+  transactionId: string
+  agentTransactionId: string
+  bbpsTransactionId: string
+  status: string
+  paymentStatus: string
+  billerName: string
+  billerCategory: string
+  consumerNumber: string
+  consumerName: string
+  billNumber: string
+  amountPaid: number
+  charges: number
+  totalDeducted: number
+  paymentMode: string
+  walletBalanceAfter: number
+  dateTime: string
+  isPrepaid: boolean
+}
+
 // Categories that are prepaid (don't require bill fetch - direct recharge)
 const PREPAID_CATEGORIES = [
   'Mobile Prepaid',
@@ -189,6 +212,10 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
   const [showPrepaidConfirm, setShowPrepaidConfirm] = useState(false)
   const [prepaidCharges, setPrepaidCharges] = useState<number>(0)
   const [bbpsLimitTier, setBbpsLimitTier] = useState<number>(49999)
+
+  // Receipt modal state
+  const [receiptData, setReceiptData] = useState<ReceiptData | null>(null)
+  const [showReceiptModal, setShowReceiptModal] = useState(false)
 
   // Ref for auto-scrolling to consumer details form
   const consumerDetailsRef = useRef<HTMLDivElement>(null)
@@ -942,22 +969,40 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
       setPaymentResult(data)
       
       if (data.success) {
-        // Refresh wallet balance
         await fetchWalletBalance()
-        // Reset payment flow
+
+        const selectedAmount = getSelectedAmount()
+        const receipt: ReceiptData = {
+          success: true,
+          transactionId: data.transaction_id || '',
+          agentTransactionId: data.agent_transaction_id || '',
+          bbpsTransactionId: data.bbps_transaction_id || '',
+          status: data.status || 'success',
+          paymentStatus: data.payment_status || 'Success',
+          billerName: selectedBiller.biller_name,
+          billerCategory: selectedBiller.category || selectedBiller.category_name || selectedCategory,
+          consumerNumber: inputParamFields.length > 0
+            ? inputParams[inputParamFields[0].paramName] || ''
+            : consumerNumber.trim(),
+          consumerName: billDetails.consumer_name || '',
+          billNumber: billDetails.bill_number || '',
+          amountPaid: selectedAmount,
+          charges: paymentCharges,
+          totalDeducted: selectedAmount + paymentCharges,
+          paymentMode: selectedBiller.paymentMode || 'Cash',
+          walletBalanceAfter: data.wallet_balance ?? 0,
+          dateTime: new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }),
+          isPrepaid: false,
+        }
+        setReceiptData(receipt)
+        setShowReceiptModal(true)
+
         setPaymentStep('bill')
         setCustomAmount('')
         setAmountType('full')
         setTpin('')
         setPanNumber('')
         setPaymentCharges(0)
-        // Auto-check transaction status after 2 seconds
-        if (data.bbps_transaction_id) {
-          const transactionId = data.bbps_transaction_id
-          setTimeout(() => {
-            checkTransactionStatus(transactionId)
-          }, 2000)
-        }
       }
     } catch (error: any) {
       console.error('Error paying bill:', error)
@@ -1075,6 +1120,144 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
     setPrepaidCharges(0)
   }
 
+  const closeReceiptModal = () => {
+    setShowReceiptModal(false)
+    setReceiptData(null)
+    resetForm()
+  }
+
+  const downloadReceiptPDF = (receipt: ReceiptData) => {
+    const doc = new jsPDF({ unit: 'mm', format: 'a4' })
+    const pageWidth = doc.internal.pageSize.getWidth()
+    const margin = 20
+    let y = 20
+
+    const centerText = (text: string, yPos: number, size: number = 12) => {
+      doc.setFontSize(size)
+      const textWidth = doc.getTextWidth(text)
+      doc.text(text, (pageWidth - textWidth) / 2, yPos)
+    }
+
+    const addRow = (label: string, value: string, yPos: number): number => {
+      doc.setFontSize(10)
+      doc.setFont('helvetica', 'bold')
+      doc.text(label, margin, yPos)
+      doc.setFont('helvetica', 'normal')
+      const maxValueWidth = pageWidth - margin * 2 - 60
+      const lines = doc.splitTextToSize(value, maxValueWidth)
+      doc.text(lines, margin + 60, yPos)
+      return yPos + (lines.length * 5) + 3
+    }
+
+    // Header
+    doc.setFillColor(37, 99, 235)
+    doc.rect(0, 0, pageWidth, 35, 'F')
+    doc.setTextColor(255, 255, 255)
+    doc.setFont('helvetica', 'bold')
+    centerText('BBPS Payment Receipt', 15, 18)
+    centerText(receipt.isPrepaid ? 'Prepaid Recharge' : 'Bill Payment', 25, 11)
+
+    // Status badge
+    y = 45
+    doc.setTextColor(0, 0, 0)
+    if (receipt.success) {
+      doc.setFillColor(220, 252, 231)
+      doc.roundedRect(margin, y - 5, pageWidth - margin * 2, 14, 3, 3, 'F')
+      doc.setTextColor(22, 101, 52)
+      doc.setFont('helvetica', 'bold')
+      centerText('PAYMENT SUCCESSFUL', y + 4, 13)
+    } else {
+      doc.setFillColor(254, 226, 226)
+      doc.roundedRect(margin, y - 5, pageWidth - margin * 2, 14, 3, 3, 'F')
+      doc.setTextColor(153, 27, 27)
+      doc.setFont('helvetica', 'bold')
+      centerText('PAYMENT FAILED', y + 4, 13)
+    }
+
+    // Separator
+    y = 65
+    doc.setDrawColor(200, 200, 200)
+    doc.line(margin, y, pageWidth - margin, y)
+
+    // Transaction Details section
+    y = 73
+    doc.setTextColor(37, 99, 235)
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(12)
+    doc.text('Transaction Details', margin, y)
+    y += 8
+    doc.setTextColor(0, 0, 0)
+
+    y = addRow('Date & Time:', receipt.dateTime, y)
+    y = addRow('Transaction ID:', receipt.agentTransactionId, y)
+    if (receipt.bbpsTransactionId) {
+      y = addRow('BBPS Reference:', receipt.bbpsTransactionId, y)
+    }
+    y = addRow('Status:', receipt.paymentStatus || receipt.status, y)
+
+    // Separator
+    y += 2
+    doc.setDrawColor(200, 200, 200)
+    doc.line(margin, y, pageWidth - margin, y)
+    y += 8
+
+    // Biller Details section
+    doc.setTextColor(37, 99, 235)
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(12)
+    doc.text('Biller Details', margin, y)
+    y += 8
+    doc.setTextColor(0, 0, 0)
+
+    y = addRow('Biller Name:', receipt.billerName, y)
+    y = addRow('Category:', receipt.billerCategory, y)
+    y = addRow('Consumer Number:', receipt.consumerNumber, y)
+    if (receipt.consumerName) {
+      y = addRow('Consumer Name:', receipt.consumerName, y)
+    }
+    if (receipt.billNumber) {
+      y = addRow('Bill Number:', receipt.billNumber, y)
+    }
+
+    // Separator
+    y += 2
+    doc.setDrawColor(200, 200, 200)
+    doc.line(margin, y, pageWidth - margin, y)
+    y += 8
+
+    // Payment Details section
+    doc.setTextColor(37, 99, 235)
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(12)
+    doc.text('Payment Details', margin, y)
+    y += 8
+    doc.setTextColor(0, 0, 0)
+
+    const fmtAmount = (amt: number) => `Rs. ${amt.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+    y = addRow('Amount Paid:', fmtAmount(receipt.amountPaid), y)
+    if (receipt.charges > 0) {
+      y = addRow('Charges:', fmtAmount(receipt.charges), y)
+      y = addRow('Total Deducted:', fmtAmount(receipt.totalDeducted), y)
+    }
+    y = addRow('Payment Mode:', receipt.paymentMode, y)
+    y = addRow('Wallet Balance:', fmtAmount(receipt.walletBalanceAfter), y)
+
+    // Footer
+    y += 10
+    doc.setDrawColor(200, 200, 200)
+    doc.line(margin, y, pageWidth - margin, y)
+    y += 8
+    doc.setTextColor(130, 130, 130)
+    doc.setFontSize(9)
+    doc.setFont('helvetica', 'italic')
+    centerText('This is a computer-generated receipt and does not require a signature.', y, 9)
+    y += 6
+    centerText('Powered by Same Day Solution', y, 9)
+
+    const filename = `BBPS_Receipt_${receipt.agentTransactionId || 'txn'}_${new Date().toISOString().split('T')[0]}.pdf`
+    doc.save(filename)
+  }
+
   // Check if current category is prepaid
   const isPrepaid = isPrepaidCategory(selectedCategory)
 
@@ -1189,20 +1372,38 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
       setPaymentResult(data)
 
       if (data.success) {
-        // Refresh wallet balance
         await fetchWalletBalance()
-        // Reset prepaid flow
+
+        const amount = parseFloat(prepaidAmount)
+        const receipt: ReceiptData = {
+          success: true,
+          transactionId: data.transaction_id || '',
+          agentTransactionId: data.agent_transaction_id || '',
+          bbpsTransactionId: data.bbps_transaction_id || '',
+          status: data.status || 'success',
+          paymentStatus: data.payment_status || 'Success',
+          billerName: selectedBiller!.biller_name,
+          billerCategory: selectedBiller!.category || selectedBiller!.category_name || selectedCategory,
+          consumerNumber: inputParamFields.length > 0
+            ? inputParams[inputParamFields[0].paramName] || ''
+            : consumerNumber.trim(),
+          consumerName: '',
+          billNumber: '',
+          amountPaid: amount,
+          charges: prepaidCharges,
+          totalDeducted: amount + prepaidCharges,
+          paymentMode: selectedBiller!.paymentMode || 'Cash',
+          walletBalanceAfter: data.wallet_balance ?? 0,
+          dateTime: new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }),
+          isPrepaid: true,
+        }
+        setReceiptData(receipt)
+        setShowReceiptModal(true)
+
         setPrepaidAmount('')
         setShowPrepaidConfirm(false)
         setPrepaidCharges(0)
         setTpin('')
-        // Auto-check transaction status
-        if (data.bbps_transaction_id) {
-          const transactionId = data.bbps_transaction_id
-          setTimeout(() => {
-            checkTransactionStatus(transactionId)
-          }, 2000)
-        }
       }
     } catch (error: any) {
       console.error('Error processing prepaid recharge:', error)
@@ -1326,72 +1527,32 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
             )}
           </AnimatePresence>
 
-          {/* Payment Result */}
+          {/* Payment Result (only shown for failed payments — successful ones use the receipt modal) */}
           <AnimatePresence>
-            {paymentResult && (
+            {paymentResult && !paymentResult.success && (
               <motion.div
                 initial={{ opacity: 0, y: -10 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -10 }}
-                className={`rounded-lg p-4 border ${
-                  paymentResult.success
-                    ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800'
-                    : 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800'
-                }`}
+                className="rounded-lg p-4 border bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800"
               >
                 <div className="flex items-start gap-3">
-                  {paymentResult.success ? (
-                    <CheckCircle className="w-5 h-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
-                  ) : (
-                    <XCircle className="w-5 h-5 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" />
-                  )}
+                  <XCircle className="w-5 h-5 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" />
                   <div className="flex-1">
-                    <p className={`text-sm font-medium ${paymentResult.success ? 'text-green-800 dark:text-green-200' : 'text-red-800 dark:text-red-200'}`}>
-                      {paymentResult.success ? 'Payment Successful' : 'Payment Failed'}
+                    <p className="text-sm font-medium text-red-800 dark:text-red-200">
+                      Payment Failed
                     </p>
-                    {paymentResult.success && (
-                      <div className="mt-2 space-y-1 text-sm text-green-700 dark:text-green-300">
-                        <p><strong>Transaction ID:</strong> {paymentResult.agent_transaction_id}</p>
-                        {paymentResult.bbps_transaction_id && (
-                          <p><strong>BBPS Transaction:</strong> {paymentResult.bbps_transaction_id}</p>
-                        )}
-                        {paymentResult.wallet_balance !== undefined && (
-                          <p><strong>New Balance:</strong> ₹{paymentResult.wallet_balance.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
-                        )}
-                      </div>
-                    )}
                     {paymentResult.error_message && (
                       <p className="text-sm text-red-700 dark:text-red-300 mt-1">{sanitizeErrorMessage(paymentResult.error_message)}</p>
                     )}
-                    {paymentResult.success && paymentResult.bbps_transaction_id && (
-                      <div className="mt-3 flex gap-2">
-                        <button
-                          onClick={() => checkTransactionStatus(paymentResult.bbps_transaction_id!)}
-                          disabled={checkingStatus}
-                          className="px-3 py-1.5 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-gray-400 flex items-center gap-1"
-                        >
-                          {checkingStatus ? (
-                            <Loader2 className="w-3 h-3 animate-spin" />
-                          ) : (
-                            <RefreshCw className="w-3 h-3" />
-                          )}
-                          Check Status
-                        </button>
-                        <button
-                          onClick={() => setShowComplaintForm(true)}
-                          className="px-3 py-1.5 text-xs bg-orange-600 text-white rounded hover:bg-orange-700 flex items-center gap-1"
-                        >
-                          <MessageSquare className="w-3 h-3" />
-                          Register Complaint
-                        </button>
-                        <button
-                          onClick={resetForm}
-                          className="px-3 py-1.5 text-xs bg-gray-600 text-white rounded hover:bg-gray-700"
-                        >
-                          New Payment
-                        </button>
-                      </div>
-                    )}
+                    <div className="mt-3 flex gap-2">
+                      <button
+                        onClick={resetForm}
+                        className="px-3 py-1.5 text-xs bg-gray-600 text-white rounded hover:bg-gray-700"
+                      >
+                        Try Again
+                      </button>
+                    </div>
                   </div>
                 </div>
               </motion.div>
@@ -2285,6 +2446,208 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
           </p>
         </div>
       )}
+
+      {/* Receipt Modal */}
+      <AnimatePresence>
+        {showReceiptModal && receiptData && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
+            onClick={(e) => { if (e.target === e.currentTarget) closeReceiptModal() }}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+              className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto"
+            >
+              {/* Modal Header */}
+              <div className={`px-6 py-4 rounded-t-2xl flex items-center justify-between ${
+                receiptData.success
+                  ? 'bg-gradient-to-r from-green-500 to-emerald-600'
+                  : 'bg-gradient-to-r from-red-500 to-rose-600'
+              }`}>
+                <div className="flex items-center gap-3">
+                  {receiptData.success ? (
+                    <CheckCircle className="w-7 h-7 text-white" />
+                  ) : (
+                    <XCircle className="w-7 h-7 text-white" />
+                  )}
+                  <div>
+                    <h3 className="text-lg font-bold text-white">
+                      {receiptData.success ? 'Payment Successful' : 'Payment Failed'}
+                    </h3>
+                    <p className="text-white/80 text-xs">
+                      {receiptData.isPrepaid ? 'Prepaid Recharge' : 'BBPS Bill Payment'}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={closeReceiptModal}
+                  className="text-white/80 hover:text-white transition-colors p-1 rounded-full hover:bg-white/20"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Amount Display */}
+              <div className="px-6 py-5 text-center border-b border-gray-100 dark:border-gray-700">
+                <p className="text-sm text-gray-500 dark:text-gray-400 mb-1">Amount Paid</p>
+                <p className="text-3xl font-bold text-gray-900 dark:text-white">
+                  ₹{receiptData.amountPaid.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </p>
+                {receiptData.charges > 0 && (
+                  <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+                    + ₹{receiptData.charges.toLocaleString('en-IN', { minimumFractionDigits: 2 })} charges
+                  </p>
+                )}
+              </div>
+
+              {/* Transaction Details */}
+              <div className="px-6 py-4 space-y-4">
+                {/* Reference IDs */}
+                <div>
+                  <h4 className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-2">
+                    Transaction Details
+                  </h4>
+                  <div className="space-y-2">
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-gray-500 dark:text-gray-400">Date & Time</span>
+                      <span className="text-sm font-medium text-gray-900 dark:text-white">{receiptData.dateTime}</span>
+                    </div>
+                    <div className="flex justify-between items-start">
+                      <span className="text-sm text-gray-500 dark:text-gray-400">Transaction ID</span>
+                      <span className="text-sm font-mono font-medium text-gray-900 dark:text-white text-right max-w-[60%] break-all">
+                        {receiptData.agentTransactionId}
+                      </span>
+                    </div>
+                    {receiptData.bbpsTransactionId && (
+                      <div className="flex justify-between items-start">
+                        <span className="text-sm text-gray-500 dark:text-gray-400">BBPS Reference</span>
+                        <span className="text-sm font-mono font-medium text-gray-900 dark:text-white text-right max-w-[60%] break-all">
+                          {receiptData.bbpsTransactionId}
+                        </span>
+                      </div>
+                    )}
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-gray-500 dark:text-gray-400">Status</span>
+                      <span className={`text-sm font-semibold px-2 py-0.5 rounded-full ${
+                        receiptData.success
+                          ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                          : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+                      }`}>
+                        {receiptData.paymentStatus || receiptData.status}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <hr className="border-gray-100 dark:border-gray-700" />
+
+                {/* Biller Details */}
+                <div>
+                  <h4 className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-2">
+                    Biller Details
+                  </h4>
+                  <div className="space-y-2">
+                    <div className="flex justify-between items-start">
+                      <span className="text-sm text-gray-500 dark:text-gray-400">Biller Name</span>
+                      <span className="text-sm font-medium text-gray-900 dark:text-white text-right max-w-[60%]">
+                        {receiptData.billerName}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-gray-500 dark:text-gray-400">Category</span>
+                      <span className="text-sm font-medium text-gray-900 dark:text-white">{receiptData.billerCategory}</span>
+                    </div>
+                    <div className="flex justify-between items-start">
+                      <span className="text-sm text-gray-500 dark:text-gray-400">Consumer No.</span>
+                      <span className="text-sm font-mono font-medium text-gray-900 dark:text-white text-right max-w-[60%] break-all">
+                        {receiptData.consumerNumber}
+                      </span>
+                    </div>
+                    {receiptData.consumerName && (
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm text-gray-500 dark:text-gray-400">Consumer Name</span>
+                        <span className="text-sm font-medium text-gray-900 dark:text-white">{receiptData.consumerName}</span>
+                      </div>
+                    )}
+                    {receiptData.billNumber && (
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm text-gray-500 dark:text-gray-400">Bill Number</span>
+                        <span className="text-sm font-medium text-gray-900 dark:text-white">{receiptData.billNumber}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <hr className="border-gray-100 dark:border-gray-700" />
+
+                {/* Payment Details */}
+                <div>
+                  <h4 className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-2">
+                    Payment Details
+                  </h4>
+                  <div className="space-y-2">
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-gray-500 dark:text-gray-400">Amount</span>
+                      <span className="text-sm font-medium text-gray-900 dark:text-white">
+                        ₹{receiptData.amountPaid.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                    {receiptData.charges > 0 && (
+                      <>
+                        <div className="flex justify-between items-center">
+                          <span className="text-sm text-gray-500 dark:text-gray-400">Charges</span>
+                          <span className="text-sm font-medium text-gray-900 dark:text-white">
+                            ₹{receiptData.charges.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </span>
+                        </div>
+                        <div className="flex justify-between items-center font-semibold">
+                          <span className="text-sm text-gray-700 dark:text-gray-300">Total Deducted</span>
+                          <span className="text-sm text-gray-900 dark:text-white">
+                            ₹{receiptData.totalDeducted.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </span>
+                        </div>
+                      </>
+                    )}
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-gray-500 dark:text-gray-400">Payment Mode</span>
+                      <span className="text-sm font-medium text-gray-900 dark:text-white">{receiptData.paymentMode}</span>
+                    </div>
+                    <div className="flex justify-between items-center pt-2 border-t border-dashed border-gray-200 dark:border-gray-600">
+                      <span className="text-sm text-gray-500 dark:text-gray-400">Wallet Balance</span>
+                      <span className="text-sm font-bold text-blue-600 dark:text-blue-400">
+                        ₹{receiptData.walletBalanceAfter.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="px-6 py-4 bg-gray-50 dark:bg-gray-800/50 rounded-b-2xl flex gap-3">
+                <button
+                  onClick={() => downloadReceiptPDF(receiptData)}
+                  className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium text-sm"
+                >
+                  <Download className="w-4 h-4" />
+                  Download PDF
+                </button>
+                <button
+                  onClick={closeReceiptModal}
+                  className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors font-medium text-sm"
+                >
+                  New Payment
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   )
 }

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger'
 import { getCurrentUserFromRequest } from '@/lib/auth-server-request'
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
 import { createClient } from '@supabase/supabase-js'
@@ -353,6 +354,9 @@ export async function DELETE(request: NextRequest) {
       )
       return addCorsHeaders(request, response)
     }
+
+    const ctx = getRequestContext(request)
+    logActivityFromContext(ctx, user, { activity_type: 'beneficiary_delete', activity_category: 'beneficiary' }).catch(() => {})
 
     const response = NextResponse.json({
       success: true,

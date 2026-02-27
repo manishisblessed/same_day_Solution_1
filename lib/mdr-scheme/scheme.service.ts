@@ -36,11 +36,10 @@ export async function getGlobalScheme(
     query = query.eq('card_type', params.card_type);
   }
 
-  // Match brand_type (NULL matches NULL)
   if (params.brand_type === null) {
     query = query.is('brand_type', null);
   } else if (params.brand_type) {
-    query = query.eq('brand_type', params.brand_type);
+    query = query.ilike('brand_type', params.brand_type);
   }
 
   const { data, error } = await query.maybeSingle();
@@ -81,11 +80,10 @@ export async function getRetailerScheme(
     query = query.eq('card_type', params.card_type);
   }
 
-  // Match brand_type (NULL matches NULL)
   if (params.brand_type === null) {
     query = query.is('brand_type', null);
   } else if (params.brand_type) {
-    query = query.eq('brand_type', params.brand_type);
+    query = query.ilike('brand_type', params.brand_type);
   }
 
   const { data, error } = await query.maybeSingle();
@@ -319,14 +317,31 @@ export function normalizeCardType(
 
 /**
  * Normalize brand type from Razorpay format
+ * Razorpay sends brands like MASTER_CARD, VISA, AMEX, RUPAY etc.
+ * Schemes may store them as MasterCard, MASTERCARD, Visa, etc.
+ * We normalize to a canonical uppercase form without separators.
  */
 export function normalizeBrandType(brand: string | undefined): string | null {
   if (!brand) return null;
-  // Normalize common brand names
   const normalized = brand
     .toUpperCase()
-    .replace(/\s+/g, '')
-    .replace(/-/g, '');
-  return normalized || null;
+    .replace(/[\s_-]+/g, '');
+
+  const BRAND_ALIASES: Record<string, string> = {
+    'MASTERCARD': 'MASTERCARD',
+    'MASTER': 'MASTERCARD',
+    'MC': 'MASTERCARD',
+    'VISA': 'VISA',
+    'AMEX': 'AMEX',
+    'AMERICANEXPRESS': 'AMEX',
+    'RUPAY': 'RUPAY',
+    'DINERS': 'DINERS',
+    'DINERSCLUB': 'DINERS',
+    'MAESTRO': 'MAESTRO',
+    'JCB': 'JCB',
+    'DISCOVER': 'DISCOVER',
+  }
+
+  return BRAND_ALIASES[normalized] || normalized || null;
 }
 

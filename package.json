@@ -21,8 +21,10 @@
     "date-fns": "^3.0.0",
     "dotenv": "^16.3.1",
     "framer-motion": "^11.0.0",
+    "jspdf": "^4.2.0",
     "lucide-react": "^0.400.0",
     "next": "^14.0.0",
+    "node-cron": "^4.2.1",
     "nodemailer": "^6.9.0",
     "postcss": "^8.4.0",
     "react": "^18.2.0",
@@ -30,5 +32,8 @@
     "recharts": "^2.10.0",
     "tailwindcss": "^3.4.0",
     "typescript": "^5.9.3"
+  },
+  "devDependencies": {
+    "@types/node-cron": "^3.0.11"
   }
 }

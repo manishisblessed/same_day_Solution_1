@@ -142,10 +142,11 @@ async function handleUploadDocument(request: NextRequest) {
       )
     }
 
-    // Parse form data
-    let formData: FormData
+    // Parse form data (cast for FormData type compatibility in Node/Edge)
+    type FormDataLike = { get(name: string): File | string | null }
+    let formData: FormDataLike
     try {
-      formData = await request.formData()
+      formData = (await request.formData()) as unknown as FormDataLike
       console.log('[Upload Document API] FormData parsed successfully')
     } catch (formDataError: any) {
       console.error('[Upload Document API] Error parsing FormData:', formDataError)

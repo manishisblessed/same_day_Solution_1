@@ -48,7 +48,8 @@ export async function POST(request: NextRequest) {
     }
 
     const formData = await request.formData()
-    const file = formData.get('file') as File
+    const entry = (formData as unknown as { get(name: string): File | string | null }).get('file')
+    const file = entry instanceof File ? entry : null
 
     if (!file) {
       return NextResponse.json(

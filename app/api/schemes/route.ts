@@ -5,6 +5,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger';
 import { getCurrentUserFromRequest } from '@/lib/auth-server-request';
 import { getSchemes, createScheme } from '@/lib/scheme/scheme.service';
 
@@ -98,6 +99,14 @@ export async function POST(request: NextRequest) {
     if (error) {
       return NextResponse.json({ error }, { status: 400 });
     }
+
+    const ctx = getRequestContext(request);
+    logActivityFromContext(ctx, user, {
+      activity_type: 'scheme_create',
+      activity_category: 'scheme',
+      activity_description: `Created scheme: ${body.name}`,
+      reference_table: 'schemes',
+    }).catch(() => {});
 
     return NextResponse.json({ success: true, data });
   } catch (err: any) {

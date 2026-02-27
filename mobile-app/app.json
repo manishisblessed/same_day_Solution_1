@@ -1,0 +1,27 @@
+{
+  "expo": {
+    "name": "Sameday Retailer",
+    "slug": "sameday-retailer",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "icon": "./assets/logo.png",
+    "splash": {
+      "image": "./assets/logo.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#2563EB"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.sameday.retailer"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/logo.png",
+        "backgroundColor": "#2563EB"
+      },
+      "package": "com.sameday.retailer"
+    }
+  }
+}

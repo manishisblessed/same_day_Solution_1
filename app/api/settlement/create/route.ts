@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { createClient, SupabaseClient } from '@supabase/supabase-js'
 import { addCorsHeaders } from '@/lib/cors'
+import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger'
 
 // Generate idempotency key using crypto
 function generateIdempotencyKey(prefix: string): string {
@@ -319,6 +320,16 @@ export async function POST(request: NextRequest) {
         })
         .eq('id', settlement.id)
 
+      const ctx = getRequestContext(request)
+      logActivityFromContext(ctx, user, {
+        activity_type: 'settlement_create',
+        activity_category: 'settlement',
+        activity_description: `Settlement request of ₹${amountDecimal} via ${settlement_mode}`,
+        reference_id: settlement.id,
+        reference_table: 'settlements',
+        metadata: { amount: amountDecimal, settlement_mode },
+      }).catch(() => {})
+
       return NextResponse.json({
         success: true,
         settlement_id: settlement.id,
@@ -337,6 +348,16 @@ export async function POST(request: NextRequest) {
           updated_at: new Date().toISOString()
         })
         .eq('id', settlement.id)
+
+      const ctx = getRequestContext(request)
+      logActivityFromContext(ctx, user, {
+        activity_type: 'settlement_create',
+        activity_category: 'settlement',
+        activity_description: `Settlement request of ₹${amountDecimal} via ${settlement_mode}`,
+        reference_id: settlement.id,
+        reference_table: 'settlements',
+        metadata: { amount: amountDecimal, settlement_mode },
+      }).catch(() => {})
 
       return NextResponse.json({
         success: true,

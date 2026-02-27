@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { createClient } from '@supabase/supabase-js'
 import { addCorsHeaders } from '@/lib/cors'
@@ -212,6 +213,9 @@ export async function GET(request: NextRequest) {
 
     // Sort by created_at descending
     results.sort((a, b) => new Date(b.created_at || b.transaction_time || 0).getTime() - new Date(a.created_at || a.transaction_time || 0).getTime())
+
+    const ctx = getRequestContext(request)
+    logActivityFromContext(ctx, user, { activity_type: 'report_transactions', activity_category: 'report' }).catch(() => {})
 
     // Prepare data for export
     const headers = ['Service Type', 'Transaction ID', 'User ID', 'Amount', 'Status', 'Device Serial', 'Machine ID', 'Created At']

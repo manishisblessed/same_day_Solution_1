@@ -42,14 +42,15 @@ export default function POSTransactionsTable({
   // Detail modal
   const [selectedTxn, setSelectedTxn] = useState<RazorpayPOSTransaction | null>(null)
 
-  // InstaCash selection
+  // Pulse Pay selection
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
-  const [instaCashLoading, setInstaCashLoading] = useState(false)
-  const [instaCashResult, setInstaCashResult] = useState<{
+  const [pulsepayLoading, setPulsepayLoading] = useState(false)
+  const [pulsepayResult, setPulsepayResult] = useState<{
     success: boolean
     message: string
     summary?: any
   } | null>(null)
+  const [pulsepayEnabled, setPulsepayEnabled] = useState(false)
 
   const fetchTransactions = useCallback(async () => {
     // Admin users don't have partner_id, but should still see all transactions
@@ -94,16 +95,31 @@ export default function POSTransactionsTable({
     }
   }, [fetchTransactions, autoPoll, pollInterval])
 
-  // Clear instaCash result after 8 seconds
+  // Fetch retailer's settlement mode setting (T+0 Pulse Pay enabled?)
   useEffect(() => {
-    if (instaCashResult) {
-      const timer = setTimeout(() => setInstaCashResult(null), 8000)
+    if (user?.role !== 'retailer' || !user?.partner_id) return
+    const fetchMode = async () => {
+      try {
+        const res = await apiFetch(`/api/pos/instacash?check_mode=1`)
+        const data = await res.json()
+        if (data.settlement_mode_allowed === 'T0_T1') {
+          setPulsepayEnabled(true)
+        }
+      } catch { /* ignore - default to hidden */ }
+    }
+    fetchMode()
+  }, [user?.role, user?.partner_id])
+
+  // Clear Pulse Pay result after 8 seconds
+  useEffect(() => {
+    if (pulsepayResult) {
+      const timer = setTimeout(() => setPulsepayResult(null), 8000)
       return () => clearTimeout(timer)
     }
-  }, [instaCashResult])
+  }, [pulsepayResult])
 
   // ---- Settlement status helpers ----
-  const isEligibleForInstaCash = (txn: RazorpayPOSTransaction) => {
+  const isEligibleForPulsePay = (txn: RazorpayPOSTransaction) => {
     const isSuccess = (txn.display_status || txn.status || '').toUpperCase() === 'SUCCESS' ||
                       (txn.display_status || txn.status || '').toUpperCase() === 'CAPTURED'
     return isSuccess && !txn.wallet_credited && !txn.settlement_mode
@@ -112,7 +128,7 @@ export default function POSTransactionsTable({
   const getSettlementStatus = (txn: RazorpayPOSTransaction): { label: string; color: string; icon: any } => {
     if (txn.settlement_mode === 'INSTACASH') {
       return {
-        label: 'InstaCash',
+        label: 'Pulse Pay',
         color: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400',
         icon: Zap
       }
@@ -157,9 +173,9 @@ export default function POSTransactionsTable({
   const filteredTransactions = useMemo(() => {
     if (settlementFilter === 'all') return transactions
     if (settlementFilter === 'unsettled') {
-      return transactions.filter(t => isEligibleForInstaCash(t))
+      return transactions.filter(t => isEligibleForPulsePay(t))
     }
-    if (settlementFilter === 'instacash') {
+    if (settlementFilter === 'pulsepay') {
       return transactions.filter(t => t.settlement_mode === 'INSTACASH')
     }
     if (settlementFilter === 't1') {
@@ -173,7 +189,7 @@ export default function POSTransactionsTable({
 
   // ---- Selection helpers ----
   const eligibleTransactions = useMemo(
-    () => filteredTransactions.filter(isEligibleForInstaCash),
+    () => filteredTransactions.filter(isEligibleForPulsePay),
     [filteredTransactions]
   )
 
@@ -209,18 +225,18 @@ export default function POSTransactionsTable({
     })
   }
 
-  // ---- InstaCash handler ----
-  const handleInstaCash = async () => {
+  // ---- Pulse Pay handler ----
+  const handlePulsePay = async () => {
     if (selectedIds.size === 0) return
     
     const confirmed = window.confirm(
-      `Process InstaCash for ${selectedIds.size} transaction(s) totalling ${formatAmount(selectedTotal)}?\n\nMDR at T+0 rates will be deducted. Net amount will be credited to your wallet instantly.`
+      `Process Pulse Pay (₹) for ${selectedIds.size} transaction(s) totalling ${formatAmount(selectedTotal)}?\n\nMDR at T+0 rates will be deducted. Net amount will be credited to your wallet instantly.`
     )
     if (!confirmed) return
 
     try {
-      setInstaCashLoading(true)
-      setInstaCashResult(null)
+      setPulsepayLoading(true)
+      setPulsepayResult(null)
 
       const response = await apiFetch('/api/pos/instacash', {
         method: 'POST',
@@ -231,28 +247,29 @@ export default function POSTransactionsTable({
       const result = await response.json()
 
       if (result.success) {
-        setInstaCashResult({
-          success: true,
-          message: result.message || `InstaCash complete! ${result.summary?.settled || selectedIds.size} transaction(s) settled.`,
+        const hasPartialFailure = result.summary?.failed > 0
+        setPulsepayResult({
+          success: !hasPartialFailure,
+          message: result.message || `Pulse Pay complete! ${result.summary?.settled || selectedIds.size} transaction(s) settled.`,
           summary: result.summary
         })
         setSelectedIds(new Set())
-        // Refresh the table to show updated settlement statuses
         await fetchTransactions()
       } else {
-        setInstaCashResult({
+        setPulsepayResult({
           success: false,
-          message: result.error || 'InstaCash processing failed. Please try again.'
+          message: result.error || 'Pulse Pay processing failed. Please try again.',
+          summary: result.summary
         })
       }
     } catch (err: any) {
-      console.error('InstaCash error:', err)
-      setInstaCashResult({
+      console.error('Pulse Pay error:', err)
+      setPulsepayResult({
         success: false,
         message: err.message || 'Network error. Please try again.'
       })
     } finally {
-      setInstaCashLoading(false)
+      setPulsepayLoading(false)
     }
   }
 
@@ -349,7 +366,7 @@ export default function POSTransactionsTable({
   const summaryStats = useMemo(() => {
     const successTxns = transactions.filter(t => ['SUCCESS', 'CAPTURED'].includes((t.display_status || t.status || '').toUpperCase()))
     const unsettled = successTxns.filter(t => !t.wallet_credited && !t.settlement_mode)
-    const instaCashSettled = transactions.filter(t => t.settlement_mode === 'INSTACASH')
+    const pulsepaySettled = transactions.filter(t => t.settlement_mode === 'INSTACASH')
     const t1Settled = transactions.filter(t => t.settlement_mode === 'AUTO_T1')
     const allSettled = transactions.filter(t => t.wallet_credited)
 
@@ -359,7 +376,7 @@ export default function POSTransactionsTable({
       successful: successTxns.length,
       unsettledCount: unsettled.length,
       unsettledAmount: unsettled.reduce((sum, t) => sum + (Number(t.amount) || 0), 0),
-      instaCashCount: instaCashSettled.length,
+      pulsepayCount: pulsepaySettled.length,
       t1Count: t1Settled.length,
       settledCount: allSettled.length,
       devices: new Set(transactions.map(t => t.device_serial).filter(Boolean)).size,
@@ -385,21 +402,21 @@ export default function POSTransactionsTable({
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          {/* InstaCash Button */}
-          {user?.role === 'retailer' && someSelected && (
+          {/* Pulse Pay Button - only shown if admin enabled T+0 for this retailer */}
+          {pulsepayEnabled && someSelected && (
             <motion.button
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
-              onClick={handleInstaCash}
-              disabled={instaCashLoading}
+              onClick={handlePulsePay}
+              disabled={pulsepayLoading}
               className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white font-semibold text-sm shadow-lg shadow-amber-200/50 dark:shadow-amber-900/30 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
             >
-              {instaCashLoading ? (
+              {pulsepayLoading ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
               ) : (
                 <Zap className="w-4 h-4" />
               )}
-              InstaCash ({selectedIds.size}) &middot; {formatAmount(selectedTotal)}
+              Pulse Pay ₹ ({selectedIds.size}) &middot; {formatAmount(selectedTotal)}
             </motion.button>
           )}
           <button
@@ -435,50 +452,65 @@ export default function POSTransactionsTable({
         </div>
       </div>
 
-      {/* InstaCash Result Banner */}
+      {/* Pulse Pay Result Banner */}
       <AnimatePresence>
-        {instaCashResult && (
+        {pulsepayResult && (
           <motion.div
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
             className={`rounded-xl p-4 border ${
-              instaCashResult.success
+              pulsepayResult.success
                 ? 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-800'
                 : 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800'
             }`}
           >
             <div className="flex items-start gap-3">
-              {instaCashResult.success ? (
+              {pulsepayResult.success ? (
                 <Zap className="w-5 h-5 text-emerald-600 dark:text-emerald-400 mt-0.5 flex-shrink-0" />
               ) : (
                 <AlertCircle className="w-5 h-5 text-red-600 dark:text-red-400 mt-0.5 flex-shrink-0" />
               )}
               <div className="flex-1">
                 <p className={`text-sm font-semibold ${
-                  instaCashResult.success 
+                  pulsepayResult.success 
                     ? 'text-emerald-800 dark:text-emerald-300' 
                     : 'text-red-800 dark:text-red-300'
                 }`}>
-                  {instaCashResult.success ? 'InstaCash Successful!' : 'InstaCash Failed'}
+                  {pulsepayResult.success ? 'Pulse Pay Successful!' : 'Pulse Pay Failed'}
                 </p>
                 <p className={`text-sm mt-0.5 ${
-                  instaCashResult.success 
+                  pulsepayResult.success 
                     ? 'text-emerald-700 dark:text-emerald-400' 
                     : 'text-red-700 dark:text-red-400'
                 }`}>
-                  {instaCashResult.message}
+                  {pulsepayResult.message}
                 </p>
-                {instaCashResult.summary && (
-                  <div className="flex flex-wrap gap-4 mt-2 text-xs text-emerald-600 dark:text-emerald-400">
-                    <span>Gross: {formatAmount(instaCashResult.summary.total_gross_amount)}</span>
-                    <span>MDR: {formatAmount(instaCashResult.summary.total_mdr_amount)}</span>
-                    <span className="font-bold">Net Credited: {formatAmount(instaCashResult.summary.total_net_amount)}</span>
+                {pulsepayResult.summary && (
+                  <div className={`flex flex-wrap gap-4 mt-2 text-xs ${
+                    pulsepayResult.success 
+                      ? 'text-emerald-600 dark:text-emerald-400' 
+                      : 'text-red-600 dark:text-red-400'
+                  }`}>
+                    {pulsepayResult.summary.settled > 0 && (
+                      <>
+                        <span>Gross: {formatAmount(pulsepayResult.summary.total_gross_amount)}</span>
+                        <span>MDR: {formatAmount(pulsepayResult.summary.total_mdr_amount)}</span>
+                        <span className="font-bold">Net Credited: {formatAmount(pulsepayResult.summary.total_net_amount)}</span>
+                      </>
+                    )}
+                    {pulsepayResult.summary.failed > 0 && (
+                      <span className="text-red-600 dark:text-red-400">
+                        {pulsepayResult.summary.failed} txn(s) failed
+                        {pulsepayResult.summary.failure_reasons?.length > 0 && 
+                          `: ${pulsepayResult.summary.failure_reasons.join('; ')}`}
+                      </span>
+                    )}
                   </div>
                 )}
               </div>
               <button
-                onClick={() => setInstaCashResult(null)}
+                onClick={() => setPulsepayResult(null)}
                 className="p-1 hover:bg-black/10 rounded-lg transition-colors"
               >
                 <X className="w-4 h-4" />
@@ -556,7 +588,9 @@ export default function POSTransactionsTable({
                 >
                   <option value="all">All Settlement</option>
                   <option value="unsettled">Unsettled</option>
-                  <option value="instacash">InstaCash</option>
+                  {(pulsepayEnabled || summaryStats.pulsepayCount > 0) && (
+                    <option value="pulsepay">Pulse Pay</option>
+                  )}
                   <option value="t1">T+1 Settled</option>
                   <option value="settled">All Settled</option>
                 </select>
@@ -610,13 +644,15 @@ export default function POSTransactionsTable({
             <p className="text-lg font-bold text-amber-600 dark:text-amber-400">{summaryStats.unsettledCount}</p>
             <p className="text-xs text-amber-500 dark:text-amber-500">{formatAmount(summaryStats.unsettledAmount)}</p>
           </div>
+          {(pulsepayEnabled || summaryStats.pulsepayCount > 0) && (
           <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-3">
             <div className="flex items-center gap-1">
               <Zap className="w-3 h-3 text-emerald-500" />
-              <p className="text-xs text-emerald-600 dark:text-emerald-400">InstaCash</p>
+              <p className="text-xs text-emerald-600 dark:text-emerald-400">Pulse Pay</p>
             </div>
-            <p className="text-lg font-bold text-emerald-600 dark:text-emerald-400">{summaryStats.instaCashCount}</p>
+            <p className="text-lg font-bold text-emerald-600 dark:text-emerald-400">{summaryStats.pulsepayCount}</p>
           </div>
+          )}
           <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-3">
             <div className="flex items-center gap-1">
               <BadgeCheck className="w-3 h-3 text-blue-500" />
@@ -637,8 +673,8 @@ export default function POSTransactionsTable({
           <table className="w-full min-w-[1000px]">
             <thead className="bg-gray-50 dark:bg-gray-900/50 border-b border-gray-200 dark:border-gray-700">
               <tr>
-                {/* Checkbox column */}
-                {user?.role === 'retailer' && (
+                {/* Checkbox column - only if Pulse Pay enabled */}
+                {pulsepayEnabled && (
                   <th className="px-3 py-3 text-center w-10">
                     <button
                       onClick={toggleSelectAll}
@@ -682,7 +718,7 @@ export default function POSTransactionsTable({
             <tbody className="divide-y divide-gray-100 dark:divide-gray-700/50">
               {loading && transactions.length === 0 ? (
                 <tr>
-                  <td colSpan={user?.role === 'retailer' ? 9 : 8} className="px-4 py-12 text-center">
+                  <td colSpan={pulsepayEnabled ? 9 : 8} className="px-4 py-12 text-center">
                     <div className="flex flex-col items-center">
                       <RefreshCw className="w-6 h-6 animate-spin text-blue-500 mb-2" />
                       <span className="text-sm text-gray-500 dark:text-gray-400">Loading POS transactions...</span>
@@ -691,7 +727,7 @@ export default function POSTransactionsTable({
                 </tr>
               ) : filteredTransactions.length === 0 ? (
                 <tr>
-                  <td colSpan={user?.role === 'retailer' ? 9 : 8} className="px-4 py-12 text-center">
+                  <td colSpan={pulsepayEnabled ? 9 : 8} className="px-4 py-12 text-center">
                     <div className="flex flex-col items-center">
                       <CreditCard className="w-10 h-10 text-gray-300 dark:text-gray-600 mb-3" />
                       <p className="text-sm font-medium text-gray-500 dark:text-gray-400">No POS transactions found</p>
@@ -705,7 +741,7 @@ export default function POSTransactionsTable({
                 </tr>
               ) : (
                 filteredTransactions.map((txn) => {
-                  const eligible = isEligibleForInstaCash(txn)
+                  const eligible = isEligibleForPulsePay(txn)
                   const isSelected = selectedIds.has(txn.id)
                   const settlement = getSettlementStatus(txn)
                   const SettlementIcon = settlement.icon
@@ -719,8 +755,8 @@ export default function POSTransactionsTable({
                           : 'hover:bg-gray-50 dark:hover:bg-gray-700/30'
                       }`}
                     >
-                      {/* Checkbox */}
-                      {user?.role === 'retailer' && (
+                      {/* Checkbox - only if Pulse Pay enabled */}
+                      {pulsepayEnabled && (
                         <td className="px-3 py-3 text-center">
                           {eligible ? (
                             <button
@@ -927,7 +963,7 @@ export default function POSTransactionsTable({
                   {selectedTxn.settlement_mode && (
                     <DetailRow 
                       label="Settlement Mode" 
-                      value={selectedTxn.settlement_mode === 'INSTACASH' ? 'InstaCash (T+0)' : 'Auto T+1'} 
+                      value={selectedTxn.settlement_mode === 'INSTACASH' ? 'Pulse Pay (T+0)' : 'Auto T+1'} 
                     />
                   )}
                   {selectedTxn.mdr_rate != null && (

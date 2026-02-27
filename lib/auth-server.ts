@@ -9,10 +9,6 @@ import { ReadonlyRequestCookies } from 'next/dist/server/web/spec-extension/adap
  * Look up user role from database tables
  */
 async function getUserRole(supabase: any, email: string, userId: string): Promise<AuthUser | null> {
-  console.log('[getUserRole] Looking up role for:', email)
-  
-  // Check which table the user belongs to
-  // Use maybeSingle() instead of single() to avoid 406 errors when user doesn't belong to a table
   const [retailer, distributor, masterDistributor, admin, partner] = await Promise.all([
     supabase.from('retailers').select('*').eq('email', email).maybeSingle(),
     supabase.from('distributors').select('*').eq('email', email).maybeSingle(),
@@ -21,34 +17,17 @@ async function getUserRole(supabase: any, email: string, userId: string): Promis
     supabase.from('partners').select('*').eq('email', email).maybeSingle(),
   ])
 
-  if (retailer.error) console.error('[getUserRole] Retailer lookup error:', retailer.error)
-  if (distributor.error) console.error('[getUserRole] Distributor lookup error:', distributor.error)
-  if (masterDistributor.error) console.error('[getUserRole] MasterDistributor lookup error:', masterDistributor.error)
-  if (admin.error) console.error('[getUserRole] Admin lookup error:', admin.error)
-  if (partner.error) console.error('[getUserRole] Partner lookup error:', partner.error)
-
-  if (retailer.data && !retailer.error) {
-    console.log('[getUserRole] Found retailer:', retailer.data.name)
+  // Check admin_users FIRST — admin is the highest privilege level and must
+  // take precedence when the same email exists in multiple tables.
+  if (admin.data && !admin.error) {
     return {
       id: userId,
       email: email,
-      role: 'retailer',
-      partner_id: retailer.data.partner_id,
-      name: retailer.data.name,
-    }
-  }
-  if (distributor.data && !distributor.error) {
-    console.log('[getUserRole] Found distributor:', distributor.data.name)
-    return {
-      id: userId,
-      email: email,
-      role: 'distributor',
-      partner_id: distributor.data.partner_id,
-      name: distributor.data.name,
+      role: 'admin',
+      name: admin.data.name,
     }
   }
   if (masterDistributor.data && !masterDistributor.error) {
-    console.log('[getUserRole] Found master_distributor:', masterDistributor.data.name)
     return {
       id: userId,
       email: email,
@@ -57,17 +36,25 @@ async function getUserRole(supabase: any, email: string, userId: string): Promis
       name: masterDistributor.data.name,
     }
   }
-  if (admin.data && !admin.error) {
-    console.log('[getUserRole] Found admin:', admin.data.name)
+  if (distributor.data && !distributor.error) {
     return {
       id: userId,
       email: email,
-      role: 'admin',
-      name: admin.data.name,
+      role: 'distributor',
+      partner_id: distributor.data.partner_id,
+      name: distributor.data.name,
+    }
+  }
+  if (retailer.data && !retailer.error) {
+    return {
+      id: userId,
+      email: email,
+      role: 'retailer',
+      partner_id: retailer.data.partner_id,
+      name: retailer.data.name,
     }
   }
   if (partner.data && !partner.error) {
-    console.log('[getUserRole] Found partner:', partner.data.name)
     return {
       id: userId,
       email: email,
@@ -77,7 +64,6 @@ async function getUserRole(supabase: any, email: string, userId: string): Promis
     }
   }
 
-  console.error('[getUserRole] User not found in any table:', email)
   return null
 }
 
@@ -111,8 +97,7 @@ export async function getCurrentUserServer(
       .filter(name => name.includes('supabase') || name.includes('sb-'))
     
     if (supabaseCookieNames.length === 0) {
-      console.error('No Supabase session cookies found. User may need to log in again.')
-      console.error('Available cookies:', allCookies.map(c => c.name).join(', ') || 'none')
+      return null
     }
     
     const supabase = createServerClient(
@@ -141,30 +126,18 @@ export async function getCurrentUserServer(
     // Try to get session first, then user
     const { data: { session }, error: sessionError } = await supabase.auth.getSession()
     
-    if (sessionError) {
-      console.error('Supabase session error:', sessionError.message)
-    }
-    
-    if (!session) {
-      console.error('No Supabase session found. User may need to log in again.')
+    if (sessionError || !session) {
       return null
     }
 
     const { data: { user }, error } = await supabase.auth.getUser()
     
-    if (error) {
-      console.error('Supabase auth error:', error.message)
-      return null
-    }
-    
-    if (!user) {
-      console.error('No user found in Supabase session')
+    if (error || !user) {
       return null
     }
 
     return await getUserRole(supabase, user.email!, user.id)
-  } catch (error: any) {
-    console.error('Error in getCurrentUserServer:', error?.message || error)
+  } catch {
     return null
   }
 }
@@ -186,7 +159,6 @@ export async function getCurrentUserFromToken(
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
   
   if (!supabaseUrl || !supabaseAnonKey) {
-    console.error('[Token Auth] Supabase environment variables not configured')
     return null
   }
 
@@ -203,20 +175,12 @@ export async function getCurrentUserFromToken(
     // Verify the token and get user
     const { data: { user }, error } = await supabase.auth.getUser(token)
     
-    if (error) {
-      console.error('[Token Auth] Token verification failed:', error.message)
-      return null
-    }
-    
-    if (!user || !user.email) {
-      console.error('[Token Auth] No user found from token')
+    if (error || !user || !user.email) {
       return null
     }
 
-    console.log('[Token Auth] Successfully authenticated user:', user.email)
     return await getUserRole(supabase, user.email, user.id)
-  } catch (error: any) {
-    console.error('[Token Auth] Error:', error?.message || error)
+  } catch {
     return null
   }
 }
@@ -232,31 +196,16 @@ export async function getCurrentUserWithFallback(
   // First try Authorization header (more reliable for API routes)
   const authHeader = request.headers.get('authorization')
   if (authHeader && authHeader.startsWith('Bearer ')) {
-    console.log('[Auth] Trying Authorization header first...')
     const tokenUser = await getCurrentUserFromToken(authHeader)
     if (tokenUser) {
-      console.log('[Auth] Success via Authorization header:', tokenUser.email, tokenUser.role)
       return { user: tokenUser, method: 'token' }
-    } else {
-      console.log('[Auth] Authorization header failed')
     }
   }
 
-  // Fallback to cookies
-  console.log('[Auth] Trying cookies...')
   const cookieUser = await getCurrentUserServer()
   if (cookieUser) {
-    console.log('[Auth] Success via cookies:', cookieUser.email, cookieUser.role)
     return { user: cookieUser, method: 'cookies' }
-  } else {
-    console.log('[Auth] Cookies failed')
   }
-
-  console.error('[Auth] All authentication methods failed')
-  console.error('[Auth] Request headers:', {
-    authorization: request.headers.get('authorization') ? 'Present' : 'Missing',
-    cookie: request.headers.get('cookie') ? 'Present' : 'Missing'
-  })
 
   return { user: null, method: 'none' }
 }

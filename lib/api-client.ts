@@ -11,6 +11,7 @@
  */
 
 import { createBrowserClient } from '@supabase/ssr'
+import { getGeoHeader } from '@/hooks/useGeolocation'
 
 /**
  * Get Supabase access token for API calls
@@ -163,6 +164,16 @@ export async function apiFetch(
     const accessToken = await getAccessToken()
     if (accessToken) {
       headers['Authorization'] = `Bearer ${accessToken}`
+    }
+
+    // Attach geolocation header for activity tracking
+    try {
+      const geoHeader = await getGeoHeader()
+      if (geoHeader) {
+        headers['X-Geo-Location'] = geoHeader
+      }
+    } catch {
+      // Geo unavailable — never block the request
     }
   }
   

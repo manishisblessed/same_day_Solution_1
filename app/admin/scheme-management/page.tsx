@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, Suspense } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
 import { supabase } from '@/lib/supabase/client'
 import AdminSidebar from '@/components/AdminSidebar'
@@ -44,6 +44,14 @@ interface Scheme {
 // ============================================================================
 
 export default function SchemeManagementPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center text-gray-500">Loading...</div>}>
+      <SchemeManagementPageContent />
+    </Suspense>
+  )
+}
+
+function SchemeManagementPageContent() {
   const { user } = useAuth()
   const [sidebarOpen, setSidebarOpen] = useState(false)
 

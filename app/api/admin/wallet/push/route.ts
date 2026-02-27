@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { createClient } from '@supabase/supabase-js'
 import { addCorsHeaders } from '@/lib/cors'
+import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger'
 
 export const runtime = 'nodejs' // Force Node.js runtime (Supabase not compatible with Edge Runtime)
 export const dynamic = 'force-dynamic'
@@ -176,6 +177,16 @@ export async function POST(request: NextRequest) {
       console.error('Error logging admin action:', auditError)
       // Don't fail the request if audit logging fails
     }
+
+    const ctx = getRequestContext(request)
+    logActivityFromContext(ctx, admin, {
+      activity_type: 'admin_wallet_push',
+      activity_category: 'admin',
+      activity_description: `Admin pushed ₹${amountDecimal} to ${user_role} ${user_id} (${fund_category})`,
+      reference_id: ledgerId ?? undefined,
+      reference_table: 'wallet_ledger',
+      metadata: { target_user_id: user_id, target_user_role: user_role, amount: amountDecimal, fund_category, wallet_type, remarks },
+    }).catch(() => {})
 
     return NextResponse.json({
       success: true,

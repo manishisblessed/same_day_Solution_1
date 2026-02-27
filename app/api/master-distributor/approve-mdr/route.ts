@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { createClient } from '@supabase/supabase-js'
 import { addCorsHeaders } from '@/lib/cors'
+import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger'
 
 export const runtime = 'nodejs' // Force Node.js runtime (Supabase not compatible with Edge Runtime)
 export const dynamic = 'force-dynamic'
@@ -93,6 +94,13 @@ export async function POST(request: NextRequest) {
         { status: 500 }
       )
     }
+
+    const ctx = getRequestContext(request)
+    logActivityFromContext(ctx, masterDistributor, {
+      activity_type: 'md_approve_mdr',
+      activity_category: 'master_dist',
+      activity_description: `Master distributor approved MDR`,
+    }).catch(() => {})
 
     return NextResponse.json({
       success: true,

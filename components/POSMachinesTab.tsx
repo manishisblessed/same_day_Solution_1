@@ -144,6 +144,8 @@ export default function POSMachinesTab({ user, accentColor = 'blue' }: POSMachin
   }
 
   const canAssignMachine = (machine: POSMachine) => {
+    // Returned machines are eligible for reassignment by admin
+    if (user?.role === 'admin' && machine.status === 'returned') return true
     const targetStatuses = getAssignableInventoryStatus()
     if (!targetStatuses) return false
     if (Array.isArray(targetStatuses)) {
@@ -310,6 +312,7 @@ export default function POSMachinesTab({ user, accentColor = 'blue' }: POSMachin
             <option value="inactive">Inactive</option>
             <option value="maintenance">Maintenance</option>
             <option value="damaged">Damaged</option>
+            <option value="returned">Returned</option>
           </select>
           <select
             value={inventoryFilter}

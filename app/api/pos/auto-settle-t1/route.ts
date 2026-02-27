@@ -5,7 +5,7 @@
  * 
  * This endpoint is called daily (via cron/Lambda) to:
  * 1. Find all unsettled POS transactions from previous day(s)
- * 2. Calculate MDR at T+1 rates (lower than InstaCash T+0)
+ * 2. Calculate MDR at T+1 rates (lower than Pulse Pay T+0)
  * 3. Credit retailer wallets
  * 4. Mark transactions as settled via AUTO_T1
  * 
@@ -56,11 +56,21 @@ export async function POST(request: NextRequest) {
 
     console.log(`[AutoT1] Processing unsettled POS transactions before: ${cutoffDate.toISOString()}`)
 
+    // 2a. Get paused retailers
+    const { data: pausedRows } = await supabase
+      .from('retailers')
+      .select('partner_id')
+      .eq('t1_settlement_paused', true)
+    const pausedRetailers = new Set((pausedRows || []).map((r: any) => r.partner_id))
+    if (pausedRetailers.size > 0) {
+      console.log(`[AutoT1] ${pausedRetailers.size} retailer(s) have T+1 paused, will be skipped.`)
+    }
+
     // 2. Find all unsettled POS transactions older than cutoff
     const { data: unsettled, error: fetchError } = await supabase
       .from('razorpay_pos_transactions')
       .select('*')
-      .eq('display_status', 'SUCCESS')
+      .or('display_status.ilike.SUCCESS,display_status.ilike.CAPTURED')
       .eq('wallet_credited', false)
       .is('settlement_mode', null)
       .not('retailer_id', 'is', null)
@@ -101,8 +111,12 @@ export async function POST(request: NextRequest) {
     let totalFailed = 0
     const results: any[] = []
 
-    // 4. Process each retailer's transactions
+    // 4. Process each retailer's transactions (skip paused)
     for (const [retailerId, transactions] of Object.entries(retailerGroups)) {
+      if (pausedRetailers.has(retailerId)) {
+        console.log(`[AutoT1] Skipping paused retailer: ${retailerId}`)
+        continue
+      }
       console.log(`[AutoT1] Processing ${transactions.length} transactions for retailer ${retailerId}`)
 
       // Get retailer hierarchy

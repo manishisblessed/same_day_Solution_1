@@ -3,6 +3,7 @@ import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { createClient } from '@supabase/supabase-js'
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
 import { initiateTransfer } from '@/services/payout/transfer'
+import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger'
 
 export const runtime = 'nodejs' // Force Node.js runtime (Supabase not compatible with Edge Runtime)
 export const dynamic = 'force-dynamic'
@@ -54,6 +55,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    const ctx = getRequestContext(request)
     const body = await request.json()
     const { settlement_id, action } = body // action: 'approve' or 'reject'
 
@@ -240,6 +242,12 @@ export async function POST(request: NextRequest) {
             }
           })
 
+        logActivityFromContext(ctx, admin, {
+          activity_type: 'admin_settlement_release',
+          activity_category: 'admin',
+          reference_table: 'settlements',
+        }).catch(() => {})
+
         const processingResponse = NextResponse.json({
           success: true,
           message: 'Settlement approved. Payout is being processed.',
@@ -311,6 +319,12 @@ export async function POST(request: NextRequest) {
             }
           })
 
+        logActivityFromContext(ctx, admin, {
+          activity_type: 'admin_settlement_release',
+          activity_category: 'admin',
+          reference_table: 'settlements',
+        }).catch(() => {})
+
         const successResponse = NextResponse.json({
           success: true,
           message: payoutStatus === 'success' 
@@ -334,6 +348,12 @@ export async function POST(request: NextRequest) {
             updated_at: new Date().toISOString()
           })
           .eq('id', settlement_id)
+
+        logActivityFromContext(ctx, admin, {
+          activity_type: 'admin_settlement_release',
+          activity_category: 'admin',
+          reference_table: 'settlements',
+        }).catch(() => {})
 
         const successResponse = NextResponse.json({
           success: true,
@@ -473,6 +493,12 @@ export async function POST(request: NextRequest) {
             settlement_id: settlement_id
           }
         })
+
+      logActivityFromContext(ctx, admin, {
+        activity_type: 'admin_settlement_release',
+        activity_category: 'admin',
+        reference_table: 'settlements',
+      }).catch(() => {})
 
       const rejectResponse = NextResponse.json({
         success: true,

@@ -46,13 +46,23 @@ export async function GET(request: NextRequest) {
     const searchQuery = searchParams.get('search')
     const settlementFilter = searchParams.get('settlement_status')
     const cardBrand = searchParams.get('card_brand')
+    const merchantSlug = searchParams.get('merchant_slug') // all | ashvam | teachway | newscenaric | lagoon
 
     // Build query - fetch all matching transactions (up to 10000 for export)
     let query = supabase
       .from('razorpay_pos_transactions')
-      .select('txn_id, amount, payment_mode, display_status, status, transaction_time, tid, device_serial, merchant_name, customer_name, payer_name, username, txn_type, auth_code, card_number, issuing_bank, card_classification, mid_code, card_brand, card_type, currency, rrn, external_ref, settlement_status, settled_on, receipt_url, posting_date')
+      .select('txn_id, amount, payment_mode, display_status, status, transaction_time, tid, device_serial, merchant_name, merchant_slug, customer_name, payer_name, username, txn_type, auth_code, card_number, issuing_bank, card_classification, mid_code, card_brand, card_type, currency, rrn, external_ref, settlement_status, settled_on, receipt_url, posting_date')
       .order('transaction_time', { ascending: false, nullsFirst: false })
       .limit(10000)
+
+    // Apply company filter
+    if (merchantSlug && merchantSlug !== 'all') {
+      if (merchantSlug === 'ashvam') {
+        query = query.or('merchant_slug.eq.ashvam,merchant_slug.is.null')
+      } else {
+        query = query.eq('merchant_slug', merchantSlug)
+      }
+    }
 
     // Apply filters
     if (statusFilter && ['CAPTURED', 'FAILED', 'PENDING'].includes(statusFilter.toUpperCase())) {

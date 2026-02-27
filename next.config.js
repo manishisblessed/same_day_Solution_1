@@ -18,6 +18,11 @@ const nextConfig = {
     imageSizes: [16, 32, 48, 64, 96, 128, 256, 384],
   },
   
+  // Enable instrumentation hook for cron jobs (T+1 settlement)
+  experimental: {
+    instrumentationHook: true,
+  },
+
   // Enable React strict mode for better development experience
   reactStrictMode: true,
   
@@ -47,35 +52,6 @@ const nextConfig = {
     config.resolve.alias = {
       ...config.resolve.alias,
       '@': require('path').resolve(__dirname),
-    }
-    
-    // Optimize webpack cache for better performance
-    if (!isServer) {
-      config.optimization = {
-        ...config.optimization,
-        splitChunks: {
-          chunks: 'all',
-          cacheGroups: {
-            default: false,
-            vendors: false,
-            // Vendor chunk for node_modules
-            vendor: {
-              name: 'vendor',
-              chunks: 'all',
-              test: /node_modules/,
-              priority: 20,
-            },
-            // Common chunk for shared code
-            common: {
-              name: 'common',
-              minChunks: 2,
-              chunks: 'all',
-              priority: 10,
-              reuseExistingChunk: true,
-            },
-          },
-        },
-      }
     }
     
     return config

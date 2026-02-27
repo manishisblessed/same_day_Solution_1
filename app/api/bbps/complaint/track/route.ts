@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger'
 import { getCurrentUserFromRequest } from '@/lib/auth-server-request'
 import { createClient } from '@supabase/supabase-js'
 import { complaintTracking } from '@/services/bbps'
@@ -70,6 +71,12 @@ export async function POST(request: NextRequest) {
       complaintId: complaint_id,
       complaintType: complaint_type || 'Service',
     })
+
+    const ctx = getRequestContext(request)
+    logActivityFromContext(ctx, user, {
+      activity_type: 'bbps_complaint_track',
+      activity_category: 'bbps',
+    }).catch(() => {})
 
     // Return response matching tested API format
     // Note: The response format may vary, but we'll return the complaint tracking data

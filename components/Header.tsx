@@ -23,7 +23,8 @@ export default function Header() {
               alt="Same Day Solution Pvt. Ltd."
               width={52}
               height={52}
-              className="object-contain w-[52px] h-[52px]"
+              className="object-contain"
+              style={{ width: '52px', height: 'auto' }}
               unoptimized
               priority
             />

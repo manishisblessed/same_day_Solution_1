@@ -1,10 +1,10 @@
 -- ============================================================================
--- INSTACASH SETTLEMENT SYSTEM MIGRATION
+-- PULSE PAY (formerly InstaCash) SETTLEMENT SYSTEM MIGRATION
 -- ============================================================================
 -- This migration adds:
 -- 1. card_classification to MDR scheme tables (for precise MDR by card tier)
 -- 2. Settlement tracking columns to razorpay_pos_transactions
--- 3. InstaCash settlement log table (for audit & duplicate prevention)
+-- 3. Pulse Pay settlement log table (for audit & duplicate prevention)
 -- 
 -- Run this in Supabase SQL Editor
 -- ============================================================================
@@ -37,7 +37,7 @@ WHERE status = 'active';
 -- ============================================================================
 -- 2. ADD SETTLEMENT TRACKING TO razorpay_pos_transactions
 -- ============================================================================
--- Tracks whether a transaction was settled via InstaCash (T+0) or auto T+1
+-- Tracks whether a transaction was settled via Pulse Pay (T+0) or auto T+1
 -- ============================================================================
 
 -- Retailer/Distributor hierarchy (if not already exists)
@@ -45,7 +45,7 @@ ALTER TABLE razorpay_pos_transactions ADD COLUMN IF NOT EXISTS retailer_id TEXT;
 ALTER TABLE razorpay_pos_transactions ADD COLUMN IF NOT EXISTS distributor_id TEXT;
 ALTER TABLE razorpay_pos_transactions ADD COLUMN IF NOT EXISTS master_distributor_id TEXT;
 
--- Settlement mode: INSTACASH = instant T+0, AUTO_T1 = next-day automatic, NULL = unsettled
+-- Settlement mode: INSTACASH = Pulse Pay instant T+0, AUTO_T1 = next-day automatic, NULL = unsettled
 ALTER TABLE razorpay_pos_transactions 
   ADD COLUMN IF NOT EXISTS settlement_mode TEXT 
   CHECK (settlement_mode IN ('INSTACASH', 'AUTO_T1'));
@@ -64,7 +64,7 @@ ALTER TABLE razorpay_pos_transactions ADD COLUMN IF NOT EXISTS mdr_rate NUMERIC(
 ALTER TABLE razorpay_pos_transactions ADD COLUMN IF NOT EXISTS mdr_scheme_id UUID;
 ALTER TABLE razorpay_pos_transactions ADD COLUMN IF NOT EXISTS mdr_scheme_type TEXT;
 
--- InstaCash tracking
+-- Pulse Pay tracking
 ALTER TABLE razorpay_pos_transactions ADD COLUMN IF NOT EXISTS instacash_requested_at TIMESTAMPTZ;
 ALTER TABLE razorpay_pos_transactions ADD COLUMN IF NOT EXISTS instacash_batch_id UUID;
 
@@ -82,9 +82,9 @@ CREATE INDEX IF NOT EXISTS idx_rpt_instacash_batch ON razorpay_pos_transactions(
   WHERE instacash_batch_id IS NOT NULL;
 
 -- ============================================================================
--- 3. INSTACASH SETTLEMENT BATCHES (Audit & Duplicate Prevention)
+-- 3. PULSE PAY SETTLEMENT BATCHES (Audit & Duplicate Prevention)
 -- ============================================================================
--- Each InstaCash request creates a batch. Transactions can only belong to one batch.
+-- Each Pulse Pay request creates a batch. Transactions can only belong to one batch.
 -- This prevents double-settlement and provides full audit trail.
 -- ============================================================================
 
@@ -125,7 +125,7 @@ CREATE INDEX IF NOT EXISTS idx_instacash_batches_status ON instacash_batches(sta
 CREATE INDEX IF NOT EXISTS idx_instacash_batches_requested_at ON instacash_batches(requested_at DESC);
 
 -- ============================================================================
--- 4. INSTACASH BATCH ITEMS (Per-transaction settlement details)
+-- 4. PULSE PAY BATCH ITEMS (Per-transaction settlement details)
 -- ============================================================================
 
 CREATE TABLE IF NOT EXISTS instacash_batch_items (
@@ -237,10 +237,10 @@ ON CONFLICT DO NOTHING;
 -- 6. COMMENTS
 -- ============================================================================
 
-COMMENT ON TABLE instacash_batches IS 'InstaCash (T+0) instant settlement batches - tracks each instant settlement request from retailers';
-COMMENT ON TABLE instacash_batch_items IS 'Individual transaction items within an InstaCash batch with per-transaction MDR calculation';
+COMMENT ON TABLE instacash_batches IS 'Pulse Pay (T+0) instant settlement batches - tracks each instant settlement request from retailers';
+COMMENT ON TABLE instacash_batch_items IS 'Individual transaction items within a Pulse Pay batch with per-transaction MDR calculation';
 COMMENT ON TABLE card_classifications IS 'Reference data: valid card classifications from Razorpay POS grouped by card type and brand';
-COMMENT ON COLUMN razorpay_pos_transactions.settlement_mode IS 'How this transaction was settled: INSTACASH (T+0 instant) or AUTO_T1 (next-day automatic)';
-COMMENT ON COLUMN razorpay_pos_transactions.instacash_batch_id IS 'If settled via InstaCash, the batch this transaction belongs to';
+COMMENT ON COLUMN razorpay_pos_transactions.settlement_mode IS 'How this transaction was settled: INSTACASH/Pulse Pay (T+0 instant) or AUTO_T1 (next-day automatic)';
+COMMENT ON COLUMN razorpay_pos_transactions.instacash_batch_id IS 'If settled via Pulse Pay, the batch this transaction belongs to';
 COMMENT ON COLUMN scheme_mdr_rates.card_classification IS 'Card tier classification: PLATINUM, GOLD, CLASSIC, BUSINESS, STANDARD, etc. NULL = applies to all classifications';
 

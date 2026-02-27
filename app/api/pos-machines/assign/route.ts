@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { createClient } from '@supabase/supabase-js'
 
@@ -27,8 +28,6 @@ export async function POST(request: NextRequest) {
     const supabase = createClient(supabaseUrl, supabaseServiceKey)
 
     const { user, method } = await getCurrentUserWithFallback(request)
-    console.log('[POS Assign POST] Auth:', method, '|', user?.email || 'none', '| Role:', user?.role)
-
     if (!user) {
       return NextResponse.json({ error: 'Session expired. Please log in again.', code: 'SESSION_EXPIRED' }, { status: 401 })
     }
@@ -79,8 +78,7 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: 'Partner is not active' }, { status: 400 })
           }
 
-          // Admin can reassign machines from any status to Partner (including from retailer/distributor/MD)
-          // No status restriction for admin - they can reassign from any assignment status
+          // Admin can reassign machines from any status to Partner (including returned/from retailer/distributor/MD)
 
           // Update machine - clear hierarchical assignments when assigning to partner
           const { error: updateError } = await supabase
@@ -91,6 +89,7 @@ export async function POST(request: NextRequest) {
               distributor_id: null,
               retailer_id: null,
               inventory_status: 'assigned_to_partner',
+              status: machine.status === 'returned' ? 'active' : machine.status,
               assigned_by: user.email,
               assigned_by_role: 'admin',
               last_assigned_at: new Date().toISOString(),
@@ -206,6 +205,15 @@ export async function POST(request: NextRequest) {
             notes: notes || `Admin assigned to Partner ${partner.name}`,
           })
 
+          const ctx = getRequestContext(request)
+          logActivityFromContext(ctx, user, {
+            activity_type: 'pos_machine_assign',
+            activity_category: 'pos',
+            activity_description: `Assigned POS machine ${machine.machine_id || machine.serial_number} to partner ${assign_to}`,
+            reference_table: 'pos_machines',
+            reference_id: machine_id,
+          }).catch(() => {})
+
           return NextResponse.json({
             success: true,
             message: `POS machine ${machine.machine_id} assigned to Partner ${partner.name}`,
@@ -225,10 +233,11 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: 'Master Distributor is not active' }, { status: 400 })
           }
 
-          // Machine must be in_stock or received_from_bank to assign to MD
-          if (machine.inventory_status && !['in_stock', 'received_from_bank'].includes(machine.inventory_status)) {
+          // Machine must be in_stock, received_from_bank, or have status 'returned' to assign to MD
+          const isReturned = machine.status === 'returned'
+          if (!isReturned && machine.inventory_status && !['in_stock', 'received_from_bank'].includes(machine.inventory_status)) {
             return NextResponse.json({ 
-              error: `Machine is currently "${machine.inventory_status}". Only in_stock or received_from_bank machines can be assigned to a Master Distributor.` 
+              error: `Machine is currently "${machine.inventory_status}". Only in_stock, received_from_bank, or returned machines can be assigned to a Master Distributor.` 
             }, { status: 400 })
           }
 
@@ -240,7 +249,7 @@ export async function POST(request: NextRequest) {
               .eq('terminal_id', machine.tid)
           }
 
-          // Update machine - clear partner assignment when assigning to MD
+          // Update machine - clear previous assignments when assigning to MD
           const { error: updateError } = await supabase
             .from('pos_machines')
             .update({
@@ -249,6 +258,7 @@ export async function POST(request: NextRequest) {
               distributor_id: null,
               retailer_id: null,
               inventory_status: 'assigned_to_master_distributor',
+              status: isReturned ? 'active' : machine.status,
               assigned_by: user.email,
               assigned_by_role: 'admin',
               last_assigned_at: new Date().toISOString(),
@@ -274,6 +284,15 @@ export async function POST(request: NextRequest) {
             previous_holder_role: machine.master_distributor_id ? 'master_distributor' : null,
             notes: notes || `Admin assigned to ${md.name}`,
           })
+
+          const ctx = getRequestContext(request)
+          logActivityFromContext(ctx, user, {
+            activity_type: 'pos_machine_assign',
+            activity_category: 'pos',
+            activity_description: `Assigned POS machine ${machine.machine_id || machine.serial_number} to master_distributor ${assign_to}`,
+            reference_table: 'pos_machines',
+            reference_id: machine_id,
+          }).catch(() => {})
 
           return NextResponse.json({
             success: true,
@@ -346,6 +365,15 @@ export async function POST(request: NextRequest) {
           notes: notes || `Master Distributor assigned to ${dist.name}`,
         })
 
+        const ctx = getRequestContext(request)
+        logActivityFromContext(ctx, user, {
+          activity_type: 'pos_machine_assign',
+          activity_category: 'pos',
+          activity_description: `Assigned POS machine ${machine.machine_id || machine.serial_number} to distributor ${assign_to}`,
+          reference_table: 'pos_machines',
+          reference_id: machine_id,
+        }).catch(() => {})
+
         return NextResponse.json({
           success: true,
           message: `POS machine ${machine.machine_id} assigned to Distributor ${dist.name}`,
@@ -414,6 +442,15 @@ export async function POST(request: NextRequest) {
           previous_holder_role: machine.retailer_id ? 'retailer' : null,
           notes: notes || `Distributor assigned to ${retailer.name}`,
         })
+
+        const ctx = getRequestContext(request)
+        logActivityFromContext(ctx, user, {
+          activity_type: 'pos_machine_assign',
+          activity_category: 'pos',
+          activity_description: `Assigned POS machine ${machine.machine_id || machine.serial_number} to retailer ${assign_to}`,
+          reference_table: 'pos_machines',
+          reference_id: machine_id,
+        }).catch(() => {})
 
         // Also update pos_device_mapping if machine has a serial_number (for Razorpay transaction visibility)
         if (machine.serial_number) {

@@ -73,6 +73,7 @@ export async function GET(request: NextRequest) {
     const searchQuery = searchParams.get('search') // Search by TID, MID, RRN, txn_id, customer_name
     const settlementFilter = searchParams.get('settlement_status') // Filter by settlement status
     const cardBrand = searchParams.get('card_brand') // Filter by card brand
+    const merchantSlug = searchParams.get('merchant_slug') // Filter by company: all | ashvam | teachway | newscenaric | lagoon
 
     // Validate pagination
     if (page < 1 || limit < 1) {
@@ -86,9 +87,18 @@ export async function GET(request: NextRequest) {
     // Select dedicated columns + raw_data for fallback extraction
     let query = supabase
       .from('razorpay_pos_transactions')
-      .select('txn_id, amount, payment_mode, display_status, status, transaction_time, raw_data, tid, device_serial, merchant_name, customer_name, payer_name, username, txn_type, auth_code, card_number, issuing_bank, card_classification, mid_code, card_brand, card_type, currency, rrn, external_ref, settlement_status, settled_on, receipt_url, posting_date', { count: 'exact' })
+      .select('txn_id, amount, payment_mode, display_status, status, transaction_time, raw_data, tid, device_serial, merchant_name, merchant_slug, customer_name, payer_name, username, txn_type, auth_code, card_number, issuing_bank, card_classification, mid_code, card_brand, card_type, currency, rrn, external_ref, settlement_status, settled_on, receipt_url, posting_date', { count: 'exact' })
       .order('transaction_time', { ascending: false, nullsFirst: false })
       .range(offset, offset + limit - 1)
+
+    // Apply company (merchant) filter: ashvam = base URL (slug or null), others = exact slug
+    if (merchantSlug && merchantSlug !== 'all') {
+      if (merchantSlug === 'ashvam') {
+        query = query.or('merchant_slug.eq.ashvam,merchant_slug.is.null')
+      } else {
+        query = query.eq('merchant_slug', merchantSlug)
+      }
+    }
 
     // Apply status filter if provided (filter on display_status: SUCCESS, FAILED, PENDING)
     if (statusFilter && ['CAPTURED', 'FAILED', 'PENDING'].includes(statusFilter.toUpperCase())) {
@@ -152,6 +162,8 @@ export async function GET(request: NextRequest) {
       status: txn.display_status === 'SUCCESS' ? 'CAPTURED' : (txn.display_status || txn.status || 'PENDING'),
       settlement_status: txn.settlement_status || txn.raw_data?.settlementStatus || null,
       created_time: txn.transaction_time,
+      // Company (merchant_slug): ashvam, teachway, newscenaric, lagoon; null = legacy/ashvam
+      merchant_slug: txn.merchant_slug || 'ashvam',
       // Customer & User Info
       customer_name: txn.customer_name || txn.raw_data?.customerName || txn.raw_data?.payerName || null,
       payer_name: txn.payer_name || txn.raw_data?.payerName || null,

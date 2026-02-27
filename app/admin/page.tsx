@@ -26,8 +26,10 @@ import POSPartnerAPIManagement from '@/components/POSPartnerAPIManagement'
 import ServiceTransactionReport from '@/components/ServiceTransactionReport'
 import { motion, AnimatePresence } from 'framer-motion'
 import { apiFetch } from '@/lib/api-client'
+import T1SettlementControl from '@/components/T1SettlementControl'
+import PerformanceTab from '@/components/PerformanceTab'
 
-type TabType = 'dashboard' | 'retailers' | 'distributors' | 'master-distributors' | 'services' | 'pos-machines' | 'transactions' | 'partners' | 'pos-partner-api' | 'reports'
+type TabType = 'dashboard' | 'retailers' | 'distributors' | 'master-distributors' | 'services' | 'pos-machines' | 'transactions' | 'partners' | 'pos-partner-api' | 'reports' | 'settlement' | 'performance'
 type SortField = 'name' | 'email' | 'partner_id' | 'created_at' | 'status'
 type SortDirection = 'asc' | 'desc'
 
@@ -40,7 +42,7 @@ function AdminDashboardContent() {
   // Initialize activeTab from URL or default to 'dashboard'
   const getInitialTab = (): TabType => {
     const tab = searchParams.get('tab')
-    if (tab && ['dashboard', 'retailers', 'distributors', 'master-distributors', 'pos-machines', 'pos-partner-api', 'services', 'transactions', 'partners', 'reports'].includes(tab)) {
+    if (tab && ['dashboard', 'retailers', 'distributors', 'master-distributors', 'pos-machines', 'pos-partner-api', 'services', 'transactions', 'partners', 'reports', 'settlement', 'performance'].includes(tab)) {
       return tab as TabType
     }
     return 'dashboard'
@@ -113,7 +115,7 @@ function AdminDashboardContent() {
   // Sync activeTab with URL query params
   useEffect(() => {
     const tab = searchParams.get('tab')
-    if (tab && ['dashboard', 'retailers', 'distributors', 'master-distributors', 'pos-machines', 'pos-partner-api', 'services', 'transactions', 'partners', 'reports'].includes(tab)) {
+    if (tab && ['dashboard', 'retailers', 'distributors', 'master-distributors', 'pos-machines', 'pos-partner-api', 'services', 'transactions', 'partners', 'reports', 'settlement', 'performance'].includes(tab)) {
       if (tab !== activeTab) {
         setActiveTab(tab as TabType)
       }
@@ -465,6 +467,10 @@ function AdminDashboardContent() {
             <PartnersTab />
           ) : activeTab === 'reports' ? (
             <ReportsTab />
+          ) : activeTab === 'settlement' ? (
+            <T1SettlementControl />
+          ) : activeTab === 'performance' ? (
+            <PerformanceTab />
           ) : (
             <>
           {/* Filters & Actions - Compact */}
@@ -1899,112 +1905,8 @@ function AdminDashboardOverview({
         )}
       </motion.div>
 
-      {/* Service-wise Transaction Breakdown */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.4 }}
-        className="bg-white dark:bg-gray-800 rounded-2xl p-6 shadow-xl border border-gray-100 dark:border-gray-700"
-      >
-        <div className="flex items-center justify-between mb-6">
-          <h3 className="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
-            <BarChart3 className="w-5 h-5 text-primary-500" />
-            Service-wise Breakdown
-          </h3>
-          <span className="text-sm text-gray-500 dark:text-gray-400">{selectedPeriod.toUpperCase()}</span>
-        </div>
-        
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <div className="p-4 rounded-xl bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-900/30 dark:to-blue-800/30 border border-blue-200 dark:border-blue-700">
-            <div className="flex items-center gap-3 mb-3">
-              <div className="p-2 bg-blue-500 rounded-lg">
-                <Banknote className="w-5 h-5 text-white" />
-              </div>
-              <span className="font-semibold text-blue-900 dark:text-blue-100">AEPS</span>
-            </div>
-            <p className="text-2xl font-bold text-blue-700 dark:text-blue-300">
-              {analyticsData.aepsTransactions.toLocaleString()}
-            </p>
-            <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">transactions</p>
-          </div>
-
-          <div className="p-4 rounded-xl bg-gradient-to-br from-green-50 to-green-100 dark:from-green-900/30 dark:to-green-800/30 border border-green-200 dark:border-green-700">
-            <div className="flex items-center gap-3 mb-3">
-              <div className="p-2 bg-green-500 rounded-lg">
-                <Receipt className="w-5 h-5 text-white" />
-              </div>
-              <span className="font-semibold text-green-900 dark:text-green-100">BBPS</span>
-            </div>
-            <p className="text-2xl font-bold text-green-700 dark:text-green-300">
-              {analyticsData.bbpsTransactions.toLocaleString()}
-            </p>
-            <p className="text-xs text-green-600 dark:text-green-400 mt-1">bill payments</p>
-          </div>
-
-          <div className="p-4 rounded-xl bg-gradient-to-br from-purple-50 to-purple-100 dark:from-purple-900/30 dark:to-purple-800/30 border border-purple-200 dark:border-purple-700">
-            <div className="flex items-center gap-3 mb-3">
-              <div className="p-2 bg-purple-500 rounded-lg">
-                <ArrowRightLeft className="w-5 h-5 text-white" />
-              </div>
-              <span className="font-semibold text-purple-900 dark:text-purple-100">DMT</span>
-            </div>
-            <p className="text-2xl font-bold text-purple-700 dark:text-purple-300">
-              {analyticsData.dmtTransactions.toLocaleString()}
-            </p>
-            <p className="text-xs text-purple-600 dark:text-purple-400 mt-1">transfers</p>
-          </div>
-
-          <div className="p-4 rounded-xl bg-gradient-to-br from-orange-50 to-orange-100 dark:from-orange-900/30 dark:to-orange-800/30 border border-orange-200 dark:border-orange-700">
-            <div className="flex items-center gap-3 mb-3">
-              <div className="p-2 bg-orange-500 rounded-lg">
-                <Smartphone className="w-5 h-5 text-white" />
-              </div>
-              <span className="font-semibold text-orange-900 dark:text-orange-100">Recharge</span>
-            </div>
-            <p className="text-2xl font-bold text-orange-700 dark:text-orange-300">
-              {analyticsData.rechargeTransactions.toLocaleString()}
-            </p>
-            <p className="text-xs text-orange-600 dark:text-orange-400 mt-1">recharges</p>
-          </div>
-        </div>
-      </motion.div>
-
-      {/* Financial Services Overview */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.6 }}
-        className="bg-white dark:bg-gray-800 rounded-2xl p-6 shadow-xl border border-gray-100 dark:border-gray-700"
-      >
-        <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-6 flex items-center gap-2">
-          <Building2 className="w-5 h-5 text-primary-500" />
-          Financial Services - Powered by Same Day Solution
-        </h3>
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-          {[
-            { icon: Building2, label: 'Banking & Payments', desc: 'Complete banking solutions', color: 'blue' },
-            { icon: CreditCard, label: 'Mini-ATM & POS', desc: 'Cash withdrawal services', color: 'green' },
-            { icon: Banknote, label: 'AEPS Services', desc: 'Aadhaar enabled payments', color: 'purple' },
-            { icon: IndianRupee, label: 'Aadhaar Pay', desc: 'Secure biometric payments', color: 'orange' },
-            { icon: ArrowRightLeft, label: 'Money Transfer', desc: 'Instant domestic transfers', color: 'pink' },
-            { icon: Receipt, label: 'Bill Payments', desc: 'All utility bills in one place', color: 'cyan' },
-            { icon: Smartphone, label: 'Mobile Recharge', desc: 'Instant prepaid recharge', color: 'yellow' },
-            { icon: Globe, label: 'Travel Services', desc: 'Bus, flights & hotels', color: 'indigo' }
-          ].map((service, idx) => (
-            <motion.div
-              key={idx}
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{ delay: 0.7 + idx * 0.05 }}
-              className={`p-4 rounded-xl border-2 border-dashed border-${service.color}-200 dark:border-${service.color}-800 hover:border-solid hover:bg-${service.color}-50 dark:hover:bg-${service.color}-900/20 transition-all cursor-pointer group`}
-            >
-              <service.icon className={`w-8 h-8 text-${service.color}-500 mb-3 group-hover:scale-110 transition-transform`} />
-              <h4 className="font-semibold text-gray-900 dark:text-white text-sm">{service.label}</h4>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{service.desc}</p>
-            </motion.div>
-          ))}
-        </div>
-      </motion.div>
+      {/* Reports & Analytics */}
+      <ReportsTab />
     </div>
   )
 }
@@ -6137,7 +6039,7 @@ function POSMachineModal({
             {/* Hierarchical Flow Info */}
             <div className="col-span-1 md:col-span-2">
               <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3 text-xs text-blue-800 dark:text-blue-300">
-                <strong>💡 Hierarchical Assignment:</strong> Set inventory status to "In Stock" or "Received from Bank" to add to inventory. Then assign to Master Distributor via the POS assignment flow (MD → Distributor → Retailer). Or set "Assigned to Retailer" for direct assignment. You can also assign directly to a Partner by selecting "Assigned to Partner" status.
+                <strong>💡 Hierarchical Assignment:</strong> Set inventory status to "In Stock" or "Received from Bank" to add to inventory. Then assign to Master Distributor via the POS assignment flow (MD → Distributor → Retailer). Or set "Assigned to Retailer" for direct assignment. You can also assign directly to a Partner by selecting "Assigned to Partner" status. <strong>Returned machines</strong> are eligible for reassignment — their status will automatically reset to "Active" upon reassignment.
               </div>
             </div>
             <div>

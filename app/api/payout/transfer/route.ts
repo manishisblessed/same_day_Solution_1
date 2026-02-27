@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger'
 import { getCurrentUserFromRequest } from '@/lib/auth-server-request'
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
 import { initiateTransfer, generateClientRefId, getPayoutBalance } from '@/services/payout'
@@ -565,6 +566,17 @@ export async function POST(request: NextRequest) {
         .update({ status: 'completed' })
         .eq('id', ledgerId)
 
+      const ctx = getRequestContext(request)
+      logActivityFromContext(ctx, user, {
+        activity_type: 'payout_transfer',
+        activity_category: 'payout',
+        activity_description: `Payout of ₹${amount} to ${accountHolderName} via ${transferMode}`,
+        reference_id: payoutTx?.id,
+        reference_table: 'payout_transactions',
+        status: 'success',
+        metadata: { amount: amountNum, transferMode, bankName, accountNumber: accountNumber?.slice(-4) },
+      }).catch(() => {})
+
       const response = NextResponse.json({
         success: true,  // Return success to UI - transaction is processing
         message: 'Transfer initiated successfully. Processing may take a few minutes.',
@@ -638,6 +650,17 @@ export async function POST(request: NextRequest) {
       .update({ status: 'completed' })
       .eq('id', ledgerId)
 
+    const ctx = getRequestContext(request)
+    logActivityFromContext(ctx, user, {
+      activity_type: 'payout_transfer',
+      activity_category: 'payout',
+      activity_description: `Payout of ₹${amount} to ${accountHolderName} via ${transferMode}`,
+      reference_id: payoutTx?.id,
+      reference_table: 'payout_transactions',
+      status: 'success',
+      metadata: { amount: amountNum, transferMode, bankName, accountNumber: accountNumber?.slice(-4) },
+    }).catch(() => {})
+
     const response = NextResponse.json({
       success: true,
       message: transferResult.remark || 'Transfer initiated successfully',
@@ -659,6 +682,14 @@ export async function POST(request: NextRequest) {
 
   } catch (error: any) {
     console.error('[Payout Transfer] Error:', error)
+    const ctx = getRequestContext(request)
+    logActivityFromContext(ctx, null, {
+      activity_type: 'payout_transfer',
+      activity_category: 'payout',
+      activity_description: 'Payout transfer failed with error',
+      status: 'error',
+      error_message: error?.message,
+    }).catch(() => {})
     const response = NextResponse.json(
       { 
         success: false, 

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { createClient } from '@supabase/supabase-js'
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
@@ -259,6 +260,9 @@ export async function POST(request: NextRequest) {
       return addCorsHeaders(request, response)
     }
 
+    const ctx = getRequestContext(request)
+    logActivityFromContext(ctx, admin, { activity_type: 'admin_create_sub_admin', activity_category: 'admin' }).catch(() => {})
+
     const response = NextResponse.json({
       success: true,
       message: 'Sub-admin created successfully',
@@ -400,6 +404,9 @@ export async function PUT(request: NextRequest) {
       return addCorsHeaders(request, response)
     }
 
+    const ctx = getRequestContext(request)
+    logActivityFromContext(ctx, admin, { activity_type: 'admin_update_sub_admin', activity_category: 'admin' }).catch(() => {})
+
     const response = NextResponse.json({
       success: true,
       message: 'Sub-admin updated successfully',
@@ -510,6 +517,9 @@ export async function DELETE(request: NextRequest) {
       )
       return addCorsHeaders(request, response)
     }
+
+    const ctx = getRequestContext(request)
+    logActivityFromContext(ctx, admin, { activity_type: 'admin_delete_sub_admin', activity_category: 'admin' }).catch(() => {})
 
     const response = NextResponse.json({
       success: true,

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { createClient } from '@supabase/supabase-js'
+import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger'
 
 export const runtime = 'nodejs' // Force Node.js runtime (Supabase not compatible with Edge Runtime)
 export const dynamic = 'force-dynamic'
@@ -89,6 +90,12 @@ export async function POST(request: NextRequest) {
     if (auditError) {
       console.error('Error logging admin action:', auditError)
     }
+
+    const ctx = getRequestContext(request)
+    logActivityFromContext(ctx, admin, {
+      activity_type: 'admin_settlement_slabs_update',
+      activity_category: 'admin',
+    }).catch(() => {})
 
     return NextResponse.json({
       success: true,

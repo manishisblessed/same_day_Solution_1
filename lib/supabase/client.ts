@@ -208,7 +208,6 @@ export function clearCorruptedSessions() {
     }
     
     if (cleared > 0) {
-      console.log(`Cleared ${cleared} corrupted session entries`)
       return true
     }
     return false

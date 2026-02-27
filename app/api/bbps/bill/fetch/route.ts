@@ -3,6 +3,7 @@ import { getCurrentUserFromRequest } from '@/lib/auth-server-request'
 import { fetchBill } from '@/services/bbps'
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
 import { createClient } from '@supabase/supabase-js'
+import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger'
 
 export const dynamic = 'force-dynamic'
 
@@ -239,6 +240,15 @@ export async function POST(request: NextRequest) {
       ip: ip || '127.0.0.1',
       mac: mac || '01-23-45-67-89-ab',
     })
+
+    // Log activity
+    const ctx = getRequestContext(request)
+    logActivityFromContext(ctx, user, {
+      activity_type: 'bbps_bill_fetch',
+      activity_category: 'bbps',
+      activity_description: `Fetched bill for ${biller_id} / consumer ${consumer_number}`,
+      metadata: { biller_id, consumer_number, bill_amount: billDetails.bill_amount },
+    }).catch(() => {})
 
     // Return response matching API structure, but also include 'bill' for backward compatibility
     const response = NextResponse.json({

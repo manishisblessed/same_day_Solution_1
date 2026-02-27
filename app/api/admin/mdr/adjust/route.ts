@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { createClient } from '@supabase/supabase-js'
+import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger'
 
 // MDR caps configuration
 const MDR_CAPS = {
@@ -190,6 +191,12 @@ export async function POST(request: NextRequest) {
     if (auditError) {
       console.error('Error logging admin action:', auditError)
     }
+
+    const ctx = getRequestContext(request)
+    logActivityFromContext(ctx, admin, {
+      activity_type: 'admin_mdr_adjust',
+      activity_category: 'admin',
+    }).catch(() => {})
 
     return NextResponse.json({
       success: true,

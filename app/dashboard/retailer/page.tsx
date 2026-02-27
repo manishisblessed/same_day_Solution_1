@@ -1,7 +1,8 @@
 'use client'
 
-import { useState, useEffect, useMemo, useCallback, Suspense, lazy } from 'react'
+import { useState, useEffect, useMemo, useCallback, Suspense, lazy, useRef } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
+import { useGeolocation } from '@/hooks/useGeolocation'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase/client'
 import { apiFetch, apiFetchJson } from '@/lib/api-client'
@@ -64,6 +65,20 @@ function RetailerDashboardContent() {
   })
   const [recentTransactions, setRecentTransactions] = useState<any[]>([])
   const [chartData, setChartData] = useState<any[]>([])
+
+  // Geolocation - request permission on load
+  const { location: geoLocation, error: geoError, loading: geoLoading, permissionStatus, requestLocation, isSupported } = useGeolocation()
+  const [geoBannerDismissed, setGeoBannerDismissed] = useState(false)
+  const geoRequestedRef = useRef(false)
+
+  useEffect(() => {
+    if (!authLoading && user && isSupported && !geoRequestedRef.current) {
+      geoRequestedRef.current = true
+      requestLocation()
+    }
+  }, [authLoading, user, isSupported, requestLocation])
+
+  const showGeoBanner = isSupported && !geoBannerDismissed && !geoLocation && (permissionStatus === 'prompt' || permissionStatus === 'denied' || geoError)
 
   // Add a mounted flag to prevent redirect on initial mount
   const [authChecked, setAuthChecked] = useState(false)
@@ -431,6 +446,57 @@ function RetailerDashboardContent() {
               </div>
             </div>
           </motion.div>
+
+          {/* Geolocation Permission Banner */}
+          {showGeoBanner && (
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className={`mb-4 rounded-xl border p-4 flex items-start gap-3 ${
+                permissionStatus === 'denied'
+                  ? 'bg-red-50 border-red-200 dark:bg-red-900/20 dark:border-red-800'
+                  : 'bg-amber-50 border-amber-200 dark:bg-amber-900/20 dark:border-amber-800'
+              }`}
+            >
+              <Globe className={`w-5 h-5 mt-0.5 flex-shrink-0 ${
+                permissionStatus === 'denied' ? 'text-red-500' : 'text-amber-500'
+              }`} />
+              <div className="flex-1 min-w-0">
+                <p className={`text-sm font-medium ${
+                  permissionStatus === 'denied' ? 'text-red-800 dark:text-red-300' : 'text-amber-800 dark:text-amber-300'
+                }`}>
+                  {permissionStatus === 'denied'
+                    ? 'Location access is blocked'
+                    : 'Location access required'}
+                </p>
+                <p className={`text-xs mt-0.5 ${
+                  permissionStatus === 'denied' ? 'text-red-600 dark:text-red-400' : 'text-amber-600 dark:text-amber-400'
+                }`}>
+                  {permissionStatus === 'denied'
+                    ? 'Please enable location in your browser settings. Location is required for transaction tracking and compliance.'
+                    : 'Please allow location access for secure transaction tracking and compliance.'}
+                </p>
+              </div>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                {permissionStatus !== 'denied' && (
+                  <button
+                    onClick={requestLocation}
+                    disabled={geoLoading}
+                    className="px-3 py-1.5 text-xs font-medium bg-amber-600 text-white rounded-lg hover:bg-amber-700 disabled:opacity-50 transition-colors"
+                  >
+                    {geoLoading ? 'Requesting...' : 'Allow Location'}
+                  </button>
+                )}
+                <button
+                  onClick={() => setGeoBannerDismissed(true)}
+                  className="p-1 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
+                  title="Dismiss"
+                >
+                  <X className="w-4 h-4 text-gray-400" />
+                </button>
+              </div>
+            </motion.div>
+          )}
 
           {/* Tab Content */}
           {activeTab === 'dashboard' && <DashboardTab user={user} stats={stats} chartData={chartData} recentTransactions={recentTransactions} />}

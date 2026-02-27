@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger'
 import { getCurrentUserFromRequest } from '@/lib/auth-server-request'
 import { createClient } from '@supabase/supabase-js'
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
@@ -133,6 +134,14 @@ export async function POST(request: NextRequest) {
       has_name: !!result.account_holder_name,
       reference_id: result.reference_id,
     })
+
+    const ctx = getRequestContext(request)
+    logActivityFromContext(ctx, user, {
+      activity_type: 'payout_verify_account',
+      activity_category: 'payout',
+      activity_description: `Verified bank account ${normalizedIfsc}`,
+      metadata: { ifscCode: normalizedIfsc, accountNumber: normalizedAccountNumber?.slice(-4) },
+    }).catch(() => {})
 
     // Return response with beneficiary name from API
     const response = NextResponse.json({

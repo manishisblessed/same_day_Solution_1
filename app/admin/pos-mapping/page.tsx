@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Suspense } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useRouter } from 'next/navigation'
 import AdminSidebar from '@/components/AdminSidebar'
@@ -38,6 +38,14 @@ interface MasterDistributor {
 }
 
 export default function POSMappingPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center"><Loader2 className="w-8 h-8 animate-spin text-primary-600" /></div>}>
+      <POSMappingPageContent />
+    </Suspense>
+  )
+}
+
+function POSMappingPageContent() {
   const { user, loading: authLoading } = useAuth()
   const router = useRouter()
   const [sidebarOpen, setSidebarOpen] = useState(false)

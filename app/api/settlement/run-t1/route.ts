@@ -81,6 +81,17 @@ export async function POST(request: NextRequest) {
       `[T+1 Settlement] Found ${pendingTransactions.length} pending transactions`
     );
 
+    // Get paused retailers
+    const supabase = getSupabaseAdmin();
+    const { data: pausedRows } = await supabase
+      .from('retailers')
+      .select('partner_id')
+      .eq('t1_settlement_paused', true);
+    const pausedRetailers = new Set((pausedRows || []).map((r: any) => r.partner_id));
+    if (pausedRetailers.size > 0) {
+      console.log(`[T+1 Settlement] ${pausedRetailers.size} retailer(s) paused, will be skipped.`);
+    }
+
     // Process each transaction
     const results: Array<{
       transaction_id: string;
@@ -93,6 +104,10 @@ export async function POST(request: NextRequest) {
     let failedCount = 0;
 
     for (const transaction of pendingTransactions) {
+      if (pausedRetailers.has(transaction.retailer_id)) {
+        console.log(`[T+1 Settlement] Skipping paused retailer: ${transaction.retailer_id}`);
+        continue;
+      }
       try {
         console.log(
           `[T+1 Settlement] Processing transaction: ${transaction.razorpay_payment_id}`

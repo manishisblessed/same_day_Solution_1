@@ -26,7 +26,7 @@ export function useTransactions(options: UseTransactionsOptions = {}) {
     totalPages: 0
   })
 
-  const pollIntervalRef = useRef<NodeJS.Timeout | null>(null)
+  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const lastFetchTimeRef = useRef<number>(0)
 
   const fetchTransactions = useCallback(async (currentFilters: TransactionFilters = filters) => {

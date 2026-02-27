@@ -95,6 +95,7 @@ export default function AdminHeader() {
                     width={48}
                     height={48}
                     className="object-contain"
+                    style={{ width: 'auto', height: 'auto' }}
                     priority
                   />
                 </div>

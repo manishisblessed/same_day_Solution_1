@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { createClient } from '@supabase/supabase-js'
 import { addCorsHeaders } from '@/lib/cors'
+import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger'
 
 export const runtime = 'nodejs' // Force Node.js runtime (Supabase not compatible with Edge Runtime)
 export const dynamic = 'force-dynamic'
@@ -168,6 +169,14 @@ export async function POST(request: NextRequest) {
         )
       }
 
+      const ctx = getRequestContext(request)
+      logActivityFromContext(ctx, distributor, {
+        activity_type: 'distributor_wallet_transfer',
+        activity_category: 'distributor',
+        activity_description: `Distributor transferred ₹${amountDecimal} to retailer ${retailer_id}`,
+        reference_table: 'wallet_ledger',
+      }).catch(() => {})
+
       return NextResponse.json({
         success: true,
         message: `Funds pushed successfully to retailer`,
@@ -251,6 +260,14 @@ export async function POST(request: NextRequest) {
           { status: 500 }
         )
       }
+
+      const ctx = getRequestContext(request)
+      logActivityFromContext(ctx, distributor, {
+        activity_type: 'distributor_wallet_transfer',
+        activity_category: 'distributor',
+        activity_description: `Distributor transferred ₹${amountDecimal} to retailer ${retailer_id}`,
+        reference_table: 'wallet_ledger',
+      }).catch(() => {})
 
       return NextResponse.json({
         success: true,

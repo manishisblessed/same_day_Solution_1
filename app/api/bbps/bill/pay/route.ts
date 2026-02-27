@@ -4,6 +4,7 @@ import { createClient } from '@supabase/supabase-js'
 import { payRequest, generateAgentTransactionId, getBBPSWalletBalance } from '@/services/bbps'
 import { paiseToRupees } from '@/lib/bbps/currency'
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
+import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger'
 
 export const runtime = 'nodejs' // Force Node.js runtime (Supabase not compatible with Edge Runtime)
 export const dynamic = 'force-dynamic'
@@ -796,6 +797,19 @@ export async function POST(request: NextRequest) {
     
     console.log(`[BBPS Pay] Final wallet balance: ₹${newWalletBalance}`)
 
+    // Log activity with geolocation
+    const ctx = getRequestContext(request)
+    logActivityFromContext(ctx, user, {
+      activity_type: 'bbps_bill_pay',
+      activity_category: 'bbps',
+      activity_description: `BBPS payment of ₹${amount} to ${biller_name || biller_id} for ${consumer_number}`,
+      reference_id: bbpsTransaction.id,
+      reference_table: 'bbps_transactions',
+      status: paymentResponse.success ? 'success' : 'failed',
+      error_message: paymentResponse.error_message ?? undefined,
+      metadata: { amount, biller_id, biller_name, consumer_number, payment_mode, agent_transaction_id: agentTransactionId },
+    }).catch(() => {})
+
     const response = NextResponse.json({
       success: paymentResponse.success,
       transaction_id: bbpsTransaction.id,
@@ -811,6 +825,14 @@ export async function POST(request: NextRequest) {
     return addCorsHeaders(request, response)
   } catch (error: any) {
     console.error('Error paying bill:', error)
+    const ctx = getRequestContext(request)
+    logActivityFromContext(ctx, null, {
+      activity_type: 'bbps_bill_pay',
+      activity_category: 'bbps',
+      activity_description: 'BBPS payment failed with error',
+      status: 'error',
+      error_message: error?.message,
+    }).catch(() => {})
     const response = NextResponse.json(
       { error: 'Failed to pay bill' },
       { status: 500 }

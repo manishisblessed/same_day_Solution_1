@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger'
 import { getCurrentUserFromRequest } from '@/lib/auth-server-request'
 import { createClient } from '@supabase/supabase-js'
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
@@ -85,6 +86,13 @@ export async function GET(request: NextRequest) {
     if (error) {
       console.error('Error fetching wallet balance:', error)
       // Return 0 instead of error to prevent dashboard blocking
+      const ctx = getRequestContext(request)
+      logActivityFromContext(ctx, user, {
+        activity_type: 'wallet_balance_check',
+        activity_category: 'wallet',
+        activity_description: `${user.role} checked wallet balance`,
+        metadata: { balance: 0 },
+      }).catch(() => {})
       return NextResponse.json({
         success: true,
         balance: 0,
@@ -94,6 +102,14 @@ export async function GET(request: NextRequest) {
         warning: 'Wallet function not available, returning 0'
       })
     }
+
+    const ctx = getRequestContext(request)
+    logActivityFromContext(ctx, user, {
+      activity_type: 'wallet_balance_check',
+      activity_category: 'wallet',
+      activity_description: `${user.role} checked wallet balance`,
+      metadata: { balance: balance || 0 },
+    }).catch(() => {})
 
     const successResponse = NextResponse.json({
       success: true,

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient, SupabaseClient } from '@supabase/supabase-js'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
+import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger'
 
 export const dynamic = 'force-dynamic'
 
@@ -430,6 +431,14 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       )
     }
+
+    const ctx = getRequestContext(request)
+    logActivityFromContext(ctx, admin, {
+      activity_type: 'admin_create_user',
+      activity_category: 'admin',
+      activity_description: `Admin created ${role} user: ${email || userData?.name || 'unknown'}`,
+      metadata: { created_user_role: role, created_user_email: email },
+    }).catch(() => {})
 
     return NextResponse.json({
       success: true,

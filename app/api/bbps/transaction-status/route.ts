@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger'
 import { getCurrentUserFromRequest } from '@/lib/auth-server-request'
 import { createClient } from '@supabase/supabase-js'
 import { transactionStatus } from '@/services/bbps'
@@ -71,6 +72,12 @@ export async function POST(request: NextRequest) {
       transactionId: transaction_id,
       trackType: track_type || 'TRANS_REF_ID',
     })
+
+    const ctx = getRequestContext(request)
+    logActivityFromContext(ctx, user, {
+      activity_type: 'bbps_transaction_status',
+      activity_category: 'bbps',
+    }).catch(() => {})
 
     // Return response matching tested API format
     const response = NextResponse.json({

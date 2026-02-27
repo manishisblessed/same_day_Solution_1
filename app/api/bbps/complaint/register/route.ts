@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger'
 import { getCurrentUserFromRequest } from '@/lib/auth-server-request'
 import { createClient } from '@supabase/supabase-js'
 import { complaintRegistration } from '@/services/bbps'
@@ -72,6 +73,15 @@ export async function POST(request: NextRequest) {
       description,
       complaintDisposition: complaint_disposition || description, // Use description as default
     })
+
+    if (complaint.success) {
+      const ctx = getRequestContext(request)
+      logActivityFromContext(ctx, user, {
+        activity_type: 'bbps_complaint_register',
+        activity_category: 'bbps',
+        activity_description: `Registered BBPS complaint for transaction ${transaction_id}`,
+      }).catch(() => {})
+    }
 
     // Return response matching tested API format
     const response = NextResponse.json({

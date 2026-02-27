@@ -457,7 +457,7 @@ export interface RazorpayPOSTransaction {
   settled_on: string | null
   receipt_url: string | null
   posting_date: string | null
-  // InstaCash / Settlement tracking
+  // Pulse Pay / Settlement tracking
   settlement_mode: InstaCashSettlementMode | null
   wallet_credited: boolean
   wallet_credit_id: string | null
@@ -475,7 +475,7 @@ export interface RazorpayPOSTransaction {
   auto_settled_at: string | null
 }
 
-// InstaCash Batch Types
+// Pulse Pay (formerly InstaCash) Batch Types
 export interface InstaCashBatch {
   id: string
   retailer_id: string

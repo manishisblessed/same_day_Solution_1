@@ -1,9 +1,10 @@
 'use client'
 
-import React, { createContext, useContext, useEffect, useState } from 'react'
+import React, { createContext, useContext, useEffect, useRef, useState } from 'react'
 import { AuthUser } from '@/types/database.types'
 import { getCurrentUser, signIn, signOut as authSignOut } from '@/lib/auth'
 import { apiFetch } from '@/lib/api-client'
+import { getGeoLocation } from '@/hooks/useGeolocation'
 
 interface AuthContextType {
   user: AuthUser | null
@@ -20,10 +21,20 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined)
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null)
   const [loading, setLoading] = useState(true)
+  const geoRequestedRef = useRef(false)
 
   useEffect(() => {
     checkUser()
   }, [])
+
+  // Request geolocation once user is authenticated (all roles).
+  // This caches the position in sessionStorage so every subsequent
+  // apiFetch call automatically attaches the X-Geo-Location header.
+  useEffect(() => {
+    if (!user || geoRequestedRef.current) return
+    geoRequestedRef.current = true
+    getGeoLocation(10_000).catch(() => {})
+  }, [user])
 
   const checkUser = async () => {
     try {
@@ -36,7 +47,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           
           if (cachedUser) {
             const parsedUser = JSON.parse(cachedUser) as AuthUser
-            console.log('Found cached user:', parsedUser.role)
             setUser(parsedUser)
             setLoading(false)
             
@@ -46,7 +56,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               (Date.now() - parseInt(cacheTimestamp)) < 5 * 60 * 1000
             
             if (isRecentLogin) {
-              console.log('Recent login detected, trusting cache')
               return
             }
             
@@ -150,7 +159,56 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (typeof window !== 'undefined' && result.user) {
         localStorage.setItem('auth_user', JSON.stringify(result.user))
         localStorage.setItem('auth_user_timestamp', Date.now().toString())
-        console.log('Login successful, user stored:', result.user.role)
+
+        // Log login activity with best-effort geolocation.
+        // Try a quick geo lookup (cached value); if unavailable, log
+        // without geo immediately and update the record once geo arrives.
+        const logLogin = async () => {
+          try {
+            const quickGeo = await getGeoLocation(3000)
+            const geoBody = quickGeo ? {
+              latitude: quickGeo.latitude,
+              longitude: quickGeo.longitude,
+              accuracy: quickGeo.accuracy,
+              source: quickGeo.source,
+            } : null
+
+            const res = await apiFetch('/api/activity/log', {
+              method: 'POST',
+              body: JSON.stringify({
+                activity_type: 'login',
+                activity_category: 'auth',
+                activity_description: `${result.user.role} logged in: ${result.user.email}`,
+                geo: geoBody,
+              }),
+            })
+
+            const data = await res.json().catch(() => ({}))
+
+            // If logged without geo, retry once geo becomes available
+            if (!quickGeo && data.log_id) {
+              getGeoLocation(10_000).then((laterGeo) => {
+                if (laterGeo) {
+                  apiFetch('/api/activity/log/update-geo', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                      log_id: data.log_id,
+                      geo: {
+                        latitude: laterGeo.latitude,
+                        longitude: laterGeo.longitude,
+                        accuracy: laterGeo.accuracy,
+                        source: laterGeo.source,
+                      },
+                    }),
+                  }).catch(() => {})
+                }
+              }).catch(() => {})
+            }
+          } catch (err: any) {
+            console.warn('[ActivityLog] Login log error:', err?.message || err)
+          }
+        }
+        logLogin()
       }
     } catch (error: any) {
       throw error
@@ -162,6 +220,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const logout = async () => {
     setLoading(true)
     try {
+      // Log logout activity before clearing session (non-blocking)
+      apiFetch('/api/activity/log', {
+        method: 'POST',
+        body: JSON.stringify({
+          activity_type: 'logout',
+          activity_category: 'auth',
+          activity_description: `${user?.role || 'user'} logged out: ${user?.email || 'unknown'}`,
+        }),
+      }).catch(() => {})
+
       // Sign out from Supabase first
       await authSignOut()
       

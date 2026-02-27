@@ -1,13 +1,13 @@
 'use client'
 
-import { useState } from 'react'
-import { usePathname } from 'next/navigation'
+import { useState, useEffect } from 'react'
+import { usePathname, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { 
   LayoutDashboard, Users, Package, Crown, 
   BarChart3, Settings,
   Activity, X, Menu, CreditCard, Receipt, CheckCircle2,
-  Building2, FileBarChart, Layers, Key
+  Building2, FileBarChart, Layers, Key, Timer
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 
@@ -31,24 +31,38 @@ const sidebarItems: SidebarItem[] = [
   { id: 'razorpay-transactions', label: 'Razorpay Transactions', icon: Receipt, href: '/admin/razorpay-transactions' },
   { id: 'services', label: 'Services', icon: Activity, href: '/admin?tab=services' },
   { id: 'reports', label: 'Reports', icon: FileBarChart, href: '/admin?tab=reports' },
+  { id: 'settlement', label: 'Settlement', icon: Timer, href: '/admin?tab=settlement' },
+  { id: 'performance', label: 'Performance', icon: Activity, href: '/admin?tab=performance' },
   { id: 'settings', label: 'Settings', icon: Settings, href: '/admin/settings' },
 ]
 
 export default function AdminSidebar({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
   const pathname = usePathname()
+  const searchParams = useSearchParams()
   const [hoveredItem, setHoveredItem] = useState<string | null>(null)
+  const [mounted, setMounted] = useState(false)
+
+  useEffect(() => {
+    setMounted(true)
+  }, [])
+
+  const currentTab = searchParams.get('tab')
 
   const isActive = (href: string) => {
-    // Handle query param based tabs
-    if (typeof window !== 'undefined') {
-      const currentUrl = window.location.href
-      if (href.includes('?tab=')) {
-        return currentUrl.includes(href)
+    if (!mounted) return false
+
+    if (href.includes('?tab=')) {
+      const hrefTab = new URL(href, 'http://localhost').searchParams.get('tab')
+      const hrefPath = href.split('?')[0]
+
+      if (hrefTab === 'dashboard') {
+        return pathname === '/admin' && (!currentTab || currentTab === 'dashboard')
       }
+      return pathname === hrefPath && currentTab === hrefTab
     }
-    // Handle page-based routes
-    if (href === '/admin?tab=dashboard') return pathname === '/admin' && !pathname.includes('tab=')
-    return pathname.includes(href.split('?')[0].split('#')[0])
+
+    const basePath = href.split('?')[0].split('#')[0]
+    return pathname === basePath || pathname.startsWith(basePath + '/')
   }
 
   return (
@@ -73,7 +87,6 @@ export default function AdminSidebar({ isOpen, onClose }: { isOpen: boolean; onC
               className="fixed left-0 top-0 bottom-0 w-64 bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-800 z-50 lg:hidden overflow-y-auto"
             >
               <SidebarContent 
-                pathname={pathname} 
                 isActive={isActive} 
                 hoveredItem={hoveredItem}
                 setHoveredItem={setHoveredItem}
@@ -87,7 +100,6 @@ export default function AdminSidebar({ isOpen, onClose }: { isOpen: boolean; onC
       {/* Desktop Sidebar */}
       <aside className="hidden lg:flex flex-col w-56 bg-gradient-to-b from-white to-gray-50 dark:from-gray-900 dark:to-gray-800 border-r border-gray-200 dark:border-gray-800 h-[calc(100vh-4rem)] fixed left-0 top-16 overflow-y-auto">
         <SidebarContent 
-          pathname={pathname} 
           isActive={isActive} 
           hoveredItem={hoveredItem}
           setHoveredItem={setHoveredItem}
@@ -98,13 +110,11 @@ export default function AdminSidebar({ isOpen, onClose }: { isOpen: boolean; onC
 }
 
 function SidebarContent({ 
-  pathname, 
   isActive, 
   hoveredItem, 
   setHoveredItem,
   onClose 
 }: { 
-  pathname: string
   isActive: (href: string) => boolean
   hoveredItem: string | null
   setHoveredItem: (id: string | null) => void
@@ -179,4 +189,3 @@ function SidebarContent({
     </div>
   )
 }
-

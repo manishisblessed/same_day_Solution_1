@@ -29,11 +29,12 @@ export async function calculateMDR(
   input: SettlementCalculationInput
 ): Promise<{ success: boolean; result?: MDRCalculationResult; error?: string }> {
   try {
-    // Normalize payment details
     const mode = normalizePaymentMode(input.mode);
     const card_type = normalizeCardType(input.card_type || undefined);
     const brand_type = normalizeBrandType(input.brand_type || undefined);
     const card_classification = input.card_classification?.toUpperCase()?.trim() || null;
+
+    console.log(`[MDR] calculateMDR input: mode=${mode}, card_type=${card_type}, brand_type=${brand_type} (raw: ${input.brand_type}), classification=${card_classification}, settlement=${input.settlement_type}, retailer=${input.retailer_id}`);
 
     let retailer_mdr: number | null = null;
     let distributor_mdr: number | null = null;
@@ -78,7 +79,6 @@ export async function calculateMDR(
         const resolved = schemeResult[0];
         let mdrRate: any = null;
 
-        // Helper to find MDR rate with specific criteria
         const findMDRRate = async (
           schemeId: string,
           m: string,
@@ -96,10 +96,10 @@ export async function calculateMDR(
           if (ct) q = q.eq('card_type', ct);
           else q = q.is('card_type', null);
           
-          if (bt) q = q.eq('brand_type', bt);
+          if (bt) q = q.ilike('brand_type', bt);
           else q = q.is('brand_type', null);
           
-          if (cc) q = q.eq('card_classification', cc);
+          if (cc) q = q.ilike('card_classification', cc);
           else q = q.is('card_classification', null);
           
           const { data } = await q.limit(1);
@@ -129,6 +129,10 @@ export async function calculateMDR(
         if (!mdrRate) {
           mdrRate = await findMDRRate(resolved.scheme_id, mode, null, null, null);
           if (mdrRate) console.log(`[MDR] Fallback match: ${mode}/ANY/ANY/ANY`);
+        }
+
+        if (!mdrRate) {
+          console.warn(`[MDR] No rate found in scheme "${resolved.scheme_name}" (${resolved.scheme_id}) for mode=${mode}, card_type=${card_type}, brand_type=${brand_type}, classification=${card_classification}. Falling back to legacy.`);
         }
 
         if (mdrRate) {

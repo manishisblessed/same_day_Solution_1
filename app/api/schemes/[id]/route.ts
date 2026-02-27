@@ -6,6 +6,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger';
 import { getCurrentUserFromRequest } from '@/lib/auth-server-request';
 import { getSchemeById, updateScheme, deleteScheme } from '@/lib/scheme/scheme.service';
 import { createClient } from '@supabase/supabase-js';
@@ -164,6 +165,12 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
     if (!success) {
       return NextResponse.json({ error }, { status: 400 });
     }
+
+    const ctx = getRequestContext(request);
+    logActivityFromContext(ctx, user, {
+      activity_type: 'scheme_delete',
+      activity_category: 'scheme',
+    }).catch(() => {});
 
     return NextResponse.json({ success: true });
   } catch (err: any) {

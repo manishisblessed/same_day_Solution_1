@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { createClient } from '@supabase/supabase-js'
 import { cookies } from 'next/headers'
+import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger'
 
 export const runtime = 'nodejs' // Force Node.js runtime (Supabase not compatible with Edge Runtime)
 export const dynamic = 'force-dynamic'
@@ -146,6 +147,14 @@ export async function POST(request: NextRequest) {
     // We'll use a special token that indicates impersonation
     const impersonationToken = `impersonate_${session.id}_${Date.now()}`
 
+    const ctx = getRequestContext(request)
+    logActivityFromContext(ctx, admin, {
+      activity_type: 'admin_impersonate',
+      activity_category: 'admin',
+      activity_description: `Admin impersonated ${user_role} user ${user_id}`,
+      metadata: { impersonated_user_id: user_id, impersonated_user_role: user_role },
+    }).catch(() => {})
+
     // Return user data and token
     return NextResponse.json({
       success: true,
@@ -226,6 +235,14 @@ export async function DELETE(request: NextRequest) {
         { status: 500 }
       )
     }
+
+    const ctx = getRequestContext(request)
+    logActivityFromContext(ctx, admin, {
+      activity_type: 'admin_end_impersonation',
+      activity_category: 'admin',
+      activity_description: 'Admin ended impersonation session',
+      metadata: { session_id: sessionId },
+    }).catch(() => {})
 
     return NextResponse.json({
       success: true,

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient, SupabaseClient } from '@supabase/supabase-js'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
+import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger'
 
 export const dynamic = 'force-dynamic'
 
@@ -177,6 +178,13 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       )
     }
+
+    const ctx = getRequestContext(request)
+    logActivityFromContext(ctx, user, {
+      activity_type: 'md_create_distributor',
+      activity_category: 'master_dist',
+      activity_description: `Master distributor created distributor: ${email || userData?.name || 'unknown'}`,
+    }).catch(() => {})
 
     return NextResponse.json({
       success: true,

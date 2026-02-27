@@ -3,6 +3,7 @@ import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { createClient } from '@supabase/supabase-js'
 import { addCorsHeaders } from '@/lib/cors'
 import { checkAllLimits } from '@/lib/limits/enforcement'
+import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger'
 
 export const runtime = 'nodejs' // Force Node.js runtime (Supabase not compatible with Edge Runtime)
 export const dynamic = 'force-dynamic'
@@ -261,6 +262,16 @@ export async function POST(request: NextRequest) {
         })
       }
     }
+
+    const ctx = getRequestContext(request)
+    logActivityFromContext(ctx, user, {
+      activity_type: 'aeps_transaction',
+      activity_category: 'aeps',
+      activity_description: `AEPS ${transaction_type || 'transaction'} for ₹${amountDecimal || 0}`,
+      reference_id: aepsTransaction.id,
+      reference_table: 'aeps_transactions',
+      metadata: { transaction_type: transaction_type, amount: amountDecimal },
+    }).catch(() => {})
 
     return NextResponse.json({
       success: aepsSuccess,

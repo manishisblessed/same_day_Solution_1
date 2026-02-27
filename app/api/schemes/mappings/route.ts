@@ -6,6 +6,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger';
 import { getCurrentUserFromRequest } from '@/lib/auth-server-request';
 import {
   getSchemeMappings,
@@ -174,6 +175,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error }, { status: 400 });
     }
 
+    const ctx = getRequestContext(request);
+    logActivityFromContext(ctx, user, {
+      activity_type: 'scheme_mapping_create',
+      activity_category: 'scheme',
+      reference_table: 'scheme_mappings',
+    }).catch(() => {});
+
     return NextResponse.json({ success: true, data });
   } catch (err: any) {
     console.error('[API /api/schemes/mappings POST]', err);
@@ -220,6 +228,15 @@ export async function DELETE(request: NextRequest) {
     }
 
     const { success } = await deleteSchemeMapping(mappingId);
+
+    if (success) {
+      const ctx = getRequestContext(request);
+      logActivityFromContext(ctx, user, {
+        activity_type: 'scheme_mapping_delete',
+        activity_category: 'scheme',
+      }).catch(() => {});
+    }
+
     return NextResponse.json({ success });
   } catch (err: any) {
     console.error('[API /api/schemes/mappings DELETE]', err);

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { createClient } from '@supabase/supabase-js'
 
@@ -69,6 +70,13 @@ export async function GET(request: NextRequest) {
     const { data: balance } = await supabase.rpc('get_wallet_balance', {
       p_retailer_id: user.partner_id
     })
+
+    const ctx = getRequestContext(request)
+    logActivityFromContext(ctx, user, {
+      activity_type: 'wallet_transactions_view',
+      activity_category: 'wallet',
+      activity_description: `${user.role} viewed wallet transactions`,
+    }).catch(() => {})
 
     return NextResponse.json({
       success: true,

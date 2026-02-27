@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger'
 import { getCurrentUserFromRequest } from '@/lib/auth-server-request'
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
 import { createClient } from '@supabase/supabase-js'
@@ -87,6 +88,9 @@ export async function GET(request: NextRequest) {
       )
       return addCorsHeaders(request, response)
     }
+
+    const ctx = getRequestContext(request)
+    logActivityFromContext(ctx, user, { activity_type: 'tpin_verify', activity_category: 'auth' }).catch(() => {})
 
     const response = NextResponse.json({
       success: true,
@@ -244,7 +248,10 @@ export async function POST(request: NextRequest) {
     }
 
     console.log('[TPIN] TPIN set successfully for:', user.partner_id)
-    
+
+    const ctx = getRequestContext(request)
+    logActivityFromContext(ctx, user, { activity_type: 'tpin_set', activity_category: 'auth' }).catch(() => {})
+
     const response = NextResponse.json({
       success: true,
       message: retailer.tpin_enabled ? 'TPIN changed successfully' : 'TPIN set successfully',

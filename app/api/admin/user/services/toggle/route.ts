@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { createClient } from '@supabase/supabase-js'
+import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -104,6 +105,12 @@ export async function POST(request: NextRequest) {
         user_email: (user as any).email
       }
     })
+
+    const ctx = getRequestContext(request)
+    logActivityFromContext(ctx, admin, {
+      activity_type: 'admin_service_toggle',
+      activity_category: 'admin',
+    }).catch(() => {})
 
     return NextResponse.json({
       success: true,
