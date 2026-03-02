@@ -77,8 +77,7 @@ export async function GET(request: NextRequest) {
         permissions,
         is_active,
         created_at,
-        created_by,
-        creator:admin_users!created_by(name, email)
+        created_by
       `)
       .order('created_at', { ascending: false })
 

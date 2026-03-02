@@ -94,14 +94,20 @@ export default function AdminSettings() {
     setLoadingSubAdmins(true)
     try {
       const response = await apiFetch('/api/admin/sub-admins')
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({ error: `Server error (${response.status})` }))
+        setMessage({ type: 'error', text: errData.error || `Failed to fetch sub-admins (${response.status})` })
+        return
+      }
       const data = await response.json()
       if (data.success) {
         setSubAdmins(data.admins || [])
       } else if (data.error) {
         setMessage({ type: 'error', text: data.error })
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error fetching sub-admins:', error)
+      setMessage({ type: 'error', text: error?.message || 'Failed to load sub-admins. Please refresh the page.' })
     } finally {
       setLoadingSubAdmins(false)
     }
