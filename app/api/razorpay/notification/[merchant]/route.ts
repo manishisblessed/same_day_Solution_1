@@ -147,11 +147,13 @@ export async function POST(
 
     let createdTime: Date | null = null
     if (normalizedPayload.createdTime) {
-      createdTime = new Date(
-        typeof normalizedPayload.createdTime === 'number'
-          ? normalizedPayload.createdTime
-          : normalizedPayload.createdTime
-      )
+      const raw = normalizedPayload.createdTime
+      const asNum = typeof raw === 'number' ? raw : Number(raw)
+      if (!isNaN(asNum)) {
+        createdTime = asNum > 1e12 ? new Date(asNum) : new Date(asNum * 1000)
+      } else {
+        createdTime = new Date(raw)
+      }
     } else if (normalizedPayload.created_at) {
       createdTime = new Date(normalizedPayload.created_at)
     }
@@ -190,7 +192,17 @@ export async function POST(
 
     let postingDateParsed: Date | null = null
     if (postingDateStr) {
-      try { postingDateParsed = new Date(postingDateStr) } catch { /* ignore */ }
+      try {
+        const asNum = Number(postingDateStr)
+        postingDateParsed = !isNaN(asNum) && asNum > 1e12
+          ? new Date(asNum)
+          : !isNaN(asNum) && asNum > 1e9
+            ? new Date(asNum * 1000)
+            : new Date(postingDateStr)
+        if (isNaN(postingDateParsed.getTime())) postingDateParsed = null
+      } catch {
+        postingDateParsed = null
+      }
     }
 
     const posTransactionData: any = {
