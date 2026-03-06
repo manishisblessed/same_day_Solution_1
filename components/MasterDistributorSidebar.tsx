@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { usePathname, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import Image from 'next/image'
@@ -8,6 +8,7 @@ import {
   LayoutDashboard, Crown, Activity, 
   Settings, TrendingUp, Users, Network, Package, X, Menu, Layers, CreditCard
 } from 'lucide-react'
+import { apiFetch } from '@/lib/api-client'
 import { motion, AnimatePresence } from 'framer-motion'
 
 interface SidebarItem {
@@ -30,10 +31,36 @@ const sidebarItems: SidebarItem[] = [
   { id: 'settings', label: 'Settings', icon: Settings, href: '/dashboard/master-distributor?tab=settings' },
 ]
 
+const SERVICE_TAB_MAP: Record<string, string[]> = {
+  services:       [],
+  'pos-machines': ['mini_atm_pos'],
+}
+
 export default function MasterDistributorSidebar({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const [hoveredItem, setHoveredItem] = useState<string | null>(null)
+  const [enabledServices, setEnabledServices] = useState<Record<string, boolean> | null>(null)
+
+  useEffect(() => {
+    apiFetch('/api/user/enabled-services')
+      .then((res) => res.json())
+      .then((data) => setEnabledServices(data.services ?? {}))
+      .catch(() => setEnabledServices({}))
+  }, [])
+
+  const visibleItems = useMemo(() => {
+    if (!enabledServices) {
+      return sidebarItems.filter((item) => !(item.id in SERVICE_TAB_MAP))
+    }
+    const hasAny = Object.values(enabledServices).some(Boolean)
+    return sidebarItems.filter((item) => {
+      const requiredKeys = SERVICE_TAB_MAP[item.id]
+      if (requiredKeys === undefined) return true
+      if (requiredKeys.length === 0) return hasAny
+      return requiredKeys.some((k) => enabledServices[k])
+    })
+  }, [enabledServices])
 
   const isActive = (href: string) => {
     // For dashboard, only match exact path (no query params or sub-paths)
@@ -74,6 +101,7 @@ export default function MasterDistributorSidebar({ isOpen, onClose }: { isOpen: 
               className="fixed left-0 top-0 bottom-0 w-64 bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-800 z-50 lg:hidden overflow-y-auto"
             >
               <SidebarContent 
+                items={visibleItems}
                 pathname={pathname}
                 searchParams={searchParams}
                 isActive={isActive} 
@@ -89,6 +117,7 @@ export default function MasterDistributorSidebar({ isOpen, onClose }: { isOpen: 
       {/* Desktop Sidebar */}
       <aside className="hidden lg:flex flex-col w-56 bg-gradient-to-b from-white to-gray-50 dark:from-gray-900 dark:to-gray-800 border-r border-gray-200 dark:border-gray-800 h-[calc(100vh-4rem)] fixed left-0 top-16 overflow-y-auto">
         <SidebarContent 
+          items={visibleItems}
           pathname={pathname}
           searchParams={searchParams}
           isActive={isActive} 
@@ -101,6 +130,7 @@ export default function MasterDistributorSidebar({ isOpen, onClose }: { isOpen: 
 }
 
 function SidebarContent({ 
+  items,
   pathname,
   searchParams,
   isActive, 
@@ -108,6 +138,7 @@ function SidebarContent({
   setHoveredItem,
   onClose 
 }: { 
+  items: SidebarItem[]
   pathname: string
   searchParams: URLSearchParams
   isActive: (href: string) => boolean
@@ -145,7 +176,7 @@ function SidebarContent({
 
       {/* Navigation - Compact */}
       <nav className="flex-1 p-2 space-y-1 overflow-y-auto">
-        {sidebarItems.map((item) => {
+        {items.map((item) => {
           const active = isActive(item.href)
           const Icon = item.icon
           

@@ -1,0 +1,43 @@
+Subject: Re: POS Integration – Webhook URL verified and working (Ticket #18199665)
+
+Dear Razorpay Team,
+
+Thank you for your patience. We have confirmed that the webhook endpoint for Teachway Education Pvt Ltd is now live and responding correctly.
+
+Webhook URL: https://api.samedaysolution.in/api/razorpay/notification/teachway
+
+Verification results:
+
+1) GET (URL verification / health check)
+   Response: 200 OK
+   Body:
+   {
+       "message": "Razorpay POS notification endpoint for Teachway Education Private Limited",
+       "merchant": "teachway",
+       "merchantName": "Teachway Education Private Limited",
+       "status": "active"
+   }
+
+2) POST (transaction notification – sample payload as shared by you)
+   Response: 200 OK
+   Body:
+   {
+       "received": true,
+       "processed": true,
+       "merchant": "teachway",
+       "merchantName": "Teachway Education Private Limited",
+       "transactionId": "1660a8e4-6132-426c-8e31-3ef55742c757",
+       "txnId": "240701131715517E020069652",
+       "action": "created",
+       "status": "CAPTURED",
+       "walletCredited": false,
+       "retailerMapped": false
+   }
+
+We have tested the endpoint with the same cURL payload you provided and are receiving 200 success with processed: true. You may proceed to configure this webhook URL at your end for Teachway Education Pvt Ltd’s POS setup.
+
+Please let us know if you need any further information.
+
+Thanks & Regards,
+Manish Kumar Shah
+Team Teachway

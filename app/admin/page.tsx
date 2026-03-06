@@ -7,7 +7,7 @@ import { supabase } from '@/lib/supabase/client'
 import { Retailer, Distributor, MasterDistributor, POSMachine } from '@/types/database.types'
 import AdminSidebar from '@/components/AdminSidebar'
 import { 
-  Plus, Edit, Trash2, Search, Filter, Download, 
+  Plus, Edit, Trash2, Search, Filter, Download, RotateCcw, 
   Users, Package, Crown, TrendingUp, Activity,
   X, Check, AlertCircle, Menu, ArrowUpDown, 
   ChevronLeft, ChevronRight, FileSpreadsheet, FileText,
@@ -240,6 +240,28 @@ function AdminDashboardContent() {
     }
   }
 
+  const handleReturnToStock = async (machine: POSMachine) => {
+    const assigned = ['assigned_to_retailer', 'assigned_to_distributor', 'assigned_to_master_distributor', 'assigned_to_partner'].includes(machine.inventory_status || '')
+    if (!assigned) return
+    if (!confirm(`Return "${machine.machine_id}" to stock? It will be removed from the current holder and available for reassignment.`)) return
+    try {
+      const res = await apiFetch('/api/admin/pos-machines/return', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ machine_id: machine.id }),
+      })
+      const data = await res.json()
+      if (data.success) {
+        fetchData()
+      } else {
+        alert(data.error || 'Failed to return machine to stock')
+      }
+    } catch (e) {
+      console.error('Return to stock error:', e)
+      alert('Failed to return machine to stock')
+    }
+  }
+
   const handleBulkDelete = async () => {
     if (selectedItems.size === 0) return
     if (!confirm(`Are you sure you want to delete ${selectedItems.size} item(s)?`)) return
@@ -460,6 +482,7 @@ function AdminDashboardContent() {
                 setShowModal(true)
               }}
               onDelete={handleDelete}
+              onReturnToStock={handleReturnToStock}
             />
           ) : activeTab === 'pos-partner-api' ? (
             <POSPartnerAPIManagement />
@@ -5093,6 +5116,7 @@ function POSMachinesTab({
   onAdd,
   onEdit,
   onDelete,
+  onReturnToStock,
 }: {
   retailers: Retailer[]
   distributors: Distributor[]
@@ -5103,6 +5127,7 @@ function POSMachinesTab({
   onAdd: () => void
   onEdit: (item: POSMachine) => void
   onDelete: (id: string) => void
+  onReturnToStock?: (machine: POSMachine) => void
 }) {
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('all')
@@ -5509,6 +5534,15 @@ function POSMachinesTab({
                     </td>
                     <td className="px-3 py-2">
                       <div className="flex items-center gap-1">
+                        {onReturnToStock && ['assigned_to_retailer', 'assigned_to_distributor', 'assigned_to_master_distributor', 'assigned_to_partner'].includes(machine.inventory_status || '') && (
+                          <button
+                            onClick={() => onReturnToStock(machine)}
+                            className="p-1.5 text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/20 rounded transition-colors"
+                            title="Return to stock"
+                          >
+                            <RotateCcw className="w-4 h-4" />
+                          </button>
+                        )}
                         <button
                           onClick={() => onEdit(machine)}
                           className="p-1.5 text-primary-600 hover:bg-primary-50 dark:hover:bg-primary-900/20 rounded transition-colors"

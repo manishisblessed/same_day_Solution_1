@@ -1,0 +1,45 @@
+{
+  "info": {
+    "name": "Razorpay Teachway Webhook",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "GET - URL verification",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "https://api.samedaysolution.in/api/razorpay/notification/teachway",
+          "protocol": "https",
+          "host": ["api", "samedaysolution", "in"],
+          "path": ["api", "razorpay", "notification", "teachway"]
+        },
+        "description": "Returns 200 with merchant info. Use this to verify the endpoint is live."
+      }
+    },
+    {
+      "name": "POST - Webhook payload (Razorpay format)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"amount\": 2580,\n  \"amountAdditional\": 0,\n  \"amountCashBack\": 0,\n  \"amountOriginal\": 2580,\n  \"authCode\": \"D35771\",\n  \"batchNumber\": \"1\",\n  \"currencyCode\": \"INR\",\n  \"customerName\": \"/\",\n  \"customerReceiptUrl\": \"http://d.eze.cc/r/o/OlToCIuw/\",\n  \"deviceSerial\": \"1491987081\",\n  \"externalRefNumber\": \"EZ202407011317155642\",\n  \"formattedPan\": \"4714-13XX-XXXX-6664\",\n  \"invoiceNumber\": \"\",\n  \"mid\": \"32123231\",\n  \"payerName\": \"/\",\n  \"paymentCardBrand\": \"VISA\",\n  \"paymentCardType\": \"UNKNOWN\",\n  \"paymentMode\": \"CARD\",\n  \"pgInvoiceNumber\": \"2\",\n  \"postingDate\": \"1535525060000\",\n  \"rrNumber\": \"RRF848AE0899E7\",\n  \"settlementStatus\": \"PENDING\",\n  \"stan\": \"2\",\n  \"status\": \"AUTHORIZED\",\n  \"tid\": \"32123232\",\n  \"txnId\": \"240701131715517E020069652\",\n  \"txnType\": \"CHARGE\",\n  \"userAgreement\": \"I agree to pay as per the card issuer agreement and receive chargeslip by electronic means.\",\n  \"username\": \"1212151234\"\n}"
+        },
+        "url": {
+          "raw": "https://api.samedaysolution.in/api/razorpay/notification/teachway",
+          "protocol": "https",
+          "host": ["api", "samedaysolution", "in"],
+          "path": ["api", "razorpay", "notification", "teachway"]
+        },
+        "description": "Same payload Razorpay sends. Expect 200 with \"processed\": true after deploy."
+      }
+    }
+  ]
+}

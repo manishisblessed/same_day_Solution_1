@@ -4,7 +4,7 @@ import React, { createContext, useContext, useEffect, useRef, useState } from 'r
 import { AuthUser } from '@/types/database.types'
 import { getCurrentUser, signIn, signOut as authSignOut } from '@/lib/auth'
 import { apiFetch } from '@/lib/api-client'
-import { getGeoLocation } from '@/hooks/useGeolocation'
+import { getGeoLocation, clearGeoCache } from '@/hooks/useGeolocation'
 
 interface AuthContextType {
   user: AuthUser | null
@@ -233,6 +233,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // Sign out from Supabase first
       await authSignOut()
       
+      // Clear geo cache so next login requires fresh location permission
+      clearGeoCache()
+
       // Clear all auth-related data
       if (typeof window !== 'undefined') {
         // Clear cached user

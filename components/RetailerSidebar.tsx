@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { usePathname, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { 
@@ -8,7 +8,7 @@ import {
   Settings, TrendingUp, CreditCard, X, Menu,
   Wallet, Receipt, Banknote, Percent, BookOpen
 } from 'lucide-react'
-
+import { apiFetch } from '@/lib/api-client'
 import { motion, AnimatePresence } from 'framer-motion'
 
 interface SidebarItem {
@@ -32,10 +32,43 @@ const sidebarItems: SidebarItem[] = [
   { id: 'reports', label: 'Reports', icon: TrendingUp, href: '/dashboard/retailer?tab=reports' },
 ]
 
+// Map sidebar item id → which admin service key(s) control its visibility.
+// Items not listed here are always visible (dashboard, wallet, ledger, reports).
+const SERVICE_TAB_MAP: Record<string, string[]> = {
+  services:       [], // special: visible when ANY service is enabled
+  bbps:           ['bbps'],
+  payout:         ['banking_payments', 'dmt'],
+  transactions:   ['mini_atm_pos'],
+  'pos-machines': ['mini_atm_pos'],
+  'mdr-schemes':  ['mini_atm_pos'],
+}
+
 export default function RetailerSidebar({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const [hoveredItem, setHoveredItem] = useState<string | null>(null)
+  const [enabledServices, setEnabledServices] = useState<Record<string, boolean> | null>(null)
+
+  useEffect(() => {
+    apiFetch('/api/user/enabled-services')
+      .then((res) => res.json())
+      .then((data) => setEnabledServices(data.services ?? {}))
+      .catch(() => setEnabledServices({}))
+  }, [])
+
+  const visibleItems = useMemo(() => {
+    // While loading, only show items that are always visible
+    if (!enabledServices) {
+      return sidebarItems.filter((item) => !(item.id in SERVICE_TAB_MAP))
+    }
+    const hasAny = Object.values(enabledServices).some(Boolean)
+    return sidebarItems.filter((item) => {
+      const requiredKeys = SERVICE_TAB_MAP[item.id]
+      if (requiredKeys === undefined) return true // always visible
+      if (requiredKeys.length === 0) return hasAny // "services" tab: any enabled
+      return requiredKeys.some((k) => enabledServices[k]) // at least one matching service on
+    })
+  }, [enabledServices])
 
   const isActive = (item: SidebarItem) => {
     const currentTab = searchParams.get('tab')
@@ -69,6 +102,7 @@ export default function RetailerSidebar({ isOpen, onClose }: { isOpen: boolean; 
               className="fixed left-0 top-0 bottom-0 w-64 bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-800 z-50 lg:hidden overflow-y-auto"
             >
               <SidebarContent 
+                items={visibleItems}
                 isActive={isActive} 
                 hoveredItem={hoveredItem}
                 setHoveredItem={setHoveredItem}
@@ -82,6 +116,7 @@ export default function RetailerSidebar({ isOpen, onClose }: { isOpen: boolean; 
       {/* Desktop Sidebar */}
       <aside className="hidden lg:flex flex-col w-56 bg-gradient-to-b from-white to-gray-50 dark:from-gray-900 dark:to-gray-800 border-r border-gray-200 dark:border-gray-800 h-[calc(100vh-4rem)] fixed left-0 top-16 overflow-y-auto">
         <SidebarContent 
+          items={visibleItems}
           isActive={isActive} 
           hoveredItem={hoveredItem}
           setHoveredItem={setHoveredItem}
@@ -92,11 +127,13 @@ export default function RetailerSidebar({ isOpen, onClose }: { isOpen: boolean; 
 }
 
 function SidebarContent({ 
+  items,
   isActive, 
   hoveredItem, 
   setHoveredItem,
   onClose 
 }: { 
+  items: SidebarItem[]
   isActive: (item: SidebarItem) => boolean
   hoveredItem: string | null
   setHoveredItem: (id: string | null) => void
@@ -124,7 +161,7 @@ function SidebarContent({
 
       {/* Navigation - Compact */}
       <nav className="flex-1 p-2 space-y-1 overflow-y-auto">
-        {sidebarItems.map((item) => {
+        {items.map((item) => {
           const active = isActive(item)
           const Icon = item.icon
           

@@ -87,8 +87,13 @@ export default function POSMachinesTab({ user, accentColor = 'blue' }: POSMachin
     setError(null)
     try {
       let url = `/api/pos-machines/my-machines?page=${page}&limit=20`
-      if (statusFilter !== 'all') url += `&status=${statusFilter}`
-      if (inventoryFilter !== 'all') url += `&inventory_status=${inventoryFilter}`
+      const isRetailer = user?.role === 'retailer'
+      if (isRetailer) {
+        url += `&status=active&inventory_status=assigned_to_retailer`
+      } else {
+        if (statusFilter !== 'all') url += `&status=${statusFilter}`
+        if (inventoryFilter !== 'all') url += `&inventory_status=${inventoryFilter}`
+      }
       if (searchTerm) url += `&search=${encodeURIComponent(searchTerm)}`
 
       const response = await apiFetch(url)
@@ -108,7 +113,7 @@ export default function POSMachinesTab({ user, accentColor = 'blue' }: POSMachin
     } finally {
       setLoading(false)
     }
-  }, [page, statusFilter, inventoryFilter, searchTerm])
+  }, [page, statusFilter, inventoryFilter, searchTerm, user?.role])
 
   useEffect(() => {
     fetchMachines()
@@ -291,7 +296,7 @@ export default function POSMachinesTab({ user, accentColor = 'blue' }: POSMachin
 
       {/* Filters */}
       <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div className={`grid grid-cols-1 ${user?.role === 'retailer' ? 'sm:grid-cols-1' : 'sm:grid-cols-3'} gap-3`}>
           <div className="relative">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
             <input
@@ -302,30 +307,34 @@ export default function POSMachinesTab({ user, accentColor = 'blue' }: POSMachin
               className={`w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg ${colorClasses.ring} focus:ring-2 bg-white dark:bg-gray-900 text-gray-900 dark:text-white text-sm`}
             />
           </div>
-          <select
-            value={statusFilter}
-            onChange={(e) => { setStatusFilter(e.target.value); setPage(1) }}
-            className={`px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg ${colorClasses.ring} focus:ring-2 bg-white dark:bg-gray-900 text-gray-900 dark:text-white text-sm`}
-          >
-            <option value="all">All Status</option>
-            <option value="active">Active</option>
-            <option value="inactive">Inactive</option>
-            <option value="maintenance">Maintenance</option>
-            <option value="damaged">Damaged</option>
-            <option value="returned">Returned</option>
-          </select>
-          <select
-            value={inventoryFilter}
-            onChange={(e) => { setInventoryFilter(e.target.value); setPage(1) }}
-            className={`px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg ${colorClasses.ring} focus:ring-2 bg-white dark:bg-gray-900 text-gray-900 dark:text-white text-sm`}
-          >
-            <option value="all">All Inventory Status</option>
-            <option value="in_stock">In Stock</option>
-            <option value="received_from_bank">Received from Bank</option>
-            <option value="assigned_to_master_distributor">With Master Distributor</option>
-            <option value="assigned_to_distributor">With Distributor</option>
-            <option value="assigned_to_retailer">With Retailer</option>
-          </select>
+          {user?.role !== 'retailer' && (
+            <>
+              <select
+                value={statusFilter}
+                onChange={(e) => { setStatusFilter(e.target.value); setPage(1) }}
+                className={`px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg ${colorClasses.ring} focus:ring-2 bg-white dark:bg-gray-900 text-gray-900 dark:text-white text-sm`}
+              >
+                <option value="all">All Status</option>
+                <option value="active">Active</option>
+                <option value="inactive">Inactive</option>
+                <option value="maintenance">Maintenance</option>
+                <option value="damaged">Damaged</option>
+                <option value="returned">Returned</option>
+              </select>
+              <select
+                value={inventoryFilter}
+                onChange={(e) => { setInventoryFilter(e.target.value); setPage(1) }}
+                className={`px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg ${colorClasses.ring} focus:ring-2 bg-white dark:bg-gray-900 text-gray-900 dark:text-white text-sm`}
+              >
+                <option value="all">All Inventory Status</option>
+                <option value="in_stock">In Stock</option>
+                <option value="received_from_bank">Received from Bank</option>
+                <option value="assigned_to_master_distributor">With Master Distributor</option>
+                <option value="assigned_to_distributor">With Distributor</option>
+                <option value="assigned_to_retailer">With Retailer</option>
+              </select>
+            </>
+          )}
         </div>
       </div>
 

@@ -17,6 +17,7 @@ export interface GeoLocationError {
 
 const GEO_CACHE_KEY = 'geo_location_cache'
 const GEO_CACHE_MAX_AGE = 60_000 // 1 minute
+const LOGIN_GEO_FLAG = 'login_geo_verified'
 
 function classifySource(accuracy: number): 'gps' | 'network' | 'unknown' {
   if (accuracy < 100) return 'gps'
@@ -163,6 +164,81 @@ export function getGeoLocation(timeoutMs = 8000): Promise<GeoLocation | null> {
       { enableHighAccuracy: true, timeout: timeoutMs, maximumAge: 60_000 }
     )
   })
+}
+
+/**
+ * Location fetch for login gate: no cache, and respect permission state.
+ * On success marks a flag so we know location was verified this session.
+ */
+export function getGeoLocationForLogin(timeoutMs = 15000): Promise<GeoLocation | null> {
+  // Always clear cache so we force a fresh browser request
+  clearGeoCache()
+
+  return new Promise((resolve) => {
+    if (typeof navigator === 'undefined' || !navigator.geolocation) {
+      resolve(null)
+      return
+    }
+
+    const requestPosition = () => {
+      const timer = setTimeout(() => resolve(null), timeoutMs)
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          clearTimeout(timer)
+          const geo: GeoLocation = {
+            latitude: position.coords.latitude,
+            longitude: position.coords.longitude,
+            accuracy: position.coords.accuracy,
+            timestamp: position.timestamp,
+            source: classifySource(position.coords.accuracy),
+          }
+          setCachedGeo(geo)
+          // Mark that location was verified for this login session
+          try { sessionStorage.setItem(LOGIN_GEO_FLAG, Date.now().toString()) } catch {}
+          resolve(geo)
+        },
+        () => {
+          clearTimeout(timer)
+          resolve(null)
+        },
+        { enableHighAccuracy: true, timeout: timeoutMs, maximumAge: 0 }
+      )
+    }
+
+    if (navigator.permissions && navigator.permissions.query) {
+      navigator.permissions
+        .query({ name: 'geolocation' })
+        .then((result) => {
+          if (result.state === 'denied') {
+            resolve(null)
+            return
+          }
+          requestPosition()
+        })
+        .catch(() => requestPosition())
+    } else {
+      requestPosition()
+    }
+  })
+}
+
+/** Clear geo cache and login-verified flag. Call on logout. */
+export function clearGeoCache(): void {
+  if (typeof window === 'undefined') return
+  try {
+    sessionStorage.removeItem(GEO_CACHE_KEY)
+    sessionStorage.removeItem(LOGIN_GEO_FLAG)
+  } catch {}
+}
+
+/** Returns true if location was verified during the current login session. */
+export function isLoginGeoVerified(): boolean {
+  if (typeof window === 'undefined') return false
+  try {
+    return !!sessionStorage.getItem(LOGIN_GEO_FLAG)
+  } catch {
+    return false
+  }
 }
 
 /**

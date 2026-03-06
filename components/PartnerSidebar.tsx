@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { usePathname, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { 
@@ -9,7 +9,7 @@ import {
   Wallet, Receipt, Banknote, Percent, BookOpen,
   Crown, Sparkles, Key, BarChart3, Zap
 } from 'lucide-react'
-
+import { apiFetch } from '@/lib/api-client'
 import { motion, AnimatePresence } from 'framer-motion'
 
 interface SidebarItem {
@@ -38,10 +38,40 @@ const sidebarItems: SidebarItem[] = [
   { id: 'settings', label: 'Settings', icon: Settings, href: '/dashboard/partner?tab=settings' },
 ]
 
+const SERVICE_TAB_MAP: Record<string, string[]> = {
+  services:       [],
+  bbps:           ['bbps'],
+  payout:         ['banking_payments', 'dmt'],
+  transactions:   ['mini_atm_pos'],
+  'pos-machines': ['mini_atm_pos'],
+  'mdr-schemes':  ['mini_atm_pos'],
+}
+
 export default function PartnerSidebar({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const [hoveredItem, setHoveredItem] = useState<string | null>(null)
+  const [enabledServices, setEnabledServices] = useState<Record<string, boolean> | null>(null)
+
+  useEffect(() => {
+    apiFetch('/api/user/enabled-services')
+      .then((res) => res.json())
+      .then((data) => setEnabledServices(data.services ?? {}))
+      .catch(() => setEnabledServices({}))
+  }, [])
+
+  const visibleItems = useMemo(() => {
+    if (!enabledServices) {
+      return sidebarItems.filter((item) => !(item.id in SERVICE_TAB_MAP))
+    }
+    const hasAny = Object.values(enabledServices).some(Boolean)
+    return sidebarItems.filter((item) => {
+      const requiredKeys = SERVICE_TAB_MAP[item.id]
+      if (requiredKeys === undefined) return true
+      if (requiredKeys.length === 0) return hasAny
+      return requiredKeys.some((k) => enabledServices[k])
+    })
+  }, [enabledServices])
 
   const isActive = (item: SidebarItem) => {
     const currentTab = searchParams.get('tab')
@@ -75,6 +105,7 @@ export default function PartnerSidebar({ isOpen, onClose }: { isOpen: boolean; o
               className="fixed left-0 top-0 bottom-0 w-64 bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-800 z-50 lg:hidden overflow-y-auto"
             >
               <SidebarContent 
+                items={visibleItems}
                 isActive={isActive} 
                 hoveredItem={hoveredItem}
                 setHoveredItem={setHoveredItem}
@@ -88,6 +119,7 @@ export default function PartnerSidebar({ isOpen, onClose }: { isOpen: boolean; o
       {/* Desktop Sidebar */}
       <aside className="hidden lg:flex flex-col w-56 bg-gradient-to-b from-purple-50/50 via-pink-50/30 to-white dark:from-gray-900 dark:via-purple-900/20 dark:to-gray-800 border-r border-purple-200/50 dark:border-purple-700/50 h-[calc(100vh-4rem)] fixed left-0 top-16 overflow-y-auto">
         <SidebarContent 
+          items={visibleItems}
           isActive={isActive} 
           hoveredItem={hoveredItem}
           setHoveredItem={setHoveredItem}
@@ -98,18 +130,20 @@ export default function PartnerSidebar({ isOpen, onClose }: { isOpen: boolean; o
 }
 
 function SidebarContent({ 
+  items,
   isActive, 
   hoveredItem, 
   setHoveredItem,
   onClose 
 }: { 
+  items: SidebarItem[]
   isActive: (item: SidebarItem) => boolean
   hoveredItem: string | null
   setHoveredItem: (id: string | null) => void
   onClose?: () => void
 }) {
-  const regularItems = sidebarItems.filter(item => !item.vip)
-  const vipItems = sidebarItems.filter(item => item.vip)
+  const regularItems = items.filter(item => !item.vip)
+  const vipItems = items.filter(item => item.vip)
 
   return (
     <div className="flex flex-col h-full">

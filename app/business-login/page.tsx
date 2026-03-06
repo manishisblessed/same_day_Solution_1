@@ -6,7 +6,8 @@ import { useAuth } from '@/contexts/AuthContext'
 import AnimatedSection from '@/components/AnimatedSection'
 import AnimatedCard from '@/components/AnimatedCard'
 import Link from 'next/link'
-import { AlertCircle, Loader2 } from 'lucide-react'
+import { AlertCircle, Loader2, MapPin, ShieldCheck, ShieldX } from 'lucide-react'
+import { getGeoLocationForLogin, isLoginGeoVerified, clearGeoCache } from '@/hooks/useGeolocation'
 
 export default function BusinessLogin() {
   const { user, login, loading: authLoading } = useAuth()
@@ -20,10 +21,14 @@ export default function BusinessLogin() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [mounted, setMounted] = useState(false)
+  const [locationVerified, setLocationVerified] = useState(false)
+  const [locationLoading, setLocationLoading] = useState(false)
 
-  // Wait for component to mount
+  // Wait for component to mount. Clear geo flag so user must verify location for each login.
   useEffect(() => {
     setMounted(true)
+    clearGeoCache()
+    setLocationVerified(false)
   }, [])
 
   // Timeout to prevent infinite loading (max 2 seconds wait)
@@ -65,9 +70,28 @@ export default function BusinessLogin() {
     })
   }
 
+  const handleVerifyLocation = async () => {
+    setError('')
+    setLocationLoading(true)
+    const geo = await getGeoLocationForLogin(15000)
+    setLocationLoading(false)
+    if (geo) {
+      setLocationVerified(true)
+    } else {
+      setLocationVerified(false)
+      setError('Location access was denied or unavailable. Please allow location to sign in.')
+    }
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
+
+    if (!locationVerified) {
+      setError('Please verify your location before signing in.')
+      return
+    }
+
     setLoading(true)
 
     try {
@@ -247,13 +271,41 @@ export default function BusinessLogin() {
                         </Link>
                       </div>
 
-                      <button
-                        type="submit"
-                        disabled={loading}
-                        className="w-full btn-primary"
-                      >
-                        {loading ? 'Signing in...' : 'Sign In'}
-                      </button>
+                      {/* Location verification step */}
+                      {!locationVerified ? (
+                        <button
+                          type="button"
+                          onClick={handleVerifyLocation}
+                          disabled={locationLoading}
+                          className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg font-semibold text-white bg-amber-500 hover:bg-amber-600 transition-colors disabled:opacity-60"
+                        >
+                          {locationLoading ? (
+                            <>
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                              Verifying location...
+                            </>
+                          ) : (
+                            <>
+                              <MapPin className="w-4 h-4" />
+                              Verify Location to Continue
+                            </>
+                          )}
+                        </button>
+                      ) : (
+                        <>
+                          <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-green-50 border border-green-200 text-green-700 text-sm mb-3">
+                            <ShieldCheck className="w-4 h-4 flex-shrink-0" />
+                            <span>Location verified</span>
+                          </div>
+                          <button
+                            type="submit"
+                            disabled={loading}
+                            className="w-full btn-primary"
+                          >
+                            {loading ? 'Signing in...' : 'Sign In'}
+                          </button>
+                        </>
+                      )}
                     </form>
 
                     <div className="mt-6 pt-6 border-t border-gray-200">
