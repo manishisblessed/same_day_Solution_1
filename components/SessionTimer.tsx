@@ -154,14 +154,17 @@ export default function SessionTimer({
     }
   }, [])
 
-  // Initialize session from localStorage or start new
+  // Initialize session: always use the prop-based duration (not stored value)
+  // to prevent cross-role leakage when admin/retailer share the same browser
   useEffect(() => {
     const storedStartTime = localStorage.getItem('sessionStartTime')
     const storedDuration = localStorage.getItem('sessionDuration')
     
-    if (storedStartTime && storedDuration) {
+    const durationMismatch = storedDuration && parseInt(storedDuration) !== totalSessionTime
+
+    if (storedStartTime && !durationMismatch) {
       const elapsed = Math.floor((Date.now() - parseInt(storedStartTime)) / 1000)
-      const remaining = Math.max(0, parseInt(storedDuration) - elapsed)
+      const remaining = Math.max(0, totalSessionTime - elapsed)
       
       if (remaining > 0) {
         timeRemainingRef.current = remaining
@@ -180,7 +183,7 @@ export default function SessionTimer({
     } else {
       resetSession()
     }
-  }, [resetSession, warningTime])
+  }, [resetSession, warningTime, totalSessionTime])
 
   // Activity listeners - throttled to every 5 seconds
   useEffect(() => {

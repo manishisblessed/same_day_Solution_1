@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { usePathname, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import Image from 'next/image'
@@ -9,6 +9,7 @@ import {
   Settings, TrendingUp, Users, Network, Package, X, Menu, Layers, CreditCard
 } from 'lucide-react'
 import { apiFetch } from '@/lib/api-client'
+import { useAuth } from '@/contexts/AuthContext'
 import { motion, AnimatePresence } from 'framer-motion'
 
 interface SidebarItem {
@@ -41,13 +42,36 @@ export default function MasterDistributorSidebar({ isOpen, onClose }: { isOpen: 
   const searchParams = useSearchParams()
   const [hoveredItem, setHoveredItem] = useState<string | null>(null)
   const [enabledServices, setEnabledServices] = useState<Record<string, boolean> | null>(null)
+  const { user } = useAuth()
+  const retryCount = useRef(0)
 
-  useEffect(() => {
-    apiFetch('/api/user/enabled-services')
+  const fetchServices = useCallback((partnerId?: string, role?: string) => {
+    const params = new URLSearchParams()
+    if (partnerId) params.set('partner_id', partnerId)
+    if (role) params.set('role', role)
+    const qs = params.toString()
+    apiFetch(`/api/user/enabled-services${qs ? `?${qs}` : ''}`)
       .then((res) => res.json())
       .then((data) => setEnabledServices(data.services ?? {}))
       .catch(() => setEnabledServices({}))
   }, [])
+
+  useEffect(() => { fetchServices() }, [fetchServices])
+
+  useEffect(() => {
+    if (!user?.partner_id) return
+    fetchServices(user.partner_id, user.role)
+    retryCount.current = 0
+  }, [user?.id, user?.partner_id, fetchServices])
+
+  useEffect(() => {
+    if (enabledServices === null) return
+    const hasAny = Object.values(enabledServices).some(Boolean)
+    if (hasAny || retryCount.current >= 3) return
+    retryCount.current += 1
+    const t = setTimeout(() => fetchServices(user?.partner_id, user?.role), retryCount.current * 1500)
+    return () => clearTimeout(t)
+  }, [enabledServices, fetchServices, user?.partner_id, user?.role])
 
   const visibleItems = useMemo(() => {
     if (!enabledServices) {

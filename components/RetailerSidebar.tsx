@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useMemo, useRef } from 'react'
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { usePathname, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { 
@@ -50,57 +50,56 @@ export default function RetailerSidebar({ isOpen, onClose }: { isOpen: boolean; 
   const [hoveredItem, setHoveredItem] = useState<string | null>(null)
   const [enabledServices, setEnabledServices] = useState<Record<string, boolean> | null>(null)
   const { user } = useAuth()
-  const fetchAttempted = useRef(false)
+  const retryCount = useRef(0)
 
-  // Reset retry flag when user changes (e.g. re-login)
-  useEffect(() => {
-    fetchAttempted.current = false
-  }, [user?.id])
+  const fetchServices = useCallback((partnerId?: string, role?: string) => {
+    const params = new URLSearchParams()
+    if (partnerId) params.set('partner_id', partnerId)
+    if (role) params.set('role', role)
+    const qs = params.toString()
+    const url = `/api/user/enabled-services${qs ? `?${qs}` : ''}`
 
-  // Clear services when user is not a retailer so we don't show stale tabs
-  useEffect(() => {
-    if (!user || user.role !== 'retailer') {
-      setEnabledServices(null)
-      return
-    }
-  }, [user?.id, user?.role])
+    apiFetch(url)
+      .then((res) => {
+        if (!res.ok) {
+          console.error('[RetailerSidebar] enabled-services returned', res.status, res.statusText)
+        }
+        return res.json()
+      })
+      .then((data) => {
+        const svc = data.services ?? {}
+        setEnabledServices(svc)
+      })
+      .catch((err) => {
+        console.error('[RetailerSidebar] enabled-services fetch failed:', err)
+        setEnabledServices({})
+      })
+  }, [])
 
-  // Only fetch once auth user is available so the API receives a valid session/token
+  // Fetch on mount without user info (token-based), then re-fetch with user info when available
   useEffect(() => {
-    if (!user || user.role !== 'retailer') return
-    let cancelled = false
-    const doFetch = () => {
-      apiFetch('/api/user/enabled-services')
-        .then((res) => res.json())
-        .then((data) => {
-          if (!cancelled) setEnabledServices(data.services ?? {})
-        })
-        .catch(() => {
-          if (!cancelled) setEnabledServices({})
-        })
-    }
-    doFetch()
-    return () => { cancelled = true }
-  }, [user?.id])
+    fetchServices()
+  }, [fetchServices])
 
-  // Retry once after a short delay if we got no enabled services (handles session not ready on first load)
+  // Re-fetch with explicit user info when auth context provides the user
   useEffect(() => {
-    if (!user || user.role !== 'retailer' || enabledServices === null) return
+    if (!user?.partner_id) return
+    fetchServices(user.partner_id, user.role)
+    retryCount.current = 0
+  }, [user?.id, user?.partner_id, fetchServices])
+
+  // Retry up to 3 times if no services found
+  useEffect(() => {
+    if (enabledServices === null) return
     const hasAny = Object.values(enabledServices).some(Boolean)
-    if (hasAny || fetchAttempted.current) return
-    fetchAttempted.current = true
+    if (hasAny || retryCount.current >= 3) return
+    retryCount.current += 1
+    const delay = retryCount.current * 1500
     const t = setTimeout(() => {
-      apiFetch('/api/user/enabled-services')
-        .then((res) => res.json())
-        .then((data) => {
-          const next = data.services ?? {}
-          const nextHasAny = Object.values(next).some(Boolean)
-          if (nextHasAny) setEnabledServices(next)
-        })
-        .catch(() => {})
-    }, 1500)
+      fetchServices(user?.partner_id, user?.role)
+    }, delay)
     return () => clearTimeout(t)
-  }, [user?.id, enabledServices])
+  }, [enabledServices, fetchServices, user?.partner_id, user?.role])
 
   const visibleItems = useMemo(() => {
     // While loading, only show items that are always visible
