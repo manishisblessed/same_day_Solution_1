@@ -1,17 +1,19 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { useAuth } from '@/contexts/AuthContext'
 import AnimatedSection from '@/components/AnimatedSection'
 import AnimatedCard from '@/components/AnimatedCard'
 import Link from 'next/link'
-import { AlertCircle, Loader2, MapPin, ShieldCheck, ShieldX } from 'lucide-react'
+import { AlertCircle, Loader2, MapPin, ShieldCheck, ShieldX, Clock } from 'lucide-react'
 import { getGeoLocationForLogin, isLoginGeoVerified, clearGeoCache } from '@/hooks/useGeolocation'
 
 export default function BusinessLogin() {
   const { user, login, loading: authLoading } = useAuth()
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const sessionExpired = searchParams.get('session') === 'expired'
   const [userType, setUserType] = useState<'retailer' | 'distributor' | 'master-distributor' | 'partner' | null>(null)
   const [formData, setFormData] = useState({
     email: '',
@@ -23,6 +25,7 @@ export default function BusinessLogin() {
   const [mounted, setMounted] = useState(false)
   const [locationVerified, setLocationVerified] = useState(false)
   const [locationLoading, setLocationLoading] = useState(false)
+  const [showExpiredBanner, setShowExpiredBanner] = useState(sessionExpired)
 
   // Wait for component to mount. Clear geo flag so user must verify location for each login.
   useEffect(() => {
@@ -30,6 +33,13 @@ export default function BusinessLogin() {
     clearGeoCache()
     setLocationVerified(false)
   }, [])
+
+  useEffect(() => {
+    if (showExpiredBanner) {
+      const timer = setTimeout(() => setShowExpiredBanner(false), 8000)
+      return () => clearTimeout(timer)
+    }
+  }, [showExpiredBanner])
 
   // Timeout to prevent infinite loading (max 2 seconds wait)
   const [forceShow, setForceShow] = useState(false)
@@ -211,6 +221,13 @@ export default function BusinessLogin() {
                         </svg>
                       </button>
                     </div>
+
+                    {showExpiredBanner && (
+                      <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-center gap-2 text-amber-700">
+                        <Clock className="w-5 h-5 flex-shrink-0" />
+                        <span className="text-sm">Your session ended due to inactivity. Please sign in again.</span>
+                      </div>
+                    )}
 
                     {error && (
                       <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2 text-red-700">

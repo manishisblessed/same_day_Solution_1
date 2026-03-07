@@ -63,13 +63,13 @@ export default function DistributorSidebar({ isOpen, onClose }: { isOpen: boolea
 
   const isActive = (href: string) => {
     if (href === '/dashboard/distributor') {
-      return pathname === '/dashboard/distributor' || pathname === '/dashboard/distributor/' && !searchParams.get('tab')
+      return pathname === '/dashboard/distributor' || pathname === '/dashboard/distributor/' && !searchParams?.get('tab')
     }
     if (href.includes('?tab=')) {
       const tabParam = href.split('?tab=')[1]
-      return pathname === '/dashboard/distributor' && searchParams.get('tab') === tabParam
+      return pathname === '/dashboard/distributor' && searchParams?.get('tab') === tabParam
     }
-    return pathname.includes(href.split('?')[0])
+    return pathname?.includes(href.split('?')[0]) ?? false
   }
 
   return (
@@ -132,7 +132,7 @@ function SidebarContent({
   onClose 
 }: { 
   items: SidebarItem[]
-  pathname: string
+  pathname: string | null
   searchParams: any
   isActive: (href: string) => boolean
   hoveredItem: string | null

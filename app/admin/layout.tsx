@@ -22,8 +22,8 @@ export default function AdminLayout({
       {showHeader && <AdminHeader />}
       {showHeader && (
         <SessionTimer 
-          sessionDuration={10} 
-          warningTime={30} 
+          sessionDuration={30} 
+          warningTime={60} 
           userRole="admin"
           loginPath="/admin/login"
           showBadge={false}

@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import { useAuth } from '@/contexts/AuthContext'
 import { 
   Clock, AlertTriangle, LogOut, RefreshCw, 
-  Shield, Timer, UserCheck
+  Shield, Timer, UserCheck, Activity
 } from 'lucide-react'
 
 interface SessionTimerProps {
@@ -19,7 +19,7 @@ interface SessionTimerProps {
   /** Login redirect path based on role */
   loginPath?: string
   /** User role for display purposes */
-  userRole?: 'admin' | 'retailer' | 'distributor' | 'master_distributor'
+  userRole?: 'admin' | 'retailer' | 'distributor' | 'master_distributor' | 'partner'
 }
 
 export default function SessionTimer({
@@ -32,72 +32,62 @@ export default function SessionTimer({
   const router = useRouter()
   const { logout, user } = useAuth()
   
-  // Total session time in seconds
   const totalSessionTime = sessionDuration * 60
   
   const [timeRemaining, setTimeRemaining] = useState(totalSessionTime)
   const [showWarning, setShowWarning] = useState(false)
   const [isExpired, setIsExpired] = useState(false)
   
-  // Refs for values accessed inside the interval callback
-  // This avoids stale closures and dependency issues
   const timeRemainingRef = useRef(totalSessionTime)
   const showWarningRef = useRef(false)
   const isExpiredRef = useRef(false)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const logoutInProgressRef = useRef(false)
   const warningTimeRef = useRef(warningTime)
+  const totalSessionTimeRef = useRef(totalSessionTime)
   
-  // Keep warningTimeRef in sync
   useEffect(() => { warningTimeRef.current = warningTime }, [warningTime])
+  useEffect(() => { totalSessionTimeRef.current = totalSessionTime }, [totalSessionTime])
 
-  // Format time as MM:SS
   const formatTime = (seconds: number): string => {
     const mins = Math.floor(Math.max(0, seconds) / 60)
     const secs = Math.max(0, seconds) % 60
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
   }
 
-  // Get time color based on remaining time
   const getTimeColor = (): string => {
-    if (timeRemaining <= 30) return 'text-red-500'
-    if (timeRemaining <= 60) return 'text-orange-500'
-    if (timeRemaining <= 120) return 'text-yellow-500'
+    const ratio = timeRemaining / totalSessionTime
+    if (ratio <= 0.05) return 'text-red-500'
+    if (ratio <= 0.1) return 'text-orange-500'
+    if (ratio <= 0.2) return 'text-yellow-500'
     return 'text-emerald-500'
   }
 
-  // Get background color for badge
   const getBadgeColor = (): string => {
-    if (timeRemaining <= 30) return 'from-red-500/20 to-red-600/20 border-red-500/50'
-    if (timeRemaining <= 60) return 'from-orange-500/20 to-orange-600/20 border-orange-500/50'
-    if (timeRemaining <= 120) return 'from-yellow-500/20 to-yellow-600/20 border-yellow-500/50'
+    const ratio = timeRemaining / totalSessionTime
+    if (ratio <= 0.05) return 'from-red-500/20 to-red-600/20 border-red-500/50'
+    if (ratio <= 0.1) return 'from-orange-500/20 to-orange-600/20 border-orange-500/50'
+    if (ratio <= 0.2) return 'from-yellow-500/20 to-yellow-600/20 border-yellow-500/50'
     return 'from-emerald-500/20 to-emerald-600/20 border-emerald-500/50'
   }
 
-  // Handle logout - uses ref to avoid dependency issues in effects
   const handleLogout = useCallback(async () => {
-    // Prevent double logout calls
     if (logoutInProgressRef.current) return
     logoutInProgressRef.current = true
 
-    // Stop the timer immediately
     if (timerRef.current) {
       clearInterval(timerRef.current)
       timerRef.current = null
     }
 
     try {
-      // Clear session timer data
       localStorage.removeItem('sessionStartTime')
       localStorage.removeItem('sessionDuration')
       localStorage.removeItem('lastActivityTime')
       localStorage.removeItem('sessionExtended')
-      
-      // Clear auth cache
       localStorage.removeItem('auth_user')
       localStorage.removeItem('auth_user_timestamp')
       
-      // Clear all Supabase related items from storage
       const keysToRemove: string[] = []
       for (let i = 0; i < localStorage.length; i++) {
         const key = localStorage.key(i)
@@ -107,7 +97,6 @@ export default function SessionTimer({
       }
       keysToRemove.forEach(key => localStorage.removeItem(key))
       
-      // Clear sessionStorage as well
       const sessionKeysToRemove: string[] = []
       for (let i = 0; i < sessionStorage.length; i++) {
         const key = sessionStorage.key(i)
@@ -117,34 +106,25 @@ export default function SessionTimer({
       }
       sessionKeysToRemove.forEach(key => sessionStorage.removeItem(key))
       
-      // Call logout to sign out from Supabase
       await logout()
-      
-      // Small delay to ensure state is cleared
       await new Promise(resolve => setTimeout(resolve, 100))
     } catch (error) {
       console.error('Logout error:', error)
     } finally {
-      // Force a hard redirect to ensure all state is cleared
-      const redirectPath = userRole === 'admin' ? '/admin/login' : loginPath
-      window.location.href = redirectPath
+      const basePath = userRole === 'admin' ? '/admin/login' : loginPath
+      window.location.href = `${basePath}?session=expired`
     }
   }, [logout, userRole, loginPath])
 
-  // Store handleLogout in a ref so the auto-logout effect doesn't need it as a dependency
-  // This prevents the effect from restarting when AuthContext re-renders
   const handleLogoutRef = useRef(handleLogout)
   useEffect(() => { handleLogoutRef.current = handleLogout }, [handleLogout])
 
-  // Reset session timer
   const resetSession = useCallback(() => {
-    // Clear the old interval
     if (timerRef.current) {
       clearInterval(timerRef.current)
       timerRef.current = null
     }
 
-    // Reset all state and refs
     timeRemainingRef.current = totalSessionTime
     showWarningRef.current = false
     isExpiredRef.current = false
@@ -154,20 +134,22 @@ export default function SessionTimer({
     setShowWarning(false)
     setIsExpired(false)
     
-    // Store session start time in localStorage (for SessionBadge sync)
     localStorage.setItem('sessionStartTime', Date.now().toString())
     localStorage.setItem('sessionDuration', totalSessionTime.toString())
   }, [totalSessionTime])
 
-  // Handle stay signed in
   const handleStaySignedIn = useCallback(() => {
     resetSession()
     localStorage.setItem('sessionExtended', Date.now().toString())
+    localStorage.setItem('lastActivityTime', Date.now().toString())
   }, [resetSession])
 
-  // Handle user activity (only updates last activity timestamp, doesn't reset timer)
+  // Inactivity-based: reset timer on user activity (unless warning is showing)
   const handleActivity = useCallback(() => {
     if (!showWarningRef.current && !isExpiredRef.current) {
+      timeRemainingRef.current = totalSessionTimeRef.current
+      setTimeRemaining(totalSessionTimeRef.current)
+      localStorage.setItem('sessionStartTime', Date.now().toString())
       localStorage.setItem('lastActivityTime', Date.now().toString())
     }
   }, [])
@@ -185,33 +167,29 @@ export default function SessionTimer({
         timeRemainingRef.current = remaining
         setTimeRemaining(remaining)
         
-        // Check if we should already be showing the warning
         if (remaining <= warningTime) {
           showWarningRef.current = true
           setShowWarning(true)
         }
       } else {
-        // Session already expired - mark as expired
         timeRemainingRef.current = 0
         isExpiredRef.current = true
         setTimeRemaining(0)
         setIsExpired(true)
       }
     } else {
-      // Start new session
       resetSession()
     }
   }, [resetSession, warningTime])
 
-  // Activity listeners
+  // Activity listeners - throttled to every 5 seconds
   useEffect(() => {
     const events = ['mousedown', 'mousemove', 'keydown', 'scroll', 'touchstart', 'click']
     
-    // Throttle activity handler to prevent too many updates
     let lastUpdate = 0
     const throttledHandler = () => {
       const now = Date.now()
-      if (now - lastUpdate > 5000) { // Update at most every 5 seconds
+      if (now - lastUpdate > 5000) {
         lastUpdate = now
         handleActivity()
       }
@@ -228,18 +206,11 @@ export default function SessionTimer({
     }
   }, [handleActivity])
 
-  // ========================================
-  // MAIN COUNTDOWN TIMER
-  // ========================================
-  // CRITICAL FIX: All setState calls are at the TOP LEVEL of the interval callback,
-  // NOT inside a setTimeRemaining updater function.
-  // Calling setState inside another setState updater is an anti-pattern in React
-  // that can cause updates to be silently ignored.
+  // Main countdown timer
   useEffect(() => {
     if (!user) return
 
     timerRef.current = setInterval(() => {
-      // If already expired, stop ticking
       if (isExpiredRef.current) {
         if (timerRef.current) {
           clearInterval(timerRef.current)
@@ -248,33 +219,27 @@ export default function SessionTimer({
         return
       }
 
-      // Decrement the ref (source of truth for the interval)
       timeRemainingRef.current = Math.max(0, timeRemainingRef.current - 1)
       const currentTime = timeRemainingRef.current
 
-      // Update display state
       setTimeRemaining(currentTime)
 
-      // Show warning popup at warningTime seconds remaining
       if (currentTime <= warningTimeRef.current && currentTime > 0 && !showWarningRef.current) {
         showWarningRef.current = true
         setShowWarning(true)
       }
 
-      // Session expired - time reached 0
       if (currentTime <= 0) {
         isExpiredRef.current = true
         showWarningRef.current = false
         setIsExpired(true)
         setShowWarning(false)
 
-        // Stop the interval
         if (timerRef.current) {
           clearInterval(timerRef.current)
           timerRef.current = null
         }
 
-        // Immediately logout when session expires (no delay)
         if (!logoutInProgressRef.current) {
           handleLogoutRef.current()
         }
@@ -287,38 +252,31 @@ export default function SessionTimer({
         timerRef.current = null
       }
     }
-  }, [user]) // Only depends on user - warningTime is read from ref
+  }, [user])
 
-  // ========================================
-  // AUTO LOGOUT when session expires (Safety Net)
-  // ========================================
-  // This is a safety net in case the immediate logout in the timer interval doesn't fire
-  // The primary logout happens immediately when time reaches 0 in the countdown interval
+  // Safety net for auto-logout
   useEffect(() => {
     if (isExpired && !logoutInProgressRef.current) {
-      // Immediate logout (no delay) - this is a safety net
       handleLogoutRef.current()
       
-      // Additional safety net: if logout still doesn't happen after 3 seconds, force redirect
       const safetyTimer = setTimeout(() => {
         if (!logoutInProgressRef.current) {
           localStorage.removeItem('auth_user')
           localStorage.removeItem('auth_user_timestamp')
           localStorage.removeItem('sessionStartTime')
           localStorage.removeItem('sessionDuration')
-          const redirectPath = userRole === 'admin' ? '/admin/login' : loginPath
-          window.location.href = redirectPath
+          const basePath = userRole === 'admin' ? '/admin/login' : loginPath
+          window.location.href = `${basePath}?session=expired`
         }
       }, 3000)
       
-      return () => {
-        clearTimeout(safetyTimer)
-      }
+      return () => clearTimeout(safetyTimer)
     }
-  }, [isExpired, userRole, loginPath]) // NO handleLogout dependency - uses ref instead
+  }, [isExpired, userRole, loginPath])
 
-  // Don't render if no user
   if (!user) return null
+
+  const warningProgress = showWarning ? (timeRemaining / warningTime) * 100 : 100
 
   return (
     <>
@@ -341,7 +299,7 @@ export default function SessionTimer({
         </motion.div>
       )}
 
-      {/* Warning Modal - Shows at 30 seconds remaining */}
+      {/* Warning Modal */}
       <AnimatePresence>
         {showWarning && !isExpired && (
           <motion.div
@@ -351,19 +309,28 @@ export default function SessionTimer({
             className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
           >
             <motion.div
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
+              initial={{ scale: 0.9, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.9, opacity: 0, y: 20 }}
               className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-md w-full overflow-hidden"
             >
-              {/* Header with gradient */}
-              <div className="bg-gradient-to-r from-amber-500 to-orange-600 p-6 text-white">
+              {/* Header */}
+              <div className="bg-gradient-to-r from-amber-500 to-orange-600 p-6 text-white relative overflow-hidden">
+                {/* Progress bar showing time left */}
+                <div className="absolute bottom-0 left-0 right-0 h-1 bg-white/20">
+                  <motion.div
+                    className="h-full bg-white/80"
+                    initial={{ width: '100%' }}
+                    animate={{ width: `${warningProgress}%` }}
+                    transition={{ duration: 0.5 }}
+                  />
+                </div>
                 <div className="flex items-center gap-4">
                   <div className="p-3 bg-white/20 rounded-xl backdrop-blur-sm">
                     <AlertTriangle className="w-8 h-8" />
                   </div>
                   <div>
-                    <h2 className="text-xl font-bold">Session Expiring Soon!</h2>
+                    <h2 className="text-xl font-bold">Are you still there?</h2>
                     <p className="text-amber-100 text-sm">Your session is about to end</p>
                   </div>
                 </div>
@@ -371,35 +338,43 @@ export default function SessionTimer({
 
               {/* Content */}
               <div className="p-6">
-                {/* Countdown Display */}
+                {/* Countdown */}
                 <div className="text-center mb-6">
-                  <div className="inline-flex items-center justify-center w-24 h-24 rounded-full bg-gradient-to-br from-red-500/20 to-orange-500/20 border-4 border-red-500 mb-4">
-                    <span className="text-3xl font-bold font-mono text-red-500">
-                      {formatTime(timeRemaining)}
+                  <div className="inline-flex items-center justify-center w-24 h-24 rounded-full bg-gradient-to-br from-red-500/20 to-orange-500/20 border-4 border-red-500 mb-4 relative">
+                    {/* Circular progress */}
+                    <svg className="absolute inset-0 w-full h-full -rotate-90" viewBox="0 0 100 100">
+                      <circle cx="50" cy="50" r="44" fill="none" stroke="currentColor" strokeWidth="4" className="text-gray-200 dark:text-gray-700" />
+                      <circle
+                        cx="50" cy="50" r="44" fill="none" stroke="currentColor" strokeWidth="4"
+                        className="text-red-500"
+                        strokeDasharray={`${2 * Math.PI * 44}`}
+                        strokeDashoffset={`${2 * Math.PI * 44 * (1 - timeRemaining / warningTime)}`}
+                        strokeLinecap="round"
+                      />
+                    </svg>
+                    <span className="text-3xl font-bold font-mono text-red-500 relative z-10">
+                      {timeRemaining}
                     </span>
                   </div>
                   <p className="text-gray-600 dark:text-gray-400">
-                    Your session will expire in <span className="font-bold text-red-500">{timeRemaining}</span> seconds.
+                    You&apos;ll be logged out in <span className="font-bold text-red-500">{timeRemaining} seconds</span>
+                  </p>
+                  <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+                    due to {sessionDuration} minutes of inactivity
                   </p>
                 </div>
 
                 {/* Security Notice */}
                 <div className="bg-amber-50 dark:bg-amber-900/20 rounded-xl p-4 mb-6">
                   <div className="flex items-start gap-3">
-                    <Shield className="w-5 h-5 text-amber-600 dark:text-amber-400 mt-0.5" />
-                    <div>
-                      <p className="text-sm font-medium text-amber-800 dark:text-amber-200">
-                        Security Notice
-                      </p>
-                      <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
-                        For your security, we automatically end inactive sessions after {sessionDuration} minutes 
-                        to protect your financial data.
-                      </p>
-                    </div>
+                    <Shield className="w-5 h-5 text-amber-600 dark:text-amber-400 mt-0.5 flex-shrink-0" />
+                    <p className="text-xs text-amber-600 dark:text-amber-400">
+                      For your security, inactive sessions are ended automatically to protect your data.
+                    </p>
                   </div>
                 </div>
 
-                {/* Action Buttons */}
+                {/* Actions */}
                 <div className="flex gap-3">
                   <button
                     onClick={handleLogout}
@@ -410,10 +385,10 @@ export default function SessionTimer({
                   </button>
                   <button
                     onClick={handleStaySignedIn}
-                    className="flex-1 flex items-center justify-center gap-2 px-6 py-3 bg-gradient-to-r from-emerald-500 to-green-600 text-white rounded-xl font-semibold hover:shadow-lg hover:shadow-emerald-500/30 transition-all"
+                    className="flex-1 flex items-center justify-center gap-2 px-6 py-3 bg-gradient-to-r from-emerald-500 to-green-600 text-white rounded-xl font-semibold hover:shadow-lg hover:shadow-emerald-500/30 transition-all active:scale-[0.98]"
                   >
                     <RefreshCw className="w-5 h-5" />
-                    Stay Signed In
+                    Continue Session
                   </button>
                 </div>
               </div>
@@ -437,29 +412,30 @@ export default function SessionTimer({
               exit={{ scale: 0.9, opacity: 0 }}
               className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-md w-full overflow-hidden"
             >
-              {/* Header with gradient */}
               <div className="bg-gradient-to-r from-red-500 to-rose-600 p-6 text-white">
                 <div className="flex items-center gap-4">
                   <div className="p-3 bg-white/20 rounded-xl backdrop-blur-sm">
                     <Clock className="w-8 h-8" />
                   </div>
                   <div>
-                    <h2 className="text-xl font-bold">Session Expired</h2>
-                    <p className="text-red-100 text-sm">Please log in again to continue</p>
+                    <h2 className="text-xl font-bold">Session Ended</h2>
+                    <p className="text-red-100 text-sm">Redirecting to login...</p>
                   </div>
                 </div>
               </div>
 
-              {/* Content */}
               <div className="p-6 text-center">
                 <div className="w-20 h-20 mx-auto mb-4 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
                   <LogOut className="w-10 h-10 text-red-500" />
                 </div>
-                <p className="text-gray-600 dark:text-gray-400 mb-4">
-                  Your session has expired due to inactivity. You will be redirected to the login page.
+                <p className="text-gray-600 dark:text-gray-400 mb-2">
+                  Your session ended due to inactivity.
+                </p>
+                <p className="text-sm text-gray-500 dark:text-gray-500 mb-4">
+                  Please log in again to continue using the platform.
                 </p>
                 <div className="flex items-center justify-center gap-2 text-sm text-gray-500">
-                  <div className="w-4 h-4 border-2 border-gray-400 border-t-transparent rounded-full animate-spin"></div>
+                  <div className="w-4 h-4 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" />
                   Redirecting...
                 </div>
               </div>
@@ -472,7 +448,6 @@ export default function SessionTimer({
 }
 
 // Session Timer Badge Component (used in headers to display countdown)
-// Reads from localStorage to stay in sync with SessionTimer
 export function SessionBadge() {
   const [timeRemaining, setTimeRemaining] = useState<number | null>(null)
 

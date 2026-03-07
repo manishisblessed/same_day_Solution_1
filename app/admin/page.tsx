@@ -28,8 +28,9 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { apiFetch } from '@/lib/api-client'
 import T1SettlementControl from '@/components/T1SettlementControl'
 import PerformanceTab from '@/components/PerformanceTab'
+import POSMachineHistoryTab from '@/components/POSMachineHistoryTab'
 
-type TabType = 'dashboard' | 'retailers' | 'distributors' | 'master-distributors' | 'services' | 'pos-machines' | 'transactions' | 'partners' | 'pos-partner-api' | 'reports' | 'settlement' | 'performance'
+type TabType = 'dashboard' | 'retailers' | 'distributors' | 'master-distributors' | 'services' | 'pos-machines' | 'pos-history' | 'transactions' | 'partners' | 'pos-partner-api' | 'reports' | 'settlement' | 'performance'
 type SortField = 'name' | 'email' | 'partner_id' | 'created_at' | 'status'
 type SortDirection = 'asc' | 'desc'
 
@@ -41,8 +42,8 @@ function AdminDashboardContent() {
   
   // Initialize activeTab from URL or default to 'dashboard'
   const getInitialTab = (): TabType => {
-    const tab = searchParams.get('tab')
-    if (tab && ['dashboard', 'retailers', 'distributors', 'master-distributors', 'pos-machines', 'pos-partner-api', 'services', 'transactions', 'partners', 'reports', 'settlement', 'performance'].includes(tab)) {
+    const tab = searchParams?.get('tab')
+    if (tab && ['dashboard', 'retailers', 'distributors', 'master-distributors', 'pos-machines', 'pos-history', 'pos-partner-api', 'services', 'transactions', 'partners', 'reports', 'settlement', 'performance'].includes(tab)) {
       return tab as TabType
     }
     return 'dashboard'
@@ -114,8 +115,8 @@ function AdminDashboardContent() {
 
   // Sync activeTab with URL query params
   useEffect(() => {
-    const tab = searchParams.get('tab')
-    if (tab && ['dashboard', 'retailers', 'distributors', 'master-distributors', 'pos-machines', 'pos-partner-api', 'services', 'transactions', 'partners', 'reports', 'settlement', 'performance'].includes(tab)) {
+    const tab = searchParams?.get('tab')
+    if (tab && ['dashboard', 'retailers', 'distributors', 'master-distributors', 'pos-machines', 'pos-history', 'pos-partner-api', 'services', 'transactions', 'partners', 'reports', 'settlement', 'performance'].includes(tab)) {
       if (tab !== activeTab) {
         setActiveTab(tab as TabType)
       }
@@ -484,6 +485,8 @@ function AdminDashboardContent() {
               onDelete={handleDelete}
               onReturnToStock={handleReturnToStock}
             />
+          ) : activeTab === 'pos-history' ? (
+            <POSMachineHistoryTab />
           ) : activeTab === 'pos-partner-api' ? (
             <POSPartnerAPIManagement />
           ) : activeTab === 'partners' ? (
@@ -5518,7 +5521,7 @@ function POSMachinesTab({
                         machine.inventory_status === 'damaged_from_bank' ? 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400' :
                         'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300'
                       }`}>
-                        {machine.inventory_status?.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) || 'In Stock'}
+                        {machine.inventory_status ? machine.inventory_status.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) : 'Unknown'}
                       </span>
                     </td>
                     <td className="px-3 py-2 text-sm text-gray-700 dark:text-gray-300">
@@ -5873,19 +5876,24 @@ function POSMachineModal({
     setLoading(true)
 
     try {
+      const isReturningToStock = ['in_stock', 'received_from_bank', 'damaged_from_bank'].includes(formData.inventory_status)
+
       const machineData: any = {
         machine_id: formData.machine_id,
         serial_number: formData.serial_number || null,
         mid: formData.mid || null,
         tid: formData.tid || null,
         brand: formData.brand || null,
-        retailer_id: isAssignToPartner ? null : (formData.retailer_id || null),
-        distributor_id: isAssignToPartner ? null : resolvedDistributorId,
-        master_distributor_id: isAssignToPartner ? null : resolvedMDId,
-        partner_id: isAssignToPartner ? formData.partner_id || null : null,
+        retailer_id: (isAssignToPartner || isReturningToStock) ? null : (formData.retailer_id || null),
+        distributor_id: (isAssignToPartner || isReturningToStock) ? null : resolvedDistributorId,
+        master_distributor_id: (isAssignToPartner || isReturningToStock) ? null : resolvedMDId,
+        partner_id: (isReturningToStock ? null : (isAssignToPartner ? formData.partner_id || null : null)),
         machine_type: formData.machine_type,
         status: formData.status,
         inventory_status: formData.inventory_status,
+        assigned_by: isReturningToStock ? null : undefined,
+        assigned_by_role: isReturningToStock ? null : undefined,
+        last_assigned_at: isReturningToStock ? null : undefined,
         delivery_date: formData.delivery_date || null,
         installation_date: formData.installation_date || null,
         location: formData.location || null,
@@ -5893,6 +5901,12 @@ function POSMachineModal({
         state: formData.state || null,
         pincode: formData.pincode || null,
         notes: formData.notes || null,
+      }
+
+      if (!isReturningToStock) {
+        delete machineData.assigned_by
+        delete machineData.assigned_by_role
+        delete machineData.last_assigned_at
       }
 
       let savedMachineId: string
@@ -5928,6 +5942,78 @@ function POSMachineModal({
           }
         } catch (syncError) {
           console.error('Error syncing to partner_pos_machines:', syncError)
+        }
+      }
+
+      // Record assignment history for any non-stock inventory status
+      const hasAssignment = ['assigned_to_retailer', 'assigned_to_distributor', 'assigned_to_master_distributor', 'assigned_to_partner'].includes(formData.inventory_status)
+      if (hasAssignment) {
+        try {
+          let assignedTo: string | null = null
+          let assignedToRole: string | null = null
+          let previousHolder: string | null = null
+          let previousHolderRole: string | null = null
+
+          if (formData.inventory_status === 'assigned_to_retailer' && formData.retailer_id) {
+            assignedTo = formData.retailer_id
+            assignedToRole = 'retailer'
+          } else if (formData.inventory_status === 'assigned_to_distributor' && formData.distributor_id) {
+            assignedTo = formData.distributor_id
+            assignedToRole = 'distributor'
+          } else if (formData.inventory_status === 'assigned_to_master_distributor' && formData.master_distributor_id) {
+            assignedTo = formData.master_distributor_id
+            assignedToRole = 'master_distributor'
+          } else if (formData.inventory_status === 'assigned_to_partner' && formData.partner_id) {
+            assignedTo = formData.partner_id
+            assignedToRole = 'partner'
+          }
+
+          if (item) {
+            previousHolder = item.retailer_id || item.distributor_id || item.master_distributor_id || item.partner_id || null
+            previousHolderRole = item.retailer_id ? 'retailer' : item.distributor_id ? 'distributor' : item.master_distributor_id ? 'master_distributor' : item.partner_id ? 'partner' : null
+          }
+
+          await apiFetch('/api/admin/pos-machines/history', {
+            method: 'POST',
+            body: JSON.stringify({
+              pos_machine_id: savedMachineId,
+              machine_id: formData.machine_id,
+              action: item ? formData.inventory_status : 'created',
+              assigned_to: assignedTo,
+              assigned_to_role: assignedToRole,
+              previous_holder: previousHolder,
+              previous_holder_role: previousHolderRole,
+              notes: item ? `Admin updated assignment` : `Admin created with status ${formData.inventory_status}`,
+            }),
+          })
+        } catch (histErr) {
+          console.warn('Failed to record POS history:', histErr)
+        }
+      }
+
+      // Record return history when editing from assigned → stock
+      const wasAssigned = item && ['assigned_to_retailer', 'assigned_to_distributor', 'assigned_to_master_distributor', 'assigned_to_partner'].includes(item.inventory_status || '')
+      if (wasAssigned && isReturningToStock) {
+        try {
+          const prevHolder = item.retailer_id || item.distributor_id || item.master_distributor_id || item.partner_id || null
+          const prevRole = item.retailer_id ? 'retailer' : item.distributor_id ? 'distributor' : item.master_distributor_id ? 'master_distributor' : item.partner_id ? 'partner' : null
+          const unassignAction = prevRole ? `unassigned_from_${prevRole}` : 'unassigned_from_retailer'
+
+          await apiFetch('/api/admin/pos-machines/history', {
+            method: 'POST',
+            body: JSON.stringify({
+              pos_machine_id: savedMachineId,
+              machine_id: formData.machine_id,
+              action: unassignAction,
+              assigned_to: null,
+              assigned_to_role: null,
+              previous_holder: prevHolder,
+              previous_holder_role: prevRole,
+              notes: `Returned to stock by admin (edit). Was ${item.inventory_status}.`,
+            }),
+          })
+        } catch (histErr) {
+          console.warn('Failed to record return history:', histErr)
         }
       }
 

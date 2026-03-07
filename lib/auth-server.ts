@@ -6,9 +6,22 @@ import { AuthUser } from '@/types/database.types'
 import { ReadonlyRequestCookies } from 'next/dist/server/web/spec-extension/adapters/request-cookies'
 
 /**
- * Look up user role from database tables
+ * Get a service-role Supabase client that bypasses RLS.
+ * Used for role lookups so admin_users is always readable.
  */
-async function getUserRole(supabase: any, email: string, userId: string): Promise<AuthUser | null> {
+function getServiceClient() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (!url || !key) return null
+  return createClient(url, key)
+}
+
+/**
+ * Look up user role from database tables.
+ * Uses the service-role client to bypass RLS so every table is readable.
+ */
+async function getUserRole(_supabase: any, email: string, userId: string): Promise<AuthUser | null> {
+  const supabase = getServiceClient() || _supabase
   const [retailer, distributor, masterDistributor, admin, partner] = await Promise.all([
     supabase.from('retailers').select('*').eq('email', email).maybeSingle(),
     supabase.from('distributors').select('*').eq('email', email).maybeSingle(),

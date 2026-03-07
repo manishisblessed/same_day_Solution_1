@@ -6,10 +6,19 @@ import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
+const POS_COLUMNS = [
+  'id', 'machine_id', 'serial_number',
+  'retailer_id', 'distributor_id', 'master_distributor_id', 'partner_id',
+  'machine_type', 'status', 'inventory_status',
+  'mid', 'tid', 'brand',
+  'assigned_by', 'assigned_by_role', 'last_assigned_at',
+  'notes', 'created_at', 'updated_at'
+].join(',')
+
 /**
  * POST /api/admin/pos-machines/return
- * Return a POS machine to stock. Clears assignment and sets inventory_status to in_stock.
- * Admin only. Used when a retailer/partner returns a machine so it can be reassigned.
+ * Return a POS machine to stock using raw PostgREST PATCH for reliability.
+ * Verifies the update actually took effect.
  */
 export async function POST(request: NextRequest) {
   try {
@@ -21,6 +30,13 @@ export async function POST(request: NextRequest) {
     }
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey)
+    const headers = {
+      'apikey': supabaseServiceKey,
+      'Authorization': `Bearer ${supabaseServiceKey}`,
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+      'Prefer': 'return=representation',
+    }
 
     const { user } = await getCurrentUserWithFallback(request)
     if (!user || user.role !== 'admin') {
@@ -34,17 +50,34 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'machine_id is required' }, { status: 400 })
     }
 
-    const { data: machine, error: fetchError } = await supabase
-      .from('pos_machines')
-      .select('*')
-      .eq('id', machine_id)
-      .single()
+    // Step 1: Fetch machine using raw PostgREST GET
+    const fetchUrl = `${supabaseUrl}/rest/v1/pos_machines?id=eq.${machine_id}&select=${POS_COLUMNS}`
+    const fetchRes = await fetch(fetchUrl, { headers: { ...headers, 'Prefer': '' }, cache: 'no-store' })
 
-    if (fetchError || !machine) {
+    if (!fetchRes.ok) {
+      const errBody = await fetchRes.text()
+      console.error('[POS Return] Fetch error:', fetchRes.status, errBody)
+      return NextResponse.json({ error: 'Failed to fetch machine' }, { status: 500 })
+    }
+
+    const machines = await fetchRes.json()
+    if (!machines || machines.length === 0) {
       return NextResponse.json({ error: 'POS machine not found' }, { status: 404 })
     }
 
+    const machine = machines[0]
     const currentStatus = machine.inventory_status
+
+    console.log('[POS Return] Machine state BEFORE update:', {
+      id: machine.id,
+      machine_id: machine.machine_id,
+      inventory_status: machine.inventory_status,
+      retailer_id: machine.retailer_id,
+      distributor_id: machine.distributor_id,
+      master_distributor_id: machine.master_distributor_id,
+      partner_id: machine.partner_id,
+    })
+
     const canReturn = [
       'assigned_to_retailer',
       'assigned_to_distributor',
@@ -70,67 +103,136 @@ export async function POST(request: NextRequest) {
             ? 'partner'
             : null
 
-    // 1. Update pos_machines: in_stock, clear all assignment fields
-    const { error: updateError } = await supabase
-      .from('pos_machines')
-      .update({
-        inventory_status: 'in_stock',
-        retailer_id: null,
-        distributor_id: null,
-        master_distributor_id: null,
-        partner_id: null,
-        assigned_by: null,
-        assigned_by_role: null,
-        last_assigned_at: null,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', machine_id)
-
-    if (updateError) {
-      console.error('[POS Return] Update pos_machines error:', updateError)
-      return NextResponse.json({ error: 'Failed to return machine to stock' }, { status: 500 })
+    // Step 2: Update pos_machines using raw PostgREST PATCH
+    const patchUrl = `${supabaseUrl}/rest/v1/pos_machines?id=eq.${machine_id}`
+    const patchBody = {
+      inventory_status: 'in_stock',
+      retailer_id: null,
+      distributor_id: null,
+      master_distributor_id: null,
+      partner_id: null,
+      assigned_by: null,
+      assigned_by_role: null,
+      last_assigned_at: null,
+      updated_at: new Date().toISOString(),
     }
 
-    // 2. Remove from pos_device_mapping (so Razorpay txns don't map to old retailer)
-    if (machine.serial_number) {
-      await supabase
-        .from('pos_device_mapping')
-        .delete()
-        .eq('device_serial', machine.serial_number)
-    }
-
-    // 3. Remove from partner_pos_machines if it was assigned to partner
-    if (machine.tid) {
-      await supabase
-        .from('partner_pos_machines')
-        .delete()
-        .eq('terminal_id', machine.tid)
-    }
-
-    // 4. Record in pos_assignment_history
-    const unassignAction =
-      previousHolderRole === 'retailer'
-        ? 'unassigned_from_retailer'
-        : previousHolderRole === 'distributor'
-          ? 'unassigned_from_distributor'
-          : previousHolderRole === 'master_distributor'
-            ? 'unassigned_from_master_distributor'
-            : previousHolderRole === 'partner'
-              ? 'unassigned_from_partner'
-              : 'unassigned_from_retailer'
-
-    await supabase.from('pos_assignment_history').insert({
-      pos_machine_id: machine_id,
-      machine_id: machine.machine_id || machine.id,
-      action: unassignAction,
-      assigned_by: user.partner_id || user.id,
-      assigned_by_role: 'admin',
-      assigned_to: null,
-      assigned_to_role: null,
-      previous_holder: previousHolder,
-      previous_holder_role: previousHolderRole,
-      notes: `Returned to stock by admin. Was ${currentStatus}.`,
+    const patchRes = await fetch(patchUrl, {
+      method: 'PATCH',
+      headers,
+      body: JSON.stringify(patchBody),
     })
+
+    if (!patchRes.ok) {
+      const errBody = await patchRes.text()
+      console.error('[POS Return] PATCH error:', patchRes.status, errBody)
+      return NextResponse.json({ error: `Failed to update machine: ${errBody}` }, { status: 500 })
+    }
+
+    const patchResult = await patchRes.json()
+    console.log('[POS Return] PATCH result:', JSON.stringify(patchResult))
+
+    // Step 3: VERIFY the update actually took effect
+    const verifyRes = await fetch(fetchUrl, { headers: { ...headers, 'Prefer': '' }, cache: 'no-store' })
+    if (verifyRes.ok) {
+      const verifyData = await verifyRes.json()
+      const updated = verifyData[0]
+      if (updated) {
+        console.log('[POS Return] Machine state AFTER update:', {
+          id: updated.id,
+          inventory_status: updated.inventory_status,
+          retailer_id: updated.retailer_id,
+          distributor_id: updated.distributor_id,
+        })
+
+        if (updated.inventory_status !== 'in_stock') {
+          console.error('[POS Return] VERIFICATION FAILED! inventory_status is still:', updated.inventory_status)
+          return NextResponse.json({
+            error: `Return verification failed. Machine status is still "${updated.inventory_status}". Please try again or contact support.`,
+            debug: { before: currentStatus, after: updated.inventory_status }
+          }, { status: 500 })
+        }
+
+        if (updated.retailer_id || updated.distributor_id || updated.master_distributor_id || updated.partner_id) {
+          console.error('[POS Return] VERIFICATION FAILED! Ownership fields not cleared:', {
+            retailer_id: updated.retailer_id,
+            distributor_id: updated.distributor_id,
+            master_distributor_id: updated.master_distributor_id,
+            partner_id: updated.partner_id,
+          })
+          return NextResponse.json({
+            error: 'Return verification failed. Ownership not fully cleared. Please try again.',
+          }, { status: 500 })
+        }
+      }
+    }
+
+    // Step 4: Clean up related tables
+    if (machine.serial_number) {
+      await fetch(`${supabaseUrl}/rest/v1/pos_device_mapping?device_serial=eq.${encodeURIComponent(machine.serial_number)}`, {
+        method: 'DELETE',
+        headers,
+      }).catch(e => console.error('[POS Return] Delete mapping error:', e))
+    }
+
+    if (machine.tid) {
+      await fetch(`${supabaseUrl}/rest/v1/partner_pos_machines?terminal_id=eq.${encodeURIComponent(machine.tid)}`, {
+        method: 'DELETE',
+        headers,
+      }).catch(e => console.error('[POS Return] Delete partner machine error:', e))
+    }
+
+    // Step 5: Mark active assignment(s) as returned in history
+    try {
+      const historyPatchUrl = `${supabaseUrl}/rest/v1/pos_assignment_history?pos_machine_id=eq.${machine_id}&status=eq.active&action=like.assigned_to_%25`
+      const histPatchRes = await fetch(historyPatchUrl, {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify({ status: 'returned', returned_date: new Date().toISOString() }),
+      })
+      if (!histPatchRes.ok) {
+        const errBody = await histPatchRes.text()
+        console.error('[POS Return] History PATCH error:', histPatchRes.status, errBody)
+      } else {
+        const patched = await histPatchRes.json()
+        console.log('[POS Return] Marked', Array.isArray(patched) ? patched.length : 0, 'active assignment(s) as returned')
+      }
+    } catch (e) {
+      console.error('[POS Return] History update failed:', e)
+    }
+
+    // Step 6: Insert unassign history record
+    const unassignAction = previousHolderRole
+      ? `unassigned_from_${previousHolderRole}`
+      : 'unassigned_from_retailer'
+
+    try {
+      const histInsertRes = await fetch(`${supabaseUrl}/rest/v1/pos_assignment_history`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          pos_machine_id: machine_id,
+          machine_id: machine.machine_id || machine.id,
+          action: unassignAction,
+          assigned_by: user.email || user.partner_id || user.id,
+          assigned_by_role: 'admin',
+          assigned_to: null,
+          assigned_to_role: null,
+          previous_holder: previousHolder,
+          previous_holder_role: previousHolderRole,
+          status: 'returned',
+          notes: `Returned to stock by admin. Was ${currentStatus}.`,
+        }),
+      })
+      if (!histInsertRes.ok) {
+        const errBody = await histInsertRes.text()
+        console.error('[POS Return] History INSERT error:', histInsertRes.status, errBody)
+      } else {
+        console.log('[POS Return] History record created:', unassignAction)
+      }
+    } catch (e) {
+      console.error('[POS Return] History insert failed:', e)
+    }
 
     const ctx = getRequestContext(request)
     logActivityFromContext(ctx, user, {

@@ -48,8 +48,14 @@ export async function POST(request: NextRequest) {
     }
 
     // Handle settlement mode assignment (T1 = only T+1, T0_T1 = Pulse Pay + T+1)
+    // Automatically resume T+1 when mode is changed so the status stays consistent
     if (settlement_mode && ['T1', 'T0_T1'].includes(settlement_mode)) {
       updates.settlement_mode_allowed = settlement_mode
+      if (typeof paused !== 'boolean') {
+        updates.t1_settlement_paused = false
+        updates.t1_settlement_paused_at = null
+        updates.t1_settlement_paused_by = null
+      }
     }
 
     if (Object.keys(updates).length === 0) {

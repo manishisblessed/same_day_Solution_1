@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { usePathname, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { 
@@ -9,6 +9,7 @@ import {
   Wallet, Receipt, Banknote, Percent, BookOpen
 } from 'lucide-react'
 import { apiFetch } from '@/lib/api-client'
+import { useAuth } from '@/contexts/AuthContext'
 import { motion, AnimatePresence } from 'framer-motion'
 
 interface SidebarItem {
@@ -48,13 +49,58 @@ export default function RetailerSidebar({ isOpen, onClose }: { isOpen: boolean; 
   const searchParams = useSearchParams()
   const [hoveredItem, setHoveredItem] = useState<string | null>(null)
   const [enabledServices, setEnabledServices] = useState<Record<string, boolean> | null>(null)
+  const { user } = useAuth()
+  const fetchAttempted = useRef(false)
 
+  // Reset retry flag when user changes (e.g. re-login)
   useEffect(() => {
-    apiFetch('/api/user/enabled-services')
-      .then((res) => res.json())
-      .then((data) => setEnabledServices(data.services ?? {}))
-      .catch(() => setEnabledServices({}))
-  }, [])
+    fetchAttempted.current = false
+  }, [user?.id])
+
+  // Clear services when user is not a retailer so we don't show stale tabs
+  useEffect(() => {
+    if (!user || user.role !== 'retailer') {
+      setEnabledServices(null)
+      return
+    }
+  }, [user?.id, user?.role])
+
+  // Only fetch once auth user is available so the API receives a valid session/token
+  useEffect(() => {
+    if (!user || user.role !== 'retailer') return
+    let cancelled = false
+    const doFetch = () => {
+      apiFetch('/api/user/enabled-services')
+        .then((res) => res.json())
+        .then((data) => {
+          if (!cancelled) setEnabledServices(data.services ?? {})
+        })
+        .catch(() => {
+          if (!cancelled) setEnabledServices({})
+        })
+    }
+    doFetch()
+    return () => { cancelled = true }
+  }, [user?.id])
+
+  // Retry once after a short delay if we got no enabled services (handles session not ready on first load)
+  useEffect(() => {
+    if (!user || user.role !== 'retailer' || enabledServices === null) return
+    const hasAny = Object.values(enabledServices).some(Boolean)
+    if (hasAny || fetchAttempted.current) return
+    fetchAttempted.current = true
+    const t = setTimeout(() => {
+      apiFetch('/api/user/enabled-services')
+        .then((res) => res.json())
+        .then((data) => {
+          const next = data.services ?? {}
+          const nextHasAny = Object.values(next).some(Boolean)
+          if (nextHasAny) setEnabledServices(next)
+        })
+        .catch(() => {})
+    }, 1500)
+    return () => clearTimeout(t)
+  }, [user?.id, enabledServices])
 
   const visibleItems = useMemo(() => {
     // While loading, only show items that are always visible
@@ -71,7 +117,7 @@ export default function RetailerSidebar({ isOpen, onClose }: { isOpen: boolean; 
   }, [enabledServices])
 
   const isActive = (item: SidebarItem) => {
-    const currentTab = searchParams.get('tab')
+    const currentTab = searchParams?.get('tab')
     // Dashboard is active when no tab param or tab=dashboard
     if (item.id === 'dashboard') {
       return pathname === '/dashboard/retailer' && (!currentTab || currentTab === 'dashboard')

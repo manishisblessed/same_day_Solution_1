@@ -38,7 +38,7 @@ function MasterDistributorDashboardContent() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   
   const getInitialTab = (): TabType => {
-    const tab = searchParams.get('tab')
+    const tab = searchParams?.get('tab')
     if (tab && ['dashboard', 'services', 'distributors', 'retailers', 'wallet', 'network', 'commission', 'analytics', 'reports', 'settings', 'scheme-management', 'pos-machines'].includes(tab)) {
       return tab as TabType
     }
@@ -84,7 +84,7 @@ function MasterDistributorDashboardContent() {
       return
     }
     
-    const tab = searchParams.get('tab')
+    const tab = searchParams?.get('tab')
     if (tab && ['dashboard', 'services', 'distributors', 'retailers', 'wallet', 'network', 'commission', 'analytics', 'reports', 'settings', 'scheme-management', 'pos-machines'].includes(tab)) {
       setActiveTab(tab as TabType)
     } else {

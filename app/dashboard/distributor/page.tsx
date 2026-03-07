@@ -37,7 +37,7 @@ function DistributorDashboardContent() {
   const pathname = usePathname()
   
   const getInitialTab = (): TabType => {
-    const tab = searchParams.get('tab')
+    const tab = searchParams?.get('tab')
     if (tab && ['dashboard', 'wallet', 'network', 'commission', 'mdr-schemes', 'analytics', 'reports', 'settings', 'scheme-management', 'pos-machines'].includes(tab)) {
       return tab as TabType
     }
@@ -214,7 +214,7 @@ function DistributorDashboardContent() {
       return
     }
     
-    const tab = searchParams.get('tab')
+    const tab = searchParams?.get('tab')
     if (tab && ['dashboard', 'wallet', 'network', 'commission', 'mdr-schemes', 'analytics', 'reports', 'settings', 'scheme-management', 'pos-machines'].includes(tab)) {
       setActiveTab(tab as TabType)
     } else {

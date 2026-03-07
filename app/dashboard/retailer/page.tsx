@@ -48,7 +48,7 @@ function RetailerDashboardContent() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   
   const getInitialTab = (): TabType => {
-    const tab = searchParams.get('tab')
+    const tab = searchParams?.get('tab')
     if (tab && ['dashboard', 'wallet', 'services', 'bbps', 'payout', 'transactions', 'ledger', 'mdr-schemes', 'reports', 'settings', 'pos-machines'].includes(tab)) {
       return tab as TabType
     }
@@ -99,7 +99,7 @@ function RetailerDashboardContent() {
   }, [user, authLoading, router])
 
   useEffect(() => {
-    const tab = searchParams.get('tab')
+    const tab = searchParams?.get('tab')
     if (tab && ['dashboard', 'wallet', 'services', 'bbps', 'payout', 'transactions', 'ledger', 'mdr-schemes', 'reports', 'settings', 'pos-machines'].includes(tab)) {
       if (tab !== activeTab) {
         setActiveTab(tab as TabType)

@@ -56,13 +56,29 @@ export async function GET(request: NextRequest) {
           : 'master_distributors'
 
     const fields = SERVICE_KEYS.map((k) => `${k}_enabled`).join(', ')
-    const { data: row, error } = await supabase
+    let row: any = null
+    let err: any = null
+
+    // Look up by partner_id first (primary)
+    const byPartner = await supabase
       .from(tableName)
       .select(fields)
       .eq('partner_id', user.partner_id!)
       .maybeSingle()
+    if (byPartner.error) err = byPartner.error
+    else row = byPartner.data
 
-    if (error || !row) {
+    // Fallback: look up by email if no row by partner_id
+    if (!row && user.email) {
+      const byEmail = await supabase
+        .from(tableName)
+        .select(fields)
+        .eq('email', user.email)
+        .maybeSingle()
+      if (!byEmail.error && byEmail.data) row = byEmail.data
+    }
+
+    if (err || !row) {
       return NextResponse.json({
         services: Object.fromEntries(SERVICE_KEYS.map((k) => [k, false])),
         hasAnyEnabled: false,

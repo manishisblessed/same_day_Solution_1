@@ -2,14 +2,16 @@
 
 import { useState, useEffect } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
-import { useRouter } from 'next/navigation'
-import { Lock, Mail, AlertCircle, Loader2, MapPin, ShieldCheck } from 'lucide-react'
+import { useRouter, useSearchParams } from 'next/navigation'
+import { Lock, Mail, AlertCircle, Loader2, MapPin, ShieldCheck, Clock } from 'lucide-react'
 import AnimatedSection from '@/components/AnimatedSection'
 import { getGeoLocationForLogin, clearGeoCache } from '@/hooks/useGeolocation'
 
 export default function AdminLogin() {
   const { user, login } = useAuth()
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const sessionExpired = searchParams.get('session') === 'expired'
   const [formData, setFormData] = useState({
     email: '',
     password: '',
@@ -18,11 +20,19 @@ export default function AdminLogin() {
   const [loading, setLoading] = useState(false)
   const [locationVerified, setLocationVerified] = useState(false)
   const [locationLoading, setLocationLoading] = useState(false)
+  const [showExpiredBanner, setShowExpiredBanner] = useState(sessionExpired)
 
   useEffect(() => {
     clearGeoCache()
     setLocationVerified(false)
   }, [])
+
+  useEffect(() => {
+    if (showExpiredBanner) {
+      const timer = setTimeout(() => setShowExpiredBanner(false), 8000)
+      return () => clearTimeout(timer)
+    }
+  }, [showExpiredBanner])
 
   useEffect(() => {
     if (user?.role === 'admin') {
@@ -73,6 +83,13 @@ export default function AdminLogin() {
               <h1 className="text-3xl font-bold text-gray-900 mb-2">Admin Login</h1>
               <p className="text-gray-600">Access the admin dashboard</p>
             </div>
+
+            {showExpiredBanner && (
+              <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-center gap-2 text-amber-700">
+                <Clock className="w-5 h-5 flex-shrink-0" />
+                <span className="text-sm">Your session ended due to inactivity. Please sign in again.</span>
+              </div>
+            )}
 
             {error && (
               <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2 text-red-700">

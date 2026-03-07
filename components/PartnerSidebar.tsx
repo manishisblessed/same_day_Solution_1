@@ -74,7 +74,7 @@ export default function PartnerSidebar({ isOpen, onClose }: { isOpen: boolean; o
   }, [enabledServices])
 
   const isActive = (item: SidebarItem) => {
-    const currentTab = searchParams.get('tab')
+    const currentTab = searchParams?.get('tab')
     // Dashboard is active when no tab param or tab=dashboard
     if (item.id === 'dashboard') {
       return pathname === '/dashboard/partner' && (!currentTab || currentTab === 'dashboard')

@@ -7,7 +7,7 @@ export const dynamic = 'force-dynamic'
 interface CSVRow {
   machine_id: string
   serial_number?: string
-  retailer_id: string
+  retailer_id?: string
   distributor_id?: string
   master_distributor_id?: string
   machine_type: 'POS' | 'WPOS' | 'Mini-ATM'
@@ -111,7 +111,7 @@ export async function POST(request: NextRequest) {
 
     // Parse header
     const header = parseCSVLine(lines[0]).map(h => h.replace(/^"|"$/g, '').trim().toLowerCase())
-    const requiredFields = ['machine_id', 'retailer_id']
+    const requiredFields = ['machine_id']
     const missingFields = requiredFields.filter(field => !header.includes(field))
     
     if (missingFields.length > 0) {
@@ -140,13 +140,11 @@ export async function POST(request: NextRequest) {
         row[col] = value
       })
 
-      // Validate required fields
       if (!row.machine_id) {
         errors.push(`Row ${i + 1}: machine_id is required`)
         continue
       }
 
-      // Check for duplicate machine_id in CSV
       if (validMachineIds.has(row.machine_id)) {
         errors.push(`Row ${i + 1}: Duplicate machine_id "${row.machine_id}" in CSV`)
         continue
@@ -248,16 +246,14 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // Prepare data for insertion
       const posMachineData: any = {
         machine_id: row.machine_id,
-        retailer_id: row.retailer_id,
         machine_type: row.machine_type || 'POS',
         status: row.status || 'active',
         inventory_status: row.inventory_status || 'in_stock',
       }
 
-      // Add optional fields
+      if (row.retailer_id) posMachineData.retailer_id = row.retailer_id
       if (row.serial_number) posMachineData.serial_number = row.serial_number
       if (row.distributor_id) posMachineData.distributor_id = row.distributor_id
       if (row.master_distributor_id) posMachineData.master_distributor_id = row.master_distributor_id
@@ -303,6 +299,45 @@ export async function POST(request: NextRequest) {
         { error: `Failed to insert POS machines: ${insertError.message}` },
         { status: 500 }
       )
+    }
+
+    // Create history records for all inserted machines that have assignments
+    if (insertedMachines && insertedMachines.length > 0) {
+      const historyRecords = insertedMachines
+        .filter((m: any) => m.inventory_status && !['in_stock', 'received_from_bank', 'damaged_from_bank'].includes(m.inventory_status))
+        .map((m: any) => {
+          let assignedTo: string | null = null
+          let assignedToRole: string | null = null
+          if (m.inventory_status === 'assigned_to_retailer' && m.retailer_id) {
+            assignedTo = m.retailer_id; assignedToRole = 'retailer'
+          } else if (m.inventory_status === 'assigned_to_distributor' && m.distributor_id) {
+            assignedTo = m.distributor_id; assignedToRole = 'distributor'
+          } else if (m.inventory_status === 'assigned_to_master_distributor' && m.master_distributor_id) {
+            assignedTo = m.master_distributor_id; assignedToRole = 'master_distributor'
+          } else if (m.inventory_status === 'assigned_to_partner' && m.partner_id) {
+            assignedTo = m.partner_id; assignedToRole = 'partner'
+          }
+          return {
+            pos_machine_id: m.id,
+            machine_id: m.machine_id,
+            action: 'created',
+            assigned_by: user.email,
+            assigned_by_role: 'admin',
+            assigned_to: assignedTo,
+            assigned_to_role: assignedToRole,
+            status: assignedTo ? 'active' : 'returned',
+            notes: `Bulk upload by admin`,
+          }
+        })
+
+      if (historyRecords.length > 0) {
+        const { error: histError } = await supabaseAdmin
+          .from('pos_assignment_history')
+          .insert(historyRecords)
+        if (histError) {
+          console.warn('[Bulk Upload POS] Failed to create history records:', histError)
+        }
+      }
     }
 
     return NextResponse.json({

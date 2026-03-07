@@ -88,9 +88,7 @@ export default function POSMachinesTab({ user, accentColor = 'blue' }: POSMachin
     try {
       let url = `/api/pos-machines/my-machines?page=${page}&limit=20`
       const isRetailer = user?.role === 'retailer'
-      if (isRetailer) {
-        url += `&status=active&inventory_status=assigned_to_retailer`
-      } else {
+      if (!isRetailer) {
         if (statusFilter !== 'all') url += `&status=${statusFilter}`
         if (inventoryFilter !== 'all') url += `&inventory_status=${inventoryFilter}`
       }

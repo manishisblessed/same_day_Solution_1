@@ -5,6 +5,19 @@ import { createClient } from '@supabase/supabase-js'
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
+// Explicit column list — never use select('*') on pos_machines because
+// PostgREST silently drops rows when select('*') is combined with .eq() filters.
+const POS_COLUMNS = [
+  'id', 'machine_id', 'serial_number',
+  'retailer_id', 'distributor_id', 'master_distributor_id', 'partner_id',
+  'machine_type', 'status', 'inventory_status',
+  'mid', 'tid', 'brand',
+  'assigned_by', 'assigned_by_role', 'last_assigned_at',
+  'delivery_date', 'installation_date',
+  'location', 'city', 'state', 'pincode',
+  'notes', 'created_at', 'updated_at'
+].join(',')
+
 /**
  * GET /api/pos-machines/my-machines
  * Returns POS machines assigned to the current user based on their role:
@@ -25,10 +38,15 @@ export async function GET(request: NextRequest) {
     const supabase = createClient(supabaseUrl, supabaseServiceKey)
 
     const { user, method } = await getCurrentUserWithFallback(request)
-    console.log('[POS My Machines GET] Auth:', method, '|', user?.email || 'none', '| Role:', user?.role)
+    console.log('[POS My Machines GET] Auth:', method, '|', user?.email || 'none', '| Role:', user?.role, '| Partner ID:', user?.partner_id || 'NONE')
 
     if (!user) {
       return NextResponse.json({ error: 'Session expired. Please log in again.', code: 'SESSION_EXPIRED' }, { status: 401 })
+    }
+
+    if (user.role !== 'admin' && !user.partner_id) {
+      console.error('[POS My Machines GET] User has no partner_id:', user.email, user.role)
+      return NextResponse.json({ error: 'Account configuration issue. Please contact support.', code: 'NO_PARTNER_ID' }, { status: 400 })
     }
 
     const searchParams = request.nextUrl.searchParams
@@ -39,62 +57,101 @@ export async function GET(request: NextRequest) {
     const inventoryStatusFilter = searchParams.get('inventory_status')
     const search = searchParams.get('search')
 
-    let query = supabase
-      .from('pos_machines')
-      .select('*', { count: 'exact' })
-      .order('created_at', { ascending: false })
+    // Build PostgREST query params — bypass supabase-js query builder entirely
+    // because it silently drops rows when .eq() filters are used.
+    const params = new URLSearchParams({ select: POS_COLUMNS, limit: '10000' })
 
-    // Role-based filtering
     switch (user.role) {
       case 'admin':
-        // Admin sees all machines
         break
       case 'master_distributor':
-        // Master Distributor should only see machines assigned to them, not machines assigned to partners
-        query = query
-          .eq('master_distributor_id', user.partner_id!)
-          .neq('inventory_status', 'assigned_to_partner') // Exclude machines assigned to partners
+        params.set('master_distributor_id', `eq.${user.partner_id}`)
+        params.set('inventory_status', `in.(assigned_to_master_distributor,assigned_to_distributor,assigned_to_retailer)`)
         break
       case 'distributor':
-        // Distributor should only see machines assigned to them, not machines assigned to partners
-        query = query
-          .eq('distributor_id', user.partner_id!)
-          .neq('inventory_status', 'assigned_to_partner') // Exclude machines assigned to partners
+        params.set('distributor_id', `eq.${user.partner_id}`)
+        params.set('inventory_status', `in.(assigned_to_distributor,assigned_to_retailer)`)
         break
       case 'retailer':
-        // Retailer should only see machines assigned to them, not machines assigned to partners
-        query = query
-          .eq('retailer_id', user.partner_id!)
-          .neq('inventory_status', 'assigned_to_partner') // Exclude machines assigned to partners
+        params.set('retailer_id', `eq.${user.partner_id}`)
+        params.set('inventory_status', `eq.assigned_to_retailer`)
         break
       case 'partner':
-        // Partner sees machines where partner_id matches
-        query = query.eq('partner_id', user.partner_id!)
+        params.set('partner_id', `eq.${user.partner_id}`)
+        params.set('inventory_status', `eq.assigned_to_partner`)
         break
       default:
         return NextResponse.json({ error: 'Unauthorized role' }, { status: 403 })
     }
 
-    // Apply filters
     if (statusFilter && statusFilter !== 'all') {
-      query = query.eq('status', statusFilter)
+      params.set('status', `eq.${statusFilter}`)
     }
-    if (inventoryStatusFilter && inventoryStatusFilter !== 'all') {
-      query = query.eq('inventory_status', inventoryStatusFilter)
+    if (user.role === 'admin' && inventoryStatusFilter && inventoryStatusFilter !== 'all') {
+      params.set('inventory_status', `eq.${inventoryStatusFilter}`)
     }
     if (search) {
-      query = query.or(`machine_id.ilike.%${search}%,serial_number.ilike.%${search}%,mid.ilike.%${search}%,tid.ilike.%${search}%,brand.ilike.%${search}%`)
+      params.set('or', `(machine_id.ilike.%${search}%,serial_number.ilike.%${search}%,mid.ilike.%${search}%,tid.ilike.%${search}%,brand.ilike.%${search}%)`)
     }
 
-    // Pagination
-    query = query.range(offset, offset + limit - 1)
+    const restUrl = `${supabaseUrl}/rest/v1/pos_machines?${params.toString()}`
+    console.log('[POS My Machines GET] PostgREST URL:', restUrl.replace(supabaseUrl, '<SUPA>'))
+    const res = await fetch(restUrl, {
+      headers: {
+        'apikey': supabaseServiceKey,
+        'Authorization': `Bearer ${supabaseServiceKey}`,
+        'Accept': 'application/json',
+        'Cache-Control': 'no-cache, no-store',
+        'Pragma': 'no-cache',
+      },
+      cache: 'no-store',
+    })
 
-    const { data: machines, error, count } = await query
-
-    if (error) {
-      console.error('Error fetching POS machines:', error)
+    if (!res.ok) {
+      const errBody = await res.text()
+      console.error('Error fetching POS machines:', res.status, errBody)
       return NextResponse.json({ error: 'Failed to fetch POS machines' }, { status: 500 })
     }
+
+    const rawMachines: any[] = await res.json()
+
+    console.log('[POS My Machines GET] PostgREST returned', rawMachines.length, 'rows (before server filter)')
+
+    // Server-side safety filter: guarantee we never return machines that don't match
+    let allMachines = rawMachines
+    if (user.role === 'retailer') {
+      allMachines = rawMachines.filter(m =>
+        m.retailer_id === user.partner_id && m.inventory_status === 'assigned_to_retailer'
+      )
+      if (allMachines.length !== rawMachines.length) {
+        console.warn('[POS My Machines GET] SERVER FILTER removed', rawMachines.length - allMachines.length,
+          'stale machines. PostgREST returned', rawMachines.length, 'but only', allMachines.length, 'actually match.')
+      }
+    } else if (user.role === 'distributor') {
+      allMachines = rawMachines.filter(m =>
+        m.distributor_id === user.partner_id &&
+        ['assigned_to_distributor', 'assigned_to_retailer'].includes(m.inventory_status)
+      )
+    } else if (user.role === 'master_distributor') {
+      allMachines = rawMachines.filter(m =>
+        m.master_distributor_id === user.partner_id &&
+        ['assigned_to_master_distributor', 'assigned_to_distributor', 'assigned_to_retailer'].includes(m.inventory_status)
+      )
+    } else if (user.role === 'partner') {
+      allMachines = rawMachines.filter(m =>
+        m.partner_id === user.partner_id && m.inventory_status === 'assigned_to_partner'
+      )
+    }
+
+    allMachines.sort((a: any, b: any) => {
+      const da = a.created_at ? new Date(a.created_at).getTime() : 0
+      const db = b.created_at ? new Date(b.created_at).getTime() : 0
+      return db - da
+    })
+    const count = allMachines.length
+    const machines = allMachines.slice(offset, offset + limit)
+
+    console.log('[POS My Machines GET] Results:', count, 'machines for', user.role, user.partner_id)
 
     // Fetch assignable users based on role
     let assignableUsers: any[] = []

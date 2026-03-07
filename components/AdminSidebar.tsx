@@ -7,7 +7,7 @@ import {
   LayoutDashboard, Users, Package, Crown, 
   BarChart3, Settings,
   Activity, X, Menu, CreditCard, Receipt, CheckCircle2,
-  Building2, FileBarChart, Layers, Key, Timer
+  Building2, FileBarChart, Layers, Key, Timer, History
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 
@@ -27,6 +27,7 @@ const sidebarItems: SidebarItem[] = [
   { id: 'scheme-management', label: 'Scheme Management', icon: Layers, href: '/admin/scheme-management' },
   { id: 'partners', label: 'Partners', icon: Building2, href: '/admin?tab=partners', badge: undefined },
   { id: 'pos-machines', label: 'POS Machines', icon: CreditCard, href: '/admin?tab=pos-machines' },
+  { id: 'pos-history', label: 'POS History', icon: History, href: '/admin?tab=pos-history' },
   { id: 'pos-partner-api', label: 'POS Partner API', icon: Key, href: '/admin?tab=pos-partner-api' },
   { id: 'razorpay-transactions', label: 'Razorpay Transactions', icon: Receipt, href: '/admin/razorpay-transactions' },
   { id: 'services', label: 'Services', icon: Activity, href: '/admin?tab=services' },
@@ -46,13 +47,13 @@ export default function AdminSidebar({ isOpen, onClose }: { isOpen: boolean; onC
     setMounted(true)
   }, [])
 
-  const currentTab = searchParams.get('tab')
+  const currentTab = searchParams?.get('tab')
 
   const isActive = (href: string) => {
     if (!mounted) return false
 
     if (href.includes('?tab=')) {
-      const hrefTab = new URL(href, 'http://localhost').searchParams.get('tab')
+      const hrefTab = new URL(href, 'http://localhost').searchParams?.get('tab')
       const hrefPath = href.split('?')[0]
 
       if (hrefTab === 'dashboard') {
@@ -62,7 +63,7 @@ export default function AdminSidebar({ isOpen, onClose }: { isOpen: boolean; onC
     }
 
     const basePath = href.split('?')[0].split('#')[0]
-    return pathname === basePath || pathname.startsWith(basePath + '/')
+    return pathname === basePath || (pathname?.startsWith(basePath + '/') ?? false)
   }
 
   return (

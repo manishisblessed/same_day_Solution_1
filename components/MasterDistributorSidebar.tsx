@@ -65,7 +65,7 @@ export default function MasterDistributorSidebar({ isOpen, onClose }: { isOpen: 
   const isActive = (href: string) => {
     // For dashboard, only match exact path (no query params or sub-paths)
     if (href === '/dashboard/master-distributor') {
-      return (pathname === '/dashboard/master-distributor' || pathname === '/dashboard/master-distributor/') && !searchParams.get('tab')
+      return (pathname === '/dashboard/master-distributor' || pathname === '/dashboard/master-distributor/') && !searchParams?.get('tab')
     }
     // For tabs with query params, check if pathname matches and tab is in URL
     const basePath = href.split('?')[0]
@@ -73,10 +73,10 @@ export default function MasterDistributorSidebar({ isOpen, onClose }: { isOpen: 
       const urlParams = new URLSearchParams(href.split('?')[1] || '')
       const tab = urlParams.get('tab')
       if (tab) {
-        return pathname === basePath && searchParams.get('tab') === tab
+        return pathname === basePath && searchParams?.get('tab') === tab
       }
     }
-    return pathname.includes(basePath)
+    return pathname?.includes(basePath) ?? false
   }
 
   return (
@@ -139,8 +139,8 @@ function SidebarContent({
   onClose 
 }: { 
   items: SidebarItem[]
-  pathname: string
-  searchParams: URLSearchParams
+  pathname: string | null
+  searchParams: URLSearchParams | null
   isActive: (href: string) => boolean
   hoveredItem: string | null
   setHoveredItem: (id: string | null) => void
