@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useRouter } from 'next/navigation'
 import { Lock, Mail, AlertCircle, Loader2, MapPin, ShieldCheck, Clock } from 'lucide-react'
 import AnimatedSection from '@/components/AnimatedSection'
 import { getGeoLocationForLogin, clearGeoCache } from '@/hooks/useGeolocation'
@@ -10,8 +10,6 @@ import { getGeoLocationForLogin, clearGeoCache } from '@/hooks/useGeolocation'
 export default function AdminLogin() {
   const { user, login } = useAuth()
   const router = useRouter()
-  const searchParams = useSearchParams()
-  const sessionExpired = searchParams.get('session') === 'expired'
   const [formData, setFormData] = useState({
     email: '',
     password: '',
@@ -20,11 +18,15 @@ export default function AdminLogin() {
   const [loading, setLoading] = useState(false)
   const [locationVerified, setLocationVerified] = useState(false)
   const [locationLoading, setLocationLoading] = useState(false)
-  const [showExpiredBanner, setShowExpiredBanner] = useState(sessionExpired)
+  const [showExpiredBanner, setShowExpiredBanner] = useState(false)
 
   useEffect(() => {
     clearGeoCache()
     setLocationVerified(false)
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search)
+      if (params.get('session') === 'expired') setShowExpiredBanner(true)
+    }
   }, [])
 
   useEffect(() => {

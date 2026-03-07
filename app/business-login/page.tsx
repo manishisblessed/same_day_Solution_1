@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useRouter } from 'next/navigation'
 import { useAuth } from '@/contexts/AuthContext'
 import AnimatedSection from '@/components/AnimatedSection'
 import AnimatedCard from '@/components/AnimatedCard'
@@ -12,8 +12,6 @@ import { getGeoLocationForLogin, isLoginGeoVerified, clearGeoCache } from '@/hoo
 export default function BusinessLogin() {
   const { user, login, loading: authLoading } = useAuth()
   const router = useRouter()
-  const searchParams = useSearchParams()
-  const sessionExpired = searchParams.get('session') === 'expired'
   const [userType, setUserType] = useState<'retailer' | 'distributor' | 'master-distributor' | 'partner' | null>(null)
   const [formData, setFormData] = useState({
     email: '',
@@ -25,13 +23,17 @@ export default function BusinessLogin() {
   const [mounted, setMounted] = useState(false)
   const [locationVerified, setLocationVerified] = useState(false)
   const [locationLoading, setLocationLoading] = useState(false)
-  const [showExpiredBanner, setShowExpiredBanner] = useState(sessionExpired)
+  const [showExpiredBanner, setShowExpiredBanner] = useState(false)
 
   // Wait for component to mount. Clear geo flag so user must verify location for each login.
   useEffect(() => {
     setMounted(true)
     clearGeoCache()
     setLocationVerified(false)
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search)
+      if (params.get('session') === 'expired') setShowExpiredBanner(true)
+    }
   }, [])
 
   useEffect(() => {
