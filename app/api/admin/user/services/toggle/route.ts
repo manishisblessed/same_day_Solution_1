@@ -70,16 +70,22 @@ export async function POST(request: NextRequest) {
     }
 
     const currentStatus = (user as any)[fieldName] as boolean | null
+    console.log('[Services Toggle] Updating', tableName, '| partner_id:', user_id, '| field:', fieldName, '| from:', currentStatus, '→', enabled)
 
-    const { error: updateError } = await supabase
+    const { error: updateError, count } = await supabase
       .from(tableName)
       .update({ [fieldName]: enabled, updated_at: new Date().toISOString() })
       .eq('partner_id', user_id)
 
     if (updateError) {
-      console.error('Error updating service status:', updateError)
+      console.error('[Services Toggle] Update FAILED:', updateError.message, updateError.code)
       return NextResponse.json({ error: 'Failed to update service status' }, { status: 500 })
     }
+
+    // Verify the update actually persisted
+    const { data: verify } = await supabase.from(tableName).select(fieldName).eq('partner_id', user_id).maybeSingle()
+    const verifiedVal = verify ? (verify as any)[fieldName] : 'N/A'
+    console.log('[Services Toggle] Verified after update:', fieldName, '=', verifiedVal, '(expected:', enabled, ')')
 
     const { data: walletBalance } = await supabase.rpc('get_wallet_balance_v2', {
       p_user_id: user_id,

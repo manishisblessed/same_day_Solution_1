@@ -88,7 +88,13 @@ export async function GET(request: NextRequest) {
         .eq('partner_id', lookupPartnerId)
         .maybeSingle()
       if (byPartner.error) {
-        console.error('[enabled-services] Query error:', byPartner.error.message)
+        console.error('[enabled-services] Query error:', byPartner.error.message, byPartner.error.code)
+        // Try fetching ALL columns to diagnose column name mismatch
+        const rawCheck = await supabase.from(tableName).select('*').eq('partner_id', lookupPartnerId).maybeSingle()
+        if (rawCheck.data) {
+          const rawKeys = Object.keys(rawCheck.data).filter(k => k.includes('enabled'))
+          console.log('[enabled-services] Available *enabled* columns:', rawKeys.join(', '))
+        }
       } else {
         row = byPartner.data
       }
@@ -101,6 +107,13 @@ export async function GET(request: NextRequest) {
         hasAnyEnabled: false,
       })
     }
+
+    // Log raw DB values for debugging
+    const rawVals: Record<string, any> = {}
+    for (const key of SERVICE_KEYS) {
+      rawVals[`${key}_enabled`] = (row as any)[`${key}_enabled`]
+    }
+    console.log('[enabled-services] RAW DB row for', lookupPartnerId, ':', JSON.stringify(rawVals))
 
     const services: Record<string, boolean> = {}
     let hasAnyEnabled = false
