@@ -34,7 +34,12 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Configuration missing' }, { status: 500 })
     }
 
-    const supabase = createClient(supabaseUrl, supabaseServiceKey)
+    const supabase = createClient(supabaseUrl, supabaseServiceKey, {
+      global: {
+        fetch: (input: RequestInfo | URL, init?: RequestInit) =>
+          fetch(input, { ...init, cache: 'no-store' }),
+      },
+    })
 
     // Accept partner_id & role as query params (passed from AuthContext).
     // This is necessary because admin and business users share the same
@@ -102,10 +107,10 @@ export async function GET(request: NextRequest) {
 
     if (!row) {
       console.warn('[enabled-services] No row found in', tableName, '| partner_id:', lookupPartnerId)
-      return NextResponse.json({
-        services: Object.fromEntries(SERVICE_KEYS.map((k) => [k, false])),
-        hasAnyEnabled: false,
-      })
+      return NextResponse.json(
+        { services: Object.fromEntries(SERVICE_KEYS.map((k) => [k, false])), hasAnyEnabled: false },
+        { headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate' } }
+      )
     }
 
     // Log raw DB values for debugging
@@ -124,12 +129,15 @@ export async function GET(request: NextRequest) {
     }
 
     console.log('[enabled-services]', lookupPartnerId, '→ hasAny:', hasAnyEnabled)
-    return NextResponse.json({ services, hasAnyEnabled })
+    return NextResponse.json(
+      { services, hasAnyEnabled },
+      { headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate', 'Pragma': 'no-cache' } }
+    )
   } catch (err: any) {
     console.error('[enabled-services] Uncaught error:', err?.message || err)
     return NextResponse.json(
       { services: {}, hasAnyEnabled: false },
-      { status: 200 }
+      { status: 200, headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate' } }
     )
   }
 }

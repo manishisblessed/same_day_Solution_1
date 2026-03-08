@@ -26,7 +26,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Supabase configuration missing' }, { status: 500 })
     }
 
-    const supabase = createClient(supabaseUrl, supabaseServiceKey)
+    const supabase = createClient(supabaseUrl, supabaseServiceKey, {
+      global: {
+        fetch: (input: RequestInfo | URL, init?: RequestInit) =>
+          fetch(input, { ...init, cache: 'no-store' }),
+      },
+    })
 
     const { user: admin, method } = await getCurrentUserWithFallback(request)
     console.log('[Services Toggle] Auth:', method, '|', admin?.email || 'none')
