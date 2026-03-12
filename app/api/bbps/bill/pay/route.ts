@@ -499,66 +499,6 @@ export async function POST(request: NextRequest) {
           wallet_debit_id: ledgerId,
         })
         .eq('id', bbpsTransaction.id)
-
-      // Distribute commissions from the charge to retailer/distributor/MD wallets
-      if (bbpsCharge > 0) {
-        const txRef = `BBPS_COMM_${agentTransactionId}`
-        try {
-          if (commissionSplit.retailer_commission > 0) {
-            await supabase.rpc('add_ledger_entry', {
-              p_user_id: user.partner_id,
-              p_user_role: 'retailer',
-              p_wallet_type: 'primary',
-              p_fund_category: 'commission',
-              p_service_type: 'bbps',
-              p_tx_type: 'COMMISSION_CREDIT',
-              p_credit: commissionSplit.retailer_commission,
-              p_debit: 0,
-              p_reference_id: txRef,
-              p_transaction_id: bbpsTransaction.id,
-              p_status: 'completed',
-              p_remarks: `BBPS commission earned on ₹${billAmountInRupees} bill`,
-            })
-            console.log(`[BBPS Pay] Commission credited to retailer: ₹${commissionSplit.retailer_commission}`)
-          }
-          if (commissionSplit.distributor_commission > 0 && distributorId) {
-            await supabase.rpc('add_ledger_entry', {
-              p_user_id: distributorId,
-              p_user_role: 'distributor',
-              p_wallet_type: 'primary',
-              p_fund_category: 'commission',
-              p_service_type: 'bbps',
-              p_tx_type: 'COMMISSION_CREDIT',
-              p_credit: commissionSplit.distributor_commission,
-              p_debit: 0,
-              p_reference_id: txRef,
-              p_transaction_id: bbpsTransaction.id,
-              p_status: 'completed',
-              p_remarks: `BBPS commission on retailer ${user.partner_id} transaction`,
-            })
-            console.log(`[BBPS Pay] Commission credited to distributor ${distributorId}: ₹${commissionSplit.distributor_commission}`)
-          }
-          if (commissionSplit.md_commission > 0 && mdId) {
-            await supabase.rpc('add_ledger_entry', {
-              p_user_id: mdId,
-              p_user_role: 'master_distributor',
-              p_wallet_type: 'primary',
-              p_fund_category: 'commission',
-              p_service_type: 'bbps',
-              p_tx_type: 'COMMISSION_CREDIT',
-              p_credit: commissionSplit.md_commission,
-              p_debit: 0,
-              p_reference_id: txRef,
-              p_transaction_id: bbpsTransaction.id,
-              p_status: 'completed',
-              p_remarks: `BBPS commission on retailer ${user.partner_id} transaction`,
-            })
-            console.log(`[BBPS Pay] Commission credited to MD ${mdId}: ₹${commissionSplit.md_commission}`)
-          }
-        } catch (commErr: any) {
-          console.error('[BBPS Pay] Commission distribution error (non-fatal):', commErr.message)
-        }
-      }
     } catch (debitError: any) {
       console.error('[BBPS Pay] ❌ Exception debiting wallet:', debitError)
       // Update transaction status to failed
@@ -812,6 +752,66 @@ export async function POST(request: NextRequest) {
       updateData.transaction_id = paymentResponse.transaction_id
       updateData.status = 'success'
       updateData.completed_at = new Date().toISOString()
+
+      // Distribute commissions ONLY after successful payment
+      if (bbpsCharge > 0) {
+        const txRef = `BBPS_COMM_${agentTransactionId}`
+        try {
+          if (commissionSplit.retailer_commission > 0) {
+            await supabase.rpc('add_ledger_entry', {
+              p_user_id: user.partner_id,
+              p_user_role: 'retailer',
+              p_wallet_type: 'primary',
+              p_fund_category: 'commission',
+              p_service_type: 'bbps',
+              p_tx_type: 'COMMISSION_CREDIT',
+              p_credit: commissionSplit.retailer_commission,
+              p_debit: 0,
+              p_reference_id: txRef,
+              p_transaction_id: bbpsTransaction.id,
+              p_status: 'completed',
+              p_remarks: `BBPS commission earned on ₹${billAmountInRupees} bill payment`,
+            })
+            console.log(`[BBPS Pay] Commission credited to retailer: ₹${commissionSplit.retailer_commission}`)
+          }
+          if (commissionSplit.distributor_commission > 0 && distributorId) {
+            await supabase.rpc('add_ledger_entry', {
+              p_user_id: distributorId,
+              p_user_role: 'distributor',
+              p_wallet_type: 'primary',
+              p_fund_category: 'commission',
+              p_service_type: 'bbps',
+              p_tx_type: 'COMMISSION_CREDIT',
+              p_credit: commissionSplit.distributor_commission,
+              p_debit: 0,
+              p_reference_id: txRef,
+              p_transaction_id: bbpsTransaction.id,
+              p_status: 'completed',
+              p_remarks: `BBPS commission on retailer ${user.partner_id} transaction`,
+            })
+            console.log(`[BBPS Pay] Commission credited to distributor ${distributorId}: ₹${commissionSplit.distributor_commission}`)
+          }
+          if (commissionSplit.md_commission > 0 && mdId) {
+            await supabase.rpc('add_ledger_entry', {
+              p_user_id: mdId,
+              p_user_role: 'master_distributor',
+              p_wallet_type: 'primary',
+              p_fund_category: 'commission',
+              p_service_type: 'bbps',
+              p_tx_type: 'COMMISSION_CREDIT',
+              p_credit: commissionSplit.md_commission,
+              p_debit: 0,
+              p_reference_id: txRef,
+              p_transaction_id: bbpsTransaction.id,
+              p_status: 'completed',
+              p_remarks: `BBPS commission on retailer ${user.partner_id} transaction`,
+            })
+            console.log(`[BBPS Pay] Commission credited to MD ${mdId}: ₹${commissionSplit.md_commission}`)
+          }
+        } catch (commErr: any) {
+          console.error('[BBPS Pay] Commission distribution error (non-fatal):', commErr.message)
+        }
+      }
     } else {
       updateData.status = 'failed'
       updateData.error_code = paymentResponse.error_code

@@ -542,66 +542,6 @@ export async function POST(request: NextRequest) {
       })
       .eq('id', payoutTx.id)
 
-    // Distribute commissions from the charge to retailer/distributor/MD wallets
-    if (charges > 0) {
-      const txRef = `PAYOUT_COMM_${clientRefId}`
-      try {
-        if (commissionSplit.retailer_commission > 0) {
-          await (supabaseAdmin as any).rpc('add_ledger_entry', {
-            p_user_id: user.partner_id,
-            p_user_role: 'retailer',
-            p_wallet_type: 'primary',
-            p_fund_category: 'commission',
-            p_service_type: 'payout',
-            p_tx_type: 'COMMISSION_CREDIT',
-            p_credit: commissionSplit.retailer_commission,
-            p_debit: 0,
-            p_reference_id: txRef,
-            p_transaction_id: payoutTx.id,
-            p_status: 'completed',
-            p_remarks: `Payout commission earned on ₹${amountNum} transfer`,
-          })
-          console.log(`[Payout] Commission credited to retailer: ₹${commissionSplit.retailer_commission}`)
-        }
-        if (commissionSplit.distributor_commission > 0 && distributorId) {
-          await (supabaseAdmin as any).rpc('add_ledger_entry', {
-            p_user_id: distributorId,
-            p_user_role: 'distributor',
-            p_wallet_type: 'primary',
-            p_fund_category: 'commission',
-            p_service_type: 'payout',
-            p_tx_type: 'COMMISSION_CREDIT',
-            p_credit: commissionSplit.distributor_commission,
-            p_debit: 0,
-            p_reference_id: txRef,
-            p_transaction_id: payoutTx.id,
-            p_status: 'completed',
-            p_remarks: `Payout commission on retailer ${user.partner_id} transaction`,
-          })
-          console.log(`[Payout] Commission credited to distributor ${distributorId}: ₹${commissionSplit.distributor_commission}`)
-        }
-        if (commissionSplit.md_commission > 0 && mdId) {
-          await (supabaseAdmin as any).rpc('add_ledger_entry', {
-            p_user_id: mdId,
-            p_user_role: 'master_distributor',
-            p_wallet_type: 'primary',
-            p_fund_category: 'commission',
-            p_service_type: 'payout',
-            p_tx_type: 'COMMISSION_CREDIT',
-            p_credit: commissionSplit.md_commission,
-            p_debit: 0,
-            p_reference_id: txRef,
-            p_transaction_id: payoutTx.id,
-            p_status: 'completed',
-            p_remarks: `Payout commission on retailer ${user.partner_id} transaction`,
-          })
-          console.log(`[Payout] Commission credited to MD ${mdId}: ₹${commissionSplit.md_commission}`)
-        }
-      } catch (commErr: any) {
-        console.error('[Payout] Commission distribution error (non-fatal):', commErr.message)
-      }
-    }
-
     // Initiate transfer with SparkUp expressPay2 API
     const transferResult = await initiateTransfer({
       accountNumber,
@@ -725,6 +665,66 @@ export async function POST(request: NextRequest) {
       .from('wallet_ledger')
       .update({ status: 'completed' })
       .eq('id', ledgerId)
+
+    // Distribute commissions ONLY after successful transfer
+    if (charges > 0) {
+      const txRef = `PAYOUT_COMM_${clientRefId}`
+      try {
+        if (commissionSplit.retailer_commission > 0) {
+          await (supabaseAdmin as any).rpc('add_ledger_entry', {
+            p_user_id: user.partner_id,
+            p_user_role: 'retailer',
+            p_wallet_type: 'primary',
+            p_fund_category: 'commission',
+            p_service_type: 'payout',
+            p_tx_type: 'COMMISSION_CREDIT',
+            p_credit: commissionSplit.retailer_commission,
+            p_debit: 0,
+            p_reference_id: txRef,
+            p_transaction_id: payoutTx.id,
+            p_status: 'completed',
+            p_remarks: `Payout commission earned on ₹${amountNum} transfer`,
+          })
+          console.log(`[Payout] Commission credited to retailer: ₹${commissionSplit.retailer_commission}`)
+        }
+        if (commissionSplit.distributor_commission > 0 && distributorId) {
+          await (supabaseAdmin as any).rpc('add_ledger_entry', {
+            p_user_id: distributorId,
+            p_user_role: 'distributor',
+            p_wallet_type: 'primary',
+            p_fund_category: 'commission',
+            p_service_type: 'payout',
+            p_tx_type: 'COMMISSION_CREDIT',
+            p_credit: commissionSplit.distributor_commission,
+            p_debit: 0,
+            p_reference_id: txRef,
+            p_transaction_id: payoutTx.id,
+            p_status: 'completed',
+            p_remarks: `Payout commission on retailer ${user.partner_id} transaction`,
+          })
+          console.log(`[Payout] Commission credited to distributor ${distributorId}: ₹${commissionSplit.distributor_commission}`)
+        }
+        if (commissionSplit.md_commission > 0 && mdId) {
+          await (supabaseAdmin as any).rpc('add_ledger_entry', {
+            p_user_id: mdId,
+            p_user_role: 'master_distributor',
+            p_wallet_type: 'primary',
+            p_fund_category: 'commission',
+            p_service_type: 'payout',
+            p_tx_type: 'COMMISSION_CREDIT',
+            p_credit: commissionSplit.md_commission,
+            p_debit: 0,
+            p_reference_id: txRef,
+            p_transaction_id: payoutTx.id,
+            p_status: 'completed',
+            p_remarks: `Payout commission on retailer ${user.partner_id} transaction`,
+          })
+          console.log(`[Payout] Commission credited to MD ${mdId}: ₹${commissionSplit.md_commission}`)
+        }
+      } catch (commErr: any) {
+        console.error('[Payout] Commission distribution error (non-fatal):', commErr.message)
+      }
+    }
 
     const ctx = getRequestContext(request)
     logActivityFromContext(ctx, user, {
