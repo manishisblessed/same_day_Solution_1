@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getCurrentUserFromRequest } from '@/lib/auth-server-request'
+import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { createClient } from '@supabase/supabase-js'
 import { payRequest, generateAgentTransactionId, getBBPSWalletBalance } from '@/services/bbps'
 import { paiseToRupees } from '@/lib/bbps/currency'
@@ -32,11 +32,9 @@ export async function POST(request: NextRequest) {
     
     const body = await request.json()
     
-    // Try cookie-based auth first
-    let user = await getCurrentUserFromRequest(request)
+    // Prefer Bearer token (works cross-origin); fallback to cookies then body user_id
+    let user = (await getCurrentUserWithFallback(request)).user
     
-    // If cookie auth fails, try to verify user from request body (fallback)
-    // This is needed because Supabase cookie-based auth may not work reliably
     if ((!user || !user.partner_id) && body.user_id) {
       // Verify the user_id exists in retailers table
       const { data: retailer } = await supabase
@@ -278,7 +276,6 @@ export async function POST(request: NextRequest) {
             .order('min_amount', { ascending: false })
 
           if (slabs && slabs.length > 0) {
-            // Find best slab (prefer wildcard category match)
             const cat = additional_info?.category || null
             const bestSlab = slabs.find((s: any) => {
               const sc = s.category
@@ -289,7 +286,13 @@ export async function POST(request: NextRequest) {
               bbpsCharge = bestSlab.retailer_charge_type === 'percentage'
                 ? Math.round(billAmountInRupees * rc / 100 * 100) / 100
                 : rc
-              console.log(`[BBPS Pay] Scheme charge via direct query: ₹${bbpsCharge}`)
+              const calcComm = (val: number, type: string) => type === 'percentage' ? Math.round(billAmountInRupees * val / 100 * 100) / 100 : val
+              commissionSplit = {
+                retailer_commission: calcComm(parseFloat(bestSlab.retailer_commission) || 0, bestSlab.retailer_commission_type),
+                distributor_commission: calcComm(parseFloat(bestSlab.distributor_commission) || 0, bestSlab.distributor_commission_type),
+                md_commission: calcComm(parseFloat(bestSlab.md_commission) || 0, bestSlab.md_commission_type),
+              }
+              console.log(`[BBPS Pay] Scheme charge via direct query: ₹${bbpsCharge}, commissions: RT=${commissionSplit.retailer_commission}, DT=${commissionSplit.distributor_commission}, MD=${commissionSplit.md_commission}`)
             }
           }
         }

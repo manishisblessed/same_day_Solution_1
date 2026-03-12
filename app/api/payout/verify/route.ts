@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger'
-import { getCurrentUserFromRequest } from '@/lib/auth-server-request'
+import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { createClient } from '@supabase/supabase-js'
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
 import { verifyBankAccount } from '@/services/payout'
@@ -47,10 +47,9 @@ export async function POST(request: NextRequest) {
     const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
     const supabase = createClient(supabaseUrl, supabaseServiceKey || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
 
-    // Try cookie-based auth first
-    let user = await getCurrentUserFromRequest(request)
+    // Prefer Bearer token (works when frontend calls api.samedaysolution.in); fallback to cookies then body
+    let user = (await getCurrentUserWithFallback(request)).user
     
-    // If cookie auth fails, try to verify user from request body (fallback)
     if ((!user || !user.partner_id) && user_id) {
       const { data: retailer } = await supabase
         .from('retailers')
@@ -120,7 +119,7 @@ export async function POST(request: NextRequest) {
           success: false, 
           error: result.error || 'Account validation failed',
           is_valid: false,
-          verification_charges: 0, // Penniless transaction - no charges
+          verification_charges: 0,
         },
         { status: 400 }
       )

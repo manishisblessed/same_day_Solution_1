@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger'
-import { getCurrentUserFromRequest } from '@/lib/auth-server-request'
+import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
 import { initiateTransfer, generateClientRefId, getPayoutBalance } from '@/services/payout'
 import { getPayoutCharges, getTransferLimits } from '@/services/payout/config'
@@ -64,10 +64,9 @@ export async function POST(request: NextRequest) {
       user_id
     } = body
 
-    // Try cookie-based auth first
-    let user = await getCurrentUserFromRequest(request)
+    // Prefer Bearer token (works when frontend calls api.samedaysolution.in); fallback to cookies then body
+    let user = (await getCurrentUserWithFallback(request)).user
     
-    // If cookie auth fails, try to verify user from request body (fallback)
     if ((!user || !user.partner_id) && user_id) {
       const { data: retailer } = await supabaseAdmin
         .from('retailers')
@@ -675,27 +674,26 @@ export async function POST(request: NextRequest) {
     // ========== END TIMEOUT HANDLING ==========
 
     if (!transferResult.success) {
+      const errorMsg = transferResult.error || 'Transfer failed'
+
       // Refund the wallet - only for actual failures (not timeouts)
-      // Using the same wallet function as BBPS for consistency (refund_wallet_bbps)
       await (supabaseAdmin as any).rpc('refund_wallet_bbps', {
         p_retailer_id: user.partner_id,
         p_transaction_id: payoutTx.id,
         p_amount: totalAmount,
-        p_description: `Payout failed - Refund: ${transferResult.error}`,
+        p_description: `Payout failed - Refund: ${errorMsg}`,
         p_reference_id: `REFUND_${clientRefId}`
       })
 
-      // Update transaction as failed
       await supabaseAdmin
         .from('payout_transactions')
         .update({ 
           status: 'failed', 
-          failure_reason: transferResult.error,
+          failure_reason: errorMsg,
           updated_at: new Date().toISOString()
         })
         .eq('id', payoutTx.id)
 
-      // Update original ledger entry status
       await supabaseAdmin
         .from('wallet_ledger')
         .update({ status: 'failed' })
@@ -704,7 +702,7 @@ export async function POST(request: NextRequest) {
       const response = NextResponse.json(
         { 
           success: false, 
-          error: transferResult.error || 'Transfer failed',
+          error: errorMsg,
           refunded: true,
         },
         { status: 400 }
