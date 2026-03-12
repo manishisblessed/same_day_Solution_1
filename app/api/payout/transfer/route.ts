@@ -667,11 +667,12 @@ export async function POST(request: NextRequest) {
       .eq('id', ledgerId)
 
     // Distribute commissions ONLY after successful transfer
+    console.log(`[Payout] 💰 Commission distribution check: charges=₹${charges}, split=RT:₹${commissionSplit.retailer_commission}/DT:₹${commissionSplit.distributor_commission}/MD:₹${commissionSplit.md_commission}, distributorId=${distributorId}, mdId=${mdId}`)
     if (charges > 0) {
       const txRef = `PAYOUT_COMM_${clientRefId}`
       try {
         if (commissionSplit.retailer_commission > 0) {
-          await (supabaseAdmin as any).rpc('add_ledger_entry', {
+          const { data: rtLedger, error: rtErr } = await (supabaseAdmin as any).rpc('add_ledger_entry', {
             p_user_id: user.partner_id,
             p_user_role: 'retailer',
             p_wallet_type: 'primary',
@@ -685,10 +686,13 @@ export async function POST(request: NextRequest) {
             p_status: 'completed',
             p_remarks: `Payout commission earned on ₹${amountNum} transfer`,
           })
-          console.log(`[Payout] Commission credited to retailer: ₹${commissionSplit.retailer_commission}`)
+          if (rtErr) console.error(`[Payout] ❌ Retailer commission RPC error:`, rtErr)
+          else console.log(`[Payout] ✅ Commission credited to retailer ${user.partner_id}: ₹${commissionSplit.retailer_commission}, ledger=${rtLedger}`)
+        } else {
+          console.log(`[Payout] ⚠️ Retailer commission is 0, skipping`)
         }
         if (commissionSplit.distributor_commission > 0 && distributorId) {
-          await (supabaseAdmin as any).rpc('add_ledger_entry', {
+          const { data: dtLedger, error: dtErr } = await (supabaseAdmin as any).rpc('add_ledger_entry', {
             p_user_id: distributorId,
             p_user_role: 'distributor',
             p_wallet_type: 'primary',
@@ -702,10 +706,13 @@ export async function POST(request: NextRequest) {
             p_status: 'completed',
             p_remarks: `Payout commission on retailer ${user.partner_id} transaction`,
           })
-          console.log(`[Payout] Commission credited to distributor ${distributorId}: ₹${commissionSplit.distributor_commission}`)
+          if (dtErr) console.error(`[Payout] ❌ Distributor commission RPC error:`, dtErr)
+          else console.log(`[Payout] ✅ Commission credited to distributor ${distributorId}: ₹${commissionSplit.distributor_commission}, ledger=${dtLedger}`)
+        } else {
+          console.log(`[Payout] ⚠️ Distributor commission skipped: amount=₹${commissionSplit.distributor_commission}, distributorId=${distributorId}`)
         }
         if (commissionSplit.md_commission > 0 && mdId) {
-          await (supabaseAdmin as any).rpc('add_ledger_entry', {
+          const { data: mdLedger, error: mdErr } = await (supabaseAdmin as any).rpc('add_ledger_entry', {
             p_user_id: mdId,
             p_user_role: 'master_distributor',
             p_wallet_type: 'primary',
@@ -719,11 +726,16 @@ export async function POST(request: NextRequest) {
             p_status: 'completed',
             p_remarks: `Payout commission on retailer ${user.partner_id} transaction`,
           })
-          console.log(`[Payout] Commission credited to MD ${mdId}: ₹${commissionSplit.md_commission}`)
+          if (mdErr) console.error(`[Payout] ❌ MD commission RPC error:`, mdErr)
+          else console.log(`[Payout] ✅ Commission credited to MD ${mdId}: ₹${commissionSplit.md_commission}, ledger=${mdLedger}`)
+        } else {
+          console.log(`[Payout] ⚠️ MD commission skipped: amount=₹${commissionSplit.md_commission}, mdId=${mdId}`)
         }
       } catch (commErr: any) {
-        console.error('[Payout] Commission distribution error (non-fatal):', commErr.message)
+        console.error('[Payout] ❌ Commission distribution error (non-fatal):', commErr.message, commErr.stack)
       }
+    } else {
+      console.log(`[Payout] ⚠️ charges is 0, skipping all commission distribution`)
     }
 
     const ctx = getRequestContext(request)

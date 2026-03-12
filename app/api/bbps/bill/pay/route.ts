@@ -754,11 +754,12 @@ export async function POST(request: NextRequest) {
       updateData.completed_at = new Date().toISOString()
 
       // Distribute commissions ONLY after successful payment
+      console.log(`[BBPS Pay] 💰 Commission distribution check: bbpsCharge=₹${bbpsCharge}, split=RT:₹${commissionSplit.retailer_commission}/DT:₹${commissionSplit.distributor_commission}/MD:₹${commissionSplit.md_commission}, distributorId=${distributorId}, mdId=${mdId}`)
       if (bbpsCharge > 0) {
         const txRef = `BBPS_COMM_${agentTransactionId}`
         try {
           if (commissionSplit.retailer_commission > 0) {
-            await supabase.rpc('add_ledger_entry', {
+            const { data: rtLedger, error: rtErr } = await supabase.rpc('add_ledger_entry', {
               p_user_id: user.partner_id,
               p_user_role: 'retailer',
               p_wallet_type: 'primary',
@@ -772,10 +773,13 @@ export async function POST(request: NextRequest) {
               p_status: 'completed',
               p_remarks: `BBPS commission earned on ₹${billAmountInRupees} bill payment`,
             })
-            console.log(`[BBPS Pay] Commission credited to retailer: ₹${commissionSplit.retailer_commission}`)
+            if (rtErr) console.error(`[BBPS Pay] ❌ Retailer commission RPC error:`, rtErr)
+            else console.log(`[BBPS Pay] ✅ Commission credited to retailer ${user.partner_id}: ₹${commissionSplit.retailer_commission}, ledger=${rtLedger}`)
+          } else {
+            console.log(`[BBPS Pay] ⚠️ Retailer commission is 0, skipping`)
           }
           if (commissionSplit.distributor_commission > 0 && distributorId) {
-            await supabase.rpc('add_ledger_entry', {
+            const { data: dtLedger, error: dtErr } = await supabase.rpc('add_ledger_entry', {
               p_user_id: distributorId,
               p_user_role: 'distributor',
               p_wallet_type: 'primary',
@@ -789,10 +793,13 @@ export async function POST(request: NextRequest) {
               p_status: 'completed',
               p_remarks: `BBPS commission on retailer ${user.partner_id} transaction`,
             })
-            console.log(`[BBPS Pay] Commission credited to distributor ${distributorId}: ₹${commissionSplit.distributor_commission}`)
+            if (dtErr) console.error(`[BBPS Pay] ❌ Distributor commission RPC error:`, dtErr)
+            else console.log(`[BBPS Pay] ✅ Commission credited to distributor ${distributorId}: ₹${commissionSplit.distributor_commission}, ledger=${dtLedger}`)
+          } else {
+            console.log(`[BBPS Pay] ⚠️ Distributor commission skipped: amount=₹${commissionSplit.distributor_commission}, distributorId=${distributorId}`)
           }
           if (commissionSplit.md_commission > 0 && mdId) {
-            await supabase.rpc('add_ledger_entry', {
+            const { data: mdLedger, error: mdErr } = await supabase.rpc('add_ledger_entry', {
               p_user_id: mdId,
               p_user_role: 'master_distributor',
               p_wallet_type: 'primary',
@@ -806,11 +813,16 @@ export async function POST(request: NextRequest) {
               p_status: 'completed',
               p_remarks: `BBPS commission on retailer ${user.partner_id} transaction`,
             })
-            console.log(`[BBPS Pay] Commission credited to MD ${mdId}: ₹${commissionSplit.md_commission}`)
+            if (mdErr) console.error(`[BBPS Pay] ❌ MD commission RPC error:`, mdErr)
+            else console.log(`[BBPS Pay] ✅ Commission credited to MD ${mdId}: ₹${commissionSplit.md_commission}, ledger=${mdLedger}`)
+          } else {
+            console.log(`[BBPS Pay] ⚠️ MD commission skipped: amount=₹${commissionSplit.md_commission}, mdId=${mdId}`)
           }
         } catch (commErr: any) {
-          console.error('[BBPS Pay] Commission distribution error (non-fatal):', commErr.message)
+          console.error('[BBPS Pay] ❌ Commission distribution error (non-fatal):', commErr.message, commErr.stack)
         }
+      } else {
+        console.log(`[BBPS Pay] ⚠️ bbpsCharge is 0, skipping all commission distribution`)
       }
     } else {
       updateData.status = 'failed'
