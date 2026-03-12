@@ -520,6 +520,7 @@ function RetailerDashboardContent() {
 function DistributorConnectionCard({ user }: { user: any }) {
   const [distributorInfo, setDistributorInfo] = useState<any>(null)
   const [schemesCount, setSchemesCount] = useState(0)
+  const [activeSchemeNames, setActiveSchemeNames] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -558,16 +559,21 @@ function DistributorConnectionCard({ user }: { user: any }) {
         })
       }
 
-      // Fetch count of active schemes assigned by this distributor
+      // Fetch active schemes mapped to this retailer (with scheme name)
       const { data: schemesData } = await supabase
         .from('scheme_mappings')
-        .select('id', { count: 'exact' })
+        .select('id, scheme:schemes(name)')
         .eq('entity_id', user.partner_id)
         .eq('entity_role', 'retailer')
-        .eq('assigned_by_id', retailerData.distributor_id)
         .eq('status', 'active')
+        .order('priority', { ascending: true })
 
       setSchemesCount(schemesData?.length || 0)
+      setActiveSchemeNames(
+        (schemesData || [])
+          .map((m: any) => m.scheme?.name)
+          .filter(Boolean)
+      )
     } catch (error) {
       console.error('Error fetching distributor info:', error)
     } finally {
@@ -642,9 +648,15 @@ function DistributorConnectionCard({ user }: { user: any }) {
           <p className="text-lg font-semibold text-gray-900 dark:text-white">
             {schemesCount} {schemesCount === 1 ? 'Scheme' : 'Schemes'}
           </p>
-          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-            Assigned by distributor
-          </p>
+          {activeSchemeNames.length > 0 ? (
+            <p className="text-xs text-purple-600 dark:text-purple-400 font-medium mt-1">
+              {activeSchemeNames.join(', ')}
+            </p>
+          ) : (
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+              Assigned by distributor
+            </p>
+          )}
         </div>
       </div>
 

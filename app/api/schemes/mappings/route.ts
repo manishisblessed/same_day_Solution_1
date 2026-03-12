@@ -7,7 +7,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger';
-import { getCurrentUserFromRequest } from '@/lib/auth-server-request';
+import { getCurrentUserWithFallback } from '@/lib/auth-server';
 import {
   getSchemeMappings,
   createSchemeMapping,
@@ -51,7 +51,7 @@ async function verifyMDOwnsDistributor(mdId: string, distributorId: string): Pro
 
 export async function GET(request: NextRequest) {
   try {
-    const user = await getCurrentUserFromRequest(request);
+    const { user } = await getCurrentUserWithFallback(request);
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
@@ -88,7 +88,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const user = await getCurrentUserFromRequest(request);
+    const { user } = await getCurrentUserWithFallback(request);
     if (!user || !user.partner_id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
@@ -191,7 +191,7 @@ export async function POST(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
-    const user = await getCurrentUserFromRequest(request);
+    const { user } = await getCurrentUserWithFallback(request);
     if (!user || !user.partner_id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
@@ -208,32 +208,52 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: 'Retailers cannot delete scheme mappings' }, { status: 403 });
     }
 
-    // Ownership check: verify the user has authority over this mapping
-    if (user.role !== 'admin') {
-      const supabase = getSupabase();
-      const { data: mapping } = await supabase
-        .from('scheme_mappings')
-        .select('assigned_by_id, assigned_by_role, entity_id, entity_role')
-        .eq('id', mappingId)
-        .maybeSingle();
+    const supabase = getSupabase();
+    const { data: mapping } = await supabase
+      .from('scheme_mappings')
+      .select('id, scheme_id, entity_id, entity_role, assigned_by_id')
+      .eq('id', mappingId)
+      .maybeSingle();
 
-      if (!mapping) {
-        return NextResponse.json({ error: 'Mapping not found' }, { status: 404 });
-      }
-
-      // Only the user who assigned the mapping can delete it
-      if (mapping.assigned_by_id !== user.partner_id) {
-        return NextResponse.json({ error: 'Access denied: you did not create this mapping' }, { status: 403 });
-      }
+    if (!mapping) {
+      return NextResponse.json({ error: 'Mapping not found' }, { status: 404 });
     }
+
+    // Ownership check: only the user who assigned the mapping can delete it (admins skip)
+    if (user.role !== 'admin' && mapping.assigned_by_id !== user.partner_id) {
+      return NextResponse.json({ error: 'Access denied: you did not create this mapping' }, { status: 403 });
+    }
+
+    // Get scheme name for activity log
+    let schemeName = '';
+    const { data: scheme } = await supabase
+      .from('schemes')
+      .select('name')
+      .eq('id', mapping.scheme_id)
+      .maybeSingle();
+    if (scheme?.name) schemeName = scheme.name;
 
     const { success } = await deleteSchemeMapping(mappingId);
 
     if (success) {
       const ctx = getRequestContext(request);
+      const activityDescription = schemeName
+        ? `Removed scheme "${schemeName}" from ${mapping.entity_role} ${mapping.entity_id}`
+        : `Removed scheme mapping for ${mapping.entity_role} ${mapping.entity_id}`;
       logActivityFromContext(ctx, user, {
         activity_type: 'scheme_mapping_delete',
         activity_category: 'scheme',
+        activity_description: activityDescription,
+        reference_id: mappingId,
+        reference_table: 'scheme_mappings',
+        status: 'success',
+        metadata: {
+          mapping_id: mappingId,
+          scheme_id: mapping.scheme_id,
+          scheme_name: schemeName || null,
+          entity_id: mapping.entity_id,
+          entity_role: mapping.entity_role,
+        },
       }).catch(() => {});
     }
 

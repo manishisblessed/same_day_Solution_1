@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback, Suspense } from 'react'
+import { useState, useEffect, useCallback, Suspense, memo } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useRouter, useSearchParams, usePathname } from 'next/navigation'
 import { supabase } from '@/lib/supabase/client'
@@ -23,7 +23,7 @@ import { apiFetch } from '@/lib/api-client'
 import POSMachinesTab from '@/components/POSMachinesTab'
 import ServiceTransactionReport from '@/components/ServiceTransactionReport'
 
-type TabType = 'dashboard' | 'wallet' | 'network' | 'commission' | 'mdr-schemes' | 'analytics' | 'reports' | 'settings' | 'scheme-management' | 'pos-machines'
+type TabType = 'dashboard' | 'services' | 'retailers' | 'wallet' | 'commission' | 'mdr-schemes' | 'analytics' | 'reports' | 'settings' | 'scheme-management' | 'pos-machines'
 
 type ChangePasswordFormProps = {
   onPasswordChange: (current: string, newPassword: string, confirm: string) => void
@@ -38,7 +38,7 @@ function DistributorDashboardContent() {
   
   const getInitialTab = (): TabType => {
     const tab = searchParams?.get('tab')
-    if (tab && ['dashboard', 'wallet', 'network', 'commission', 'mdr-schemes', 'analytics', 'reports', 'settings', 'scheme-management', 'pos-machines'].includes(tab)) {
+    if (tab && ['dashboard', 'services', 'retailers', 'wallet', 'commission', 'mdr-schemes', 'analytics', 'reports', 'settings', 'scheme-management', 'pos-machines'].includes(tab)) {
       return tab as TabType
     }
     return 'dashboard'
@@ -208,14 +208,17 @@ function DistributorDashboardContent() {
   }, [user, router, authLoading, fetchDashboardData])
 
   useEffect(() => {
-    // Redirect from old scheme-management route to tab-based route
     if (pathname === '/dashboard/distributor/scheme-management') {
       router.replace('/dashboard/distributor?tab=scheme-management', { scroll: false })
       return
     }
     
     const tab = searchParams?.get('tab')
-    if (tab && ['dashboard', 'wallet', 'network', 'commission', 'mdr-schemes', 'analytics', 'reports', 'settings', 'scheme-management', 'pos-machines'].includes(tab)) {
+    if (tab === 'network') {
+      router.replace('/dashboard/distributor?tab=retailers', { scroll: false })
+      return
+    }
+    if (tab && ['dashboard', 'services', 'retailers', 'wallet', 'commission', 'mdr-schemes', 'analytics', 'reports', 'settings', 'scheme-management', 'pos-machines'].includes(tab)) {
       setActiveTab(tab as TabType)
     } else {
       // Default to dashboard if no tab is specified (when on main dashboard page)
@@ -240,8 +243,9 @@ function DistributorDashboardContent() {
 
   const tabs = [
     { id: 'dashboard' as TabType, label: 'Dashboard', icon: Activity },
+    { id: 'services' as TabType, label: 'Services', icon: Activity },
+    { id: 'retailers' as TabType, label: 'Retailers', icon: Users },
     { id: 'wallet' as TabType, label: 'Wallet', icon: Wallet },
-    { id: 'network' as TabType, label: 'Network', icon: Network },
     { id: 'commission' as TabType, label: 'Commission', icon: TrendingUp },
     { id: 'mdr-schemes' as TabType, label: 'MDR Schemes', icon: Percent },
     { id: 'analytics' as TabType, label: 'Analytics', icon: BarChart3 },
@@ -264,20 +268,14 @@ function DistributorDashboardContent() {
         </button>
 
         <div className="p-2 sm:p-3 md:p-4 lg:p-5 max-w-full h-[calc(100vh-4rem)] overflow-y-auto overflow-x-hidden">
-          {/* Page Header - Compact */}
-          <motion.div
-            initial={{ opacity: 0, y: -20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="mb-4"
-          >
+          {/* Page Header */}
+          <div className="mb-4">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-3">
               <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
-                  <h1 className="text-xl sm:text-2xl md:text-3xl font-bold bg-gradient-to-r from-purple-600 to-purple-700 bg-clip-text text-transparent">
-                    Distributor Dashboard
-                  </h1>
-                </div>
-                <p className="text-xs sm:text-sm text-gray-600 dark:text-gray-400 mt-1 line-clamp-2">
+                <h1 className="text-xl sm:text-2xl md:text-3xl font-bold bg-gradient-to-r from-purple-600 to-purple-700 bg-clip-text text-transparent">
+                  {{ dashboard: 'Dashboard', services: 'Services', retailers: 'Retailers', wallet: 'Wallet', commission: 'Commission', 'mdr-schemes': 'MDR Schemes', analytics: 'Analytics', reports: 'Reports', settings: 'Settings', 'scheme-management': 'Scheme Management', 'pos-machines': 'POS Machines' }[activeTab] || 'Dashboard'}
+                </h1>
+                <p className="text-xs sm:text-sm text-gray-600 dark:text-gray-400 mt-1">
                   Welcome back, {user?.name || user?.email}
                 </p>
               </div>
@@ -291,12 +289,13 @@ function DistributorDashboardContent() {
                 </button>
               </div>
             </div>
-          </motion.div>
+          </div>
 
           {/* Tab Content - Direct rendering based on activeTab */}
           {activeTab === 'dashboard' && <DashboardTab stats={stats} chartData={chartData} pieData={pieData} onTabChange={setActiveTab} router={router} />}
+          {activeTab === 'services' && <ServicesTab />}
+          {activeTab === 'retailers' && <NetworkTab retailers={retailers} user={user} onRefresh={fetchDashboardData} />}
           {activeTab === 'wallet' && <WalletTab user={user} />}
-          {activeTab === 'network' && <NetworkTab retailers={retailers} user={user} onRefresh={fetchDashboardData} />}
           {activeTab === 'commission' && <CommissionTab commissionData={commissionData} stats={stats} />}
           {activeTab === 'mdr-schemes' && <MDRSchemesTab user={user} retailers={retailers} onRefresh={fetchDashboardData} />}
           {activeTab === 'analytics' && <AnalyticsTab categoryData={categoryData} />}
@@ -310,33 +309,33 @@ function DistributorDashboardContent() {
   )
 }
 
-// Dashboard Tab
-function DashboardTab({ stats, chartData, pieData, onTabChange, router }: { stats: any, chartData: any[], pieData: any[], onTabChange: (tab: TabType) => void, router: any }) {
+// Dashboard Tab (memoized for performance)
+const DashboardTab = memo(function DashboardTab({ stats, chartData, pieData, onTabChange, router }: { stats: any, chartData: any[], pieData: any[], onTabChange: (tab: TabType) => void, router: any }) {
   const COLORS = ['#f97316', '#22c55e', '#3b82f6', '#a855f7', '#ef4444']
   
   return (
     <>
       {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6 mb-8">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4 mb-6">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           className="card bg-gradient-to-br from-blue-500 to-blue-600 text-white cursor-pointer hover:shadow-xl transition-shadow"
           onClick={() => {
-            onTabChange('network')
-            router.push('/dashboard/distributor?tab=network', { scroll: false })
+            onTabChange('retailers')
+            router.push('/dashboard/distributor?tab=retailers', { scroll: false })
           }}
         >
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-blue-100 text-sm font-medium">Total Retailers</p>
-              <p className="text-3xl font-bold mt-2">{stats.totalRetailers}</p>
-              <div className="flex items-center gap-1 mt-2">
-                <ArrowUpRight className="w-4 h-4" />
-                <span className="text-sm text-blue-100">Click to manage</span>
+          <div className="flex items-center justify-between gap-2">
+            <div className="min-w-0">
+              <p className="text-blue-100 text-xs sm:text-sm font-medium">Total Retailers</p>
+              <p className="text-2xl sm:text-3xl font-bold mt-1">{stats.totalRetailers}</p>
+              <div className="flex items-center gap-1 mt-1">
+                <ArrowUpRight className="w-3 h-3 sm:w-4 sm:h-4 flex-shrink-0" />
+                <span className="text-xs sm:text-sm text-blue-100">Click to manage</span>
               </div>
             </div>
-            <Users className="w-12 h-12 text-blue-200" />
+            <Users className="w-8 h-8 sm:w-12 sm:h-12 text-blue-200 flex-shrink-0" />
           </div>
         </motion.div>
 
@@ -345,20 +344,20 @@ function DashboardTab({ stats, chartData, pieData, onTabChange, router }: { stat
           animate={{ opacity: 1, y: 0 }}
           className="card bg-gradient-to-br from-green-500 to-green-600 text-white cursor-pointer hover:shadow-xl transition-shadow"
           onClick={() => {
-            onTabChange('network')
-            router.push('/dashboard/distributor?tab=network', { scroll: false })
+            onTabChange('retailers')
+            router.push('/dashboard/distributor?tab=retailers', { scroll: false })
           }}
         >
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-green-100 text-sm font-medium">Active Retailers</p>
-              <p className="text-3xl font-bold mt-2">{stats.activeRetailers}</p>
-              <div className="flex items-center gap-1 mt-2">
-                <ArrowUpRight className="w-4 h-4" />
-                <span className="text-sm text-green-100">Click to manage</span>
+          <div className="flex items-center justify-between gap-2">
+            <div className="min-w-0">
+              <p className="text-green-100 text-xs sm:text-sm font-medium">Active Retailers</p>
+              <p className="text-2xl sm:text-3xl font-bold mt-1">{stats.activeRetailers}</p>
+              <div className="flex items-center gap-1 mt-1">
+                <ArrowUpRight className="w-3 h-3 sm:w-4 sm:h-4 flex-shrink-0" />
+                <span className="text-xs sm:text-sm text-green-100">Click to manage</span>
               </div>
             </div>
-            <UserPlus className="w-12 h-12 text-green-200" />
+            <UserPlus className="w-8 h-8 sm:w-12 sm:h-12 text-green-200 flex-shrink-0" />
           </div>
         </motion.div>
 
@@ -371,16 +370,16 @@ function DashboardTab({ stats, chartData, pieData, onTabChange, router }: { stat
             router.push('/dashboard/distributor?tab=analytics', { scroll: false })
           }}
         >
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-purple-100 text-sm font-medium">Total Revenue</p>
-              <p className="text-3xl font-bold mt-2">₹{stats.totalRevenue.toLocaleString()}</p>
-              <div className="flex items-center gap-1 mt-2">
-                <ArrowUpRight className="w-4 h-4" />
-                <span className="text-sm text-purple-100">Click for details</span>
+          <div className="flex items-center justify-between gap-2">
+            <div className="min-w-0">
+              <p className="text-purple-100 text-xs sm:text-sm font-medium">Total Revenue</p>
+              <p className="text-xl sm:text-2xl lg:text-3xl font-bold mt-1 truncate">₹{stats.totalRevenue.toLocaleString()}</p>
+              <div className="flex items-center gap-1 mt-1">
+                <ArrowUpRight className="w-3 h-3 sm:w-4 sm:h-4 flex-shrink-0" />
+                <span className="text-xs sm:text-sm text-purple-100">Click for details</span>
               </div>
             </div>
-            <DollarSign className="w-12 h-12 text-purple-200" />
+            <DollarSign className="w-8 h-8 sm:w-12 sm:h-12 text-purple-200 flex-shrink-0" />
           </div>
         </motion.div>
 
@@ -393,58 +392,58 @@ function DashboardTab({ stats, chartData, pieData, onTabChange, router }: { stat
             router.push('/dashboard/distributor?tab=commission', { scroll: false })
           }}
         >
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-orange-100 text-sm font-medium">Commission Earned</p>
-              <p className="text-3xl font-bold mt-2">₹{stats.commissionEarned.toLocaleString()}</p>
-              <div className="flex items-center gap-1 mt-2">
-                <ArrowUpRight className="w-4 h-4" />
-                <span className="text-sm text-orange-100">Click to view</span>
+          <div className="flex items-center justify-between gap-2">
+            <div className="min-w-0">
+              <p className="text-orange-100 text-xs sm:text-sm font-medium">Commission Earned</p>
+              <p className="text-xl sm:text-2xl lg:text-3xl font-bold mt-1 truncate">₹{stats.commissionEarned.toLocaleString()}</p>
+              <div className="flex items-center gap-1 mt-1">
+                <ArrowUpRight className="w-3 h-3 sm:w-4 sm:h-4 flex-shrink-0" />
+                <span className="text-xs sm:text-sm text-orange-100">Click to view</span>
               </div>
             </div>
-            <TrendingUp className="w-12 h-12 text-orange-200" />
+            <TrendingUp className="w-8 h-8 sm:w-12 sm:h-12 text-orange-200 flex-shrink-0" />
           </div>
         </motion.div>
 
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="card bg-gradient-to-br from-indigo-500 to-indigo-600 text-white cursor-pointer hover:shadow-xl transition-shadow"
+          className="card bg-gradient-to-br from-indigo-500 to-indigo-600 text-white cursor-pointer hover:shadow-xl transition-shadow col-span-2 md:col-span-1"
           onClick={() => {
             onTabChange('wallet')
             router.push('/dashboard/distributor?tab=wallet', { scroll: false })
           }}
         >
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-indigo-100 text-sm font-medium">Wallet Balance</p>
-              <p className="text-3xl font-bold mt-2">₹{stats.walletBalance.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
-              <div className="flex items-center gap-1 mt-2">
-                <span className="text-sm text-indigo-100">Click to manage</span>
+          <div className="flex items-center justify-between gap-2">
+            <div className="min-w-0">
+              <p className="text-indigo-100 text-xs sm:text-sm font-medium">Wallet Balance</p>
+              <p className="text-xl sm:text-2xl lg:text-3xl font-bold mt-1 truncate">₹{stats.walletBalance.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+              <div className="flex items-center gap-1 mt-1">
+                <span className="text-xs sm:text-sm text-indigo-100">Click to manage</span>
               </div>
             </div>
-            <Wallet className="w-12 h-12 text-indigo-200" />
+            <Wallet className="w-8 h-8 sm:w-12 sm:h-12 text-indigo-200 flex-shrink-0" />
           </div>
         </motion.div>
       </div>
 
       {/* Charts */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6 mb-6">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           className="card lg:col-span-2"
         >
           <h3 className="text-lg font-semibold text-gray-900 mb-4">Retailer Network Performance</h3>
-          <ResponsiveContainer width="100%" height={300}>
-            <LineChart data={chartData}>
+          <ResponsiveContainer width="100%" height={300} minHeight={280}>
+            <LineChart data={chartData} margin={{ top: 5, right: 5, left: 5, bottom: 5 }}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="name" />
               <YAxis />
               <Tooltip />
               <Legend />
-              <Line type="monotone" dataKey="retailers" stroke="#3b82f6" strokeWidth={2} name="Active Retailers" />
-              <Line type="monotone" dataKey="revenue" stroke="#22c55e" strokeWidth={2} name="Revenue (₹)" />
+              <Line type="monotone" dataKey="retailers" stroke="#3b82f6" strokeWidth={2} name="Active Retailers" isAnimationActive={false} />
+              <Line type="monotone" dataKey="revenue" stroke="#22c55e" strokeWidth={2} name="Revenue (₹)" isAnimationActive={false} />
             </LineChart>
           </ResponsiveContainer>
         </motion.div>
@@ -455,23 +454,38 @@ function DashboardTab({ stats, chartData, pieData, onTabChange, router }: { stat
           className="card"
         >
           <h3 className="text-lg font-semibold text-gray-900 mb-4">Retailer Status</h3>
-          <ResponsiveContainer width="100%" height={300}>
+          <ResponsiveContainer width="100%" height={300} minHeight={280}>
             <PieChart>
               <Pie
                 data={pieData}
                 cx="50%"
-                cy="50%"
-                labelLine={false}
-                label={({ name, percent }) => `${name} ${percent ? (percent * 100).toFixed(0) : 0}%`}
+                cy="45%"
+                innerRadius={50}
                 outerRadius={80}
-                fill="#8884d8"
+                paddingAngle={2}
                 dataKey="value"
+                isAnimationActive={false}
+                label={false}
               >
                 {pieData.map((entry, index) => (
                   <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                 ))}
               </Pie>
-              <Tooltip />
+              <Tooltip
+                formatter={(value: number) => [value, 'Count']}
+                contentStyle={{ textAlign: 'left' }}
+              />
+              <Legend
+                layout="horizontal"
+                align="center"
+                verticalAlign="bottom"
+                formatter={(value, entry) => {
+                  const item = pieData.find(d => d.name === value)
+                  const total = pieData.reduce((s, d) => s + (d.value || 0), 0)
+                  const pct = total > 0 && item ? ((item.value || 0) / total * 100).toFixed(0) : '0'
+                  return `${value} ${pct}%`
+                }}
+              />
             </PieChart>
           </ResponsiveContainer>
         </motion.div>
@@ -487,6 +501,147 @@ function DashboardTab({ stats, chartData, pieData, onTabChange, router }: { stat
         <TransactionsTable role="distributor" autoPoll={true} pollInterval={10000} />
       </motion.div>
     </>
+  )
+})
+
+// Services Tab
+function ServicesTab() {
+  const [services, setServices] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    fetchServicesData()
+  }, [])
+
+  const fetchServicesData = async () => {
+    setLoading(true)
+    try {
+      const [bbpsData, aepsData, settlementData] = await Promise.all([
+        supabase
+          .from('bbps_transactions')
+          .select('bill_amount, created_at, status')
+          .eq('status', 'success'),
+        supabase
+          .from('aeps_transactions')
+          .select('amount, created_at, status')
+          .eq('status', 'success'),
+        supabase
+          .from('settlements')
+          .select('amount, created_at, status')
+          .eq('status', 'success')
+      ])
+
+      const bbpsTransactions = bbpsData.data || []
+      const aepsTransactions = aepsData.data || []
+      const settlementTransactions = settlementData.data || []
+
+      const bbpsCount = bbpsTransactions.length
+      const bbpsRevenue = bbpsTransactions.reduce((sum, t) => sum + parseFloat(t.bill_amount?.toString() || '0'), 0)
+
+      const aepsCount = aepsTransactions.length
+      const aepsRevenue = aepsTransactions.reduce((sum, t) => sum + parseFloat(t.amount?.toString() || '0'), 0)
+
+      const settlementCount = settlementTransactions.length
+      const settlementRevenue = settlementTransactions.reduce((sum, t) => sum + parseFloat(t.amount?.toString() || '0'), 0)
+
+      const servicesList = [
+        {
+          id: 'bbps',
+          name: 'BBPS (Bill Payments)',
+          icon: '📄',
+          status: 'active',
+          transactions: bbpsCount,
+          revenue: `₹${bbpsRevenue.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`
+        },
+        {
+          id: 'aeps',
+          name: 'AEPS Services',
+          icon: '👆',
+          status: 'active',
+          transactions: aepsCount,
+          revenue: `₹${aepsRevenue.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`
+        },
+        {
+          id: 'settlement',
+          name: 'Settlement',
+          icon: '💰',
+          status: 'active',
+          transactions: settlementCount,
+          revenue: `₹${settlementRevenue.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`
+        },
+        {
+          id: 'pos',
+          name: 'POS Transactions',
+          icon: '💳',
+          status: 'active',
+          transactions: 0,
+          revenue: '₹0'
+        },
+      ]
+
+      setServices(servicesList)
+    } catch (error) {
+      console.error('Error fetching services data:', error)
+      setServices([])
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-purple-600"></div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {services.map((service) => (
+          <motion.div
+            key={service.id}
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-white dark:bg-gray-800 rounded-xl shadow-md border border-gray-200 dark:border-gray-700 p-5 hover:shadow-lg transition-shadow"
+          >
+            <div className="flex items-start justify-between mb-3">
+              <div className="flex items-center gap-3">
+                <div className="text-3xl">{service.icon}</div>
+                <div className="flex-1 min-w-0">
+                  <h3 className="text-sm font-semibold text-gray-900 dark:text-white truncate">{service.name}</h3>
+                  <span className={`inline-block mt-1 px-2 py-0.5 text-xs rounded-full ${
+                    service.status === 'active'
+                      ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400'
+                      : 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
+                  }`}>
+                    {service.status}
+                  </span>
+                </div>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <div>
+                <p className="text-xs text-gray-500 dark:text-gray-400">Transactions</p>
+                <p className="text-lg font-bold text-gray-900 dark:text-white">{service.transactions}</p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-500 dark:text-gray-400">Revenue</p>
+                <p className="text-lg font-bold text-green-600 dark:text-green-400">{service.revenue}</p>
+              </div>
+            </div>
+          </motion.div>
+        ))}
+      </div>
+
+      {services.length === 0 && (
+        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-md border border-gray-200 dark:border-gray-700 p-8 text-center">
+          <Activity className="w-12 h-12 mx-auto text-gray-300 mb-3" />
+          <p className="text-gray-500 dark:text-gray-400">No services available yet.</p>
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -659,7 +814,9 @@ function NetworkTab({ retailers, user, onRefresh }: { retailers: any[], user: an
   const [searchTerm, setSearchTerm] = useState('')
   const [showFundTransfer, setShowFundTransfer] = useState(false)
   const [showAddRetailer, setShowAddRetailer] = useState(false)
+  const [showRetailerDetail, setShowRetailerDetail] = useState(false)
   const [selectedUser, setSelectedUser] = useState<any>(null)
+  const [detailRetailer, setDetailRetailer] = useState<any>(null)
   const [transferData, setTransferData] = useState({
     amount: '',
     fund_category: 'cash' as 'cash' | 'online',
@@ -793,6 +950,10 @@ function NetworkTab({ retailers, user, onRefresh }: { retailers: any[], user: an
                           <ArrowDownCircle className="w-5 h-5" />
                         </button>
                         <button
+                          onClick={() => {
+                            setDetailRetailer(retailer)
+                            setShowRetailerDetail(true)
+                          }}
                           className="p-2 text-blue-600 hover:bg-blue-50 rounded"
                           title="View Details"
                         >
@@ -891,6 +1052,116 @@ function NetworkTab({ retailers, user, onRefresh }: { retailers: any[], user: an
           }}
         />
       )}
+
+      {/* Retailer Detail Modal */}
+      {showRetailerDetail && detailRetailer && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto"
+          >
+            <div className="flex items-center justify-between p-6 border-b border-gray-200 sticky top-0 bg-white rounded-t-xl z-10">
+              <div>
+                <h3 className="text-xl font-bold text-gray-900">Retailer Details</h3>
+                <p className="text-sm text-gray-500 mt-0.5">{detailRetailer.partner_id}</p>
+              </div>
+              <button
+                onClick={() => { setShowRetailerDetail(false); setDetailRetailer(null) }}
+                className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+              >
+                <X className="w-5 h-5 text-gray-500" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-6">
+              {/* Basic Info */}
+              <div>
+                <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">Basic Information</h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <DetailField label="Name" value={detailRetailer.name} />
+                  <DetailField label="Email" value={detailRetailer.email} />
+                  <DetailField label="Phone" value={detailRetailer.phone} />
+                  <DetailField label="Status" value={
+                    <span className={`px-2 py-1 text-xs rounded-full ${
+                      detailRetailer.status === 'active' ? 'bg-green-100 text-green-800' :
+                      detailRetailer.status === 'inactive' ? 'bg-yellow-100 text-yellow-800' :
+                      'bg-red-100 text-red-800'
+                    }`}>
+                      {detailRetailer.status || 'active'}
+                    </span>
+                  } />
+                </div>
+              </div>
+
+              {/* Business Info */}
+              <div>
+                <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">Business Information</h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <DetailField label="Business Name" value={detailRetailer.business_name} />
+                  <DetailField label="Commission Rate" value={detailRetailer.commission_rate ? `${detailRetailer.commission_rate}%` : null} />
+                  <DetailField label="Address" value={detailRetailer.address} />
+                  <DetailField label="City" value={detailRetailer.city} />
+                  <DetailField label="State" value={detailRetailer.state} />
+                  <DetailField label="Pincode" value={detailRetailer.pincode} />
+                </div>
+              </div>
+
+              {/* Bank Details */}
+              {(detailRetailer.bank_name || detailRetailer.account_number || detailRetailer.ifsc_code) && (
+                <div>
+                  <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">Bank Details</h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <DetailField label="Bank Name" value={detailRetailer.bank_name} />
+                    <DetailField label="Account Number" value={detailRetailer.account_number} />
+                    <DetailField label="IFSC Code" value={detailRetailer.ifsc_code} />
+                  </div>
+                </div>
+              )}
+
+              {/* KYC / Documents */}
+              {(detailRetailer.aadhar_number || detailRetailer.pan_number || detailRetailer.gst_number || detailRetailer.udhyam_number) && (
+                <div>
+                  <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">KYC Documents</h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <DetailField label="Aadhar Number" value={detailRetailer.aadhar_number} />
+                    <DetailField label="PAN Number" value={detailRetailer.pan_number} />
+                    {detailRetailer.gst_number && <DetailField label="GST Number" value={detailRetailer.gst_number} />}
+                    {detailRetailer.udhyam_number && <DetailField label="Udhyam Number" value={detailRetailer.udhyam_number} />}
+                  </div>
+                </div>
+              )}
+
+              {/* Dates */}
+              <div>
+                <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">Other</h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <DetailField label="Created At" value={detailRetailer.created_at ? new Date(detailRetailer.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : null} />
+                  <DetailField label="Distributor ID" value={detailRetailer.distributor_id} />
+                </div>
+              </div>
+            </div>
+
+            <div className="p-6 border-t border-gray-200 sticky bottom-0 bg-white rounded-b-xl">
+              <button
+                onClick={() => { setShowRetailerDetail(false); setDetailRetailer(null) }}
+                className="w-full py-2.5 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors font-medium"
+              >
+                Close
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function DetailField({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div className="bg-gray-50 rounded-lg px-4 py-3">
+      <p className="text-xs text-gray-500 font-medium">{label}</p>
+      <div className="text-sm text-gray-900 mt-0.5 font-medium">{value || <span className="text-gray-400">—</span>}</div>
     </div>
   )
 }
@@ -1870,23 +2141,35 @@ function AnalyticsTab({ categoryData }: { categoryData: any[] }) {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <div>
             <h4 className="text-sm font-medium text-gray-700 mb-4">Revenue by Category</h4>
-            <ResponsiveContainer width="100%" height={300}>
+            <ResponsiveContainer width="100%" height={300} minHeight={280}>
               <PieChart>
                 <Pie
                   data={categoryData}
                   cx="50%"
-                  cy="50%"
-                  labelLine={false}
-                  label={({ name, percent }) => `${name} ${percent ? (percent * 100).toFixed(0) : 0}%`}
+                  cy="45%"
+                  innerRadius={50}
                   outerRadius={80}
-                  fill="#8884d8"
+                  paddingAngle={2}
                   dataKey="revenue"
+                  isAnimationActive={false}
+                  label={false}
                 >
                   {categoryData.map((entry, index) => (
                     <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                   ))}
                 </Pie>
-                <Tooltip />
+                <Tooltip formatter={(value: number) => [value, 'Revenue']} contentStyle={{ textAlign: 'left' }} />
+                <Legend
+                  layout="horizontal"
+                  align="center"
+                  verticalAlign="bottom"
+                  formatter={(value, entry) => {
+                    const item = categoryData.find(d => d.name === value)
+                    const total = categoryData.reduce((s, d) => s + (d.revenue || 0), 0)
+                    const pct = total > 0 && item ? (((item.revenue || 0) / total * 100).toFixed(0)) : '0'
+                    return `${value} ${pct}%`
+                  }}
+                />
               </PieChart>
             </ResponsiveContainer>
           </div>
@@ -2532,8 +2815,6 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
     distributor_commission_type: 'flat' as 'flat' | 'percentage',
     md_commission: 0,
     md_commission_type: 'flat' as 'flat' | 'percentage',
-    company_charge: 0,
-    company_charge_type: 'flat' as 'flat' | 'percentage',
   })
 
   const [payoutForm, setPayoutForm] = useState({
@@ -2548,8 +2829,6 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
     distributor_commission_type: 'flat' as 'flat' | 'percentage',
     md_commission: 0,
     md_commission_type: 'flat' as 'flat' | 'percentage',
-    company_charge: 0,
-    company_charge_type: 'flat' as 'flat' | 'percentage',
   })
 
   const [mdrForm, setMdrForm] = useState({
@@ -2700,12 +2979,31 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
     setShowMappingModal(true)
   }
 
+  const handleUnmapRetailer = async (schemeId: string, mappingId: string) => {
+    if (!confirm('Remove this retailer from the scheme? They will no longer use this scheme for charges.')) return
+    try {
+      const res = await apiFetch(`/api/schemes/mappings?id=${encodeURIComponent(mappingId)}`, { method: 'DELETE' })
+      const result = await res.json()
+      if (!res.ok) throw new Error(result.error || 'Failed to remove mapping')
+      setSuccess('Retailer removed from scheme')
+      setSchemes(prev => prev.map(s => s.id === schemeId ? {
+        ...s,
+        mappings: (s.mappings || []).filter((m: any) => m.id !== mappingId),
+        mapping_count: Math.max(0, (s.mapping_count || 0) - 1),
+      } : s))
+      setTimeout(() => setSuccess(''), 3000)
+    } catch (err: any) {
+      setError(err.message)
+      setTimeout(() => setError(''), 3000)
+    }
+  }
+
   const openConfigModal = (schemeId: string, type: 'bbps' | 'payout' | 'mdr') => {
     setConfigSchemeId(schemeId)
     setConfigType(type)
     // Reset forms
-    setBbpsForm({ category: '', min_amount: 0, max_amount: 999999999, retailer_charge: 0, retailer_charge_type: 'flat', retailer_commission: 0, retailer_commission_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat', company_charge: 0, company_charge_type: 'flat' })
-    setPayoutForm({ transfer_mode: 'IMPS', min_amount: 0, max_amount: 999999999, retailer_charge: 0, retailer_charge_type: 'flat', retailer_commission: 0, retailer_commission_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat', company_charge: 0, company_charge_type: 'flat' })
+    setBbpsForm({ category: '', min_amount: 0, max_amount: 999999999, retailer_charge: 0, retailer_charge_type: 'flat', retailer_commission: 0, retailer_commission_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat' })
+    setPayoutForm({ transfer_mode: 'IMPS', min_amount: 0, max_amount: 999999999, retailer_charge: 0, retailer_charge_type: 'flat', retailer_commission: 0, retailer_commission_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat' })
     setMdrForm({ mode: 'CARD', card_type: '', brand_type: '', card_classification: '', retailer_mdr_t1: 0, retailer_mdr_t0: 0, distributor_mdr_t1: 0, distributor_mdr_t0: 0, md_mdr_t1: 0, md_mdr_t0: 0 })
     setShowConfigModal(true)
   }
@@ -2726,8 +3024,8 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
           distributor_commission_type: bbpsForm.distributor_commission_type,
           md_commission: bbpsForm.md_commission,
           md_commission_type: bbpsForm.md_commission_type,
-          company_charge: bbpsForm.company_charge,
-          company_charge_type: bbpsForm.company_charge_type,
+          company_charge: 0,
+          company_charge_type: 'flat',
           status: 'active',
         })
         if (error) throw error
@@ -2745,8 +3043,8 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
           distributor_commission_type: payoutForm.distributor_commission_type,
           md_commission: payoutForm.md_commission,
           md_commission_type: payoutForm.md_commission_type,
-          company_charge: payoutForm.company_charge,
-          company_charge_type: payoutForm.company_charge_type,
+          company_charge: 0,
+          company_charge_type: 'flat',
           status: 'active',
         })
         if (error) throw error
@@ -2820,41 +3118,21 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
 
   const handleMapScheme = async (retailerId: string) => {
     try {
-      // Check if mapping already exists
-      const { data: existing } = await supabase
-        .from('scheme_mappings')
-        .select('id')
-        .eq('scheme_id', mappingSchemeId)
-        .eq('entity_id', retailerId)
-        .eq('entity_role', 'retailer')
-        .eq('status', 'active')
-        .maybeSingle()
-
-      if (existing) {
-        setError('Scheme already mapped to this retailer')
-        setTimeout(() => setError(''), 3000)
-        return
-      }
-
-      // Deactivate any existing mapping for this retailer
-      await supabase
-        .from('scheme_mappings')
-        .update({ status: 'inactive' })
-        .eq('entity_id', retailerId)
-        .eq('entity_role', 'retailer')
-
-      // Create new mapping
-      const { error } = await supabase.from('scheme_mappings').insert({
-        scheme_id: mappingSchemeId,
-        entity_id: retailerId,
-        entity_role: 'retailer',
-        assigned_by_id: user?.partner_id,
-        assigned_by_role: 'distributor',
-        status: 'active',
-        priority: 100,
+      const response = await apiFetch('/api/schemes/mappings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          scheme_id: mappingSchemeId,
+          entity_id: retailerId,
+          entity_role: 'retailer',
+          service_type: 'all',
+          priority: 100,
+        }),
       })
-
-      if (error) throw error
+      const result = await response.json()
+      if (!response.ok || result.error) {
+        throw new Error(result.error || 'Failed to map scheme')
+      }
       setSuccess('Scheme mapped successfully')
       setShowMappingModal(false)
       fetchSchemes()
@@ -2970,7 +3248,6 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
                               <th className="px-2 py-1.5 text-right">Retailer Comm</th>
                               <th className="px-2 py-1.5 text-right">Dist Comm</th>
                               <th className="px-2 py-1.5 text-right">MD Comm</th>
-                              <th className="px-2 py-1.5 text-right">Company</th>
                               <th className="px-2 py-1.5"></th>
                             </tr>
                           </thead>
@@ -2983,7 +3260,6 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
                                 <td className="px-2 py-1.5 text-right">{c.retailer_commission}{c.retailer_commission_type === 'percentage' ? '%' : '₹'}</td>
                                 <td className="px-2 py-1.5 text-right">{c.distributor_commission}{c.distributor_commission_type === 'percentage' ? '%' : '₹'}</td>
                                 <td className="px-2 py-1.5 text-right">{c.md_commission}{c.md_commission_type === 'percentage' ? '%' : '₹'}</td>
-                                <td className="px-2 py-1.5 text-right">{c.company_charge}{c.company_charge_type === 'percentage' ? '%' : '₹'}</td>
                                 <td className="px-2 py-1.5 text-right">
                                   <button onClick={() => handleDeleteConfig('scheme_bbps_commissions', c.id)} className="text-red-400 hover:text-red-600">
                                     <Trash2 className="w-3 h-3" />
@@ -3015,7 +3291,6 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
                               <th className="px-2 py-1.5 text-right">Retailer Comm</th>
                               <th className="px-2 py-1.5 text-right">Dist Comm</th>
                               <th className="px-2 py-1.5 text-right">MD Comm</th>
-                              <th className="px-2 py-1.5 text-right">Company</th>
                               <th className="px-2 py-1.5"></th>
                             </tr>
                           </thead>
@@ -3028,7 +3303,6 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
                                 <td className="px-2 py-1.5 text-right">{c.retailer_commission}{c.retailer_commission_type === 'percentage' ? '%' : '₹'}</td>
                                 <td className="px-2 py-1.5 text-right">{c.distributor_commission}{c.distributor_commission_type === 'percentage' ? '%' : '₹'}</td>
                                 <td className="px-2 py-1.5 text-right">{c.md_commission}{c.md_commission_type === 'percentage' ? '%' : '₹'}</td>
-                                <td className="px-2 py-1.5 text-right">{c.company_charge}{c.company_charge_type === 'percentage' ? '%' : '₹'}</td>
                                 <td className="px-2 py-1.5 text-right">
                                   <button onClick={() => handleDeleteConfig('scheme_payout_charges', c.id)} className="text-red-400 hover:text-red-600">
                                     <Trash2 className="w-3 h-3" />
@@ -3105,6 +3379,15 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
                               <span className="font-semibold text-gray-900 dark:text-white">{m.entity_name}</span>
                             )}
                             <span className="text-gray-500 dark:text-gray-400">({m.entity_id})</span>
+                            <button
+                              type="button"
+                              onClick={() => handleUnmapRetailer(scheme.id, m.id)}
+                              className="ml-auto flex items-center gap-1 px-2 py-1 rounded text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20"
+                              title="Remove scheme from this retailer"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                              <span>Remove</span>
+                            </button>
                           </div>
                         ))}
                       </div>
@@ -3231,7 +3514,6 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
                   { label: 'Retailer Commission', key: 'retailer_commission', typeKey: 'retailer_commission_type' },
                   { label: 'Distributor Commission', key: 'distributor_commission', typeKey: 'distributor_commission_type' },
                   { label: 'MD Commission', key: 'md_commission', typeKey: 'md_commission_type' },
-                  { label: 'Company Earning', key: 'company_charge', typeKey: 'company_charge_type' },
                 ].map(({ label, key, typeKey }) => (
                   <div key={key} className="grid grid-cols-3 gap-2 items-end">
                     <div className="col-span-2">
@@ -3281,7 +3563,6 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
                   { label: 'Retailer Commission', key: 'retailer_commission', typeKey: 'retailer_commission_type' },
                   { label: 'Distributor Commission', key: 'distributor_commission', typeKey: 'distributor_commission_type' },
                   { label: 'MD Commission', key: 'md_commission', typeKey: 'md_commission_type' },
-                  { label: 'Company Earning', key: 'company_charge', typeKey: 'company_charge_type' },
                 ].map(({ label, key, typeKey }) => (
                   <div key={key} className="grid grid-cols-3 gap-2 items-end">
                     <div className="col-span-2">

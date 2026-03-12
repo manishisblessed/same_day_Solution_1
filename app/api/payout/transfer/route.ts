@@ -233,6 +233,7 @@ export async function POST(request: NextRequest) {
     let charges = 0
     let resolvedSchemeId: string | null = null
     let resolvedSchemeName: string | null = null
+    let commissionSplit = { retailer_commission: 0, distributor_commission: 0, md_commission: 0 }
     
     try {
       console.log(`[Payout] Resolving scheme: user=${user.partner_id}, dist=${distributorId}, md=${mdId}, amount=${amountNum}, mode=${transferMode}`)
@@ -263,7 +264,12 @@ export async function POST(request: NextRequest) {
           console.error('[Payout] Charge calculation RPC error:', chargeError)
         } else if (chargeResult && chargeResult.length > 0 && parseFloat(chargeResult[0].retailer_charge) > 0) {
           charges = parseFloat(chargeResult[0].retailer_charge)
-          console.log(`[Payout] Scheme charge via RPC: ₹${charges}`)
+          commissionSplit = {
+            retailer_commission: parseFloat(chargeResult[0].retailer_commission) || 0,
+            distributor_commission: parseFloat(chargeResult[0].distributor_commission) || 0,
+            md_commission: parseFloat(chargeResult[0].md_commission) || 0,
+          }
+          console.log(`[Payout] Scheme charge via RPC: ₹${charges}, commissions: RT=${commissionSplit.retailer_commission}, DT=${commissionSplit.distributor_commission}, MD=${commissionSplit.md_commission}`)
         } else {
           console.warn(`[Payout] RPC charge slab returned 0, trying direct query for scheme ${resolved.scheme_id}, amount=${amountNum}, mode=${transferMode}`)
           // Fallback: Direct table query for payout charge
@@ -283,6 +289,12 @@ export async function POST(request: NextRequest) {
               charges = matchingSlab.retailer_charge_type === 'percentage'
                 ? Math.round(amountNum * rc / 100 * 100) / 100
                 : rc
+              const calcComm = (val: number, type: string) => type === 'percentage' ? Math.round(amountNum * val / 100 * 100) / 100 : val
+              commissionSplit = {
+                retailer_commission: calcComm(parseFloat(matchingSlab.retailer_commission) || 0, matchingSlab.retailer_commission_type),
+                distributor_commission: calcComm(parseFloat(matchingSlab.distributor_commission) || 0, matchingSlab.distributor_commission_type),
+                md_commission: calcComm(parseFloat(matchingSlab.md_commission) || 0, matchingSlab.md_commission_type),
+              }
               console.log(`[Payout] Scheme charge via direct query: ₹${charges}`)
             }
           }
@@ -348,6 +360,12 @@ export async function POST(request: NextRequest) {
                 charges = matchingSlab.retailer_charge_type === 'percentage'
                   ? Math.round(amountNum * rc / 100 * 100) / 100
                   : rc
+                const calcComm = (val: number, type: string) => type === 'percentage' ? Math.round(amountNum * val / 100 * 100) / 100 : val
+                commissionSplit = {
+                  retailer_commission: calcComm(parseFloat(matchingSlab.retailer_commission) || 0, matchingSlab.retailer_commission_type),
+                  distributor_commission: calcComm(parseFloat(matchingSlab.distributor_commission) || 0, matchingSlab.distributor_commission_type),
+                  md_commission: calcComm(parseFloat(matchingSlab.md_commission) || 0, matchingSlab.md_commission_type),
+                }
                 console.log(`[Payout] Scheme charge via direct query: ₹${charges}`)
               }
             }
@@ -524,6 +542,66 @@ export async function POST(request: NextRequest) {
         status: 'processing'
       })
       .eq('id', payoutTx.id)
+
+    // Distribute commissions from the charge to retailer/distributor/MD wallets
+    if (charges > 0) {
+      const txRef = `PAYOUT_COMM_${clientRefId}`
+      try {
+        if (commissionSplit.retailer_commission > 0) {
+          await (supabaseAdmin as any).rpc('add_ledger_entry', {
+            p_user_id: user.partner_id,
+            p_user_role: 'retailer',
+            p_wallet_type: 'primary',
+            p_fund_category: 'commission',
+            p_service_type: 'payout',
+            p_tx_type: 'COMMISSION_CREDIT',
+            p_credit: commissionSplit.retailer_commission,
+            p_debit: 0,
+            p_reference_id: txRef,
+            p_transaction_id: payoutTx.id,
+            p_status: 'completed',
+            p_remarks: `Payout commission earned on ₹${amountNum} transfer`,
+          })
+          console.log(`[Payout] Commission credited to retailer: ₹${commissionSplit.retailer_commission}`)
+        }
+        if (commissionSplit.distributor_commission > 0 && distributorId) {
+          await (supabaseAdmin as any).rpc('add_ledger_entry', {
+            p_user_id: distributorId,
+            p_user_role: 'distributor',
+            p_wallet_type: 'primary',
+            p_fund_category: 'commission',
+            p_service_type: 'payout',
+            p_tx_type: 'COMMISSION_CREDIT',
+            p_credit: commissionSplit.distributor_commission,
+            p_debit: 0,
+            p_reference_id: txRef,
+            p_transaction_id: payoutTx.id,
+            p_status: 'completed',
+            p_remarks: `Payout commission on retailer ${user.partner_id} transaction`,
+          })
+          console.log(`[Payout] Commission credited to distributor ${distributorId}: ₹${commissionSplit.distributor_commission}`)
+        }
+        if (commissionSplit.md_commission > 0 && mdId) {
+          await (supabaseAdmin as any).rpc('add_ledger_entry', {
+            p_user_id: mdId,
+            p_user_role: 'master_distributor',
+            p_wallet_type: 'primary',
+            p_fund_category: 'commission',
+            p_service_type: 'payout',
+            p_tx_type: 'COMMISSION_CREDIT',
+            p_credit: commissionSplit.md_commission,
+            p_debit: 0,
+            p_reference_id: txRef,
+            p_transaction_id: payoutTx.id,
+            p_status: 'completed',
+            p_remarks: `Payout commission on retailer ${user.partner_id} transaction`,
+          })
+          console.log(`[Payout] Commission credited to MD ${mdId}: ₹${commissionSplit.md_commission}`)
+        }
+      } catch (commErr: any) {
+        console.error('[Payout] Commission distribution error (non-fatal):', commErr.message)
+      }
+    }
 
     // Initiate transfer with SparkUp expressPay2 API
     const transferResult = await initiateTransfer({

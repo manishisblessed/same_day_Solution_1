@@ -1,0 +1,305 @@
+{
+  "info": {
+    "name": "Same Day Solution — Payout Partner API",
+    "description": "Bank Payout (IMPS/NEFT) Partner API — powered by SparkUpTech Express Pay.\n\n## Authentication\nEvery authenticated request requires 3 headers:\n- `x-api-key` — Your public API key\n- `x-signature` — HMAC-SHA256 signature\n- `x-timestamp` — Current Unix timestamp (ms)\n\nSignature formula:\n```\nHMAC_SHA256(api_secret, JSON.stringify(body) + timestamp)\n```\nFor GET requests (no body): `HMAC_SHA256(api_secret, '' + timestamp)`\n\n## Setup\n1. Set `api_key` and `api_secret` in Collection Variables\n2. Pre-request scripts auto-generate signature\n3. All requests are ready to fire\n\n## Security\n- IP Whitelisting enforced (contact admin to whitelist your server IP)\n- Timestamp tolerance: 5 minutes\n- HTTPS required in production\n- Permission required: `payout` or `all`\n\n## Capabilities\n- Get bank list (IMPS/NEFT)\n- Verify bank account (beneficiary name — penniless)\n- Initiate transfer (IMPS/NEFT)\n- Check transfer status or list recent transfers\n\n## Financial Operations\nTransfer requires `retailer_id` — the retailer's partner_id whose wallet will be debited.\nDuplicate prevention: same account within 2 minutes returns 429.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "version": "1.0.0"
+  },
+  "auth": {
+    "type": "noauth"
+  },
+  "variable": [
+    { "key": "base_url", "value": "https://api.samedaysolution.in", "type": "string" },
+    { "key": "api_key", "value": "pk_live_YOUR_API_KEY_HERE", "type": "string" },
+    { "key": "api_secret", "value": "sk_live_YOUR_API_SECRET_HERE", "type": "string" }
+  ],
+  "item": [
+    {
+      "name": "🔐 Payout — Authenticated",
+      "description": "All requests require `x-api-key`, `x-signature`, and `x-timestamp` headers.\n\nThe pre-request script automatically calculates the HMAC signature.",
+      "item": [
+        {
+          "name": "Get Bank List",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const CryptoJS = require('crypto-js');",
+                  "let apiKey = pm.collectionVariables.get('api_key') || pm.environment.get('api_key');",
+                  "let apiSecret = pm.collectionVariables.get('api_secret') || pm.environment.get('api_secret');",
+                  "if (!apiKey || apiKey === 'pk_live_YOUR_API_KEY_HERE') throw new Error('Set api_key in Collection Variables');",
+                  "if (!apiSecret || apiSecret === 'sk_live_YOUR_API_SECRET_HERE') throw new Error('Set api_secret in Collection Variables');",
+                  "const timestamp = Date.now().toString();",
+                  "const signature = CryptoJS.HmacSHA256('' + timestamp, apiSecret).toString(CryptoJS.enc.Hex);",
+                  "pm.request.headers.upsert({ key: 'x-api-key', value: apiKey });",
+                  "pm.request.headers.upsert({ key: 'x-signature', value: signature });",
+                  "pm.request.headers.upsert({ key: 'x-timestamp', value: timestamp });"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', function() { pm.response.to.have.status(200); });",
+                  "pm.test('Has banks', function() { const j = pm.response.json(); pm.expect(j.success).to.be.true; pm.expect(j.banks).to.be.an('array'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "x-api-key", "value": "{{api_key}}" },
+              { "key": "x-signature", "value": "auto-generated" },
+              { "key": "x-timestamp", "value": "auto-generated" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/partner/payout/banks",
+              "host": ["{{base_url}}"],
+              "path": ["api", "partner", "payout", "banks"],
+              "query": [
+                { "key": "imps", "value": "true", "description": "IMPS-enabled banks only", "disabled": true },
+                { "key": "neft", "value": "true", "description": "NEFT-enabled banks only", "disabled": true },
+                { "key": "popular", "value": "true", "description": "Popular banks only", "disabled": true },
+                { "key": "search", "value": "", "description": "Search by bank name or IFSC", "disabled": true }
+              ]
+            },
+            "description": "Returns list of banks for payout. Use `bankId` and `bankName` in Verify and Transfer.\n\n### Query Parameters\n| Param | Type | Description |\n|-------|------|-------------|\n| `imps` | Boolean | IMPS-enabled banks only |\n| `neft` | Boolean | NEFT-enabled banks only |\n| `popular` | Boolean | Popular banks only |\n| `search` | String | Search by bank name |"
+          },
+          "response": [
+            {
+              "name": "200 — Banks",
+              "status": "OK",
+              "code": 200,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"success\": true,\n  \"banks\": [\n    { \"id\": 1, \"name\": \"HDFC Bank\", \"imps\": true, \"neft\": true },\n    { \"id\": 2, \"name\": \"State Bank of India\", \"imps\": true, \"neft\": true }\n  ],\n  \"total\": 100,\n  \"imps_enabled\": 95,\n  \"neft_enabled\": 98\n}"
+            },
+            {
+              "name": "401 — Unauthorized (IP Blocked)",
+              "status": "Unauthorized",
+              "code": 401,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"success\": false,\n  \"error\": {\n    \"code\": \"UNAUTHORIZED\",\n    \"message\": \"IP address 203.0.113.50 is not authorized. Please contact admin to whitelist your server IP.\"\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "Verify Bank Account",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const CryptoJS = require('crypto-js');",
+                  "let apiKey = pm.collectionVariables.get('api_key') || pm.environment.get('api_key');",
+                  "let apiSecret = pm.collectionVariables.get('api_secret') || pm.environment.get('api_secret');",
+                  "if (!apiKey || apiKey === 'pk_live_YOUR_API_KEY_HERE') throw new Error('Set api_key in Collection Variables');",
+                  "if (!apiSecret || apiSecret === 'sk_live_YOUR_API_SECRET_HERE') throw new Error('Set api_secret in Collection Variables');",
+                  "const timestamp = Date.now().toString();",
+                  "const body = JSON.parse(pm.request.body.raw);",
+                  "const signature = CryptoJS.HmacSHA256(JSON.stringify(body) + timestamp, apiSecret).toString(CryptoJS.enc.Hex);",
+                  "pm.request.headers.upsert({ key: 'x-api-key', value: apiKey });",
+                  "pm.request.headers.upsert({ key: 'x-signature', value: signature });",
+                  "pm.request.headers.upsert({ key: 'x-timestamp', value: timestamp });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "x-api-key", "value": "{{api_key}}" },
+              { "key": "x-signature", "value": "auto-generated" },
+              { "key": "x-timestamp", "value": "auto-generated" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"accountNumber\": \"1234567890123456\",\n  \"ifscCode\": \"HDFC0001234\",\n  \"bankName\": \"HDFC Bank\",\n  \"bankId\": 1\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/partner/payout/verify",
+              "host": ["{{base_url}}"],
+              "path": ["api", "partner", "payout", "verify"]
+            },
+            "description": "Verify bank account and get beneficiary name. Penniless transaction (no charges).\n\n### Request Body\n| Field | Type | Required | Description |\n|-------|------|----------|-------------|\n| `accountNumber` | String | ✅ Yes | Bank account number |\n| `ifscCode` | String | ✅ Yes | IFSC code |\n| `bankName` | String | No | Bank name |\n| `bankId` | Number | No | Bank ID from bank list |"
+          },
+          "response": [
+            {
+              "name": "200 — Verified",
+              "status": "OK",
+              "code": 200,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"success\": true,\n  \"is_valid\": true,\n  \"account_holder_name\": \"John Doe\",\n  \"bank_name\": \"HDFC Bank\",\n  \"branch_name\": \"Mumbai Main\",\n  \"verification_charges\": 0,\n  \"message\": \"Account verified successfully\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Initiate Transfer",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const CryptoJS = require('crypto-js');",
+                  "let apiKey = pm.collectionVariables.get('api_key') || pm.environment.get('api_key');",
+                  "let apiSecret = pm.collectionVariables.get('api_secret') || pm.environment.get('api_secret');",
+                  "if (!apiKey || apiKey === 'pk_live_YOUR_API_KEY_HERE') throw new Error('Set api_key in Collection Variables');",
+                  "if (!apiSecret || apiSecret === 'sk_live_YOUR_API_SECRET_HERE') throw new Error('Set api_secret in Collection Variables');",
+                  "const timestamp = Date.now().toString();",
+                  "const body = JSON.parse(pm.request.body.raw);",
+                  "const signature = CryptoJS.HmacSHA256(JSON.stringify(body) + timestamp, apiSecret).toString(CryptoJS.enc.Hex);",
+                  "pm.request.headers.upsert({ key: 'x-api-key', value: apiKey });",
+                  "pm.request.headers.upsert({ key: 'x-signature', value: signature });",
+                  "pm.request.headers.upsert({ key: 'x-timestamp', value: timestamp });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "x-api-key", "value": "{{api_key}}" },
+              { "key": "x-signature", "value": "auto-generated" },
+              { "key": "x-timestamp", "value": "auto-generated" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"retailer_id\": \"YOUR_RETAILER_PARTNER_ID\",\n  \"accountNumber\": \"1234567890123456\",\n  \"ifscCode\": \"HDFC0001234\",\n  \"accountHolderName\": \"John Doe\",\n  \"amount\": 1000,\n  \"transferMode\": \"IMPS\",\n  \"bankId\": 1,\n  \"bankName\": \"HDFC Bank\",\n  \"beneficiaryMobile\": \"9876543210\",\n  \"senderName\": \"Retailer Name\",\n  \"senderMobile\": \"9876543211\",\n  \"senderEmail\": \"retailer@example.com\",\n  \"remarks\": \"Payout\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/partner/payout/transfer",
+              "host": ["{{base_url}}"],
+              "path": ["api", "partner", "payout", "transfer"]
+            },
+            "description": "Initiate IMPS or NEFT transfer. Debits retailer's wallet (amount + charges).\n\n### Request Body\n| Field | Type | Required | Description |\n|-------|------|----------|-------------|\n| `retailer_id` | String | ✅ Yes | Retailer partner_id (wallet debited) |\n| `accountNumber` | String | ✅ Yes | Beneficiary account number |\n| `ifscCode` | String | ✅ Yes | IFSC code |\n| `accountHolderName` | String | ✅ Yes | Beneficiary name |\n| `amount` | Number | ✅ Yes | Amount in rupees |\n| `transferMode` | String | ✅ Yes | `IMPS` or `NEFT` |\n| `bankId` | Number | ✅ Yes | Bank ID from bank list |\n| `bankName` | String | ✅ Yes | Bank name |\n| `beneficiaryMobile` | String | ✅ Yes | 10-digit mobile (6-9 start) |\n| `senderName` | String | ✅ Yes | Sender name |\n| `senderMobile` | String | ✅ Yes | 10-digit mobile (6-9 start) |\n| `senderEmail` | String | No | Sender email |\n| `remarks` | String | No | Transfer remarks |\n\n### Duplicate Prevention\nSame account within 2 minutes returns 429. Wait before retrying.\n\n### On Failure\nWallet is automatically refunded."
+          },
+          "response": [
+            {
+              "name": "200 — Transfer Initiated",
+              "status": "OK",
+              "code": 200,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"success\": true,\n  \"message\": \"Transfer initiated successfully\",\n  \"transaction_id\": \"a1b2c3d4-e5f6-7890-abcd-ef1234567890\",\n  \"provider_txn_id\": \"UTR123456789\",\n  \"client_ref_id\": \"PAYOUT-RET001-...\",\n  \"status\": \"PROCESSING\",\n  \"amount\": 1000,\n  \"charges\": 5,\n  \"total_debited\": 1005,\n  \"account_number\": \"************3456\",\n  \"account_holder_name\": \"John Doe\",\n  \"bank_name\": \"HDFC Bank\",\n  \"transfer_mode\": \"IMPS\"\n}"
+            },
+            {
+              "name": "400 — Insufficient Balance",
+              "status": "Bad Request",
+              "code": 400,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"success\": false,\n  \"error\": {\n    \"code\": \"INSUFFICIENT_BALANCE\",\n    \"message\": \"Insufficient wallet balance\"\n  },\n  \"wallet_balance\": 500,\n  \"amount\": 1000,\n  \"charges\": 5,\n  \"total_required\": 1005\n}"
+            },
+            {
+              "name": "429 — Duplicate Prevention",
+              "status": "Too Many Requests",
+              "code": 429,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"success\": false,\n  \"error\": {\n    \"code\": \"DUPLICATE\",\n    \"message\": \"Transaction to this account initiated 30s ago. Wait 90s.\"\n  },\n  \"duplicate_prevention\": true,\n  \"wait_seconds\": 90\n}"
+            }
+          ]
+        },
+        {
+          "name": "Get Transfer Status",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const CryptoJS = require('crypto-js');",
+                  "let apiKey = pm.collectionVariables.get('api_key') || pm.environment.get('api_key');",
+                  "let apiSecret = pm.collectionVariables.get('api_secret') || pm.environment.get('api_secret');",
+                  "if (!apiKey || apiKey === 'pk_live_YOUR_API_KEY_HERE') throw new Error('Set api_key in Collection Variables');",
+                  "if (!apiSecret || apiSecret === 'sk_live_YOUR_API_SECRET_HERE') throw new Error('Set api_secret in Collection Variables');",
+                  "const timestamp = Date.now().toString();",
+                  "const signature = CryptoJS.HmacSHA256('' + timestamp, apiSecret).toString(CryptoJS.enc.Hex);",
+                  "pm.request.headers.upsert({ key: 'x-api-key', value: apiKey });",
+                  "pm.request.headers.upsert({ key: 'x-signature', value: signature });",
+                  "pm.request.headers.upsert({ key: 'x-timestamp', value: timestamp });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "x-api-key", "value": "{{api_key}}" },
+              { "key": "x-signature", "value": "auto-generated" },
+              { "key": "x-timestamp", "value": "auto-generated" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/partner/payout/status?transactionId=YOUR_TXN_UUID",
+              "host": ["{{base_url}}"],
+              "path": ["api", "partner", "payout", "status"],
+              "query": [
+                { "key": "transactionId", "value": "YOUR_TXN_UUID", "description": "Internal transaction ID" },
+                { "key": "clientRefId", "value": "", "description": "Client reference ID from transfer", "disabled": true }
+              ]
+            },
+            "description": "Check status of a single payout transfer.\n\nFor pending/processing transactions, the API auto-checks with the provider and updates status.\nFailed transactions are auto-refunded.\n\n### Query Parameters\n| Param | Type | Required | Description |\n|-------|------|----------|-------------|\n| `transactionId` | String | Conditional | Our internal transaction UUID |\n| `clientRefId` | String | Conditional | Client ref ID from transfer |\n\nAt least one of `transactionId` or `clientRefId` is required."
+          },
+          "response": [
+            {
+              "name": "200 — Status",
+              "status": "OK",
+              "code": 200,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"success\": true,\n  \"transaction\": {\n    \"id\": \"a1b2c3d4-e5f6-7890-abcd-ef1234567890\",\n    \"client_ref_id\": \"PAYOUT-RET001-...\",\n    \"provider_txn_id\": \"UTR123456789\",\n    \"rrn\": \"987654321012\",\n    \"status\": \"SUCCESS\",\n    \"amount\": 1000,\n    \"charges\": 5,\n    \"total_amount\": 1005,\n    \"account_number\": \"************3456\",\n    \"account_holder_name\": \"John Doe\",\n    \"bank_name\": \"HDFC Bank\",\n    \"transfer_mode\": \"IMPS\",\n    \"created_at\": \"2026-03-08T10:00:00.000Z\",\n    \"completed_at\": \"2026-03-08T10:01:00.000Z\"\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "List Recent Transfers",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const CryptoJS = require('crypto-js');",
+                  "let apiKey = pm.collectionVariables.get('api_key') || pm.environment.get('api_key');",
+                  "let apiSecret = pm.collectionVariables.get('api_secret') || pm.environment.get('api_secret');",
+                  "if (!apiKey || apiKey === 'pk_live_YOUR_API_KEY_HERE') throw new Error('Set api_key in Collection Variables');",
+                  "if (!apiSecret || apiSecret === 'sk_live_YOUR_API_SECRET_HERE') throw new Error('Set api_secret in Collection Variables');",
+                  "const timestamp = Date.now().toString();",
+                  "const signature = CryptoJS.HmacSHA256('' + timestamp, apiSecret).toString(CryptoJS.enc.Hex);",
+                  "pm.request.headers.upsert({ key: 'x-api-key', value: apiKey });",
+                  "pm.request.headers.upsert({ key: 'x-signature', value: signature });",
+                  "pm.request.headers.upsert({ key: 'x-timestamp', value: timestamp });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "x-api-key", "value": "{{api_key}}" },
+              { "key": "x-signature", "value": "auto-generated" },
+              { "key": "x-timestamp", "value": "auto-generated" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/partner/payout/status?list=true&retailer_id=YOUR_RETAILER_ID",
+              "host": ["{{base_url}}"],
+              "path": ["api", "partner", "payout", "status"],
+              "query": [
+                { "key": "list", "value": "true", "description": "Return list of recent transactions" },
+                { "key": "retailer_id", "value": "YOUR_RETAILER_ID", "description": "Retailer partner_id" }
+              ]
+            },
+            "description": "Get list of recent payout transactions for a retailer (last 20).\n\n### Query Parameters\n| Param | Type | Required | Description |\n|-------|------|----------|-------------|\n| `list` | Boolean | ✅ Yes | Must be `true` |\n| `retailer_id` | String | ✅ Yes | Retailer partner_id |"
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}

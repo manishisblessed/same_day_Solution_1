@@ -227,6 +227,7 @@ export async function POST(request: NextRequest) {
     let bbpsCharge = 20 // Default
     let resolvedSchemeId: string | null = null
     let resolvedSchemeName: string | null = null
+    let commissionSplit = { retailer_commission: 0, distributor_commission: 0, md_commission: 0 }
     
     try {
       // Try scheme-based charge calculation first (RPC)
@@ -258,7 +259,12 @@ export async function POST(request: NextRequest) {
           console.error('[BBPS Pay] Charge calculation RPC error:', chargeError)
         } else if (chargeResult && chargeResult.length > 0 && parseFloat(chargeResult[0].retailer_charge) > 0) {
           bbpsCharge = parseFloat(chargeResult[0].retailer_charge)
-          console.log(`[BBPS Pay] Scheme charge via RPC: ₹${bbpsCharge}`)
+          commissionSplit = {
+            retailer_commission: parseFloat(chargeResult[0].retailer_commission) || 0,
+            distributor_commission: parseFloat(chargeResult[0].distributor_commission) || 0,
+            md_commission: parseFloat(chargeResult[0].md_commission) || 0,
+          }
+          console.log(`[BBPS Pay] Scheme charge via RPC: ₹${bbpsCharge}, commissions: RT=${commissionSplit.retailer_commission}, DT=${commissionSplit.distributor_commission}, MD=${commissionSplit.md_commission}`)
         } else {
           console.warn(`[BBPS Pay] RPC charge slab returned 0 for scheme ${resolved.scheme_id}, trying direct query...`)
           // Fallback: Direct table query for BBPS charge
@@ -352,6 +358,12 @@ export async function POST(request: NextRequest) {
                 bbpsCharge = bestSlab.retailer_charge_type === 'percentage'
                   ? Math.round(billAmountInRupees * rc / 100 * 100) / 100
                   : rc
+                const calcComm = (val: number, type: string) => type === 'percentage' ? Math.round(billAmountInRupees * val / 100 * 100) / 100 : val
+                commissionSplit = {
+                  retailer_commission: calcComm(parseFloat(bestSlab.retailer_commission) || 0, bestSlab.retailer_commission_type),
+                  distributor_commission: calcComm(parseFloat(bestSlab.distributor_commission) || 0, bestSlab.distributor_commission_type),
+                  md_commission: calcComm(parseFloat(bestSlab.md_commission) || 0, bestSlab.md_commission_type),
+                }
                 console.log(`[BBPS Pay] Scheme charge via direct query: ₹${bbpsCharge}`)
               }
             }
@@ -484,6 +496,66 @@ export async function POST(request: NextRequest) {
           wallet_debit_id: ledgerId,
         })
         .eq('id', bbpsTransaction.id)
+
+      // Distribute commissions from the charge to retailer/distributor/MD wallets
+      if (bbpsCharge > 0) {
+        const txRef = `BBPS_COMM_${agentTransactionId}`
+        try {
+          if (commissionSplit.retailer_commission > 0) {
+            await supabase.rpc('add_ledger_entry', {
+              p_user_id: user.partner_id,
+              p_user_role: 'retailer',
+              p_wallet_type: 'primary',
+              p_fund_category: 'commission',
+              p_service_type: 'bbps',
+              p_tx_type: 'COMMISSION_CREDIT',
+              p_credit: commissionSplit.retailer_commission,
+              p_debit: 0,
+              p_reference_id: txRef,
+              p_transaction_id: bbpsTransaction.id,
+              p_status: 'completed',
+              p_remarks: `BBPS commission earned on ₹${billAmountInRupees} bill`,
+            })
+            console.log(`[BBPS Pay] Commission credited to retailer: ₹${commissionSplit.retailer_commission}`)
+          }
+          if (commissionSplit.distributor_commission > 0 && distributorId) {
+            await supabase.rpc('add_ledger_entry', {
+              p_user_id: distributorId,
+              p_user_role: 'distributor',
+              p_wallet_type: 'primary',
+              p_fund_category: 'commission',
+              p_service_type: 'bbps',
+              p_tx_type: 'COMMISSION_CREDIT',
+              p_credit: commissionSplit.distributor_commission,
+              p_debit: 0,
+              p_reference_id: txRef,
+              p_transaction_id: bbpsTransaction.id,
+              p_status: 'completed',
+              p_remarks: `BBPS commission on retailer ${user.partner_id} transaction`,
+            })
+            console.log(`[BBPS Pay] Commission credited to distributor ${distributorId}: ₹${commissionSplit.distributor_commission}`)
+          }
+          if (commissionSplit.md_commission > 0 && mdId) {
+            await supabase.rpc('add_ledger_entry', {
+              p_user_id: mdId,
+              p_user_role: 'master_distributor',
+              p_wallet_type: 'primary',
+              p_fund_category: 'commission',
+              p_service_type: 'bbps',
+              p_tx_type: 'COMMISSION_CREDIT',
+              p_credit: commissionSplit.md_commission,
+              p_debit: 0,
+              p_reference_id: txRef,
+              p_transaction_id: bbpsTransaction.id,
+              p_status: 'completed',
+              p_remarks: `BBPS commission on retailer ${user.partner_id} transaction`,
+            })
+            console.log(`[BBPS Pay] Commission credited to MD ${mdId}: ₹${commissionSplit.md_commission}`)
+          }
+        } catch (commErr: any) {
+          console.error('[BBPS Pay] Commission distribution error (non-fatal):', commErr.message)
+        }
+      }
     } catch (debitError: any) {
       console.error('[BBPS Pay] ❌ Exception debiting wallet:', debitError)
       // Update transaction status to failed

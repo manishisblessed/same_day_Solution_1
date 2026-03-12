@@ -1,0 +1,440 @@
+{
+  "info": {
+    "name": "Same Day Solution — BBPS Partner API",
+    "description": "Bharat Bill Payment System (BBPS) Partner API — powered by SparkUpTech.\n\n## Authentication\nEvery authenticated request requires 3 headers:\n- `x-api-key` — Your public API key\n- `x-signature` — HMAC-SHA256 signature\n- `x-timestamp` — Current Unix timestamp (ms)\n\nSignature formula:\n```\nHMAC_SHA256(api_secret, JSON.stringify(body) + timestamp)\n```\nFor GET requests (no body): `HMAC_SHA256(api_secret, '' + timestamp)`\n\n## Setup\n1. Set `api_key` and `api_secret` in Collection Variables\n2. Pre-request scripts auto-generate signature\n3. All requests are ready to fire\n\n## Security\n- IP Whitelisting enforced (contact admin to whitelist your server IP)\n- Timestamp tolerance: 5 minutes\n- HTTPS required in production\n- Permission required: `bbps` or `all`\n\n## Capabilities\n- Get categories and billers\n- Fetch bill details and pay bills\n- Check transaction status\n- Register and track complaints\n\n## Financial Operations\nBill Pay requires `retailer_id` — the retailer's partner_id whose wallet will be debited.\nAdmin assigns retailers to your partner account.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "version": "1.0.0"
+  },
+  "auth": {
+    "type": "noauth"
+  },
+  "variable": [
+    { "key": "base_url", "value": "https://api.samedaysolution.in", "type": "string" },
+    { "key": "api_key", "value": "pk_live_YOUR_API_KEY_HERE", "type": "string" },
+    { "key": "api_secret", "value": "sk_live_YOUR_API_SECRET_HERE", "type": "string" }
+  ],
+  "item": [
+    {
+      "name": "🔐 BBPS — Authenticated",
+      "description": "All requests require `x-api-key`, `x-signature`, and `x-timestamp` headers.\n\nThe pre-request script automatically calculates the HMAC signature.",
+      "item": [
+        {
+          "name": "Get BBPS Categories",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const CryptoJS = require('crypto-js');",
+                  "let apiKey = pm.collectionVariables.get('api_key') || pm.environment.get('api_key');",
+                  "let apiSecret = pm.collectionVariables.get('api_secret') || pm.environment.get('api_secret');",
+                  "if (!apiKey || apiKey === 'pk_live_YOUR_API_KEY_HERE') throw new Error('Set api_key in Collection Variables');",
+                  "if (!apiSecret || apiSecret === 'sk_live_YOUR_API_SECRET_HERE') throw new Error('Set api_secret in Collection Variables');",
+                  "const timestamp = Date.now().toString();",
+                  "const signature = CryptoJS.HmacSHA256('' + timestamp, apiSecret).toString(CryptoJS.enc.Hex);",
+                  "pm.request.headers.upsert({ key: 'x-api-key', value: apiKey });",
+                  "pm.request.headers.upsert({ key: 'x-signature', value: signature });",
+                  "pm.request.headers.upsert({ key: 'x-timestamp', value: timestamp });"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', function() { pm.response.to.have.status(200); });",
+                  "pm.test('Has categories', function() { const j = pm.response.json(); pm.expect(j.success).to.be.true; pm.expect(j.categories).to.be.an('array'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "x-api-key", "value": "{{api_key}}" },
+              { "key": "x-signature", "value": "auto-generated" },
+              { "key": "x-timestamp", "value": "auto-generated" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/partner/bbps/categories",
+              "host": ["{{base_url}}"],
+              "path": ["api", "partner", "bbps", "categories"]
+            },
+            "description": "Returns list of BBPS biller categories (Electricity, DTH, Credit Card, Water, etc.)."
+          },
+          "response": [
+            {
+              "name": "200 — Categories",
+              "status": "OK",
+              "code": 200,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"success\": true,\n  \"categories\": [\"Broadband Postpaid\", \"Cable TV\", \"Credit Card\", \"DTH\", \"Electricity\", \"Gas\", \"Insurance\", \"Water\"],\n  \"count\": 8\n}"
+            },
+            {
+              "name": "401 — Unauthorized (Invalid API Key)",
+              "status": "Unauthorized",
+              "code": 401,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"success\": false,\n  \"error\": {\n    \"code\": \"UNAUTHORIZED\",\n    \"message\": \"Invalid API key\"\n  }\n}"
+            },
+            {
+              "name": "401 — Unauthorized (IP Blocked)",
+              "status": "Unauthorized",
+              "code": 401,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"success\": false,\n  \"error\": {\n    \"code\": \"UNAUTHORIZED\",\n    \"message\": \"IP address 203.0.113.50 is not authorized. Please contact admin to whitelist your server IP.\"\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "Get Billers by Category",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const CryptoJS = require('crypto-js');",
+                  "let apiKey = pm.collectionVariables.get('api_key') || pm.environment.get('api_key');",
+                  "let apiSecret = pm.collectionVariables.get('api_secret') || pm.environment.get('api_secret');",
+                  "if (!apiKey || apiKey === 'pk_live_YOUR_API_KEY_HERE') throw new Error('Set api_key in Collection Variables');",
+                  "if (!apiSecret || apiSecret === 'sk_live_YOUR_API_SECRET_HERE') throw new Error('Set api_secret in Collection Variables');",
+                  "const timestamp = Date.now().toString();",
+                  "const body = JSON.parse(pm.request.body.raw);",
+                  "const signature = CryptoJS.HmacSHA256(JSON.stringify(body) + timestamp, apiSecret).toString(CryptoJS.enc.Hex);",
+                  "pm.request.headers.upsert({ key: 'x-api-key', value: apiKey });",
+                  "pm.request.headers.upsert({ key: 'x-signature', value: signature });",
+                  "pm.request.headers.upsert({ key: 'x-timestamp', value: timestamp });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "x-api-key", "value": "{{api_key}}" },
+              { "key": "x-signature", "value": "auto-generated" },
+              { "key": "x-timestamp", "value": "auto-generated" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"category\": \"Credit Card\",\n  \"paymentChannelName1\": \"INT\",\n  \"paymentChannelName2\": \"AGT\",\n  \"paymentChannelName3\": \"\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/partner/bbps/billers",
+              "host": ["{{base_url}}"],
+              "path": ["api", "partner", "bbps", "billers"]
+            },
+            "description": "Fetch billers for a given category. Optional payment channel filters (INT, AGT).\n\n### Request Body\n| Field | Type | Required | Description |\n|-------|------|----------|-------------|\n| `category` | String | ✅ Yes | Category name (e.g. Credit Card, Electricity, DTH) |\n| `paymentChannelName1` | String | No | Payment channel 1 (default: INT) |\n| `paymentChannelName2` | String | No | Payment channel 2 (default: AGT) |\n| `paymentChannelName3` | String | No | Payment channel 3 |"
+          },
+          "response": [
+            {
+              "name": "200 — Billers",
+              "status": "OK",
+              "code": 200,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"success\": true,\n  \"data\": [\n    {\n      \"biller_id\": \"AUBA00000NAT3Q\",\n      \"biller_name\": \"AU Bank Credit Card\",\n      \"category\": \"Credit Card\",\n      \"is_active\": true\n    }\n  ],\n  \"count\": 1\n}"
+            }
+          ]
+        },
+        {
+          "name": "Fetch Biller Info",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const CryptoJS = require('crypto-js');",
+                  "let apiKey = pm.collectionVariables.get('api_key') || pm.environment.get('api_key');",
+                  "let apiSecret = pm.collectionVariables.get('api_secret') || pm.environment.get('api_secret');",
+                  "if (!apiKey || apiKey === 'pk_live_YOUR_API_KEY_HERE') throw new Error('Set api_key in Collection Variables');",
+                  "if (!apiSecret || apiSecret === 'sk_live_YOUR_API_SECRET_HERE') throw new Error('Set api_secret in Collection Variables');",
+                  "const timestamp = Date.now().toString();",
+                  "const body = JSON.parse(pm.request.body.raw);",
+                  "const signature = CryptoJS.HmacSHA256(JSON.stringify(body) + timestamp, apiSecret).toString(CryptoJS.enc.Hex);",
+                  "pm.request.headers.upsert({ key: 'x-api-key', value: apiKey });",
+                  "pm.request.headers.upsert({ key: 'x-signature', value: signature });",
+                  "pm.request.headers.upsert({ key: 'x-timestamp', value: timestamp });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "x-api-key", "value": "{{api_key}}" },
+              { "key": "x-signature", "value": "auto-generated" },
+              { "key": "x-timestamp", "value": "auto-generated" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"biller_id\": \"AUBA00000NAT3Q\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/partner/bbps/biller-info",
+              "host": ["{{base_url}}"],
+              "path": ["api", "partner", "bbps", "biller-info"]
+            },
+            "description": "Get detailed biller information including input parameters, payment modes, and payment channels.\n\n### Request Body\n| Field | Type | Required | Description |\n|-------|------|----------|-------------|\n| `biller_id` | String | ✅ Yes | Biller ID from billers list |"
+          },
+          "response": []
+        },
+        {
+          "name": "Fetch Bill Details",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const CryptoJS = require('crypto-js');",
+                  "let apiKey = pm.collectionVariables.get('api_key') || pm.environment.get('api_key');",
+                  "let apiSecret = pm.collectionVariables.get('api_secret') || pm.environment.get('api_secret');",
+                  "if (!apiKey || apiKey === 'pk_live_YOUR_API_KEY_HERE') throw new Error('Set api_key in Collection Variables');",
+                  "if (!apiSecret || apiSecret === 'sk_live_YOUR_API_SECRET_HERE') throw new Error('Set api_secret in Collection Variables');",
+                  "const timestamp = Date.now().toString();",
+                  "const body = JSON.parse(pm.request.body.raw);",
+                  "const signature = CryptoJS.HmacSHA256(JSON.stringify(body) + timestamp, apiSecret).toString(CryptoJS.enc.Hex);",
+                  "pm.request.headers.upsert({ key: 'x-api-key', value: apiKey });",
+                  "pm.request.headers.upsert({ key: 'x-signature', value: signature });",
+                  "pm.request.headers.upsert({ key: 'x-timestamp', value: timestamp });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "x-api-key", "value": "{{api_key}}" },
+              { "key": "x-signature", "value": "auto-generated" },
+              { "key": "x-timestamp", "value": "auto-generated" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"biller_id\": \"AUBA00000NAT3Q\",\n  \"consumer_number\": \"9876543210\",\n  \"input_params\": [\n    { \"paramName\": \"Last 4 digits of Credit Card Number\", \"paramValue\": \"1234\" },\n    { \"paramName\": \"Registered Mobile Number\", \"paramValue\": \"9876543210\" }\n  ],\n  \"init_channel\": \"AGT\",\n  \"payment_mode\": \"cash\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/partner/bbps/bill/fetch",
+              "host": ["{{base_url}}"],
+              "path": ["api", "partner", "bbps", "bill", "fetch"]
+            },
+            "description": "Fetch bill details for a consumer. Use `input_params` from Biller Info response.\n\n### Request Body\n| Field | Type | Required | Description |\n|-------|------|----------|-------------|\n| `biller_id` | String | ✅ Yes | Biller ID |\n| `consumer_number` | String | Conditional | Required if `input_params` not provided |\n| `input_params` | Array | Conditional | `[{paramName, paramValue}]` — use field names from biller info |\n| `init_channel` | String | No | Default: AGT |\n| `payment_mode` | String | No | Default: cash |"
+          },
+          "response": [
+            {
+              "name": "200 — Bill Fetched",
+              "status": "OK",
+              "code": 200,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"success\": true,\n  \"status\": \"success\",\n  \"message\": \"Bill fetched Successfully\",\n  \"data\": {\n    \"responseCode\": \"000\",\n    \"billerResponse\": {\n      \"billAmount\": \"20000\",\n      \"dueDate\": \"2026-03-15\",\n      \"customerName\": \"John Doe\",\n      \"billDate\": \"2026-02-01\"\n    }\n  },\n  \"reqId\": \"req-abc-123\",\n  \"bill\": {\n    \"bill_amount\": 200,\n    \"due_date\": \"2026-03-15\",\n    \"consumer_name\": \"John Doe\"\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "Pay Bill",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const CryptoJS = require('crypto-js');",
+                  "let apiKey = pm.collectionVariables.get('api_key') || pm.environment.get('api_key');",
+                  "let apiSecret = pm.collectionVariables.get('api_secret') || pm.environment.get('api_secret');",
+                  "if (!apiKey || apiKey === 'pk_live_YOUR_API_KEY_HERE') throw new Error('Set api_key in Collection Variables');",
+                  "if (!apiSecret || apiSecret === 'sk_live_YOUR_API_SECRET_HERE') throw new Error('Set api_secret in Collection Variables');",
+                  "const timestamp = Date.now().toString();",
+                  "const body = JSON.parse(pm.request.body.raw);",
+                  "const signature = CryptoJS.HmacSHA256(JSON.stringify(body) + timestamp, apiSecret).toString(CryptoJS.enc.Hex);",
+                  "pm.request.headers.upsert({ key: 'x-api-key', value: apiKey });",
+                  "pm.request.headers.upsert({ key: 'x-signature', value: signature });",
+                  "pm.request.headers.upsert({ key: 'x-timestamp', value: timestamp });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "x-api-key", "value": "{{api_key}}" },
+              { "key": "x-signature", "value": "auto-generated" },
+              { "key": "x-timestamp", "value": "auto-generated" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"retailer_id\": \"YOUR_RETAILER_PARTNER_ID\",\n  \"biller_id\": \"AUBA00000NAT3Q\",\n  \"biller_name\": \"AU Bank Credit Card\",\n  \"consumer_number\": \"9876543210\",\n  \"amount\": 20000,\n  \"consumer_name\": \"John Doe\",\n  \"due_date\": \"2026-03-15\",\n  \"bill_date\": \"2026-02-01\",\n  \"biller_category\": \"Credit Card\",\n  \"payment_mode\": \"Cash\",\n  \"reqId\": \"req-id-from-fetch-bill\",\n  \"additional_info\": {\n    \"billerResponse\": {\n      \"billAmount\": \"20000\",\n      \"billDate\": \"2026-02-01\",\n      \"customerName\": \"John Doe\",\n      \"dueDate\": \"2026-03-15\"\n    },\n    \"inputParams\": [\n      { \"paramName\": \"Last 4 digits of Credit Card Number\", \"paramValue\": \"1234\" },\n      { \"paramName\": \"Registered Mobile Number\", \"paramValue\": \"9876543210\" }\n    ],\n    \"additionalInfo\": [],\n    \"category\": \"Credit Card\"\n  }\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/partner/bbps/bill/pay",
+              "host": ["{{base_url}}"],
+              "path": ["api", "partner", "bbps", "bill", "pay"]
+            },
+            "description": "Pay a bill. Debits the retailer's wallet (bill amount + service charge).\n\n### Request Body\n| Field | Type | Required | Description |\n|-------|------|----------|-------------|\n| `retailer_id` | String | ✅ Yes | Retailer's partner_id (whose wallet is debited) |\n| `biller_id` | String | ✅ Yes | Biller ID |\n| `biller_name` | String | ✅ Yes | Biller name |\n| `consumer_number` | String | ✅ Yes | Consumer number |\n| `amount` | Number | ✅ Yes | Amount in paise |\n| `consumer_name` | String | No | Consumer name from bill |\n| `due_date` | String | No | Bill due date |\n| `bill_date` | String | No | Bill date |\n| `biller_category` | String | No | Category name |\n| `payment_mode` | String | No | Cash (default) |\n| `reqId` | String | Recommended | reqId from Fetch Bill response |\n| `additional_info` | Object | Recommended | billerResponse, inputParams, additionalInfo from Fetch Bill |\n| `pan_number` | String | Conditional | Required for amount > ₹49,999 |\n\n### Flow\n1. Call **Fetch Bill** first to get `reqId`, `billerResponse`, `additionalInfo`\n2. Pass those in `additional_info` when paying\n3. Wallet is debited: bill amount + charge (from scheme)\n4. On failure, wallet is automatically refunded"
+          },
+          "response": [
+            {
+              "name": "200 — Payment Success",
+              "status": "OK",
+              "code": 200,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"success\": true,\n  \"transaction_id\": \"a1b2c3d4-e5f6-7890-abcd-ef1234567890\",\n  \"agent_transaction_id\": \"BBPS-RET001-...\",\n  \"bbps_transaction_id\": \"CC015056BAAE00071350\",\n  \"status\": \"success\",\n  \"payment_status\": \"SUCCESS\"\n}"
+            },
+            {
+              "name": "400 — Insufficient Balance",
+              "status": "Bad Request",
+              "code": 400,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"success\": false,\n  \"error\": {\n    \"code\": \"INSUFFICIENT_BALANCE\",\n    \"message\": \"Insufficient wallet balance\"\n  },\n  \"wallet_balance\": 100,\n  \"bill_amount\": 200,\n  \"charge\": 20,\n  \"required_amount\": 220\n}"
+            }
+          ]
+        },
+        {
+          "name": "Transaction Status",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const CryptoJS = require('crypto-js');",
+                  "let apiKey = pm.collectionVariables.get('api_key') || pm.environment.get('api_key');",
+                  "let apiSecret = pm.collectionVariables.get('api_secret') || pm.environment.get('api_secret');",
+                  "if (!apiKey || apiKey === 'pk_live_YOUR_API_KEY_HERE') throw new Error('Set api_key in Collection Variables');",
+                  "if (!apiSecret || apiSecret === 'sk_live_YOUR_API_SECRET_HERE') throw new Error('Set api_secret in Collection Variables');",
+                  "const timestamp = Date.now().toString();",
+                  "const body = JSON.parse(pm.request.body.raw);",
+                  "const signature = CryptoJS.HmacSHA256(JSON.stringify(body) + timestamp, apiSecret).toString(CryptoJS.enc.Hex);",
+                  "pm.request.headers.upsert({ key: 'x-api-key', value: apiKey });",
+                  "pm.request.headers.upsert({ key: 'x-signature', value: signature });",
+                  "pm.request.headers.upsert({ key: 'x-timestamp', value: timestamp });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "x-api-key", "value": "{{api_key}}" },
+              { "key": "x-signature", "value": "auto-generated" },
+              { "key": "x-timestamp", "value": "auto-generated" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"transaction_id\": \"CC015056BAAE00071350\",\n  \"track_type\": \"TRANS_REF_ID\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/partner/bbps/transaction-status",
+              "host": ["{{base_url}}"],
+              "path": ["api", "partner", "bbps", "transaction-status"]
+            },
+            "description": "Check BBPS transaction status.\n\n### Request Body\n| Field | Type | Required | Description |\n|-------|------|----------|-------------|\n| `transaction_id` | String | ✅ Yes | BBPS transaction reference ID |\n| `track_type` | String | No | `TRANS_REF_ID` (default) or `UTR` |"
+          },
+          "response": []
+        },
+        {
+          "name": "Register Complaint",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const CryptoJS = require('crypto-js');",
+                  "let apiKey = pm.collectionVariables.get('api_key') || pm.environment.get('api_key');",
+                  "let apiSecret = pm.collectionVariables.get('api_secret') || pm.environment.get('api_secret');",
+                  "if (!apiKey || apiKey === 'pk_live_YOUR_API_KEY_HERE') throw new Error('Set api_key in Collection Variables');",
+                  "if (!apiSecret || apiSecret === 'sk_live_YOUR_API_SECRET_HERE') throw new Error('Set api_secret in Collection Variables');",
+                  "const timestamp = Date.now().toString();",
+                  "const body = JSON.parse(pm.request.body.raw);",
+                  "const signature = CryptoJS.HmacSHA256(JSON.stringify(body) + timestamp, apiSecret).toString(CryptoJS.enc.Hex);",
+                  "pm.request.headers.upsert({ key: 'x-api-key', value: apiKey });",
+                  "pm.request.headers.upsert({ key: 'x-signature', value: signature });",
+                  "pm.request.headers.upsert({ key: 'x-timestamp', value: timestamp });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "x-api-key", "value": "{{api_key}}" },
+              { "key": "x-signature", "value": "auto-generated" },
+              { "key": "x-timestamp", "value": "auto-generated" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"transaction_id\": \"CC014110BAAE00054718\",\n  \"complaint_type\": \"Transaction\",\n  \"description\": \"Amount deducted multiple times\",\n  \"complaint_disposition\": \"Amount deducted multiple times\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/partner/bbps/complaint/register",
+              "host": ["{{base_url}}"],
+              "path": ["api", "partner", "bbps", "complaint", "register"]
+            },
+            "description": "Register a BBPS complaint.\n\n### Request Body\n| Field | Type | Required | Description |\n|-------|------|----------|-------------|\n| `transaction_id` | String | ✅ Yes | Transaction reference ID |\n| `description` | String | ✅ Yes | Complaint description |\n| `complaint_type` | String | No | Transaction (default), Service |\n| `complaint_disposition` | String | No | Reason |"
+          },
+          "response": []
+        },
+        {
+          "name": "Track Complaint",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const CryptoJS = require('crypto-js');",
+                  "let apiKey = pm.collectionVariables.get('api_key') || pm.environment.get('api_key');",
+                  "let apiSecret = pm.collectionVariables.get('api_secret') || pm.environment.get('api_secret');",
+                  "if (!apiKey || apiKey === 'pk_live_YOUR_API_KEY_HERE') throw new Error('Set api_key in Collection Variables');",
+                  "if (!apiSecret || apiSecret === 'sk_live_YOUR_API_SECRET_HERE') throw new Error('Set api_secret in Collection Variables');",
+                  "const timestamp = Date.now().toString();",
+                  "const body = JSON.parse(pm.request.body.raw);",
+                  "const signature = CryptoJS.HmacSHA256(JSON.stringify(body) + timestamp, apiSecret).toString(CryptoJS.enc.Hex);",
+                  "pm.request.headers.upsert({ key: 'x-api-key', value: apiKey });",
+                  "pm.request.headers.upsert({ key: 'x-signature', value: signature });",
+                  "pm.request.headers.upsert({ key: 'x-timestamp', value: timestamp });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "x-api-key", "value": "{{api_key}}" },
+              { "key": "x-signature", "value": "auto-generated" },
+              { "key": "x-timestamp", "value": "auto-generated" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"complaint_id\": \"CC0125126291941\",\n  \"complaint_type\": \"Service\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/partner/bbps/complaint/track",
+              "host": ["{{base_url}}"],
+              "path": ["api", "partner", "bbps", "complaint", "track"]
+            },
+            "description": "Track status of a registered complaint.\n\n### Request Body\n| Field | Type | Required | Description |\n|-------|------|----------|-------------|\n| `complaint_id` | String | ✅ Yes | Complaint ID from registration |\n| `complaint_type` | String | No | Service (default), Transaction |"
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}

@@ -307,14 +307,13 @@ export async function createSchemeMapping(
 ): Promise<{ data: SchemeMapping | null; error: string | null }> {
   const supabase = getSupabase();
 
-  // Deactivate existing active mapping for this entity+service
+  // Deactivate ALL existing active mappings for this entity (regardless of service_type)
   await supabase
     .from('scheme_mappings')
     .update({ status: 'inactive' })
     .eq('entity_id', input.entity_id)
     .eq('entity_role', input.entity_role)
-    .eq('status', 'active')
-    .or(`service_type.eq.${input.service_type || 'all'},service_type.is.null`);
+    .eq('status', 'active');
 
   const { data, error } = await supabase
     .from('scheme_mappings')

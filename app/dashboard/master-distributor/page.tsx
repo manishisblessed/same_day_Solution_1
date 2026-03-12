@@ -2317,8 +2317,6 @@ function SchemeManagementTab({ user }: { user: any }) {
     distributor_commission_type: 'flat' as 'flat' | 'percentage',
     md_commission: 0,
     md_commission_type: 'flat' as 'flat' | 'percentage',
-    company_charge: 0,
-    company_charge_type: 'flat' as 'flat' | 'percentage',
   })
 
   const [payoutForm, setPayoutForm] = useState({
@@ -2333,8 +2331,6 @@ function SchemeManagementTab({ user }: { user: any }) {
     distributor_commission_type: 'flat' as 'flat' | 'percentage',
     md_commission: 0,
     md_commission_type: 'flat' as 'flat' | 'percentage',
-    company_charge: 0,
-    company_charge_type: 'flat' as 'flat' | 'percentage',
   })
 
   const [mdrForm, setMdrForm] = useState({
@@ -2510,8 +2506,8 @@ function SchemeManagementTab({ user }: { user: any }) {
     setConfigSchemeId(schemeId)
     setConfigType(type)
     // Reset forms
-    setBbpsForm({ category: '', min_amount: 0, max_amount: 999999999, retailer_charge: 0, retailer_charge_type: 'flat', retailer_commission: 0, retailer_commission_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat', company_charge: 0, company_charge_type: 'flat' })
-    setPayoutForm({ transfer_mode: 'IMPS', min_amount: 0, max_amount: 999999999, retailer_charge: 0, retailer_charge_type: 'flat', retailer_commission: 0, retailer_commission_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat', company_charge: 0, company_charge_type: 'flat' })
+    setBbpsForm({ category: '', min_amount: 0, max_amount: 999999999, retailer_charge: 0, retailer_charge_type: 'flat', retailer_commission: 0, retailer_commission_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat' })
+    setPayoutForm({ transfer_mode: 'IMPS', min_amount: 0, max_amount: 999999999, retailer_charge: 0, retailer_charge_type: 'flat', retailer_commission: 0, retailer_commission_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat' })
     setMdrForm({ mode: 'CARD', card_type: '', brand_type: '', card_classification: '', retailer_mdr_t1: 0, retailer_mdr_t0: 0, distributor_mdr_t1: 0, distributor_mdr_t0: 0, md_mdr_t1: 0, md_mdr_t0: 0 })
     setShowConfigModal(true)
   }
@@ -2532,8 +2528,8 @@ function SchemeManagementTab({ user }: { user: any }) {
           distributor_commission_type: bbpsForm.distributor_commission_type,
           md_commission: bbpsForm.md_commission,
           md_commission_type: bbpsForm.md_commission_type,
-          company_charge: bbpsForm.company_charge,
-          company_charge_type: bbpsForm.company_charge_type,
+          company_charge: 0,
+          company_charge_type: 'flat',
           status: 'active',
         })
         if (error) throw error
@@ -2551,8 +2547,8 @@ function SchemeManagementTab({ user }: { user: any }) {
           distributor_commission_type: payoutForm.distributor_commission_type,
           md_commission: payoutForm.md_commission,
           md_commission_type: payoutForm.md_commission_type,
-          company_charge: payoutForm.company_charge,
-          company_charge_type: payoutForm.company_charge_type,
+          company_charge: 0,
+          company_charge_type: 'flat',
           status: 'active',
         })
         if (error) throw error
@@ -2626,41 +2622,21 @@ function SchemeManagementTab({ user }: { user: any }) {
 
   const handleMapScheme = async (distributorId: string) => {
     try {
-      // Check if mapping already exists
-      const { data: existing } = await supabase
-        .from('scheme_mappings')
-        .select('id')
-        .eq('scheme_id', mappingSchemeId)
-        .eq('entity_id', distributorId)
-        .eq('entity_role', 'distributor')
-        .eq('status', 'active')
-        .maybeSingle()
-
-      if (existing) {
-        setError('Scheme already mapped to this distributor')
-        setTimeout(() => setError(''), 3000)
-        return
-      }
-
-      // Deactivate any existing mapping for this distributor
-      await supabase
-        .from('scheme_mappings')
-        .update({ status: 'inactive' })
-        .eq('entity_id', distributorId)
-        .eq('entity_role', 'distributor')
-
-      // Create new mapping
-      const { error } = await supabase.from('scheme_mappings').insert({
-        scheme_id: mappingSchemeId,
-        entity_id: distributorId,
-        entity_role: 'distributor',
-        assigned_by_id: user?.partner_id,
-        assigned_by_role: 'master_distributor',
-        status: 'active',
-        priority: 100,
+      const response = await apiFetch('/api/schemes/mappings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          scheme_id: mappingSchemeId,
+          entity_id: distributorId,
+          entity_role: 'distributor',
+          service_type: 'all',
+          priority: 100,
+        }),
       })
-
-      if (error) throw error
+      const result = await response.json()
+      if (!response.ok || result.error) {
+        throw new Error(result.error || 'Failed to map scheme')
+      }
       setSuccess('Scheme mapped successfully')
       setShowMappingModal(false)
       fetchSchemes()
