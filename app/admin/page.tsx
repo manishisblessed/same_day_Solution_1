@@ -29,8 +29,9 @@ import { apiFetch } from '@/lib/api-client'
 import T1SettlementControl from '@/components/T1SettlementControl'
 import PerformanceTab from '@/components/PerformanceTab'
 import POSMachineHistoryTab from '@/components/POSMachineHistoryTab'
+import AdminSubscriptionsTab from '@/components/AdminSubscriptionsTab'
 
-type TabType = 'dashboard' | 'retailers' | 'distributors' | 'master-distributors' | 'services' | 'pos-machines' | 'pos-history' | 'transactions' | 'partners' | 'pos-partner-api' | 'reports' | 'settlement' | 'performance'
+type TabType = 'dashboard' | 'retailers' | 'distributors' | 'master-distributors' | 'services' | 'pos-machines' | 'pos-history' | 'transactions' | 'partners' | 'pos-partner-api' | 'reports' | 'settlement' | 'performance' | 'subscriptions'
 type SortField = 'name' | 'email' | 'partner_id' | 'created_at' | 'status'
 type SortDirection = 'asc' | 'desc'
 
@@ -43,7 +44,7 @@ function AdminDashboardContent() {
   // Initialize activeTab from URL or default to 'dashboard'
   const getInitialTab = (): TabType => {
     const tab = searchParams?.get('tab')
-    if (tab && ['dashboard', 'retailers', 'distributors', 'master-distributors', 'pos-machines', 'pos-history', 'pos-partner-api', 'services', 'transactions', 'partners', 'reports', 'settlement', 'performance'].includes(tab)) {
+    if (tab && ['dashboard', 'retailers', 'distributors', 'master-distributors', 'pos-machines', 'pos-history', 'pos-partner-api', 'services', 'transactions', 'partners', 'reports', 'settlement', 'performance', 'subscriptions'].includes(tab)) {
       return tab as TabType
     }
     return 'dashboard'
@@ -116,7 +117,7 @@ function AdminDashboardContent() {
   // Sync activeTab with URL query params
   useEffect(() => {
     const tab = searchParams?.get('tab')
-    if (tab && ['dashboard', 'retailers', 'distributors', 'master-distributors', 'pos-machines', 'pos-history', 'pos-partner-api', 'services', 'transactions', 'partners', 'reports', 'settlement', 'performance'].includes(tab)) {
+    if (tab && ['dashboard', 'retailers', 'distributors', 'master-distributors', 'pos-machines', 'pos-history', 'pos-partner-api', 'services', 'transactions', 'partners', 'reports', 'settlement', 'performance', 'subscriptions'].includes(tab)) {
       if (tab !== activeTab) {
         setActiveTab(tab as TabType)
       }
@@ -497,6 +498,8 @@ function AdminDashboardContent() {
             <T1SettlementControl />
           ) : activeTab === 'performance' ? (
             <PerformanceTab />
+          ) : activeTab === 'subscriptions' ? (
+            <AdminSubscriptionsTab />
           ) : (
             <>
           {/* Filters & Actions - Compact */}
@@ -2904,6 +2907,7 @@ function PartnerModal({
   })
   const [loading, setLoading] = useState(false)
   const [uploadingDocs, setUploadingDocs] = useState(false)
+  const [showFormPassword, setShowFormPassword] = useState(false)
   const [masterDistributors, setMasterDistributors] = useState<any[]>([])
   const [distributors, setDistributors] = useState<any[]>([])
   const [loadingParents, setLoadingParents] = useState(false)
@@ -3824,13 +3828,18 @@ function PartnerModal({
             {!item && (
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Password *</label>
-                <input
-                  type="password"
-                  required={!item}
-                  value={formData.password}
-                  onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
-                />
+                <div className="relative">
+                  <input
+                    type={showFormPassword ? 'text' : 'password'}
+                    required={!item}
+                    value={formData.password}
+                    onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                    className="w-full px-3 py-2 pr-10 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+                  />
+                  <button type="button" onClick={() => setShowFormPassword(!showFormPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200">
+                    {showFormPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                  </button>
+                </div>
               </div>
             )}
             <div>
@@ -5146,14 +5155,20 @@ function POSMachinesTab({
 
   const filteredMachines = useMemo(() => {
     let filtered = posMachines.filter((machine) => {
+      const q = searchTerm.toLowerCase()
       const matchesSearch = 
-        machine.machine_id.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        machine.serial_number?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        machine.mid?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        machine.tid?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        machine.brand?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        machine.retailer_id?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        retailers.find(r => r.partner_id === machine.retailer_id)?.name?.toLowerCase().includes(searchTerm.toLowerCase())
+        machine.machine_id.toLowerCase().includes(q) ||
+        machine.serial_number?.toLowerCase().includes(q) ||
+        machine.mid?.toLowerCase().includes(q) ||
+        machine.tid?.toLowerCase().includes(q) ||
+        machine.brand?.toLowerCase().includes(q) ||
+        machine.retailer_id?.toLowerCase().includes(q) ||
+        machine.location?.toLowerCase().includes(q) ||
+        machine.city?.toLowerCase().includes(q) ||
+        machine.state?.toLowerCase().includes(q) ||
+        machine.pincode?.toLowerCase().includes(q) ||
+        machine.notes?.toLowerCase().includes(q) ||
+        retailers.find(r => r.partner_id === machine.retailer_id)?.name?.toLowerCase().includes(q)
       
       const matchesStatus = statusFilter === 'all' || machine.status === statusFilter
       const matchesType = typeFilter === 'all' || machine.machine_type === typeFilter
@@ -5227,14 +5242,13 @@ function POSMachinesTab({
     }
   }
 
-  // Download CSV template
+  // Stock intake bulk template (no retailer / distributor / master_distributor — inventory_status must be in_stock)
   const downloadCSVTemplate = () => {
     const headers = [
-      'machine_id',
       'serial_number',
-      'retailer_id',
-      'distributor_id',
-      'master_distributor_id',
+      'MID',
+      'TID',
+      'Brand',
       'machine_type',
       'inventory_status',
       'status',
@@ -5244,33 +5258,30 @@ function POSMachinesTab({
       'city',
       'state',
       'pincode',
-      'notes'
+      'notes',
     ]
 
     const exampleRow = [
-      'POS12345678',
-      'SN123456789',
-      'RET12345678',
-      'DIS12345678',
-      'MD12345678',
+      '61251225300000',
+      'ZW00000',
+      '68340000',
+      'HDFC',
       'POS',
       'in_stock',
       'active',
-      '2024-01-15',
-      '2024-01-20',
-      'Main Street',
-      'Mumbai',
-      'Maharashtra',
-      '400001',
-      'Sample notes'
+      '2026-03-21',
+      '2026-03-21',
+      'Eros Mall',
+      'New Delhi',
+      'Delhi',
+      '110078',
+      'Received from Bank',
     ]
 
     const csvContent = [
       headers.join(','),
       exampleRow.join(','),
-      // Add a few more example rows with different scenarios
-      ['POS87654321', '', 'RET87654321', '', '', 'WPOS', 'received_from_bank', 'active', '', '', '', '', '', '', 'Received from bank'].join(','),
-      ['MATM11111111', 'SN987654321', 'RET11111111', 'DIS11111111', 'MD11111111', 'Mini-ATM', 'assigned_to_retailer', 'active', '2024-02-01', '2024-02-05', 'Park Avenue', 'Delhi', 'Delhi', '110001', 'Assigned to retailer'].join(',')
+      ['SN222', 'MID002', 'TID002', 'PAX', 'WPOS', 'in_stock', 'active', '', '', '', '', '', '', ''].join(','),
     ].join('\n')
 
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
@@ -5410,7 +5421,7 @@ function POSMachinesTab({
       {/* Table */}
       <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[1000px]">
+          <table className="w-full min-w-[1280px]">
             <thead className="bg-gray-50 dark:bg-gray-900">
               <tr>
                 <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700 dark:text-gray-300">
@@ -5442,15 +5453,28 @@ function POSMachinesTab({
                 <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700 dark:text-gray-300">Partner</th>
                 <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700 dark:text-gray-300">Status</th>
                 <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700 dark:text-gray-300">Inventory Status</th>
-                <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700 dark:text-gray-300">Delivery Date</th>
+                <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 cursor-pointer" onClick={() => {
+                  setSortField('delivery_date')
+                  setSortDirection(sortField === 'delivery_date' && sortDirection === 'asc' ? 'desc' : 'asc')
+                }}>
+                  Delivery <ArrowUpDown className="w-3 h-3 inline" />
+                </th>
+                <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 cursor-pointer" onClick={() => {
+                  setSortField('installation_date')
+                  setSortDirection(sortField === 'installation_date' && sortDirection === 'asc' ? 'desc' : 'asc')
+                }}>
+                  Installation <ArrowUpDown className="w-3 h-3 inline" />
+                </th>
                 <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700 dark:text-gray-300">Location</th>
+                <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700 dark:text-gray-300">City / State / PIN</th>
+                <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700 dark:text-gray-300">Notes</th>
                 <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700 dark:text-gray-300">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
               {filteredMachines.length === 0 ? (
                 <tr>
-                  <td colSpan={15} className="px-3 py-8 text-center text-sm text-gray-500 dark:text-gray-400">
+                  <td colSpan={17} className="px-3 py-8 text-center text-sm text-gray-500 dark:text-gray-400">
                     No POS machines found
                   </td>
                 </tr>
@@ -5524,16 +5548,41 @@ function POSMachinesTab({
                         {machine.inventory_status ? machine.inventory_status.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) : 'Unknown'}
                       </span>
                     </td>
-                    <td className="px-3 py-2 text-sm text-gray-700 dark:text-gray-300">
+                    <td className="px-3 py-2 text-sm text-gray-700 dark:text-gray-300 whitespace-nowrap">
                       {machine.delivery_date ? new Date(machine.delivery_date).toLocaleDateString() : '-'}
                     </td>
-                    <td className="px-3 py-2 text-sm text-gray-700 dark:text-gray-300">
+                    <td className="px-3 py-2 text-sm text-gray-700 dark:text-gray-300 whitespace-nowrap">
+                      {machine.installation_date ? new Date(machine.installation_date).toLocaleDateString() : '-'}
+                    </td>
+                    <td className="px-3 py-2 text-sm text-gray-700 dark:text-gray-300 max-w-[140px]">
                       {machine.location ? (
-                        <div className="flex items-center gap-1">
-                          <MapPin className="w-3 h-3" />
-                          <span>{machine.location}</span>
+                        <div className="flex items-start gap-1">
+                          <MapPin className="w-3 h-3 shrink-0 mt-0.5" />
+                          <span className="line-clamp-2" title={machine.location}>{machine.location}</span>
                         </div>
-                      ) : '-'}
+                      ) : (
+                        '-'
+                      )}
+                    </td>
+                    <td className="px-3 py-2 text-xs text-gray-700 dark:text-gray-300 max-w-[160px]">
+                      {[machine.city, machine.state, machine.pincode].filter(Boolean).length > 0 ? (
+                        <div className="space-y-0.5">
+                          {machine.city && <div>{machine.city}</div>}
+                          {machine.state && <div className="text-gray-500 dark:text-gray-400">{machine.state}</div>}
+                          {machine.pincode && <div>{machine.pincode}</div>}
+                        </div>
+                      ) : (
+                        '-'
+                      )}
+                    </td>
+                    <td className="px-3 py-2 text-xs text-gray-600 dark:text-gray-400 max-w-[180px]">
+                      {machine.notes ? (
+                        <span className="line-clamp-3" title={machine.notes}>
+                          {machine.notes}
+                        </span>
+                      ) : (
+                        '-'
+                      )}
                     </td>
                     <td className="px-3 py-2">
                       <div className="flex items-center gap-1">
@@ -5630,7 +5679,7 @@ function POSMachinesTab({
                     <label className="flex-1 cursor-pointer">
                       <input
                         type="file"
-                        accept=".csv"
+                        accept=".csv,.tsv,text/csv"
                         onChange={(e) => {
                           const file = e.target.files?.[0]
                           if (file) {
@@ -5681,13 +5730,13 @@ function POSMachinesTab({
                     CSV Format Requirements:
                   </h3>
                   <ul className="text-xs text-gray-600 dark:text-gray-400 space-y-1 list-disc list-inside">
-                    <li><strong>Required columns:</strong> machine_id, retailer_id</li>
-                    <li><strong>Optional columns:</strong> serial_number, distributor_id, master_distributor_id, machine_type, inventory_status, status, delivery_date, installation_date, location, city, state, pincode, notes</li>
+                    <li><strong>Stock intake only:</strong> columns are serial_number, MID, TID, Brand, machine_type, inventory_status, status, delivery_date, installation_date, location, city, state, pincode, notes (no retailer/distributor/master_distributor).</li>
+                    <li><strong>inventory_status</strong> must be exactly <code className="text-primary-600 dark:text-primary-400">in_stock</code>. Assign machines to retailers using the normal POS flow, not this upload.</li>
+                    <li>Machine ID is stored as <code className="text-primary-600 dark:text-primary-400">MID_TID</code>. MID and TID are required; serial_number is required.</li>
                     <li><strong>machine_type:</strong> POS, WPOS, or Mini-ATM</li>
-                    <li><strong>inventory_status:</strong> in_stock, received_from_bank, assigned_to_master_distributor, assigned_to_distributor, assigned_to_retailer, assigned_to_partner, damaged_from_bank</li>
                     <li><strong>status:</strong> active, inactive, maintenance, damaged, returned</li>
-                    <li>All partner IDs (retailer_id, distributor_id, master_distributor_id) must exist in the system</li>
-                    <li>Machine IDs and Serial Numbers must be unique</li>
+                    <li>Comma- or tab-separated files (.csv / .tsv). Dates: YYYY-MM-DD or DD/MM/YYYY.</li>
+                    <li>Duplicates and errors are rejected: duplicate machine ID (MID_TID) or serial in the file or already in the database.</li>
                   </ul>
                 </div>
 
@@ -5754,7 +5803,7 @@ function POSMachineModal({
     serial_number: '',
     mid: '',
     tid: '',
-    brand: '' as '' | 'RAZORPAY' | 'PINELAB' | 'PAYTM' | 'ICICI' | 'HDFC' | 'AXIS' | 'OTHER',
+    brand: '',
     retailer_id: '',
     distributor_id: '',
     master_distributor_id: '',
@@ -5973,7 +6022,7 @@ function POSMachineModal({
             previousHolderRole = item.retailer_id ? 'retailer' : item.distributor_id ? 'distributor' : item.master_distributor_id ? 'master_distributor' : item.partner_id ? 'partner' : null
           }
 
-          await apiFetch('/api/admin/pos-machines/history', {
+          const histRes = await apiFetch('/api/admin/pos-machines/history', {
             method: 'POST',
             body: JSON.stringify({
               pos_machine_id: savedMachineId,
@@ -5986,8 +6035,14 @@ function POSMachineModal({
               notes: item ? `Admin updated assignment` : `Admin created with status ${formData.inventory_status}`,
             }),
           })
+          if (!histRes.ok) {
+            const errData = await histRes.json().catch(() => ({}))
+            console.warn('POS history record failed:', errData)
+            alert(`POS saved, but the assignment was not recorded in POS History. ${errData?.error || 'Please use the "Backfill" button on the POS History tab to sync existing assignments.'}`)
+          }
         } catch (histErr) {
           console.warn('Failed to record POS history:', histErr)
+          alert('POS saved, but the assignment could not be recorded in POS History. Use the "Backfill" button on the POS History tab to sync existing assignments.')
         }
       }
 
@@ -6088,20 +6143,26 @@ function POSMachineModal({
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Brand</label>
-              <select
+              <input
+                type="text"
                 value={formData.brand}
-                onChange={(e) => setFormData({ ...formData, brand: e.target.value as any })}
+                onChange={(e) => setFormData({ ...formData, brand: e.target.value })}
+                placeholder="e.g. RAZORPAY, Ingenico, PAX, Verifone"
+                list="pos-brand-presets"
                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
-              >
-                <option value="">Select Brand</option>
-                <option value="RAZORPAY">RAZORPAY</option>
-                <option value="PINELAB">PINELAB</option>
-                <option value="PAYTM">PAYTM</option>
-                <option value="ICICI">ICICI</option>
-                <option value="HDFC">HDFC</option>
-                <option value="AXIS">AXIS</option>
-                <option value="OTHER">OTHER</option>
-              </select>
+              />
+              <datalist id="pos-brand-presets">
+                <option value="RAZORPAY" />
+                <option value="PINELAB" />
+                <option value="PAYTM" />
+                <option value="ICICI" />
+                <option value="HDFC" />
+                <option value="AXIS" />
+                <option value="OTHER" />
+                <option value="Ingenico" />
+                <option value="PAX" />
+                <option value="Verifone" />
+              </datalist>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Machine Type *</label>
@@ -6555,6 +6616,7 @@ function CreatePartnerModal({
   onSuccess: () => void
 }) {
   const [loading, setLoading] = useState(false)
+  const [showPartnerCreatePassword, setShowPartnerCreatePassword] = useState(false)
   const [formData, setFormData] = useState({
     name: '',
     partner_type: 'B2B' as 'B2B' | 'B2C',
@@ -6862,13 +6924,18 @@ function CreatePartnerModal({
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   Password (for login)
                 </label>
-                <input
-                  type="password"
-                  value={formData.password}
-                  onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
-                  placeholder="Leave empty to create without login access"
-                />
+                <div className="relative">
+                  <input
+                    type={showPartnerCreatePassword ? 'text' : 'password'}
+                    value={formData.password}
+                    onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                    className="w-full px-3 py-2 pr-10 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+                    placeholder="Leave empty to create without login access"
+                  />
+                  <button type="button" onClick={() => setShowPartnerCreatePassword(!showPartnerCreatePassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200">
+                    {showPartnerCreatePassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                  </button>
+                </div>
                 <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                   Minimum 8 characters. Partner can login with email and password if provided.
                 </p>
@@ -7533,6 +7600,7 @@ function SetPartnerPasswordModal({
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false)
 
   // Helper to get auth token for API calls
   const getAuthToken = async (): Promise<string | null> => {
@@ -7668,14 +7736,19 @@ function SetPartnerPasswordModal({
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
               Confirm Password <span className="text-red-500">*</span>
             </label>
-            <input
-              type="password"
-              required
-              value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
-              placeholder="Re-enter password"
-            />
+            <div className="relative">
+              <input
+                type={showConfirmPassword ? 'text' : 'password'}
+                required
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                className="w-full px-3 py-2 pr-10 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+                placeholder="Re-enter password"
+              />
+              <button type="button" onClick={() => setShowConfirmPassword(!showConfirmPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200">
+                {showConfirmPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+              </button>
+            </div>
           </div>
 
           <div className="flex flex-col sm:flex-row justify-end gap-3 pt-4 border-t border-gray-200 dark:border-gray-700">

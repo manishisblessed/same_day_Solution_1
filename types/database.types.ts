@@ -190,7 +190,7 @@ export interface POSMachine {
   serial_number?: string  // Device Serial Number (e.g., 2841154268)
   mid?: string  // Merchant ID (e.g., 7568516041)
   tid?: string  // Terminal ID (e.g., 29196333)
-  brand?: 'RAZORPAY' | 'PINELAB' | 'PAYTM' | 'ICICI' | 'HDFC' | 'AXIS' | 'OTHER'
+  brand?: string
   retailer_id?: string  // nullable for hierarchical assignment (MD/Distributor can hold without retailer)
   distributor_id?: string
   master_distributor_id?: string

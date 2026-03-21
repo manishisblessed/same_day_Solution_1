@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react'
 import { 
   Search, Loader2, CheckCircle, XCircle, Wallet, Receipt, 
   AlertCircle, RefreshCw, FileText, Clock, MessageSquare, History,
-  Download, X, Printer
+  Download, X, Printer, Eye, EyeOff
 } from 'lucide-react'
 import { jsPDF } from 'jspdf'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -204,6 +204,7 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
   const [loadingCharges, setLoadingCharges] = useState(false)
   const [tpin, setTpin] = useState('')
   const [tpinError, setTpinError] = useState<string | null>(null)
+  const [showTpinValue, setShowTpinValue] = useState(false)
   const [panNumber, setPanNumber] = useState('')
   const [panError, setPanError] = useState<string | null>(null)
   
@@ -1959,17 +1960,22 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   T-PIN (Optional)
                 </label>
-                <input
-                  type="password"
-                  value={tpin}
-                  onChange={(e) => {
-                    setTpin(e.target.value.replace(/\D/g, '').slice(0, 6))
-                    setTpinError(null)
-                  }}
-                  placeholder="Enter T-PIN if configured"
-                  maxLength={6}
-                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                />
+                <div className="relative">
+                  <input
+                    type={showTpinValue ? 'text' : 'password'}
+                    value={tpin}
+                    onChange={(e) => {
+                      setTpin(e.target.value.replace(/\D/g, '').slice(0, 6))
+                      setTpinError(null)
+                    }}
+                    placeholder="Enter T-PIN if configured"
+                    maxLength={6}
+                    className="w-full px-4 py-2 pr-10 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                  <button type="button" onClick={() => setShowTpinValue(!showTpinValue)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200">
+                    {showTpinValue ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                  </button>
+                </div>
                 {tpinError && (
                   <p className="text-xs text-red-500 mt-1">{tpinError}</p>
                 )}
@@ -2356,19 +2362,24 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
                   T-PIN
                   <span className="text-xs text-gray-500 ml-1">(Optional - if configured)</span>
                 </label>
-                <input
-                  type="password"
-                  value={tpin}
-                  onChange={(e) => {
-                    setTpin(e.target.value.replace(/\D/g, '').slice(0, 6))
-                    setTpinError(null)
-                  }}
-                  placeholder="Enter T-PIN (if set)"
-                  maxLength={6}
-                  className={`w-full px-4 py-3 border rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
-                    tpinError ? 'border-red-500' : 'border-gray-300 dark:border-gray-600'
-                  }`}
-                />
+                <div className="relative">
+                  <input
+                    type={showTpinValue ? 'text' : 'password'}
+                    value={tpin}
+                    onChange={(e) => {
+                      setTpin(e.target.value.replace(/\D/g, '').slice(0, 6))
+                      setTpinError(null)
+                    }}
+                    placeholder="Enter T-PIN (if set)"
+                    maxLength={6}
+                    className={`w-full px-4 py-3 pr-10 border rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
+                      tpinError ? 'border-red-500' : 'border-gray-300 dark:border-gray-600'
+                    }`}
+                  />
+                  <button type="button" onClick={() => setShowTpinValue(!showTpinValue)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200">
+                    {showTpinValue ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                  </button>
+                </div>
                 {tpinError && (
                   <p className="text-sm text-red-600 dark:text-red-400 mt-1">{tpinError}</p>
                 )}

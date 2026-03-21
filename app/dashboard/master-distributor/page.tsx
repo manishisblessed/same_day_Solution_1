@@ -11,7 +11,7 @@ import {
   LogOut, Crown, Network, BarChart3,
   ArrowUpRight, Building2, Globe, Receipt, Wallet,
   ArrowUpCircle, ArrowDownCircle, Download, Search, Filter,
-  Eye, RefreshCw, Settings, Plus, X, Menu, Layers,
+  Eye, EyeOff, RefreshCw, Settings, Plus, X, Menu, Layers,
   Edit2, Trash2, ChevronDown, ChevronUp, Link2,
   AlertCircle, CheckCircle, User, Bell, Shield, Sliders,
   CreditCard, Banknote
@@ -21,9 +21,10 @@ import { LineChart, Line, BarChart, Bar, AreaChart, Area, PieChart, Pie, Cell, X
 import { motion, AnimatePresence } from 'framer-motion'
 import { apiFetch } from '@/lib/api-client'
 import POSMachinesTab from '@/components/POSMachinesTab'
+import MasterDistributorSubscriptionsTab from '@/components/MasterDistributorSubscriptionsTab'
 import ServiceTransactionReport from '@/components/ServiceTransactionReport'
 
-type TabType = 'dashboard' | 'services' | 'distributors' | 'retailers' | 'wallet' | 'network' | 'commission' | 'analytics' | 'reports' | 'settings' | 'scheme-management' | 'pos-machines'
+type TabType = 'dashboard' | 'services' | 'distributors' | 'retailers' | 'wallet' | 'network' | 'commission' | 'analytics' | 'reports' | 'settings' | 'scheme-management' | 'pos-machines' | 'subscriptions'
 
 type ChangePasswordFormProps = {
   onPasswordChange: (current: string, newPassword: string, confirm: string) => void
@@ -39,7 +40,8 @@ function MasterDistributorDashboardContent() {
   
   const getInitialTab = (): TabType => {
     const tab = searchParams?.get('tab')
-    if (tab && ['dashboard', 'services', 'distributors', 'retailers', 'wallet', 'network', 'commission', 'analytics', 'reports', 'settings', 'scheme-management', 'pos-machines'].includes(tab)) {
+    if (tab === 'distributors' || tab === 'retailers') return 'network'
+    if (tab && ['dashboard', 'services', 'wallet', 'network', 'commission', 'analytics', 'reports', 'settings', 'scheme-management', 'pos-machines', 'subscriptions'].includes(tab)) {
       return tab as TabType
     }
     return 'dashboard'
@@ -85,7 +87,10 @@ function MasterDistributorDashboardContent() {
     }
     
     const tab = searchParams?.get('tab')
-    if (tab && ['dashboard', 'services', 'distributors', 'retailers', 'wallet', 'network', 'commission', 'analytics', 'reports', 'settings', 'scheme-management', 'pos-machines'].includes(tab)) {
+    if (tab === 'distributors' || tab === 'retailers') {
+      router.replace('/dashboard/master-distributor?tab=network', { scroll: false })
+      setActiveTab('network')
+    } else if (tab && ['dashboard', 'services', 'wallet', 'network', 'commission', 'analytics', 'reports', 'settings', 'scheme-management', 'pos-machines', 'subscriptions'].includes(tab)) {
       setActiveTab(tab as TabType)
     } else {
       // Default to dashboard if no tab is specified (when on main dashboard page)
@@ -339,13 +344,14 @@ function MasterDistributorDashboardContent() {
           {activeTab === 'distributors' && <DistributorsTab distributors={distributors} retailers={retailers} user={user} onRefresh={fetchDashboardData} />}
           {activeTab === 'retailers' && <RetailersTab distributors={distributors} retailers={retailers} user={user} onRefresh={fetchDashboardData} />}
           {activeTab === 'wallet' && <WalletTab user={user} />}
-          {activeTab === 'network' && <NetworkTab distributors={distributors} retailers={retailers} user={user} onRefresh={fetchDashboardData} />}
+          {activeTab === 'network' && <NetworkTab distributors={distributors} retailers={retailers} user={user} onRefresh={fetchDashboardData} onNavigateToPosMachines={() => { setActiveTab('pos-machines'); router.push('/dashboard/master-distributor?tab=pos-machines') }} />}
           {activeTab === 'commission' && <CommissionTab commissionData={commissionData} stats={stats} />}
           {activeTab === 'analytics' && <AnalyticsTab categoryData={categoryData} revenueData={revenueData} />}
           {activeTab === 'reports' && <ReportsTab user={user} />}
           {activeTab === 'settings' && <SettingsTab />}
           {activeTab === 'scheme-management' && <SchemeManagementTab user={user} />}
           {activeTab === 'pos-machines' && <POSMachinesTab user={user} accentColor="yellow" />}
+          {activeTab === 'subscriptions' && <MasterDistributorSubscriptionsTab />}
         </div>
       </div>
     </div>
@@ -561,7 +567,7 @@ function WalletTab({ user }: { user: any }) {
       const { data: ledger } = await supabase
         .from('wallet_ledger')
         .select('*')
-        .eq('user_id', user.partner_id)
+        .eq('retailer_id', user.partner_id)
         .eq('wallet_type', 'primary')
         .order('created_at', { ascending: false })
         .limit(50)
@@ -683,7 +689,7 @@ function WalletTab({ user }: { user: any }) {
 }
 
 // Network Tab - View and manage distributors and retailers
-function NetworkTab({ distributors, retailers, user, onRefresh, defaultView }: { distributors: any[], retailers: any[], user: any, onRefresh: () => void, defaultView?: 'distributors' | 'retailers' }) {
+function NetworkTab({ distributors, retailers, user, onRefresh, defaultView, onNavigateToPosMachines }: { distributors: any[], retailers: any[], user: any, onRefresh: () => void, defaultView?: 'distributors' | 'retailers'; onNavigateToPosMachines?: () => void }) {
   const [selectedType, setSelectedType] = useState<'distributors' | 'retailers'>(defaultView || 'distributors')
   const [searchTerm, setSearchTerm] = useState('')
   const [showFundTransfer, setShowFundTransfer] = useState(false)
@@ -920,6 +926,15 @@ function NetworkTab({ distributors, retailers, user, onRefresh, defaultView }: {
                     )}
                     <td className="px-6 py-4">
                       <div className="flex gap-2">
+                        {selectedType === 'distributors' && onNavigateToPosMachines && (
+                          <button
+                            onClick={onNavigateToPosMachines}
+                            className="p-2 text-amber-600 hover:bg-amber-50 rounded"
+                            title="Assign POS machine to this distributor"
+                          >
+                            <CreditCard className="w-5 h-5" />
+                          </button>
+                        )}
                         {selectedType === 'distributors' && (
                           <button
                             onClick={() => {
@@ -1147,6 +1162,7 @@ function AddDistributorModal({ onClose, onSuccess }: { onClose: () => void, onSu
   })
   const [loading, setLoading] = useState(false)
   const [uploadingDocs, setUploadingDocs] = useState(false)
+  const [showCreateFormPassword, setShowCreateFormPassword] = useState(false)
 
   // Helper to upload document with auth token (fallback for cookie issues)
   const uploadWithAuth = async (uploadFormData: FormData): Promise<Response> => {
@@ -1436,13 +1452,18 @@ function AddDistributorModal({ onClose, onSuccess }: { onClose: () => void, onSu
             </div>
             <div>
               <label className="block text-sm font-medium mb-1">Password *</label>
-              <input
-                type="password"
-                required
-                value={formData.password}
-                onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                className="w-full px-3 py-2 border rounded-lg"
-              />
+              <div className="relative">
+                <input
+                  type={showCreateFormPassword ? 'text' : 'password'}
+                  required
+                  value={formData.password}
+                  onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                  className="w-full px-3 py-2 pr-10 border rounded-lg"
+                />
+                <button type="button" onClick={() => setShowCreateFormPassword(!showCreateFormPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700">
+                  {showCreateFormPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                </button>
+              </div>
             </div>
             <div>
               <label className="block text-sm font-medium mb-1">Business Name</label>

@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useRouter } from 'next/navigation'
-import { Lock, Mail, AlertCircle, Loader2, MapPin, ShieldCheck, Clock } from 'lucide-react'
+import { Lock, Mail, AlertCircle, Loader2, MapPin, ShieldCheck, Clock, Eye, EyeOff } from 'lucide-react'
 import AnimatedSection from '@/components/AnimatedSection'
 import { getGeoLocationForLogin, clearGeoCache } from '@/hooks/useGeolocation'
 
@@ -18,6 +18,7 @@ export default function AdminLogin() {
   const [loading, setLoading] = useState(false)
   const [locationVerified, setLocationVerified] = useState(false)
   const [locationLoading, setLocationLoading] = useState(false)
+  const [showPassword, setShowPassword] = useState(false)
   const [showExpiredBanner, setShowExpiredBanner] = useState(false)
 
   useEffect(() => {
@@ -126,14 +127,21 @@ export default function AdminLogin() {
                 <div className="relative">
                   <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
                   <input
-                    type="password"
+                    type={showPassword ? 'text' : 'password'}
                     id="password"
                     required
                     value={formData.password}
                     onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                    className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                    className="w-full pl-10 pr-12 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                     placeholder="Enter your password"
                   />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
+                  >
+                    {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                  </button>
                 </div>
               </div>
 

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { createClient } from '@supabase/supabase-js'
 import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger'
+import { deactivateSubscriptionItemsForMachine } from '@/lib/subscription/deactivate-items-for-machine'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -164,6 +165,18 @@ export async function POST(request: NextRequest) {
             error: 'Return verification failed. Ownership not fully cleared. Please try again.',
           }, { status: 500 })
         }
+      }
+    }
+
+    // Step 3b: Deactivate subscription items for this machine so subscriptions stay in sync
+    if (machine.machine_id) {
+      try {
+        const { deactivated, subscriptionsUpdated } = await deactivateSubscriptionItemsForMachine(supabase, machine.machine_id)
+        if (deactivated > 0) {
+          console.log('[POS Return] Deactivated', deactivated, 'subscription item(s) for machine', machine.machine_id, 'subscriptions updated:', subscriptionsUpdated.length)
+        }
+      } catch (e) {
+        console.error('[POS Return] Deactivate subscription items failed:', e)
       }
     }
 

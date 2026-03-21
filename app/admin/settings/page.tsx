@@ -26,6 +26,7 @@ export default function AdminSettings() {
   const [showCurrentPassword, setShowCurrentPassword] = useState(false)
   const [showNewPassword, setShowNewPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
+  const [showSubAdminPassword, setShowSubAdminPassword] = useState(false)
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [adminInfo, setAdminInfo] = useState<any>(null)
@@ -716,15 +717,20 @@ export default function AdminSettings() {
                       <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                         Password *
                       </label>
-                      <input
-                        type="password"
-                        value={subAdminFormData.password}
-                        onChange={(e) => setSubAdminFormData({ ...subAdminFormData, password: e.target.value })}
-                        required
-                        minLength={8}
-                        className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
-                        placeholder="Min. 8 characters"
-                      />
+                      <div className="relative">
+                        <input
+                          type={showSubAdminPassword ? 'text' : 'password'}
+                          value={subAdminFormData.password}
+                          onChange={(e) => setSubAdminFormData({ ...subAdminFormData, password: e.target.value })}
+                          required
+                          minLength={8}
+                          className="w-full px-4 py-2 pr-10 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+                          placeholder="Min. 8 characters"
+                        />
+                        <button type="button" onClick={() => setShowSubAdminPassword(!showSubAdminPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200">
+                          {showSubAdminPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                        </button>
+                      </div>
                     </div>
                   )}
 

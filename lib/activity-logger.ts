@@ -20,7 +20,7 @@ function getSupabaseAdmin() {
 export type ActivityCategory =
   | 'auth' | 'bbps' | 'payout' | 'aeps' | 'pos' | 'wallet'
   | 'settlement' | 'admin' | 'scheme' | 'report' | 'beneficiary'
-  | 'distributor' | 'master_dist' | 'other'
+  | 'distributor' | 'master_dist' | 'subscription' | 'other'
 
 export interface GeoData {
   latitude: number | null

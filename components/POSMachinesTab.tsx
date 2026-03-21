@@ -30,8 +30,6 @@ export default function POSMachinesTab({ user, accentColor = 'blue' }: POSMachin
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
-  const [statusFilter, setStatusFilter] = useState('all')
-  const [inventoryFilter, setInventoryFilter] = useState('all')
   const [page, setPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
   const [total, setTotal] = useState(0)
@@ -87,11 +85,6 @@ export default function POSMachinesTab({ user, accentColor = 'blue' }: POSMachin
     setError(null)
     try {
       let url = `/api/pos-machines/my-machines?page=${page}&limit=20`
-      const isRetailer = user?.role === 'retailer'
-      if (!isRetailer) {
-        if (statusFilter !== 'all') url += `&status=${statusFilter}`
-        if (inventoryFilter !== 'all') url += `&inventory_status=${inventoryFilter}`
-      }
       if (searchTerm) url += `&search=${encodeURIComponent(searchTerm)}`
 
       const response = await apiFetch(url)
@@ -111,7 +104,7 @@ export default function POSMachinesTab({ user, accentColor = 'blue' }: POSMachin
     } finally {
       setLoading(false)
     }
-  }, [page, statusFilter, inventoryFilter, searchTerm, user?.role])
+  }, [page, searchTerm])
 
   useEffect(() => {
     fetchMachines()
@@ -292,47 +285,17 @@ export default function POSMachinesTab({ user, accentColor = 'blue' }: POSMachin
         )}
       </div>
 
-      {/* Filters */}
+      {/* Search */}
       <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
-        <div className={`grid grid-cols-1 ${user?.role === 'retailer' ? 'sm:grid-cols-1' : 'sm:grid-cols-3'} gap-3`}>
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
-            <input
-              type="text"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Search machine ID, serial, MID, TID..."
-              className={`w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg ${colorClasses.ring} focus:ring-2 bg-white dark:bg-gray-900 text-gray-900 dark:text-white text-sm`}
-            />
-          </div>
-          {user?.role !== 'retailer' && (
-            <>
-              <select
-                value={statusFilter}
-                onChange={(e) => { setStatusFilter(e.target.value); setPage(1) }}
-                className={`px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg ${colorClasses.ring} focus:ring-2 bg-white dark:bg-gray-900 text-gray-900 dark:text-white text-sm`}
-              >
-                <option value="all">All Status</option>
-                <option value="active">Active</option>
-                <option value="inactive">Inactive</option>
-                <option value="maintenance">Maintenance</option>
-                <option value="damaged">Damaged</option>
-                <option value="returned">Returned</option>
-              </select>
-              <select
-                value={inventoryFilter}
-                onChange={(e) => { setInventoryFilter(e.target.value); setPage(1) }}
-                className={`px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg ${colorClasses.ring} focus:ring-2 bg-white dark:bg-gray-900 text-gray-900 dark:text-white text-sm`}
-              >
-                <option value="all">All Inventory Status</option>
-                <option value="in_stock">In Stock</option>
-                <option value="received_from_bank">Received from Bank</option>
-                <option value="assigned_to_master_distributor">With Master Distributor</option>
-                <option value="assigned_to_distributor">With Distributor</option>
-                <option value="assigned_to_retailer">With Retailer</option>
-              </select>
-            </>
-          )}
+        <div className="relative max-w-md">
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+          <input
+            type="text"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            placeholder="Search machine ID, serial, MID, TID..."
+            className={`w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg ${colorClasses.ring} focus:ring-2 bg-white dark:bg-gray-900 text-gray-900 dark:text-white text-sm`}
+          />
         </div>
       </div>
 
@@ -375,14 +338,12 @@ export default function POSMachinesTab({ user, accentColor = 'blue' }: POSMachin
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">MID / TID</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Brand</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Type</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Status</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Inventory</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Location</th>
                   <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
                 {machines.map((machine) => {
-                  const invStatus = getInventoryStatusLabel(machine.inventory_status)
                   const isAssignable = canAssign && canAssignMachine(machine)
                   return (
                     <motion.tr
@@ -430,16 +391,6 @@ export default function POSMachinesTab({ user, accentColor = 'blue' }: POSMachin
                         </span>
                       </td>
                       <td className="px-4 py-3">
-                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${getStatusColor(machine.status)}`}>
-                          {machine.status}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${invStatus.color}`}>
-                          {invStatus.label}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3">
                         <p className="text-xs text-gray-600 dark:text-gray-400">
                           {[machine.city, machine.state].filter(Boolean).join(', ') || '-'}
                         </p>
@@ -474,7 +425,6 @@ export default function POSMachinesTab({ user, accentColor = 'blue' }: POSMachin
           {/* Mobile Cards */}
           <div className="md:hidden divide-y divide-gray-200 dark:divide-gray-700">
             {machines.map((machine) => {
-              const invStatus = getInventoryStatusLabel(machine.inventory_status)
               const isAssignable = canAssign && canAssignMachine(machine)
               return (
                 <div key={machine.id} className="p-4 space-y-3">
@@ -505,14 +455,6 @@ export default function POSMachinesTab({ user, accentColor = 'blue' }: POSMachin
                     <span className="inline-flex items-center gap-1 text-xs font-medium text-gray-700 dark:text-gray-300">
                       {getTypeIcon(machine.machine_type)}
                       {machine.machine_type}
-                    </span>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${getStatusColor(machine.status)}`}>
-                      {machine.status}
-                    </span>
-                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${invStatus.color}`}>
-                      {invStatus.label}
                     </span>
                   </div>
                   <div className="flex items-center justify-between">
@@ -651,12 +593,15 @@ function AssignModal({
   const [selectedUser, setSelectedUser] = useState('')
   const [assignToType, setAssignToType] = useState<'master_distributor' | 'partner' | ''>('')
   const [notes, setNotes] = useState('')
+  const [subscriptionAmount, setSubscriptionAmount] = useState('')
+  const [billingDay, setBillingDay] = useState(1)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
-  
+
   // For admin, separate master distributors and partners
   const isAdmin = userRole === 'admin'
+  const showSubscriptionFields = isAdmin ? assignToType === 'master_distributor' : true
   const masterDistributors = isAdmin ? assignableUsers.filter((u: any) => u.type === 'master_distributor' || !u.type) : []
   const partners = isAdmin ? assignableUsers.filter((u: any) => u.type === 'partner') : []
   
@@ -711,14 +656,23 @@ function AssignModal({
     setError(null)
 
     try {
+      const payload: Record<string, unknown> = {
+        machine_id: machine.id,
+        assign_to: selectedUser,
+        assign_to_type: isAdmin ? assignToType : undefined,
+        notes,
+      }
+      if (showSubscriptionFields) {
+        const amount = subscriptionAmount.trim() ? parseFloat(subscriptionAmount) : null
+        if (amount != null && !Number.isNaN(amount)) {
+          payload.subscription_amount = amount
+          payload.billing_day = Math.max(1, Math.min(28, billingDay))
+          payload.gst_percent = 18
+        }
+      }
       const response = await apiFetch('/api/pos-machines/assign', {
         method: 'POST',
-        body: JSON.stringify({
-          machine_id: machine.id,
-          assign_to: selectedUser,
-          assign_to_type: isAdmin ? assignToType : undefined,
-          notes,
-        }),
+        body: JSON.stringify(payload),
       })
 
       const result = await response.json()
@@ -852,6 +806,41 @@ function AssignModal({
                     <p className="text-xs text-gray-500 dark:text-gray-400">{partners.length} available</p>
                   </div>
                 </label>
+              </div>
+            </div>
+          )}
+
+          {/* Subscription (for MD / Distributor / Retailer assign) */}
+          {showSubscriptionFields && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Subscription amount (₹/month)
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  step={0.01}
+                  value={subscriptionAmount}
+                  onChange={(e) => setSubscriptionAmount(e.target.value)}
+                  placeholder="Any amount"
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white text-sm"
+                />
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">+ 18% GST will be applied. Optional.</p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Billing day (1–28)
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  max={28}
+                  value={billingDay}
+                  onChange={(e) => setBillingDay(Math.max(1, Math.min(28, parseInt(e.target.value, 10) || 1)))}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white text-sm"
+                />
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Day of month to debit (e.g. 1 = 1st).</p>
               </div>
             </div>
           )}

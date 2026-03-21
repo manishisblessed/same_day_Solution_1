@@ -6,7 +6,7 @@ import Link from 'next/link'
 import Image from 'next/image'
 import { 
   LayoutDashboard, Package, Activity, 
-  Settings, TrendingUp, Users, Network, X, Menu, Layers, CreditCard
+  Settings, TrendingUp, Users, Network, X, Menu, Layers, CreditCard, Repeat
 } from 'lucide-react'
 import { apiFetch } from '@/lib/api-client'
 import { useAuth } from '@/contexts/AuthContext'
@@ -25,6 +25,7 @@ const sidebarItems: SidebarItem[] = [
   { id: 'services', label: 'Services', icon: Activity, href: '/dashboard/distributor?tab=services' },
   { id: 'retailers', label: 'Retailers', icon: Users, href: '/dashboard/distributor?tab=retailers' },
   { id: 'pos-machines', label: 'POS Machines', icon: CreditCard, href: '/dashboard/distributor?tab=pos-machines' },
+  { id: 'subscriptions', label: 'Subscriptions', icon: Repeat, href: '/dashboard/distributor?tab=subscriptions' },
   { id: 'scheme-management', label: 'Scheme Management', icon: Layers, href: '/dashboard/distributor?tab=scheme-management' },
   { id: 'reports', label: 'Reports', icon: TrendingUp, href: '/dashboard/distributor?tab=reports' },
   { id: 'settings', label: 'Settings', icon: Settings, href: '/dashboard/distributor?tab=settings' },
@@ -32,7 +33,6 @@ const sidebarItems: SidebarItem[] = [
 
 const SERVICE_TAB_MAP: Record<string, string[]> = {
   services:       [],
-  'pos-machines': ['mini_atm_pos'],
 }
 
 export default function DistributorSidebar({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {

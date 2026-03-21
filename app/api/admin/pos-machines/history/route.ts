@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { createClient } from '@supabase/supabase-js'
+import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -149,6 +150,21 @@ export async function POST(request: NextRequest) {
     }
 
     const isAssignAction = action.startsWith('assigned_to_')
+
+    // Only one active assignment per machine is allowed (unique index). Close any existing active assignment before inserting.
+    if (isAssignAction) {
+      const { error: closeErr } = await supabase
+        .from('pos_assignment_history')
+        .update({ status: 'returned', returned_date: new Date().toISOString() })
+        .eq('pos_machine_id', pos_machine_id)
+        .like('action', 'assigned_to_%')
+        .eq('status', 'active')
+      if (closeErr) {
+        console.warn('[POS History] Close previous assignment:', closeErr.message)
+        // Continue anyway; insert may still succeed if DB has no unique index yet
+      }
+    }
+
     const { error } = await supabase.from('pos_assignment_history').insert({
       pos_machine_id,
       machine_id,
@@ -165,8 +181,26 @@ export async function POST(request: NextRequest) {
 
     if (error) {
       console.error('[POS History] Insert error:', error)
-      return NextResponse.json({ error: 'Failed to create history record' }, { status: 500 })
+      return NextResponse.json(
+        { error: error.message || 'Failed to create history record', code: error.code },
+        { status: 500 }
+      )
     }
+
+    // Log to activity_logs so it appears in Performance tab
+    try {
+      const ctx = getRequestContext(request)
+      const desc = assigned_to_role
+        ? `POS ${machine_id} ${action} → ${assigned_to_role}`
+        : `POS ${machine_id} ${action}`
+      logActivityFromContext(ctx, user, {
+        activity_type: 'pos_machine_assign',
+        activity_category: 'pos',
+        activity_description: desc,
+        reference_table: 'pos_machines',
+        reference_id: pos_machine_id,
+      }).catch(() => {})
+    } catch (_) {}
 
     return NextResponse.json({ success: true })
   } catch (err: any) {

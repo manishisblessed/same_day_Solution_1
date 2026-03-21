@@ -7,7 +7,7 @@ import {
   LayoutDashboard, ShoppingCart, Activity, 
   Settings, TrendingUp, CreditCard, X, Menu,
   Wallet, Receipt, Banknote, Percent, BookOpen,
-  Crown, Sparkles, Key, BarChart3, Zap
+  Crown, Sparkles, Key, BarChart3, Zap, Repeat
 } from 'lucide-react'
 import { apiFetch } from '@/lib/api-client'
 import { useAuth } from '@/contexts/AuthContext'
@@ -31,6 +31,7 @@ const sidebarItems: SidebarItem[] = [
   { id: 'transactions', label: 'Transactions', icon: CreditCard, href: '/dashboard/partner?tab=transactions' },
   { id: 'ledger', label: 'Ledger', icon: BookOpen, href: '/dashboard/partner?tab=ledger' },
   { id: 'pos-machines', label: 'My POS Machines', icon: CreditCard, href: '/dashboard/partner?tab=pos-machines' },
+  { id: 'subscriptions', label: 'Subscriptions', icon: Repeat, href: '/dashboard/partner?tab=subscriptions' },
   { id: 'mdr-schemes', label: 'MDR Schemes', icon: Percent, href: '/dashboard/partner?tab=mdr-schemes' },
   { id: 'reports', label: 'Reports', icon: TrendingUp, href: '/dashboard/partner?tab=reports' },
   // VIP Features
@@ -45,6 +46,7 @@ const SERVICE_TAB_MAP: Record<string, string[]> = {
   payout:         ['banking_payments', 'dmt'],
   transactions:   ['mini_atm_pos'],
   'pos-machines': ['mini_atm_pos'],
+  'subscriptions': ['mini_atm_pos'],
   'mdr-schemes':  ['mini_atm_pos'],
 }
 

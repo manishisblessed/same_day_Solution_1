@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { createClient } from '@supabase/supabase-js'
+import { upsertSubscriptionOnAssign } from '@/lib/subscription/upsert-subscription-on-assign'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -33,7 +34,15 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { machine_id, assign_to, assign_to_type, notes } = body
+    const {
+      machine_id,
+      assign_to,
+      assign_to_type,
+      notes,
+      subscription_amount,
+      billing_day,
+      gst_percent,
+    } = body
 
     if (!machine_id) {
       return NextResponse.json({ error: 'machine_id is required' }, { status: 400 })
@@ -63,6 +72,10 @@ export async function POST(request: NextRequest) {
       .limit(1)
       .maybeSingle()
 
+    const subAmount = subscription_amount != null ? Number(subscription_amount) : null
+    const bDay = billing_day != null ? Math.max(1, Math.min(28, parseInt(String(billing_day), 10) || 1)) : 1
+    const gst = gst_percent != null ? Number(gst_percent) : 18
+
     switch (user.role) {
       case 'admin': {
         const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(assign_to)
@@ -71,16 +84,16 @@ export async function POST(request: NextRequest) {
         if (shouldAssignToPartner) {
           return await assignToPartner(supabase, request, user, machine, assign_to, notes, activeAssignment)
         } else {
-          return await assignToMasterDistributor(supabase, request, user, machine, assign_to, notes, activeAssignment)
+          return await assignToMasterDistributor(supabase, request, user, machine, assign_to, notes, activeAssignment, subAmount, bDay, gst)
         }
       }
 
       case 'master_distributor': {
-        return await assignToDistributor(supabase, request, user, machine, assign_to, notes, activeAssignment)
+        return await assignToDistributor(supabase, request, user, machine, assign_to, notes, activeAssignment, subAmount, bDay, gst)
       }
 
       case 'distributor': {
-        return await assignToRetailer(supabase, request, user, machine, assign_to, notes, activeAssignment)
+        return await assignToRetailer(supabase, request, user, machine, assign_to, notes, activeAssignment, subAmount, bDay, gst)
       }
 
       default:
@@ -212,7 +225,8 @@ async function assignToPartner(
 async function assignToMasterDistributor(
   supabase: any, request: NextRequest, user: any,
   machine: any, assignTo: string, notes: string | undefined,
-  activeAssignment: any
+  activeAssignment: any,
+  subscriptionAmount: number | null, billingDay: number, gstPercent: number
 ) {
   const { data: md, error: mdError } = await supabase
     .from('master_distributors')
@@ -282,6 +296,23 @@ async function assignToMasterDistributor(
 
   logAssignment(request, user, machine, assignTo, 'master_distributor')
 
+  if (subscriptionAmount != null && subscriptionAmount > 0) {
+    const subResult = await upsertSubscriptionOnAssign({
+      supabase,
+      assignee_user_id: assignTo,
+      assignee_user_role: 'master_distributor',
+      machine: { machine_id: machine.machine_id, retailer_id: null, distributor_id: null, master_distributor_id: assignTo },
+      rate_per_unit: subscriptionAmount,
+      billing_day: billingDay,
+      gst_percent: gstPercent,
+      assigned_by: user.partner_id || user.id || user.email,
+      assigned_by_role: 'admin',
+    })
+    if (!subResult.success) {
+      console.error('[Assign] Subscription upsert after MD assign:', subResult.error)
+    }
+  }
+
   return NextResponse.json({
     success: true,
     message: `POS machine ${machine.machine_id} assigned to Master Distributor ${md.name}`,
@@ -293,7 +324,8 @@ async function assignToMasterDistributor(
 async function assignToDistributor(
   supabase: any, request: NextRequest, user: any,
   machine: any, assignTo: string, notes: string | undefined,
-  activeAssignment: any
+  activeAssignment: any,
+  subscriptionAmount: number | null, billingDay: number, gstPercent: number
 ) {
   if (machine.master_distributor_id !== user.partner_id) {
     return NextResponse.json({ error: 'This machine is not assigned to you' }, { status: 403 })
@@ -358,6 +390,23 @@ async function assignToDistributor(
 
   logAssignment(request, user, machine, assignTo, 'distributor')
 
+  if (subscriptionAmount != null && subscriptionAmount > 0) {
+    const subResult = await upsertSubscriptionOnAssign({
+      supabase,
+      assignee_user_id: assignTo,
+      assignee_user_role: 'distributor',
+      machine: { machine_id: machine.machine_id, retailer_id: null, distributor_id: assignTo, master_distributor_id: machine.master_distributor_id },
+      rate_per_unit: subscriptionAmount,
+      billing_day: billingDay,
+      gst_percent: gstPercent,
+      assigned_by: user.partner_id,
+      assigned_by_role: 'master_distributor',
+    })
+    if (!subResult.success) {
+      console.error('[Assign] Subscription upsert after Distributor assign:', subResult.error)
+    }
+  }
+
   return NextResponse.json({
     success: true,
     message: `POS machine ${machine.machine_id} assigned to Distributor ${dist.name}`,
@@ -369,7 +418,8 @@ async function assignToDistributor(
 async function assignToRetailer(
   supabase: any, request: NextRequest, user: any,
   machine: any, assignTo: string, notes: string | undefined,
-  activeAssignment: any
+  activeAssignment: any,
+  subscriptionAmount: number | null, billingDay: number, gstPercent: number
 ) {
   if (machine.distributor_id !== user.partner_id) {
     return NextResponse.json({ error: 'This machine is not assigned to you' }, { status: 403 })
@@ -434,6 +484,23 @@ async function assignToRetailer(
   })
 
   logAssignment(request, user, machine, assignTo, 'retailer')
+
+  if (subscriptionAmount != null && subscriptionAmount > 0) {
+    const subResult = await upsertSubscriptionOnAssign({
+      supabase,
+      assignee_user_id: assignTo,
+      assignee_user_role: 'retailer',
+      machine: { machine_id: machine.machine_id, retailer_id: assignTo, distributor_id: machine.distributor_id, master_distributor_id: machine.master_distributor_id },
+      rate_per_unit: subscriptionAmount,
+      billing_day: billingDay,
+      gst_percent: gstPercent,
+      assigned_by: user.partner_id,
+      assigned_by_role: 'distributor',
+    })
+    if (!subResult.success) {
+      console.error('[Assign] Subscription upsert after Retailer assign:', subResult.error)
+    }
+  }
 
   // Update pos_device_mapping for Razorpay transaction visibility
   if (machine.serial_number) {

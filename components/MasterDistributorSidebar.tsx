@@ -6,7 +6,7 @@ import Link from 'next/link'
 import Image from 'next/image'
 import { 
   LayoutDashboard, Crown, Activity, 
-  Settings, TrendingUp, Users, Network, Package, X, Menu, Layers, CreditCard
+  Settings, TrendingUp, Users, Network, Package, X, Menu, Layers, CreditCard, Repeat
 } from 'lucide-react'
 import { apiFetch } from '@/lib/api-client'
 import { useAuth } from '@/contexts/AuthContext'
@@ -23,9 +23,8 @@ interface SidebarItem {
 const sidebarItems: SidebarItem[] = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, href: '/dashboard/master-distributor' },
   { id: 'services', label: 'Services', icon: Activity, href: '/dashboard/master-distributor?tab=services' },
-  { id: 'distributors', label: 'Distributors', icon: Package, href: '/dashboard/master-distributor?tab=distributors' },
-  { id: 'retailers', label: 'Retailers', icon: Users, href: '/dashboard/master-distributor?tab=retailers' },
   { id: 'pos-machines', label: 'POS Machines', icon: CreditCard, href: '/dashboard/master-distributor?tab=pos-machines' },
+  { id: 'subscriptions', label: 'Subscriptions', icon: Repeat, href: '/dashboard/master-distributor?tab=subscriptions' },
   { id: 'scheme-management', label: 'Scheme Management', icon: Layers, href: '/dashboard/master-distributor?tab=scheme-management' },
   { id: 'network', label: 'Network', icon: Network, href: '/dashboard/master-distributor?tab=network' },
   { id: 'reports', label: 'Reports', icon: TrendingUp, href: '/dashboard/master-distributor?tab=reports' },
@@ -33,8 +32,7 @@ const sidebarItems: SidebarItem[] = [
 ]
 
 const SERVICE_TAB_MAP: Record<string, string[]> = {
-  services:       [],
-  'pos-machines': ['mini_atm_pos'],
+  services: [],
 }
 
 export default function MasterDistributorSidebar({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {

@@ -38,8 +38,9 @@ import { motion } from 'framer-motion'
 import POSMachinesTab from '@/components/POSMachinesTab'
 import POSTransactionsTable from '@/components/POSTransactionsTable'
 import ServiceTransactionReport from '@/components/ServiceTransactionReport'
+import PartnerSubscriptionsTab from '@/components/PartnerSubscriptionsTab'
 
-type TabType = 'dashboard' | 'wallet' | 'services' | 'bbps' | 'payout' | 'transactions' | 'ledger' | 'mdr-schemes' | 'reports' | 'settings' | 'pos-machines'
+type TabType = 'dashboard' | 'wallet' | 'services' | 'bbps' | 'payout' | 'transactions' | 'ledger' | 'mdr-schemes' | 'reports' | 'settings' | 'pos-machines' | 'subscriptions'
 
 function RetailerDashboardContent() {
   const { user, loading: authLoading } = useAuth()
@@ -49,7 +50,7 @@ function RetailerDashboardContent() {
   
   const getInitialTab = (): TabType => {
     const tab = searchParams?.get('tab')
-    if (tab && ['dashboard', 'wallet', 'services', 'bbps', 'payout', 'transactions', 'ledger', 'mdr-schemes', 'reports', 'settings', 'pos-machines'].includes(tab)) {
+    if (tab && ['dashboard', 'wallet', 'services', 'bbps', 'payout', 'transactions', 'ledger', 'mdr-schemes', 'reports', 'settings', 'pos-machines', 'subscriptions'].includes(tab)) {
       return tab as TabType
     }
     return 'dashboard'
@@ -100,7 +101,7 @@ function RetailerDashboardContent() {
 
   useEffect(() => {
     const tab = searchParams?.get('tab')
-    if (tab && ['dashboard', 'wallet', 'services', 'bbps', 'payout', 'transactions', 'ledger', 'mdr-schemes', 'reports', 'settings', 'pos-machines'].includes(tab)) {
+    if (tab && ['dashboard', 'wallet', 'services', 'bbps', 'payout', 'transactions', 'ledger', 'mdr-schemes', 'reports', 'settings', 'pos-machines', 'subscriptions'].includes(tab)) {
       if (tab !== activeTab) {
         setActiveTab(tab as TabType)
       }
@@ -508,6 +509,7 @@ function RetailerDashboardContent() {
           {activeTab === 'ledger' && <LedgerTab user={user} />}
           {activeTab === 'mdr-schemes' && <MDRSchemesTab user={user} />}
           {activeTab === 'pos-machines' && <POSMachinesTab user={user} accentColor="blue" />}
+          {activeTab === 'subscriptions' && <PartnerSubscriptionsTab />}
           {activeTab === 'reports' && <ReportsTab chartData={chartData} stats={stats} />}
           {activeTab === 'settings' && <SettingsTab user={user} />}
         </div>
@@ -2386,6 +2388,7 @@ function SettingsTab({ user }: { user: any }) {
   const [confirmTpin, setConfirmTpin] = useState('')
   const [showCurrentTpin, setShowCurrentTpin] = useState(false)
   const [showNewTpin, setShowNewTpin] = useState(false)
+  const [showConfirmTpin, setShowConfirmTpin] = useState(false)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
@@ -2594,14 +2597,19 @@ function SettingsTab({ user }: { user: any }) {
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Confirm TPIN
               </label>
-              <input
-                type="password"
-                value={confirmTpin}
-                onChange={(e) => setConfirmTpin(e.target.value.replace(/\D/g, '').slice(0, 4))}
-                placeholder="Re-enter new TPIN"
-                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                maxLength={4}
-              />
+              <div className="relative">
+                <input
+                  type={showConfirmTpin ? 'text' : 'password'}
+                  value={confirmTpin}
+                  onChange={(e) => setConfirmTpin(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                  placeholder="Re-enter new TPIN"
+                  className="w-full px-4 py-2 pr-10 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  maxLength={4}
+                />
+                <button type="button" onClick={() => setShowConfirmTpin(!showConfirmTpin)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200">
+                  {showConfirmTpin ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                </button>
+              </div>
             </div>
 
             {/* Action Buttons */}

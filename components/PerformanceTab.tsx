@@ -49,6 +49,7 @@ const CATEGORIES = [
   { value: 'beneficiary', label: 'Beneficiary' },
   { value: 'distributor', label: 'Distributor' },
   { value: 'master_dist', label: 'Master Dist.' },
+  { value: 'subscription', label: 'Subscription' },
   { value: 'other', label: 'Other' },
 ]
 
@@ -75,6 +76,7 @@ const CATEGORY_COLORS: Record<string, string> = {
   beneficiary: 'bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-400',
   distributor: 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400',
   master_dist: 'bg-fuchsia-100 text-fuchsia-700 dark:bg-fuchsia-900/30 dark:text-fuchsia-400',
+  subscription: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
   other: 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400',
 }
 
