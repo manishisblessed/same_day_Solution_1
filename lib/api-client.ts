@@ -182,7 +182,7 @@ export async function apiFetch(
   
   const fetchOptions: RequestInit = {
     ...restOptions,
-    credentials: 'include', // Include cookies for same-origin requests
+    credentials: 'include',
     headers,
     signal: controller.signal,
   }
