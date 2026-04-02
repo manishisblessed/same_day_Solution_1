@@ -37,6 +37,7 @@ const RetailerSidebar = lazy(() =>
 import { motion } from 'framer-motion'
 import POSMachinesTab from '@/components/POSMachinesTab'
 import POSTransactionsTable from '@/components/POSTransactionsTable'
+import PosBridgePanel from '@/components/PosBridgePanel'
 import ServiceTransactionReport from '@/components/ServiceTransactionReport'
 import PartnerSubscriptionsTab from '@/components/PartnerSubscriptionsTab'
 
@@ -209,32 +210,23 @@ function RetailerDashboardContent() {
         .order('created_at', { ascending: false })
         .limit(1000)
 
-      // Fetch POS transactions
+      // POS transactions: same source as /api/razorpay/transactions (mapping + pos_machines, RLS-safe)
       let posTransactions: any[] = []
       try {
-        // Get device serials for this retailer
-        const { data: mappings } = await supabase
-          .from('pos_device_mapping')
-          .select('device_serial')
-          .eq('retailer_id', user.partner_id)
-          .eq('status', 'ACTIVE')
-
-        const deviceSerials = (mappings || []).map((m: any) => m.device_serial).filter(Boolean)
-
-        if (deviceSerials.length > 0) {
-          // Fetch POS transactions for these devices
-          const { data: posData } = await supabase
-            .from('razorpay_pos_transactions')
-            .select('*')
-            .in('device_serial', deviceSerials)
-            .order('transaction_time', { ascending: false })
-            .limit(1000)
-
-          posTransactions = posData || []
+        if (user.partner_id) {
+          const res = await apiFetch('/api/razorpay/transactions?page=1&limit=1000')
+          if (res.ok) {
+            const json = await res.json()
+            posTransactions = Array.isArray(json.data) ? json.data : []
+          }
         }
       } catch (posError) {
         console.error('Error fetching POS transactions:', posError)
-        // Continue without POS transactions if there's an error
+      }
+
+      const posAmountRupees = (tx: any) => {
+        const n = parseFloat(String(tx?.amount ?? 0))
+        return Number.isFinite(n) ? n : 0
       }
 
       // Combine ledger and POS transactions for stats
@@ -247,7 +239,7 @@ function RetailerDashboardContent() {
       // Calculate revenue from POS transactions (only successful ones)
       const posRevenue = posTransactions
         .filter(tx => (tx.display_status || tx.status || '').toUpperCase() === 'SUCCESS' || (tx.status || '').toUpperCase() === 'CAPTURED')
-        .reduce((sum, tx) => sum + (parseFloat(tx.amount || 0) / 100 || 0), 0) // Amount is in paise, convert to rupees
+        .reduce((sum, tx) => sum + posAmountRupees(tx), 0)
       const totalRevenue = ledgerRevenue + posRevenue
       
       // Fetch commission data
@@ -280,7 +272,7 @@ function RetailerDashboardContent() {
       const recentPOSEntries = posTransactions.slice(0, 5).map(tx => ({
         id: tx.txn_id || tx.id,
         type: 'POS Transaction',
-        amount: parseFloat(tx.amount || 0) / 100 || 0, // Convert from paise to rupees
+        amount: posAmountRupees(tx),
         status: (tx.display_status || tx.status || 'PENDING').toLowerCase(),
         date: tx.transaction_time ? new Date(tx.transaction_time).toLocaleDateString() : new Date().toLocaleDateString(),
         customer: 'POS Customer',
@@ -341,7 +333,7 @@ function RetailerDashboardContent() {
         const isSuccess = (tx.display_status || tx.status || '').toUpperCase() === 'SUCCESS' || (tx.status || '').toUpperCase() === 'CAPTURED'
         if (isSuccess) {
           dayMap[dayName].transactions += 1
-          dayMap[dayName].revenue += (parseFloat(tx.amount || 0) / 100 || 0) // Convert from paise to rupees
+          dayMap[dayName].revenue += posAmountRupees(tx)
         }
       })
 
@@ -505,7 +497,12 @@ function RetailerDashboardContent() {
           {activeTab === 'services' && <ServicesTab />}
           {activeTab === 'bbps' && <BBPSTab />}
           {activeTab === 'payout' && <PayoutTransfer title="Settlement to Bank Account" />}
-          {activeTab === 'transactions' && <POSTransactionsTable autoPoll={true} pollInterval={15000} />}
+          {activeTab === 'transactions' && (
+            <>
+              <PosBridgePanel variant="retailer" />
+              <POSTransactionsTable autoPoll={true} pollInterval={15000} />
+            </>
+          )}
           {activeTab === 'ledger' && <LedgerTab user={user} />}
           {activeTab === 'mdr-schemes' && <MDRSchemesTab user={user} />}
           {activeTab === 'pos-machines' && <POSMachinesTab user={user} accentColor="blue" />}

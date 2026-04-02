@@ -26,6 +26,7 @@ export async function POST(request: NextRequest) {
     // Get test parameters from request body
     const body = await request.json()
     const {
+      merchantSlug = 'ashvam',
       amount = 100,
       paymentMode = 'UPI',
       customerName = 'Test Customer',
@@ -79,10 +80,11 @@ export async function POST(request: NextRequest) {
 
     // Determine the webhook URL (use internal URL for server-to-server call)
     const baseUrl = process.env.NEXT_PUBLIC_API_URL || process.env.NEXTAUTH_URL || 'https://api.samedaysolution.in'
-    const webhookUrl = `${baseUrl}/api/razorpay/notification`
+    const safeSlug = String(merchantSlug || 'ashvam').toLowerCase().trim()
+    const webhookUrl = `${baseUrl}/api/razorpay/notification/${encodeURIComponent(safeSlug)}`
 
     console.log(`[Test Transaction] Sending test to: ${webhookUrl}`)
-    console.log(`[Test Transaction] Payload:`, JSON.stringify({ txnId: testTxnId, amount, paymentMode, status }))
+    console.log(`[Test Transaction] Payload:`, JSON.stringify({ merchantSlug: safeSlug, txnId: testTxnId, amount, paymentMode, status }))
 
     // Send the test transaction to the webhook endpoint
     const webhookResponse = await fetch(webhookUrl, {

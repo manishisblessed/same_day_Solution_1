@@ -74,6 +74,7 @@ export async function GET(request: NextRequest) {
     const settlementFilter = searchParams.get('settlement_status') // Filter by settlement status
     const cardBrand = searchParams.get('card_brand') // Filter by card brand
     const merchantSlug = searchParams.get('merchant_slug') // Filter by company: all | ashvam | teachway | newscenaric | lagoon
+    const acquiringBank = searchParams.get('acquiring_bank') // Filter by acquiring bank (partial match)
 
     // Validate pagination
     if (page < 1 || limit < 1) {
@@ -87,7 +88,7 @@ export async function GET(request: NextRequest) {
     // Select dedicated columns + raw_data for fallback extraction
     let query = supabase
       .from('razorpay_pos_transactions')
-      .select('txn_id, amount, payment_mode, display_status, status, transaction_time, raw_data, tid, device_serial, merchant_name, merchant_slug, customer_name, payer_name, username, txn_type, auth_code, card_number, issuing_bank, card_classification, mid_code, card_brand, card_type, currency, rrn, external_ref, settlement_status, settled_on, receipt_url, posting_date', { count: 'exact' })
+      .select('txn_id, amount, payment_mode, display_status, status, transaction_time, raw_data, tid, device_serial, merchant_name, merchant_slug, customer_name, payer_name, username, txn_type, auth_code, card_number, issuing_bank, card_classification, mid_code, card_brand, card_type, currency, rrn, external_ref, settlement_status, settled_on, receipt_url, posting_date, acquiring_bank', { count: 'exact' })
       .order('transaction_time', { ascending: false, nullsFirst: false })
       .range(offset, offset + limit - 1)
 
@@ -131,6 +132,12 @@ export async function GET(request: NextRequest) {
       query = query.eq('card_brand', cardBrand.toUpperCase())
     }
 
+    // Apply acquiring bank filter (case-insensitive, partial match)
+    if (acquiringBank && acquiringBank.trim()) {
+      const b = acquiringBank.trim()
+      query = query.ilike('acquiring_bank', `%${b}%`)
+    }
+
     // Apply search query (search across multiple fields using OR)
     if (searchQuery && searchQuery.trim()) {
       const s = searchQuery.trim()
@@ -162,6 +169,7 @@ export async function GET(request: NextRequest) {
       status: txn.display_status === 'SUCCESS' ? 'CAPTURED' : (txn.display_status || txn.status || 'PENDING'),
       settlement_status: txn.settlement_status || txn.raw_data?.settlementStatus || null,
       created_time: txn.transaction_time,
+      service_provider: 'RAZORPAY',
       // Company (merchant_slug): ashvam, teachway, newscenaric, lagoon; null = legacy/ashvam
       merchant_slug: txn.merchant_slug || 'ashvam',
       // Customer & User Info
@@ -183,6 +191,7 @@ export async function GET(request: NextRequest) {
       card_number: txn.card_number || txn.raw_data?.cardNumber || txn.raw_data?.maskedCardNumber || null,
       issuing_bank: txn.issuing_bank || txn.raw_data?.issuingBankName || txn.raw_data?.bankName || txn.raw_data?.issuingBank || null,
       card_classification: txn.card_classification || txn.raw_data?.cardClassification || txn.raw_data?.cardCategory || null,
+      acquiring_bank: txn.acquiring_bank || txn.raw_data?.acquiringBank || txn.raw_data?.acquiringBankName || txn.raw_data?.acquirerCode || null,
       // Reference Numbers
       rrn: txn.rrn || txn.raw_data?.rrNumber || txn.raw_data?.rrn || null,
       external_ref: txn.external_ref || txn.raw_data?.externalRefNumber || null,

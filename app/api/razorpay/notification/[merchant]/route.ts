@@ -9,6 +9,7 @@ export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 const VALID_MERCHANTS: Record<string, string> = {
+  ashvam: 'ASHVAM LEARNING PRIVATE LIMITED',
   teachway: 'Teachway Education Private Limited',
   newscenaric: 'New Scenaric Travels',
   lagoon: 'LAGOON CRAFT LABS SOLUTIONS PRIVATE LIMITED',

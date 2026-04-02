@@ -249,18 +249,54 @@ export async function POST(request: NextRequest) {
       try { postingDateParsed = new Date(postingDateStr) } catch { /* ignore */ }
     }
 
-    // FIX: Store in razorpay_pos_transactions (used by role-based visibility API)
-    // Base URL = ASHVAM LEARNING PRIVATE LIMITED
+    // Detect merchant slug from payload fields when using the base URL.
+    // Priority: 1) Ezetap username (most reliable), 2) merchantName text match
+    const MERCHANT_NAME_TO_SLUG: Record<string, string> = {
+      'ashvam learning private limited': 'ashvam',
+      'ashvam': 'ashvam',
+      'teachway education private limited': 'teachway',
+      'teachway': 'teachway',
+      'new scenaric travels': 'newscenaric',
+      'new sceneric travels': 'newscenaric',
+      'newscenaric': 'newscenaric',
+      'lagoon craft labs solutions private limited': 'lagoon',
+      'lagoon': 'lagoon',
+    }
+
+    let slugFromCredentials: string | null = null
+    const ezetapUsername = normalizedPayload.username || payload.username
+    if (ezetapUsername) {
+      try {
+        const raw = process.env.EZETAP_MERCHANT_CREDENTIALS_JSON?.trim()
+        if (raw) {
+          const creds = JSON.parse(raw) as Record<string, { username?: string }>
+          for (const [slug, v] of Object.entries(creds)) {
+            if (v?.username && String(v.username).trim() === String(ezetapUsername).trim()) {
+              slugFromCredentials = slug.toLowerCase()
+              break
+            }
+          }
+        }
+      } catch { /* ignore parse errors */ }
+    }
+
+    const detectedSlug =
+      slugFromCredentials ||
+      (merchantName ? (MERCHANT_NAME_TO_SLUG[merchantName.toLowerCase().trim()] || null) : null) ||
+      'ashvam'
+
+    console.log(`[Webhook/base] Detected merchant slug: ${detectedSlug} (username: ${normalizedPayload.username || 'N/A'}, merchantName: ${merchantName || 'N/A'})`)
+
     const posTransactionData: any = {
       txn_id: txnId,
-      status: normalizedPayload.status || 'PENDING', // Raw status
+      status: normalizedPayload.status || 'PENDING',
       display_status: mappedStatus === 'CAPTURED' ? 'SUCCESS' : mappedStatus === 'FAILED' ? 'FAILED' : 'PENDING',
       amount: amount || 0,
       payment_mode: paymentMode,
       device_serial: deviceSerial,
       tid: tid,
       merchant_name: merchantName,
-      merchant_slug: 'ashvam', // Base URL belongs to ASHVAM LEARNING PRIVATE LIMITED
+      merchant_slug: detectedSlug,
       transaction_time: createdTime.toISOString(),
       raw_data: rawDataToStore,
       // New detailed fields

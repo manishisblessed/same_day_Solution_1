@@ -43,6 +43,7 @@ import {
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { apiFetch } from '@/lib/api-client'
+import PosBridgePanel from '@/components/PosBridgePanel'
 
 interface RazorpayTransaction {
   txn_id: string
@@ -51,6 +52,7 @@ interface RazorpayTransaction {
   status: 'CAPTURED' | 'FAILED' | 'PENDING'
   settlement_status: string | null
   created_time: string
+  service_provider?: string | null
   // Customer & User Info
   customer_name: string | null
   payer_name: string | null
@@ -71,6 +73,7 @@ interface RazorpayTransaction {
   card_type: string | null
   card_number: string | null
   issuing_bank: string | null
+  acquiring_bank?: string | null
   card_classification: string | null
   // Reference Numbers
   rrn: string | null
@@ -114,6 +117,7 @@ function RazorpayTransactionsPageContent() {
   const [searchQuery, setSearchQuery] = useState('')
   const [settlementFilter, setSettlementFilter] = useState('all')
   const [companyFilter, setCompanyFilter] = useState<string>('all')
+  const [acquiringBankFilter, setAcquiringBankFilter] = useState('')
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false)
 
   // Export
@@ -129,6 +133,7 @@ function RazorpayTransactionsPageContent() {
 
   // Test transaction modal state
   const [showTestModal, setShowTestModal] = useState(false)
+  const [testMerchantSlug, setTestMerchantSlug] = useState<'ashvam' | 'teachway' | 'newscenaric' | 'lagoon'>('ashvam')
   const [testAmount, setTestAmount] = useState('100')
   const [testPaymentMode, setTestPaymentMode] = useState('UPI')
   const [testCustomerName, setTestCustomerName] = useState('Test Customer')
@@ -189,6 +194,7 @@ function RazorpayTransactionsPageContent() {
       if (debouncedSearch) params.set('search', debouncedSearch)
       if (settlementFilter !== 'all') params.set('settlement_status', settlementFilter)
       if (companyFilter !== 'all') params.set('merchant_slug', companyFilter)
+      if (acquiringBankFilter.trim()) params.set('acquiring_bank', acquiringBankFilter.trim())
 
       const response = await apiFetch(`/api/admin/razorpay-transactions?${params.toString()}`)
       
@@ -223,7 +229,7 @@ function RazorpayTransactionsPageContent() {
         setLoading(false)
       }
     }
-  }, [user, page, limit, statusFilter, dateFrom, dateTo, paymentModeFilter, debouncedSearch, settlementFilter, companyFilter])
+  }, [user, page, limit, statusFilter, dateFrom, dateTo, paymentModeFilter, debouncedSearch, settlementFilter, companyFilter, acquiringBankFilter])
 
   // Initial fetch and auto-refresh polling
   useEffect(() => {
@@ -254,6 +260,7 @@ function RazorpayTransactionsPageContent() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          merchantSlug: testMerchantSlug,
           amount: parseFloat(testAmount) || 100,
           paymentMode: testPaymentMode,
           customerName: testCustomerName,
@@ -286,6 +293,7 @@ function RazorpayTransactionsPageContent() {
       if (debouncedSearch) params.set('search', debouncedSearch)
       if (settlementFilter !== 'all') params.set('settlement_status', settlementFilter)
       if (companyFilter !== 'all') params.set('merchant_slug', companyFilter)
+      if (acquiringBankFilter.trim()) params.set('acquiring_bank', acquiringBankFilter.trim())
 
       const response = await apiFetch(`/api/admin/razorpay-transactions/export?${params.toString()}`)
       
@@ -377,10 +385,11 @@ function RazorpayTransactionsPageContent() {
     setSearchQuery('')
     setSettlementFilter('all')
     setCompanyFilter('all')
+    setAcquiringBankFilter('')
     setPage(1)
   }
 
-  const hasActiveFilters = statusFilter !== 'all' || dateFrom || dateTo || paymentModeFilter !== 'all' || searchQuery || settlementFilter !== 'all' || companyFilter !== 'all'
+  const hasActiveFilters = statusFilter !== 'all' || dateFrom || dateTo || paymentModeFilter !== 'all' || searchQuery || settlementFilter !== 'all' || companyFilter !== 'all' || !!acquiringBankFilter.trim()
 
   // Format date
   const formatDate = (dateString: string | null) => {
@@ -647,6 +656,8 @@ function RazorpayTransactionsPageContent() {
             </div>
           </div>
 
+          <PosBridgePanel variant="admin" />
+
           {/* Filters Section */}
           <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
             {/* Search & Primary Filters */}
@@ -837,6 +848,18 @@ function RazorpayTransactionsPageContent() {
                         </select>
                       </div>
 
+                      {/* Acquiring Bank */}
+                      <div>
+                        <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">Acquiring Bank</label>
+                        <input
+                          type="text"
+                          value={acquiringBankFilter}
+                          onChange={(e) => { setAcquiringBankFilter(e.target.value); setPage(1) }}
+                          placeholder="e.g. HDFC, AXIS"
+                          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-primary-500 focus:border-transparent placeholder-gray-400"
+                        />
+                      </div>
+
                       {/* Page Size Info */}
                       <div>
                         <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">Pagination</label>
@@ -875,6 +898,9 @@ function RazorpayTransactionsPageContent() {
                       Company
                     </th>
                     <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                      Provider
+                    </th>
+                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                       Amount (₹)
                     </th>
                     <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
@@ -891,6 +917,9 @@ function RazorpayTransactionsPageContent() {
                     </th>
                     <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                       Card Class
+                    </th>
+                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                      Acquiring Bank
                     </th>
                     <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                       RRN
@@ -912,7 +941,7 @@ function RazorpayTransactionsPageContent() {
                 <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
                   {transactions.length === 0 ? (
                     <tr>
-                      <td colSpan={16} className="px-6 py-12 text-center text-gray-500 dark:text-gray-400">
+                      <td colSpan={18} className="px-6 py-12 text-center text-gray-500 dark:text-gray-400">
                         <div className="flex flex-col items-center gap-2">
                           {loading ? (
                             <>
@@ -981,6 +1010,11 @@ function RazorpayTransactionsPageContent() {
                              txn.merchant_slug === 'newscenaric' ? 'New Scenaric' :
                              txn.merchant_slug === 'lagoon' ? 'Lagoon' : (txn.merchant_slug ? String(txn.merchant_slug) : 'ASHVAM')}
                           </td>
+                          <td className="px-3 py-3 whitespace-nowrap text-xs text-gray-600 dark:text-gray-400">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300">
+                              {txn.service_provider || 'RAZORPAY'}
+                            </span>
+                          </td>
                           <td className="px-3 py-3 whitespace-nowrap text-xs font-semibold text-gray-900 dark:text-gray-100">
                             {formatAmount(txn.amount)}
                           </td>
@@ -1013,6 +1047,9 @@ function RazorpayTransactionsPageContent() {
                                 {txn.card_classification}
                               </span>
                             ) : '-'}
+                          </td>
+                          <td className="px-3 py-3 whitespace-nowrap text-xs text-gray-600 dark:text-gray-400 max-w-[140px] truncate" title={txn.acquiring_bank || '-'}>
+                            {txn.acquiring_bank || '-'}
                           </td>
                           <td className="px-3 py-3 whitespace-nowrap text-xs font-mono text-gray-600 dark:text-gray-400">
                             <div className="flex items-center gap-1">
@@ -1058,7 +1095,7 @@ function RazorpayTransactionsPageContent() {
                               exit={{ opacity: 0, height: 0 }}
                               transition={{ duration: 0.2 }}
                             >
-                              <td colSpan={15} className="px-0 py-0">
+                              <td colSpan={17} className="px-0 py-0">
                                 <div className="bg-gray-50 dark:bg-gray-900/50 border-t border-b border-gray-200 dark:border-gray-700">
                                   <div className="p-6">
                                     <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
@@ -1090,6 +1127,7 @@ function RazorpayTransactionsPageContent() {
                                       <DetailItem label="Card Brand" value={txn.card_brand} />
                                       <DetailItem label="Card Type" value={txn.card_type} />
                                       <DetailItem label="Issuing Bank" value={txn.issuing_bank} />
+                                      <DetailItem label="Acquiring Bank" value={txn.acquiring_bank} />
                                       <DetailItem label="Card Classification" value={txn.card_classification} />
                                       
                                       {/* Reference Numbers */}
@@ -1105,6 +1143,7 @@ function RazorpayTransactionsPageContent() {
                                         txn.merchant_slug === 'newscenaric' ? 'New Scenaric Travels' :
                                         txn.merchant_slug === 'lagoon' ? 'LAGOON CRAFT LABS SOLUTIONS PRIVATE LIMITED' : (txn.merchant_slug || 'ASHVAM LEARNING PRIVATE LIMITED')
                                       } />
+                                      <DetailItem label="Service Provider" value={txn.service_provider || 'RAZORPAY'} />
                                       
                                       {/* Dates */}
                                       <DetailItem icon={<Calendar className="w-4 h-4" />} label="Transaction Time" value={formatDate(txn.created_time)} />
@@ -1267,6 +1306,26 @@ function RazorpayTransactionsPageContent() {
                   Send a simulated POS transaction to test the webhook pipeline end-to-end.
                 </p>
 
+                {/* Company */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Company
+                  </label>
+                  <select
+                    value={testMerchantSlug}
+                    onChange={(e) => setTestMerchantSlug(e.target.value as any)}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  >
+                    <option value="ashvam">ASHVAM LEARNING PRIVATE LIMITED</option>
+                    <option value="teachway">Teachway Education Private Limited</option>
+                    <option value="newscenaric">New Scenaric Travels</option>
+                    <option value="lagoon">LAGOON CRAFT LABS SOLUTIONS PRIVATE LIMITED</option>
+                  </select>
+                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    This will post to <span className="font-mono">/api/razorpay/notification/{testMerchantSlug}</span>
+                  </p>
+                </div>
+
                 {/* Amount */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
@@ -1347,6 +1406,7 @@ function RazorpayTransactionsPageContent() {
                         </div>
                         <div className="text-xs space-y-0.5 mt-2">
                           <p><span className="font-medium">Txn ID:</span> <span className="font-mono">{testResult.testTxnId}</span></p>
+                    <p><span className="font-medium">Company:</span> <span className="font-mono">{testMerchantSlug}</span></p>
                           <p><span className="font-medium">Webhook Status:</span> {testResult.webhookResponse?.status}</p>
                           <p><span className="font-medium">Processed:</span> {testResult.webhookResponse?.processed ? 'Yes' : 'No'}</p>
                           <p><span className="font-medium">DB Status:</span> {testResult.webhookResponse?.status === 200 || testResult.webhookResponse?.processed ? 'Stored' : 'Check logs'}</p>
