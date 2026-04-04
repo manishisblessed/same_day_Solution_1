@@ -6,23 +6,31 @@ export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 export const fetchCache = 'force-no-store'
 
+const EMPTY_SUMMARY = {
+  total_transactions: 0,
+  total_amount: '0.00',
+  authorized_count: 0,
+  captured_count: 0,
+  failed_count: 0,
+  refunded_count: 0,
+  captured_amount: '0.00',
+  terminal_count: 0,
+}
+
 /**
  * POST /api/partner/pos-transactions
- * 
+ *
  * Returns POS transactions for the authenticated partner.
- * Queries razorpay_pos_transactions using TIDs/device_serials from partner's assigned machines.
- * 
+ *
+ * Strategy (dual-source):
+ *   1. Query pos_transactions directly by partner_id (primary — populated by
+ *      both the Express webhook and the Next.js webhook sync).
+ *   2. Also query razorpay_pos_transactions by TID/device_serial (fallback —
+ *      catches transactions that were not yet synced to pos_transactions).
+ *   3. Merge results, deduplicate by razorpay_txn_id / txn_id, and return.
+ *
  * Authentication: HMAC-SHA256 via headers (x-api-key, x-signature, x-timestamp)
  * Permission required: read
- * 
- * Body Parameters:
- * - date_from: ISO 8601 date string (required)
- * - date_to: ISO 8601 date string (required)
- * - status: AUTHORIZED | CAPTURED | FAILED | REFUNDED | VOIDED (optional)
- * - terminal_id: Filter by TID (optional)
- * - payment_mode: CARD | UPI | NFC (optional)
- * - page: Page number (default: 1)
- * - page_size: Records per page (default: 50, max: 100)
  */
 export async function POST(request: NextRequest) {
   try {
@@ -149,7 +157,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const validModes = ['CARD', 'UPI', 'NFC']
+    const validModes = ['CARD', 'UPI', 'NFC', 'CASH', 'WALLET', 'NETBANKING', 'BHARATQR']
     if (payment_mode && !validModes.includes(payment_mode.toUpperCase())) {
       return NextResponse.json(
         {
@@ -165,12 +173,12 @@ export async function POST(request: NextRequest) {
     const offset = (pageNum - 1) * pageSizeNum
 
     // ========================================================================
-    // Step 1: Get partner's TIDs and device serials from assigned machines
+    // Step 1: Get partner's TIDs from assigned machines (for fallback query
+    //         and terminal_id access validation)
     // ========================================================================
     let tids: string[] = []
     let serials: string[] = []
 
-    // From partner_pos_machines (Partner API table)
     const { data: partnerMachines } = await supabase
       .from('partner_pos_machines')
       .select('terminal_id, device_serial')
@@ -182,7 +190,6 @@ export async function POST(request: NextRequest) {
       serials.push(...partnerMachines.map((m: any) => m.device_serial).filter(Boolean))
     }
 
-    // From pos_machines (admin-managed table)
     const { data: posMachines } = await supabase
       .from('pos_machines')
       .select('tid, serial_number')
@@ -194,7 +201,6 @@ export async function POST(request: NextRequest) {
       serials.push(...posMachines.map((m: any) => m.serial_number).filter(Boolean))
     }
 
-    // Deduplicate
     tids = Array.from(new Set(tids))
     serials = Array.from(new Set(serials))
 
@@ -203,65 +209,55 @@ export async function POST(request: NextRequest) {
     if (tids.length === 0 && serials.length === 0) {
       return NextResponse.json({
         success: true,
+        company: 'Same Day Solution',
         data: [],
-        pagination: {
-          page: pageNum,
-          page_size: pageSizeNum,
-          total_records: 0,
-          total_pages: 0,
-          has_next: false,
-          has_prev: false,
-        },
-        summary: {
-          total_transactions: 0,
-          total_amount: '0.00',
-          authorized_count: 0,
-          captured_count: 0,
-          failed_count: 0,
-          refunded_count: 0,
-          captured_amount: '0.00',
-          terminal_count: 0,
-        },
+        pagination: { page: pageNum, page_size: pageSizeNum, total_records: 0, total_pages: 0, has_next: false, has_prev: false },
+        summary: EMPTY_SUMMARY,
       })
     }
-
-    // ========================================================================
-    // Step 2: Build OR filter for razorpay_pos_transactions
-    // ========================================================================
-    const orConditions: string[] = []
-    if (tids.length > 0) orConditions.push(`tid.in.(${tids.join(',')})`)
-    if (serials.length > 0) orConditions.push(`device_serial.in.(${serials.join(',')})`)
 
     // If terminal_id filter provided, validate access
     if (terminal_id && !tids.includes(terminal_id)) {
       return NextResponse.json({
         success: true,
+        company: 'Same Day Solution',
         data: [],
-        pagination: {
-          page: pageNum,
-          page_size: pageSizeNum,
-          total_records: 0,
-          total_pages: 0,
-          has_next: false,
-          has_prev: false,
-        },
-        summary: {
-          total_transactions: 0,
-          total_amount: '0.00',
-          authorized_count: 0,
-          captured_count: 0,
-          failed_count: 0,
-          refunded_count: 0,
-          captured_amount: '0.00',
-          terminal_count: 0,
-        },
+        pagination: { page: pageNum, page_size: pageSizeNum, total_records: 0, total_pages: 0, has_next: false, has_prev: false },
+        summary: EMPTY_SUMMARY,
       })
     }
 
     // ========================================================================
-    // Step 3: Query razorpay_pos_transactions (the actual data source)
+    // Step 2: Query BOTH data sources in parallel
     // ========================================================================
-    let query = supabase
+
+    // --- Source A: pos_transactions (has partner_id directly) ---
+    // Amount is stored in PAISA (BIGINT)
+    let ptQuery = supabase
+      .from('pos_transactions')
+      .select('*', { count: 'exact' })
+      .eq('partner_id', partner.id)
+      .gte('txn_time', dateFrom.toISOString())
+      .lte('txn_time', dateTo.toISOString())
+      .order('txn_time', { ascending: false })
+
+    if (status) {
+      ptQuery = ptQuery.eq('status', status.toUpperCase())
+    }
+    if (terminal_id) {
+      ptQuery = ptQuery.eq('terminal_id', terminal_id)
+    }
+    if (payment_mode) {
+      ptQuery = ptQuery.eq('payment_mode', payment_mode.toUpperCase())
+    }
+
+    // --- Source B: razorpay_pos_transactions (matched by TID/serial) ---
+    // Amount is stored in RUPEES (DECIMAL)
+    const orConditions: string[] = []
+    if (tids.length > 0) orConditions.push(`tid.in.(${tids.join(',')})`)
+    if (serials.length > 0) orConditions.push(`device_serial.in.(${serials.join(',')})`)
+
+    let rptQuery = supabase
       .from('razorpay_pos_transactions')
       .select('*', { count: 'exact' })
       .or(orConditions.join(','))
@@ -269,80 +265,81 @@ export async function POST(request: NextRequest) {
       .lte('transaction_time', dateTo.toISOString())
       .order('transaction_time', { ascending: false, nullsFirst: false })
 
-    // Apply optional filters
-    if (status) {
-      // Map CAPTURED to SUCCESS (display_status convention)
-      const displayStatus = status.toUpperCase() === 'CAPTURED' ? 'SUCCESS' : status.toUpperCase()
-      query = query.eq('display_status', displayStatus)
-    }
-    if (terminal_id) {
-      query = query.eq('tid', terminal_id)
-    }
-    if (payment_mode) {
-      query = query.eq('payment_mode', payment_mode.toUpperCase())
-    }
-
-    // Pagination
-    query = query.range(offset, offset + pageSizeNum - 1)
-
-    const { data: transactions, error: txnError, count } = await query
-
-    if (txnError) {
-      console.error('Error fetching partner transactions:', txnError)
-      return NextResponse.json(
-        {
-          success: false,
-          error: { code: 'INTERNAL_ERROR', message: 'Failed to fetch transactions' },
-        },
-        { status: 500 }
-      )
-    }
-
-    // ========================================================================
-    // Step 4: Fetch ALL matching transactions for summary (without pagination)
-    // ========================================================================
-    let summaryQuery = supabase
-      .from('razorpay_pos_transactions')
-      .select('amount, status, display_status, tid')
-      .or(orConditions.join(','))
-      .gte('transaction_time', dateFrom.toISOString())
-      .lte('transaction_time', dateTo.toISOString())
-
     if (status) {
       const displayStatus = status.toUpperCase() === 'CAPTURED' ? 'SUCCESS' : status.toUpperCase()
-      summaryQuery = summaryQuery.eq('display_status', displayStatus)
+      rptQuery = rptQuery.eq('display_status', displayStatus)
     }
     if (terminal_id) {
-      summaryQuery = summaryQuery.eq('tid', terminal_id)
+      rptQuery = rptQuery.eq('tid', terminal_id)
     }
     if (payment_mode) {
-      summaryQuery = summaryQuery.eq('payment_mode', payment_mode.toUpperCase())
+      rptQuery = rptQuery.eq('payment_mode', payment_mode.toUpperCase())
     }
 
-    const { data: allTxns } = await summaryQuery
+    const [ptResult, rptResult] = await Promise.all([
+      ptQuery,
+      rptQuery,
+    ])
 
-    // Calculate summary
-    const allTransactions = allTxns || []
-
-    const getStatus = (t: any) => (t.display_status || t.status || '').toUpperCase()
-    const getAmountRupees = (t: any) => parseFloat(t.amount) || 0
-
-    const totalAmount = allTransactions.reduce((sum: number, t: any) => sum + getAmountRupees(t), 0)
-    const authorizedCount = allTransactions.filter((t: any) => getStatus(t) === 'AUTHORIZED').length
-    const capturedCount = allTransactions.filter((t: any) => getStatus(t) === 'SUCCESS' || getStatus(t) === 'CAPTURED').length
-    const failedCount = allTransactions.filter((t: any) => getStatus(t) === 'FAILED').length
-    const refundedCount = allTransactions.filter((t: any) => getStatus(t) === 'REFUNDED').length
-    const capturedAmount = allTransactions
-      .filter((t: any) => getStatus(t) === 'SUCCESS' || getStatus(t) === 'CAPTURED')
-      .reduce((sum: number, t: any) => sum + getAmountRupees(t), 0)
-    const uniqueTerminals = new Set(allTransactions.map((t: any) => t.tid).filter(Boolean))
+    if (ptResult.error) {
+      console.error('Error fetching pos_transactions:', ptResult.error)
+    }
+    if (rptResult.error) {
+      console.error('Error fetching razorpay_pos_transactions:', rptResult.error)
+    }
 
     // ========================================================================
-    // Step 5: Format response — use dedicated columns with raw_data fallback
+    // Step 3: Merge & deduplicate — pos_transactions is authoritative
     // ========================================================================
-    const formattedTransactions = (transactions || []).map((tx: any) => {
+    const seenTxnIds = new Set<string>()
+    const mergedRows: any[] = []
+
+    // Normalize pos_transactions rows (amount paisa → rupees)
+    for (const tx of (ptResult.data || [])) {
+      const txnKey = tx.razorpay_txn_id || tx.id
+      if (seenTxnIds.has(txnKey)) continue
+      seenTxnIds.add(txnKey)
+
+      const rd = tx.raw_payload || {}
+      mergedRows.push({
+        id: tx.id,
+        razorpay_txn_id: tx.razorpay_txn_id,
+        external_ref: tx.external_ref || rd.externalRefNumber || null,
+        terminal_id: tx.terminal_id,
+        amount: ((parseInt(tx.amount, 10) || 0) / 100).toFixed(2),
+        status: tx.status || 'PENDING',
+        rrn: tx.rrn || rd.rrNumber || null,
+        card_brand: tx.card_brand || rd.paymentCardBrand || rd.cardBrand || null,
+        card_type: tx.card_type || rd.paymentCardType || rd.cardType || null,
+        payment_mode: tx.payment_mode || null,
+        device_serial: tx.device_serial,
+        txn_time: tx.txn_time,
+        created_at: tx.created_at,
+        customer_name: tx.customer_name || rd.customerName || rd.payerName || null,
+        payer_name: tx.payer_name || rd.payerName || null,
+        txn_type: tx.txn_type || rd.txnType || 'CHARGE',
+        auth_code: tx.auth_code || rd.authCode || null,
+        card_number: tx.card_number || rd.formattedPan || rd.cardNumber || rd.maskedCardNumber || null,
+        issuing_bank: tx.issuing_bank || rd.issuingBankName || rd.bankName || rd.issuingBank || null,
+        card_classification: tx.card_classification || rd.cardClassification || rd.cardCategory || null,
+        card_txn_type: tx.card_txn_type || rd.cardTxnType || rd.cardTransactionType || rd.entryMode || null,
+        acquiring_bank: tx.acquiring_bank || rd.acquiringBank || rd.acquiringBankName || rd.acquirerCode || null,
+        mid: tx.mid || rd.mid || rd.merchantId || null,
+        currency: tx.currency || rd.currencyCode || 'INR',
+        receipt_url: tx.receipt_url || rd.customerReceiptUrl || rd.receiptUrl || null,
+        posting_date: tx.posting_date || null,
+        _source: 'pos_transactions',
+      })
+    }
+
+    // Add razorpay_pos_transactions rows not already present
+    for (const tx of (rptResult.data || [])) {
+      const txnKey = tx.txn_id || tx.id
+      if (seenTxnIds.has(txnKey)) continue
+      seenTxnIds.add(txnKey)
+
       const rd = tx.raw_data || {}
-      return {
+      mergedRows.push({
         id: tx.id,
         razorpay_txn_id: tx.txn_id,
         external_ref: tx.external_ref || rd.externalRefNumber || null,
@@ -358,7 +355,6 @@ export async function POST(request: NextRequest) {
         created_at: tx.created_at,
         customer_name: tx.customer_name || rd.customerName || rd.payerName || null,
         payer_name: tx.payer_name || rd.payerName || null,
-        username: tx.username || rd.username || null,
         txn_type: tx.txn_type || rd.txnType || 'CHARGE',
         auth_code: tx.auth_code || rd.authCode || null,
         card_number: tx.card_number || rd.formattedPan || rd.cardNumber || rd.maskedCardNumber || null,
@@ -370,15 +366,48 @@ export async function POST(request: NextRequest) {
         currency: tx.currency || rd.currencyCode || 'INR',
         receipt_url: tx.receipt_url || rd.customerReceiptUrl || rd.receiptUrl || null,
         posting_date: tx.posting_date || null,
-      }
+        _source: 'razorpay_pos_transactions',
+      })
+    }
+
+    // Sort merged rows by txn_time descending
+    mergedRows.sort((a, b) => {
+      const ta = new Date(a.txn_time || 0).getTime()
+      const tb = new Date(b.txn_time || 0).getTime()
+      return tb - ta
     })
 
-    const totalRecords = count || 0
+    // ========================================================================
+    // Step 4: Calculate summary from full merged set, then paginate
+    // ========================================================================
+    const totalRecords = mergedRows.length
     const totalPages = totalRecords > 0 ? Math.ceil(totalRecords / pageSizeNum) : 0
+
+    const getStatusStr = (t: any) => (t.status || '').toUpperCase()
+    const getAmt = (t: any) => parseFloat(t.amount) || 0
+
+    const totalAmount = mergedRows.reduce((s, t) => s + getAmt(t), 0)
+    const authorizedCount = mergedRows.filter(t => getStatusStr(t) === 'AUTHORIZED').length
+    const capturedCount = mergedRows.filter(t => getStatusStr(t) === 'CAPTURED').length
+    const failedCount = mergedRows.filter(t => getStatusStr(t) === 'FAILED').length
+    const refundedCount = mergedRows.filter(t => getStatusStr(t) === 'REFUNDED').length
+    const capturedAmount = mergedRows
+      .filter(t => getStatusStr(t) === 'CAPTURED')
+      .reduce((s, t) => s + getAmt(t), 0)
+    const uniqueTerminals = new Set(mergedRows.map(t => t.terminal_id).filter(Boolean))
+
+    // Paginate
+    const paginatedData = mergedRows.slice(offset, offset + pageSizeNum)
+
+    // Strip internal _source field from response
+    const responseData = paginatedData.map(({ _source, ...rest }) => rest)
+
+    console.log(`[Partner API Txn] partner: ${partner.name}, pos_txn: ${ptResult.data?.length || 0}, rpt_txn: ${rptResult.data?.length || 0}, merged: ${totalRecords}`)
 
     return NextResponse.json({
       success: true,
-      data: formattedTransactions,
+      company: 'Same Day Solution',
+      data: responseData,
       pagination: {
         page: pageNum,
         page_size: pageSizeNum,
@@ -388,7 +417,7 @@ export async function POST(request: NextRequest) {
         has_prev: pageNum > 1,
       },
       summary: {
-        total_transactions: allTransactions.length,
+        total_transactions: totalRecords,
         total_amount: totalAmount.toFixed(2),
         authorized_count: authorizedCount,
         captured_count: capturedCount,
