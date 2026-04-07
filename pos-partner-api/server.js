@@ -12,6 +12,7 @@ const db = require('./config/database');
 const partnerRoutes = require('./routes/partnerRoutes');
 const webhookRoutes = require('./routes/webhookRoutes');
 const healthRoutes = require('./routes/healthRoutes');
+const testCallbackRoutes = require('./routes/testCallbackRoutes');
 
 // Middleware imports
 const requestLogger = require('./middleware/requestLogger');
@@ -77,6 +78,9 @@ app.use('/health', healthRoutes);
 // Webhook routes (Razorpay signature auth, not partner HMAC)
 app.use('/api/webhook', webhookRoutes);
 
+// Test callback receiver (for testing partner callback flow)
+app.use('/api/test-callback', testCallbackRoutes);
+
 // Partner API routes (HMAC auth)
 app.use(config.apiPrefix, partnerRoutes);
 
@@ -120,6 +124,7 @@ async function startServer() {
 ║  Env     : ${String(config.env).padEnd(42)}║
 ║  API     : ${String(config.apiPrefix).padEnd(42)}║
 ║  Webhook : /api/webhook/razorpay-pos                  ║
+║  Test CB : /api/test-callback/receive                 ║
 ║  Health  : /pos-health (public) | /health (internal)  ║
 ╚═══════════════════════════════════════════════════════╝
       `);

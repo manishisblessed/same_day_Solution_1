@@ -3,6 +3,7 @@
 const db = require('../config/database');
 const config = require('../config');
 const logger = require('../utils/logger');
+const { notifyPartner } = require('./partnerCallbackService');
 
 /**
  * Fetch POS transactions for a partner with filters and pagination.
@@ -410,6 +411,12 @@ async function processWebhookTransaction(payload) {
         oldStatus: existing.status,
         newStatus: status,
       });
+
+      // Notify partner on status change
+      notifyPartner(machine.partner_id, payload).catch(err =>
+        logger.error('Partner callback fire-and-forget error', { error: err.message })
+      );
+
       return { success: true, action: 'updated', transactionId: existing.id };
     }
 
@@ -497,6 +504,11 @@ async function processWebhookTransaction(payload) {
     status,
     partnerId: machine.partner_id,
   });
+
+  // Fire-and-forget: forward transaction to partner's callback URL
+  notifyPartner(machine.partner_id, payload).catch(err =>
+    logger.error('Partner callback fire-and-forget error', { error: err.message })
+  );
 
   return { success: true, action: 'inserted', transactionId };
 }

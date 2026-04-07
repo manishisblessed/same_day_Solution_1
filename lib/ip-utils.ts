@@ -22,24 +22,44 @@ export function normalizeIp(ip: string | null): string | null {
 }
 
 /**
- * Extract the real client IP address from request headers
- * Handles proxy headers (x-forwarded-for, x-real-ip)
+ * Strip port suffix from an IP address (e.g., "1.2.3.4:12345" → "1.2.3.4")
+ */
+function stripPort(ip: string): string {
+  const portMatch = ip.match(/^(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}):\d+$/);
+  if (portMatch) return portMatch[1];
+  return ip;
+}
+
+/**
+ * Extract the real client IP address from request headers.
+ * Handles proxy headers from AWS CloudFront/ALB, Vercel, nginx, and generic proxies.
  */
 export function extractClientIpFromHeaders(headers: Headers): string | null {
-  // Check x-forwarded-for header (first IP in chain is the original client)
+  // 1. CloudFront-Viewer-Address (AWS CloudFront — includes port, e.g. "1.2.3.4:54321")
+  const cfViewerAddr = headers.get('cloudfront-viewer-address');
+  if (cfViewerAddr) {
+    return normalizeIp(stripPort(cfViewerAddr.trim()));
+  }
+
+  // 2. x-forwarded-for (standard proxy header — "client, proxy1, proxy2")
   const forwardedFor = headers.get('x-forwarded-for');
   if (forwardedFor) {
-    // x-forwarded-for can contain multiple IPs: "client, proxy1, proxy2"
-    const ips = forwardedFor.split(',').map(ip => ip.trim());
-    if (ips.length > 0) {
+    const ips = forwardedFor.split(',').map(ip => stripPort(ip.trim()));
+    if (ips.length > 0 && ips[0]) {
       return normalizeIp(ips[0]);
     }
   }
 
-  // Check x-real-ip header (set by nginx/load balancer)
+  // 3. x-real-ip (nginx / load balancer)
   const realIp = headers.get('x-real-ip');
   if (realIp) {
-    return normalizeIp(realIp.trim());
+    return normalizeIp(stripPort(realIp.trim()));
+  }
+
+  // 4. true-client-ip (Cloudflare / Akamai)
+  const trueClientIp = headers.get('true-client-ip');
+  if (trueClientIp) {
+    return normalizeIp(stripPort(trueClientIp.trim()));
   }
 
   return null;
@@ -136,8 +156,12 @@ export function isIpWhitelisted(clientIp: string | null, whitelist: string[] | n
     return false;
   }
 
-  // Check each whitelist entry
-  for (const entry of whitelist) {
+  // Trim and filter whitelist entries (handles DB entries with extra whitespace)
+  const cleanedWhitelist = whitelist
+    .map(entry => (typeof entry === 'string' ? entry.trim() : ''))
+    .filter(Boolean);
+
+  for (const entry of cleanedWhitelist) {
     if (ipMatchesWhitelist(clientIp, entry)) {
       return true;
     }

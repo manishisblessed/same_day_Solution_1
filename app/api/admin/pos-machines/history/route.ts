@@ -34,7 +34,8 @@ export async function GET(request: NextRequest) {
 
     const sp = request.nextUrl.searchParams
     const page = parseInt(sp.get('page') || '1')
-    const limit = parseInt(sp.get('limit') || '50')
+    const rawLimit = parseInt(sp.get('limit') || '25', 10)
+    const limit = [10, 25, 100].includes(rawLimit) ? rawLimit : 25
     const offset = (page - 1) * limit
     const machineUuid = sp.get('machine_id')
     const machineCode = sp.get('machine_code')

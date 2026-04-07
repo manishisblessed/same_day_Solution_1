@@ -79,7 +79,8 @@ export async function GET(request: NextRequest) {
     const dateTo = searchParams.get('date_to')
     const status = searchParams.get('status')
     const search = searchParams.get('search')
-    const limit = parseInt(searchParams.get('limit') || '50')
+    const rawLimit = parseInt(searchParams.get('limit') || '25', 10)
+    const limit = [10, 25, 100].includes(rawLimit) ? rawLimit : 25
     const offset = parseInt(searchParams.get('offset') || '0')
     const format = searchParams.get('format') || 'json'
 

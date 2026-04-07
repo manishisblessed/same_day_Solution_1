@@ -39,7 +39,8 @@ export async function GET(request: NextRequest) {
     // Get query parameters
     const searchParams = request.nextUrl.searchParams
     const page = parseInt(searchParams.get('page') || '1')
-    const limit = parseInt(searchParams.get('limit') || '50')
+    const rawLimit = parseInt(searchParams.get('limit') || '25', 10)
+    const limit = [10, 25, 100].includes(rawLimit) ? rawLimit : 25
     const offset = (page - 1) * limit
     const status = searchParams.get('status') // ACTIVE or INACTIVE
     const deviceSerial = searchParams.get('deviceSerial')

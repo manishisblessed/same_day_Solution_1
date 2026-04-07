@@ -64,7 +64,8 @@ export async function GET(request: NextRequest) {
     // Get query parameters
     const searchParams = request.nextUrl.searchParams
     const page = parseInt(searchParams.get('page') || '1')
-    const limit = Math.min(parseInt(searchParams.get('limit') || '20'), 100) // Cap at 100
+    const rawLimit = parseInt(searchParams.get('limit') || '25', 10)
+    const limit = [10, 25, 100].includes(rawLimit) ? rawLimit : 25
     const offset = (page - 1) * limit
     const statusFilter = searchParams.get('status') // Optional filter by status
     const dateFrom = searchParams.get('date_from') // Date range start (YYYY-MM-DD or ISO)

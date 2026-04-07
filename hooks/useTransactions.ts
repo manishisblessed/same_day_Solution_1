@@ -22,7 +22,7 @@ export function useTransactions(options: UseTransactionsOptions = {}) {
   const [pagination, setPagination] = useState({
     total: 0,
     page: 1,
-    limit: 50,
+    limit: 25,
     totalPages: 0
   })
 
@@ -55,7 +55,7 @@ export function useTransactions(options: UseTransactionsOptions = {}) {
         params.append('maxAmount', currentFilters.maxAmount.toString())
       }
       params.append('page', (currentFilters.page || 1).toString())
-      params.append('limit', (currentFilters.limit || 50).toString())
+      params.append('limit', String(currentFilters.limit || 25))
       params.append('sortBy', currentFilters.sortBy || 'created_at')
       params.append('sortOrder', currentFilters.sortOrder || 'desc')
 
@@ -108,6 +108,16 @@ export function useTransactions(options: UseTransactionsOptions = {}) {
     fetchTransactions(updatedFilters)
   }, [filters, fetchTransactions])
 
+  const changeLimit = useCallback(
+    (limit: number) => {
+      const allowed = [10, 25, 100].includes(limit) ? limit : 25
+      const updatedFilters = { ...filters, limit: allowed, page: 1 }
+      setFilters(updatedFilters)
+      fetchTransactions(updatedFilters)
+    },
+    [filters, fetchTransactions]
+  )
+
   // Refresh transactions
   const refresh = useCallback(() => {
     fetchTransactions(filters)
@@ -154,6 +164,7 @@ export function useTransactions(options: UseTransactionsOptions = {}) {
     pagination,
     updateFilters,
     changePage,
+    changeLimit,
     refresh,
     refetch: fetchTransactions
   }

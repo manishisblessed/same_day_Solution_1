@@ -59,7 +59,7 @@ function POSMappingPageContent() {
   const [editingMapping, setEditingMapping] = useState<POSDeviceMapping | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState<'ACTIVE' | 'INACTIVE' | 'ALL'>('ALL')
-  const limit = 20
+  const [limit, setLimit] = useState<10 | 25 | 100>(25)
 
   // Fetch retailers, distributors, master distributors for dropdowns
   const [retailers, setRetailers] = useState<Retailer[]>([])
@@ -133,7 +133,7 @@ function POSMappingPageContent() {
 
   useEffect(() => {
     fetchMappings()
-  }, [page, statusFilter, user])
+  }, [page, limit, statusFilter, user])
 
   // Handle search with debounce
   useEffect(() => {
@@ -375,29 +375,50 @@ function POSMappingPageContent() {
             </div>
 
             {/* Pagination */}
-            {totalPages > 1 && (
-              <div className="bg-gray-50 dark:bg-gray-900 px-6 py-4 flex items-center justify-between border-t border-gray-200 dark:border-gray-700">
-                <div className="text-sm text-gray-700 dark:text-gray-300">
-                  Showing page {page} of {totalPages} ({total} total mappings)
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => setPage(p => Math.max(1, p - 1))}
-                    disabled={page === 1 || loading}
-                    className="flex items-center gap-1 px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            {total > 0 && (
+              <div className="bg-gray-50 dark:bg-gray-900 px-6 py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-t border-gray-200 dark:border-gray-700">
+                <div className="flex flex-wrap items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+                  <span>Rows per page:</span>
+                  <select
+                    value={limit}
+                    onChange={(e) => {
+                      setLimit(Number(e.target.value) as 10 | 25 | 100)
+                      setPage(1)
+                    }}
+                    disabled={loading}
+                    className="px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800"
                   >
-                    <ChevronLeft className="w-4 h-4" />
-                    Previous
-                  </button>
-                  <button
-                    onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-                    disabled={page === totalPages || loading}
-                    className="flex items-center gap-1 px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                  >
-                    Next
-                    <ChevronRight className="w-4 h-4" />
-                  </button>
+                    <option value={10}>10</option>
+                    <option value={25}>25</option>
+                    <option value={100}>100</option>
+                  </select>
+                  <span className="text-xs text-gray-500 dark:text-gray-400">
+                    {(page - 1) * limit + 1}–{Math.min(page * limit, total)} of {total}
+                  </span>
                 </div>
+                {totalPages > 1 && (
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setPage(p => Math.max(1, p - 1))}
+                      disabled={page === 1 || loading}
+                      className="flex items-center gap-1 px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                      Previous
+                    </button>
+                    <span className="text-xs text-gray-500 dark:text-gray-400">
+                      Page {page} / {totalPages}
+                    </span>
+                    <button
+                      onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                      disabled={page === totalPages || loading}
+                      className="flex items-center gap-1 px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    >
+                      Next
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                  </div>
+                )}
               </div>
             )}
           </div>

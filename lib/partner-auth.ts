@@ -172,20 +172,22 @@ export async function authenticatePartner(
     } as PartnerAuthError
   }
 
-  // Extract client IP from headers (supports proxy headers and CIDR notation)
+  // Extract client IP from headers (supports CloudFront, ALB, nginx, Cloudflare)
   const clientIp = extractClientIpFromHeaders(request.headers)
   
   if (!clientIp) {
     console.error('[Partner Auth] Could not extract client IP', {
       partnerId: partner.id,
       headers: {
+        'cloudfront-viewer-address': request.headers.get('cloudfront-viewer-address'),
         'x-forwarded-for': request.headers.get('x-forwarded-for'),
         'x-real-ip': request.headers.get('x-real-ip'),
+        'true-client-ip': request.headers.get('true-client-ip'),
       },
     })
     throw {
       code: 'UNAUTHORIZED',
-      message: 'Could not determine client IP address. Ensure your server is behind a proxy that sets x-forwarded-for or x-real-ip headers.',
+      message: 'Could not determine client IP address. Ensure your request is routed through a proxy that sets x-forwarded-for.',
       status: 401,
     } as PartnerAuthError
   }
@@ -195,12 +197,12 @@ export async function authenticatePartner(
     console.warn('[Partner Auth] IP not whitelisted', {
       partnerId: partner.id,
       partnerName: partner.name,
-      clientIp: clientIp,
+      clientIp,
       whitelist: ipWhitelist,
     })
     throw {
       code: 'UNAUTHORIZED',
-      message: `IP address ${clientIp} is not authorized. Please contact admin to whitelist your server IP.`,
+      message: `IP address not authorized. Your IP: ${clientIp}. Contact admin to whitelist this IP.`,
       status: 401,
     } as PartnerAuthError
   }

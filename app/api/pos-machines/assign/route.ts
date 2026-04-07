@@ -3,6 +3,7 @@ import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { createClient } from '@supabase/supabase-js'
 import { upsertSubscriptionOnAssign } from '@/lib/subscription/upsert-subscription-on-assign'
+import { adminAssignOneToMasterDistributor } from '@/lib/pos-machine-admin-assign'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -228,95 +229,22 @@ async function assignToMasterDistributor(
   activeAssignment: any,
   subscriptionAmount: number | null, billingDay: number, gstPercent: number
 ) {
-  const { data: md, error: mdError } = await supabase
-    .from('master_distributors')
-    .select('partner_id, name, status')
-    .eq('partner_id', assignTo)
-    .single()
-
-  if (mdError || !md) {
-    return NextResponse.json({ error: 'Invalid Master Distributor selected' }, { status: 400 })
+  const r = await adminAssignOneToMasterDistributor(
+    supabase,
+    request,
+    user,
+    machine,
+    assignTo,
+    notes,
+    activeAssignment,
+    subscriptionAmount,
+    billingDay,
+    gstPercent
+  )
+  if (!r.ok) {
+    return NextResponse.json({ error: r.error }, { status: r.status })
   }
-  if (md.status !== 'active') {
-    return NextResponse.json({ error: 'Master Distributor is not active' }, { status: 400 })
-  }
-
-  const isReturned = machine.status === 'returned'
-  if (!isReturned && machine.inventory_status && !['in_stock', 'received_from_bank'].includes(machine.inventory_status)) {
-    return NextResponse.json({
-      error: `Machine is currently "${machine.inventory_status}". Only in_stock, received_from_bank, or returned machines can be assigned to a Master Distributor.`
-    }, { status: 400 })
-  }
-
-  // Close any existing active assignment
-  await closeActiveAssignment(supabase, machine.id, activeAssignment)
-
-  // Remove from partner_pos_machines if previously assigned to partner
-  if (machine.partner_id && machine.tid) {
-    await supabase
-      .from('partner_pos_machines')
-      .delete()
-      .eq('terminal_id', machine.tid)
-  }
-
-  const { error: updateError } = await supabase
-    .from('pos_machines')
-    .update({
-      master_distributor_id: assignTo,
-      partner_id: null,
-      distributor_id: null,
-      retailer_id: null,
-      inventory_status: 'assigned_to_master_distributor',
-      status: isReturned ? 'active' : machine.status,
-      assigned_by: user.email,
-      assigned_by_role: 'admin',
-      last_assigned_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', machine.id)
-
-  if (updateError) {
-    console.error('Error assigning machine to MD:', updateError)
-    return NextResponse.json({ error: 'Failed to assign machine' }, { status: 500 })
-  }
-
-  await supabase.from('pos_assignment_history').insert({
-    pos_machine_id: machine.id,
-    machine_id: machine.machine_id,
-    action: 'assigned_to_master_distributor',
-    assigned_by: user.email,
-    assigned_by_role: 'admin',
-    assigned_to: assignTo,
-    assigned_to_role: 'master_distributor',
-    previous_holder: machine.master_distributor_id || null,
-    previous_holder_role: machine.master_distributor_id ? 'master_distributor' : null,
-    status: 'active',
-    notes: notes || `Admin assigned to ${md.name}`,
-  })
-
-  logAssignment(request, user, machine, assignTo, 'master_distributor')
-
-  if (subscriptionAmount != null && subscriptionAmount > 0) {
-    const subResult = await upsertSubscriptionOnAssign({
-      supabase,
-      assignee_user_id: assignTo,
-      assignee_user_role: 'master_distributor',
-      machine: { machine_id: machine.machine_id, retailer_id: null, distributor_id: null, master_distributor_id: assignTo },
-      rate_per_unit: subscriptionAmount,
-      billing_day: billingDay,
-      gst_percent: gstPercent,
-      assigned_by: user.partner_id || user.id || user.email,
-      assigned_by_role: 'admin',
-    })
-    if (!subResult.success) {
-      console.error('[Assign] Subscription upsert after MD assign:', subResult.error)
-    }
-  }
-
-  return NextResponse.json({
-    success: true,
-    message: `POS machine ${machine.machine_id} assigned to Master Distributor ${md.name}`,
-  })
+  return NextResponse.json({ success: true, message: r.message })
 }
 
 // ─── Master Distributor → Distributor ───────────────────────

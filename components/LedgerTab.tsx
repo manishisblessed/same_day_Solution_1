@@ -42,8 +42,7 @@ export default function LedgerTab({ user }: LedgerTabProps) {
   const [filterType, setFilterType] = useState<'all' | 'credit' | 'debit'>('all')
   const [filterService, setFilterService] = useState<string>('all')
   const [currentPage, setCurrentPage] = useState(1)
-  const [totalPages, setTotalPages] = useState(1)
-  const itemsPerPage = 50
+  const [itemsPerPage, setItemsPerPage] = useState<10 | 25 | 100>(25)
 
   const fetchLedgerData = async () => {
     if (!user?.partner_id) return
@@ -101,14 +100,17 @@ export default function LedgerTab({ user }: LedgerTabProps) {
     return filtered
   }, [ledgerEntries, filterType, filterService, searchQuery])
 
-  // Pagination
+  const ledgerTotalPages = Math.max(1, Math.ceil(filteredEntries.length / itemsPerPage) || 1)
+  const ledgerPageSafe = Math.min(currentPage, ledgerTotalPages)
+
   const paginatedEntries = useMemo(() => {
-    const start = (currentPage - 1) * itemsPerPage
-    const end = start + itemsPerPage
-    const total = Math.ceil(filteredEntries.length / itemsPerPage)
-    setTotalPages(total)
-    return filteredEntries.slice(start, end)
-  }, [filteredEntries, currentPage])
+    const start = (ledgerPageSafe - 1) * itemsPerPage
+    return filteredEntries.slice(start, start + itemsPerPage)
+  }, [filteredEntries, ledgerPageSafe, itemsPerPage])
+
+  useEffect(() => {
+    if (currentPage > ledgerTotalPages) setCurrentPage(ledgerTotalPages)
+  }, [currentPage, ledgerTotalPages])
 
   // Get transaction type display info
   const getTransactionInfo = (entry: LedgerEntry) => {
@@ -464,30 +466,47 @@ export default function LedgerTab({ user }: LedgerTabProps) {
         </div>
 
         {/* Pagination */}
-        {totalPages > 1 && (
-          <div className="px-4 py-3 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between">
-            <div className="text-sm text-gray-700 dark:text-gray-300">
-              Showing {(currentPage - 1) * itemsPerPage + 1} to {Math.min(currentPage * itemsPerPage, filteredEntries.length)} of {filteredEntries.length} entries
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                disabled={currentPage === 1}
-                className="px-3 py-1 border border-gray-300 dark:border-gray-600 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50 dark:hover:bg-gray-700"
+        {filteredEntries.length > 0 && (
+          <div className="px-4 py-3 border-t border-gray-200 dark:border-gray-700 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+              <span className="whitespace-nowrap">Rows per page:</span>
+              <select
+                value={itemsPerPage}
+                onChange={(e) => {
+                  setItemsPerPage(Number(e.target.value) as 10 | 25 | 100)
+                  setCurrentPage(1)
+                }}
+                className="px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800"
               >
-                <ChevronLeft className="w-4 h-4" />
-              </button>
-              <span className="px-3 py-1 text-sm text-gray-700 dark:text-gray-300">
-                Page {currentPage} of {totalPages}
+                <option value={10}>10</option>
+                <option value={25}>25</option>
+                <option value={100}>100</option>
+              </select>
+              <span className="text-xs text-gray-500 dark:text-gray-400">
+                {(ledgerPageSafe - 1) * itemsPerPage + 1}–{Math.min(ledgerPageSafe * itemsPerPage, filteredEntries.length)} of {filteredEntries.length}
               </span>
-              <button
-                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                disabled={currentPage === totalPages}
-                className="px-3 py-1 border border-gray-300 dark:border-gray-600 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50 dark:hover:bg-gray-700"
-              >
-                <ChevronRight className="w-4 h-4" />
-              </button>
             </div>
+            {ledgerTotalPages > 1 && (
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                  disabled={ledgerPageSafe <= 1}
+                  className="px-3 py-1 border border-gray-300 dark:border-gray-600 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50 dark:hover:bg-gray-700"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+                <span className="px-3 py-1 text-sm text-gray-700 dark:text-gray-300">
+                  Page {ledgerPageSafe} of {ledgerTotalPages}
+                </span>
+                <button
+                  onClick={() => setCurrentPage(p => Math.min(ledgerTotalPages, p + 1))}
+                  disabled={ledgerPageSafe >= ledgerTotalPages}
+                  className="px-3 py-1 border border-gray-300 dark:border-gray-600 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50 dark:hover:bg-gray-700"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>

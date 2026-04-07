@@ -394,6 +394,61 @@ export async function POST(
       }
     }
 
+    // Forward transaction callback to partner's webhook_url (fire-and-forget)
+    if (tid) {
+      try {
+        const { data: partnerForCallback } = await supabase
+          .from('partner_pos_machines')
+          .select('partner_id')
+          .eq('terminal_id', tid)
+          .eq('status', 'active')
+          .maybeSingle()
+
+        if (partnerForCallback?.partner_id) {
+          const { data: partnerRecord } = await supabase
+            .from('partners')
+            .select('webhook_url')
+            .eq('id', partnerForCallback.partner_id)
+            .eq('status', 'active')
+            .maybeSingle()
+
+          if (partnerRecord?.webhook_url) {
+            const callbackPayload = {
+              event: 'pos.transaction',
+              timestamp: new Date().toISOString(),
+              data: {
+                txnId,
+                tid,
+                amount,
+                status: mappedStatus || normalizedPayload.status,
+                rrn: rrNumber,
+                paymentMode,
+                paymentCardType: cardType,
+                paymentCardBrand: cardBrand,
+                externalRefNumber: externalRef,
+                deviceSerial,
+                postingDate: postingDateStr,
+                settlementStatus: settlementStatusVal,
+                customerName,
+                txnType,
+              },
+            }
+
+            fetch(partnerRecord.webhook_url, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(callbackPayload),
+              signal: AbortSignal.timeout(10000),
+            })
+              .then(res => console.log(`[Partner Callback/${merchantSlug}] Sent to ${partnerRecord.webhook_url}, status: ${res.status}`))
+              .catch(err => console.error(`[Partner Callback/${merchantSlug}] Failed for partner ${partnerForCallback.partner_id}:`, err.message))
+          }
+        }
+      } catch (callbackErr) {
+        console.error(`[Partner Callback/${merchantSlug}] Lookup error:`, callbackErr)
+      }
+    }
+
     const walletCredited = (posResult as { wallet_credited?: boolean })?.wallet_credited ?? false
     return NextResponse.json({
       received: true,

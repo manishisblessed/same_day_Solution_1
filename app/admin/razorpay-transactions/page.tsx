@@ -140,7 +140,7 @@ function RazorpayTransactionsPageContent() {
   const [testStatus, setTestStatus] = useState('AUTHORIZED')
   const [testSending, setTestSending] = useState(false)
   const [testResult, setTestResult] = useState<any>(null)
-  const limit = 20
+  const [pageSize, setPageSize] = useState<10 | 25 | 100>(25)
 
   // Search debounce
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -186,7 +186,7 @@ function RazorpayTransactionsPageContent() {
     try {
       const params = new URLSearchParams()
       params.set('page', String(page))
-      params.set('limit', String(limit))
+      params.set('limit', String(pageSize))
       if (statusFilter !== 'all') params.set('status', statusFilter)
       if (dateFrom) params.set('date_from', dateFrom)
       if (dateTo) params.set('date_to', dateTo)
@@ -229,7 +229,7 @@ function RazorpayTransactionsPageContent() {
         setLoading(false)
       }
     }
-  }, [user, page, limit, statusFilter, dateFrom, dateTo, paymentModeFilter, debouncedSearch, settlementFilter, companyFilter, acquiringBankFilter])
+  }, [user, page, pageSize, statusFilter, dateFrom, dateTo, paymentModeFilter, debouncedSearch, settlementFilter, companyFilter, acquiringBankFilter])
 
   // Initial fetch and auto-refresh polling
   useEffect(() => {
@@ -860,14 +860,21 @@ function RazorpayTransactionsPageContent() {
                         />
                       </div>
 
-                      {/* Page Size Info */}
+                      {/* Page size */}
                       <div>
-                        <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">Pagination</label>
-                        <div className="flex items-center gap-2 px-3 py-2 bg-gray-50 dark:bg-gray-900/50 rounded-lg text-sm text-gray-600 dark:text-gray-400">
-                          <span>Page {page} of {totalPages}</span>
-                          <span className="text-gray-300 dark:text-gray-600">|</span>
-                          <span>{limit} per page</span>
-                        </div>
+                        <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">Rows per page</label>
+                        <select
+                          value={pageSize}
+                          onChange={(e) => {
+                            setPageSize(Number(e.target.value) as 10 | 25 | 100)
+                            setPage(1)
+                          }}
+                          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-primary-500"
+                        >
+                          <option value={10}>10</option>
+                          <option value={25}>25</option>
+                          <option value={100}>100</option>
+                        </select>
                       </div>
                     </div>
                   </div>
@@ -1221,11 +1228,27 @@ function RazorpayTransactionsPageContent() {
             </div>
 
             {/* Pagination */}
-            {totalPages > 1 && (
-              <div className="bg-gray-50 dark:bg-gray-900 px-6 py-4 flex items-center justify-between border-t border-gray-200 dark:border-gray-700">
-                <div className="text-sm text-gray-700 dark:text-gray-300">
-                  Showing page {page} of {totalPages} ({total} total transactions)
+            {total > 0 && (
+              <div className="bg-gray-50 dark:bg-gray-900 px-6 py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-t border-gray-200 dark:border-gray-700">
+                <div className="flex flex-wrap items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+                  <span className="whitespace-nowrap">Rows per page:</span>
+                  <select
+                    value={pageSize}
+                    onChange={(e) => {
+                      setPageSize(Number(e.target.value) as 10 | 25 | 100)
+                      setPage(1)
+                    }}
+                    className="px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800"
+                  >
+                    <option value={10}>10</option>
+                    <option value={25}>25</option>
+                    <option value={100}>100</option>
+                  </select>
+                  <span className="text-xs text-gray-500 dark:text-gray-400">
+                    {(page - 1) * pageSize + 1}–{Math.min(page * pageSize, total)} of {total}
+                  </span>
                 </div>
+                {totalPages > 1 && (
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => setPage(1)}
@@ -1263,6 +1286,7 @@ function RazorpayTransactionsPageContent() {
                     <ChevronRight className="w-4 h-4" /><ChevronRight className="w-4 h-4 -ml-2" />
                   </button>
                 </div>
+                )}
               </div>
             )}
           </div>

@@ -5,7 +5,7 @@ import {
   CreditCard, Search, RefreshCw, ChevronDown, ChevronUp, 
   ArrowRight, CheckCircle, XCircle, AlertCircle, Package,
   Smartphone, Monitor, Loader2, Filter, Eye, X, Clock,
-  ArrowDownRight
+  ArrowDownRight, ChevronLeft, ChevronRight
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { apiFetch } from '@/lib/api-client'
@@ -31,6 +31,7 @@ export default function POSMachinesTab({ user, accentColor = 'blue' }: POSMachin
   const [error, setError] = useState<string | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
   const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState<10 | 25 | 100>(25)
   const [totalPages, setTotalPages] = useState(1)
   const [total, setTotal] = useState(0)
   const [showAssignModal, setShowAssignModal] = useState(false)
@@ -84,7 +85,7 @@ export default function POSMachinesTab({ user, accentColor = 'blue' }: POSMachin
     setLoading(true)
     setError(null)
     try {
-      let url = `/api/pos-machines/my-machines?page=${page}&limit=20`
+      let url = `/api/pos-machines/my-machines?page=${page}&limit=${pageSize}`
       if (searchTerm) url += `&search=${encodeURIComponent(searchTerm)}`
 
       const response = await apiFetch(url)
@@ -104,7 +105,7 @@ export default function POSMachinesTab({ user, accentColor = 'blue' }: POSMachin
     } finally {
       setLoading(false)
     }
-  }, [page, searchTerm])
+  }, [page, pageSize, searchTerm])
 
   useEffect(() => {
     fetchMachines()
@@ -485,27 +486,47 @@ export default function POSMachinesTab({ user, accentColor = 'blue' }: POSMachin
           </div>
 
           {/* Pagination */}
-          {totalPages > 1 && (
-            <div className="bg-gray-50 dark:bg-gray-900/50 px-4 py-3 flex items-center justify-between border-t border-gray-200 dark:border-gray-700">
-              <p className="text-xs text-gray-600 dark:text-gray-400">
-                Page {page} of {totalPages} ({total} total)
-              </p>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setPage(p => Math.max(1, p - 1))}
-                  disabled={page === 1}
-                  className="px-3 py-1.5 text-xs font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+          {total > 0 && (
+            <div className="bg-gray-50 dark:bg-gray-900/50 px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-t border-gray-200 dark:border-gray-700">
+              <div className="flex flex-wrap items-center gap-2 text-xs text-gray-600 dark:text-gray-400">
+                <span>Rows per page:</span>
+                <select
+                  value={pageSize}
+                  onChange={(e) => {
+                    setPageSize(Number(e.target.value) as 10 | 25 | 100)
+                    setPage(1)
+                  }}
+                  className="px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800"
                 >
-                  Previous
-                </button>
-                <button
-                  onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-                  disabled={page === totalPages}
-                  className="px-3 py-1.5 text-xs font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  Next
-                </button>
+                  <option value={10}>10</option>
+                  <option value={25}>25</option>
+                  <option value={100}>100</option>
+                </select>
+                <span>
+                  {(page - 1) * pageSize + 1}–{Math.min(page * pageSize, total)} of {total}
+                </span>
               </div>
+              {totalPages > 1 && (
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setPage(p => Math.max(1, p - 1))}
+                    disabled={page === 1}
+                    className="p-1.5 rounded-lg border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+                  <span className="text-xs text-gray-600 dark:text-gray-400">
+                    {page} / {totalPages}
+                  </span>
+                  <button
+                    onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                    disabled={page === totalPages}
+                    className="p-1.5 rounded-lg border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </div>

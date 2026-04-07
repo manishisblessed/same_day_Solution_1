@@ -36,6 +36,7 @@ export default function TransactionsTable({
     pagination,
     updateFilters,
     changePage,
+    changeLimit,
     refresh
   } = useTransactions({
     autoPoll,
@@ -377,30 +378,44 @@ export default function TransactionsTable({
         </div>
 
         {/* Pagination */}
-        {pagination.totalPages > 1 && (
-          <div className="px-4 py-3 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between">
-            <div className="text-sm text-gray-700 dark:text-gray-300">
-              Showing {((pagination.page - 1) * pagination.limit) + 1} to {Math.min(pagination.page * pagination.limit, pagination.total)} of {pagination.total} transactions
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => changePage(pagination.page - 1)}
-                disabled={pagination.page === 1}
-                className="p-2 rounded border border-gray-300 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
+        {pagination.total > 0 && (
+          <div className="px-4 py-3 border-t border-gray-200 dark:border-gray-700 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+              <span className="whitespace-nowrap">Rows per page:</span>
+              <select
+                value={pagination.limit}
+                onChange={(e) => changeLimit(Number(e.target.value))}
+                className="px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800"
               >
-                <ChevronLeft className="w-4 h-4" />
-              </button>
-              <span className="text-sm text-gray-700 dark:text-gray-300">
-                Page {pagination.page} of {pagination.totalPages}
+                <option value={10}>10</option>
+                <option value={25}>25</option>
+                <option value={100}>100</option>
+              </select>
+              <span className="text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">
+                {((pagination.page - 1) * pagination.limit) + 1}–{Math.min(pagination.page * pagination.limit, pagination.total)} of {pagination.total}
               </span>
-              <button
-                onClick={() => changePage(pagination.page + 1)}
-                disabled={pagination.page >= pagination.totalPages}
-                className="p-2 rounded border border-gray-300 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <ChevronRight className="w-4 h-4" />
-              </button>
             </div>
+            {pagination.totalPages > 1 && (
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => changePage(pagination.page - 1)}
+                  disabled={pagination.page === 1}
+                  className="p-2 rounded border border-gray-300 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+                <span className="text-sm text-gray-700 dark:text-gray-300">
+                  Page {pagination.page} of {pagination.totalPages}
+                </span>
+                <button
+                  onClick={() => changePage(pagination.page + 1)}
+                  disabled={pagination.page >= pagination.totalPages}
+                  className="p-2 rounded border border-gray-300 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>

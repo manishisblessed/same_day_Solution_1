@@ -249,6 +249,37 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ success: true, message: `Daily export limit set to ${daily_limit}` })
       }
 
+      // ─── UPDATE WEBHOOK URL ──────────────────────────────
+      case 'update_webhook_url': {
+        const { partner_id, webhook_url } = body
+        if (!partner_id) {
+          return NextResponse.json({ error: 'partner_id is required' }, { status: 400 })
+        }
+
+        if (webhook_url && typeof webhook_url === 'string' && webhook_url.trim().length > 0) {
+          try {
+            new URL(webhook_url.trim())
+          } catch {
+            return NextResponse.json({ error: 'Invalid URL format' }, { status: 400 })
+          }
+        }
+
+        const finalUrl = webhook_url && webhook_url.trim().length > 0 ? webhook_url.trim() : null
+
+        const { error: wErr } = await supabase
+          .from('partners')
+          .update({ webhook_url: finalUrl, updated_at: new Date().toISOString() })
+          .eq('id', partner_id)
+
+        if (wErr) throw wErr
+
+        return NextResponse.json({
+          success: true,
+          message: finalUrl ? `Webhook URL updated to ${finalUrl}` : 'Webhook URL removed',
+          data: { partner_id, webhook_url: finalUrl },
+        })
+      }
+
       // ─── REVOKE API KEY ─────────────────────────────────
       case 'revoke_key': {
         const { key_id } = body

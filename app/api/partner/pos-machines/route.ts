@@ -20,6 +20,8 @@ export const fetchCache = 'force-no-store'
  * - status: Filter by status (active, inactive, maintenance, damaged, returned)
  * - machine_type: Filter by type (POS, WPOS, Mini-ATM)
  * - search: Search by machine_id, serial_number, MID, TID
+ *
+ * Partner sees only "Same Day Solution" branding — no internal company names are exposed.
  */
 export async function GET(request: NextRequest) {
   try {
@@ -143,6 +145,7 @@ export async function GET(request: NextRequest) {
       city: machine.city,
       state: machine.state,
       pincode: machine.pincode,
+      notes: machine.notes ?? null,
       created_at: machine.created_at,
       updated_at: machine.updated_at,
     }))
@@ -151,6 +154,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
+      company: 'Same Day Solution',
       data: formattedMachines,
       pagination: {
         page,

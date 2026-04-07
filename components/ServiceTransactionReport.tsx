@@ -79,8 +79,9 @@ export default function ServiceTransactionReport({ userRole, userName }: Service
     total_transactions: 0, total_amount: 0, total_commission: 0,
     total_mdr: 0, success_count: 0, failed_count: 0, pending_count: 0,
   })
+  const [rowsPerPage, setRowsPerPage] = useState<10 | 25 | 100>(25)
   const [pagination, setPagination] = useState<Pagination>({
-    total: 0, limit: 50, offset: 0, page: 1, totalPages: 0,
+    total: 0, limit: 25, offset: 0, page: 1, totalPages: 0,
   })
 
   const [loading, setLoading] = useState(false)
@@ -160,13 +161,13 @@ export default function ServiceTransactionReport({ userRole, userName }: Service
 
     try {
       const { start, end } = getDateRange()
-      const offset = (page - 1) * pagination.limit
+      const offset = (page - 1) * rowsPerPage
 
       const params = new URLSearchParams({
         service: serviceFilter,
         date_from: start,
         date_to: end,
-        limit: String(pagination.limit),
+        limit: String(rowsPerPage),
         offset: String(offset),
       })
 
@@ -186,7 +187,7 @@ export default function ServiceTransactionReport({ userRole, userName }: Service
         total_mdr: 0, success_count: 0, failed_count: 0, pending_count: 0,
       })
       setPagination(json.pagination || {
-        total: 0, limit: 50, offset: 0, page: 1, totalPages: 0,
+        total: 0, limit: rowsPerPage, offset: 0, page: 1, totalPages: 0,
       })
     } catch (err: any) {
       setError(err.message || 'Something went wrong')
@@ -194,11 +195,11 @@ export default function ServiceTransactionReport({ userRole, userName }: Service
     } finally {
       setLoading(false)
     }
-  }, [getDateRange, serviceFilter, statusFilter, searchTerm, pagination.limit])
+  }, [getDateRange, serviceFilter, statusFilter, searchTerm, rowsPerPage])
 
   useEffect(() => {
     fetchReport(1)
-  }, [serviceFilter, datePreset, dateFrom, dateTo, statusFilter])
+  }, [fetchReport, serviceFilter, datePreset, dateFrom, dateTo, statusFilter, rowsPerPage])
 
   const handleSearch = () => fetchReport(1)
   const handlePageChange = (page: number) => fetchReport(page)
@@ -622,11 +623,24 @@ export default function ServiceTransactionReport({ userRole, userName }: Service
         </div>
 
         {/* Pagination */}
-        {pagination.totalPages > 1 && (
-          <div className="flex items-center justify-between px-6 py-4 border-t border-gray-200 dark:border-gray-700">
-            <span className="text-sm text-gray-500 dark:text-gray-400">
-              Page {pagination.page} of {pagination.totalPages} &middot; {pagination.total} total records
-            </span>
+        {pagination.total > 0 && (
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-6 py-4 border-t border-gray-200 dark:border-gray-700">
+            <div className="flex flex-wrap items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
+              <span>Rows per page:</span>
+              <select
+                value={rowsPerPage}
+                onChange={(e) => setRowsPerPage(Number(e.target.value) as 10 | 25 | 100)}
+                className="px-2 py-1 text-sm border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900"
+              >
+                <option value={10}>10</option>
+                <option value={25}>25</option>
+                <option value={100}>100</option>
+              </select>
+              <span className="text-xs">
+                {(pagination.page - 1) * rowsPerPage + 1}–{Math.min(pagination.page * rowsPerPage, pagination.total)} of {pagination.total}
+              </span>
+            </div>
+            {pagination.totalPages > 1 && (
             <div className="flex gap-2">
               <button
                 onClick={() => handlePageChange(pagination.page - 1)}
@@ -668,6 +682,7 @@ export default function ServiceTransactionReport({ userRole, userName }: Service
                 <ChevronRight className="w-4 h-4" />
               </button>
             </div>
+            )}
           </div>
         )}
       </motion.div>

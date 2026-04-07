@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import {
   Key, Shield, Globe, RefreshCw, Plus, Copy, Eye, EyeOff,
   CheckCircle, XCircle, AlertCircle, X, Trash2, Download,
-  Lock, Unlock, Server, Clock, FileText, Settings, Check
+  Lock, Unlock, Server, Clock, FileText, Settings, Check, Link2
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { apiFetch } from '@/lib/api-client'
@@ -48,6 +48,10 @@ export default function POSPartnerAPIManagement() {
   const [showNewKeyResult, setShowNewKeyResult] = useState<any>(null)
   const [selectedPartner, setSelectedPartner] = useState<Partner | null>(null)
   
+  // Webhook modal
+  const [showWebhookModal, setShowWebhookModal] = useState(false)
+  const [webhookUrlValue, setWebhookUrlValue] = useState('')
+
   // Whitelist form
   const [whitelistIps, setWhitelistIps] = useState('')
   const [exportLimitValue, setExportLimitValue] = useState(10)
@@ -182,6 +186,21 @@ export default function POSPartnerAPIManagement() {
     })
     if (result) {
       showSuccess(`Export limit updated for ${partner.name}`)
+      fetchPartners()
+    }
+  }
+
+  // ─── Update Webhook URL ────────────────────────────────
+  const handleUpdateWebhookUrl = async () => {
+    if (!selectedPartner) return
+    const result = await doAction({
+      action: 'update_webhook_url',
+      partner_id: selectedPartner.id,
+      webhook_url: webhookUrlValue.trim(),
+    })
+    if (result) {
+      setShowWebhookModal(false)
+      showSuccess(`Webhook URL updated for ${selectedPartner.name}`)
       fetchPartners()
     }
   }
@@ -394,6 +413,17 @@ export default function POSPartnerAPIManagement() {
                           Manage IP Whitelist
                         </button>
                         <button
+                          onClick={() => {
+                            setSelectedPartner(partner)
+                            setWebhookUrlValue(partner.webhook_url || '')
+                            setShowWebhookModal(true)
+                          }}
+                          className="flex items-center gap-2 px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors text-sm"
+                        >
+                          <Link2 className="w-4 h-4" />
+                          Manage Webhook URL
+                        </button>
+                        <button
                           onClick={() => handleToggleStatus(partner)}
                           disabled={actionLoading}
                           className={`flex items-center gap-2 px-4 py-2 rounded-lg text-white text-sm transition-colors disabled:opacity-50 ${
@@ -538,6 +568,32 @@ export default function POSPartnerAPIManagement() {
                         </div>
                       </div>
 
+                      {/* Webhook URL Section */}
+                      <div className="p-4 bg-gray-50 dark:bg-gray-900/50 rounded-lg">
+                        <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2">
+                          <Link2 className="w-4 h-4" />
+                          Callback Webhook URL
+                        </h4>
+                        {partner.webhook_url ? (
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-2">
+                              <CheckCircle className="w-3 h-3 text-green-500 flex-shrink-0" />
+                              <code className="text-sm font-mono text-gray-700 dark:text-gray-300 break-all">{partner.webhook_url}</code>
+                            </div>
+                            <p className="text-xs text-green-600 dark:text-green-400 mt-2 font-medium">
+                              POS transaction callbacks will be forwarded to this URL
+                            </p>
+                          </div>
+                        ) : (
+                          <div>
+                            <p className="text-sm text-yellow-600 dark:text-yellow-400 flex items-center gap-1">
+                              <AlertCircle className="w-4 h-4" />
+                              No webhook URL configured — transaction callbacks disabled
+                            </p>
+                          </div>
+                        )}
+                      </div>
+
                       {/* Partner Details */}
                       <div className="p-4 bg-gray-50 dark:bg-gray-900/50 rounded-lg">
                         <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Partner Details</h4>
@@ -629,6 +685,80 @@ export default function POSPartnerAPIManagement() {
                   <Copy className="w-4 h-4" />
                   Copy All Credentials
                 </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* ─── Webhook URL Modal ──────────────────────────────── */}
+      <AnimatePresence>
+        {showWebhookModal && selectedPartner && (
+          <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white dark:bg-gray-800 rounded-2xl w-full max-w-lg shadow-2xl"
+            >
+              <div className="px-6 py-4 bg-gradient-to-r from-orange-500 to-amber-600 rounded-t-2xl flex items-center justify-between">
+                <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                  <Link2 className="w-5 h-5" />
+                  Webhook URL — {selectedPartner.name}
+                </h3>
+                <button onClick={() => setShowWebhookModal(false)} className="p-1 hover:bg-white/20 rounded-lg">
+                  <X className="w-5 h-5 text-white" />
+                </button>
+              </div>
+              <div className="p-6 space-y-4">
+                <p className="text-sm text-gray-500 dark:text-gray-400">
+                  Enter the partner&apos;s callback URL where POS transaction notifications will be forwarded after processing.
+                  Leave empty to disable callbacks.
+                </p>
+                <div>
+                  <label className="text-xs font-medium text-gray-500 mb-1 block">Callback URL</label>
+                  <input
+                    type="url"
+                    value={webhookUrlValue}
+                    onChange={(e) => setWebhookUrlValue(e.target.value)}
+                    placeholder="https://example.com/api/pos-callback"
+                    className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-sm font-mono"
+                  />
+                </div>
+                {selectedPartner.webhook_url && (
+                  <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-3">
+                    <p className="text-xs text-gray-500 mb-1">Current URL:</p>
+                    <code className="text-xs text-gray-700 dark:text-gray-300 break-all">{selectedPartner.webhook_url}</code>
+                  </div>
+                )}
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => setShowWebhookModal(false)}
+                    className="flex-1 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 text-sm"
+                  >
+                    Cancel
+                  </button>
+                  {selectedPartner.webhook_url && (
+                    <button
+                      onClick={() => {
+                        setWebhookUrlValue('')
+                        handleUpdateWebhookUrl()
+                      }}
+                      disabled={actionLoading}
+                      className="py-2 px-4 bg-red-600 text-white rounded-lg hover:bg-red-700 text-sm disabled:opacity-50"
+                    >
+                      Remove
+                    </button>
+                  )}
+                  <button
+                    onClick={handleUpdateWebhookUrl}
+                    disabled={actionLoading || !webhookUrlValue.trim()}
+                    className="flex-1 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 text-sm disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    {actionLoading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                    Save Webhook URL
+                  </button>
+                </div>
               </div>
             </motion.div>
           </div>

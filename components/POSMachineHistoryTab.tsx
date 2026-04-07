@@ -49,6 +49,7 @@ export default function POSMachineHistoryTab() {
   const [search, setSearch] = useState('')
   const [actionFilter, setActionFilter] = useState('all')
   const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState<10 | 25 | 100>(25)
   const [totalPages, setTotalPages] = useState(1)
   const [total, setTotal] = useState(0)
   const [backfilling, setBackfilling] = useState(false)
@@ -60,7 +61,7 @@ export default function POSMachineHistoryTab() {
     setLoading(true)
     setError(null)
     try {
-      let url = `/api/admin/pos-machines/history?page=${page}&limit=30`
+      let url = `/api/admin/pos-machines/history?page=${page}&limit=${pageSize}`
       if (actionFilter !== 'all') url += `&action=${actionFilter}`
       if (statusFilter !== 'all') url += `&assignment_status=${statusFilter}`
       if (search) url += `&search=${encodeURIComponent(search)}`
@@ -79,11 +80,11 @@ export default function POSMachineHistoryTab() {
     } finally {
       setLoading(false)
     }
-  }, [page, actionFilter, statusFilter, search])
+  }, [page, pageSize, actionFilter, statusFilter, search])
 
   useEffect(() => { fetchHistory() }, [fetchHistory])
 
-  useEffect(() => { setPage(1) }, [search, actionFilter, statusFilter])
+  useEffect(() => { setPage(1) }, [search, actionFilter, statusFilter, pageSize])
 
   const handleBackfill = async () => {
     setBackfilling(true)
@@ -328,27 +329,44 @@ export default function POSMachineHistoryTab() {
           </div>
 
           {/* Pagination */}
-          {totalPages > 1 && (
-            <div className="flex items-center justify-between px-4 py-3 border-t border-gray-200 dark:border-gray-700">
-              <span className="text-xs text-gray-500 dark:text-gray-400">
-                Page {page} of {totalPages} ({total} total)
-              </span>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setPage(p => Math.max(1, p - 1))}
-                  disabled={page <= 1}
-                  className="p-1.5 rounded-lg border border-gray-300 dark:border-gray-700 disabled:opacity-40 hover:bg-gray-100 dark:hover:bg-gray-700"
+          {total > 0 && (
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-4 py-3 border-t border-gray-200 dark:border-gray-700">
+              <div className="flex flex-wrap items-center gap-2 text-xs text-gray-600 dark:text-gray-400">
+                <span>Rows per page:</span>
+                <select
+                  value={pageSize}
+                  onChange={(e) => setPageSize(Number(e.target.value) as 10 | 25 | 100)}
+                  className="px-2 py-1 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
                 >
-                  <ChevronLeft className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-                  disabled={page >= totalPages}
-                  className="p-1.5 rounded-lg border border-gray-300 dark:border-gray-700 disabled:opacity-40 hover:bg-gray-100 dark:hover:bg-gray-700"
-                >
-                  <ChevronRight className="w-4 h-4" />
-                </button>
+                  <option value={10}>10</option>
+                  <option value={25}>25</option>
+                  <option value={100}>100</option>
+                </select>
+                <span>
+                  {(page - 1) * pageSize + 1}–{Math.min(page * pageSize, total)} of {total}
+                </span>
               </div>
+              {totalPages > 1 && (
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setPage(p => Math.max(1, p - 1))}
+                    disabled={page <= 1}
+                    className="p-1.5 rounded-lg border border-gray-300 dark:border-gray-700 disabled:opacity-40 hover:bg-gray-100 dark:hover:bg-gray-700"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+                  <span className="text-xs text-gray-500 dark:text-gray-400">
+                    Page {page} / {totalPages}
+                  </span>
+                  <button
+                    onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                    disabled={page >= totalPages}
+                    className="p-1.5 rounded-lg border border-gray-300 dark:border-gray-700 disabled:opacity-40 hover:bg-gray-100 dark:hover:bg-gray-700"
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </div>

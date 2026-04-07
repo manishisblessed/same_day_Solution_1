@@ -113,7 +113,9 @@ async function authMiddleware(req, res, next) {
         clientIp: clientIp,
         whitelist: keyRecord.ip_whitelist,
       });
-      throw new UnauthorizedError('IP address not authorized');
+      throw new UnauthorizedError(
+        `IP address not authorized. Your IP: ${clientIp}. If using Postman, disable cloud agent in Settings > General > "Send requests via cloud agent" > OFF. Otherwise contact admin to whitelist this IP.`
+      );
     }
 
     // 7. Verify HMAC signature

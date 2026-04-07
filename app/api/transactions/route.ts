@@ -47,7 +47,10 @@ export async function GET(request: NextRequest) {
       minAmount: searchParams.get('minAmount') ? parseFloat(searchParams.get('minAmount')!) : undefined,
       maxAmount: searchParams.get('maxAmount') ? parseFloat(searchParams.get('maxAmount')!) : undefined,
       page: parseInt(searchParams.get('page') || '1'),
-      limit: parseInt(searchParams.get('limit') || '50'),
+      limit: (() => {
+        const n = parseInt(searchParams.get('limit') || '25', 10)
+        return [10, 25, 100].includes(n) ? n : 25
+      })(),
       sortBy: (searchParams.get('sortBy') as any) || 'created_at',
       sortOrder: (searchParams.get('sortOrder') as any) || 'desc'
     }
@@ -102,8 +105,9 @@ export async function GET(request: NextRequest) {
     })
 
     // Apply pagination
-    const offset = ((filters.page || 1) - 1) * (filters.limit || 50)
-    query = query.range(offset, offset + (filters.limit || 50) - 1)
+    const lim = filters.limit || 25
+    const offset = ((filters.page || 1) - 1) * lim
+    query = query.range(offset, offset + lim - 1)
 
     const { data, error, count } = await query
 
@@ -115,13 +119,13 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    const totalPages = Math.ceil((count || 0) / (filters.limit || 50))
+    const totalPages = Math.ceil((count || 0) / lim)
 
     const response: TransactionListResponse = {
       transactions: data || [],
       total: count || 0,
       page: filters.page || 1,
-      limit: filters.limit || 50,
+      limit: lim,
       totalPages
     }
 
