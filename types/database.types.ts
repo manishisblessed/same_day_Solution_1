@@ -226,6 +226,7 @@ export interface POSAssignmentHistory {
   previous_holder_role?: 'master_distributor' | 'distributor' | 'retailer' | 'partner'
   status: 'active' | 'returned'
   returned_date?: string
+  return_reason?: string
   notes?: string
   created_at: string
 }

@@ -5,7 +5,7 @@ import {
   CreditCard, Search, RefreshCw, ChevronDown, ChevronUp, 
   ArrowRight, CheckCircle, XCircle, AlertCircle, Package,
   Smartphone, Monitor, Loader2, Filter, Eye, X, Clock,
-  ArrowDownRight, ChevronLeft, ChevronRight
+  ArrowDownRight, ChevronLeft, ChevronRight, UserPlus, RotateCcw, Trash2
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { apiFetch } from '@/lib/api-client'
@@ -39,6 +39,22 @@ export default function POSMachinesTab({ user, accentColor = 'blue' }: POSMachin
   const [showDetailModal, setShowDetailModal] = useState(false)
   const [detailMachine, setDetailMachine] = useState<POSMachine | null>(null)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
+
+  // Bulk operation states
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [showBulkAssignModal, setShowBulkAssignModal] = useState(false)
+  const [showBulkRecallModal, setShowBulkRecallModal] = useState(false)
+  const [bulkModalPickedIds, setBulkModalPickedIds] = useState<Set<string>>(new Set())
+  const [bulkModalSearch, setBulkModalSearch] = useState('')
+  const [bulkAssigning, setBulkAssigning] = useState(false)
+  const [bulkRecalling, setBulkRecalling] = useState(false)
+  const [bulkAssignTarget, setBulkAssignTarget] = useState('')
+  const [bulkAssignUserSearch, setBulkAssignUserSearch] = useState('')
+  const [bulkNotes, setBulkNotes] = useState('')
+  const [bulkSubscriptionAmount, setBulkSubscriptionAmount] = useState('')
+  const [bulkBillingDay, setBulkBillingDay] = useState(1)
+  const [bulkError, setBulkError] = useState<string | null>(null)
+  const [bulkSummary, setBulkSummary] = useState<string | null>(null)
 
   const colorClasses = useMemo(() => {
     switch (accentColor) {
@@ -121,6 +137,20 @@ export default function POSMachinesTab({ user, accentColor = 'blue' }: POSMachin
   }, [searchTerm])
 
   const canAssign = user?.role === 'master_distributor' || user?.role === 'distributor' || user?.role === 'admin'
+  const canBulkAssign = user?.role === 'master_distributor' || user?.role === 'distributor'
+  const canRecall = user?.role === 'master_distributor' || user?.role === 'distributor'
+
+  const canRecallMachine = (machine: POSMachine) => {
+    if (user?.role === 'master_distributor') {
+      return machine.master_distributor_id === user.partner_id &&
+        ['assigned_to_distributor', 'assigned_to_retailer'].includes(machine.inventory_status || '')
+    }
+    if (user?.role === 'distributor') {
+      return machine.distributor_id === user.partner_id &&
+        machine.inventory_status === 'assigned_to_retailer'
+    }
+    return false
+  }
 
   const getAssignableInventoryStatus = () => {
     switch (user?.role) {
@@ -247,14 +277,51 @@ export default function POSMachinesTab({ user, accentColor = 'blue' }: POSMachin
             }
           </p>
         </div>
-        <button
-          onClick={fetchMachines}
-          disabled={loading}
-          className={`flex items-center gap-2 px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors text-sm disabled:opacity-50`}
-        >
-          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-          Refresh
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          {canBulkAssign && (
+            <button
+              onClick={() => {
+                setBulkModalPickedIds(new Set(selectedIds))
+                setBulkModalSearch('')
+                setBulkAssignTarget('')
+                setBulkAssignUserSearch('')
+                setBulkNotes('')
+                setBulkSubscriptionAmount('')
+                setBulkBillingDay(1)
+                setBulkError(null)
+                setBulkSummary(null)
+                setShowBulkAssignModal(true)
+              }}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-green-500 text-green-600 dark:text-green-400 bg-white dark:bg-gray-800 hover:bg-green-50 dark:hover:bg-green-900/20 text-sm transition-colors"
+            >
+              <UserPlus className="w-4 h-4" />
+              Bulk Assign
+            </button>
+          )}
+          {canRecall && (
+            <button
+              onClick={() => {
+                setBulkModalPickedIds(new Set(selectedIds))
+                setBulkModalSearch('')
+                setBulkError(null)
+                setBulkSummary(null)
+                setShowBulkRecallModal(true)
+              }}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-amber-500 text-amber-600 dark:text-amber-400 bg-white dark:bg-gray-800 hover:bg-amber-50 dark:hover:bg-amber-900/20 text-sm transition-colors"
+            >
+              <RotateCcw className="w-4 h-4" />
+              Bulk Recall
+            </button>
+          )}
+          <button
+            onClick={fetchMachines}
+            disabled={loading}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors text-sm disabled:opacity-50"
+          >
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            Refresh
+          </button>
+        </div>
       </div>
 
       {/* Stats Cards */}
@@ -335,6 +402,19 @@ export default function POSMachinesTab({ user, accentColor = 'blue' }: POSMachin
             <table className="w-full">
               <thead className="bg-gray-50 dark:bg-gray-900/50">
                 <tr>
+                  {(canBulkAssign || canRecall) && (
+                    <th className="px-3 py-3 w-8">
+                      <input
+                        type="checkbox"
+                        checked={machines.length > 0 && selectedIds.size === machines.length}
+                        onChange={(e) => {
+                          if (e.target.checked) setSelectedIds(new Set(machines.map(m => m.id)))
+                          else setSelectedIds(new Set())
+                        }}
+                        className={`rounded border-gray-300 ${colorClasses.ring}`}
+                      />
+                    </th>
+                  )}
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Machine</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">MID / TID</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Brand</th>
@@ -351,8 +431,23 @@ export default function POSMachinesTab({ user, accentColor = 'blue' }: POSMachin
                       key={machine.id}
                       initial={{ opacity: 0 }}
                       animate={{ opacity: 1 }}
-                      className="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
+                      className={`hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors ${selectedIds.has(machine.id) ? 'bg-blue-50 dark:bg-blue-900/10' : ''}`}
                     >
+                      {(canBulkAssign || canRecall) && (
+                        <td className="px-3 py-3">
+                          <input
+                            type="checkbox"
+                            checked={selectedIds.has(machine.id)}
+                            onChange={(e) => {
+                              const next = new Set(selectedIds)
+                              if (e.target.checked) next.add(machine.id)
+                              else next.delete(machine.id)
+                              setSelectedIds(next)
+                            }}
+                            className={`rounded border-gray-300 ${colorClasses.ring}`}
+                          />
+                        </td>
+                      )}
                       <td className="px-4 py-3">
                         <div>
                           <p className="text-sm font-semibold text-gray-900 dark:text-white font-mono">{machine.machine_id}</p>
@@ -529,6 +624,51 @@ export default function POSMachinesTab({ user, accentColor = 'blue' }: POSMachin
               )}
             </div>
           )}
+          {/* Selection toolbar */}
+          {selectedIds.size > 0 && (canBulkAssign || canRecall) && (
+            <div className="px-4 py-2.5 bg-gray-50 dark:bg-gray-900/50 border-t border-gray-200 dark:border-gray-700 flex flex-wrap items-center justify-between gap-2">
+              <span className="text-sm text-gray-700 dark:text-gray-300 font-medium">
+                {selectedIds.size} selected
+              </span>
+              <div className="flex flex-wrap items-center gap-2">
+                {canBulkAssign && (
+                  <button
+                    onClick={() => {
+                      setBulkModalPickedIds(new Set(selectedIds))
+                      setBulkModalSearch('')
+                      setBulkAssignTarget('')
+                      setBulkAssignUserSearch('')
+                      setBulkNotes('')
+                      setBulkSubscriptionAmount('')
+                      setBulkBillingDay(1)
+                      setBulkError(null)
+                      setBulkSummary(null)
+                      setShowBulkAssignModal(true)
+                    }}
+                    className={`text-sm flex items-center gap-1.5 px-3 py-1.5 rounded-lg ${colorClasses.btn} text-white`}
+                  >
+                    <UserPlus className="w-4 h-4" />
+                    Assign Selected
+                  </button>
+                )}
+                {canRecall && (
+                  <button
+                    onClick={() => {
+                      setBulkModalPickedIds(new Set(selectedIds))
+                      setBulkModalSearch('')
+                      setBulkError(null)
+                      setBulkSummary(null)
+                      setShowBulkRecallModal(true)
+                    }}
+                    className="text-sm flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white"
+                  >
+                    <RotateCcw className="w-4 h-4" />
+                    Recall Selected
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -558,6 +698,254 @@ export default function POSMachinesTab({ user, accentColor = 'blue' }: POSMachin
           </div>
         </div>
       )}
+
+      {/* Bulk Assign Modal */}
+      <AnimatePresence>
+        {showBulkAssignModal && canBulkAssign && (() => {
+          const bq = bulkModalSearch.toLowerCase()
+          const searchedMachines = machines.filter((m) => {
+            if (!canAssignMachine(m)) return false
+            if (!bq) return true
+            return m.machine_id.toLowerCase().includes(bq) || (m.tid || '').toLowerCase().includes(bq) || (m.serial_number || '').toLowerCase().includes(bq) || (m.mid || '').toLowerCase().includes(bq)
+          })
+          const pickedCount = bulkModalPickedIds.size
+          const filteredTargets = assignableUsers.filter((u) => {
+            const sq = bulkAssignUserSearch.toLowerCase()
+            if (!sq) return true
+            return u.name.toLowerCase().includes(sq) || u.partner_id.toLowerCase().includes(sq) || u.email.toLowerCase().includes(sq) || (u.business_name || '').toLowerCase().includes(sq)
+          })
+          return (
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => !bulkAssigning && setShowBulkAssignModal(false)}>
+              <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }} onClick={(e) => e.stopPropagation()} className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-2xl w-full p-6 max-h-[90vh] overflow-y-auto">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-3">
+                    <div className={`p-2 rounded-full ${colorClasses.bgLight}`}>
+                      <UserPlus className={`w-5 h-5 ${colorClasses.text}`} />
+                    </div>
+                    <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+                      Bulk Assign to {getTargetRoleLabel()}
+                    </h2>
+                  </div>
+                  <button type="button" onClick={() => !bulkAssigning && setShowBulkAssignModal(false)} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
+                </div>
+
+                {/* Machine picker */}
+                <div className="mb-4">
+                  <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">1. Select machines ({pickedCount} selected)</h3>
+                  <div className="relative mb-2">
+                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
+                    <input type="text" placeholder="Search by TID, Machine ID, SN…" value={bulkModalSearch} onChange={(e) => setBulkModalSearch(e.target.value)} className="w-full pl-8 pr-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white" />
+                  </div>
+                  <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
+                    <div className="max-h-48 overflow-y-auto">
+                      <table className="w-full text-sm">
+                        <thead className="bg-gray-50 dark:bg-gray-900 sticky top-0">
+                          <tr className="text-left text-xs text-gray-500 dark:text-gray-400">
+                            <th className="px-3 py-2 w-8">
+                              <input type="checkbox" checked={searchedMachines.length > 0 && searchedMachines.every((m) => bulkModalPickedIds.has(m.id))} onChange={(e) => { const next = new Set(bulkModalPickedIds); if (e.target.checked) searchedMachines.forEach((m) => next.add(m.id)); else searchedMachines.forEach((m) => next.delete(m.id)); setBulkModalPickedIds(next) }} className={`rounded border-gray-300 ${colorClasses.ring}`} />
+                            </th>
+                            <th className="px-2 py-2 font-medium">TID</th>
+                            <th className="px-2 py-2 font-medium">Machine ID</th>
+                            <th className="px-2 py-2 font-medium">Status</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {searchedMachines.slice(0, 100).map((m) => (
+                            <tr key={m.id} className={`border-b border-gray-100 dark:border-gray-800 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/50 ${bulkModalPickedIds.has(m.id) ? `${colorClasses.bgLight}` : ''}`} onClick={() => { const next = new Set(bulkModalPickedIds); if (next.has(m.id)) next.delete(m.id); else next.add(m.id); setBulkModalPickedIds(next) }}>
+                              <td className="px-3 py-1.5"><input type="checkbox" checked={bulkModalPickedIds.has(m.id)} onChange={() => {}} className={`rounded border-gray-300 ${colorClasses.ring} pointer-events-none`} /></td>
+                              <td className="px-2 py-1.5 font-mono text-gray-900 dark:text-gray-100">{m.tid || '—'}</td>
+                              <td className="px-2 py-1.5 text-gray-700 dark:text-gray-300">{m.machine_id}</td>
+                              <td className="px-2 py-1.5 text-xs">{(m.inventory_status || '').replace(/_/g, ' ')}</td>
+                            </tr>
+                          ))}
+                          {searchedMachines.length === 0 && <tr><td colSpan={4} className="px-3 py-4 text-center text-gray-400 text-sm">No assignable machines found</td></tr>}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                  {pickedCount > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-1.5 max-h-16 overflow-y-auto">
+                      {Array.from(bulkModalPickedIds).map((id) => { const m = machines.find((pm) => pm.id === id); return (
+                        <span key={id} className={`inline-flex items-center gap-1 px-2 py-0.5 ${colorClasses.badge} text-xs rounded-full font-mono`}>
+                          {m?.tid || m?.machine_id || id.slice(0, 8)}
+                          <button type="button" onClick={() => { const n = new Set(bulkModalPickedIds); n.delete(id); setBulkModalPickedIds(n) }} className="hover:opacity-70"><X className="w-3 h-3" /></button>
+                        </span>
+                      ) })}
+                    </div>
+                  )}
+                </div>
+
+                {/* Target selection */}
+                <div className="space-y-3 mb-4">
+                  <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300">2. Assign to {getTargetRoleLabel()}</h3>
+                  <input type="text" value={bulkAssignUserSearch} onChange={(e) => setBulkAssignUserSearch(e.target.value)} placeholder="Filter by name, ID, email…" className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white" />
+                  <select value={bulkAssignTarget} onChange={(e) => setBulkAssignTarget(e.target.value)} disabled={bulkAssigning} className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white">
+                    <option value="">Select {getTargetRoleLabel()}…</option>
+                    {filteredTargets.map((u) => (
+                      <option key={u.partner_id} value={u.partner_id}>{(u.name || u.business_name || u.partner_id) + ` — ${u.partner_id}`}</option>
+                    ))}
+                  </select>
+                  <input type="text" value={bulkNotes} onChange={(e) => setBulkNotes(e.target.value)} placeholder="Notes (optional)" className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white" />
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Subscription / month (optional)</label>
+                      <input type="number" min={0} step="0.01" value={bulkSubscriptionAmount} onChange={(e) => setBulkSubscriptionAmount(e.target.value)} placeholder="Leave empty to skip" className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Billing day (1–28)</label>
+                      <input type="number" min={1} max={28} value={bulkBillingDay} onChange={(e) => setBulkBillingDay(Math.max(1, Math.min(28, parseInt(e.target.value, 10) || 1)))} className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white" />
+                    </div>
+                  </div>
+                </div>
+
+                {bulkError && <div className="p-3 mb-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-sm text-red-800 dark:text-red-300 whitespace-pre-line">{bulkError}</div>}
+                {bulkSummary && <div className="p-3 mb-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg text-sm text-green-800 dark:text-green-300 whitespace-pre-line">{bulkSummary}</div>}
+
+                <div className="flex justify-end gap-2 pt-3 border-t border-gray-200 dark:border-gray-700">
+                  <button type="button" onClick={() => !bulkAssigning && setShowBulkAssignModal(false)} disabled={bulkAssigning} className="px-4 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700">Cancel</button>
+                  <button
+                    type="button"
+                    disabled={bulkAssigning || !bulkAssignTarget || pickedCount === 0}
+                    onClick={async () => {
+                      setBulkAssigning(true)
+                      setBulkError(null)
+                      setBulkSummary(null)
+                      try {
+                        const payload: Record<string, unknown> = {
+                          machine_ids: Array.from(bulkModalPickedIds),
+                          assign_to: bulkAssignTarget,
+                          notes: bulkNotes.trim() || undefined,
+                        }
+                        const amt = bulkSubscriptionAmount.trim()
+                        if (amt) { const n = parseFloat(amt); if (!Number.isNaN(n) && n > 0) { payload.subscription_amount = n; payload.billing_day = bulkBillingDay; payload.gst_percent = 18 } }
+                        const res = await apiFetch('/api/pos-machines/bulk-assign', { method: 'POST', body: JSON.stringify(payload) })
+                        const data = await res.json()
+                        if (!res.ok) { setBulkError(data.error || 'Bulk assign failed'); return }
+                        const failList = (data.failed || []) as { id: string; error: string }[]
+                        const lines = [`Done: ${data.succeeded_count} succeeded, ${data.failed_count} failed.`, ...(failList.slice(0, 10).map((f) => `• ${f.id.slice(0, 8)}… — ${f.error}`))]
+                        setBulkSummary(lines.join('\n'))
+                        if (data.failed_count === 0) { setSelectedIds(new Set()); setBulkModalPickedIds(new Set()); setShowBulkAssignModal(false); fetchMachines() }
+                        else { fetchMachines() }
+                      } catch (e: any) { setBulkError(e?.message || 'Request failed') }
+                      finally { setBulkAssigning(false) }
+                    }}
+                    className={`px-4 py-2 text-sm font-medium text-white ${colorClasses.btn} rounded-lg disabled:opacity-50`}
+                  >
+                    {bulkAssigning ? 'Assigning…' : `Assign ${pickedCount} Machine${pickedCount !== 1 ? 's' : ''}`}
+                  </button>
+                </div>
+              </motion.div>
+            </motion.div>
+          )
+        })()}
+      </AnimatePresence>
+
+      {/* Bulk Recall Modal */}
+      <AnimatePresence>
+        {showBulkRecallModal && canRecall && (() => {
+          const rq = bulkModalSearch.toLowerCase()
+          const recallableMachines = machines.filter((m) => {
+            if (!canRecallMachine(m)) return false
+            if (!rq) return true
+            return m.machine_id.toLowerCase().includes(rq) || (m.tid || '').toLowerCase().includes(rq) || (m.serial_number || '').toLowerCase().includes(rq) || (m.mid || '').toLowerCase().includes(rq)
+          })
+          const pickedCount = bulkModalPickedIds.size
+          return (
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => !bulkRecalling && setShowBulkRecallModal(false)}>
+              <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }} onClick={(e) => e.stopPropagation()} className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-2xl w-full p-6 max-h-[90vh] overflow-y-auto">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-amber-100 dark:bg-amber-900/30 rounded-full">
+                      <RotateCcw className="w-5 h-5 text-amber-600 dark:text-amber-400" />
+                    </div>
+                    <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+                      Bulk Recall Machines
+                    </h2>
+                  </div>
+                  <button type="button" onClick={() => !bulkRecalling && setShowBulkRecallModal(false)} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
+                </div>
+                <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
+                  Recall machines back to your inventory. Only machines assigned downstream are shown. <strong>{pickedCount}</strong> selected.
+                </p>
+                <div className="relative mb-3">
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
+                  <input type="text" placeholder="Search by TID, Machine ID, SN…" value={bulkModalSearch} onChange={(e) => setBulkModalSearch(e.target.value)} className="w-full pl-8 pr-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white" />
+                </div>
+                <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden mb-4">
+                  <div className="max-h-64 overflow-y-auto">
+                    <table className="w-full text-sm">
+                      <thead className="bg-gray-50 dark:bg-gray-900 sticky top-0">
+                        <tr className="text-left text-xs text-gray-500 dark:text-gray-400">
+                          <th className="px-3 py-2 w-8">
+                            <input type="checkbox" checked={recallableMachines.length > 0 && recallableMachines.every((m) => bulkModalPickedIds.has(m.id))} onChange={(e) => { const next = new Set(bulkModalPickedIds); if (e.target.checked) recallableMachines.forEach((m) => next.add(m.id)); else recallableMachines.forEach((m) => next.delete(m.id)); setBulkModalPickedIds(next) }} className="rounded border-gray-300 text-amber-600 focus:ring-amber-500" />
+                          </th>
+                          <th className="px-2 py-2 font-medium">TID</th>
+                          <th className="px-2 py-2 font-medium">Machine ID</th>
+                          <th className="px-2 py-2 font-medium">Current Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {recallableMachines.slice(0, 100).map((m) => (
+                          <tr key={m.id} className={`border-b border-gray-100 dark:border-gray-800 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/50 ${bulkModalPickedIds.has(m.id) ? 'bg-amber-50 dark:bg-amber-900/10' : ''}`} onClick={() => { const next = new Set(bulkModalPickedIds); if (next.has(m.id)) next.delete(m.id); else next.add(m.id); setBulkModalPickedIds(next) }}>
+                            <td className="px-3 py-1.5"><input type="checkbox" checked={bulkModalPickedIds.has(m.id)} onChange={() => {}} className="rounded border-gray-300 text-amber-600 focus:ring-amber-500 pointer-events-none" /></td>
+                            <td className="px-2 py-1.5 font-mono text-gray-900 dark:text-gray-100">{m.tid || '—'}</td>
+                            <td className="px-2 py-1.5 text-gray-700 dark:text-gray-300">{m.machine_id}</td>
+                            <td className="px-2 py-1.5 text-xs">{(m.inventory_status || '').replace(/_/g, ' ')}</td>
+                          </tr>
+                        ))}
+                        {recallableMachines.length === 0 && <tr><td colSpan={4} className="px-3 py-4 text-center text-gray-400 text-sm">No recallable machines found</td></tr>}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+                {pickedCount > 0 && (
+                  <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-3 mb-4 max-h-24 overflow-y-auto">
+                    <p className="text-xs font-medium text-amber-800 dark:text-amber-300 mb-1">Will recall {pickedCount} machine(s):</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {Array.from(bulkModalPickedIds).map((id) => { const m = machines.find((pm) => pm.id === id); return (
+                        <span key={id} className="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-100 dark:bg-amber-900/30 text-amber-800 dark:text-amber-300 text-xs rounded-full font-mono">
+                          {m?.tid || m?.machine_id || id.slice(0, 8)}
+                          <button type="button" onClick={() => { const n = new Set(bulkModalPickedIds); n.delete(id); setBulkModalPickedIds(n) }} className="hover:text-amber-600"><X className="w-3 h-3" /></button>
+                        </span>
+                      ) })}
+                    </div>
+                  </div>
+                )}
+
+                {bulkError && <div className="p-3 mb-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-sm text-red-800 dark:text-red-300 whitespace-pre-line">{bulkError}</div>}
+                {bulkSummary && <div className="p-3 mb-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg text-sm text-green-800 dark:text-green-300 whitespace-pre-line">{bulkSummary}</div>}
+
+                <div className="flex justify-end gap-2 pt-3 border-t border-gray-200 dark:border-gray-700">
+                  <button type="button" onClick={() => !bulkRecalling && setShowBulkRecallModal(false)} disabled={bulkRecalling} className="px-4 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700">Cancel</button>
+                  <button
+                    type="button"
+                    disabled={bulkRecalling || pickedCount === 0}
+                    onClick={async () => {
+                      setBulkRecalling(true)
+                      setBulkError(null)
+                      setBulkSummary(null)
+                      try {
+                        const res = await apiFetch('/api/pos-machines/bulk-recall', { method: 'POST', body: JSON.stringify({ machine_ids: Array.from(bulkModalPickedIds), notes: bulkNotes.trim() || undefined }) })
+                        const data = await res.json()
+                        if (!res.ok) { setBulkError(data.error || 'Bulk recall failed'); return }
+                        const failList = (data.failed || []) as { id: string; error: string }[]
+                        const lines = [`Done: ${data.succeeded_count} recalled, ${data.failed_count} failed.`, ...(failList.slice(0, 10).map((f) => `• ${f.id.slice(0, 8)}… — ${f.error}`))]
+                        setBulkSummary(lines.join('\n'))
+                        if (data.failed_count === 0) { setSelectedIds(new Set()); setBulkModalPickedIds(new Set()); setShowBulkRecallModal(false); fetchMachines() }
+                        else { fetchMachines() }
+                      } catch (e: any) { setBulkError(e?.message || 'Request failed') }
+                      finally { setBulkRecalling(false) }
+                    }}
+                    className="px-4 py-2 text-sm font-medium text-white bg-amber-600 hover:bg-amber-700 rounded-lg disabled:opacity-50"
+                  >
+                    {bulkRecalling ? 'Recalling…' : `Recall ${pickedCount} Machine${pickedCount !== 1 ? 's' : ''}`}
+                  </button>
+                </div>
+              </motion.div>
+            </motion.div>
+          )
+        })()}
+      </AnimatePresence>
 
       {/* Assign Modal */}
       <AnimatePresence>

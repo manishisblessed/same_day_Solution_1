@@ -29,9 +29,10 @@ import { apiFetch } from '@/lib/api-client'
 import T1SettlementControl from '@/components/T1SettlementControl'
 import PerformanceTab from '@/components/PerformanceTab'
 import POSMachineHistoryTab from '@/components/POSMachineHistoryTab'
+import POSTrackingReport from '@/components/POSTrackingReport'
 import AdminSubscriptionsTab from '@/components/AdminSubscriptionsTab'
 
-type TabType = 'dashboard' | 'retailers' | 'distributors' | 'master-distributors' | 'services' | 'pos-machines' | 'pos-history' | 'transactions' | 'partners' | 'pos-partner-api' | 'reports' | 'settlement' | 'performance' | 'subscriptions'
+type TabType = 'dashboard' | 'retailers' | 'distributors' | 'master-distributors' | 'services' | 'pos-machines' | 'pos-history' | 'pos-tracking-report' | 'transactions' | 'partners' | 'pos-partner-api' | 'reports' | 'settlement' | 'performance' | 'subscriptions'
 type SortField = 'name' | 'email' | 'partner_id' | 'created_at' | 'status'
 type SortDirection = 'asc' | 'desc'
 
@@ -44,7 +45,7 @@ function AdminDashboardContent() {
   // Initialize activeTab from URL or default to 'dashboard'
   const getInitialTab = (): TabType => {
     const tab = searchParams?.get('tab')
-    if (tab && ['dashboard', 'retailers', 'distributors', 'master-distributors', 'pos-machines', 'pos-history', 'pos-partner-api', 'services', 'transactions', 'partners', 'reports', 'settlement', 'performance', 'subscriptions'].includes(tab)) {
+    if (tab && ['dashboard', 'retailers', 'distributors', 'master-distributors', 'pos-machines', 'pos-history', 'pos-tracking-report', 'pos-partner-api', 'services', 'transactions', 'partners', 'reports', 'settlement', 'performance', 'subscriptions'].includes(tab)) {
       return tab as TabType
     }
     return 'dashboard'
@@ -117,7 +118,7 @@ function AdminDashboardContent() {
   // Sync activeTab with URL query params
   useEffect(() => {
     const tab = searchParams?.get('tab')
-    if (tab && ['dashboard', 'retailers', 'distributors', 'master-distributors', 'pos-machines', 'pos-history', 'pos-partner-api', 'services', 'transactions', 'partners', 'reports', 'settlement', 'performance', 'subscriptions'].includes(tab)) {
+    if (tab && ['dashboard', 'retailers', 'distributors', 'master-distributors', 'pos-machines', 'pos-history', 'pos-tracking-report', 'pos-partner-api', 'services', 'transactions', 'partners', 'reports', 'settlement', 'performance', 'subscriptions'].includes(tab)) {
       if (tab !== activeTab) {
         setActiveTab(tab as TabType)
       }
@@ -524,6 +525,8 @@ function AdminDashboardContent() {
             />
           ) : activeTab === 'pos-history' ? (
             <POSMachineHistoryTab />
+          ) : activeTab === 'pos-tracking-report' ? (
+            <POSTrackingReport />
           ) : activeTab === 'pos-partner-api' ? (
             <POSPartnerAPIManagement />
           ) : activeTab === 'partners' ? (

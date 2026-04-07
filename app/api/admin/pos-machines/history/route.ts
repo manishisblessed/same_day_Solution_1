@@ -144,7 +144,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: true, message: `Backfilled ${created} history records`, count: created })
     }
 
-    const { pos_machine_id, machine_id, action, assigned_to, assigned_to_role, previous_holder, previous_holder_role, notes } = body
+    const { pos_machine_id, machine_id, action, assigned_to, assigned_to_role, previous_holder, previous_holder_role, notes, return_reason } = body
 
     if (!pos_machine_id || !machine_id || !action) {
       return NextResponse.json({ error: 'pos_machine_id, machine_id, and action are required' }, { status: 400 })
@@ -177,6 +177,7 @@ export async function POST(request: NextRequest) {
       previous_holder: previous_holder || null,
       previous_holder_role: previous_holder_role || null,
       status: isAssignAction ? 'active' : 'returned',
+      return_reason: return_reason || null,
       notes: notes || null,
     })
 

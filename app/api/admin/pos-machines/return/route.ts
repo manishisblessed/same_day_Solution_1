@@ -45,7 +45,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { machine_id } = body
+    const { machine_id, return_reason } = body
 
     if (!machine_id) {
       return NextResponse.json({ error: 'machine_id is required' }, { status: 400 })
@@ -234,7 +234,8 @@ export async function POST(request: NextRequest) {
           previous_holder: previousHolder,
           previous_holder_role: previousHolderRole,
           status: 'returned',
-          notes: `Returned to stock by admin. Was ${currentStatus}.`,
+          return_reason: return_reason || null,
+          notes: `Returned to stock by admin. Was ${currentStatus}.${return_reason ? ` Reason: ${return_reason}` : ''}`,
         }),
       })
       if (!histInsertRes.ok) {
