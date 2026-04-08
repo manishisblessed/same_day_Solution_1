@@ -413,31 +413,11 @@ export async function POST(
             .maybeSingle()
 
           if (partnerRecord?.webhook_url) {
-            const callbackPayload = {
-              event: 'pos.transaction',
-              timestamp: new Date().toISOString(),
-              data: {
-                txnId,
-                tid,
-                amount,
-                status: mappedStatus || normalizedPayload.status,
-                rrn: rrNumber,
-                paymentMode,
-                paymentCardType: cardType,
-                paymentCardBrand: cardBrand,
-                externalRefNumber: externalRef,
-                deviceSerial,
-                postingDate: postingDateStr,
-                settlementStatus: settlementStatusVal,
-                customerName,
-                txnType,
-              },
-            }
-
+            // Forward the original Razorpay payload as-is (no wrapping)
             fetch(partnerRecord.webhook_url, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(callbackPayload),
+              body: JSON.stringify(normalizedPayload._source === 'pos_notification' ? payload : normalizedPayload),
               signal: AbortSignal.timeout(10000),
             })
               .then(res => console.log(`[Partner Callback/${merchantSlug}] Sent to ${partnerRecord.webhook_url}, status: ${res.status}`))
