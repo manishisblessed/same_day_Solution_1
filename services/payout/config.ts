@@ -70,9 +70,11 @@ export function isPayoutMockMode(): boolean {
  * Get payout charges configuration
  */
 export function getPayoutCharges(): { imps: number; neft: number } {
+  const parsedImps = parseFloat(process.env.PAYOUT_CHARGE_IMPS || '')
+  const parsedNeft = parseFloat(process.env.PAYOUT_CHARGE_NEFT || '')
   return {
-    imps: parseFloat(process.env.PAYOUT_CHARGE_IMPS || '5'), // Default ₹5 for IMPS
-    neft: parseFloat(process.env.PAYOUT_CHARGE_NEFT || '3'), // Default ₹3 for NEFT
+    imps: Number.isFinite(parsedImps) ? parsedImps : 5,
+    neft: Number.isFinite(parsedNeft) ? parsedNeft : 3,
   }
 }
 
@@ -80,9 +82,10 @@ export function getPayoutCharges(): { imps: number; neft: number } {
  * Get minimum and maximum transfer limits
  */
 export function getTransferLimits(): { min: number; max: number } {
+  const parsedMin = parseFloat(process.env.PAYOUT_MIN_AMOUNT || '')
+  const parsedMax = parseFloat(process.env.PAYOUT_MAX_AMOUNT || '')
   return {
-    min: parseFloat(process.env.PAYOUT_MIN_AMOUNT || '100'), // Minimum ₹100
-    max: parseFloat(process.env.PAYOUT_MAX_AMOUNT || '200000'), // Maximum ₹2,00,000
+    min: Number.isFinite(parsedMin) ? parsedMin : 100,
+    max: Number.isFinite(parsedMax) ? parsedMax : 200000,
   }
 }
-

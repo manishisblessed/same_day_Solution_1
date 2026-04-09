@@ -1,9 +1,9 @@
 {
   "info": {
     "name": "Same Day Solution — Payout Partner API",
-    "description": "Bank Payout (IMPS/NEFT) Partner API — powered by SparkUpTech Express Pay.\n\n## Authentication\nEvery authenticated request requires 3 headers:\n- `x-api-key` — Your public API key\n- `x-signature` — HMAC-SHA256 signature\n- `x-timestamp` — Current Unix timestamp (ms)\n\nSignature formula:\n```\nHMAC_SHA256(api_secret, JSON.stringify(body) + timestamp)\n```\nFor GET requests (no body): `HMAC_SHA256(api_secret, '' + timestamp)`\n\n## Setup\n1. Set `api_key` and `api_secret` in Collection Variables\n2. Pre-request scripts auto-generate signature\n3. All requests are ready to fire\n\n## Security\n- IP Whitelisting enforced (contact admin to whitelist your server IP)\n- Timestamp tolerance: 5 minutes\n- HTTPS required in production\n- Permission required: `payout` or `all`\n\n## Capabilities\n- Get bank list (IMPS/NEFT)\n- Verify bank account (beneficiary name — penniless)\n- Initiate transfer (IMPS/NEFT)\n- Check transfer status or list recent transfers\n\n## Financial Operations\nTransfer requires `retailer_id` — the retailer's partner_id whose wallet will be debited.\nDuplicate prevention: same account within 2 minutes returns 429.",
+    "description": "Bank payout (IMPS/NEFT) for B2B partners — powered by **Same Day Solution Pvt. Ltd.** and SparkUpTech Express Pay.\n\nUse this collection to move money from a **retailer wallet** (`retailer_id` = that retailer’s `partner_id`) to a **vendor’s bank account**. Your platform supplies the beneficiary details; we debit the retailer and credit the account via IMPS/NEFT.\n\n## Authentication\nEvery authenticated request requires 3 headers:\n- `x-api-key` — Your public API key\n- `x-signature` — HMAC-SHA256 signature\n- `x-timestamp` — Current Unix timestamp (ms)\n\nSignature formula:\n```\nHMAC_SHA256(api_secret, JSON.stringify(body) + timestamp)\n```\nFor GET requests (no body): `HMAC_SHA256(api_secret, '' + timestamp)`\n\n## Setup\n1. Set `api_key`, `api_secret`, and `retailer_id` in Collection Variables\n2. Pre-request scripts auto-generate the signature\n3. Run **Get Bank List** → **Verify Bank Account** → **Initiate Transfer** → **Get Transfer Status**\n\n## Security\n- IP whitelisting enforced (contact admin to whitelist your server IP)\n- Timestamp tolerance: 5 minutes\n- HTTPS required in production\n- API key permission required: `payout` or `all`\n\n## ⚠️ Postman Cloud Agent\nIf you see **\"IP address not authorized\"** even though your IP is whitelisted, the request may be going through Postman’s cloud servers.\n\n**Fix:** Postman **Settings → General** → turn **OFF** **\"Send requests through Postman's cloud agent\"** (or use the Postman desktop agent) so requests use your real IP.\n\n## Capabilities\n- Bank list (IMPS/NEFT filters)\n- Verify bank account (beneficiary name; no penny drop charge)\n- Initiate transfer (debits retailer wallet: amount + charges)\n- Poll status by `transactionId` or `clientRefId`, or list last 20 payouts for a retailer\n\n## Duplicate prevention\nA second transfer to the **same account number** for the same `retailer_id` within **2 minutes** while a prior attempt is still pending/processing/success returns **429** with `wait_seconds` (remaining time in that window).",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
-    "version": "1.0.0"
+    "version": "2.0.0"
   },
   "auth": {
     "type": "noauth"
@@ -11,7 +11,9 @@
   "variable": [
     { "key": "base_url", "value": "https://api.samedaysolution.in", "type": "string" },
     { "key": "api_key", "value": "pk_live_YOUR_API_KEY_HERE", "type": "string" },
-    { "key": "api_secret", "value": "sk_live_YOUR_API_SECRET_HERE", "type": "string" }
+    { "key": "api_secret", "value": "sk_live_YOUR_API_SECRET_HERE", "type": "string" },
+    { "key": "retailer_id", "value": "YOUR_RETAILER_PARTNER_ID", "type": "string", "description": "Retailer partner_id whose wallet is debited for each transfer." },
+    { "key": "last_payout_transaction_id", "value": "YOUR_TXN_UUID", "type": "string", "description": "Internal payout row UUID. Initiate Transfer (test) saves this on 200; replace manually if needed." }
   ],
   "item": [
     {
@@ -27,10 +29,14 @@
                 "type": "text/javascript",
                 "exec": [
                   "const CryptoJS = require('crypto-js');",
-                  "let apiKey = pm.collectionVariables.get('api_key') || pm.environment.get('api_key');",
-                  "let apiSecret = pm.collectionVariables.get('api_secret') || pm.environment.get('api_secret');",
-                  "if (!apiKey || apiKey === 'pk_live_YOUR_API_KEY_HERE') throw new Error('Set api_key in Collection Variables');",
-                  "if (!apiSecret || apiSecret === 'sk_live_YOUR_API_SECRET_HERE') throw new Error('Set api_secret in Collection Variables');",
+                  "let apiKey = pm.collectionVariables.get('api_key');",
+                  "let apiSecret = pm.collectionVariables.get('api_secret');",
+                  "if (!apiKey) apiKey = pm.environment.get('api_key');",
+                  "if (!apiSecret) apiSecret = pm.environment.get('api_secret');",
+                  "const placeholderKey = 'pk_live_YOUR_API_KEY_HERE';",
+                  "const placeholderSecret = 'sk_live_YOUR_API_SECRET_HERE';",
+                  "if (!apiKey || apiKey.trim() === '' || apiKey === placeholderKey) { throw new Error('Set api_key in Collection Variables (or Environment).'); }",
+                  "if (!apiSecret || apiSecret.trim() === '' || apiSecret === placeholderSecret) { throw new Error('Set api_secret in Collection Variables (or Environment).'); }",
                   "const timestamp = Date.now().toString();",
                   "const signature = CryptoJS.HmacSHA256('' + timestamp, apiSecret).toString(CryptoJS.enc.Hex);",
                   "pm.request.headers.upsert({ key: 'x-api-key', value: apiKey });",
@@ -96,16 +102,34 @@
                 "type": "text/javascript",
                 "exec": [
                   "const CryptoJS = require('crypto-js');",
-                  "let apiKey = pm.collectionVariables.get('api_key') || pm.environment.get('api_key');",
-                  "let apiSecret = pm.collectionVariables.get('api_secret') || pm.environment.get('api_secret');",
-                  "if (!apiKey || apiKey === 'pk_live_YOUR_API_KEY_HERE') throw new Error('Set api_key in Collection Variables');",
-                  "if (!apiSecret || apiSecret === 'sk_live_YOUR_API_SECRET_HERE') throw new Error('Set api_secret in Collection Variables');",
+                  "let apiKey = pm.collectionVariables.get('api_key');",
+                  "let apiSecret = pm.collectionVariables.get('api_secret');",
+                  "if (!apiKey) apiKey = pm.environment.get('api_key');",
+                  "if (!apiSecret) apiSecret = pm.environment.get('api_secret');",
+                  "const placeholderKey = 'pk_live_YOUR_API_KEY_HERE';",
+                  "const placeholderSecret = 'sk_live_YOUR_API_SECRET_HERE';",
+                  "if (!apiKey || apiKey.trim() === '' || apiKey === placeholderKey) { throw new Error('Set api_key in Collection Variables (or Environment).'); }",
+                  "if (!apiSecret || apiSecret.trim() === '' || apiSecret === placeholderSecret) { throw new Error('Set api_secret in Collection Variables (or Environment).'); }",
                   "const timestamp = Date.now().toString();",
                   "const body = JSON.parse(pm.request.body.raw);",
-                  "const signature = CryptoJS.HmacSHA256(JSON.stringify(body) + timestamp, apiSecret).toString(CryptoJS.enc.Hex);",
+                  "const signaturePayload = JSON.stringify(body) + timestamp;",
+                  "const signature = CryptoJS.HmacSHA256(signaturePayload, apiSecret).toString(CryptoJS.enc.Hex);",
                   "pm.request.headers.upsert({ key: 'x-api-key', value: apiKey });",
                   "pm.request.headers.upsert({ key: 'x-signature', value: signature });",
                   "pm.request.headers.upsert({ key: 'x-timestamp', value: timestamp });"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200 or 400', function() { pm.expect([200, 400]).to.include(pm.response.code); });",
+                  "if (pm.response.code === 200) {",
+                  "  const j = pm.response.json();",
+                  "  pm.expect(j.success).to.be.true;",
+                  "}"
                 ]
               }
             }
@@ -136,7 +160,21 @@
               "status": "OK",
               "code": 200,
               "header": [{ "key": "Content-Type", "value": "application/json" }],
-              "body": "{\n  \"success\": true,\n  \"is_valid\": true,\n  \"account_holder_name\": \"John Doe\",\n  \"bank_name\": \"HDFC Bank\",\n  \"branch_name\": \"Mumbai Main\",\n  \"verification_charges\": 0,\n  \"message\": \"Account verified successfully\"\n}"
+              "body": "{\n  \"success\": true,\n  \"is_valid\": true,\n  \"account_holder_name\": \"John Doe\",\n  \"bank_name\": \"HDFC Bank\",\n  \"branch_name\": \"Mumbai Main\",\n  \"verification_charges\": 0,\n  \"message\": \"Account verified successfully\",\n  \"reference_id\": \"REF123456\"\n}"
+            },
+            {
+              "name": "400 — Invalid Account",
+              "status": "Bad Request",
+              "code": 400,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"success\": false,\n  \"error\": {\n    \"code\": \"VALIDATION_FAILED\",\n    \"message\": \"Account verification failed\"\n  },\n  \"is_valid\": false,\n  \"verification_charges\": 0\n}"
+            },
+            {
+              "name": "400 — Missing Fields",
+              "status": "Bad Request",
+              "code": 400,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"success\": false,\n  \"error\": {\n    \"code\": \"BAD_REQUEST\",\n    \"message\": \"accountNumber and ifscCode are required\"\n  }\n}"
             }
           ]
         },
@@ -149,16 +187,39 @@
                 "type": "text/javascript",
                 "exec": [
                   "const CryptoJS = require('crypto-js');",
-                  "let apiKey = pm.collectionVariables.get('api_key') || pm.environment.get('api_key');",
-                  "let apiSecret = pm.collectionVariables.get('api_secret') || pm.environment.get('api_secret');",
-                  "if (!apiKey || apiKey === 'pk_live_YOUR_API_KEY_HERE') throw new Error('Set api_key in Collection Variables');",
-                  "if (!apiSecret || apiSecret === 'sk_live_YOUR_API_SECRET_HERE') throw new Error('Set api_secret in Collection Variables');",
+                  "let apiKey = pm.collectionVariables.get('api_key');",
+                  "let apiSecret = pm.collectionVariables.get('api_secret');",
+                  "if (!apiKey) apiKey = pm.environment.get('api_key');",
+                  "if (!apiSecret) apiSecret = pm.environment.get('api_secret');",
+                  "const placeholderKey = 'pk_live_YOUR_API_KEY_HERE';",
+                  "const placeholderSecret = 'sk_live_YOUR_API_SECRET_HERE';",
+                  "if (!apiKey || apiKey.trim() === '' || apiKey === placeholderKey) { throw new Error('Set api_key in Collection Variables (or Environment).'); }",
+                  "if (!apiSecret || apiSecret.trim() === '' || apiSecret === placeholderSecret) { throw new Error('Set api_secret in Collection Variables (or Environment).'); }",
                   "const timestamp = Date.now().toString();",
                   "const body = JSON.parse(pm.request.body.raw);",
-                  "const signature = CryptoJS.HmacSHA256(JSON.stringify(body) + timestamp, apiSecret).toString(CryptoJS.enc.Hex);",
+                  "const rid = body.retailer_id ? String(body.retailer_id).trim() : '';",
+                  "if (!rid || rid === 'YOUR_RETAILER_PARTNER_ID') { throw new Error('Set retailer_id in Collection Variables to the retailer partner_id whose wallet should be debited.'); }",
+                  "const signaturePayload = JSON.stringify(body) + timestamp;",
+                  "const signature = CryptoJS.HmacSHA256(signaturePayload, apiSecret).toString(CryptoJS.enc.Hex);",
                   "pm.request.headers.upsert({ key: 'x-api-key', value: apiKey });",
                   "pm.request.headers.upsert({ key: 'x-signature', value: signature });",
                   "pm.request.headers.upsert({ key: 'x-timestamp', value: timestamp });"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Response is JSON with success field', function() { pm.response.to.be.json; const j = pm.response.json(); pm.expect(j).to.have.property('success'); });",
+                  "if (pm.response.code === 200) {",
+                  "  const j = pm.response.json();",
+                  "  pm.test('Transfer accepted', function() { pm.expect(j.success).to.be.true; pm.expect(j.transaction_id).to.be.a('string'); });",
+                  "  if (j.success && j.transaction_id) {",
+                  "    pm.collectionVariables.set('last_payout_transaction_id', j.transaction_id);",
+                  "  }",
+                  "}"
                 ]
               }
             }
@@ -173,7 +234,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"retailer_id\": \"YOUR_RETAILER_PARTNER_ID\",\n  \"accountNumber\": \"1234567890123456\",\n  \"ifscCode\": \"HDFC0001234\",\n  \"accountHolderName\": \"John Doe\",\n  \"amount\": 1000,\n  \"transferMode\": \"IMPS\",\n  \"bankId\": 1,\n  \"bankName\": \"HDFC Bank\",\n  \"beneficiaryMobile\": \"9876543210\",\n  \"senderName\": \"Retailer Name\",\n  \"senderMobile\": \"9876543211\",\n  \"senderEmail\": \"retailer@example.com\",\n  \"remarks\": \"Payout\"\n}",
+              "raw": "{\n  \"retailer_id\": \"{{retailer_id}}\",\n  \"accountNumber\": \"1234567890123456\",\n  \"ifscCode\": \"HDFC0001234\",\n  \"accountHolderName\": \"John Doe\",\n  \"amount\": 1000,\n  \"transferMode\": \"IMPS\",\n  \"bankId\": 1,\n  \"bankName\": \"HDFC Bank\",\n  \"beneficiaryMobile\": \"9876543210\",\n  \"senderName\": \"Retailer Name\",\n  \"senderMobile\": \"9876543211\",\n  \"senderEmail\": \"retailer@example.com\",\n  \"remarks\": \"Payout\"\n}",
               "options": { "raw": { "language": "json" } }
             },
             "url": {
@@ -203,7 +264,14 @@
               "status": "Too Many Requests",
               "code": 429,
               "header": [{ "key": "Content-Type", "value": "application/json" }],
-              "body": "{\n  \"success\": false,\n  \"error\": {\n    \"code\": \"DUPLICATE\",\n    \"message\": \"Transaction to this account initiated 30s ago. Wait 90s.\"\n  },\n  \"duplicate_prevention\": true,\n  \"wait_seconds\": 90\n}"
+              "body": "{\n  \"success\": false,\n  \"error\": {\n    \"code\": \"DUPLICATE\",\n    \"message\": \"Transaction to this account initiated 45s ago. Wait 75s.\"\n  },\n  \"duplicate_prevention\": true,\n  \"wait_seconds\": 75\n}"
+            },
+            {
+              "name": "503 — Payout Service Unavailable",
+              "status": "Service Unavailable",
+              "code": 503,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"success\": false,\n  \"error\": {\n    \"code\": \"SERVICE_UNAVAILABLE\",\n    \"message\": \"Payout service temporarily unavailable\"\n  }\n}"
             }
           ]
         },
@@ -216,15 +284,33 @@
                 "type": "text/javascript",
                 "exec": [
                   "const CryptoJS = require('crypto-js');",
-                  "let apiKey = pm.collectionVariables.get('api_key') || pm.environment.get('api_key');",
-                  "let apiSecret = pm.collectionVariables.get('api_secret') || pm.environment.get('api_secret');",
-                  "if (!apiKey || apiKey === 'pk_live_YOUR_API_KEY_HERE') throw new Error('Set api_key in Collection Variables');",
-                  "if (!apiSecret || apiSecret === 'sk_live_YOUR_API_SECRET_HERE') throw new Error('Set api_secret in Collection Variables');",
+                  "let apiKey = pm.collectionVariables.get('api_key');",
+                  "let apiSecret = pm.collectionVariables.get('api_secret');",
+                  "if (!apiKey) apiKey = pm.environment.get('api_key');",
+                  "if (!apiSecret) apiSecret = pm.environment.get('api_secret');",
+                  "const placeholderKey = 'pk_live_YOUR_API_KEY_HERE';",
+                  "const placeholderSecret = 'sk_live_YOUR_API_SECRET_HERE';",
+                  "if (!apiKey || apiKey.trim() === '' || apiKey === placeholderKey) { throw new Error('Set api_key in Collection Variables (or Environment).'); }",
+                  "if (!apiSecret || apiSecret.trim() === '' || apiSecret === placeholderSecret) { throw new Error('Set api_secret in Collection Variables (or Environment).'); }",
                   "const timestamp = Date.now().toString();",
                   "const signature = CryptoJS.HmacSHA256('' + timestamp, apiSecret).toString(CryptoJS.enc.Hex);",
                   "pm.request.headers.upsert({ key: 'x-api-key', value: apiKey });",
                   "pm.request.headers.upsert({ key: 'x-signature', value: signature });",
                   "pm.request.headers.upsert({ key: 'x-timestamp', value: timestamp });"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200 or 404', function() { pm.expect([200, 404]).to.include(pm.response.code); });",
+                  "if (pm.response.code === 200) {",
+                  "  const j = pm.response.json();",
+                  "  pm.expect(j.success).to.be.true;",
+                  "  pm.expect(j.transaction).to.be.an('object');",
+                  "}"
                 ]
               }
             }
@@ -237,15 +323,15 @@
               { "key": "x-timestamp", "value": "auto-generated" }
             ],
             "url": {
-              "raw": "{{base_url}}/api/partner/payout/status?transactionId=YOUR_TXN_UUID",
+              "raw": "{{base_url}}/api/partner/payout/status?transactionId={{last_payout_transaction_id}}",
               "host": ["{{base_url}}"],
               "path": ["api", "partner", "payout", "status"],
               "query": [
-                { "key": "transactionId", "value": "YOUR_TXN_UUID", "description": "Internal transaction ID" },
-                { "key": "clientRefId", "value": "", "description": "Client reference ID from transfer", "disabled": true }
+                { "key": "transactionId", "value": "{{last_payout_transaction_id}}", "description": "Internal row UUID (auto-set after successful Initiate Transfer)" },
+                { "key": "clientRefId", "value": "", "description": "Client reference ID from transfer (enable and disable transactionId to use this)", "disabled": true }
               ]
             },
-            "description": "Check status of a single payout transfer.\n\nFor pending/processing transactions, the API auto-checks with the provider and updates status.\nFailed transactions are auto-refunded.\n\n### Query Parameters\n| Param | Type | Required | Description |\n|-------|------|----------|-------------|\n| `transactionId` | String | Conditional | Our internal transaction UUID |\n| `clientRefId` | String | Conditional | Client ref ID from transfer |\n\nAt least one of `transactionId` or `clientRefId` is required."
+            "description": "Check status of a single payout transfer.\n\nFor pending/processing transactions, the API auto-checks with the provider and updates status.\nFailed transactions are auto-refunded.\n\n### Query Parameters\n| Param | Type | Required | Description |\n|-------|------|----------|-------------|\n| `transactionId` | String | Conditional | Our internal transaction UUID |\n| `clientRefId` | String | Conditional | Client ref ID from transfer |\n\nAt least one of `transactionId` or `clientRefId` is required.\n\n**Tip:** After a successful **Initiate Transfer**, `last_payout_transaction_id` is saved for this request. You can also paste a UUID or use `clientRefId` instead (enable that query param and disable `transactionId`)."
           },
           "response": [
             {
@@ -254,6 +340,13 @@
               "code": 200,
               "header": [{ "key": "Content-Type", "value": "application/json" }],
               "body": "{\n  \"success\": true,\n  \"transaction\": {\n    \"id\": \"a1b2c3d4-e5f6-7890-abcd-ef1234567890\",\n    \"client_ref_id\": \"PAYOUT-RET001-...\",\n    \"provider_txn_id\": \"UTR123456789\",\n    \"rrn\": \"987654321012\",\n    \"status\": \"SUCCESS\",\n    \"amount\": 1000,\n    \"charges\": 5,\n    \"total_amount\": 1005,\n    \"account_number\": \"************3456\",\n    \"account_holder_name\": \"John Doe\",\n    \"bank_name\": \"HDFC Bank\",\n    \"transfer_mode\": \"IMPS\",\n    \"created_at\": \"2026-03-08T10:00:00.000Z\",\n    \"completed_at\": \"2026-03-08T10:01:00.000Z\"\n  }\n}"
+            },
+            {
+              "name": "404 — Not Found",
+              "status": "Not Found",
+              "code": 404,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"success\": false,\n  \"error\": {\n    \"code\": \"NOT_FOUND\",\n    \"message\": \"Transaction not found\"\n  }\n}"
             }
           ]
         },
@@ -266,15 +359,32 @@
                 "type": "text/javascript",
                 "exec": [
                   "const CryptoJS = require('crypto-js');",
-                  "let apiKey = pm.collectionVariables.get('api_key') || pm.environment.get('api_key');",
-                  "let apiSecret = pm.collectionVariables.get('api_secret') || pm.environment.get('api_secret');",
-                  "if (!apiKey || apiKey === 'pk_live_YOUR_API_KEY_HERE') throw new Error('Set api_key in Collection Variables');",
-                  "if (!apiSecret || apiSecret === 'sk_live_YOUR_API_SECRET_HERE') throw new Error('Set api_secret in Collection Variables');",
+                  "let apiKey = pm.collectionVariables.get('api_key');",
+                  "let apiSecret = pm.collectionVariables.get('api_secret');",
+                  "if (!apiKey) apiKey = pm.environment.get('api_key');",
+                  "if (!apiSecret) apiSecret = pm.environment.get('api_secret');",
+                  "const placeholderKey = 'pk_live_YOUR_API_KEY_HERE';",
+                  "const placeholderSecret = 'sk_live_YOUR_API_SECRET_HERE';",
+                  "if (!apiKey || apiKey.trim() === '' || apiKey === placeholderKey) { throw new Error('Set api_key in Collection Variables (or Environment).'); }",
+                  "if (!apiSecret || apiSecret.trim() === '' || apiSecret === placeholderSecret) { throw new Error('Set api_secret in Collection Variables (or Environment).'); }",
+                  "const rid = (pm.collectionVariables.get('retailer_id') || '').trim();",
+                  "if (!rid || rid === 'YOUR_RETAILER_PARTNER_ID') { throw new Error('Set retailer_id in Collection Variables.'); }",
                   "const timestamp = Date.now().toString();",
                   "const signature = CryptoJS.HmacSHA256('' + timestamp, apiSecret).toString(CryptoJS.enc.Hex);",
                   "pm.request.headers.upsert({ key: 'x-api-key', value: apiKey });",
                   "pm.request.headers.upsert({ key: 'x-signature', value: signature });",
                   "pm.request.headers.upsert({ key: 'x-timestamp', value: timestamp });"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', function() { pm.response.to.have.status(200); });",
+                  "const j = pm.response.json();",
+                  "pm.test('Has transactions array', function() { pm.expect(j.success).to.be.true; pm.expect(j.transactions).to.be.an('array'); });"
                 ]
               }
             }
@@ -287,17 +397,25 @@
               { "key": "x-timestamp", "value": "auto-generated" }
             ],
             "url": {
-              "raw": "{{base_url}}/api/partner/payout/status?list=true&retailer_id=YOUR_RETAILER_ID",
+              "raw": "{{base_url}}/api/partner/payout/status?list=true&retailer_id={{retailer_id}}",
               "host": ["{{base_url}}"],
               "path": ["api", "partner", "payout", "status"],
               "query": [
                 { "key": "list", "value": "true", "description": "Return list of recent transactions" },
-                { "key": "retailer_id", "value": "YOUR_RETAILER_ID", "description": "Retailer partner_id" }
+                { "key": "retailer_id", "value": "{{retailer_id}}", "description": "Retailer partner_id" }
               ]
             },
             "description": "Get list of recent payout transactions for a retailer (last 20).\n\n### Query Parameters\n| Param | Type | Required | Description |\n|-------|------|----------|-------------|\n| `list` | Boolean | ✅ Yes | Must be `true` |\n| `retailer_id` | String | ✅ Yes | Retailer partner_id |"
           },
-          "response": []
+          "response": [
+            {
+              "name": "200 — List",
+              "status": "OK",
+              "code": 200,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"success\": true,\n  \"transactions\": [\n    {\n      \"id\": \"a1b2c3d4-e5f6-7890-abcd-ef1234567890\",\n      \"retailer_id\": \"RET001\",\n      \"client_ref_id\": \"PAYOUT-RET001-...\",\n      \"amount\": 1000,\n      \"charges\": 5,\n      \"status\": \"success\",\n      \"transfer_mode\": \"IMPS\",\n      \"created_at\": \"2026-03-08T10:00:00.000Z\"\n    }\n  ]\n}"
+            }
+          ]
         }
       ]
     }

@@ -8,7 +8,7 @@
  */
 
 import { VerifyAccountRequest, ValidateAccountRequestBody, ValidateAccountResponse } from './types'
-import { isPayoutMockMode } from './config'
+import { isPayoutMockMode, getPayoutTimeout } from './config'
 import { 
   getPartnerId, 
   getConsumerKey, 
@@ -140,11 +140,20 @@ export async function verifyBankAccount(request: VerifyAccountRequest): Promise<
       ifsc: normalizedIfsc,
     })
 
-    const response = await fetch(apiUrl, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(requestBody),
-    })
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), getPayoutTimeout())
+
+    let response: Response
+    try {
+      response = await fetch(apiUrl, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(requestBody),
+        signal: controller.signal,
+      })
+    } finally {
+      clearTimeout(timeoutId)
+    }
 
     const responseText = await response.text()
     let responseData: ValidateAccountResponse

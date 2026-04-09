@@ -23,7 +23,8 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({
         configured: false,
         balance: null,
-        message: 'Set SUBSCRIPTION_REVENUE_USER_ID and SUBSCRIPTION_REVENUE_USER_ROLE to see subscription revenue wallet.',
+        message:
+          'Set SUBSCRIPTION_REVENUE_USER_ID and SUBSCRIPTION_REVENUE_USER_ROLE (retailer, distributor, or master_distributor) to enable the platform revenue wallet. Subscription debits and settlement fees credit this wallet.',
       })
     }
 

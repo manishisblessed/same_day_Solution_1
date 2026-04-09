@@ -154,7 +154,7 @@ export interface TransferRequest {
 export interface ExpressPayRequestBody {
   AccountNo: string
   AmountR: number
-  APIRequestID: number
+  APIRequestID: string | number
   BankID: number
   BeneMobile: string
   BeneName: string

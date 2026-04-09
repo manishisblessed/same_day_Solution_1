@@ -130,7 +130,10 @@ export async function POST(
       }
     }
 
-    const txnId = normalizedPayload.txnId || normalizedPayload.id
+    const txnId =
+      normalizedPayload.txnId ||
+      normalizedPayload.id ||
+      (normalizedPayload as { Id?: string }).Id
     if (!txnId) {
       return NextResponse.json(
         { received: true, processed: false, error: 'Missing txnId field' },
@@ -395,33 +398,51 @@ export async function POST(
     }
 
     // Forward transaction callback to partner's webhook_url (fire-and-forget)
-    if (tid) {
+    if (!tid) {
+      console.warn(`[Partner Callback/${merchantSlug}] Skip txnId=${txnId}: no tid in payload`)
+    } else {
       try {
-        const { data: partnerForCallback } = await supabase
+        const { data: partnerRows, error: pmErr } = await supabase
           .from('partner_pos_machines')
           .select('partner_id')
           .eq('terminal_id', tid)
           .eq('status', 'active')
-          .maybeSingle()
+          .limit(2)
 
-        if (partnerForCallback?.partner_id) {
-          const { data: partnerRecord } = await supabase
+        if (pmErr) {
+          console.error(`[Partner Callback/${merchantSlug}] partner_pos_machines error tid=${tid}:`, pmErr.message)
+        } else if (!partnerRows?.length) {
+          console.warn(`[Partner Callback/${merchantSlug}] Skip txnId=${txnId} tid=${tid}: no active partner_pos_machines row`)
+        } else if (partnerRows.length > 1) {
+          console.error(`[Partner Callback/${merchantSlug}] Skip txnId=${txnId} tid=${tid}: duplicate active terminals`)
+        } else {
+          const partnerForCallback = partnerRows[0]
+          const { data: partnerRecord, error: pErr } = await supabase
             .from('partners')
             .select('webhook_url')
             .eq('id', partnerForCallback.partner_id)
             .eq('status', 'active')
             .maybeSingle()
 
-          if (partnerRecord?.webhook_url) {
-            // Forward the original Razorpay payload as-is (no wrapping)
+          if (pErr) {
+            console.error(`[Partner Callback/${merchantSlug}] partners error:`, pErr.message)
+          } else if (!partnerRecord?.webhook_url) {
+            console.warn(`[Partner Callback/${merchantSlug}] Skip txnId=${txnId} tid=${tid}: no webhook_url or partner inactive`)
+          } else {
+            const rawPayload = normalizedPayload._source === 'pos_notification' ? payload : normalizedPayload
+            const bodyPayload = { ...rawPayload, mappedStatus }
             fetch(partnerRecord.webhook_url, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(normalizedPayload._source === 'pos_notification' ? payload : normalizedPayload),
+              body: JSON.stringify(bodyPayload),
               signal: AbortSignal.timeout(10000),
             })
-              .then(res => console.log(`[Partner Callback/${merchantSlug}] Sent to ${partnerRecord.webhook_url}, status: ${res.status}`))
-              .catch(err => console.error(`[Partner Callback/${merchantSlug}] Failed for partner ${partnerForCallback.partner_id}:`, err.message))
+              .then(res =>
+                console.log(`[Partner Callback/${merchantSlug}] txnId=${txnId} tid=${tid} status=${rawPayload.status} mappedStatus=${mappedStatus} → HTTP ${res.status}`)
+              )
+              .catch(err =>
+                console.error(`[Partner Callback/${merchantSlug}] Failed txnId=${txnId}:`, err.message)
+              )
           }
         }
       } catch (callbackErr) {

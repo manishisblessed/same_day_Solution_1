@@ -4,6 +4,7 @@ import { createClient } from '@supabase/supabase-js'
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
 import { initiateTransfer } from '@/services/payout/transfer'
 import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger'
+import { creditSettlementFeeToPlatformWallet } from '@/lib/wallet/platform-revenue-wallet'
 
 export const runtime = 'nodejs' // Force Node.js runtime (Supabase not compatible with Edge Runtime)
 export const dynamic = 'force-dynamic'
@@ -292,6 +293,19 @@ export async function POST(request: NextRequest) {
               reference_id: payoutReferenceId
             })
             .eq('id', settlement.ledger_entry_id)
+        }
+
+        if (payoutStatus === 'success') {
+          const charge = parseFloat(String(settlement.charge ?? 0))
+          const rev = await creditSettlementFeeToPlatformWallet(supabase, {
+            settlementId: settlement_id,
+            charge,
+            settlerUserId: settlement.user_id,
+            settlerUserRole: settlement.user_role,
+          })
+          if (!rev.ok) {
+            console.error('[Settlement Release] Platform settlement-fee ledger credit failed:', rev.error)
+          }
         }
 
         // Log admin action

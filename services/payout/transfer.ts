@@ -11,18 +11,14 @@ import { isPayoutMockMode, getPayoutCharges, getTransferLimits } from './config'
 import { getBankList } from './bankList'
 
 /**
- * Generate unique API Request ID (numeric, 16 digits)
- * Format: timestamp (13 digits) + random (3 digits) = 16 digits
- * This prevents "Data already exist" errors from SparkUpTech API
+ * Generate unique API Request ID (numeric, 16 digits).
+ * Returns a string to avoid JS integer precision loss beyond 2^53.
+ * SparkUpTech treats the field as an opaque numeric identifier.
  */
-export function generateAPIRequestId(): number {
-  // Generate a 16-digit numeric ID
-  // Format: timestamp (13 digits) + random (3 digits) = 16 digits
-  const timestamp = Date.now() // 13 digits
-  const random = Math.floor(Math.random() * 1000) // 0-999 (3 digits)
-  const randomStr = random.toString().padStart(3, '0') // Ensure 3 digits
-  const apiRequestIdStr = timestamp.toString() + randomStr // 16 digits total
-  return parseInt(apiRequestIdStr)
+export function generateAPIRequestId(): string {
+  const timestamp = Date.now().toString()
+  const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0')
+  return timestamp + random
 }
 
 /**
@@ -75,8 +71,24 @@ export async function getBankIdFromBankList(
       bankListOptions.searchQuery = bankName
     }
     
-    const bankListResult = await getBankList(bankListOptions)
+    let bankListResult = await getBankList(bankListOptions)
     
+    // If IMPS/NEFT filter hides the branch row, retry once with same IFSC search but no mode filter
+    if (
+      (!bankListResult.success || !bankListResult.banks || bankListResult.banks.length === 0) &&
+      (transferMode === 'IMPS' || transferMode === 'NEFT') &&
+      normalizedIfsc
+    ) {
+      console.warn('[Payout] bankList empty with mode filter, retrying without IMPS/NEFT filter:', {
+        ifsc: normalizedIfsc,
+        transferMode,
+      })
+      bankListResult = await getBankList({
+        searchQuery: normalizedIfsc,
+        useCache: true,
+      })
+    }
+
     if (!bankListResult.success || !bankListResult.banks || bankListResult.banks.length === 0) {
       console.warn('[Payout] Bank not found in bankList:', { ifsc: normalizedIfsc, bankName })
       return null
@@ -91,8 +103,10 @@ export async function getBankIdFromBankList(
     if (!matchedBank && bankName) {
       const normalizedBankName = bankName.trim().toUpperCase()
       matchedBank = bankListResult.banks.find(b => 
-        b.bankName && b.bankName.toUpperCase().includes(normalizedBankName) ||
-        normalizedBankName.includes(b.bankName.toUpperCase())
+        b.bankName && (
+          b.bankName.toUpperCase().includes(normalizedBankName) ||
+          normalizedBankName.includes(b.bankName.toUpperCase())
+        )
       )
     }
     
@@ -157,7 +171,7 @@ export async function getBankIdFromBankList(
 export async function initiateTransfer(request: TransferRequest): Promise<{
   success: boolean
   transaction_id?: string
-  client_ref_id?: number
+  client_ref_id?: string | number
   status?: 'pending' | 'success' | 'failed' | 'processing'
   amount?: number
   charges?: number
@@ -290,21 +304,25 @@ export async function initiateTransfer(request: TransferRequest): Promise<{
       ifsc: normalizedIfsc,
     })
   } else {
-    // Validate that the provided BankID matches the IFSC
+    // Always resolve from bankList when possible so BankID matches IFSC (SparkUp rejects mismatches)
     const bankInfo = await getBankIdFromBankList(normalizedIfsc, bankName, transferMode)
     
-    if (bankInfo && bankInfo.bankId !== finalBankId) {
-      console.warn('[Payout] Provided BankID does not match bankList:', {
-        providedBankId: finalBankId,
-        bankListBankId: bankInfo.bankId,
-        ifsc: normalizedIfsc,
-      })
-      
-      // Use the BankID from bankList (more reliable)
+    if (bankInfo) {
+      if (bankInfo.bankId !== finalBankId) {
+        console.warn('[Payout] Provided BankID does not match bankList:', {
+          providedBankId: finalBankId,
+          bankListBankId: bankInfo.bankId,
+          ifsc: normalizedIfsc,
+        })
+      }
       finalBankId = bankInfo.bankId
       finalBankName = bankInfo.bank.bankName
-      
-      console.log('[Payout] Using BankID from bankList instead of provided value')
+      console.log('[Payout] Using BankID/name from bankList for expressPay2')
+    } else {
+      console.warn('[Payout] bankList could not resolve IFSC; using client BankID (may fail at provider)', {
+        ifsc: normalizedIfsc,
+        bankId: finalBankId,
+      })
     }
   }
   

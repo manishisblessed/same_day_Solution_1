@@ -28,7 +28,7 @@ export async function GET(request: NextRequest) {
       .from('wallet_ledger')
       .select('id, retailer_id, user_role, wallet_type, fund_category, service_type, transaction_type, credit, debit, opening_balance, closing_balance, balance_after, description, reference_id, status, created_at')
       .eq('retailer_id', revenueUserId)
-      .eq('service_type', 'subscription')
+      .in('service_type', ['subscription', 'settlement'])
       .order('created_at', { ascending: false })
       .limit(limit)
 

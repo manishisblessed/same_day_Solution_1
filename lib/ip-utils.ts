@@ -9,24 +9,35 @@
 export function normalizeIp(ip: string | null): string | null {
   if (!ip) return null;
   
-  // Remove IPv6 prefix (::ffff:)
-  let normalized = ip.replace(/^::ffff:/i, '');
-  
-  // Remove brackets from IPv6 addresses
-  normalized = normalized.replace(/^\[|\]$/g, '');
-  
-  // Trim whitespace
-  normalized = normalized.trim();
+  let normalized = ip.trim();
+
+  // Handle bracketed IPv6 with optional port: [2001:db8::1]:443 → 2001:db8::1
+  const bracketMatch = normalized.match(/^\[([^\]]+)\](?::\d+)?$/);
+  if (bracketMatch) {
+    normalized = bracketMatch[1];
+  }
+
+  // Remove IPv4-mapped IPv6 prefix (::ffff:)
+  normalized = normalized.replace(/^::ffff:/i, '');
   
   return normalized;
 }
 
 /**
- * Strip port suffix from an IP address (e.g., "1.2.3.4:12345" → "1.2.3.4")
+ * Strip port suffix from an IP address.
+ * IPv4: "1.2.3.4:12345" → "1.2.3.4"
+ * Bracketed IPv6: "[::1]:8080" → "::1" (handled by normalizeIp)
  */
 function stripPort(ip: string): string {
+  // IPv4 with port
   const portMatch = ip.match(/^(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}):\d+$/);
   if (portMatch) return portMatch[1];
+
+  // Bracketed IPv6 with port — strip brackets+port here so callers that
+  // go through stripPort before normalizeIp still work.
+  const v6Match = ip.match(/^\[([^\]]+)\]:\d+$/);
+  if (v6Match) return v6Match[1];
+
   return ip;
 }
 
@@ -107,10 +118,11 @@ function ipInCidr(ip: string, cidr: string): boolean {
       return false;
     }
 
-    // Calculate subnet mask
-    const mask = (0xFFFFFFFF << (32 - prefix)) >>> 0;
+    // /0 means "match any IPv4" — JS bitwise shift uses only low 5 bits,
+    // so << 32 behaves like << 0; handle explicitly.
+    if (prefix === 0) return true;
 
-    // Check if IP is in the network
+    const mask = (0xFFFFFFFF << (32 - prefix)) >>> 0;
     return (ipNum & mask) === (networkNum & mask);
   } catch (error) {
     return false;

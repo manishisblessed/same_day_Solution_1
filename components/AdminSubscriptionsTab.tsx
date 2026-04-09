@@ -49,7 +49,12 @@ export default function AdminSubscriptionsTab() {
   const [subGst, setSubGst] = useState('18')
   const [subBillingDay, setSubBillingDay] = useState('1')
   const [creatingSubscription, setCreatingSubscription] = useState(false)
-  const [revenueBalance, setRevenueBalance] = useState<{ configured: boolean; balance: number | null; error?: string; message?: string } | null>(null)
+  const [revenueBalance, setRevenueBalance] = useState<{
+    configured: boolean
+    balance: number | null
+    error?: string
+    message?: string
+  }>({ configured: false, balance: null, message: 'Loading…' })
   const [revenueStatementOpen, setRevenueStatementOpen] = useState(false)
   const [revenueEntries, setRevenueEntries] = useState<any[]>([])
   const [loadingRevenueStatement, setLoadingRevenueStatement] = useState(false)
@@ -153,6 +158,23 @@ export default function AdminSubscriptionsTab() {
     }
   }
 
+  const refreshRevenueBalance = useCallback(async () => {
+    try {
+      const revRes = await apiFetch('/api/admin/subscriptions/revenue-balance')
+      setRevenueBalance(await revRes.json())
+    } catch {
+      setRevenueBalance({
+        configured: false,
+        balance: null,
+        message: 'Could not load platform revenue wallet. Sign in as admin or check your connection.',
+      })
+    }
+  }, [])
+
+  useEffect(() => {
+    refreshRevenueBalance()
+  }, [refreshRevenueBalance])
+
   const fetchData = useCallback(async () => {
     setLoading(true)
     try {
@@ -162,7 +184,12 @@ export default function AdminSubscriptionsTab() {
         apiFetch('/api/admin/subscriptions/cron-settings'),
         apiFetch('/api/admin/subscriptions/history?limit=30'),
       ])
-      const [prodData, subsData, cronData, histData] = await Promise.all([prodRes.json(), subsRes.json(), cronRes.json(), histRes.json()])
+      const [prodData, subsData, cronData, histData] = await Promise.all([
+        prodRes.json(),
+        subsRes.json(),
+        cronRes.json(),
+        histRes.json(),
+      ])
       if (prodData.products) setProducts(prodData.products)
       if (subsData.subscriptions) setSubscriptions(subsData.subscriptions)
       if (cronData.settings) {
@@ -171,20 +198,13 @@ export default function AdminSubscriptionsTab() {
         setEditCronMinute(cronData.settings.schedule_minute)
       }
       setActivityLogs(histData.logs || [])
-
-      try {
-        const revRes = await apiFetch('/api/admin/subscriptions/revenue-balance')
-        const revData = await revRes.json()
-        setRevenueBalance(revData)
-      } catch {
-        setRevenueBalance({ configured: false, balance: null })
-      }
+      await refreshRevenueBalance()
     } catch (e: any) {
       showMsg('error', e.message || 'Failed to load')
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [refreshRevenueBalance])
 
   useEffect(() => { fetchData() }, [fetchData])
 
@@ -292,7 +312,7 @@ export default function AdminSubscriptionsTab() {
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `subscription-revenue-statement-${new Date().toISOString().slice(0, 10)}.csv`
+    a.download = `platform-revenue-wallet-${new Date().toISOString().slice(0, 10)}.csv`
     a.click()
     URL.revokeObjectURL(url)
   }
@@ -371,8 +391,6 @@ export default function AdminSubscriptionsTab() {
     return 'Retailer'
   }
 
-  if (loading) return <div className="p-6 flex items-center justify-center"><RefreshCw className="w-8 h-8 animate-spin text-gray-400" /></div>
-
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="p-4 space-y-6">
       {/* Header */}
@@ -392,16 +410,25 @@ export default function AdminSubscriptionsTab() {
         </div>
       </div>
 
-      {/* Subscription revenue wallet (when SUBSCRIPTION_REVENUE_USER_ID is set) */}
-      {revenueBalance != null && (
-        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+      {loading && (
+        <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
+          <RefreshCw className="w-4 h-4 animate-spin" />
+          Loading subscriptions and products…
+        </div>
+      )}
+
+      {/* Platform revenue wallet: subscription inflows + settlement fees (SUBSCRIPTION_REVENUE_USER_ID) */}
+      <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
           <div className="p-4">
             <div className="flex items-center justify-between flex-wrap gap-2">
               <div>
                 <div className="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   <Wallet className="w-4 h-4" />
-                  Subscription revenue wallet
+                  Platform revenue wallet
                 </div>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">
+                  Tracks subscription collections and bank settlement fees in one ledger (env: SUBSCRIPTION_REVENUE_USER_ID).
+                </p>
                 {revenueBalance.configured ? (
                   revenueBalance.balance != null ? (
                     <p className="text-2xl font-bold text-green-600 dark:text-green-400">
@@ -430,7 +457,7 @@ export default function AdminSubscriptionsTab() {
               )}
             </div>
           </div>
-          {revenueStatementOpen && (
+              {revenueStatementOpen && (
             <div className="border-t border-gray-200 dark:border-gray-700">
               {loadingRevenueStatement ? (
                 <div className="p-4 text-center text-gray-500"><RefreshCw className="w-5 h-5 animate-spin inline-block mr-2" />Loading statement...</div>
@@ -457,7 +484,15 @@ export default function AdminSubscriptionsTab() {
                           </td>
                           <td className="px-3 py-2 whitespace-nowrap text-xs font-medium">
                             <span className={e.credit > 0 ? 'text-green-600' : 'text-red-600'}>
-                              {e.credit > 0 ? (e.transaction_type === 'SUBSCRIPTION_REVENUE' ? 'Revenue (Credit)' : 'Credit') : (e.transaction_type === 'POS_RENTAL_COMMISSION' ? 'Commission Payout' : 'Debit')}
+                              {e.credit > 0
+                                ? e.service_type === 'settlement'
+                                  ? 'Settlement fee (credit)'
+                                  : e.transaction_type === 'SUBSCRIPTION_REVENUE'
+                                    ? 'Subscription revenue'
+                                    : 'Credit'
+                                : e.transaction_type === 'POS_RENTAL_COMMISSION'
+                                  ? 'Commission payout'
+                                  : 'Debit'}
                             </span>
                           </td>
                           <td className="px-3 py-2 text-xs text-gray-600 dark:text-gray-400 max-w-xs truncate">{e.description}</td>
@@ -473,7 +508,6 @@ export default function AdminSubscriptionsTab() {
             </div>
           )}
         </div>
-      )}
 
       {/* ============ ADD / MANAGE SUBSCRIPTION ============ */}
       <div className="bg-white dark:bg-gray-800 rounded-lg border-2 border-primary-200 dark:border-primary-800 overflow-hidden">

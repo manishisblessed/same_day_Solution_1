@@ -31,8 +31,9 @@ import PerformanceTab from '@/components/PerformanceTab'
 import POSMachineHistoryTab from '@/components/POSMachineHistoryTab'
 import POSTrackingReport from '@/components/POSTrackingReport'
 import AdminSubscriptionsTab from '@/components/AdminSubscriptionsTab'
+import AdminWalletLedgerTab from '@/components/AdminWalletLedgerTab'
 
-type TabType = 'dashboard' | 'retailers' | 'distributors' | 'master-distributors' | 'services' | 'pos-machines' | 'pos-history' | 'pos-tracking-report' | 'transactions' | 'partners' | 'pos-partner-api' | 'reports' | 'settlement' | 'performance' | 'subscriptions'
+type TabType = 'dashboard' | 'retailers' | 'distributors' | 'master-distributors' | 'services' | 'pos-machines' | 'pos-history' | 'pos-tracking-report' | 'transactions' | 'partners' | 'pos-partner-api' | 'reports' | 'settlement' | 'performance' | 'subscriptions' | 'wallet-ledger'
 type SortField = 'name' | 'email' | 'partner_id' | 'created_at' | 'status'
 type SortDirection = 'asc' | 'desc'
 
@@ -45,7 +46,7 @@ function AdminDashboardContent() {
   // Initialize activeTab from URL or default to 'dashboard'
   const getInitialTab = (): TabType => {
     const tab = searchParams?.get('tab')
-    if (tab && ['dashboard', 'retailers', 'distributors', 'master-distributors', 'pos-machines', 'pos-history', 'pos-tracking-report', 'pos-partner-api', 'services', 'transactions', 'partners', 'reports', 'settlement', 'performance', 'subscriptions'].includes(tab)) {
+    if (tab && ['dashboard', 'retailers', 'distributors', 'master-distributors', 'pos-machines', 'pos-history', 'pos-tracking-report', 'pos-partner-api', 'services', 'transactions', 'partners', 'reports', 'settlement', 'performance', 'subscriptions', 'wallet-ledger'].includes(tab)) {
       return tab as TabType
     }
     return 'dashboard'
@@ -118,7 +119,7 @@ function AdminDashboardContent() {
   // Sync activeTab with URL query params
   useEffect(() => {
     const tab = searchParams?.get('tab')
-    if (tab && ['dashboard', 'retailers', 'distributors', 'master-distributors', 'pos-machines', 'pos-history', 'pos-tracking-report', 'pos-partner-api', 'services', 'transactions', 'partners', 'reports', 'settlement', 'performance', 'subscriptions'].includes(tab)) {
+    if (tab && ['dashboard', 'retailers', 'distributors', 'master-distributors', 'pos-machines', 'pos-history', 'pos-tracking-report', 'pos-partner-api', 'services', 'transactions', 'partners', 'reports', 'settlement', 'performance', 'subscriptions', 'wallet-ledger'].includes(tab)) {
       if (tab !== activeTab) {
         setActiveTab(tab as TabType)
       }
@@ -199,7 +200,7 @@ function AdminDashboardContent() {
           supabase.from('retailers').select('*').order('name'),
           supabase.from('distributors').select('*').order('name'),
           supabase.from('master_distributors').select('*').order('name'),
-          supabase.from('partners').select('id, name, email, business_name, status').eq('status', 'active').order('name')
+          supabase.from('partners').select('id, name, email, business_name, status').order('name')
         ])
         if (retailersData) setRetailers(retailersData)
         if (distributorsData) setDistributors(distributorsData)
@@ -535,6 +536,8 @@ function AdminDashboardContent() {
             <ReportsTab />
           ) : activeTab === 'settlement' ? (
             <T1SettlementControl />
+          ) : activeTab === 'wallet-ledger' ? (
+            <AdminWalletLedgerTab />
           ) : activeTab === 'performance' ? (
             <PerformanceTab />
           ) : activeTab === 'subscriptions' ? (
@@ -5191,6 +5194,10 @@ function POSMachinesTab({
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [typeFilter, setTypeFilter] = useState<string>('all')
+  const [retailerFilter, setRetailerFilter] = useState<string>('all')
+  const [distributorFilter, setDistributorFilter] = useState<string>('all')
+  const [masterDistributorFilter, setMasterDistributorFilter] = useState<string>('all')
+  const [partnerFilter, setPartnerFilter] = useState<string>('all')
   const [sortField, setSortField] = useState<keyof POSMachine>('created_at')
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc')
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set())
@@ -5201,7 +5208,9 @@ function POSMachinesTab({
   const [uploadSuccess, setUploadSuccess] = useState<string | null>(null)
 
   const [showBulkAssignModal, setShowBulkAssignModal] = useState(false)
-  const [bulkAssignRole, setBulkAssignRole] = useState<'master_distributor' | 'distributor' | 'retailer'>('master_distributor')
+  const [bulkAssignRole, setBulkAssignRole] = useState<
+    'master_distributor' | 'distributor' | 'retailer' | 'partner'
+  >('master_distributor')
   const [bulkAssignTargetId, setBulkAssignTargetId] = useState('')
   const [bulkAssignUserSearch, setBulkAssignUserSearch] = useState('')
   const [bulkNotes, setBulkNotes] = useState('')
@@ -5217,27 +5226,90 @@ function POSMachinesTab({
   const [bulkModalPickedIds, setBulkModalPickedIds] = useState<Set<string>>(new Set())
   const [bulkModalSearch, setBulkModalSearch] = useState('')
 
+  const retailersSortedByName = useMemo(
+    () =>
+      [...retailers].sort((a, b) =>
+        (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' })
+      ),
+    [retailers]
+  )
+  const distributorsSortedByName = useMemo(
+    () =>
+      [...distributors].sort((a, b) =>
+        (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' })
+      ),
+    [distributors]
+  )
+  const masterDistributorsSortedByName = useMemo(
+    () =>
+      [...masterDistributors].sort((a, b) =>
+        (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' })
+      ),
+    [masterDistributors]
+  )
+  const partnersSortedByName = useMemo(
+    () =>
+      [...partners].sort((a, b) =>
+        String(a.name || '').localeCompare(String(b.name || ''), undefined, { sensitivity: 'base' })
+      ),
+    [partners]
+  )
+
   const filteredMachines = useMemo(() => {
     let filtered = posMachines.filter((machine) => {
-      const q = searchTerm.toLowerCase()
-      const matchesSearch = 
-        machine.machine_id.toLowerCase().includes(q) ||
+      const q = searchTerm.trim().toLowerCase()
+
+      const retailer = retailers.find((r) => r.partner_id === machine.retailer_id)
+      const distributor = distributors.find((d) => d.partner_id === machine.distributor_id)
+      const masterDist = masterDistributors.find((md) => md.partner_id === machine.master_distributor_id)
+      const partner = partners.find((p) => p.id === machine.partner_id)
+
+      const assigneeNamesCombined = [
+        retailer?.name,
+        distributor?.name,
+        masterDist?.name,
+        partner?.name,
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase()
+
+      const matchesSearch =
+        !q ||
+        machine.machine_id?.toLowerCase().includes(q) ||
         machine.serial_number?.toLowerCase().includes(q) ||
         machine.mid?.toLowerCase().includes(q) ||
         machine.tid?.toLowerCase().includes(q) ||
         machine.brand?.toLowerCase().includes(q) ||
+        machine.machine_type?.toLowerCase().includes(q) ||
         machine.retailer_id?.toLowerCase().includes(q) ||
+        machine.distributor_id?.toLowerCase().includes(q) ||
+        machine.master_distributor_id?.toLowerCase().includes(q) ||
+        machine.partner_id?.toLowerCase().includes(q) ||
         machine.location?.toLowerCase().includes(q) ||
         machine.city?.toLowerCase().includes(q) ||
         machine.state?.toLowerCase().includes(q) ||
         machine.pincode?.toLowerCase().includes(q) ||
         machine.notes?.toLowerCase().includes(q) ||
-        retailers.find(r => r.partner_id === machine.retailer_id)?.name?.toLowerCase().includes(q)
-      
+        assigneeNamesCombined.includes(q)
+
       const matchesStatus = statusFilter === 'all' || machine.status === statusFilter
       const matchesType = typeFilter === 'all' || machine.machine_type === typeFilter
-      
-      return matchesSearch && matchesStatus && matchesType
+      const matchesRetailer = retailerFilter === 'all' || machine.retailer_id === retailerFilter
+      const matchesDistributor = distributorFilter === 'all' || machine.distributor_id === distributorFilter
+      const matchesMasterDistributor =
+        masterDistributorFilter === 'all' || machine.master_distributor_id === masterDistributorFilter
+      const matchesPartner = partnerFilter === 'all' || machine.partner_id === partnerFilter
+
+      return (
+        matchesSearch &&
+        matchesStatus &&
+        matchesType &&
+        matchesRetailer &&
+        matchesDistributor &&
+        matchesMasterDistributor &&
+        matchesPartner
+      )
     })
 
     // Sort
@@ -5261,7 +5333,22 @@ function POSMachinesTab({
     })
 
     return filtered
-  }, [posMachines, searchTerm, statusFilter, typeFilter, sortField, sortDirection, retailers])
+  }, [
+    posMachines,
+    searchTerm,
+    statusFilter,
+    typeFilter,
+    retailerFilter,
+    distributorFilter,
+    masterDistributorFilter,
+    partnerFilter,
+    sortField,
+    sortDirection,
+    retailers,
+    distributors,
+    masterDistributors,
+    partners,
+  ])
 
   const [posListPage, setPosListPage] = useState(1)
   const [posListPageSize, setPosListPageSize] = useState<10 | 25 | 100>(25)
@@ -5270,7 +5357,17 @@ function POSMachinesTab({
 
   useEffect(() => {
     setPosListPage(1)
-  }, [searchTerm, statusFilter, typeFilter, sortField, sortDirection])
+  }, [
+    searchTerm,
+    statusFilter,
+    typeFilter,
+    retailerFilter,
+    distributorFilter,
+    masterDistributorFilter,
+    partnerFilter,
+    sortField,
+    sortDirection,
+  ])
 
   const paginatedPosMachines = useMemo(() => {
     const start = (posListPageSafe - 1) * posListPageSize
@@ -5444,7 +5541,7 @@ function POSMachinesTab({
             <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
             <input
               type="text"
-              placeholder="Search machines..."
+              placeholder="Search ID, serial, MID/TID, location, notes, or retailer / distributor / MD / partner name…"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full pl-8 pr-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
@@ -5472,6 +5569,58 @@ function POSMachinesTab({
           <option value="POS">POS</option>
           <option value="WPOS">WPOS</option>
           <option value="Mini-ATM">Mini-ATM</option>
+        </select>
+        <select
+          title="Filter by retailer assignment"
+          value={retailerFilter}
+          onChange={(e) => setRetailerFilter(e.target.value)}
+          className="min-w-[140px] max-w-[200px] px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+        >
+          <option value="all">All retailers</option>
+          {retailersSortedByName.map((r) => (
+            <option key={r.partner_id} value={r.partner_id}>
+              {r.name}
+            </option>
+          ))}
+        </select>
+        <select
+          title="Filter by distributor assignment"
+          value={distributorFilter}
+          onChange={(e) => setDistributorFilter(e.target.value)}
+          className="min-w-[150px] max-w-[200px] px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+        >
+          <option value="all">All distributors</option>
+          {distributorsSortedByName.map((d) => (
+            <option key={d.partner_id} value={d.partner_id}>
+              {d.name}
+            </option>
+          ))}
+        </select>
+        <select
+          title="Filter by master distributor assignment"
+          value={masterDistributorFilter}
+          onChange={(e) => setMasterDistributorFilter(e.target.value)}
+          className="min-w-[140px] max-w-[200px] px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+        >
+          <option value="all">All MDs</option>
+          {masterDistributorsSortedByName.map((md) => (
+            <option key={md.partner_id} value={md.partner_id}>
+              {md.name}
+            </option>
+          ))}
+        </select>
+        <select
+          title="Filter by partner assignment"
+          value={partnerFilter}
+          onChange={(e) => setPartnerFilter(e.target.value)}
+          className="min-w-[140px] max-w-[200px] px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+        >
+          <option value="all">All partners</option>
+          {partnersSortedByName.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name}
+            </option>
+          ))}
         </select>
         <button
           onClick={onAdd}
@@ -5959,13 +6108,20 @@ function POSMachinesTab({
                   <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300">2. Assign to</h3>
                   <select
                     value={bulkAssignRole}
-                    onChange={(e) => { setBulkAssignRole(e.target.value as 'master_distributor' | 'distributor' | 'retailer'); setBulkAssignTargetId(''); setBulkAssignUserSearch('') }}
+                    onChange={(e) => {
+                      setBulkAssignRole(
+                        e.target.value as 'master_distributor' | 'distributor' | 'retailer' | 'partner'
+                      )
+                      setBulkAssignTargetId('')
+                      setBulkAssignUserSearch('')
+                    }}
                     disabled={bulkAssigning}
                     className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
                   >
                     <option value="master_distributor">Master Distributor (MD)</option>
                     <option value="distributor">Distributor (DT)</option>
                     <option value="retailer">Retailer (RT)</option>
+                    <option value="partner">Partner</option>
                   </select>
                   <input
                     type="text"
@@ -5981,29 +6137,80 @@ function POSMachinesTab({
                     disabled={bulkAssigning}
                     className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
                   >
-                    <option value="">Select {bulkAssignRole === 'master_distributor' ? 'Master Distributor' : bulkAssignRole === 'distributor' ? 'Distributor' : 'Retailer'}…</option>
+                    <option value="">
+                      Select{' '}
+                      {bulkAssignRole === 'master_distributor'
+                        ? 'Master Distributor'
+                        : bulkAssignRole === 'distributor'
+                          ? 'Distributor'
+                          : bulkAssignRole === 'partner'
+                            ? 'Partner'
+                            : 'Retailer'}
+                      …
+                    </option>
                     {(bulkAssignRole === 'master_distributor'
-                      ? masterDistributors.filter((m) => { const q2 = bulkAssignUserSearch.toLowerCase(); if (!q2) return true; return (m.name || '').toLowerCase().includes(q2) || (m.partner_id || '').toLowerCase().includes(q2) || (m.email || '').toLowerCase().includes(q2) })
+                      ? masterDistributors.filter((m) => {
+                          const q2 = bulkAssignUserSearch.toLowerCase()
+                          if (!q2) return true
+                          return (
+                            (m.name || '').toLowerCase().includes(q2) ||
+                            (m.partner_id || '').toLowerCase().includes(q2) ||
+                            (m.email || '').toLowerCase().includes(q2)
+                          )
+                        })
                       : bulkAssignRole === 'distributor'
-                        ? distributors.filter((d) => { const q2 = bulkAssignUserSearch.toLowerCase(); if (!q2) return true; return (d.name || '').toLowerCase().includes(q2) || (d.partner_id || '').toLowerCase().includes(q2) || (d.email || '').toLowerCase().includes(q2) })
-                        : retailers.filter((r) => { const q2 = bulkAssignUserSearch.toLowerCase(); if (!q2) return true; return (r.name || '').toLowerCase().includes(q2) || (r.partner_id || '').toLowerCase().includes(q2) || (r.email || '').toLowerCase().includes(q2) })
-                    ).map((row: any) => (
-                      <option key={row.partner_id} value={row.partner_id}>
-                        {(row.name || row.business_name || row.partner_id) + ` — ${row.partner_id}`}
-                      </option>
-                    ))}
+                        ? distributors.filter((d) => {
+                            const q2 = bulkAssignUserSearch.toLowerCase()
+                            if (!q2) return true
+                            return (
+                              (d.name || '').toLowerCase().includes(q2) ||
+                              (d.partner_id || '').toLowerCase().includes(q2) ||
+                              (d.email || '').toLowerCase().includes(q2)
+                            )
+                          })
+                        : bulkAssignRole === 'partner'
+                          ? partners.filter((p) => {
+                              const q2 = bulkAssignUserSearch.toLowerCase()
+                              if (!q2) return true
+                              return (
+                                (p.name || '').toLowerCase().includes(q2) ||
+                                (p.id || '').toLowerCase().includes(q2) ||
+                                (p.email || '').toLowerCase().includes(q2) ||
+                                (p.business_name || '').toLowerCase().includes(q2)
+                              )
+                            })
+                          : retailers.filter((r) => {
+                              const q2 = bulkAssignUserSearch.toLowerCase()
+                              if (!q2) return true
+                              return (
+                                (r.name || '').toLowerCase().includes(q2) ||
+                                (r.partner_id || '').toLowerCase().includes(q2) ||
+                                (r.email || '').toLowerCase().includes(q2)
+                              )
+                            })
+                    ).map((row: any) => {
+                      const value = bulkAssignRole === 'partner' ? row.id : row.partner_id
+                      const label = row.name || row.business_name || value
+                      return (
+                        <option key={value} value={value}>
+                          {label} — {value}
+                        </option>
+                      )
+                    })}
                   </select>
                   <input type="text" value={bulkNotes} onChange={(e) => setBulkNotes(e.target.value)} disabled={bulkAssigning} placeholder="Notes (optional)" className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white" />
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Subscription / month (optional)</label>
-                      <input type="number" min={0} step="0.01" value={bulkSubscriptionAmount} onChange={(e) => setBulkSubscriptionAmount(e.target.value)} disabled={bulkAssigning} placeholder="Leave empty to skip" className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white" />
+                  {bulkAssignRole !== 'partner' && (
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Subscription / month (optional)</label>
+                        <input type="number" min={0} step="0.01" value={bulkSubscriptionAmount} onChange={(e) => setBulkSubscriptionAmount(e.target.value)} disabled={bulkAssigning} placeholder="Leave empty to skip" className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white" />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Billing day (1–28)</label>
+                        <input type="number" min={1} max={28} value={bulkBillingDay} onChange={(e) => setBulkBillingDay(Math.max(1, Math.min(28, parseInt(e.target.value, 10) || 1)))} disabled={bulkAssigning} className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white" />
+                      </div>
                     </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Billing day (1–28)</label>
-                      <input type="number" min={1} max={28} value={bulkBillingDay} onChange={(e) => setBulkBillingDay(Math.max(1, Math.min(28, parseInt(e.target.value, 10) || 1)))} disabled={bulkAssigning} className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white" />
-                    </div>
-                  </div>
+                  )}
                 </div>
 
                 {bulkAssignError && (
@@ -6032,7 +6239,7 @@ function POSMachinesTab({
                           notes: bulkNotes.trim() || undefined,
                         }
                         const amt = bulkSubscriptionAmount.trim()
-                        if (amt) {
+                        if (bulkAssignRole !== 'partner' && amt) {
                           const n = parseFloat(amt)
                           if (!Number.isNaN(n) && n > 0) {
                             payload.subscription_amount = n
