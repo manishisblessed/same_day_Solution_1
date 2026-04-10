@@ -35,6 +35,24 @@ interface Partner {
   export_limit: number
 }
 
+function parseKeyPermissions(raw: string[] | string | null | undefined): string[] {
+  if (raw == null) return []
+  if (Array.isArray(raw)) return raw.map((p) => String(p).toLowerCase())
+  if (typeof raw === 'string') {
+    try {
+      const j = JSON.parse(raw)
+      return Array.isArray(j) ? j.map((p: unknown) => String(p).toLowerCase()) : []
+    } catch {
+      return []
+    }
+  }
+  return []
+}
+
+function keyHasPayoutAccess(perms: string[]): boolean {
+  return perms.includes('all') || perms.includes('payout')
+}
+
 export default function POSPartnerAPIManagement() {
   const [partners, setPartners] = useState<Partner[]>([])
   const [loading, setLoading] = useState(true)
@@ -229,6 +247,25 @@ export default function POSPartnerAPIManagement() {
     }
   }
 
+  /** Grants `payout` on the key (keeps existing read/export/bbps). Resolves 403 from Payout Partner API. */
+  const handleEnablePayoutPermission = async (key: PartnerKey) => {
+    const current = parseKeyPermissions(key.permissions)
+    if (keyHasPayoutAccess(current)) {
+      showSuccess('This key already has payout access')
+      return
+    }
+    const next = Array.from(new Set([...current, 'read', 'export', 'payout']))
+    const result = await doAction({
+      action: 'update_key_permissions',
+      key_id: key.id,
+      permissions: next,
+    })
+    if (result) {
+      showSuccess('Payout permission enabled for this API key')
+      fetchPartners()
+    }
+  }
+
   const copyToClipboard = (text: string, label: string) => {
     navigator.clipboard.writeText(text)
     showSuccess(`${label} copied to clipboard`)
@@ -353,9 +390,36 @@ export default function POSPartnerAPIManagement() {
                         partner.status === 'active' ? 'text-green-600' : 'text-red-600'
                       }`} />
                     </div>
-                    <div>
+                    <div className="min-w-0 flex-1">
                       <h3 className="font-semibold text-gray-900 dark:text-white">{partner.name}</h3>
-                      <p className="text-sm text-gray-500 dark:text-gray-400">{partner.email} • {partner.business_name}</p>
+                      <div
+                        className="mt-1.5 flex flex-wrap items-center gap-2"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <span className="text-xs font-medium text-gray-500 dark:text-gray-400 shrink-0">
+                          Partner ID
+                        </span>
+                        <code
+                          className="text-xs font-mono text-gray-800 dark:text-gray-200 bg-gray-100 dark:bg-gray-700/90 px-2 py-1 rounded border border-gray-200 dark:border-gray-600 break-all max-w-full sm:max-w-md"
+                          title={partner.id}
+                        >
+                          {partner.id}
+                        </code>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            copyToClipboard(partner.id, 'Partner ID')
+                          }}
+                          className="shrink-0 p-1.5 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-600 dark:text-gray-400 transition-colors"
+                          title="Copy Partner ID"
+                        >
+                          <Copy className="w-4 h-4" />
+                        </button>
+                      </div>
+                      <p className="text-sm text-gray-500 dark:text-gray-400 mt-1.5">
+                        {partner.email} • {partner.business_name}
+                      </p>
                     </div>
                   </div>
                   <div className="flex items-center gap-3">
@@ -450,7 +514,9 @@ export default function POSPartnerAPIManagement() {
                           <p className="text-sm text-gray-500 dark:text-gray-400 italic">No API keys generated yet</p>
                         ) : (
                           <div className="space-y-2">
-                            {partner.api_keys?.map((key) => (
+                            {partner.api_keys?.map((key) => {
+                              const keyPerms = parseKeyPermissions(key.permissions)
+                              return (
                               <div
                                 key={key.id}
                                 className={`p-3 rounded-lg border ${
@@ -482,7 +548,7 @@ export default function POSPartnerAPIManagement() {
                                         </span>
                                       )}
                                     </div>
-                                    <div className="flex items-center gap-4 text-xs text-gray-500 dark:text-gray-400">
+                                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500 dark:text-gray-400">
                                       <span>Label: {key.label}</span>
                                       <span>Secret: {key.api_secret_masked}</span>
                                       <span className="flex items-center gap-1">
@@ -491,19 +557,48 @@ export default function POSPartnerAPIManagement() {
                                       </span>
                                       <span>Created: {formatDate(key.created_at)}</span>
                                     </div>
+                                    <div className="flex flex-wrap items-center gap-2 pt-1">
+                                      <span className="text-xs text-gray-500 dark:text-gray-400">Permissions:</span>
+                                      {keyPerms.length === 0 ? (
+                                        <span className="text-xs text-amber-600 dark:text-amber-400">(none — defaults to read)</span>
+                                      ) : (
+                                        keyPerms.map((p) => (
+                                          <span
+                                            key={p}
+                                            className="text-xs px-1.5 py-0.5 rounded bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 font-mono"
+                                          >
+                                            {p}
+                                          </span>
+                                        ))
+                                      )}
+                                    </div>
                                   </div>
                                   {key.is_active && (
-                                    <button
-                                      onClick={() => handleRevokeKey(key.id)}
-                                      className="p-2 text-red-600 hover:bg-red-100 dark:hover:bg-red-900/30 rounded-lg transition-colors"
-                                      title="Revoke Key"
-                                    >
-                                      <Trash2 className="w-4 h-4" />
-                                    </button>
+                                    <div className="flex items-center gap-1 shrink-0">
+                                      {!keyHasPayoutAccess(keyPerms) && (
+                                        <button
+                                          type="button"
+                                          onClick={() => handleEnablePayoutPermission(key)}
+                                          disabled={actionLoading}
+                                          className="px-2.5 py-1.5 text-xs font-medium rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50 transition-colors"
+                                          title="Adds payout permission for Payout Partner API (settlements)"
+                                        >
+                                          Enable payout
+                                        </button>
+                                      )}
+                                      <button
+                                        onClick={() => handleRevokeKey(key.id)}
+                                        className="p-2 text-red-600 hover:bg-red-100 dark:hover:bg-red-900/30 rounded-lg transition-colors"
+                                        title="Revoke Key"
+                                      >
+                                        <Trash2 className="w-4 h-4" />
+                                      </button>
+                                    </div>
                                   )}
                                 </div>
                               </div>
-                            ))}
+                              )
+                            })}
                           </div>
                         )}
                       </div>
@@ -594,14 +689,15 @@ export default function POSPartnerAPIManagement() {
                         )}
                       </div>
 
-                      {/* Partner Details */}
+                      {/* Partner Details (ID is next to partner name in the header above) */}
                       <div className="p-4 bg-gray-50 dark:bg-gray-900/50 rounded-lg">
                         <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Partner Details</h4>
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
-                          <div><span className="text-gray-500">ID:</span> <code className="text-xs">{partner.id.substring(0, 8)}...</code></div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 text-sm">
                           <div><span className="text-gray-500">Phone:</span> {partner.phone}</div>
                           <div><span className="text-gray-500">Created:</span> {formatDate(partner.created_at)}</div>
-                          <div><span className="text-gray-500">Webhook:</span> {partner.webhook_url || 'Not set'}</div>
+                          <div className="sm:col-span-2 md:col-span-1"><span className="text-gray-500">Webhook:</span>{' '}
+                            <span className="break-all">{partner.webhook_url || 'Not set'}</span>
+                          </div>
                         </div>
                       </div>
                     </div>

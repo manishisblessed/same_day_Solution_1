@@ -40,25 +40,42 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url)
     const transactionId = searchParams.get('transactionId')
     const clientRefId = searchParams.get('clientRefId')
-    const retailerId = searchParams.get('retailer_id')
+    const merchantId =
+      searchParams.get('merchant_id')?.trim() ||
+      searchParams.get('retailer_id')?.trim() ||
+      null
     const listMode = searchParams.get('list') === 'true'
 
-    // List mode: return recent transactions for a retailer
+    // List mode: return recent transactions for a merchant (wallet scope)
     if (listMode) {
-      if (!retailerId) {
+      if (!merchantId) {
         return NextResponse.json(
-          { success: false, error: { code: 'BAD_REQUEST', message: 'retailer_id is required for list mode' } },
+          {
+            success: false,
+            error: {
+              code: 'BAD_REQUEST',
+              message:
+                'merchant_id is required for list mode (legacy alias: retailer_id)',
+            },
+          },
           { status: 400 }
         )
       }
       const { data: txns } = await supabase
         .from('payout_transactions')
         .select('*')
-        .eq('retailer_id', retailerId)
+        .eq('retailer_id', merchantId)
         .order('created_at', { ascending: false })
         .limit(20)
 
-      return NextResponse.json({ success: true, transactions: txns || [] })
+      const rows = txns || []
+      const transactions = rows.map((t: Record<string, unknown>) => {
+        const rid = t.retailer_id as string | undefined
+        const { retailer_id: _legacy, ...rest } = t
+        return { ...rest, merchant_id: rid, retailer_id: rid }
+      })
+
+      return NextResponse.json({ success: true, transactions })
     }
 
     // Single transaction status

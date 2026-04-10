@@ -92,9 +92,15 @@ export async function GET(request: NextRequest) {
   }
 }
 
+/** Permissions accepted on partner API keys (see /api/partner/* routes). */
+const VALID_KEY_PERMISSIONS = ['read', 'export', 'bbps', 'payout', 'all'] as const
+const VALID_KEY_PERMISSIONS_SET: Record<string, true> = Object.fromEntries(
+  VALID_KEY_PERMISSIONS.map((p) => [p, true])
+) as any
+
 /**
  * POST /api/admin/pos-partner-api
- * Actions: generate_key, update_whitelist, update_status, update_export_limit, revoke_key
+ * Actions: generate_key, update_key_permissions, update_whitelist, update_status, update_export_limit, revoke_key
  */
 export async function POST(request: NextRequest) {
   try {
@@ -177,6 +183,54 @@ export async function POST(request: NextRequest) {
             label,
             partner_name: partner.name,
           },
+        })
+      }
+
+      // ─── UPDATE KEY PERMISSIONS (e.g. enable payout for Payout Partner API) ─
+      case 'update_key_permissions': {
+        const { key_id, permissions } = body
+        if (!key_id) {
+          return NextResponse.json({ error: 'key_id is required' }, { status: 400 })
+        }
+        if (!Array.isArray(permissions) || permissions.length === 0) {
+          return NextResponse.json({ error: 'permissions must be a non-empty array' }, { status: 400 })
+        }
+
+        const raw = permissions.map((p: unknown) => String(p).trim().toLowerCase()).filter(Boolean)
+        const invalid = raw.filter((p: string) => !VALID_KEY_PERMISSIONS_SET[p])
+        if (invalid.length > 0) {
+          return NextResponse.json(
+            { error: `Invalid permission(s): ${invalid.join(', ')}. Allowed: ${VALID_KEY_PERMISSIONS.join(', ')}` },
+            { status: 400 }
+          )
+        }
+
+        const normalized = raw.includes('all') ? ['all'] : Array.from(new Set(raw))
+
+        const { data: existing, error: findErr } = await supabase
+          .from('partner_api_keys')
+          .select('id, api_key')
+          .eq('id', key_id)
+          .maybeSingle()
+
+        if (findErr || !existing) {
+          return NextResponse.json({ error: 'API key not found' }, { status: 404 })
+        }
+
+        const { error: upErr } = await supabase
+          .from('partner_api_keys')
+          .update({
+            permissions: normalized,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', key_id)
+
+        if (upErr) throw upErr
+
+        return NextResponse.json({
+          success: true,
+          message: 'API key permissions updated',
+          data: { key_id, api_key: existing.api_key, permissions: normalized },
         })
       }
 

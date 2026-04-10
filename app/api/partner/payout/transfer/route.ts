@@ -48,14 +48,29 @@ export async function POST(request: NextRequest) {
     }
 
     const {
-      retailer_id, accountNumber, ifscCode, accountHolderName, amount,
+      merchant_id: merchantIdBody,
+      retailer_id: retailerIdLegacy,
+      accountNumber, ifscCode, accountHolderName, amount,
       transferMode, bankId, bankName, beneficiaryMobile, senderName,
       senderMobile, senderEmail, remarks,
     } = body
 
+    const merchantIdRaw = merchantIdBody ?? retailerIdLegacy
+    const retailer_id =
+      merchantIdRaw !== undefined && merchantIdRaw !== null
+        ? String(merchantIdRaw).trim()
+        : ''
+
     if (!retailer_id) {
       return NextResponse.json(
-        { success: false, error: { code: 'BAD_REQUEST', message: 'retailer_id is required' } },
+        {
+          success: false,
+          error: {
+            code: 'BAD_REQUEST',
+            message:
+              'merchant_id is required — the Same Day merchant identifier whose wallet is debited (legacy alias: retailer_id)',
+          },
+        },
         { status: 400 }
       )
     }
