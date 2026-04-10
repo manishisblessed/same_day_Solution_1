@@ -33,6 +33,7 @@ interface Partner {
   created_at: string
   api_keys: PartnerKey[]
   export_limit: number
+  linked_merchants: string[]
 }
 
 function parseKeyPermissions(raw: string[] | string | null | undefined): string[] {
@@ -69,6 +70,9 @@ export default function POSPartnerAPIManagement() {
   // Webhook modal
   const [showWebhookModal, setShowWebhookModal] = useState(false)
   const [webhookUrlValue, setWebhookUrlValue] = useState('')
+
+  // Merchant linking
+  const [merchantIdInput, setMerchantIdInput] = useState('')
 
   // Whitelist form
   const [whitelistIps, setWhitelistIps] = useState('')
@@ -262,6 +266,35 @@ export default function POSPartnerAPIManagement() {
     })
     if (result) {
       showSuccess('Payout permission enabled for this API key')
+      fetchPartners()
+    }
+  }
+
+  // ─── Link Merchant to Partner (Payout scoping) ─────────
+  const handleLinkMerchant = async (partner: Partner) => {
+    const mid = merchantIdInput.trim()
+    if (!mid) return
+    const result = await doAction({
+      action: 'link_merchant',
+      partner_id: partner.id,
+      merchant_id: mid,
+    })
+    if (result) {
+      setMerchantIdInput('')
+      showSuccess(result.message || `Merchant ${mid} linked`)
+      fetchPartners()
+    }
+  }
+
+  const handleUnlinkMerchant = async (partner: Partner, merchantId: string) => {
+    if (!confirm(`Unlink merchant ${merchantId} from ${partner.name}? They will no longer be able to initiate payouts for this merchant.`)) return
+    const result = await doAction({
+      action: 'unlink_merchant',
+      partner_id: partner.id,
+      merchant_id: merchantId,
+    })
+    if (result) {
+      showSuccess(`Merchant ${merchantId} unlinked`)
       fetchPartners()
     }
   }
@@ -601,6 +634,67 @@ export default function POSPartnerAPIManagement() {
                             })}
                           </div>
                         )}
+                      </div>
+
+                      {/* Linked Merchants (Payout scoping) */}
+                      <div>
+                        <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3 flex items-center gap-2">
+                          <Link2 className="w-4 h-4" />
+                          Linked Merchants (Payout)
+                        </h4>
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
+                          Only merchants listed here can be used in Payout Partner API transfers by this partner.
+                        </p>
+                        {partner.linked_merchants && partner.linked_merchants.length > 0 ? (
+                          <div className="space-y-1 mb-3">
+                            {partner.linked_merchants.map((mid) => (
+                              <div key={mid} className="flex items-center gap-2 py-1 px-2 bg-emerald-50 dark:bg-emerald-900/10 rounded border border-emerald-200 dark:border-emerald-800">
+                                <CheckCircle className="w-3 h-3 text-emerald-600 flex-shrink-0" />
+                                <code className="text-sm font-mono text-gray-800 dark:text-gray-200 flex-1">{mid}</code>
+                                <button
+                                  type="button"
+                                  onClick={() => copyToClipboard(mid, 'Merchant ID')}
+                                  className="p-1 hover:bg-gray-200 dark:hover:bg-gray-600 rounded"
+                                  title="Copy Merchant ID"
+                                >
+                                  <Copy className="w-3 h-3 text-gray-400" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleUnlinkMerchant(partner, mid)}
+                                  disabled={actionLoading}
+                                  className="p-1 text-red-500 hover:bg-red-100 dark:hover:bg-red-900/30 rounded disabled:opacity-50"
+                                  title="Unlink merchant"
+                                >
+                                  <X className="w-3 h-3" />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-sm text-amber-600 dark:text-amber-400 mb-3 flex items-center gap-1 font-medium">
+                            <AlertCircle className="w-4 h-4" />
+                            No merchants linked — partner cannot initiate payouts yet
+                          </p>
+                        )}
+                        <div className="flex gap-2">
+                          <input
+                            type="text"
+                            value={merchantIdInput}
+                            onChange={(e) => setMerchantIdInput(e.target.value)}
+                            placeholder="Enter retailer partner_id (e.g. RET001)"
+                            className="flex-1 text-sm px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400"
+                            onKeyDown={(e) => { if (e.key === 'Enter') handleLinkMerchant(partner) }}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => handleLinkMerchant(partner)}
+                            disabled={actionLoading || !merchantIdInput.trim()}
+                            className="px-4 py-2 text-sm font-medium rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50 transition-colors flex items-center gap-1"
+                          >
+                            <Plus className="w-4 h-4" /> Link
+                          </button>
+                        </div>
                       </div>
 
                       {/* Security Settings */}

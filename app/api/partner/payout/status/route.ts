@@ -46,6 +46,15 @@ export async function GET(request: NextRequest) {
       null
     const listMode = searchParams.get('list') === 'true'
 
+    // Load all merchant_ids linked to this partner (for scoping)
+    const { data: linkedRows } = await supabase
+      .from('partner_merchant_links')
+      .select('merchant_id')
+      .eq('partner_id', partner.id)
+      .eq('is_active', true)
+
+    const linkedMerchantIds = (linkedRows || []).map((r: any) => r.merchant_id as string)
+
     // List mode: return recent transactions for a merchant (wallet scope)
     if (listMode) {
       if (!merchantId) {
@@ -61,6 +70,21 @@ export async function GET(request: NextRequest) {
           { status: 400 }
         )
       }
+
+      if (!linkedMerchantIds.includes(merchantId)) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: {
+              code: 'FORBIDDEN',
+              message:
+                'Merchant not linked to your partner account. Use GET /api/partner/payout/merchants to list available merchants.',
+            },
+          },
+          { status: 403 }
+        )
+      }
+
       const { data: txns } = await supabase
         .from('payout_transactions')
         .select('*')
@@ -95,6 +119,14 @@ export async function GET(request: NextRequest) {
       return NextResponse.json(
         { success: false, error: { code: 'NOT_FOUND', message: 'Transaction not found' } },
         { status: 404 }
+      )
+    }
+
+    // Verify this transaction belongs to a merchant linked to the partner
+    if (!linkedMerchantIds.includes(tx.retailer_id)) {
+      return NextResponse.json(
+        { success: false, error: { code: 'FORBIDDEN', message: 'Transaction does not belong to a merchant linked to your account' } },
+        { status: 403 }
       )
     }
 

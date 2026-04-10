@@ -69,6 +69,13 @@ export async function GET(request: NextRequest) {
       .from('partner_export_limits')
       .select('*')
 
+    // Fetch merchant links (payout scoping)
+    const { data: merchantLinks } = await supabase
+      .from('partner_merchant_links')
+      .select('partner_id, merchant_id, is_active, created_at')
+      .eq('is_active', true)
+      .order('created_at', { ascending: false })
+
     // Combine data
     const enrichedPartners = (partners || []).map((p: any) => {
       const keys = (apiKeys || [])
@@ -78,10 +85,14 @@ export async function GET(request: NextRequest) {
           api_secret_masked: k.api_secret ? k.api_secret.substring(0, 12) + '••••••••' : null,
         }))
       const limits = (exportLimits || []).find((l: any) => l.partner_id === p.id)
+      const linked_merchants = (merchantLinks || [])
+        .filter((m: any) => m.partner_id === p.id)
+        .map((m: any) => m.merchant_id)
       return {
         ...p,
         api_keys: keys,
         export_limit: limits?.daily_limit || 10,
+        linked_merchants,
       }
     })
 
@@ -349,6 +360,71 @@ export async function POST(request: NextRequest) {
         if (rErr) throw rErr
 
         return NextResponse.json({ success: true, message: 'API key revoked successfully' })
+      }
+
+      // ─── LINK MERCHANT TO PARTNER (Payout scoping) ──────
+      case 'link_merchant': {
+        const { partner_id, merchant_id } = body
+        if (!partner_id || !merchant_id) {
+          return NextResponse.json({ error: 'partner_id and merchant_id are required' }, { status: 400 })
+        }
+
+        const mid = String(merchant_id).trim()
+        if (!mid) {
+          return NextResponse.json({ error: 'merchant_id cannot be empty' }, { status: 400 })
+        }
+
+        // Verify partner exists
+        const { data: lPartner } = await supabase
+          .from('partners')
+          .select('id, name')
+          .eq('id', partner_id)
+          .single()
+        if (!lPartner) {
+          return NextResponse.json({ error: 'Partner not found' }, { status: 404 })
+        }
+
+        // Optionally verify retailer exists (warn but still allow pre-linking)
+        const { data: retailer } = await supabase
+          .from('retailers')
+          .select('partner_id, name')
+          .eq('partner_id', mid)
+          .maybeSingle()
+
+        const { error: linkErr } = await supabase
+          .from('partner_merchant_links')
+          .upsert(
+            { partner_id, merchant_id: mid, is_active: true, updated_at: new Date().toISOString() },
+            { onConflict: 'partner_id,merchant_id' }
+          )
+
+        if (linkErr) throw linkErr
+
+        return NextResponse.json({
+          success: true,
+          message: retailer
+            ? `Merchant "${retailer.name}" (${mid}) linked to partner "${lPartner.name}"`
+            : `Merchant ${mid} linked to partner "${lPartner.name}" (retailer not yet onboarded — link saved for when they are)`,
+          data: { partner_id, merchant_id: mid, retailer_exists: !!retailer },
+        })
+      }
+
+      // ─── UNLINK MERCHANT FROM PARTNER ─────────────────────
+      case 'unlink_merchant': {
+        const { partner_id, merchant_id } = body
+        if (!partner_id || !merchant_id) {
+          return NextResponse.json({ error: 'partner_id and merchant_id are required' }, { status: 400 })
+        }
+
+        const { error: ulErr } = await supabase
+          .from('partner_merchant_links')
+          .update({ is_active: false, updated_at: new Date().toISOString() })
+          .eq('partner_id', partner_id)
+          .eq('merchant_id', String(merchant_id).trim())
+
+        if (ulErr) throw ulErr
+
+        return NextResponse.json({ success: true, message: `Merchant ${merchant_id} unlinked from partner` })
       }
 
       default:

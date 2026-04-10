@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "Same Day Solution — Payout Partner API",
-    "description": "Bank payout (IMPS/NEFT) for B2B partners — powered by **Same Day Solution Pvt. Ltd.** and SparkUpTech Express Pay.\n\nUse this collection to move money from a **merchant’s wallet** to a **vendor’s bank account**. Pass **`merchant_id`** — the Same Day **merchant identifier** (our internal `retailers.partner_id`) whose balance is debited. Your platform is the **API partner**; **`merchant_id`** is **which merchant** you are paying on behalf of.\n\n**Legacy:** the field `retailer_id` is accepted as an alias for `merchant_id` (same value).\n\n## Authentication\nEvery authenticated request requires 3 headers:\n- `x-api-key` — Your public API key\n- `x-signature` — HMAC-SHA256 signature\n- `x-timestamp` — Current Unix timestamp (ms)\n\nSignature formula:\n```\nHMAC_SHA256(api_secret, JSON.stringify(body) + timestamp)\n```\nFor GET requests (no body): `HMAC_SHA256(api_secret, '' + timestamp)`\n\n## Setup\n1. Set `api_key`, `api_secret`, and `merchant_id` in Collection Variables\n2. Pre-request scripts auto-generate the signature\n3. Run **Get Bank List** → **Verify Bank Account** → **Initiate Transfer** → **Get Transfer Status**\n\n## Security\n- IP whitelisting enforced (contact admin to whitelist your server IP)\n- Timestamp tolerance: 5 minutes\n- HTTPS required in production\n- API key permission required: `payout` or `all`\n\n## ⚠️ Postman Cloud Agent\nIf you see **\"IP address not authorized\"** even though your IP is whitelisted, the request may be going through Postman’s cloud servers.\n\n**Fix:** Postman **Settings → General** → turn **OFF** **\"Send requests through Postman's cloud agent\"** (or use the Postman desktop agent) so requests use your real IP.\n\n## Capabilities\n- Bank list (IMPS/NEFT filters)\n- Verify bank account (beneficiary name; no penny drop charge)\n- Initiate transfer (debits the chosen merchant wallet: amount + charges)\n- Poll status by `transactionId` or `clientRefId`, or list last 20 payouts for a merchant\n\n## Duplicate prevention\nA second transfer to the **same account number** for the same **`merchant_id`** within **2 minutes** while a prior attempt is still pending/processing/success returns **429** with `wait_seconds` (remaining time in that window).",
+    "description": "Bank payout (IMPS/NEFT) for B2B partners — powered by **Same Day Solution Pvt. Ltd.** and SparkUpTech Express Pay.\n\nUse this collection to move money from a **merchant’s wallet** to a **vendor’s bank account**. Pass **`merchant_id`** — the Same Day **merchant identifier** (our internal `retailers.partner_id`) whose balance is debited. Your platform is the **API partner**; **`merchant_id`** is **which merchant** you are paying on behalf of.\n\n**Legacy:** the field `retailer_id` is accepted as an alias for `merchant_id` (same value).\n\n## Authentication\nEvery authenticated request requires 3 headers:\n- `x-api-key` — Your public API key\n- `x-signature` — HMAC-SHA256 signature\n- `x-timestamp` — Current Unix timestamp (ms)\n\nSignature formula:\n```\nHMAC_SHA256(api_secret, JSON.stringify(body) + timestamp)\n```\nFor GET requests (no body): `HMAC_SHA256(api_secret, '' + timestamp)`\n\n## Setup\n1. Set `api_key`, `api_secret`, and `merchant_id` in Collection Variables\n2. Pre-request scripts auto-generate the signature\n3. Run **List My Merchants** first to discover valid `merchant_id` values\\n4. Set `merchant_id` to one of the returned values\\n5. Run **Get Bank List** → **Verify Bank Account** → **Initiate Transfer** → **Get Transfer Status**\n\n## Security\n- IP whitelisting enforced (contact admin to whitelist your server IP)\n- Timestamp tolerance: 5 minutes\n- HTTPS required in production\n- API key permission required: `payout` or `all`\\n- Merchant scoping: each partner can only use merchant_ids linked to their account by admin\n\n## ⚠️ Postman Cloud Agent\nIf you see **\"IP address not authorized\"** even though your IP is whitelisted, the request may be going through Postman’s cloud servers.\n\n**Fix:** Postman **Settings → General** → turn **OFF** **\"Send requests through Postman's cloud agent\"** (or use the Postman desktop agent) so requests use your real IP.\n\n## Capabilities\n- List linked merchants (discover valid merchant_id values for your account)\\n- Bank list (IMPS/NEFT filters)\n- Verify bank account (beneficiary name; no penny drop charge)\n- Initiate transfer (debits the chosen merchant wallet: amount + charges)\n- Poll status by `transactionId` or `clientRefId`, or list last 20 payouts for a merchant\n\n## Duplicate prevention\nA second transfer to the **same account number** for the same **`merchant_id`** within **2 minutes** while a prior attempt is still pending/processing/success returns **429** with `wait_seconds` (remaining time in that window).",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
     "version": "2.1.0"
   },
@@ -20,6 +20,80 @@
       "name": "🔐 Payout — Authenticated",
       "description": "All requests require `x-api-key`, `x-signature`, and `x-timestamp` headers.\n\nThe pre-request script automatically calculates the HMAC signature.",
       "item": [
+        {
+          "name": "List My Merchants",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const CryptoJS = require('crypto-js');",
+                  "let apiKey = pm.collectionVariables.get('api_key');",
+                  "let apiSecret = pm.collectionVariables.get('api_secret');",
+                  "if (!apiKey) apiKey = pm.environment.get('api_key');",
+                  "if (!apiSecret) apiSecret = pm.environment.get('api_secret');",
+                  "const placeholderKey = 'pk_live_YOUR_API_KEY_HERE';",
+                  "const placeholderSecret = 'sk_live_YOUR_API_SECRET_HERE';",
+                  "if (!apiKey || apiKey.trim() === '' || apiKey === placeholderKey) { throw new Error('Set api_key in Collection Variables (or Environment).'); }",
+                  "if (!apiSecret || apiSecret.trim() === '' || apiSecret === placeholderSecret) { throw new Error('Set api_secret in Collection Variables (or Environment).'); }",
+                  "const timestamp = Date.now().toString();",
+                  "const signature = CryptoJS.HmacSHA256('' + timestamp, apiSecret).toString(CryptoJS.enc.Hex);",
+                  "pm.request.headers.upsert({ key: 'x-api-key', value: apiKey });",
+                  "pm.request.headers.upsert({ key: 'x-signature', value: signature });",
+                  "pm.request.headers.upsert({ key: 'x-timestamp', value: timestamp });"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', function() { pm.response.to.have.status(200); });",
+                  "pm.test('Has merchants', function() { const j = pm.response.json(); pm.expect(j.success).to.be.true; pm.expect(j.merchants).to.be.an('array'); });",
+                  "if (pm.response.code === 200) {",
+                  "  const j = pm.response.json();",
+                  "  if (j.merchants && j.merchants.length > 0 && j.merchants[0].merchant_id) {",
+                  "    pm.collectionVariables.set('merchant_id', j.merchants[0].merchant_id);",
+                  "    console.log('Auto-set merchant_id to: ' + j.merchants[0].merchant_id);",
+                  "  }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "x-api-key", "value": "{{api_key}}" },
+              { "key": "x-signature", "value": "auto-generated" },
+              { "key": "x-timestamp", "value": "auto-generated" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/partner/payout/merchants",
+              "host": ["{{base_url}}"],
+              "path": ["api", "partner", "payout", "merchants"]
+            },
+            "description": "Returns the list of merchants (retailers) linked to your partner account by admin.\n\nUse the `merchant_id` from this response in **Initiate Transfer** and **List Recent Transfers**.\n\nIf this returns an empty list, contact Same Day admin to link your merchants.\n\n**Tip:** The test script auto-sets `merchant_id` to the first merchant in the response."
+          },
+          "response": [
+            {
+              "name": "200 — Merchants",
+              "status": "OK",
+              "code": 200,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"success\": true,\n  \"merchants\": [\n    {\n      \"merchant_id\": \"RET001\",\n      \"name\": \"Retailer One\",\n      \"business_name\": \"Retailer One Pvt Ltd\",\n      \"email\": \"retailer1@example.com\",\n      \"phone\": \"9876543210\",\n      \"status\": \"active\",\n      \"onboarded\": true\n    }\n  ],\n  \"total\": 1\n}"
+            },
+            {
+              "name": "200 — No Merchants Linked",
+              "status": "OK",
+              "code": 200,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"success\": true,\n  \"merchants\": [],\n  \"total\": 0,\n  \"message\": \"No merchants linked to your partner account yet. Contact admin to link merchants.\"\n}"
+            }
+          ]
+        },
         {
           "name": "Get Bank List",
           "event": [
@@ -242,7 +316,7 @@
               "host": ["{{base_url}}"],
               "path": ["api", "partner", "payout", "transfer"]
             },
-            "description": "Initiate IMPS or NEFT transfer. Debits the merchant’s wallet (amount + charges).\n\n### Request Body\n| Field | Type | Required | Description |\n|-------|------|----------|-------------|\n| `merchant_id` | String | ✅ Yes | Same Day merchant id (`retailers.partner_id`) — wallet debited. **Legacy alias:** `retailer_id` |\n| `accountNumber` | String | ✅ Yes | Beneficiary account number |\n| `ifscCode` | String | ✅ Yes | IFSC code |\n| `accountHolderName` | String | ✅ Yes | Beneficiary name |\n| `amount` | Number | ✅ Yes | Amount in rupees |\n| `transferMode` | String | ✅ Yes | `IMPS` or `NEFT` |\n| `bankId` | Number | ✅ Yes | Bank ID from bank list |\n| `bankName` | String | ✅ Yes | Bank name |\n| `beneficiaryMobile` | String | ✅ Yes | 10-digit mobile (6-9 start) |\n| `senderName` | String | ✅ Yes | Sender name |\n| `senderMobile` | String | ✅ Yes | 10-digit mobile (6-9 start) |\n| `senderEmail` | String | No | Sender email |\n| `remarks` | String | No | Transfer remarks |\n\n### Duplicate Prevention\nSame account within 2 minutes returns 429. Wait before retrying.\n\n### On Failure\nWallet is automatically refunded."
+            "description": "Initiate IMPS or NEFT transfer. Debits the merchant’s wallet (amount + charges).\n\n### Request Body\n| Field | Type | Required | Description |\n|-------|------|----------|-------------|\n| `merchant_id` | String | ✅ Yes | Same Day merchant id (`retailers.partner_id`) — wallet debited. Must be linked to your partner account (see **List My Merchants**). **Legacy alias:** `retailer_id` |\n| `accountNumber` | String | ✅ Yes | Beneficiary account number |\n| `ifscCode` | String | ✅ Yes | IFSC code |\n| `accountHolderName` | String | ✅ Yes | Beneficiary name |\n| `amount` | Number | ✅ Yes | Amount in rupees |\n| `transferMode` | String | ✅ Yes | `IMPS` or `NEFT` |\n| `bankId` | Number | ✅ Yes | Bank ID from bank list |\n| `bankName` | String | ✅ Yes | Bank name |\n| `beneficiaryMobile` | String | ✅ Yes | 10-digit mobile (6-9 start) |\n| `senderName` | String | ✅ Yes | Sender name |\n| `senderMobile` | String | ✅ Yes | 10-digit mobile (6-9 start) |\n| `senderEmail` | String | No | Sender email |\n| `remarks` | String | No | Transfer remarks |\n\n### Duplicate Prevention\nSame account within 2 minutes returns 429. Wait before retrying.\n\n### On Failure\nWallet is automatically refunded."
           },
           "response": [
             {

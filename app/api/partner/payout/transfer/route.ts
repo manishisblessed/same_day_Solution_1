@@ -137,7 +137,33 @@ export async function POST(request: NextRequest) {
 
     const supabase = getSupabase()
 
-    // Verify retailer exists
+    // Verify merchant is linked to this partner
+    const { data: merchantLink } = await supabase
+      .from('partner_merchant_links')
+      .select('id')
+      .eq('partner_id', partner.id)
+      .eq('merchant_id', retailer_id)
+      .eq('is_active', true)
+      .maybeSingle()
+
+    if (!merchantLink) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: {
+            code: 'NOT_FOUND',
+            message:
+              'Merchant not found or not linked to your partner account. '
+              + 'The merchant_id must be a retailers.partner_id value that admin has linked to your account. '
+              + 'Use GET /api/partner/payout/merchants to list your available merchants, '
+              + 'or contact admin to link this merchant_id.',
+          },
+        },
+        { status: 404 }
+      )
+    }
+
+    // Verify retailer exists in the platform
     const { data: retailer } = await supabase
       .from('retailers')
       .select('partner_id, name, email, distributor_id, master_distributor_id')
@@ -146,7 +172,15 @@ export async function POST(request: NextRequest) {
 
     if (!retailer) {
       return NextResponse.json(
-        { success: false, error: { code: 'NOT_FOUND', message: 'Retailer not found' } },
+        {
+          success: false,
+          error: {
+            code: 'NOT_FOUND',
+            message:
+              'Merchant is linked to your account but the retailer has not been onboarded yet on the Same Day platform. '
+              + 'Contact admin to complete retailer onboarding for merchant_id: ' + retailer_id,
+          },
+        },
         { status: 404 }
       )
     }
