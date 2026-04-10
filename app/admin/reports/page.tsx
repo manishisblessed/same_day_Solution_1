@@ -100,7 +100,8 @@ export default function ReportsPage() {
         .order('created_at', { ascending: false })
 
       if (statusFilter !== 'all') {
-        query = query.eq('status', statusFilter)
+        const settlementStatus = statusFilter === 'success' ? 'completed' : statusFilter
+        query = query.eq('settlement_status', settlementStatus)
       }
 
       const { data, error } = await query.limit(1000)
@@ -110,8 +111,8 @@ export default function ReportsPage() {
       const transactions = data || []
       setReportData(transactions)
 
-      // Calculate summary
-      const successful = transactions.filter(t => t.status === 'success')
+      // Calculate summary (MDR table: settlement_status completed = success)
+      const successful = transactions.filter(t => t.settlement_status === 'completed')
       const totalAmount = successful.reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0)
       
       setSummary({
@@ -132,12 +133,19 @@ export default function ReportsPage() {
     
     try {
       // Fetch all data for export
-      const { data } = await supabase
+      let exportQuery = supabase
         .from('transactions')
         .select('*')
         .gte('created_at', start.toISOString())
         .lte('created_at', end.toISOString())
         .order('created_at', { ascending: false })
+
+      if (statusFilter !== 'all') {
+        const settlementStatus = statusFilter === 'success' ? 'completed' : statusFilter
+        exportQuery = exportQuery.eq('settlement_status', settlementStatus)
+      }
+
+      const { data } = await exportQuery
 
       if (!data) return
 
@@ -167,11 +175,11 @@ export default function ReportsPage() {
     const headers = ['Date', 'Transaction ID', 'Type', 'Amount', 'Status', 'Partner ID', 'Description']
     const rows = data.map(t => [
       new Date(t.created_at).toLocaleString('en-IN'),
-      t.transaction_id || t.id,
-      t.transaction_type || 'N/A',
+      t.razorpay_payment_id || t.transaction_id || t.id,
+      t.transaction_type || (t.mode && t.settlement_type ? `${t.mode} (${t.settlement_type})` : 'MDR'),
       t.amount || '0',
-      t.status || 'pending',
-      t.partner_id || 'N/A',
+      t.settlement_status || t.status || 'pending',
+      t.retailer_id || t.partner_id || 'N/A',
       t.description || ''
     ])
     const csvContent = [headers.join(','), ...rows.map(r => r.map(c => `"${c}"`).join(','))].join('\n')
@@ -183,11 +191,11 @@ export default function ReportsPage() {
     const headers = ['Date', 'Transaction ID', 'Type', 'Amount', 'Status', 'Partner ID', 'Description']
     const rows = data.map(t => [
       new Date(t.created_at).toLocaleString('en-IN'),
-      t.transaction_id || t.id,
-      t.transaction_type || 'N/A',
+      t.razorpay_payment_id || t.transaction_id || t.id,
+      t.transaction_type || (t.mode && t.settlement_type ? `${t.mode} (${t.settlement_type})` : 'MDR'),
       t.amount || '0',
-      t.status || 'pending',
-      t.partner_id || 'N/A',
+      t.settlement_status || t.status || 'pending',
+      t.retailer_id || t.partner_id || 'N/A',
       t.description || ''
     ])
     const content = [headers.join('\t'), ...rows.map(r => r.join('\t'))].join('\n')
@@ -223,7 +231,9 @@ export default function ReportsPage() {
     const search = searchTerm.toLowerCase()
     return (
       item.transaction_id?.toLowerCase().includes(search) ||
+      item.razorpay_payment_id?.toLowerCase().includes(search) ||
       item.partner_id?.toLowerCase().includes(search) ||
+      item.retailer_id?.toLowerCase().includes(search) ||
       item.description?.toLowerCase().includes(search)
     )
   })
@@ -522,7 +532,12 @@ export default function ReportsPage() {
                     </td>
                   </tr>
                 ) : (
-                  filteredData.slice(0, 50).map((item, idx) => (
+                  filteredData.slice(0, 50).map((item, idx) => {
+                    const settlement = item.settlement_status || item.status || 'pending'
+                    const statusKey =
+                      settlement === 'completed' || settlement === 'success' ? 'success' : settlement === 'pending' ? 'pending' : 'failed'
+                    const statusLabel = settlement === 'completed' ? 'success' : settlement
+                    return (
                     <tr key={item.id || idx} className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
                       <td className="px-6 py-4 text-sm text-gray-900 dark:text-white">
                         {new Date(item.created_at).toLocaleDateString('en-IN', {
@@ -534,33 +549,34 @@ export default function ReportsPage() {
                         })}
                       </td>
                       <td className="px-6 py-4 text-sm font-mono text-gray-600 dark:text-gray-400">
-                        {item.transaction_id || item.id?.slice(0, 8) || 'N/A'}
+                        {item.razorpay_payment_id || item.transaction_id || item.id?.slice(0, 8) || 'N/A'}
                       </td>
                       <td className="px-6 py-4 text-sm text-gray-900 dark:text-white">
-                        {item.transaction_type || 'N/A'}
+                        {item.transaction_type || (item.mode && item.settlement_type ? `${item.mode} (${item.settlement_type})` : 'MDR')}
                       </td>
                       <td className="px-6 py-4 text-sm font-semibold text-gray-900 dark:text-white">
                         {formatCurrency(parseFloat(item.amount) || 0)}
                       </td>
                       <td className="px-6 py-4">
                         <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium ${
-                          item.status === 'success'
+                          statusKey === 'success'
                             ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
-                            : item.status === 'pending'
+                            : statusKey === 'pending'
                             ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'
                             : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
                         }`}>
-                          {item.status === 'success' && <CheckCircle2 className="w-3 h-3" />}
-                          {item.status === 'pending' && <Clock className="w-3 h-3" />}
-                          {item.status === 'failed' && <XCircle className="w-3 h-3" />}
-                          {item.status || 'pending'}
+                          {statusKey === 'success' && <CheckCircle2 className="w-3 h-3" />}
+                          {statusKey === 'pending' && <Clock className="w-3 h-3" />}
+                          {statusKey === 'failed' && <XCircle className="w-3 h-3" />}
+                          {statusLabel}
                         </span>
                       </td>
                       <td className="px-6 py-4 text-sm text-gray-600 dark:text-gray-400">
-                        {item.partner_id || 'N/A'}
+                        {item.retailer_id || item.partner_id || 'N/A'}
                       </td>
                     </tr>
-                  ))
+                    )
+                  })
                 )}
               </tbody>
             </table>

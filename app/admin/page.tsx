@@ -189,12 +189,22 @@ function AdminDashboardContent() {
         if (error) throw error
         setDistributors(data || [])
       } else if (activeTab === 'pos-machines') {
-        const { data, error } = await supabase
-          .from('pos_machines')
-          .select('*')
-          .order('created_at', { ascending: false })
-        if (error) throw error
-        setPosMachines(data || [])
+        // PostgREST applies a max row cap per request (often 1000). Paginate in chunks so
+        // client-side table pagination sees the full dataset.
+        const chunkSize = 1000
+        const allMachines: POSMachine[] = []
+        for (let from = 0; ; from += chunkSize) {
+          const { data, error } = await supabase
+            .from('pos_machines')
+            .select('*')
+            .order('created_at', { ascending: false })
+            .range(from, from + chunkSize - 1)
+          if (error) throw error
+          const batch = data || []
+          allMachines.push(...batch)
+          if (batch.length < chunkSize) break
+        }
+        setPosMachines(allMachines)
         // Also fetch retailers, distributors, master distributors, and partners for dropdowns
         const [{ data: retailersData }, { data: distributorsData }, { data: masterDistributorsData }, { data: partnersData }] = await Promise.all([
           supabase.from('retailers').select('*').order('name'),
@@ -1535,9 +1545,7 @@ function AdminDashboardOverview({
     pendingVerifications: 0,
     totalWalletBalance: 0,
     aepsTransactions: 0,
-    bbpsTransactions: 0,
-    dmtTransactions: 0,
-    rechargeTransactions: 0
+    bbpsTransactions: 0
   })
   const [loading, setLoading] = useState(true)
   const [selectedPeriod, setSelectedPeriod] = useState<'today' | 'week' | 'month' | 'year'>('today')
@@ -1560,23 +1568,58 @@ function AdminDashboardOverview({
   // Fetch Sparkup Balance (uses EC2 backend for whitelisted IP access)
   const fetchSparkupBalance = async () => {
     setSparkupLoading(true)
+    const checkedAt = new Date().toISOString()
+    const unreachable = (msg: string) => ({
+      bbps: {
+        success: false,
+        error: msg,
+        balance: 0,
+        lien: 0,
+        available_balance: 0,
+      },
+      payout: { success: false, balance: 0, lien: 0, available_balance: 0 },
+      summary: { total_available: 0, all_services_healthy: false },
+      last_checked: checkedAt,
+    })
+
     try {
-      // apiFetch automatically handles routing to EC2 and adding auth token
-      const response = await apiFetch('/api/admin/sparkup-balance')
-      
-      if (response.ok) {
-        const data = await response.json()
-        if (data.success) {
-          setSparkupBalance({
-            bbps: data.bbps,
-            payout: data.payout,
-            summary: data.summary,
-            last_checked: data.last_checked
-          })
-        }
+      const response = await apiFetch('/api/admin/sparkup-balance', { timeout: 20000 })
+      let data: any = {}
+      try {
+        data = await response.json()
+      } catch {
+        data = {}
       }
-    } catch (error) {
+
+      if (response.ok && data.success) {
+        setSparkupBalance({
+          bbps: data.bbps,
+          payout: data.payout,
+          summary: data.summary,
+          last_checked: data.last_checked || checkedAt,
+        })
+      } else {
+        const hint =
+          typeof window !== 'undefined' && window.location.hostname.endsWith('samedaysolution.in')
+            ? ' Check that api.samedaysolution.in is reachable (DNS, firewall, EC2).'
+            : ''
+        setSparkupBalance(
+          unreachable(
+            data.error ||
+              data.message ||
+              (!response.ok
+                ? `HTTP ${response.status}${hint}`
+                : `Balance service did not return success.${hint}`)
+          )
+        )
+      }
+    } catch (error: any) {
       console.error('Error fetching Sparkup balance:', error)
+      const msg =
+        error?.message?.includes('timeout') || error?.name === 'AbortError'
+          ? 'Request timed out — API server may be slow or unreachable.'
+          : error?.message || 'Failed to fetch — API server may be unreachable.'
+      setSparkupBalance(unreachable(msg))
     } finally {
       setSparkupLoading(false)
     }
@@ -1594,38 +1637,36 @@ function AdminDashboardOverview({
   const fetchAnalytics = async () => {
     setLoading(true)
     try {
-      // Fetch transaction analytics from Supabase
-      const { data: transactions, error } = await supabase
-        .from('transactions')
-        .select('amount, transaction_type, status, created_at')
-        .gte('created_at', getDateRange(selectedPeriod))
-      
-      if (!error && transactions) {
-        const successfulTxns = transactions.filter(t => t.status === 'success')
-        const totalVolume = successfulTxns.reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0)
-        
-        // Calculate by type
-        const aeps = successfulTxns.filter(t => t.transaction_type?.includes('aeps')).length
-        const bbps = successfulTxns.filter(t => t.transaction_type?.includes('bbps')).length
-        const dmt = successfulTxns.filter(t => t.transaction_type?.includes('dmt') || t.transaction_type?.includes('transfer')).length
-        const recharge = successfulTxns.filter(t => t.transaction_type?.includes('recharge')).length
-        
-        setAnalyticsData(prev => ({
-          ...prev,
-          totalTransactionVolume: totalVolume,
-          todayTransactionVolume: totalVolume,
-          aepsTransactions: aeps,
-          bbpsTransactions: bbps,
-          dmtTransactions: dmt,
-          rechargeTransactions: recharge,
-          activePartners: retailers.filter(r => r.status === 'active').length + 
-                         distributors.filter(d => d.status === 'active').length +
-                         masterDistributors.filter(m => m.status === 'active').length,
-          pendingVerifications: retailers.filter(r => r.verification_status === 'pending').length +
-                               distributors.filter(d => d.verification_status === 'pending').length +
-                               masterDistributors.filter(m => m.verification_status === 'pending').length
-        }))
-      }
+      const since = getDateRange(selectedPeriod)
+      // `transactions` in DB is the MDR scheme table (no transaction_type / status columns).
+      // Dashboard volume/counts: BBPS + AEPS only. DMT/recharge are not live yet — do not query
+      // those sources here (avoids errors and extra load); extend this when those services launch.
+      const [bbpsRes, aepsRes] = await Promise.all([
+        supabase.from('bbps_transactions').select('bill_amount, created_at, status').gte('created_at', since),
+        supabase.from('aeps_transactions').select('amount, created_at, status').gte('created_at', since),
+      ])
+      if (bbpsRes.error) console.error('Analytics BBPS error:', bbpsRes.error)
+      if (aepsRes.error) console.error('Analytics AEPS error:', aepsRes.error)
+
+      const bbpsOk = (bbpsRes.data || []).filter(t => (t.status || '').toLowerCase() === 'success')
+      const aepsOk = (aepsRes.data || []).filter(t => (t.status || '').toLowerCase() === 'success')
+      const bbpsVolume = bbpsOk.reduce((sum, t) => sum + parseFloat(String(t.bill_amount ?? 0)), 0)
+      const aepsVolume = aepsOk.reduce((sum, t) => sum + parseFloat(String(t.amount ?? 0)), 0)
+      const totalVolume = bbpsVolume + aepsVolume
+
+      setAnalyticsData(prev => ({
+        ...prev,
+        totalTransactionVolume: totalVolume,
+        todayTransactionVolume: totalVolume,
+        aepsTransactions: aepsOk.length,
+        bbpsTransactions: bbpsOk.length,
+        activePartners: retailers.filter(r => r.status === 'active').length +
+          distributors.filter(d => d.status === 'active').length +
+          masterDistributors.filter(m => m.status === 'active').length,
+        pendingVerifications: retailers.filter(r => r.verification_status === 'pending').length +
+          distributors.filter(d => d.verification_status === 'pending').length +
+          masterDistributors.filter(m => m.verification_status === 'pending').length,
+      }))
     } catch (err) {
       console.error('Error fetching analytics:', err)
     } finally {
@@ -1657,7 +1698,7 @@ function AdminDashboardOverview({
     }).format(amount)
   }
 
-  // Download reports function
+  // Download reports function (MDR `transactions` table: settlement_status, retailer_id, mode, etc.)
   const downloadReport = async (format: 'csv' | 'excel' | 'pdf' | 'json') => {
     try {
       const { data: transactions } = await supabase
@@ -1668,31 +1709,25 @@ function AdminDashboardOverview({
       
       if (!transactions) return
 
+      const rowForExport = (t: any) => [
+        new Date(t.created_at).toLocaleString(),
+        t.razorpay_payment_id || t.transaction_id || t.id,
+        t.transaction_type || (t.mode && t.settlement_type ? `${t.mode} (${t.settlement_type})` : 'MDR'),
+        t.amount,
+        t.settlement_status === 'completed' ? 'completed' : (t.settlement_status || t.status || ''),
+        t.retailer_id || t.partner_id
+      ]
+
       if (format === 'csv') {
         const headers = ['Date', 'Transaction ID', 'Type', 'Amount', 'Status', 'Partner ID']
-        const rows = transactions.map(t => [
-          new Date(t.created_at).toLocaleString(),
-          t.transaction_id || t.id,
-          t.transaction_type,
-          t.amount,
-          t.status,
-          t.partner_id
-        ])
+        const rows = transactions.map(rowForExport)
         const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n')
         downloadFile(csvContent, 'transactions_report.csv', 'text/csv')
       } else if (format === 'json') {
         downloadFile(JSON.stringify(transactions, null, 2), 'transactions_report.json', 'application/json')
       } else if (format === 'excel') {
-        // For Excel, we'll use CSV with tab separation
         const headers = ['Date', 'Transaction ID', 'Type', 'Amount', 'Status', 'Partner ID']
-        const rows = transactions.map(t => [
-          new Date(t.created_at).toLocaleString(),
-          t.transaction_id || t.id,
-          t.transaction_type,
-          t.amount,
-          t.status,
-          t.partner_id
-        ])
+        const rows = transactions.map(rowForExport)
         const excelContent = [headers.join('\t'), ...rows.map(r => r.join('\t'))].join('\n')
         downloadFile(excelContent, 'transactions_report.xls', 'application/vnd.ms-excel')
       }
@@ -5369,6 +5404,11 @@ function POSMachinesTab({
     sortDirection,
   ])
 
+  // Keep current page valid when the filtered set shrinks (e.g. stricter filters) or page size changes.
+  useEffect(() => {
+    setPosListPage((p) => Math.min(Math.max(1, p), posListTotalPages))
+  }, [posListTotalPages])
+
   const paginatedPosMachines = useMemo(() => {
     const start = (posListPageSafe - 1) * posListPageSize
     return filteredMachines.slice(start, start + posListPageSize)
@@ -8847,8 +8887,10 @@ function ReportsTab() {
         .lte('created_at', end.toISOString())
         .order('created_at', { ascending: false })
 
+      // MDR `transactions` uses settlement_status: pending | completed | failed (UI "Success" → completed)
       if (statusFilter !== 'all') {
-        query = query.eq('status', statusFilter)
+        const settlementStatus = statusFilter === 'success' ? 'completed' : statusFilter
+        query = query.eq('settlement_status', settlementStatus)
       }
 
       const { data, error } = await query.limit(1000)
@@ -8858,7 +8900,7 @@ function ReportsTab() {
       const transactions = data || []
       setReportData(transactions)
 
-      const successful = transactions.filter(t => t.status === 'success')
+      const successful = transactions.filter(t => t.settlement_status === 'completed')
       const totalAmount = successful.reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0)
       
       setSummary({
@@ -8887,7 +8929,9 @@ function ReportsTab() {
     const search = searchTerm.toLowerCase()
     return (
       item.transaction_id?.toLowerCase().includes(search) ||
+      item.razorpay_payment_id?.toLowerCase().includes(search) ||
       item.partner_id?.toLowerCase().includes(search) ||
+      item.retailer_id?.toLowerCase().includes(search) ||
       item.description?.toLowerCase().includes(search)
     )
   })
@@ -9102,7 +9146,12 @@ function ReportsTab() {
                   </td>
                 </tr>
               ) : (
-                filteredData.slice(0, 50).map((item, idx) => (
+                filteredData.slice(0, 50).map((item, idx) => {
+                  const settlement = item.settlement_status || item.status || 'pending'
+                  const statusKey =
+                    settlement === 'completed' || settlement === 'success' ? 'success' : settlement === 'pending' ? 'pending' : 'failed'
+                  const statusLabel = settlement === 'completed' ? 'success' : settlement
+                  return (
                   <tr key={item.id || idx} className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
                     <td className="px-4 py-3 text-sm text-gray-900 dark:text-white">
                       {new Date(item.created_at).toLocaleDateString('en-IN', {
@@ -9114,33 +9163,34 @@ function ReportsTab() {
                       })}
                     </td>
                     <td className="px-4 py-3 text-sm font-mono text-gray-600 dark:text-gray-400">
-                      {item.transaction_id || item.id?.slice(0, 8) || 'N/A'}
+                      {item.razorpay_payment_id || item.transaction_id || item.id?.slice(0, 8) || 'N/A'}
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-900 dark:text-white">
-                      {item.transaction_type || 'N/A'}
+                      {item.transaction_type || (item.mode && item.settlement_type ? `${item.mode} (${item.settlement_type})` : 'MDR')}
                     </td>
                     <td className="px-4 py-3 text-sm font-semibold text-gray-900 dark:text-white">
                       {formatCurrency(parseFloat(item.amount) || 0)}
                     </td>
                     <td className="px-4 py-3">
                       <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${
-                        item.status === 'success'
+                        statusKey === 'success'
                           ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
-                          : item.status === 'pending'
+                          : statusKey === 'pending'
                           ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'
                           : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
                       }`}>
-                        {item.status === 'success' && <CheckCircle2 className="w-3 h-3" />}
-                        {item.status === 'pending' && <Clock className="w-3 h-3" />}
-                        {item.status === 'failed' && <XCircle className="w-3 h-3" />}
-                        {item.status || 'pending'}
+                        {statusKey === 'success' && <CheckCircle2 className="w-3 h-3" />}
+                        {statusKey === 'pending' && <Clock className="w-3 h-3" />}
+                        {statusKey === 'failed' && <XCircle className="w-3 h-3" />}
+                        {statusLabel}
                       </span>
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">
-                      {item.partner_id || 'N/A'}
+                      {item.retailer_id || item.partner_id || 'N/A'}
                     </td>
                   </tr>
-                ))
+                  )
+                })
               )}
             </tbody>
           </table>
