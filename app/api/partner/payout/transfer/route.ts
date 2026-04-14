@@ -48,32 +48,11 @@ export async function POST(request: NextRequest) {
     }
 
     const {
-      merchant_id: merchantIdBody,
-      retailer_id: retailerIdLegacy,
       accountNumber, ifscCode, accountHolderName, amount,
       transferMode, bankId, bankName, beneficiaryMobile, senderName,
       senderMobile, senderEmail, remarks,
     } = body
 
-    const merchantIdRaw = merchantIdBody ?? retailerIdLegacy
-    const retailer_id =
-      merchantIdRaw !== undefined && merchantIdRaw !== null
-        ? String(merchantIdRaw).trim()
-        : ''
-
-    if (!retailer_id) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: {
-            code: 'BAD_REQUEST',
-            message:
-              'merchant_id is required — the Same Day merchant identifier whose wallet is debited (legacy alias: retailer_id)',
-          },
-        },
-        { status: 400 }
-      )
-    }
     if (!accountNumber || !ifscCode || !accountHolderName || !amount || !transferMode) {
       return NextResponse.json(
         { success: false, error: { code: 'BAD_REQUEST', message: 'accountNumber, ifscCode, accountHolderName, amount, transferMode are required' } },
@@ -137,88 +116,46 @@ export async function POST(request: NextRequest) {
 
     const supabase = getSupabase()
 
-    // Verify merchant is linked to this partner
-    const { data: merchantLink } = await supabase
-      .from('partner_merchant_links')
-      .select('id')
-      .eq('partner_id', partner.id)
-      .eq('merchant_id', retailer_id)
-      .eq('is_active', true)
-      .maybeSingle()
-
-    if (!merchantLink) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: {
-            code: 'NOT_FOUND',
-            message:
-              'Merchant not found or not linked to your partner account. '
-              + 'The merchant_id must be a retailers.partner_id value that admin has linked to your account. '
-              + 'Use GET /api/partner/payout/merchants to list your available merchants, '
-              + 'or contact admin to link this merchant_id.',
-          },
-        },
-        { status: 404 }
-      )
-    }
-
-    // Verify retailer exists in the platform
-    const { data: retailer } = await supabase
-      .from('retailers')
-      .select('partner_id, name, email, distributor_id, master_distributor_id')
-      .eq('partner_id', retailer_id)
-      .maybeSingle()
-
-    if (!retailer) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: {
-            code: 'NOT_FOUND',
-            message:
-              'Merchant is linked to your account but the retailer has not been onboarded yet on the Same Day platform. '
-              + 'Contact admin to complete retailer onboarding for merchant_id: ' + retailer_id,
-          },
-        },
-        { status: 404 }
-      )
-    }
-
-    // Resolve charges via scheme
-    let charges = 0
-    let resolvedSchemeId: string | null = null
-    let resolvedSchemeName: string | null = null
-    try {
-      const { data: schemeResult } = await (supabase as any).rpc('resolve_scheme_for_user', {
-        p_user_id: retailer_id, p_user_role: 'retailer', p_service_type: 'payout',
-        p_distributor_id: retailer.distributor_id || null, p_md_id: retailer.master_distributor_id || null,
-      })
-      if (schemeResult?.[0]) {
-        resolvedSchemeId = schemeResult[0].scheme_id
-        resolvedSchemeName = schemeResult[0].scheme_name
-        const { data: chargeResult } = await (supabase as any).rpc('calculate_payout_charge_from_scheme', {
-          p_scheme_id: schemeResult[0].scheme_id, p_amount: amountNum, p_transfer_mode: transferMode,
-        })
-        if (chargeResult?.[0] && parseFloat(chargeResult[0].retailer_charge) > 0) {
-          charges = parseFloat(chargeResult[0].retailer_charge)
-        }
-      }
-    } catch { /* use default */ }
-
+    // Fixed charges for partner payouts (no scheme lookup — that's for retailers)
+    const charges = 0
     const totalAmount = amountNum + charges
 
-    // Check retailer wallet
-    const { data: walletBalance, error: balErr } = await (supabase as any).rpc('get_wallet_balance', { p_retailer_id: retailer_id })
+    // Check partner wallet balance
+    const { data: walletBalance, error: balErr } = await supabase.rpc('get_partner_wallet_balance', {
+      p_partner_id: partner.id
+    })
     if (balErr) {
+      console.error('[Partner Payout Transfer] Balance check error:', balErr)
       return NextResponse.json(
         { success: false, error: { code: 'INTERNAL_ERROR', message: 'Failed to check wallet balance' } },
         { status: 500 }
       )
     }
-    if (walletBalance < totalAmount) {
+
+    // Check if wallet is frozen
+    const { data: walletInfo } = await supabase
+      .from('partner_wallets')
+      .select('is_frozen, freeze_reason')
+      .eq('partner_id', partner.id)
+      .maybeSingle()
+
+    if (walletInfo?.is_frozen) {
       return NextResponse.json(
-        { success: false, error: { code: 'INSUFFICIENT_BALANCE', message: 'Insufficient wallet balance' }, wallet_balance: walletBalance, amount: amountNum, charges, total_required: totalAmount },
+        { success: false, error: { code: 'WALLET_FROZEN', message: `Partner wallet is frozen: ${walletInfo.freeze_reason || 'Contact admin'}` } },
+        { status: 403 }
+      )
+    }
+
+    if ((walletBalance || 0) < totalAmount) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: { code: 'INSUFFICIENT_BALANCE', message: 'Insufficient partner wallet balance' },
+          wallet_balance: walletBalance || 0,
+          amount: amountNum,
+          charges,
+          total_required: totalAmount
+        },
         { status: 400 }
       )
     }
@@ -232,12 +169,12 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Duplicate prevention
+    // Duplicate prevention (by partner + account number)
     const twoMinAgo = new Date(Date.now() - 2 * 60 * 1000).toISOString()
     const { data: recentTx } = await supabase
       .from('payout_transactions')
       .select('id, status, created_at, amount')
-      .eq('retailer_id', retailer_id)
+      .eq('partner_id', partner.id)
       .eq('account_number', accountNumber)
       .gte('created_at', twoMinAgo)
       .in('status', ['pending', 'processing', 'success'])
@@ -253,42 +190,55 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const clientRefId = generateClientRefId(retailer_id)
+    const clientRefId = generateClientRefId(partner.id)
 
-    // Create transaction record
+    // Create transaction record (partner_id instead of retailer_id)
     const { data: payoutTx, error: txErr } = await supabase
       .from('payout_transactions')
       .insert({
-        retailer_id, account_number: accountNumber, ifsc_code: ifscCode,
-        account_holder_name: accountHolderName, bank_name: bankName,
-        amount: amountNum, charges, transfer_mode: transferMode,
-        client_ref_id: clientRefId, status: 'pending', remarks: remarks || null,
+        partner_id: partner.id,
+        retailer_id: null,
+        account_number: accountNumber,
+        ifsc_code: ifscCode,
+        account_holder_name: accountHolderName,
+        bank_name: bankName,
+        amount: amountNum,
+        charges,
+        transfer_mode: transferMode,
+        client_ref_id: clientRefId,
+        status: 'pending',
+        remarks: remarks || null,
         wallet_debited: false,
-        ...(resolvedSchemeId ? { scheme_id: resolvedSchemeId, scheme_name: resolvedSchemeName, retailer_charge: charges } : {}),
       })
       .select()
       .single()
 
     if (txErr || !payoutTx) {
+      console.error('[Partner Payout Transfer] Insert error:', txErr)
       return NextResponse.json(
         { success: false, error: { code: 'INTERNAL_ERROR', message: 'Failed to create transaction record' } },
         { status: 500 }
       )
     }
 
-    // Debit wallet
-    const { data: ledgerId, error: ledgerErr } = await (supabase as any).rpc('debit_wallet_bbps', {
-      p_retailer_id: retailer_id, p_transaction_id: payoutTx.id,
-      p_amount: totalAmount, p_description: `Payout to ${accountHolderName} via ${transferMode}`,
+    // Debit partner wallet
+    const { data: ledgerId, error: ledgerErr } = await supabase.rpc('debit_partner_wallet', {
+      p_partner_id: partner.id,
+      p_amount: totalAmount,
+      p_payout_transaction_id: payoutTx.id,
+      p_description: `Payout to ${accountHolderName} via ${transferMode}`,
       p_reference_id: clientRefId,
     })
+
     if (ledgerErr) {
+      console.error('[Partner Payout Transfer] Wallet debit error:', ledgerErr)
       await supabase.from('payout_transactions').update({ status: 'failed', failure_reason: 'Wallet debit failed' }).eq('id', payoutTx.id)
       return NextResponse.json(
-        { success: false, error: { code: 'INTERNAL_ERROR', message: 'Failed to debit wallet' } },
+        { success: false, error: { code: 'INTERNAL_ERROR', message: ledgerErr.message || 'Failed to debit wallet' } },
         { status: 500 }
       )
     }
+
     await supabase.from('payout_transactions').update({ wallet_debited: true, wallet_debit_id: ledgerId, status: 'processing' }).eq('id', payoutTx.id)
 
     // Call SparkUpTech
@@ -312,10 +262,12 @@ export async function POST(request: NextRequest) {
     }
 
     if (!transferResult.success) {
-      // Refund on failure
-      await (supabase as any).rpc('refund_wallet_bbps', {
-        p_retailer_id: retailer_id, p_transaction_id: payoutTx.id,
-        p_amount: totalAmount, p_description: `Payout failed - Refund: ${transferResult.error}`,
+      // Refund partner wallet on failure
+      await supabase.rpc('refund_partner_wallet', {
+        p_partner_id: partner.id,
+        p_amount: totalAmount,
+        p_payout_transaction_id: payoutTx.id,
+        p_description: `Payout failed - Refund: ${transferResult.error}`,
         p_reference_id: `REFUND_${clientRefId}`,
       })
       await supabase.from('payout_transactions').update({ status: 'failed', failure_reason: transferResult.error, updated_at: new Date().toISOString() }).eq('id', payoutTx.id)

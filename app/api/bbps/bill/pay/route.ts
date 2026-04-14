@@ -225,6 +225,7 @@ export async function POST(request: NextRequest) {
     let bbpsCharge = 20 // Default
     let resolvedSchemeId: string | null = null
     let resolvedSchemeName: string | null = null
+    let resolvedVia: string | null = null // Track how scheme was resolved for commission logic
     let commissionSplit = { retailer_commission: 0, distributor_commission: 0, md_commission: 0 }
     
     try {
@@ -245,6 +246,7 @@ export async function POST(request: NextRequest) {
         const resolved = schemeResult[0]
         resolvedSchemeId = resolved.scheme_id
         resolvedSchemeName = resolved.scheme_name
+        resolvedVia = resolved.resolved_via
         console.log(`[BBPS Pay] Scheme resolved via RPC: "${resolved.scheme_name}" via ${resolved.resolved_via}`)
         
         const { data: chargeResult, error: chargeError } = await (supabase as any).rpc('calculate_bbps_charge_from_scheme', {
@@ -304,29 +306,33 @@ export async function POST(request: NextRequest) {
     }
     
     // Fallback: Direct table query for scheme resolution (if RPC failed)
+    // Replicates the RPC hierarchy: retailer → distributor → MD → global
     if (!resolvedSchemeId) {
       try {
         console.log(`[BBPS Pay] Attempting direct table query scheme resolution...`)
         const now = new Date().toISOString()
-        const { data: mappings } = await supabase
-          .from('scheme_mappings')
-          .select(`
-            scheme_id,
-            service_type,
-            effective_from,
-            effective_to,
-            scheme:schemes!inner (
-              id, name, scheme_type, status, effective_from, effective_to
-            )
-          `)
-          .eq('entity_id', user.partner_id)
-          .eq('entity_role', 'retailer')
-          .eq('status', 'active')
-          .lte('effective_from', now)
-          .order('priority', { ascending: true })
-          .limit(5)
-
-        if (mappings && mappings.length > 0) {
+        
+        // Helper to find a valid scheme mapping for a given entity
+        const findSchemeMapping = async (entityId: string, entityRole: string) => {
+          const { data: mappings } = await supabase
+            .from('scheme_mappings')
+            .select(`
+              scheme_id,
+              service_type,
+              effective_from,
+              effective_to,
+              scheme:schemes!inner (
+                id, name, scheme_type, status, effective_from, effective_to
+              )
+            `)
+            .eq('entity_id', entityId)
+            .eq('entity_role', entityRole)
+            .eq('status', 'active')
+            .lte('effective_from', now)
+            .order('priority', { ascending: true })
+            .limit(5)
+          
+          if (!mappings) return null
           for (const mapping of mappings as any[]) {
             const scheme = mapping.scheme as any
             if (!scheme || scheme.status !== 'active') continue
@@ -335,42 +341,62 @@ export async function POST(request: NextRequest) {
             if (scheme.effective_to && new Date(scheme.effective_to) <= new Date()) continue
             const svcType = mapping.service_type
             if (svcType && svcType !== 'all' && svcType !== 'bbps') continue
+            return scheme
+          }
+          return null
+        }
+        
+        // Step 1: Retailer mapping
+        let resolvedScheme = await findSchemeMapping(user.partner_id, 'retailer')
+        if (resolvedScheme) {
+          resolvedVia = 'retailer_mapping'
+        }
+        
+        // Step 2: Distributor mapping
+        if (!resolvedScheme && distributorId) {
+          resolvedScheme = await findSchemeMapping(distributorId, 'distributor')
+          if (resolvedScheme) resolvedVia = 'distributor_mapping'
+        }
+        
+        // Step 3: MD mapping
+        if (!resolvedScheme && mdId) {
+          resolvedScheme = await findSchemeMapping(mdId, 'master_distributor')
+          if (resolvedScheme) resolvedVia = 'md_mapping'
+        }
+        
+        if (resolvedScheme) {
+          resolvedSchemeId = resolvedScheme.id
+          resolvedSchemeName = resolvedScheme.name
+          console.log(`[BBPS Pay] Scheme resolved via direct query: "${resolvedScheme.name}" (${resolvedScheme.id}) via ${resolvedVia}`)
 
-            resolvedSchemeId = scheme.id
-            resolvedSchemeName = scheme.name
-            console.log(`[BBPS Pay] Scheme resolved via direct query: "${scheme.name}" (${scheme.id})`)
+          const { data: slabs } = await supabase
+            .from('scheme_bbps_commissions')
+            .select('*')
+            .eq('scheme_id', resolvedScheme.id)
+            .eq('status', 'active')
+            .lte('min_amount', billAmountInRupees)
+            .gte('max_amount', billAmountInRupees)
+            .order('min_amount', { ascending: false })
 
-            // Now get BBPS charge from this scheme
-            const { data: slabs } = await supabase
-              .from('scheme_bbps_commissions')
-              .select('*')
-              .eq('scheme_id', scheme.id)
-              .eq('status', 'active')
-              .lte('min_amount', billAmountInRupees)
-              .gte('max_amount', billAmountInRupees)
-              .order('min_amount', { ascending: false })
-
-            if (slabs && slabs.length > 0) {
-              const cat = additional_info?.category || null
-              const bestSlab = slabs.find((s: any) => {
-                const sc = s.category
-                return !sc || sc === '' || sc.toLowerCase() === 'all' || sc.toLowerCase() === 'all categories' || sc === cat || !cat
-              })
-              if (bestSlab) {
-                const rc = parseFloat(bestSlab.retailer_charge) || 0
-                bbpsCharge = bestSlab.retailer_charge_type === 'percentage'
-                  ? Math.round(billAmountInRupees * rc / 100 * 100) / 100
-                  : rc
-                const calcComm = (val: number, type: string) => type === 'percentage' ? Math.round(billAmountInRupees * val / 100 * 100) / 100 : val
-                commissionSplit = {
-                  retailer_commission: calcComm(parseFloat(bestSlab.retailer_commission) || 0, bestSlab.retailer_commission_type),
-                  distributor_commission: calcComm(parseFloat(bestSlab.distributor_commission) || 0, bestSlab.distributor_commission_type),
-                  md_commission: calcComm(parseFloat(bestSlab.md_commission) || 0, bestSlab.md_commission_type),
-                }
-                console.log(`[BBPS Pay] Scheme charge via direct query: ₹${bbpsCharge}`)
+          if (slabs && slabs.length > 0) {
+            const cat = additional_info?.category || null
+            const bestSlab = slabs.find((s: any) => {
+              const sc = s.category
+              return !sc || sc === '' || sc.toLowerCase() === 'all' || sc.toLowerCase() === 'all categories' || sc === cat || !cat
+            })
+            if (bestSlab) {
+              const rc = parseFloat(bestSlab.retailer_charge) || 0
+              bbpsCharge = bestSlab.retailer_charge_type === 'percentage'
+                ? Math.round(billAmountInRupees * rc / 100 * 100) / 100
+                : rc
+              const calcComm = (val: number, type: string) => type === 'percentage' ? Math.round(billAmountInRupees * val / 100 * 100) / 100 : val
+              commissionSplit = {
+                retailer_commission: calcComm(parseFloat(bestSlab.retailer_commission) || 0, bestSlab.retailer_commission_type),
+                distributor_commission: calcComm(parseFloat(bestSlab.distributor_commission) || 0, bestSlab.distributor_commission_type),
+                md_commission: calcComm(parseFloat(bestSlab.md_commission) || 0, bestSlab.md_commission_type),
               }
+              console.log(`[BBPS Pay] Scheme charge via direct query: ₹${bbpsCharge}`)
             }
-            break
           }
         }
       } catch (directErr) {
@@ -754,7 +780,16 @@ export async function POST(request: NextRequest) {
       updateData.completed_at = new Date().toISOString()
 
       // Distribute commissions ONLY after successful payment
-      console.log(`[BBPS Pay] 💰 Commission distribution check: bbpsCharge=₹${bbpsCharge}, split=RT:₹${commissionSplit.retailer_commission}/DT:₹${commissionSplit.distributor_commission}/MD:₹${commissionSplit.md_commission}, distributorId=${distributorId}, mdId=${mdId}`)
+      // MARGIN LOGIC: When scheme is resolved via distributor_mapping or md_mapping,
+      // the owning entity's margin is already built into retailer_charge.
+      // The scheme owner should NOT receive commission — that would double-count their earnings.
+      // - distributor_mapping: DT owns the scheme → skip DT commission (margin is their earning)
+      // - md_mapping: MD owns the scheme → skip MD commission (margin is their earning)
+      // - global/retailer_mapping: Credit all commissions as defined in scheme
+      const skipDtCommission = resolvedVia === 'distributor_mapping'
+      const skipMdCommission = resolvedVia === 'md_mapping'
+      
+      console.log(`[BBPS Pay] 💰 Commission distribution check: bbpsCharge=₹${bbpsCharge}, split=RT:₹${commissionSplit.retailer_commission}/DT:₹${commissionSplit.distributor_commission}/MD:₹${commissionSplit.md_commission}, distributorId=${distributorId}, mdId=${mdId}, resolvedVia=${resolvedVia}, skipDt=${skipDtCommission}, skipMd=${skipMdCommission}`)
       if (bbpsCharge > 0) {
         const txRef = `BBPS_COMM_${agentTransactionId}`
         try {
@@ -778,7 +813,8 @@ export async function POST(request: NextRequest) {
           } else {
             console.log(`[BBPS Pay] ⚠️ Retailer commission is 0, skipping`)
           }
-          if (commissionSplit.distributor_commission > 0 && distributorId) {
+          // Skip DT commission if scheme was resolved via distributor_mapping or md_mapping (margin model)
+          if (commissionSplit.distributor_commission > 0 && distributorId && !skipDtCommission) {
             const { data: dtLedger, error: dtErr } = await supabase.rpc('add_ledger_entry', {
               p_user_id: distributorId,
               p_user_role: 'distributor',
@@ -795,10 +831,13 @@ export async function POST(request: NextRequest) {
             })
             if (dtErr) console.error(`[BBPS Pay] ❌ Distributor commission RPC error:`, dtErr)
             else console.log(`[BBPS Pay] ✅ Commission credited to distributor ${distributorId}: ₹${commissionSplit.distributor_commission}, ledger=${dtLedger}`)
+          } else if (skipDtCommission && commissionSplit.distributor_commission > 0) {
+            console.log(`[BBPS Pay] ⚠️ Distributor commission skipped (margin model): resolvedVia=${resolvedVia}, DT owns scheme margin`)
           } else {
             console.log(`[BBPS Pay] ⚠️ Distributor commission skipped: amount=₹${commissionSplit.distributor_commission}, distributorId=${distributorId}`)
           }
-          if (commissionSplit.md_commission > 0 && mdId) {
+          // Skip MD commission if scheme was resolved via md_mapping (margin model)
+          if (commissionSplit.md_commission > 0 && mdId && !skipMdCommission) {
             const { data: mdLedger, error: mdErr } = await supabase.rpc('add_ledger_entry', {
               p_user_id: mdId,
               p_user_role: 'master_distributor',
@@ -815,6 +854,8 @@ export async function POST(request: NextRequest) {
             })
             if (mdErr) console.error(`[BBPS Pay] ❌ MD commission RPC error:`, mdErr)
             else console.log(`[BBPS Pay] ✅ Commission credited to MD ${mdId}: ₹${commissionSplit.md_commission}, ledger=${mdLedger}`)
+          } else if (skipMdCommission && commissionSplit.md_commission > 0) {
+            console.log(`[BBPS Pay] ⚠️ MD commission skipped (margin model): resolvedVia=${resolvedVia}, MD owns scheme margin`)
           } else {
             console.log(`[BBPS Pay] ⚠️ MD commission skipped: amount=₹${commissionSplit.md_commission}, mdId=${mdId}`)
           }

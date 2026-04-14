@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import {
   Key, Shield, Globe, RefreshCw, Plus, Copy, Eye, EyeOff,
   CheckCircle, XCircle, AlertCircle, X, Trash2, Download,
-  Lock, Unlock, Server, Clock, FileText, Settings, Check, Link2
+  Lock, Unlock, Server, Clock, FileText, Settings, Check, Link2, Wallet, ArrowUpCircle
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { apiFetch } from '@/lib/api-client'
@@ -33,7 +33,6 @@ interface Partner {
   created_at: string
   api_keys: PartnerKey[]
   export_limit: number
-  linked_merchants: string[]
 }
 
 function parseKeyPermissions(raw: string[] | string | null | undefined): string[] {
@@ -71,8 +70,11 @@ export default function POSPartnerAPIManagement() {
   const [showWebhookModal, setShowWebhookModal] = useState(false)
   const [webhookUrlValue, setWebhookUrlValue] = useState('')
 
-  // Merchant linking
-  const [merchantIdInput, setMerchantIdInput] = useState('')
+  // Partner wallet
+  const [walletBalances, setWalletBalances] = useState<Record<string, { balance: number; is_frozen: boolean; loading: boolean }>>({})
+  const [showWalletModal, setShowWalletModal] = useState(false)
+  const [walletAmount, setWalletAmount] = useState('')
+  const [walletRemarks, setWalletRemarks] = useState('')
 
   // Whitelist form
   const [whitelistIps, setWhitelistIps] = useState('')
@@ -270,32 +272,52 @@ export default function POSPartnerAPIManagement() {
     }
   }
 
-  // ─── Link Merchant to Partner (Payout scoping) ─────────
-  const handleLinkMerchant = async (partner: Partner) => {
-    const mid = merchantIdInput.trim()
-    if (!mid) return
-    const result = await doAction({
-      action: 'link_merchant',
-      partner_id: partner.id,
-      merchant_id: mid,
-    })
-    if (result) {
-      setMerchantIdInput('')
-      showSuccess(result.message || `Merchant ${mid} linked`)
-      fetchPartners()
+  // ─── Partner Wallet ────────────────────────────────────
+  const fetchWalletBalance = async (partnerId: string) => {
+    setWalletBalances((prev) => ({ ...prev, [partnerId]: { ...prev[partnerId], loading: true } }))
+    try {
+      const res = await apiFetch(`/api/admin/partner-wallet/balance?partner_id=${partnerId}`)
+      const data = await res.json()
+      if (data.success) {
+        setWalletBalances((prev) => ({
+          ...prev,
+          [partnerId]: { balance: data.data.balance || 0, is_frozen: data.data.is_frozen || false, loading: false }
+        }))
+      } else {
+        setWalletBalances((prev) => ({ ...prev, [partnerId]: { balance: 0, is_frozen: false, loading: false } }))
+      }
+    } catch {
+      setWalletBalances((prev) => ({ ...prev, [partnerId]: { balance: 0, is_frozen: false, loading: false } }))
     }
   }
 
-  const handleUnlinkMerchant = async (partner: Partner, merchantId: string) => {
-    if (!confirm(`Unlink merchant ${merchantId} from ${partner.name}? They will no longer be able to initiate payouts for this merchant.`)) return
-    const result = await doAction({
-      action: 'unlink_merchant',
-      partner_id: partner.id,
-      merchant_id: merchantId,
-    })
-    if (result) {
-      showSuccess(`Merchant ${merchantId} unlinked`)
-      fetchPartners()
+  const handlePushWallet = async (partner: Partner) => {
+    const amt = parseFloat(walletAmount)
+    if (isNaN(amt) || amt <= 0) {
+      setError('Enter a valid amount')
+      return
+    }
+    setActionLoading(true)
+    try {
+      const res = await apiFetch('/api/admin/partner-wallet/push', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ partner_id: partner.id, amount: amt, remarks: walletRemarks || undefined }),
+      })
+      const data = await res.json()
+      if (!res.ok || !data.success) {
+        setError(data.error || 'Failed to add funds')
+      } else {
+        showSuccess(data.message || `₹${amt.toFixed(2)} added to wallet`)
+        setShowWalletModal(false)
+        setWalletAmount('')
+        setWalletRemarks('')
+        fetchWalletBalance(partner.id)
+      }
+    } catch (err: any) {
+      setError(err.message || 'Failed to add funds')
+    } finally {
+      setActionLoading(false)
     }
   }
 
@@ -636,65 +658,56 @@ export default function POSPartnerAPIManagement() {
                         )}
                       </div>
 
-                      {/* Linked Merchants (Payout scoping) */}
-                      <div>
-                        <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3 flex items-center gap-2">
-                          <Link2 className="w-4 h-4" />
-                          Linked Merchants (Payout)
-                        </h4>
-                        <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
-                          Only merchants listed here can be used in Payout Partner API transfers by this partner.
-                        </p>
-                        {partner.linked_merchants && partner.linked_merchants.length > 0 ? (
-                          <div className="space-y-1 mb-3">
-                            {partner.linked_merchants.map((mid) => (
-                              <div key={mid} className="flex items-center gap-2 py-1 px-2 bg-emerald-50 dark:bg-emerald-900/10 rounded border border-emerald-200 dark:border-emerald-800">
-                                <CheckCircle className="w-3 h-3 text-emerald-600 flex-shrink-0" />
-                                <code className="text-sm font-mono text-gray-800 dark:text-gray-200 flex-1">{mid}</code>
-                                <button
-                                  type="button"
-                                  onClick={() => copyToClipboard(mid, 'Merchant ID')}
-                                  className="p-1 hover:bg-gray-200 dark:hover:bg-gray-600 rounded"
-                                  title="Copy Merchant ID"
-                                >
-                                  <Copy className="w-3 h-3 text-gray-400" />
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => handleUnlinkMerchant(partner, mid)}
-                                  disabled={actionLoading}
-                                  className="p-1 text-red-500 hover:bg-red-100 dark:hover:bg-red-900/30 rounded disabled:opacity-50"
-                                  title="Unlink merchant"
-                                >
-                                  <X className="w-3 h-3" />
-                                </button>
-                              </div>
-                            ))}
-                          </div>
-                        ) : (
-                          <p className="text-sm text-amber-600 dark:text-amber-400 mb-3 flex items-center gap-1 font-medium">
-                            <AlertCircle className="w-4 h-4" />
-                            No merchants linked — partner cannot initiate payouts yet
-                          </p>
-                        )}
-                        <div className="flex gap-2">
-                          <input
-                            type="text"
-                            value={merchantIdInput}
-                            onChange={(e) => setMerchantIdInput(e.target.value)}
-                            placeholder="Enter retailer partner_id (e.g. RET001)"
-                            className="flex-1 text-sm px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400"
-                            onKeyDown={(e) => { if (e.key === 'Enter') handleLinkMerchant(partner) }}
-                          />
+                      {/* Partner Wallet */}
+                      <div className="p-4 bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-900/20 dark:to-teal-900/20 rounded-lg border border-emerald-200 dark:border-emerald-800">
+                        <div className="flex items-center justify-between mb-3">
+                          <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-2">
+                            <Wallet className="w-4 h-4 text-emerald-600" />
+                            Partner Wallet (Payout)
+                          </h4>
                           <button
                             type="button"
-                            onClick={() => handleLinkMerchant(partner)}
-                            disabled={actionLoading || !merchantIdInput.trim()}
-                            className="px-4 py-2 text-sm font-medium rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50 transition-colors flex items-center gap-1"
+                            onClick={() => fetchWalletBalance(partner.id)}
+                            className="p-1 hover:bg-emerald-100 dark:hover:bg-emerald-900/30 rounded transition-colors"
+                            title="Refresh balance"
                           >
-                            <Plus className="w-4 h-4" /> Link
+                            <RefreshCw className={`w-4 h-4 text-emerald-600 ${walletBalances[partner.id]?.loading ? 'animate-spin' : ''}`} />
                           </button>
                         </div>
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+                          Payout API debits this wallet. Partners no longer need merchant_id.
+                        </p>
+                        <div className="flex items-center gap-4 mb-3">
+                          <div>
+                            <span className="text-xs text-gray-500 dark:text-gray-400">Balance</span>
+                            <p className="text-2xl font-bold text-emerald-700 dark:text-emerald-400">
+                              {walletBalances[partner.id]?.loading ? (
+                                <span className="text-base">Loading...</span>
+                              ) : (
+                                `₹${(walletBalances[partner.id]?.balance || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`
+                              )}
+                            </p>
+                          </div>
+                          {walletBalances[partner.id]?.is_frozen && (
+                            <span className="px-2 py-1 bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 rounded text-xs font-semibold flex items-center gap-1">
+                              <Lock className="w-3 h-3" /> Frozen
+                            </span>
+                          )}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedPartner(partner)
+                            setWalletAmount('')
+                            setWalletRemarks('')
+                            setShowWalletModal(true)
+                            if (!walletBalances[partner.id]) fetchWalletBalance(partner.id)
+                          }}
+                          disabled={actionLoading}
+                          className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50 transition-colors text-sm font-medium"
+                        >
+                          <ArrowUpCircle className="w-4 h-4" /> Add Funds
+                        </button>
                       </div>
 
                       {/* Security Settings */}
@@ -1000,6 +1013,83 @@ export default function POSPartnerAPIManagement() {
                   >
                     {actionLoading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
                     Save Whitelist
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Partner Wallet Modal */}
+      <AnimatePresence>
+        {showWalletModal && selectedPartner && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white dark:bg-gray-800 rounded-xl shadow-xl max-w-md w-full"
+            >
+              <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+                  <Wallet className="w-5 h-5 text-emerald-600" />
+                  Add Funds — {selectedPartner.name}
+                </h3>
+                <button
+                  onClick={() => setShowWalletModal(false)}
+                  className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full"
+                >
+                  <X className="w-5 h-5 text-gray-500" />
+                </button>
+              </div>
+              <div className="p-6 space-y-4">
+                <div>
+                  <p className="text-sm text-gray-500 dark:text-gray-400 mb-1">Current Balance</p>
+                  <p className="text-2xl font-bold text-emerald-700 dark:text-emerald-400">
+                    ₹{(walletBalances[selectedPartner.id]?.balance || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                  </p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Amount to Add (₹)
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    step="0.01"
+                    value={walletAmount}
+                    onChange={(e) => setWalletAmount(e.target.value)}
+                    placeholder="Enter amount"
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Remarks (optional)
+                  </label>
+                  <input
+                    type="text"
+                    value={walletRemarks}
+                    onChange={(e) => setWalletRemarks(e.target.value)}
+                    placeholder="e.g. Bank transfer ref #123"
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100"
+                  />
+                </div>
+                <div className="flex gap-3 pt-2">
+                  <button
+                    onClick={() => setShowWalletModal(false)}
+                    className="flex-1 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 text-sm"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => handlePushWallet(selectedPartner)}
+                    disabled={actionLoading || !walletAmount}
+                    className="flex-1 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 text-sm disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    {actionLoading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <ArrowUpCircle className="w-4 h-4" />}
+                    Add Funds
                   </button>
                 </div>
               </div>

@@ -29,6 +29,10 @@ export async function GET(request: NextRequest) {
     const userRole = sp.get('user_role')?.trim() || ''
     const walletType = sp.get('wallet_type') || 'primary'
     const scope = sp.get('scope') || 'all'
+    const serviceType = sp.get('service_type')?.trim() || ''
+    const transactionType = sp.get('transaction_type')?.trim() || ''
+    const dateFrom = sp.get('date_from')?.trim() || ''
+    const dateTo = sp.get('date_to')?.trim() || ''
     const q = sp.get('q')?.trim() || ''
 
     const supabase = getSupabaseAdmin()
@@ -55,6 +59,18 @@ export async function GET(request: NextRequest) {
     }
     if (walletType && walletType !== 'all') {
       query = query.eq('wallet_type', walletType)
+    }
+    if (serviceType && serviceType !== 'all') {
+      query = query.eq('service_type', serviceType)
+    }
+    if (transactionType && transactionType !== 'all') {
+      query = query.eq('transaction_type', transactionType)
+    }
+    if (dateFrom) {
+      query = query.gte('created_at', `${dateFrom}T00:00:00`)
+    }
+    if (dateTo) {
+      query = query.lte('created_at', `${dateTo}T23:59:59`)
     }
     if (q) {
       query = query.ilike('description', `%${q.replace(/%/g, '\\%')}%`)

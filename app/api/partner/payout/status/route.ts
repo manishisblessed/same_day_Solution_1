@@ -40,64 +40,33 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url)
     const transactionId = searchParams.get('transactionId')
     const clientRefId = searchParams.get('clientRefId')
-    const merchantId =
-      searchParams.get('merchant_id')?.trim() ||
-      searchParams.get('retailer_id')?.trim() ||
-      null
     const listMode = searchParams.get('list') === 'true'
 
-    // Load all merchant_ids linked to this partner (for scoping)
-    const { data: linkedRows } = await supabase
-      .from('partner_merchant_links')
-      .select('merchant_id')
-      .eq('partner_id', partner.id)
-      .eq('is_active', true)
-
-    const linkedMerchantIds = (linkedRows || []).map((r: any) => r.merchant_id as string)
-
-    // List mode: return recent transactions for a merchant (wallet scope)
+    // List mode: return recent transactions for this partner
     if (listMode) {
-      if (!merchantId) {
-        return NextResponse.json(
-          {
-            success: false,
-            error: {
-              code: 'BAD_REQUEST',
-              message:
-                'merchant_id is required for list mode (legacy alias: retailer_id)',
-            },
-          },
-          { status: 400 }
-        )
-      }
-
-      if (!linkedMerchantIds.includes(merchantId)) {
-        return NextResponse.json(
-          {
-            success: false,
-            error: {
-              code: 'FORBIDDEN',
-              message:
-                'Merchant not linked to your partner account. Use GET /api/partner/payout/merchants to list available merchants.',
-            },
-          },
-          { status: 403 }
-        )
-      }
-
       const { data: txns } = await supabase
         .from('payout_transactions')
         .select('*')
-        .eq('retailer_id', merchantId)
+        .eq('partner_id', partner.id)
         .order('created_at', { ascending: false })
         .limit(20)
 
-      const rows = txns || []
-      const transactions = rows.map((t: Record<string, unknown>) => {
-        const rid = t.retailer_id as string | undefined
-        const { retailer_id: _legacy, ...rest } = t
-        return { ...rest, merchant_id: rid, retailer_id: rid }
-      })
+      const transactions = (txns || []).map((t: Record<string, unknown>) => ({
+        id: t.id,
+        client_ref_id: t.client_ref_id,
+        provider_txn_id: t.transaction_id,
+        rrn: t.rrn,
+        status: (t.status as string || '').toUpperCase(),
+        amount: t.amount,
+        charges: t.charges,
+        total_amount: (t.amount as number) + (t.charges as number || 0),
+        account_number: (t.account_number as string || '').replace(/\d(?=\d{4})/g, '*'),
+        account_holder_name: t.account_holder_name,
+        bank_name: t.bank_name,
+        transfer_mode: t.transfer_mode,
+        created_at: t.created_at,
+        completed_at: t.completed_at,
+      }))
 
       return NextResponse.json({ success: true, transactions })
     }
@@ -122,10 +91,10 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // Verify this transaction belongs to a merchant linked to the partner
-    if (!linkedMerchantIds.includes(tx.retailer_id)) {
+    // Verify this transaction belongs to this partner
+    if (tx.partner_id !== partner.id) {
       return NextResponse.json(
-        { success: false, error: { code: 'FORBIDDEN', message: 'Transaction does not belong to a merchant linked to your account' } },
+        { success: false, error: { code: 'FORBIDDEN', message: 'Transaction does not belong to your account' } },
         { status: 403 }
       )
     }
@@ -143,14 +112,14 @@ export async function GET(request: NextRequest) {
           await supabase.from('payout_transactions').update(updateData).eq('id', tx.id)
 
           // Auto-refund on failure
-          if (statusResult.status === 'failed' && tx.wallet_debited) {
-            const total = tx.amount + tx.charges
-            await supabase.rpc('add_ledger_entry', {
-              p_user_id: tx.retailer_id, p_user_role: 'retailer', p_wallet_type: 'primary',
-              p_fund_category: 'payout', p_service_type: 'payout', p_tx_type: 'REFUND',
-              p_credit: total, p_debit: 0,
-              p_reference_id: `REFUND_${tx.client_ref_id}`, p_transaction_id: tx.id,
-              p_status: 'completed', p_remarks: `Payout failed - Auto refund`,
+          if (statusResult.status === 'failed' && tx.wallet_debited && tx.partner_id) {
+            const total = tx.amount + (tx.charges || 0)
+            await supabase.rpc('refund_partner_wallet', {
+              p_partner_id: tx.partner_id,
+              p_amount: total,
+              p_payout_transaction_id: tx.id,
+              p_description: 'Payout failed - Auto refund',
+              p_reference_id: `REFUND_${tx.client_ref_id}`,
             })
             await supabase.from('payout_transactions').update({ status: 'refunded' }).eq('id', tx.id)
             tx.status = 'refunded'
@@ -174,7 +143,7 @@ export async function GET(request: NextRequest) {
         status: tx.status.toUpperCase(),
         amount: tx.amount,
         charges: tx.charges,
-        total_amount: tx.amount + tx.charges,
+        total_amount: tx.amount + (tx.charges || 0),
         account_number: tx.account_number.replace(/\d(?=\d{4})/g, '*'),
         account_holder_name: tx.account_holder_name,
         bank_name: tx.bank_name,

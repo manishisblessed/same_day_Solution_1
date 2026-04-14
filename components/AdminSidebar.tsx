@@ -7,7 +7,7 @@ import {
   LayoutDashboard, Users, Package, Crown, 
   BarChart3, Settings,
   Activity, X, Menu, CreditCard, Receipt, CheckCircle2,
-  Building2, FileBarChart, Layers, Key, Timer,   History, Repeat, ScrollText
+  Building2, FileBarChart, Layers, Key, Timer, History, Repeat, ScrollText, Wallet
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 
@@ -34,6 +34,7 @@ const sidebarItems: SidebarItem[] = [
   { id: 'services', label: 'Services', icon: Activity, href: '/admin?tab=services' },
   { id: 'reports', label: 'Reports', icon: FileBarChart, href: '/admin?tab=reports' },
   { id: 'settlement', label: 'Settlement', icon: Timer, href: '/admin?tab=settlement' },
+  { id: 'revenue-wallet', label: 'Revenue Wallet', icon: Wallet, href: '/admin?tab=revenue-wallet' },
   { id: 'wallet-ledger', label: 'Wallet ledger', icon: ScrollText, href: '/admin?tab=wallet-ledger' },
   { id: 'performance', label: 'Performance', icon: Activity, href: '/admin?tab=performance' },
   { id: 'subscriptions', label: 'Subscriptions', icon: Repeat, href: '/admin?tab=subscriptions' },
