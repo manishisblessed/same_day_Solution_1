@@ -18,6 +18,15 @@ const POS_COLUMNS = [
   'notes', 'created_at', 'updated_at'
 ].join(',')
 
+// Columns for partner_pos_machines table (different schema)
+const PARTNER_POS_COLUMNS = [
+  'id', 'terminal_id', 'device_serial', 'machine_model',
+  'status', 'activated_at', 'last_txn_at', 'metadata',
+  'retailer_code', 'retailer_name', 'retailer_business_name',
+  'retailer_city', 'retailer_state',
+  'created_at', 'updated_at'
+].join(',')
+
 /**
  * GET /api/pos-machines/my-machines
  * Returns POS machines assigned to the current user based on their role:
@@ -58,6 +67,11 @@ export async function GET(request: NextRequest) {
     const inventoryStatusFilter = searchParams.get('inventory_status')
     const search = searchParams.get('search')
 
+    // SPECIAL HANDLING FOR PARTNER ROLE: Query partner_pos_machines table instead
+    if (user.role === 'partner') {
+      return await handlePartnerMachines(supabase, supabaseUrl, supabaseServiceKey, user, { page, limit, offset, statusFilter, search })
+    }
+
     // Build PostgREST query params — bypass supabase-js query builder entirely
     // because it silently drops rows when .eq() filters are used.
     const params = new URLSearchParams({ select: POS_COLUMNS, limit: '10000' })
@@ -76,10 +90,6 @@ export async function GET(request: NextRequest) {
       case 'retailer':
         params.set('retailer_id', `eq.${user.partner_id}`)
         params.set('inventory_status', `eq.assigned_to_retailer`)
-        break
-      case 'partner':
-        params.set('partner_id', `eq.${user.partner_id}`)
-        params.set('inventory_status', `eq.assigned_to_partner`)
         break
       default:
         return NextResponse.json({ error: 'Unauthorized role' }, { status: 403 })
@@ -137,10 +147,6 @@ export async function GET(request: NextRequest) {
       allMachines = rawMachines.filter(m =>
         m.master_distributor_id === user.partner_id &&
         ['assigned_to_master_distributor', 'assigned_to_distributor', 'assigned_to_retailer'].includes(m.inventory_status)
-      )
-    } else if (user.role === 'partner') {
-      allMachines = rawMachines.filter(m =>
-        m.partner_id === user.partner_id && m.inventory_status === 'assigned_to_partner'
       )
     }
 
@@ -238,5 +244,118 @@ export async function GET(request: NextRequest) {
     console.error('Error in GET /api/pos-machines/my-machines:', error)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
+}
+
+/**
+ * Handle POS machines for partner role - queries partner_pos_machines table
+ * This is separate because partners use a different table structure
+ */
+async function handlePartnerMachines(
+  supabase: any,
+  supabaseUrl: string,
+  supabaseServiceKey: string,
+  user: any,
+  options: { page: number; limit: number; offset: number; statusFilter: string | null; search: string | null }
+) {
+  const { page, limit, offset, statusFilter, search } = options
+
+  // First, get the partner's API key to fetch their machines
+  const { data: partnerData, error: partnerError } = await supabase
+    .from('partners')
+    .select('id, api_key')
+    .eq('id', user.partner_id)
+    .single()
+
+  if (partnerError || !partnerData) {
+    console.error('[POS My Machines GET] Partner not found:', user.partner_id, partnerError)
+    return NextResponse.json({ error: 'Partner not found' }, { status: 404 })
+  }
+
+  // Build query for partner_pos_machines
+  const params = new URLSearchParams({ 
+    select: PARTNER_POS_COLUMNS, 
+    limit: '10000',
+    api_key: `eq.${partnerData.api_key}`
+  })
+
+  if (statusFilter && statusFilter !== 'all') {
+    params.set('status', `eq.${statusFilter}`)
+  }
+  if (search) {
+    params.set('or', `(terminal_id.ilike.%${search}%,device_serial.ilike.%${search}%,machine_model.ilike.%${search}%,retailer_name.ilike.%${search}%)`)
+  }
+
+  const restUrl = `${supabaseUrl}/rest/v1/partner_pos_machines?${params.toString()}`
+  console.log('[POS My Machines GET] Partner PostgREST URL:', restUrl.replace(supabaseUrl, '<SUPA>'))
+  
+  const res = await fetch(restUrl, {
+    headers: {
+      'apikey': supabaseServiceKey,
+      'Authorization': `Bearer ${supabaseServiceKey}`,
+      'Accept': 'application/json',
+      'Cache-Control': 'no-cache, no-store',
+      'Pragma': 'no-cache',
+    },
+    cache: 'no-store',
+  })
+
+  if (!res.ok) {
+    const errBody = await res.text()
+    console.error('Error fetching partner POS machines:', res.status, errBody)
+    return NextResponse.json({ error: 'Failed to fetch POS machines' }, { status: 500 })
+  }
+
+  const rawMachines: any[] = await res.json()
+  console.log('[POS My Machines GET] Partner PostgREST returned', rawMachines.length, 'machines')
+
+  // Transform partner_pos_machines format to match expected dashboard format
+  const transformedMachines = rawMachines.map(m => ({
+    id: m.id,
+    machine_id: m.terminal_id, // Map terminal_id to machine_id for UI consistency
+    serial_number: m.device_serial,
+    machine_type: m.machine_model,
+    tid: m.terminal_id,
+    mid: m.metadata?.mid || null,
+    brand: m.machine_model,
+    status: m.status,
+    inventory_status: 'assigned_to_partner',
+    activated_at: m.activated_at,
+    last_txn_at: m.last_txn_at,
+    retailer_code: m.retailer_code,
+    retailer_name: m.retailer_name,
+    retailer_business_name: m.retailer_business_name,
+    retailer_city: m.retailer_city,
+    retailer_state: m.retailer_state,
+    created_at: m.created_at,
+    updated_at: m.updated_at,
+  }))
+
+  // Sort by created_at descending
+  transformedMachines.sort((a, b) => {
+    const da = a.created_at ? new Date(a.created_at).getTime() : 0
+    const db = b.created_at ? new Date(b.created_at).getTime() : 0
+    return db - da
+  })
+
+  const count = transformedMachines.length
+  const machines = transformedMachines.slice(offset, offset + limit)
+  const totalPages = count ? Math.ceil(count / limit) : 1
+
+  console.log('[POS My Machines GET] Partner Results:', count, 'machines for partner', user.partner_id)
+
+  return NextResponse.json({
+    success: true,
+    data: machines,
+    assignableUsers: [], // Partners cannot assign machines
+    userRole: user.role,
+    pagination: {
+      page,
+      limit,
+      total: count,
+      totalPages,
+      hasNextPage: page < totalPages,
+      hasPrevPage: page > 1
+    }
+  })
 }
 
