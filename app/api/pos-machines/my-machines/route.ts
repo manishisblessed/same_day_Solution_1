@@ -20,7 +20,7 @@ const POS_COLUMNS = [
 
 // Columns for partner_pos_machines table (different schema)
 const PARTNER_POS_COLUMNS = [
-  'id', 'terminal_id', 'device_serial', 'machine_model',
+  'id', 'partner_id', 'terminal_id', 'device_serial', 'machine_model',
   'status', 'activated_at', 'last_txn_at', 'metadata',
   'retailer_code', 'retailer_name', 'retailer_business_name',
   'retailer_city', 'retailer_state',
@@ -259,23 +259,11 @@ async function handlePartnerMachines(
 ) {
   const { page, limit, offset, statusFilter, search } = options
 
-  // First, get the partner's API key to fetch their machines
-  const { data: partnerData, error: partnerError } = await supabase
-    .from('partners')
-    .select('id, api_key')
-    .eq('id', user.partner_id)
-    .single()
-
-  if (partnerError || !partnerData) {
-    console.error('[POS My Machines GET] Partner not found:', user.partner_id, partnerError)
-    return NextResponse.json({ error: 'Partner not found' }, { status: 404 })
-  }
-
-  // Build query for partner_pos_machines
+  // Build query for partner_pos_machines - filter by partner_id directly
   const params = new URLSearchParams({ 
     select: PARTNER_POS_COLUMNS, 
     limit: '10000',
-    api_key: `eq.${partnerData.api_key}`
+    partner_id: `eq.${user.partner_id}`
   })
 
   if (statusFilter && statusFilter !== 'all') {
