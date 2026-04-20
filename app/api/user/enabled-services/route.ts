@@ -21,8 +21,7 @@ const SERVICE_KEYS = [
 
 /**
  * GET /api/user/enabled-services
- * Returns which services are enabled for the current user (retailer, distributor, master_distributor).
- * Partners do not have per-service toggles in the same table; returns empty so Services tab can be hidden or shown as empty.
+ * Returns which services are enabled for the current user (retailer, distributor, master_distributor, partner).
  */
 export async function GET(request: NextRequest) {
   try {
@@ -53,7 +52,7 @@ export async function GET(request: NextRequest) {
     let lookupRole: string | null = null
     let lookupPartnerId: string | null = null
 
-    if (qPartnerId && qRole && ['retailer', 'distributor', 'master_distributor'].includes(qRole)) {
+    if (qPartnerId && qRole && ['retailer', 'distributor', 'master_distributor', 'partner'].includes(qRole)) {
       lookupRole = qRole
       lookupPartnerId = qPartnerId
       console.log('[enabled-services] Using query params: role=', qRole, '| partner_id=', qPartnerId)
@@ -65,7 +64,7 @@ export async function GET(request: NextRequest) {
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
       }
 
-      if (!['retailer', 'distributor', 'master_distributor'].includes(user.role)) {
+      if (!['retailer', 'distributor', 'master_distributor', 'partner'].includes(user.role)) {
         return NextResponse.json({
           services: Object.fromEntries(SERVICE_KEYS.map((k) => [k, false])),
           hasAnyEnabled: false,
@@ -76,12 +75,18 @@ export async function GET(request: NextRequest) {
       lookupPartnerId = user.partner_id ?? null
     }
 
+    // Determine table and ID column based on role
+    // Partners table uses 'id' as primary key, others use 'partner_id'
     const tableName =
       lookupRole === 'retailer'
         ? 'retailers'
         : lookupRole === 'distributor'
           ? 'distributors'
-          : 'master_distributors'
+          : lookupRole === 'partner'
+            ? 'partners'
+            : 'master_distributors'
+    
+    const idColumn = lookupRole === 'partner' ? 'id' : 'partner_id'
 
     const fields = SERVICE_KEYS.map((k) => `${k}_enabled`).join(', ')
     let row: any = null
@@ -90,12 +95,12 @@ export async function GET(request: NextRequest) {
       const byPartner = await supabase
         .from(tableName)
         .select(fields)
-        .eq('partner_id', lookupPartnerId)
+        .eq(idColumn, lookupPartnerId)
         .maybeSingle()
       if (byPartner.error) {
         console.error('[enabled-services] Query error:', byPartner.error.message, byPartner.error.code)
         // Try fetching ALL columns to diagnose column name mismatch
-        const rawCheck = await supabase.from(tableName).select('*').eq('partner_id', lookupPartnerId).maybeSingle()
+        const rawCheck = await supabase.from(tableName).select('*').eq(idColumn, lookupPartnerId).maybeSingle()
         if (rawCheck.data) {
           const rawKeys = Object.keys(rawCheck.data).filter(k => k.includes('enabled'))
           console.log('[enabled-services] Available *enabled* columns:', rawKeys.join(', '))
