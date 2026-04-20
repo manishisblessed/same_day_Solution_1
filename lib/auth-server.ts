@@ -27,11 +27,12 @@ function getServiceClient() {
  */
 async function getUserRole(_supabase: any, email: string, userId: string): Promise<AuthUser | null> {
   const supabase = getServiceClient() || _supabase
-  const [retailer, distributor, masterDistributor, admin, partner] = await Promise.all([
+  const [retailer, distributor, masterDistributor, admin, finance, partner] = await Promise.all([
     supabase.from('retailers').select('*').eq('email', email).maybeSingle(),
     supabase.from('distributors').select('*').eq('email', email).maybeSingle(),
     supabase.from('master_distributors').select('*').eq('email', email).maybeSingle(),
     supabase.from('admin_users').select('*').eq('email', email).maybeSingle(),
+    supabase.from('finance_users').select('*').eq('email', email).maybeSingle(),
     supabase.from('partners').select('*').eq('email', email).maybeSingle(),
   ])
 
@@ -43,6 +44,15 @@ async function getUserRole(_supabase: any, email: string, userId: string): Promi
       email: email,
       role: 'admin',
       name: admin.data.name,
+    }
+  }
+  if (finance.data && !finance.error && finance.data.is_active !== false) {
+    return {
+      id: userId,
+      email: email,
+      role: 'finance_executive',
+      name: finance.data.name,
+      phone: finance.data.phone ?? undefined,
     }
   }
   if (masterDistributor.data && !masterDistributor.error) {

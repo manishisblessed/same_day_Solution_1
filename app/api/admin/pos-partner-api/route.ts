@@ -39,42 +39,51 @@ export async function GET(request: NextRequest) {
         code: 'AUTH_REQUIRED'
       }, { status: 401 })
     }
-    
-    if (user.role !== 'admin') {
-      console.error('[POS Partner API] User is not admin:', user.role)
-      return NextResponse.json({ 
-        error: 'Admin access required. Your role: ' + user.role,
-        code: 'ADMIN_REQUIRED'
+
+    const isAdmin = user.role === 'admin'
+    const isPartner = user.role === 'partner' && user.partner_id
+    if (!isAdmin && !isPartner) {
+      console.error('[POS Partner API] User is not admin or partner:', user.role)
+      return NextResponse.json({
+        error: 'Access denied. Admin or partner login required.',
+        code: 'FORBIDDEN',
       }, { status: 403 })
     }
 
-    // Fetch partners from pos-partner-api schema
-    const { data: partners, error } = await supabase
-      .from('partners')
-      .select('*')
-      .order('created_at', { ascending: false })
+    let partnersQuery = supabase.from('partners').select('*').order('created_at', { ascending: false })
+    if (isPartner) {
+      partnersQuery = partnersQuery.eq('id', user.partner_id)
+    }
+    const { data: partners, error } = await partnersQuery
 
     if (error) throw error
 
-    // Fetch API keys for each partner (mask secrets)
-    const { data: apiKeys, error: keysError } = await supabase
+    let keysQuery = supabase
       .from('partner_api_keys')
       .select('id, partner_id, api_key, api_secret, label, permissions, is_active, expires_at, last_used_at, created_at')
       .order('created_at', { ascending: false })
+    if (isPartner) {
+      keysQuery = keysQuery.eq('partner_id', user.partner_id)
+    }
+    const { data: apiKeys, error: keysError } = await keysQuery
 
     if (keysError) throw keysError
 
-    // Fetch export limits
-    const { data: exportLimits } = await supabase
-      .from('partner_export_limits')
-      .select('*')
+    let exportLimitsQuery = supabase.from('partner_export_limits').select('*')
+    if (isPartner) {
+      exportLimitsQuery = exportLimitsQuery.eq('partner_id', user.partner_id)
+    }
+    const { data: exportLimits } = await exportLimitsQuery
 
-    // Fetch merchant links (payout scoping)
-    const { data: merchantLinks } = await supabase
+    let merchantLinksQuery = supabase
       .from('partner_merchant_links')
       .select('partner_id, merchant_id, is_active, created_at')
       .eq('is_active', true)
       .order('created_at', { ascending: false })
+    if (isPartner) {
+      merchantLinksQuery = merchantLinksQuery.eq('partner_id', user.partner_id)
+    }
+    const { data: merchantLinks } = await merchantLinksQuery
 
     // Combine data
     const enrichedPartners = (partners || []).map((p: any) => {
@@ -135,26 +144,40 @@ export async function POST(request: NextRequest) {
         code: 'AUTH_REQUIRED'
       }, { status: 401 })
     }
-    
-    if (user.role !== 'admin') {
-      console.error('[POS Partner API] User is not admin:', user.role)
-      return NextResponse.json({ 
-        error: 'Admin access required. Your role: ' + user.role,
-        code: 'ADMIN_REQUIRED'
+
+    const isAdmin = user.role === 'admin'
+    const isPartner = user.role === 'partner' && user.partner_id
+    if (!isAdmin && !isPartner) {
+      console.error('[POS Partner API] User is not admin or partner:', user.role)
+      return NextResponse.json({
+        error: 'Access denied. Admin or partner login required.',
+        code: 'FORBIDDEN',
       }, { status: 403 })
     }
 
     const body = await request.json()
     const { action } = body
 
+    const assertPartnerScope = (partnerId: string | undefined) => {
+      if (isPartner && partnerId && partnerId !== user.partner_id) {
+        return NextResponse.json({ error: 'You can only manage your own partner account' }, { status: 403 })
+      }
+      return null
+    }
+
     switch (action) {
 
       // ─── GENERATE API KEY ───────────────────────────────
       case 'generate_key': {
-        const { partner_id, label = 'default', permissions = ['read', 'export'] } = body
+        let { partner_id, label = 'default', permissions = ['read', 'export'] } = body
+        if (isPartner) {
+          partner_id = user.partner_id
+        }
         if (!partner_id) {
           return NextResponse.json({ error: 'partner_id is required' }, { status: 400 })
         }
+        const scopeErr = assertPartnerScope(partner_id)
+        if (scopeErr) return scopeErr
 
         // Verify partner exists
         const { data: partner, error: pErr } = await supabase
@@ -220,11 +243,14 @@ export async function POST(request: NextRequest) {
 
         const { data: existing, error: findErr } = await supabase
           .from('partner_api_keys')
-          .select('id, api_key')
+          .select('id, api_key, partner_id')
           .eq('id', key_id)
           .maybeSingle()
 
         if (findErr || !existing) {
+          return NextResponse.json({ error: 'API key not found' }, { status: 404 })
+        }
+        if (isPartner && existing.partner_id !== user.partner_id) {
           return NextResponse.json({ error: 'API key not found' }, { status: 404 })
         }
 
@@ -247,10 +273,15 @@ export async function POST(request: NextRequest) {
 
       // ─── UPDATE IP WHITELIST ────────────────────────────
       case 'update_whitelist': {
-        const { partner_id, ip_whitelist } = body
+        let { partner_id, ip_whitelist } = body
+        if (isPartner) {
+          partner_id = user.partner_id
+        }
         if (!partner_id) {
           return NextResponse.json({ error: 'partner_id is required' }, { status: 400 })
         }
+        const wlScope = assertPartnerScope(partner_id)
+        if (wlScope) return wlScope
 
         // Validate IPs
         const ips = Array.isArray(ip_whitelist) ? ip_whitelist : []
@@ -276,6 +307,9 @@ export async function POST(request: NextRequest) {
 
       // ─── UPDATE PARTNER STATUS ──────────────────────────
       case 'update_status': {
+        if (isPartner) {
+          return NextResponse.json({ error: 'Only administrators can change partner status' }, { status: 403 })
+        }
         const { partner_id, status } = body
         if (!partner_id || !status) {
           return NextResponse.json({ error: 'partner_id and status required' }, { status: 400 })
@@ -296,6 +330,9 @@ export async function POST(request: NextRequest) {
 
       // ─── UPDATE EXPORT LIMIT ────────────────────────────
       case 'update_export_limit': {
+        if (isPartner) {
+          return NextResponse.json({ error: 'Only administrators can change export limits' }, { status: 403 })
+        }
         const { partner_id, daily_limit = 10 } = body
         if (!partner_id) {
           return NextResponse.json({ error: 'partner_id is required' }, { status: 400 })
@@ -316,10 +353,15 @@ export async function POST(request: NextRequest) {
 
       // ─── UPDATE WEBHOOK URL ──────────────────────────────
       case 'update_webhook_url': {
-        const { partner_id, webhook_url } = body
+        let { partner_id, webhook_url } = body
+        if (isPartner) {
+          partner_id = user.partner_id
+        }
         if (!partner_id) {
           return NextResponse.json({ error: 'partner_id is required' }, { status: 400 })
         }
+        const whScope = assertPartnerScope(partner_id)
+        if (whScope) return whScope
 
         if (webhook_url && typeof webhook_url === 'string' && webhook_url.trim().length > 0) {
           try {
@@ -352,6 +394,17 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ error: 'key_id is required' }, { status: 400 })
         }
 
+        if (isPartner) {
+          const { data: row } = await supabase
+            .from('partner_api_keys')
+            .select('partner_id')
+            .eq('id', key_id)
+            .maybeSingle()
+          if (!row || row.partner_id !== user.partner_id) {
+            return NextResponse.json({ error: 'API key not found' }, { status: 404 })
+          }
+        }
+
         const { error: rErr } = await supabase
           .from('partner_api_keys')
           .update({ is_active: false })
@@ -364,10 +417,15 @@ export async function POST(request: NextRequest) {
 
       // ─── LINK MERCHANT TO PARTNER (Payout scoping) ──────
       case 'link_merchant': {
-        const { partner_id, merchant_id } = body
+        let { partner_id, merchant_id } = body
+        if (isPartner) {
+          partner_id = user.partner_id
+        }
         if (!partner_id || !merchant_id) {
           return NextResponse.json({ error: 'partner_id and merchant_id are required' }, { status: 400 })
         }
+        const lmScope = assertPartnerScope(partner_id)
+        if (lmScope) return lmScope
 
         const mid = String(merchant_id).trim()
         if (!mid) {
@@ -411,10 +469,15 @@ export async function POST(request: NextRequest) {
 
       // ─── UNLINK MERCHANT FROM PARTNER ─────────────────────
       case 'unlink_merchant': {
-        const { partner_id, merchant_id } = body
+        let { partner_id, merchant_id } = body
+        if (isPartner) {
+          partner_id = user.partner_id
+        }
         if (!partner_id || !merchant_id) {
           return NextResponse.json({ error: 'partner_id and merchant_id are required' }, { status: 400 })
         }
+        const umScope = assertPartnerScope(partner_id)
+        if (umScope) return umScope
 
         const { error: ulErr } = await supabase
           .from('partner_merchant_links')

@@ -127,40 +127,32 @@ function PartnerDashboardContent() {
         // Continue with default values instead of blocking
       }
 
-      // Fetch wallet balance (non-blocking with timeout - don't fail if function doesn't exist yet)
+      // Partner primary balance lives in partner_wallets (not retailer wallets / wallet_ledger)
       let walletBalance = 0
       if (user.partner_id) {
         try {
-          // Add timeout to prevent hanging (reduced to 3 seconds for faster loading)
-          const walletTimeout = new Promise((resolve) => 
+          const walletTimeout = new Promise((resolve) =>
             setTimeout(() => resolve({ data: null, error: { message: 'Timeout' } }), 3000)
           )
 
-          // Try new function first with timeout
           const balanceResult = await Promise.race([
-            supabase.rpc('get_wallet_balance_v2', {
-              p_user_id: user.partner_id,
-              p_wallet_type: 'primary'
-            }),
-            walletTimeout
+            supabase.rpc('get_partner_wallet_balance', { p_partner_id: user.partner_id }),
+            walletTimeout,
           ]) as any
 
           if (balanceResult?.data !== null && balanceResult?.data !== undefined && !balanceResult?.error) {
-            walletBalance = balanceResult.data || 0
-          } else {
-            walletBalance = 0
+            walletBalance = Number(balanceResult.data) || 0
           }
-        } catch (error) {
+        } catch {
           walletBalance = 0
         }
       }
 
-      // Fetch real transaction data from ledger (partners may use partner_id or retailer_id field)
+      // Partner wallet activity (partner_wallet_ledger — do not query wallet_ledger.partner_id; column does not exist)
       const { data: ledgerData } = await supabase
-        .from('wallet_ledger')
+        .from('partner_wallet_ledger')
         .select('*')
-        .or(`retailer_id.eq.${user.partner_id},partner_id.eq.${user.partner_id}`)
-        .eq('wallet_type', 'primary')
+        .eq('partner_id', user.partner_id)
         .order('created_at', { ascending: false })
         .limit(1000)
 
@@ -177,19 +169,18 @@ function PartnerDashboardContent() {
       const posTransactionsCount = posTransactions.length
       const totalTransactions = ledgerTransactions + posTransactionsCount
 
-      // Calculate revenue from ledger (credits)
-      const ledgerRevenue = ledgerData?.reduce((sum, entry) => sum + (entry.credit || 0), 0) || 0
+      const ledgerRevenue = ledgerData?.reduce((sum, entry) => sum + (Number(entry.credit) || 0), 0) || 0
       // Calculate revenue from POS transactions (only successful ones)
       const posRevenue = posTransactions
         .filter(tx => (tx.display_status || tx.status || '').toUpperCase() === 'SUCCESS' || (tx.status || '').toUpperCase() === 'CAPTURED')
         .reduce((sum, tx) => sum + (parseFloat(tx.amount || 0) / 100 || 0), 0) // Amount is in paise, convert to rupees
       const totalRevenue = ledgerRevenue + posRevenue
       
-      // Fetch commission data (partners may use user_id or partner_id)
+      // commission_ledger has user_id (text), not partner_id — avoid invalid columns (400 from PostgREST)
       const { data: commissionData } = await supabase
         .from('commission_ledger')
         .select('commission_amount')
-        .or(`user_id.eq.${user.partner_id},partner_id.eq.${user.partner_id}`)
+        .eq('user_id', String(user.partner_id))
       
       const commissionEarned = commissionData?.reduce((sum, entry) => sum + (entry.commission_amount || 0), 0) || 0
 
@@ -203,8 +194,8 @@ function PartnerDashboardContent() {
       // Combine recent transactions from both ledger and POS
       const recentLedgerEntries = (ledgerData || []).slice(0, 5).map(entry => ({
         id: entry.id,
-        type: entry.service_type || entry.transaction_type || 'Transaction',
-        amount: entry.credit || entry.debit || 0,
+        type: entry.description || entry.transaction_type || 'Wallet',
+        amount: Number(entry.credit) || Number(entry.debit) || 0,
         status: entry.status || 'completed',
         date: new Date(entry.created_at).toLocaleDateString(),
         customer: 'Customer',
@@ -260,7 +251,7 @@ function PartnerDashboardContent() {
         }
         
         dayMap[dayName].transactions += 1
-        dayMap[dayName].revenue += (entry.credit || 0)
+        dayMap[dayName].revenue += (Number(entry.credit) || 0)
       })
 
       // Process POS data
@@ -393,7 +384,7 @@ function PartnerDashboardContent() {
           {activeTab === 'bbps' && <BBPSTab />}
           {activeTab === 'payout' && <PayoutTransfer title="Settlement to Bank Account" />}
           {activeTab === 'transactions' && <POSTransactionsTable autoPoll={true} pollInterval={15000} />}
-          {activeTab === 'ledger' && <BBPSTransactionsTable autoPoll={true} pollInterval={15000} />}
+          {activeTab === 'ledger' && <PartnerLedgerTab user={user} />}
           {activeTab === 'mdr-schemes' && <MDRSchemesTab user={user} />}
           {activeTab === 'pos-machines' && <POSMachinesTab user={user} accentColor="purple" />}
           {activeTab === 'subscriptions' && <PartnerSubscriptionsTab />}
@@ -798,33 +789,33 @@ function ServicesTab() {
     }
 
     try {
-      // Fetch all ledger entries for this partner
       const { data: ledgerData } = await supabase
-        .from('wallet_ledger')
+        .from('partner_wallet_ledger')
         .select('*')
-        .or(`retailer_id.eq.${user.partner_id},partner_id.eq.${user.partner_id}`)
-        .eq('wallet_type', 'primary')
+        .eq('partner_id', user.partner_id)
 
-      // Map service types to display names and icons
       const serviceMap: Record<string, { name: string; icon: string }> = {
-        'bbps': { name: 'Utility Bill Payments', icon: '📄' },
-        'aeps': { name: 'AEPS Services', icon: '👆' },
-        'pos': { name: 'Mini-ATM, POS & WPOS', icon: '🏧' },
-        'settlement': { name: 'Settlement', icon: '💰' },
-        'admin': { name: 'Admin Services', icon: '🏦' },
-        'other': { name: 'Other Services', icon: '📱' },
+        bbps: { name: 'Utility Bill Payments', icon: '📄' },
+        aeps: { name: 'AEPS Services', icon: '👆' },
+        pos: { name: 'Mini-ATM, POS & WPOS', icon: '🏧' },
+        settlement: { name: 'Settlement', icon: '💰' },
+        admin: { name: 'Admin Services', icon: '🏦' },
+        credit: { name: 'Wallet credits', icon: '💳' },
+        debit: { name: 'Wallet debits', icon: '💸' },
+        refund: { name: 'Refunds', icon: '↩️' },
+        adjustment: { name: 'Adjustments', icon: '⚙️' },
+        other: { name: 'Other', icon: '📱' },
       }
 
-      // Aggregate data by service type
-      const serviceStats: Record<string, { transactions: number; revenue: number }> = {};
-      
+      const serviceStats: Record<string, { transactions: number; revenue: number }> = {}
+
       ledgerData?.forEach(entry => {
-        const serviceType = entry.service_type || 'other'
+        const serviceType = String(entry.transaction_type || 'other').toLowerCase()
         if (!serviceStats[serviceType]) {
           serviceStats[serviceType] = { transactions: 0, revenue: 0 }
         }
         serviceStats[serviceType].transactions += 1
-        serviceStats[serviceType].revenue += (entry.credit || 0)
+        serviceStats[serviceType].revenue += Number(entry.credit) || 0
       })
 
       // Create services array from aggregated data
@@ -1076,30 +1067,27 @@ function WalletTab({ user }: { user: any }) {
     fetchWalletData()
   }, [user])
 
-  const fetchWalletData = async () => {
+      const fetchWalletData = async () => {
     if (!user?.partner_id) return
     setLoading(true)
     try {
-      // Fetch PRIMARY wallet balance
       let primaryBalance = 0
       try {
-        const { data: balance } = await supabase.rpc('get_wallet_balance_v2', {
-          p_user_id: user.partner_id,
-          p_wallet_type: 'primary'
+        const { data: balance } = await supabase.rpc('get_partner_wallet_balance', {
+          p_partner_id: user.partner_id,
         })
-        primaryBalance = balance || 0
+        primaryBalance = Number(balance) || 0
       } catch {
         primaryBalance = 0
       }
 
-      // Fetch AEPS wallet balance
       let aepsBalanceData = 0
       try {
         const { data: balance } = await supabase.rpc('get_wallet_balance_v2', {
           p_user_id: user.partner_id,
-          p_wallet_type: 'aeps'
+          p_wallet_type: 'aeps',
         })
-        aepsBalanceData = balance || 0
+        aepsBalanceData = Number(balance) || 0
       } catch {
         aepsBalanceData = 0
       }
@@ -1107,12 +1095,10 @@ function WalletTab({ user }: { user: any }) {
       setWalletBalance(primaryBalance)
       setAepsBalance(aepsBalanceData)
 
-      // Fetch ledger entries (partners may use partner_id or retailer_id)
       const { data: ledger } = await supabase
-        .from('wallet_ledger')
+        .from('partner_wallet_ledger')
         .select('*')
-        .or(`retailer_id.eq.${user.partner_id},partner_id.eq.${user.partner_id}`)
-        .eq('wallet_type', 'primary')
+        .eq('partner_id', user.partner_id)
         .order('created_at', { ascending: false })
         .limit(50)
 
@@ -1317,7 +1303,9 @@ function WalletTab({ user }: { user: any }) {
                       {new Date(entry.created_at).toLocaleDateString()}
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-900 dark:text-white">{entry.transaction_type}</td>
-                    <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">{entry.fund_category || '-'}</td>
+                    <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400 max-w-[200px] truncate" title={entry.description || ''}>
+                      {entry.description || '-'}
+                    </td>
                     <td className="px-4 py-3 text-sm text-green-600 dark:text-green-400">
                       {entry.credit > 0 ? `₹${entry.credit.toLocaleString()}` : '-'}
                     </td>
@@ -2567,6 +2555,232 @@ function AdvancedAnalyticsTab({ user, stats, chartData }: { user: any, stats: an
             </li>
           </ul>
         </div>
+      </div>
+    </motion.div>
+  )
+}
+
+// Partner Ledger Tab - Full wallet transaction history
+function PartnerLedgerTab({ user }: { user: any }) {
+  const [ledgerEntries, setLedgerEntries] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [page, setPage] = useState(1)
+  const [totalPages, setTotalPages] = useState(1)
+  const [total, setTotal] = useState(0)
+  const pageSize = 25
+  const [dateFilter, setDateFilter] = useState({ start: '', end: '' })
+  const [typeFilter, setTypeFilter] = useState('all')
+
+  const fetchLedger = useCallback(async () => {
+    if (!user?.partner_id) return
+    setLoading(true)
+    try {
+      let query = supabase
+        .from('partner_wallet_ledger')
+        .select('*', { count: 'exact' })
+        .eq('partner_id', user.partner_id)
+        .order('created_at', { ascending: false })
+
+      if (dateFilter.start) {
+        query = query.gte('created_at', dateFilter.start)
+      }
+      if (dateFilter.end) {
+        query = query.lte('created_at', dateFilter.end + 'T23:59:59')
+      }
+      if (typeFilter !== 'all') {
+        query = query.eq('transaction_type', typeFilter)
+      }
+
+      const { data, count, error } = await query
+        .range((page - 1) * pageSize, page * pageSize - 1)
+
+      if (error) throw error
+      setLedgerEntries(data || [])
+      setTotal(count || 0)
+      setTotalPages(Math.ceil((count || 0) / pageSize))
+    } catch (error) {
+      console.error('Error fetching ledger:', error)
+      setLedgerEntries([])
+    } finally {
+      setLoading(false)
+    }
+  }, [user?.partner_id, page, dateFilter, typeFilter])
+
+  useEffect(() => {
+    fetchLedger()
+  }, [fetchLedger])
+
+  useEffect(() => {
+    setPage(1)
+  }, [dateFilter, typeFilter])
+
+  const transactionTypes = ['all', 'credit', 'debit', 'pos_settlement', 'withdrawal', 'commission', 'adjustment']
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="space-y-4"
+    >
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div>
+          <h2 className="text-xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
+            <Receipt className="w-5 h-5 text-purple-600" />
+            Wallet Ledger
+          </h2>
+          <p className="text-sm text-gray-500 dark:text-gray-400">{total} total transactions</p>
+        </div>
+        <button
+          onClick={fetchLedger}
+          disabled={loading}
+          className="flex items-center gap-2 px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 text-sm"
+        >
+          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+          Refresh
+        </button>
+      </div>
+
+      {/* Filters */}
+      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
+        <div className="flex flex-wrap gap-3">
+          <div>
+            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">From Date</label>
+            <input
+              type="date"
+              value={dateFilter.start}
+              onChange={(e) => setDateFilter({ ...dateFilter, start: e.target.value })}
+              className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+            />
+          </div>
+          <div>
+            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">To Date</label>
+            <input
+              type="date"
+              value={dateFilter.end}
+              onChange={(e) => setDateFilter({ ...dateFilter, end: e.target.value })}
+              className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+            />
+          </div>
+          <div>
+            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Type</label>
+            <select
+              value={typeFilter}
+              onChange={(e) => setTypeFilter(e.target.value)}
+              className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+            >
+              {transactionTypes.map(t => (
+                <option key={t} value={t}>{t === 'all' ? 'All Types' : t.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}</option>
+              ))}
+            </select>
+          </div>
+          {(dateFilter.start || dateFilter.end || typeFilter !== 'all') && (
+            <div className="flex items-end">
+              <button
+                onClick={() => { setDateFilter({ start: '', end: '' }); setTypeFilter('all') }}
+                className="px-3 py-2 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
+              >
+                Clear filters
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Ledger Table */}
+      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+        {loading ? (
+          <div className="flex items-center justify-center py-12">
+            <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-purple-600"></div>
+          </div>
+        ) : ledgerEntries.length === 0 ? (
+          <div className="text-center py-12">
+            <Receipt className="w-12 h-12 text-gray-300 dark:text-gray-600 mx-auto mb-3" />
+            <p className="text-gray-500 dark:text-gray-400">No transactions found</p>
+          </div>
+        ) : (
+          <>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-gray-50 dark:bg-gray-900/50">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Date & Time</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Type</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Description</th>
+                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Credit</th>
+                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Debit</th>
+                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Balance</th>
+                    <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                  {ledgerEntries.map((entry) => (
+                    <tr key={entry.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
+                      <td className="px-4 py-3 text-sm text-gray-900 dark:text-white whitespace-nowrap">
+                        {new Date(entry.created_at).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' })}
+                      </td>
+                      <td className="px-4 py-3 text-sm">
+                        <span className="px-2 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400">
+                          {entry.transaction_type?.replace(/_/g, ' ') || 'N/A'}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400 max-w-[250px] truncate" title={entry.description || ''}>
+                        {entry.description || entry.reference_id || '-'}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-right font-medium text-green-600 dark:text-green-400">
+                        {entry.credit > 0 ? `₹${Number(entry.credit).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : '-'}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-right font-medium text-red-600 dark:text-red-400">
+                        {entry.debit > 0 ? `₹${Number(entry.debit).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : '-'}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-right font-semibold text-gray-900 dark:text-white">
+                        ₹{Number(entry.closing_balance || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                          entry.status === 'completed' ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400' :
+                          entry.status === 'pending' ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400' :
+                          entry.status === 'failed' ? 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400' :
+                          'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
+                        }`}>
+                          {entry.status || 'completed'}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Pagination */}
+            {totalPages > 1 && (
+              <div className="px-4 py-3 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between">
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  Showing {(page - 1) * pageSize + 1}-{Math.min(page * pageSize, total)} of {total}
+                </p>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setPage(p => Math.max(1, p - 1))}
+                    disabled={page === 1}
+                    className="px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Previous
+                  </button>
+                  <span className="text-sm text-gray-600 dark:text-gray-400">
+                    Page {page} of {totalPages}
+                  </span>
+                  <button
+                    onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                    disabled={page === totalPages}
+                    className="px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+            )}
+          </>
+        )}
       </div>
     </motion.div>
   )

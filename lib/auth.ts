@@ -58,12 +58,17 @@ export async function signIn(email: string, password: string, role: UserRole) {
       case 'partner':
         tableName = 'partners'
         break
+      case 'finance_executive':
+        tableName = 'finance_users'
+        break
     }
 
     let query = supabase.from(tableName).select('*').eq('email', email)
     
     // Admin users don't have status field
-    if (role !== 'admin' && role !== 'partner') {
+    if (role === 'finance_executive') {
+      query = query.eq('is_active', true)
+    } else if (role !== 'admin' && role !== 'partner') {
       query = query.eq('status', 'active')
     } else if (role === 'partner') {
       query = query.eq('status', 'active')
@@ -84,6 +89,9 @@ export async function signIn(email: string, password: string, role: UserRole) {
       role,
       partner_id: role === 'partner' ? userData.id : userData.partner_id,
       name: userData.name,
+      ...(role === 'finance_executive' && 'phone' in userData
+        ? { phone: (userData as { phone?: string }).phone }
+        : {}),
     }
 
     return { user, session: authData.session }
@@ -104,30 +112,31 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
 
     // Check which table the user belongs to
     // Use maybeSingle() instead of single() to avoid 406 errors when user doesn't belong to a table
-    const [retailer, distributor, masterDistributor, admin, partner] = await Promise.all([
+    const [retailer, distributor, masterDistributor, admin, finance, partner] = await Promise.all([
       supabase.from('retailers').select('*').eq('email', user.email!).maybeSingle(),
       supabase.from('distributors').select('*').eq('email', user.email!).maybeSingle(),
       supabase.from('master_distributors').select('*').eq('email', user.email!).maybeSingle(),
       supabase.from('admin_users').select('*').eq('email', user.email!).maybeSingle(),
+      supabase.from('finance_users').select('*').eq('email', user.email!).maybeSingle(),
       supabase.from('partners').select('*').eq('email', user.email!).maybeSingle(),
     ])
 
-    if (retailer.data && !retailer.error) {
+    // Precedence: admin and finance before hierarchy users (matches server-side auth).
+    if (admin.data && !admin.error) {
       return {
         id: user.id,
         email: user.email!,
-        role: 'retailer',
-        partner_id: retailer.data.partner_id,
-        name: retailer.data.name,
+        role: 'admin',
+        name: admin.data.name,
       }
     }
-    if (distributor.data && !distributor.error) {
+    if (finance.data && !finance.error && finance.data.is_active !== false) {
       return {
         id: user.id,
         email: user.email!,
-        role: 'distributor',
-        partner_id: distributor.data.partner_id,
-        name: distributor.data.name,
+        role: 'finance_executive',
+        name: finance.data.name,
+        phone: finance.data.phone ?? undefined,
       }
     }
     if (masterDistributor.data && !masterDistributor.error) {
@@ -139,12 +148,22 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
         name: masterDistributor.data.name,
       }
     }
-    if (admin.data && !admin.error) {
+    if (distributor.data && !distributor.error) {
       return {
         id: user.id,
         email: user.email!,
-        role: 'admin',
-        name: admin.data.name,
+        role: 'distributor',
+        partner_id: distributor.data.partner_id,
+        name: distributor.data.name,
+      }
+    }
+    if (retailer.data && !retailer.error) {
+      return {
+        id: user.id,
+        email: user.email!,
+        role: 'retailer',
+        partner_id: retailer.data.partner_id,
+        name: retailer.data.name,
       }
     }
     if (partner.data && !partner.error) {

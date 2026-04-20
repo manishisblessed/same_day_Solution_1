@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
+import { isAdminOnly, isAdminOrFinance } from '@/lib/auth-roles'
 import { getSupabaseAdmin } from '@/lib/supabase/server-admin'
 
 export const runtime = 'nodejs'
@@ -11,8 +12,8 @@ export async function POST(request: NextRequest) {
     if (!admin) {
       return NextResponse.json({ error: 'Session expired' }, { status: 401 })
     }
-    if (admin.role !== 'admin') {
-      return NextResponse.json({ error: 'Admin access required' }, { status: 403 })
+    if (!isAdminOnly(admin)) {
+      return NextResponse.json({ error: 'Admin access required to change settlement pause' }, { status: 403 })
     }
 
     const body = await request.json()
@@ -99,8 +100,8 @@ export async function GET(request: NextRequest) {
     if (!admin) {
       return NextResponse.json({ error: 'Session expired' }, { status: 401 })
     }
-    if (admin.role !== 'admin') {
-      return NextResponse.json({ error: 'Admin access required' }, { status: 403 })
+    if (!isAdminOrFinance(admin)) {
+      return NextResponse.json({ error: 'Admin or finance access required' }, { status: 403 })
     }
 
     const supabase = getSupabaseAdmin()

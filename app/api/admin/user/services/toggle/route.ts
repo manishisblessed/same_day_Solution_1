@@ -50,7 +50,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'user_id, user_role, service_type, and enabled are required' }, { status: 400 })
     }
 
-    if (!['retailer', 'distributor', 'master_distributor'].includes(user_role)) {
+    if (!['retailer', 'distributor', 'master_distributor', 'partner'].includes(user_role)) {
       return NextResponse.json({ error: 'Invalid user_role' }, { status: 400 })
     }
 
@@ -61,13 +61,16 @@ export async function POST(request: NextRequest) {
     const ipAddress = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'unknown'
 
     const tableName = user_role === 'retailer' ? 'retailers' :
-                     user_role === 'distributor' ? 'distributors' : 'master_distributors'
+                     user_role === 'distributor' ? 'distributors' :
+                     user_role === 'partner' ? 'partners' : 'master_distributors'
     const fieldName = getFieldName(service_type)
+    // Partners table uses 'id' as primary key, others use 'partner_id'
+    const idColumn = user_role === 'partner' ? 'id' : 'partner_id'
 
     const { data: user, error: fetchError } = await supabase
       .from(tableName)
       .select('*')
-      .eq('partner_id', user_id)
+      .eq(idColumn, user_id)
       .single()
 
     if (fetchError || !user) {
@@ -75,12 +78,12 @@ export async function POST(request: NextRequest) {
     }
 
     const currentStatus = (user as any)[fieldName] as boolean | null
-    console.log('[Services Toggle] Updating', tableName, '| partner_id:', user_id, '| field:', fieldName, '| from:', currentStatus, '→', enabled)
+    console.log('[Services Toggle] Updating', tableName, '|', idColumn + ':', user_id, '| field:', fieldName, '| from:', currentStatus, '→', enabled)
 
     const { error: updateError, count } = await supabase
       .from(tableName)
       .update({ [fieldName]: enabled, updated_at: new Date().toISOString() })
-      .eq('partner_id', user_id)
+      .eq(idColumn, user_id)
 
     if (updateError) {
       console.error('[Services Toggle] Update FAILED:', updateError.message, updateError.code)
@@ -88,7 +91,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Verify the update actually persisted
-    const { data: verify } = await supabase.from(tableName).select(fieldName).eq('partner_id', user_id).maybeSingle()
+    const { data: verify } = await supabase.from(tableName).select(fieldName).eq(idColumn, user_id).maybeSingle()
     const verifiedVal = verify ? (verify as any)[fieldName] : 'N/A'
     console.log('[Services Toggle] Verified after update:', fieldName, '=', verifiedVal, '(expected:', enabled, ')')
 

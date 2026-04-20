@@ -65,7 +65,7 @@ type ServiceFilter = 'all' | 'pos' | 'bbps' | 'aeps' | 'settlement'
 type DatePreset = 'today' | 'yesterday' | 'week' | 'month' | 'quarter' | 'custom'
 
 interface ServiceTransactionReportProps {
-  userRole: 'admin' | 'master_distributor' | 'distributor' | 'retailer'
+  userRole: 'admin' | 'finance_executive' | 'master_distributor' | 'distributor' | 'retailer'
   userName?: string
 }
 
@@ -283,9 +283,19 @@ export default function ServiceTransactionReport({ userRole, userName }: Service
     return mul * (new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
   })
 
-  const roleLabel = userRole === 'admin' ? 'Admin' :
-    userRole === 'master_distributor' ? 'Master Distributor' :
-    userRole === 'distributor' ? 'Distributor' : 'Retailer'
+  const roleLabel =
+    userRole === 'admin'
+      ? 'Admin'
+      : userRole === 'finance_executive'
+        ? 'Finance'
+        : userRole === 'master_distributor'
+          ? 'Master Distributor'
+          : userRole === 'distributor'
+            ? 'Distributor'
+            : 'Retailer'
+
+  const showNetworkColumns =
+    userRole === 'admin' || userRole === 'finance_executive' || userRole === 'master_distributor'
 
   // ============================================================================
   // RENDER
@@ -496,7 +506,7 @@ export default function ServiceTransactionReport({ userRole, userName }: Service
                 {userRole !== 'retailer' && (
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase">Distributor</th>
                 )}
-                {(userRole === 'admin' || userRole === 'master_distributor') && (
+                {showNetworkColumns && (
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase">MD</th>
                 )}
                 <th className="px-4 py-3 text-center text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase">Action</th>
@@ -596,7 +606,7 @@ export default function ServiceTransactionReport({ userRole, userName }: Service
                         ) : <span className="text-sm text-gray-400">-</span>}
                       </td>
                     )}
-                    {(userRole === 'admin' || userRole === 'master_distributor') && (
+                    {showNetworkColumns && (
                       <td className="px-4 py-3 max-w-[130px]">
                         {txn.master_distributor_id ? (
                           <>

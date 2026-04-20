@@ -36,7 +36,7 @@ interface RetailerRow {
   status: string
 }
 
-export default function T1SettlementControl() {
+export default function T1SettlementControl({ readOnly = false }: { readOnly?: boolean }) {
   const [settings, setSettings] = useState<CronSettings | null>(null)
   const [retailers, setRetailers] = useState<RetailerRow[]>([])
   const [distributors, setDistributors] = useState<RetailerRow[]>([])
@@ -228,6 +228,11 @@ export default function T1SettlementControl() {
 
   return (
     <div className="space-y-4">
+      {readOnly && (
+        <div className="p-3 rounded-lg text-sm bg-amber-50 text-amber-900 border border-amber-200 dark:bg-amber-900/20 dark:text-amber-200 dark:border-amber-800">
+          View only — settlement controls can be changed by an administrator.
+        </div>
+      )}
       {/* Toast Message */}
       {message && (
         <motion.div
@@ -258,19 +263,24 @@ export default function T1SettlementControl() {
               <Power className="w-4 h-4" />
               Cron Status
             </h3>
-            <button
-              onClick={handleToggleEnabled}
-              disabled={saving}
-              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${
-                settings?.is_enabled ? 'bg-green-500' : 'bg-gray-300 dark:bg-gray-600'
-              }`}
-            >
-              <span
-                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                  settings?.is_enabled ? 'translate-x-6' : 'translate-x-1'
+            {!readOnly ? (
+              <button
+                type="button"
+                onClick={handleToggleEnabled}
+                disabled={saving}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${
+                  settings?.is_enabled ? 'bg-green-500' : 'bg-gray-300 dark:bg-gray-600'
                 }`}
-              />
-            </button>
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                    settings?.is_enabled ? 'translate-x-6' : 'translate-x-1'
+                  }`}
+                />
+              </button>
+            ) : (
+              <span className="text-xs text-gray-500">—</span>
+            )}
           </div>
 
           <div className="space-y-2">
@@ -307,32 +317,41 @@ export default function T1SettlementControl() {
           </h3>
 
           <div className="flex items-center gap-2 mb-3">
-            <select
-              value={editHour}
-              onChange={e => setEditHour(Number(e.target.value))}
-              className="px-2 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm font-mono"
-            >
-              {Array.from({ length: 24 }, (_, i) => (
-                <option key={i} value={i}>{pad(i)}</option>
-              ))}
-            </select>
-            <span className="text-lg font-bold text-gray-500">:</span>
-            <select
-              value={editMinute}
-              onChange={e => setEditMinute(Number(e.target.value))}
-              className="px-2 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm font-mono"
-            >
-              {Array.from({ length: 60 }, (_, i) => (
-                <option key={i} value={i}>{pad(i)}</option>
-              ))}
-            </select>
-            <button
-              onClick={handleUpdateSchedule}
-              disabled={saving || (editHour === settings?.schedule_hour && editMinute === settings?.schedule_minute)}
-              className="ml-auto px-3 py-1.5 rounded-lg bg-primary-500 text-white text-sm font-medium hover:bg-primary-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              {saving ? 'Saving...' : 'Update'}
-            </button>
+            {!readOnly ? (
+              <>
+                <select
+                  value={editHour}
+                  onChange={e => setEditHour(Number(e.target.value))}
+                  className="px-2 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm font-mono"
+                >
+                  {Array.from({ length: 24 }, (_, i) => (
+                    <option key={i} value={i}>{pad(i)}</option>
+                  ))}
+                </select>
+                <span className="text-lg font-bold text-gray-500">:</span>
+                <select
+                  value={editMinute}
+                  onChange={e => setEditMinute(Number(e.target.value))}
+                  className="px-2 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm font-mono"
+                >
+                  {Array.from({ length: 60 }, (_, i) => (
+                    <option key={i} value={i}>{pad(i)}</option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={handleUpdateSchedule}
+                  disabled={saving || (editHour === settings?.schedule_hour && editMinute === settings?.schedule_minute)}
+                  className="ml-auto px-3 py-1.5 rounded-lg bg-primary-500 text-white text-sm font-medium hover:bg-primary-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  {saving ? 'Saving...' : 'Update'}
+                </button>
+              </>
+            ) : (
+              <p className="text-sm font-mono text-gray-800 dark:text-gray-200">
+                {pad(settings?.schedule_hour ?? 7)}:{pad(settings?.schedule_minute ?? 0)} IST
+              </p>
+            )}
           </div>
 
           <p className="text-xs text-gray-500 dark:text-gray-400">
@@ -352,23 +371,26 @@ export default function T1SettlementControl() {
             Manual Run
           </h3>
 
-          <button
-            onClick={handleRunNow}
-            disabled={running}
-            className="w-full px-4 py-2 rounded-lg bg-gradient-to-r from-amber-500 to-orange-500 text-white text-sm font-semibold hover:from-amber-600 hover:to-orange-600 disabled:opacity-60 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2 mb-3"
-          >
-            {running ? (
-              <>
-                <RefreshCw className="w-4 h-4 animate-spin" />
-                Running...
-              </>
-            ) : (
-              <>
-                <Play className="w-4 h-4" />
-                Run T+1 Settlement Now
-              </>
-            )}
-          </button>
+          {!readOnly && (
+            <button
+              type="button"
+              onClick={handleRunNow}
+              disabled={running}
+              className="w-full px-4 py-2 rounded-lg bg-gradient-to-r from-amber-500 to-orange-500 text-white text-sm font-semibold hover:from-amber-600 hover:to-orange-600 disabled:opacity-60 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2 mb-3"
+            >
+              {running ? (
+                <>
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                  Running...
+                </>
+              ) : (
+                <>
+                  <Play className="w-4 h-4" />
+                  Run T+1 Settlement Now
+                </>
+              )}
+            </button>
+          )}
 
           {settings?.last_run_at && (
             <div className="text-xs space-y-1">
@@ -476,13 +498,15 @@ export default function T1SettlementControl() {
                 <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Status</th>
                 <th className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Mode</th>
                 <th className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">T+1 Settlement</th>
-                <th className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Actions</th>
+                {!readOnly && (
+                  <th className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Actions</th>
+                )}
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
               {filteredEntities.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-8 text-center text-gray-400 text-sm">
+                  <td colSpan={readOnly ? 6 : 7} className="px-4 py-8 text-center text-gray-400 text-sm">
                     {searchTerm ? 'No matching entities found.' : 'No entities found.'}
                   </td>
                 </tr>
@@ -509,24 +533,30 @@ export default function T1SettlementControl() {
                       </span>
                     </td>
                     <td className="px-4 py-2.5 text-center">
-                      <select
-                        value={entity.settlement_mode_allowed || 'T1'}
-                        onChange={(e) => {
-                          const newMode = e.target.value as 'T1' | 'T0_T1'
-                          if (newMode !== (entity.settlement_mode_allowed || 'T1')) {
-                            handleToggleSettlementMode(entity.partner_id, entity.settlement_mode_allowed, entityTab === 'retailers' ? 'retailer' : 'distributor', newMode)
-                          }
-                        }}
-                        disabled={togglingId === `mode-${entity.partner_id}`}
-                        className={`text-xs font-medium rounded-lg border px-2 py-1.5 transition-colors cursor-pointer disabled:opacity-50 focus:ring-2 focus:ring-primary-500 focus:outline-none ${
-                          entity.settlement_mode_allowed === 'T0_T1'
-                            ? 'bg-amber-50 border-amber-300 text-amber-700 dark:bg-amber-900/20 dark:border-amber-700 dark:text-amber-400'
-                            : 'bg-white border-gray-300 text-gray-700 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-300'
-                        }`}
-                      >
-                        <option value="T0_T1">T+0 + T+1 (Pulse Pay)</option>
-                        <option value="T1">T+1 only</option>
-                      </select>
+                      {readOnly ? (
+                        <span className="text-xs text-gray-700 dark:text-gray-300">
+                          {entity.settlement_mode_allowed === 'T0_T1' ? 'T+0 + T+1' : 'T+1 only'}
+                        </span>
+                      ) : (
+                        <select
+                          value={entity.settlement_mode_allowed || 'T1'}
+                          onChange={(e) => {
+                            const newMode = e.target.value as 'T1' | 'T0_T1'
+                            if (newMode !== (entity.settlement_mode_allowed || 'T1')) {
+                              handleToggleSettlementMode(entity.partner_id, entity.settlement_mode_allowed, entityTab === 'retailers' ? 'retailer' : 'distributor', newMode)
+                            }
+                          }}
+                          disabled={togglingId === `mode-${entity.partner_id}`}
+                          className={`text-xs font-medium rounded-lg border px-2 py-1.5 transition-colors cursor-pointer disabled:opacity-50 focus:ring-2 focus:ring-primary-500 focus:outline-none ${
+                            entity.settlement_mode_allowed === 'T0_T1'
+                              ? 'bg-amber-50 border-amber-300 text-amber-700 dark:bg-amber-900/20 dark:border-amber-700 dark:text-amber-400'
+                              : 'bg-white border-gray-300 text-gray-700 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-300'
+                          }`}
+                        >
+                          <option value="T0_T1">T+0 + T+1 (Pulse Pay)</option>
+                          <option value="T1">T+1 only</option>
+                        </select>
+                      )}
                     </td>
                     <td className="px-4 py-2.5 text-center">
                       {entity.t1_settlement_paused ? (
@@ -539,23 +569,26 @@ export default function T1SettlementControl() {
                         </span>
                       )}
                     </td>
-                    <td className="px-4 py-2.5 text-center">
-                      <button
-                        onClick={() => handleTogglePause(entity.partner_id, entity.t1_settlement_paused, entityTab === 'retailers' ? 'retailer' : 'distributor')}
-                        disabled={togglingId === entity.partner_id}
-                        className={`px-3 py-1 rounded-lg text-xs font-medium transition-colors disabled:opacity-50 ${
-                          entity.t1_settlement_paused
-                            ? 'bg-green-100 text-green-700 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-400 dark:hover:bg-green-900/50'
-                            : 'bg-red-100 text-red-700 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400 dark:hover:bg-red-900/50'
-                        }`}
-                      >
-                        {togglingId === entity.partner_id
-                          ? '...'
-                          : entity.t1_settlement_paused
-                            ? 'Resume'
-                            : 'Pause'}
-                      </button>
-                    </td>
+                    {!readOnly && (
+                      <td className="px-4 py-2.5 text-center">
+                        <button
+                          type="button"
+                          onClick={() => handleTogglePause(entity.partner_id, entity.t1_settlement_paused, entityTab === 'retailers' ? 'retailer' : 'distributor')}
+                          disabled={togglingId === entity.partner_id}
+                          className={`px-3 py-1 rounded-lg text-xs font-medium transition-colors disabled:opacity-50 ${
+                            entity.t1_settlement_paused
+                              ? 'bg-green-100 text-green-700 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-400 dark:hover:bg-green-900/50'
+                              : 'bg-red-100 text-red-700 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400 dark:hover:bg-red-900/50'
+                          }`}
+                        >
+                          {togglingId === entity.partner_id
+                            ? '...'
+                            : entity.t1_settlement_paused
+                              ? 'Resume'
+                              : 'Pause'}
+                        </button>
+                      </td>
+                    )}
                   </tr>
                 ))
               )}

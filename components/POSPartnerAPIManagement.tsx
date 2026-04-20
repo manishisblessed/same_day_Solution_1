@@ -108,7 +108,7 @@ export default function POSPartnerAPIManagement() {
         if (res.status === 401) {
           setError('Authentication required. Please log out and log back in.')
         } else if (res.status === 403) {
-          setError(result.error || 'Admin access required. Please ensure your account has admin privileges.')
+          setError(result.error || 'You do not have access to this resource.')
         } else {
           setError(result.error || `Failed to fetch partners (${res.status})`)
         }

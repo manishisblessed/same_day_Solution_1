@@ -1,4 +1,10 @@
-export type UserRole = 'retailer' | 'distributor' | 'master_distributor' | 'admin' | 'partner'
+export type UserRole =
+  | 'retailer'
+  | 'distributor'
+  | 'master_distributor'
+  | 'admin'
+  | 'partner'
+  | 'finance_executive'
 
 export interface Retailer {
   retailer_mdr_rate?: number // MDR rate charged to retailer (e.g., 0.02 for 2%)
@@ -169,6 +175,18 @@ export interface Partner {
   webhook_url?: string
   ip_whitelist?: string[]
   metadata?: Record<string, any>
+  // Service enabled flags (same as retailers/distributors)
+  banking_payments_enabled?: boolean
+  mini_atm_pos_enabled?: boolean
+  aeps_enabled?: boolean
+  aadhaar_pay_enabled?: boolean
+  dmt_enabled?: boolean
+  bbps_enabled?: boolean
+  recharge_enabled?: boolean
+  travel_enabled?: boolean
+  cash_management_enabled?: boolean
+  lic_enabled?: boolean
+  insurance_enabled?: boolean
   created_at: string
   updated_at: string
 }
@@ -179,9 +197,22 @@ export interface AuthUser {
   role: UserRole
   partner_id?: string
   name?: string
+  /** Set for finance_executive users */
+  phone?: string
   is_impersonated?: boolean
   original_admin_id?: string
   impersonation_session_id?: string
+}
+
+export interface FinanceUser {
+  id: string
+  email: string
+  name: string
+  phone?: string | null
+  is_active: boolean
+  created_at: string
+  updated_at: string
+  created_by?: string | null
 }
 
 export interface POSMachine {

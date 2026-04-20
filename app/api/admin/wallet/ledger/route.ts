@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
+import { isAdminOrFinance } from '@/lib/auth-roles'
 import { getSupabaseAdmin } from '@/lib/supabase/server-admin'
 import { getPlatformRevenueWalletConfig } from '@/lib/wallet/platform-revenue-wallet'
 
@@ -18,7 +19,7 @@ export const dynamic = 'force-dynamic'
 export async function GET(request: NextRequest) {
   try {
     const { user } = await getCurrentUserWithFallback(request)
-    if (!user || user.role !== 'admin') {
+    if (!user || !isAdminOrFinance(user)) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 })
     }
 

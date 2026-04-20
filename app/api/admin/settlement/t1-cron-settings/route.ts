@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
+import { isAdminOnly, isAdminOrFinance } from '@/lib/auth-roles'
 import { getSupabaseAdmin } from '@/lib/supabase/server-admin'
 
 export const runtime = 'nodejs'
@@ -11,8 +12,8 @@ export async function GET(request: NextRequest) {
     if (!admin) {
       return NextResponse.json({ error: 'Session expired' }, { status: 401 })
     }
-    if (admin.role !== 'admin') {
-      return NextResponse.json({ error: 'Admin access required' }, { status: 403 })
+    if (!isAdminOrFinance(admin)) {
+      return NextResponse.json({ error: 'Admin or finance access required' }, { status: 403 })
     }
 
     const supabase = getSupabaseAdmin()
@@ -27,7 +28,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to fetch settings' }, { status: 500 })
     }
 
-    return NextResponse.json({ success: true, settings: data })
+    return NextResponse.json({ success: true, settings: data, readOnly: !isAdminOnly(admin) })
   } catch (err: any) {
     console.error('[T1 Settings] GET error:', err)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
@@ -40,8 +41,8 @@ export async function PUT(request: NextRequest) {
     if (!admin) {
       return NextResponse.json({ error: 'Session expired' }, { status: 401 })
     }
-    if (admin.role !== 'admin') {
-      return NextResponse.json({ error: 'Admin access required' }, { status: 403 })
+    if (!isAdminOnly(admin)) {
+      return NextResponse.json({ error: 'Admin access required to change settings' }, { status: 403 })
     }
 
     const body = await request.json()

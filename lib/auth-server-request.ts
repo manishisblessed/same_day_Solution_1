@@ -100,29 +100,30 @@ export async function getCurrentUserFromRequest(
       if (session?.user) {
         const fallbackUser = session.user
         // Continue with fallbackUser instead of returning null
-        const [retailer, distributor, masterDistributor, admin] = await Promise.all([
+        const [retailer, distributor, masterDistributor, admin, finance, partner] = await Promise.all([
           supabase.from('retailers').select('*').eq('email', fallbackUser.email!).maybeSingle(),
           supabase.from('distributors').select('*').eq('email', fallbackUser.email!).maybeSingle(),
           supabase.from('master_distributors').select('*').eq('email', fallbackUser.email!).maybeSingle(),
           supabase.from('admin_users').select('*').eq('email', fallbackUser.email!).maybeSingle(),
+          supabase.from('finance_users').select('*').eq('email', fallbackUser.email!).maybeSingle(),
+          supabase.from('partners').select('*').eq('email', fallbackUser.email!).maybeSingle(),
         ])
 
-        if (retailer.data && !retailer.error) {
+        if (admin.data && !admin.error) {
           return {
             id: fallbackUser.id,
             email: fallbackUser.email!,
-            role: 'retailer',
-            partner_id: retailer.data.partner_id,
-            name: retailer.data.name,
+            role: 'admin',
+            name: admin.data.name,
           }
         }
-        if (distributor.data && !distributor.error) {
+        if (finance.data && !finance.error && finance.data.is_active !== false) {
           return {
             id: fallbackUser.id,
             email: fallbackUser.email!,
-            role: 'distributor',
-            partner_id: distributor.data.partner_id,
-            name: distributor.data.name,
+            role: 'finance_executive',
+            name: finance.data.name,
+            phone: finance.data.phone ?? undefined,
           }
         }
         if (masterDistributor.data && !masterDistributor.error) {
@@ -134,12 +135,31 @@ export async function getCurrentUserFromRequest(
             name: masterDistributor.data.name,
           }
         }
-        if (admin.data && !admin.error) {
+        if (distributor.data && !distributor.error) {
           return {
             id: fallbackUser.id,
             email: fallbackUser.email!,
-            role: 'admin',
-            name: admin.data.name,
+            role: 'distributor',
+            partner_id: distributor.data.partner_id,
+            name: distributor.data.name,
+          }
+        }
+        if (retailer.data && !retailer.error) {
+          return {
+            id: fallbackUser.id,
+            email: fallbackUser.email!,
+            role: 'retailer',
+            partner_id: retailer.data.partner_id,
+            name: retailer.data.name,
+          }
+        }
+        if (partner.data && !partner.error) {
+          return {
+            id: fallbackUser.id,
+            email: fallbackUser.email!,
+            role: 'partner',
+            partner_id: partner.data.id,
+            name: partner.data.name,
           }
         }
       }
@@ -159,29 +179,30 @@ export async function getCurrentUserFromRequest(
 
     // Check which table the user belongs to
     // Use maybeSingle() instead of single() to avoid 406 errors when user doesn't belong to a table
-    const [retailer, distributor, masterDistributor, admin] = await Promise.all([
+    const [retailer, distributor, masterDistributor, admin, finance, partner] = await Promise.all([
       supabase.from('retailers').select('*').eq('email', user.email!).maybeSingle(),
       supabase.from('distributors').select('*').eq('email', user.email!).maybeSingle(),
       supabase.from('master_distributors').select('*').eq('email', user.email!).maybeSingle(),
       supabase.from('admin_users').select('*').eq('email', user.email!).maybeSingle(),
+      supabase.from('finance_users').select('*').eq('email', user.email!).maybeSingle(),
+      supabase.from('partners').select('*').eq('email', user.email!).maybeSingle(),
     ])
 
-    if (retailer.data && !retailer.error) {
+    if (admin.data && !admin.error) {
       return {
         id: user.id,
         email: user.email!,
-        role: 'retailer',
-        partner_id: retailer.data.partner_id,
-        name: retailer.data.name,
+        role: 'admin',
+        name: admin.data.name,
       }
     }
-    if (distributor.data && !distributor.error) {
+    if (finance.data && !finance.error && finance.data.is_active !== false) {
       return {
         id: user.id,
         email: user.email!,
-        role: 'distributor',
-        partner_id: distributor.data.partner_id,
-        name: distributor.data.name,
+        role: 'finance_executive',
+        name: finance.data.name,
+        phone: finance.data.phone ?? undefined,
       }
     }
     if (masterDistributor.data && !masterDistributor.error) {
@@ -193,12 +214,31 @@ export async function getCurrentUserFromRequest(
         name: masterDistributor.data.name,
       }
     }
-    if (admin.data && !admin.error) {
+    if (distributor.data && !distributor.error) {
       return {
         id: user.id,
         email: user.email!,
-        role: 'admin',
-        name: admin.data.name,
+        role: 'distributor',
+        partner_id: distributor.data.partner_id,
+        name: distributor.data.name,
+      }
+    }
+    if (retailer.data && !retailer.error) {
+      return {
+        id: user.id,
+        email: user.email!,
+        role: 'retailer',
+        partner_id: retailer.data.partner_id,
+        name: retailer.data.name,
+      }
+    }
+    if (partner.data && !partner.error) {
+      return {
+        id: user.id,
+        email: user.email!,
+        role: 'partner',
+        partner_id: partner.data.id,
+        name: partner.data.name,
       }
     }
 

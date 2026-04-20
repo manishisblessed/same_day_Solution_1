@@ -7,7 +7,7 @@ import { supabase } from '@/lib/supabase/client'
 import AdminSidebar from '@/components/AdminSidebar'
 import { 
   Lock, Eye, EyeOff, CheckCircle, AlertCircle, 
-  User, Mail, Shield, Save, ArrowLeft, Users, Plus, Edit, Trash2, X
+  User, Mail, Shield, Save, ArrowLeft, Users, Plus, Edit, Trash2, X, IndianRupee
 } from 'lucide-react'
 import { motion } from 'framer-motion'
 import { apiFetch } from '@/lib/api-client'
@@ -16,7 +16,7 @@ export default function AdminSettings() {
   const { user, loading: authLoading } = useAuth()
   const router = useRouter()
   const [sidebarOpen, setSidebarOpen] = useState(false)
-  const [activeTab, setActiveTab] = useState<'profile' | 'password' | 'sub-admins'>('profile')
+  const [activeTab, setActiveTab] = useState<'profile' | 'password' | 'sub-admins' | 'finance-team'>('profile')
   
   const [formData, setFormData] = useState({
     currentPassword: '',
@@ -43,6 +43,25 @@ export default function AdminSettings() {
     departments: ['wallet'] as string[],
     is_active: true
   })
+
+  const [financeUsers, setFinanceUsers] = useState<any[]>([])
+  const [loadingFinanceUsers, setLoadingFinanceUsers] = useState(false)
+  const [showFinanceModal, setShowFinanceModal] = useState(false)
+  const [creatingFinance, setCreatingFinance] = useState(false)
+  const [showFinancePassword, setShowFinancePassword] = useState(false)
+  const [financeForm, setFinanceForm] = useState({
+    name: '',
+    email: '',
+    phone: '',
+    password: '',
+  })
+
+  const canManageFinanceUsers =
+    adminInfo?.admin_type === 'super_admin' ||
+    adminInfo?.department === 'users' ||
+    adminInfo?.department === 'all' ||
+    (Array.isArray(adminInfo?.departments) &&
+      (adminInfo.departments.includes('users') || adminInfo.departments.includes('all')))
 
   const availableDepartments = [
     { id: 'wallet', label: 'Wallet' },
@@ -90,6 +109,29 @@ export default function AdminSettings() {
       fetchSubAdmins()
     }
   }, [activeTab, user])
+
+  const fetchFinanceUsers = async () => {
+    setLoadingFinanceUsers(true)
+    try {
+      const response = await apiFetch('/api/admin/finance-users')
+      const data = await response.json()
+      if (response.ok && data.success) {
+        setFinanceUsers(data.users || [])
+      } else {
+        setMessage({ type: 'error', text: data.error || 'Failed to load finance users' })
+      }
+    } catch (e: any) {
+      setMessage({ type: 'error', text: e?.message || 'Failed to load finance users' })
+    } finally {
+      setLoadingFinanceUsers(false)
+    }
+  }
+
+  useEffect(() => {
+    if (activeTab === 'finance-team' && user?.role === 'admin' && canManageFinanceUsers) {
+      fetchFinanceUsers()
+    }
+  }, [activeTab, user, canManageFinanceUsers])
 
   const fetchSubAdmins = async () => {
     setLoadingSubAdmins(true)
@@ -187,6 +229,44 @@ export default function AdminSettings() {
       fetchSubAdmins()
     } catch (error: any) {
       setMessage({ type: 'error', text: error.message || 'Failed to delete sub-admin' })
+    }
+  }
+
+  const handleCreateFinanceUser = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setMessage(null)
+    if (!financeForm.name.trim() || !financeForm.email.trim() || !financeForm.password) {
+      setMessage({ type: 'error', text: 'Name, email, and password are required' })
+      return
+    }
+    if (financeForm.password.length < 8) {
+      setMessage({ type: 'error', text: 'Password must be at least 8 characters' })
+      return
+    }
+    setCreatingFinance(true)
+    try {
+      const response = await apiFetch('/api/admin/finance-users', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: financeForm.name.trim(),
+          email: financeForm.email.trim().toLowerCase(),
+          phone: financeForm.phone.trim() || undefined,
+          password: financeForm.password,
+        }),
+      })
+      const data = await response.json()
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to create finance user')
+      }
+      setMessage({ type: 'success', text: 'Finance executive created. They can sign in at /finance-same/login' })
+      setShowFinanceModal(false)
+      setShowFinancePassword(false)
+      setFinanceForm({ name: '', email: '', phone: '', password: '' })
+      fetchFinanceUsers()
+    } catch (error: any) {
+      setMessage({ type: 'error', text: error.message || 'Failed to create finance user' })
+    } finally {
+      setCreatingFinance(false)
     }
   }
 
@@ -295,7 +375,8 @@ export default function AdminSettings() {
               {[
                 { id: 'profile' as const, label: 'Profile', icon: User },
                 { id: 'password' as const, label: 'Password', icon: Lock },
-                ...(adminInfo?.admin_type === 'super_admin' ? [{ id: 'sub-admins' as const, label: 'Sub-Admins', icon: Users }] : [])
+                ...(adminInfo?.admin_type === 'super_admin' ? [{ id: 'sub-admins' as const, label: 'Sub-Admins', icon: Users }] : []),
+                ...(canManageFinanceUsers ? [{ id: 'finance-team' as const, label: 'Finance team', icon: IndianRupee }] : []),
               ].map((tab) => (
                 <button
                   key={tab.id}
@@ -649,7 +730,179 @@ export default function AdminSettings() {
               )}
             </motion.div>
             )}
+
+            {activeTab === 'finance-team' && canManageFinanceUsers && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.15 }}
+              className="bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 p-6"
+            >
+              <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 bg-emerald-100 dark:bg-emerald-900/30 rounded-lg">
+                    <IndianRupee className="w-6 h-6 text-emerald-700 dark:text-emerald-400" />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-bold text-gray-900 dark:text-white">Finance executives</h2>
+                    <p className="text-sm text-gray-500 dark:text-gray-400">
+                      Create logins for the finance portal at <code className="text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">/finance-same/login</code>
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFinanceForm({ name: '', email: '', phone: '', password: '' })
+                    setShowFinancePassword(false)
+                    setShowFinanceModal(true)
+                  }}
+                  className="btn-primary flex items-center gap-2 px-4 py-2"
+                >
+                  <Plus className="w-4 h-4" />
+                  Add finance user
+                </button>
+              </div>
+
+              {loadingFinanceUsers ? (
+                <div className="text-center py-8 text-gray-500">Loading…</div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b border-gray-200 dark:border-gray-700">
+                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700 dark:text-gray-300">Name</th>
+                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700 dark:text-gray-300">Email</th>
+                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700 dark:text-gray-300">Mobile</th>
+                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700 dark:text-gray-300">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {financeUsers.map((fu) => (
+                        <tr key={fu.id} className="border-b border-gray-200 dark:border-gray-700">
+                          <td className="py-3 px-4 text-sm text-gray-900 dark:text-white">{fu.name}</td>
+                          <td className="py-3 px-4 text-sm text-gray-600 dark:text-gray-400">{fu.email}</td>
+                          <td className="py-3 px-4 text-sm text-gray-600 dark:text-gray-400">{fu.phone || '—'}</td>
+                          <td className="py-3 px-4">
+                            <span
+                              className={`px-2 py-1 text-xs font-semibold rounded-full ${
+                                fu.is_active
+                                  ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400'
+                                  : 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400'
+                              }`}
+                            >
+                              {fu.is_active ? 'Active' : 'Inactive'}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                      {financeUsers.length === 0 && (
+                        <tr>
+                          <td colSpan={4} className="py-8 text-center text-gray-500 dark:text-gray-400">
+                            No finance users yet. Click &quot;Add finance user&quot; to create one.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </motion.div>
+            )}
           </div>
+
+          {showFinanceModal && (
+            <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-md w-full p-6"
+              >
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-bold text-gray-900 dark:text-white">Add finance executive</h3>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowFinanceModal(false)
+                      setShowFinancePassword(false)
+                    }}
+                    className="text-gray-400 hover:text-gray-600 p-1"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+                <form onSubmit={handleCreateFinanceUser} className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Name *</label>
+                    <input
+                      type="text"
+                      required
+                      value={financeForm.name}
+                      onChange={(e) => setFinanceForm({ ...financeForm, name: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Email *</label>
+                    <input
+                      type="email"
+                      required
+                      value={financeForm.email}
+                      onChange={(e) => setFinanceForm({ ...financeForm, email: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Mobile</label>
+                    <input
+                      type="tel"
+                      value={financeForm.phone}
+                      onChange={(e) => setFinanceForm({ ...financeForm, phone: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+                      placeholder="Optional"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Password *</label>
+                    <div className="relative">
+                      <input
+                        type={showFinancePassword ? 'text' : 'password'}
+                        required
+                        value={financeForm.password}
+                        onChange={(e) => setFinanceForm({ ...financeForm, password: e.target.value })}
+                        className="w-full pl-3 pr-11 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+                        minLength={8}
+                        autoComplete="new-password"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowFinancePassword(!showFinancePassword)}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 rounded-md"
+                        aria-label={showFinancePassword ? 'Hide password' : 'Show password'}
+                      >
+                        {showFinancePassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
+                  </div>
+                  <div className="flex justify-end gap-2 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowFinanceModal(false)
+                        setShowFinancePassword(false)
+                      }}
+                      className="px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300"
+                    >
+                      Cancel
+                    </button>
+                    <button type="submit" disabled={creatingFinance} className="btn-primary px-4 py-2">
+                      {creatingFinance ? 'Creating…' : 'Create'}
+                    </button>
+                  </div>
+                </form>
+              </motion.div>
+            </div>
+          )}
 
           {/* Sub-Admin Modal */}
           {showSubAdminModal && (

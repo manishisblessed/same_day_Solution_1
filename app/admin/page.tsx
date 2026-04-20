@@ -2139,21 +2139,33 @@ function ServicesManagementTab() {
     setUsersLoading(true)
     try {
       const baseFields = 'partner_id, name, email, phone, business_name, status, created_at'
+      const partnerBaseFields = 'id, name, email, phone, business_name, status, created_at'
       const allFieldsList = SERVICE_FIELDS.join(', ')
       const serviceFields = `${baseFields}, ${allFieldsList}`
+      const partnerServiceFields = `${partnerBaseFields}, ${allFieldsList}`
 
       const defaultServices: Record<string, boolean> = {}
       ALL_SERVICES.forEach(s => { defaultServices[`${s.key}_enabled`] = false })
 
       const fetchTable = async (table: string, role: string) => {
-        const { data, error } = await supabase.from(table).select(serviceFields).order('created_at', { ascending: false })
+        const isPartner = role === 'partner'
+        const fields = isPartner ? partnerServiceFields : serviceFields
+        const fallbackFields = isPartner ? partnerBaseFields : baseFields
+        
+        const { data, error } = await supabase.from(table).select(fields).order('created_at', { ascending: false })
         if (error) {
           console.warn(`Service columns not found in ${table}, fetching without them:`, error.message)
-          const { data: fallbackData } = await supabase.from(table).select(baseFields).order('created_at', { ascending: false })
-          return (fallbackData || []).map(u => ({ ...u, role, ...defaultServices }))
+          const { data: fallbackData } = await supabase.from(table).select(fallbackFields).order('created_at', { ascending: false })
+          return (fallbackData || []).map(u => {
+            // Partners use 'id' instead of 'partner_id', normalize to partner_id for consistency
+            const partnerId = isPartner ? (u as any).id : (u as any).partner_id
+            return { ...u, partner_id: partnerId, role, ...defaultServices }
+          })
         }
         return (data || []).map(u => {
-          const user = { ...u, role }
+          // Partners use 'id' instead of 'partner_id', normalize to partner_id for consistency
+          const partnerId = isPartner ? (u as any).id : (u as any).partner_id
+          const user = { ...u, partner_id: partnerId, role }
           ALL_SERVICES.forEach(s => {
             const field = `${s.key}_enabled`
             user[field] = u[field] ?? false
@@ -2162,13 +2174,14 @@ function ServicesManagementTab() {
         })
       }
 
-      const [retailers, distributors, mds] = await Promise.all([
+      const [retailers, distributors, mds, partners] = await Promise.all([
         fetchTable('retailers', 'retailer'),
         fetchTable('distributors', 'distributor'),
         fetchTable('master_distributors', 'master_distributor'),
+        fetchTable('partners', 'partner'),
       ])
 
-      setAllUsers([...retailers, ...distributors, ...mds])
+      setAllUsers([...retailers, ...distributors, ...mds, ...partners])
     } catch (error) {
       console.error('Error fetching users:', error)
       setAllUsers([])
@@ -2310,11 +2323,13 @@ function ServicesManagementTab() {
       retailer: { total: 0, services: {} },
       distributor: { total: 0, services: {} },
       master_distributor: { total: 0, services: {} },
+      partner: { total: 0, services: {} },
     }
     ALL_SERVICES.forEach(s => {
       counts.retailer.services[s.key] = 0
       counts.distributor.services[s.key] = 0
       counts.master_distributor.services[s.key] = 0
+      counts.partner.services[s.key] = 0
     })
     allUsers.forEach(u => {
       if (counts[u.role]) {
@@ -2349,6 +2364,7 @@ function ServicesManagementTab() {
       case 'retailer': return 'Retailer'
       case 'distributor': return 'Distributor'
       case 'master_distributor': return 'Master Distributor'
+      case 'partner': return 'Partner'
       default: return role
     }
   }
@@ -2358,6 +2374,7 @@ function ServicesManagementTab() {
       case 'retailer': return 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400'
       case 'distributor': return 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400'
       case 'master_distributor': return 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400'
+      case 'partner': return 'bg-pink-100 text-pink-800 dark:bg-pink-900/30 dark:text-pink-400'
       default: return 'bg-gray-100 text-gray-800'
     }
   }
@@ -2465,15 +2482,16 @@ function ServicesManagementTab() {
               <Crown className="w-4 h-4 text-amber-500" />
               Role-wise Service Activation
             </h3>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              {(['retailer', 'distributor', 'master_distributor'] as const).map((role) => {
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+              {(['retailer', 'distributor', 'master_distributor', 'partner'] as const).map((role) => {
                 const counts = roleCounts[role]
-                const roleIcons: Record<string, any> = { retailer: Users, distributor: Package, master_distributor: Crown }
+                const roleIcons: Record<string, any> = { retailer: Users, distributor: Package, master_distributor: Crown, partner: Shield }
                 const RoleIcon = roleIcons[role]
                 const gradients: Record<string, string> = {
                   retailer: 'from-blue-500 to-blue-600',
                   distributor: 'from-purple-500 to-purple-600',
                   master_distributor: 'from-amber-500 to-amber-600',
+                  partner: 'from-pink-500 to-pink-600',
                 }
                 return (
                   <motion.div
@@ -2576,6 +2594,7 @@ function ServicesManagementTab() {
                   <option value="retailer">Retailers</option>
                   <option value="distributor">Distributors</option>
                   <option value="master_distributor">Master Distributors</option>
+                  <option value="partner">Partners</option>
                 </select>
                 <select
                   value={serviceFilter}
@@ -5460,6 +5479,92 @@ function POSMachinesTab({
     }
   }
 
+  const getAssignmentSummary = (inv?: string): 'Assigned' | 'In stock' | 'Other' => {
+    if (!inv) return 'Other'
+    if (
+      inv === 'assigned_to_retailer' ||
+      inv === 'assigned_to_distributor' ||
+      inv === 'assigned_to_master_distributor' ||
+      inv === 'assigned_to_partner'
+    ) {
+      return 'Assigned'
+    }
+    if (inv === 'in_stock' || inv === 'received_from_bank') return 'In stock'
+    return 'Other'
+  }
+
+  const escapeCsvCell = (value: string | number | undefined | null): string => {
+    const s = value === undefined || value === null ? '' : String(value)
+    if (/[",\r\n]/.test(s)) {
+      return `"${s.replace(/"/g, '""')}"`
+    }
+    return s
+  }
+
+  const downloadPosMachinesExport = () => {
+    const headers = [
+      'machine_id',
+      'serial_number',
+      'mid',
+      'tid',
+      'brand',
+      'machine_type',
+      'operational_status',
+      'assignment',
+      'inventory_status',
+      'retailer',
+      'distributor',
+      'master_distributor',
+      'partner',
+      'delivery_date',
+      'installation_date',
+      'location',
+      'city',
+      'state',
+      'pincode',
+      'notes',
+    ]
+
+    const rows = posMachines.map((machine) => {
+      const inv = machine.inventory_status || ''
+      return [
+        escapeCsvCell(machine.machine_id),
+        escapeCsvCell(machine.serial_number),
+        escapeCsvCell(machine.mid),
+        escapeCsvCell(machine.tid),
+        escapeCsvCell(machine.brand),
+        escapeCsvCell(machine.machine_type),
+        escapeCsvCell(machine.status),
+        escapeCsvCell(getAssignmentSummary(inv)),
+        escapeCsvCell(inv || 'unknown'),
+        escapeCsvCell(machine.retailer_id ? getRetailerName(machine.retailer_id) : ''),
+        escapeCsvCell(machine.distributor_id ? getDistributorName(machine.distributor_id) : ''),
+        escapeCsvCell(machine.master_distributor_id ? getMasterDistributorName(machine.master_distributor_id) : ''),
+        escapeCsvCell(machine.partner_id ? getPartnerName(machine.partner_id) : ''),
+        escapeCsvCell(machine.delivery_date ? machine.delivery_date.slice(0, 10) : ''),
+        escapeCsvCell(machine.installation_date ? machine.installation_date.slice(0, 10) : ''),
+        escapeCsvCell(machine.location),
+        escapeCsvCell(machine.city),
+        escapeCsvCell(machine.state),
+        escapeCsvCell(machine.pincode),
+        escapeCsvCell(machine.notes),
+      ].join(',')
+    })
+
+    const csvContent = ['\uFEFF', headers.join(','), ...rows].join('\n')
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+    const link = document.createElement('a')
+    const url = URL.createObjectURL(blob)
+    const stamp = new Date().toISOString().slice(0, 10)
+    link.setAttribute('href', url)
+    link.setAttribute('download', `pos_machines_export_${stamp}.csv`)
+    link.style.visibility = 'hidden'
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+  }
+
   // Stock intake bulk template (no retailer / distributor / master_distributor — inventory_status must be in_stock)
   const downloadCSVTemplate = () => {
     const headers = [
@@ -5685,6 +5790,16 @@ function POSMachinesTab({
         >
           <Upload className="w-4 h-4" />
           Bulk Upload
+        </button>
+        <button
+          type="button"
+          onClick={downloadPosMachinesExport}
+          disabled={posMachines.length === 0}
+          title={posMachines.length === 0 ? 'No machines to export' : 'Download all POS machines as CSV'}
+          className="flex items-center gap-2 text-sm px-4 py-1.5 whitespace-nowrap border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          <FileDown className="w-4 h-4" />
+          Export
         </button>
         <button
           onClick={() => {
@@ -7444,6 +7559,15 @@ function PartnersTab() {
   const [showWhitelistModal, setShowWhitelistModal] = useState<any>(null)
   const [editingPartner, setEditingPartner] = useState<any>(null)
 
+  const [partnerWalletModal, setPartnerWalletModal] = useState<{
+    partner: any
+    action: 'push' | 'pull'
+  } | null>(null)
+  const [partnerWalletAmount, setPartnerWalletAmount] = useState('')
+  const [partnerWalletRemarks, setPartnerWalletRemarks] = useState('')
+  const [partnerWalletBalance, setPartnerWalletBalance] = useState<number | null>(null)
+  const [partnerWalletSubmitting, setPartnerWalletSubmitting] = useState(false)
+
   useEffect(() => {
     fetchPartners()
   }, [])
@@ -7474,6 +7598,58 @@ function PartnersTab() {
     const matchesFilter = filter === 'all' || p.status === filter
     return matchesSearch && matchesFilter
   })
+
+  const openPartnerWallet = async (partner: any, action: 'push' | 'pull') => {
+    setPartnerWalletModal({ partner, action })
+    setPartnerWalletAmount('')
+    setPartnerWalletRemarks('')
+    setPartnerWalletBalance(null)
+    try {
+      const res = await apiFetch(`/api/admin/partner-wallet/balance?partner_id=${encodeURIComponent(partner.id)}`)
+      const json = await res.json()
+      if (json.success && json.data && typeof json.data.balance === 'number') {
+        setPartnerWalletBalance(json.data.balance)
+      }
+    } catch {
+      setPartnerWalletBalance(null)
+    }
+  }
+
+  const submitPartnerWallet = async () => {
+    if (!partnerWalletModal) return
+    const amt = parseFloat(partnerWalletAmount)
+    if (isNaN(amt) || amt <= 0) {
+      alert('Enter a valid amount')
+      return
+    }
+    setPartnerWalletSubmitting(true)
+    try {
+      const endpoint =
+        partnerWalletModal.action === 'push'
+          ? '/api/admin/partner-wallet/push'
+          : '/api/admin/partner-wallet/pull'
+      const res = await apiFetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          partner_id: partnerWalletModal.partner.id,
+          amount: amt,
+          remarks: partnerWalletRemarks || undefined,
+        }),
+      })
+      const data = await res.json()
+      if (data.success) {
+        alert(data.message || 'Done')
+        setPartnerWalletModal(null)
+      } else {
+        alert(data.error || 'Action failed')
+      }
+    } catch (e: any) {
+      alert(e?.message || 'Request failed')
+    } finally {
+      setPartnerWalletSubmitting(false)
+    }
+  }
 
   return (
     <div className="space-y-4">
@@ -7562,6 +7738,26 @@ function PartnersTab() {
               )}
               <div className="mt-3 flex gap-2">
                 <button
+                  type="button"
+                  onClick={() => openPartnerWallet(partner, 'push')}
+                  className="flex-1 px-2 py-1.5 text-xs bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors flex items-center justify-center gap-1"
+                  title="Push balance"
+                >
+                  <ArrowUpCircle className="w-3.5 h-3.5" />
+                  Push
+                </button>
+                <button
+                  type="button"
+                  onClick={() => openPartnerWallet(partner, 'pull')}
+                  className="flex-1 px-2 py-1.5 text-xs bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors flex items-center justify-center gap-1"
+                  title="Pull balance"
+                >
+                  <ArrowDownCircle className="w-3.5 h-3.5" />
+                  Pull
+                </button>
+              </div>
+              <div className="mt-2 flex gap-2">
+                <button
                   onClick={() => setEditingPartner(partner)}
                   className="flex-1 px-3 py-1.5 text-xs bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors flex items-center justify-center gap-1"
                 >
@@ -7630,6 +7826,84 @@ function PartnersTab() {
               fetchPartners()
             }}
           />
+        )}
+        {partnerWalletModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-md w-full p-6 border border-gray-200 dark:border-gray-700"
+            >
+              <div className="flex items-start justify-between mb-4">
+                <div>
+                  <h3 className="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                    <Wallet className="w-5 h-5 text-primary-600" />
+                    {partnerWalletModal.action === 'push' ? 'Push' : 'Pull'} partner wallet
+                  </h3>
+                  <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                    {partnerWalletModal.partner.name}
+                  </p>
+                  {partnerWalletBalance !== null && (
+                    <p className="text-sm font-medium text-gray-800 dark:text-gray-200 mt-2">
+                      Current balance: ₹{partnerWalletBalance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                    </p>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setPartnerWalletModal(null)}
+                  className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Amount (₹)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={partnerWalletAmount}
+                    onChange={(e) => setPartnerWalletAmount(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+                    placeholder="0.00"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Remarks (optional)</label>
+                  <input
+                    type="text"
+                    value={partnerWalletRemarks}
+                    onChange={(e) => setPartnerWalletRemarks(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+                    placeholder="Note"
+                  />
+                </div>
+              </div>
+              <div className="flex justify-end gap-2 mt-6">
+                <button
+                  type="button"
+                  onClick={() => setPartnerWalletModal(null)}
+                  className="px-4 py-2 rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={partnerWalletSubmitting}
+                  onClick={submitPartnerWallet}
+                  className={`px-4 py-2 rounded-lg text-white disabled:opacity-50 ${
+                    partnerWalletModal.action === 'push'
+                      ? 'bg-emerald-600 hover:bg-emerald-700'
+                      : 'bg-red-600 hover:bg-red-700'
+                  }`}
+                >
+                  {partnerWalletSubmitting ? '…' : partnerWalletModal.action === 'push' ? 'Push funds' : 'Pull funds'}
+                </button>
+              </div>
+            </motion.div>
+          </div>
         )}
       </AnimatePresence>
     </div>
@@ -8673,11 +8947,9 @@ function SetPartnerPasswordModal({
 
     try {
       // Call API route to set partner password (server-side only operation)
-      const response = await fetchWithAuth('/api/admin/set-partner-password', {
+      // Use apiFetch to route to EC2 backend which has SUPABASE_SERVICE_ROLE_KEY
+      const response = await apiFetch('/api/admin/set-partner-password', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
         body: JSON.stringify({
           partner_id: partner.id,
           password,

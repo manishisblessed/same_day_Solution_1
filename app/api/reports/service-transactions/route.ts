@@ -68,7 +68,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Session expired. Please log in again.', code: 'SESSION_EXPIRED' }, { status: 401 })
     }
 
-    const allowedRoles = ['admin', 'master_distributor', 'distributor', 'retailer']
+    const allowedRoles = ['admin', 'finance_executive', 'master_distributor', 'distributor', 'retailer', 'partner']
     if (!allowedRoles.includes(user.role)) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 })
     }
@@ -84,36 +84,63 @@ export async function GET(request: NextRequest) {
     const offset = parseInt(searchParams.get('offset') || '0')
     const format = searchParams.get('format') || 'json'
 
-    // Resolve downline IDs based on role
     const downline = await resolveDownline(supabase, user)
+    const partnerRetailerScope =
+      user.role === 'partner' && user.partner_id
+        ? await resolvePartnerRetailerScope(supabase, user.partner_id)
+        : null
 
     let results: NormalizedTransaction[] = []
     let total = 0
 
     // Fetch POS transactions
     if (service === 'all' || service === 'pos') {
-      const { data, count } = await fetchPOSTransactions(supabase, user, downline, { dateFrom, dateTo, status, search, limit, offset })
+      const { data, count } = await fetchPOSTransactions(
+        supabase,
+        user,
+        downline,
+        { dateFrom, dateTo, status, search, limit, offset },
+        partnerRetailerScope
+      )
       results = results.concat(data)
       total += count
     }
 
     // Fetch BBPS transactions
     if (service === 'all' || service === 'bbps') {
-      const { data, count } = await fetchBBPSTransactions(supabase, user, downline, { dateFrom, dateTo, status, search, limit, offset })
+      const { data, count } = await fetchBBPSTransactions(
+        supabase,
+        user,
+        downline,
+        { dateFrom, dateTo, status, search, limit, offset },
+        partnerRetailerScope
+      )
       results = results.concat(data)
       total += count
     }
 
     // Fetch AEPS transactions
     if (service === 'all' || service === 'aeps') {
-      const { data, count } = await fetchAEPSTransactions(supabase, user, downline, { dateFrom, dateTo, status, search, limit, offset })
+      const { data, count } = await fetchAEPSTransactions(
+        supabase,
+        user,
+        downline,
+        { dateFrom, dateTo, status, search, limit, offset },
+        partnerRetailerScope
+      )
       results = results.concat(data)
       total += count
     }
 
     // Fetch Settlement transactions (includes both settlements and payout_transactions)
     if (service === 'all' || service === 'settlement') {
-      const { data, count } = await fetchSettlementTransactions(supabase, user, downline, { dateFrom, dateTo, status, search, limit, offset })
+      const { data, count } = await fetchSettlementTransactions(
+        supabase,
+        user,
+        downline,
+        { dateFrom, dateTo, status, search, limit, offset },
+        partnerRetailerScope
+      )
       results = results.concat(data)
       total += count
     }
@@ -192,8 +219,8 @@ interface DownlineInfo {
 async function resolveDownline(supabase: any, user: any): Promise<DownlineInfo> {
   const info: DownlineInfo = { retailerIds: [], distributorIds: [], mdIds: [] }
 
-  if (user.role === 'admin') {
-    return info // admin sees everything — no filtering needed
+  if (user.role === 'admin' || user.role === 'finance_executive') {
+    return info // full network view — no filtering needed
   }
 
   if (user.role === 'master_distributor' && user.partner_id) {
@@ -226,6 +253,24 @@ async function resolveDownline(supabase: any, user: any): Promise<DownlineInfo> 
   return info
 }
 
+/** Partner portal: own partner id + linked merchant IDs (BBPS/POS scope). */
+async function resolvePartnerRetailerScope(supabase: any, partnerId: string): Promise<string[]> {
+  const ids = new Set<string>([String(partnerId)])
+  try {
+    const { data: links } = await supabase
+      .from('partner_merchant_links')
+      .select('merchant_id')
+      .eq('partner_id', partnerId)
+      .eq('is_active', true)
+    for (const row of links || []) {
+      if (row?.merchant_id) ids.add(String(row.merchant_id))
+    }
+  } catch {
+    /* partner_merchant_links may be absent in some databases */
+  }
+  return Array.from(ids)
+}
+
 // ============================================================================
 // FETCH FUNCTIONS
 // ============================================================================
@@ -239,14 +284,23 @@ interface FetchFilters {
   offset: number
 }
 
-async function fetchPOSTransactions(supabase: any, user: any, downline: DownlineInfo, filters: FetchFilters) {
+async function fetchPOSTransactions(
+  supabase: any,
+  user: any,
+  downline: DownlineInfo,
+  filters: FetchFilters,
+  partnerRetailerScope: string[] | null
+) {
   let query = supabase
     .from('razorpay_pos_transactions')
     .select('*', { count: 'exact' })
     .order('transaction_time', { ascending: false })
 
   // Role-based filtering
-  if (user.role === 'retailer') {
+  if (user.role === 'partner') {
+    if (!partnerRetailerScope?.length) return { data: [], count: 0 }
+    query = query.in('retailer_id', partnerRetailerScope)
+  } else if (user.role === 'retailer') {
     query = query.eq('retailer_id', user.partner_id)
   } else if (user.role === 'distributor') {
     if (downline.retailerIds.length > 0) {
@@ -305,13 +359,22 @@ async function fetchPOSTransactions(supabase: any, user: any, downline: Downline
   return { data: normalized, count: count || 0 }
 }
 
-async function fetchBBPSTransactions(supabase: any, user: any, downline: DownlineInfo, filters: FetchFilters) {
+async function fetchBBPSTransactions(
+  supabase: any,
+  user: any,
+  downline: DownlineInfo,
+  filters: FetchFilters,
+  partnerRetailerScope: string[] | null
+) {
   let query = supabase
     .from('bbps_transactions')
     .select('*', { count: 'exact' })
     .order('created_at', { ascending: false })
 
-  if (user.role === 'retailer') {
+  if (user.role === 'partner') {
+    if (!partnerRetailerScope?.length) return { data: [], count: 0 }
+    query = query.in('retailer_id', partnerRetailerScope)
+  } else if (user.role === 'retailer') {
     query = query.eq('retailer_id', user.partner_id)
   } else if (user.role === 'distributor') {
     if (downline.retailerIds.length > 0) {
@@ -370,13 +433,22 @@ async function fetchBBPSTransactions(supabase: any, user: any, downline: Downlin
   return { data: normalized, count: count || 0 }
 }
 
-async function fetchAEPSTransactions(supabase: any, user: any, downline: DownlineInfo, filters: FetchFilters) {
+async function fetchAEPSTransactions(
+  supabase: any,
+  user: any,
+  downline: DownlineInfo,
+  filters: FetchFilters,
+  partnerRetailerScope: string[] | null
+) {
   let query = supabase
     .from('aeps_transactions')
     .select('*', { count: 'exact' })
     .order('created_at', { ascending: false })
 
-  if (user.role === 'retailer') {
+  if (user.role === 'partner') {
+    if (!partnerRetailerScope?.length) return { data: [], count: 0 }
+    query = query.in('user_id', partnerRetailerScope)
+  } else if (user.role === 'retailer') {
     query = query.eq('user_id', user.partner_id)
   } else if (user.role === 'distributor') {
     if (downline.retailerIds.length > 0) {
@@ -435,7 +507,13 @@ async function fetchAEPSTransactions(supabase: any, user: any, downline: Downlin
   return { data: normalized, count: count || 0 }
 }
 
-async function fetchSettlementTransactions(supabase: any, user: any, downline: DownlineInfo, filters: FetchFilters) {
+async function fetchSettlementTransactions(
+  supabase: any,
+  user: any,
+  downline: DownlineInfo,
+  filters: FetchFilters,
+  partnerRetailerScope: string[] | null
+) {
   let allResults: NormalizedTransaction[] = []
   let totalCount = 0
 
@@ -446,7 +524,13 @@ async function fetchSettlementTransactions(supabase: any, user: any, downline: D
       .select('*', { count: 'exact' })
       .order('created_at', { ascending: false })
 
-    if (user.role === 'retailer') {
+    if (user.role === 'partner') {
+      if (!partnerRetailerScope?.length) {
+        sQuery = sQuery.eq('user_id', '__none__')
+      } else {
+        sQuery = sQuery.in('user_id', partnerRetailerScope)
+      }
+    } else if (user.role === 'retailer') {
       sQuery = sQuery.eq('user_id', user.partner_id)
     } else if (user.role === 'distributor') {
       if (downline.retailerIds.length > 0) {
@@ -511,7 +595,13 @@ async function fetchSettlementTransactions(supabase: any, user: any, downline: D
       .select('*', { count: 'exact' })
       .order('created_at', { ascending: false })
 
-    if (user.role === 'retailer') {
+    if (user.role === 'partner') {
+      if (!partnerRetailerScope?.length) {
+        pQuery = pQuery.eq('retailer_id', '__none__')
+      } else {
+        pQuery = pQuery.in('retailer_id', partnerRetailerScope)
+      }
+    } else if (user.role === 'retailer') {
       pQuery = pQuery.eq('retailer_id', user.partner_id)
     } else if (user.role === 'distributor') {
       if (downline.retailerIds.length > 0) {

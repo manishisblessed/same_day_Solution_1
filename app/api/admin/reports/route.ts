@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
+import { isAdminOrFinance } from '@/lib/auth-roles'
 import { createClient } from '@supabase/supabase-js'
 
 export const runtime = 'nodejs' // Force Node.js runtime (Supabase not compatible with Edge Runtime)
@@ -27,8 +28,8 @@ export async function GET(request: NextRequest) {
     if (!admin) {
       return NextResponse.json({ error: 'Session expired. Please log in again.', code: 'SESSION_EXPIRED' }, { status: 401 })
     }
-    if (admin.role !== 'admin') {
-      return NextResponse.json({ error: 'Unauthorized: Admin access required' }, { status: 403 })
+    if (!isAdminOrFinance(admin)) {
+      return NextResponse.json({ error: 'Unauthorized: Admin or finance access required' }, { status: 403 })
     }
 
     const searchParams = request.nextUrl.searchParams

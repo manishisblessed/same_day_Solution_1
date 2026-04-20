@@ -19,7 +19,7 @@ interface SessionTimerProps {
   /** Login redirect path based on role */
   loginPath?: string
   /** User role for display purposes */
-  userRole?: 'admin' | 'retailer' | 'distributor' | 'master_distributor' | 'partner'
+  userRole?: 'admin' | 'finance_executive' | 'retailer' | 'distributor' | 'master_distributor' | 'partner'
 }
 
 export default function SessionTimer({
@@ -111,7 +111,12 @@ export default function SessionTimer({
     } catch (error) {
       console.error('Logout error:', error)
     } finally {
-      const basePath = userRole === 'admin' ? '/admin/login' : loginPath
+      const basePath =
+        userRole === 'admin'
+          ? '/admin/login'
+          : userRole === 'finance_executive'
+            ? '/finance-same/login'
+            : loginPath
       window.location.href = `${basePath}?session=expired`
     }
   }, [logout, userRole, loginPath])
@@ -268,7 +273,12 @@ export default function SessionTimer({
           localStorage.removeItem('auth_user_timestamp')
           localStorage.removeItem('sessionStartTime')
           localStorage.removeItem('sessionDuration')
-          const basePath = userRole === 'admin' ? '/admin/login' : loginPath
+          const basePath =
+            userRole === 'admin'
+              ? '/admin/login'
+              : userRole === 'finance_executive'
+                ? '/finance-same/login'
+                : loginPath
           window.location.href = `${basePath}?session=expired`
         }
       }, 3000)
