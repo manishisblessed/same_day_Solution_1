@@ -209,6 +209,7 @@ async function assignToDistributor(
   const { error: updateError } = await supabase
     .from('pos_machines')
     .update({
+      partner_id: null,  // Clear partner_id when moving to hierarchy
       distributor_id: assignTo,
       retailer_id: null,
       inventory_status: 'assigned_to_distributor',
@@ -305,6 +306,7 @@ async function assignToRetailer(
   const { error: updateError } = await supabase
     .from('pos_machines')
     .update({
+      partner_id: null,  // Clear partner_id when moving to hierarchy
       retailer_id: assignTo,
       inventory_status: 'assigned_to_retailer',
       assigned_by: user.partner_id,

@@ -83,6 +83,7 @@ export async function POST(request: NextRequest) {
           }
 
           const { error: upErr } = await supabase.from('pos_machines').update({
+            partner_id: null,  // Clear partner_id when recalling to hierarchy
             distributor_id: null,
             retailer_id: null,
             inventory_status: 'assigned_to_master_distributor',
@@ -132,6 +133,7 @@ export async function POST(request: NextRequest) {
           }
 
           const { error: upErr } = await supabase.from('pos_machines').update({
+            partner_id: null,  // Clear partner_id when recalling to hierarchy
             retailer_id: null,
             inventory_status: 'assigned_to_distributor',
             assigned_by: user.partner_id,

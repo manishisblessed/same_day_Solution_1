@@ -114,6 +114,7 @@ export async function POST(request: NextRequest) {
           }
 
           const { error: upErr } = await supabase.from('pos_machines').update({
+            partner_id: null,  // Clear partner_id when moving to hierarchy
             distributor_id: assign_to,
             retailer_id: null,
             inventory_status: 'assigned_to_distributor',
@@ -172,6 +173,7 @@ export async function POST(request: NextRequest) {
           }
 
           const { error: upErr } = await supabase.from('pos_machines').update({
+            partner_id: null,  // Clear partner_id when moving to hierarchy
             retailer_id: assign_to,
             inventory_status: 'assigned_to_retailer',
             assigned_by: partnerId,
