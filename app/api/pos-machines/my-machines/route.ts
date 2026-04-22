@@ -121,7 +121,12 @@ export async function GET(request: NextRequest) {
     if (!res.ok) {
       const errBody = await res.text()
       console.error('Error fetching POS machines:', res.status, errBody)
-      return NextResponse.json({ error: 'Failed to fetch POS machines' }, { status: 500 })
+      console.error('PostgREST URL was:', restUrl)
+      console.error('User:', user.email, 'Role:', user.role, 'Partner ID:', user.partner_id)
+      return NextResponse.json({ 
+        error: 'Failed to fetch POS machines',
+        details: `HTTP ${res.status}: ${errBody.substring(0, 200)}`
+      }, { status: 500 })
     }
 
     const rawMachines: any[] = await res.json()
@@ -262,9 +267,11 @@ async function handlePartnerMachines(
   // Build query for partner_pos_machines - filter by partner_id directly
   const params = new URLSearchParams({ 
     select: PARTNER_POS_COLUMNS, 
-    limit: '10000',
-    partner_id: `eq.${user.partner_id}`
+    limit: '10000'
   })
+  
+  // Add partner_id filter using PostgREST format
+  params.append('partner_id', `eq.${user.partner_id}`)
 
   if (statusFilter && statusFilter !== 'all') {
     params.set('status', `eq.${statusFilter}`)
@@ -290,7 +297,12 @@ async function handlePartnerMachines(
   if (!res.ok) {
     const errBody = await res.text()
     console.error('Error fetching partner POS machines:', res.status, errBody)
-    return NextResponse.json({ error: 'Failed to fetch POS machines' }, { status: 500 })
+    console.error('PostgREST URL was:', restUrl)
+    console.error('User:', user.email, 'Partner ID:', user.partner_id)
+    return NextResponse.json({ 
+      error: 'Failed to fetch POS machines',
+      details: `HTTP ${res.status}: ${errBody.substring(0, 200)}`
+    }, { status: 500 })
   }
 
   const rawMachines: any[] = await res.json()

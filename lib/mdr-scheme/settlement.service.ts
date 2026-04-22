@@ -543,3 +543,243 @@ export async function getPendingT1Transactions(
   return (data || []) as Transaction[];
 }
 
+/**
+ * Calculate MDR for partner (simplified - no distributor chain)
+ * Returns: partner_mdr, partner_settlement_amount, company_earning (which equals mdr_fee)
+ */
+export async function calculatePartnerMDR(
+  partnerId: string,
+  amount: number,
+  settlementType: SettlementType,
+  mode: string,
+  cardType?: string,
+  brandType?: string
+): Promise<{
+  success: boolean;
+  partner_mdr?: number;
+  partner_fee?: number;
+  partner_settlement_amount?: number;
+  company_earning?: number;
+  scheme_id?: string;
+  error?: string;
+}> {
+  try {
+    const normalizedMode = normalizePaymentMode(mode);
+    const normalizedCardType = normalizeCardType(cardType || undefined);
+    const normalizedBrandType = normalizeBrandType(brandType || undefined);
+
+    console.log(
+      `[Partner MDR] Calculating for partner=${partnerId}, amount=${amount}, mode=${normalizedMode}, card_type=${normalizedCardType}, brand_type=${normalizedBrandType}, settlement=${settlementType}`
+    );
+
+    const supabase = getSupabaseAdmin();
+
+    // Query partner_schemes to find matching scheme
+    let query = supabase
+      .from('partner_schemes')
+      .select('*')
+      .eq('partner_id', partnerId)
+      .eq('status', 'active')
+      .eq('mode', normalizedMode);
+
+    // Fallback chain: most specific to least specific
+    // Try 1: Exact match (card_type + brand_type)
+    let schemeRecord = await query
+      .eq('card_type', normalizedCardType || null)
+      .eq('brand_type', normalizedBrandType || null)
+      .maybeSingle();
+
+    // Try 2: Card type only
+    if (!schemeRecord.data && normalizedCardType) {
+      const q2 = supabase
+        .from('partner_schemes')
+        .select('*')
+        .eq('partner_id', partnerId)
+        .eq('status', 'active')
+        .eq('mode', normalizedMode)
+        .eq('card_type', normalizedCardType)
+        .is('brand_type', null);
+      schemeRecord = await q2.maybeSingle();
+    }
+
+    // Try 3: Fallback - any card type (mode only)
+    if (!schemeRecord.data) {
+      const q3 = supabase
+        .from('partner_schemes')
+        .select('*')
+        .eq('partner_id', partnerId)
+        .eq('status', 'active')
+        .eq('mode', normalizedMode)
+        .is('card_type', null)
+        .is('brand_type', null);
+      schemeRecord = await q3.maybeSingle();
+    }
+
+    if (schemeRecord.error || !schemeRecord.data) {
+      console.warn(
+        `[Partner MDR] No scheme found for partner=${partnerId}, mode=${normalizedMode}`
+      );
+      return {
+        success: false,
+        error: `No active partner scheme found for mode: ${normalizedMode}`,
+      };
+    }
+
+    const scheme = schemeRecord.data;
+    const partner_mdr =
+      settlementType === 'T0' ? scheme.partner_mdr_t0 : scheme.partner_mdr_t1;
+
+    // Calculate fee
+    const partner_fee = Number(((amount * partner_mdr) / 100).toFixed(4));
+
+    // Company earning is the MDR fee
+    const company_earning = Number(partner_fee.toFixed(4));
+
+    // Settlement amount for partner
+    const partner_settlement_amount = Number(
+      (amount - partner_fee).toFixed(2)
+    );
+
+    console.log(
+      `[Partner MDR] Resolved: partner_mdr=${partner_mdr}%, fee=${partner_fee}, settlement=${partner_settlement_amount}, scheme_id=${scheme.id}`
+    );
+
+    return {
+      success: true,
+      partner_mdr,
+      partner_fee,
+      partner_settlement_amount,
+      company_earning,
+      scheme_id: scheme.id,
+    };
+  } catch (error: any) {
+    console.error('[Partner MDR] Error calculating MDR:', error);
+    return {
+      success: false,
+      error: error.message || 'Failed to calculate partner MDR',
+    };
+  }
+}
+
+/**
+ * Credit partner wallet using the existing partner wallet RPC
+ */
+export async function creditPartnerWallet(
+  partnerId: string,
+  amount: number,
+  referenceId: string,
+  description: string
+): Promise<{
+  success: boolean;
+  wallet_credit_id?: string;
+  error?: string;
+}> {
+  try {
+    const supabase = getSupabaseAdmin();
+
+    // Call the existing credit_partner_wallet RPC
+    const { data, error } = await supabase.rpc('credit_partner_wallet', {
+      p_partner_id: partnerId,
+      p_amount: amount,
+      p_description: description,
+      p_reference_id: referenceId,
+      p_transaction_type: 'CREDIT',
+    });
+
+    if (error) {
+      console.error(
+        `[Partner Settlement] Failed to credit partner wallet for ${partnerId}:`,
+        error
+      );
+      return { success: false, error: error.message };
+    }
+
+    console.log(
+      `[Partner Settlement] Credited partner ${partnerId}: ₹${amount}, ledger_id=${data}`
+    );
+
+    return {
+      success: true,
+      wallet_credit_id: data,
+    };
+  } catch (error: any) {
+    console.error('[Partner Settlement] Error crediting wallet:', error);
+    return {
+      success: false,
+      error: error.message || 'Failed to credit partner wallet',
+    };
+  }
+}
+
+/**
+ * Get pending T+1 transactions for partner settlement
+ * Returns transactions that:
+ * - Have partner_id
+ * - Are T+1 settlement type
+ * - Have not been credited to partner wallet yet
+ * - Are from yesterday or earlier
+ * - Partner is not paused
+ */
+export async function getPendingPartnerT1Transactions(
+  beforeDate?: Date
+): Promise<any[]> {
+  try {
+    const supabase = getSupabaseAdmin();
+
+    // Default to transactions created yesterday or earlier
+    const cutoffDate =
+      beforeDate || new Date(Date.now() - 24 * 60 * 60 * 1000);
+
+    // Get paused partner IDs
+    const { data: pausedPartners, error: pauseError } = await supabase.rpc(
+      'get_paused_partner_ids'
+    );
+
+    if (pauseError) {
+      console.warn('[Partner Settlement] Error fetching paused partners:', pauseError);
+    }
+
+    const pausedPartnerIds = (pausedPartners || []).map(
+      (p: any) => p.partner_id
+    );
+
+    console.log(
+      `[Partner Settlement] Paused partners: ${pausedPartnerIds.length}`
+    );
+
+    // Query pending partner transactions
+    let query = supabase
+      .from('razorpay_pos_transactions')
+      .select('*')
+      .eq('settlement_type', 'T1')
+      .eq('partner_wallet_credited', false)
+      .lte('created_at', cutoffDate.toISOString())
+      .not('partner_id', 'is', null)
+      .order('created_at', { ascending: true });
+
+    const { data, error } = await query;
+
+    if (error) {
+      console.error(
+        '[Partner Settlement] Error fetching pending transactions:',
+        error
+      );
+      return [];
+    }
+
+    // Filter out paused partners
+    const filtered = (data || []).filter(
+      (txn: any) => !pausedPartnerIds.includes(txn.partner_id)
+    );
+
+    console.log(
+      `[Partner Settlement] Found ${filtered.length} pending T+1 transactions for partners (before filtering: ${data?.length || 0})`
+    );
+
+    return filtered;
+  } catch (error: any) {
+    console.error('[Partner Settlement] Error in getPendingPartnerT1Transactions:', error);
+    return [];
+  }
+}
+

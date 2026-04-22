@@ -322,6 +322,9 @@ export async function POST(request: NextRequest) {
       posting_date: postingDateParsed?.toISOString() || null,
       card_txn_type: cardTxnType,
       acquiring_bank: acquiringBank,
+      // Partner settlement fields (will be populated if partner device)
+      settlement_type: 'T1',
+      partner_id: null,
     }
 
     let posResult
@@ -371,6 +374,7 @@ export async function POST(request: NextRequest) {
     //   - Auto T+1: Cron job processes remaining unsettled transactions next day
     // ================================================================
     let retailerMapping: any = null
+    let partnerMapping: any = null
     
     if (mappedStatus === 'CAPTURED' && deviceSerial && amount && amount > 0) {
       // Look up device mapping to get retailer hierarchy
@@ -385,6 +389,21 @@ export async function POST(request: NextRequest) {
         console.error('Error looking up device mapping:', mappingError)
       }
 
+      // Also look up partner_id from pos_machines for partner settlement
+      if (deviceSerial) {
+        const { data: posMachine, error: machineError } = await supabase
+          .from('pos_machines')
+          .select('partner_id')
+          .eq('device_serial', deviceSerial)
+          .or(`serial_number.eq.${deviceSerial}`)
+          .maybeSingle()
+
+        if (!machineError && posMachine?.partner_id) {
+          partnerMapping = posMachine
+          console.log(`[Webhook] Partner found for device_serial ${deviceSerial}: ${posMachine.partner_id}`)
+        }
+      }
+
       if (deviceMapping && deviceMapping.retailer_id) {
         retailerMapping = deviceMapping
         const grossAmount = amount // Amount is already in rupees from Razorpay POS
@@ -397,6 +416,8 @@ export async function POST(request: NextRequest) {
             retailer_id: deviceMapping.retailer_id,
             distributor_id: deviceMapping.distributor_id,
             master_distributor_id: deviceMapping.master_distributor_id,
+            partner_id: partnerMapping?.partner_id || null,
+            settlement_type: 'T1',
             gross_amount: grossAmount,
             // wallet_credited: false (default - NOT crediting here)
             // settlement_mode: null (unsettled - waiting for Pulse Pay or T+1)
