@@ -5,6 +5,9 @@
  * Run with: pm2 start workers/aeps-worker.js --name aeps-worker
  */
 
+// Load environment variables
+require('dotenv').config();
+
 const { createClient } = require('@supabase/supabase-js');
 
 // Configuration
