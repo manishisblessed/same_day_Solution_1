@@ -5,8 +5,9 @@
  * Run with: pm2 start workers/aeps-worker.js --name aeps-worker
  */
 
-// Load environment variables
-require('dotenv').config();
+// Load environment variables from .env.local (Next.js convention)
+const path = require('path');
+require('dotenv').config({ path: path.resolve(__dirname, '../.env.local') });
 
 const { createClient } = require('@supabase/supabase-js');
 
