@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { authenticatePartner, PartnerAuthError } from '@/lib/partner-auth'
 import { fetchBill } from '@/services/bbps'
+import { getBBPSProvider } from '@/services/bbps/config'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -37,7 +38,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const { biller_id, consumer_number, input_params, init_channel, payment_mode, ip, mac } = body
+    const { biller_id, consumer_number, input_params, init_channel, payment_mode, ip, mac, enquiry_id } = body
 
     if (!biller_id) {
       return NextResponse.json(
@@ -52,6 +53,20 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // For Chagans BBPS, enquiry_id is required
+    if (getBBPSProvider() === 'chagans' && !enquiry_id) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: {
+            code: 'BAD_REQUEST',
+            message: 'enquiry_id is required for Chagans BBPS. Get it from getBillerFields response.',
+          },
+        },
+        { status: 400 }
+      )
+    }
+
     let inputParams: Array<{ paramName: string; paramValue: string | number }> | undefined
     if (Array.isArray(input_params)) {
       inputParams = input_params.map((p: any) => ({ paramName: p.paramName, paramValue: p.paramValue }))
@@ -62,6 +77,7 @@ export async function POST(request: NextRequest) {
     const billDetails = await fetchBill({
       billerId: biller_id,
       consumerNumber: consumer_number || (inputParams?.[0]?.paramValue?.toString() ?? ''),
+      enquiryId: enquiry_id ? String(enquiry_id).trim() : undefined,
       inputParams,
       paymentInfo,
       paymentMode: payment_mode || 'cash',

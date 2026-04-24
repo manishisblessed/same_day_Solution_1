@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { authenticatePartner, PartnerAuthError } from '@/lib/partner-auth'
 import { payRequest, generateAgentTransactionId, getBBPSWalletBalance } from '@/services/bbps'
+import { getBBPSProvider, getChagansMerchantId } from '@/services/bbps/config'
 import { paiseToRupees } from '@/lib/bbps/currency'
 
 export const runtime = 'nodejs'
@@ -51,6 +52,7 @@ export async function POST(request: NextRequest) {
       retailer_id, biller_id, biller_name, consumer_number, amount,
       consumer_name, due_date, bill_date, bill_number, additional_info,
       biller_category, reqId, payment_mode, pan_number,
+      customer_email, customer_mobile, customer_name, upi_id,
     } = body
 
     if (!retailer_id) {
@@ -107,7 +109,33 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Check SparkUpTech provider balance
+    if (getBBPSProvider() === 'chagans') {
+      const enquiry = reqId || additional_info?.reqId
+      if (!enquiry || String(enquiry).trim() === '') {
+        return NextResponse.json(
+          {
+            success: false,
+            error: {
+              code: 'CHAGANS_ENQUIRY_REQUIRED',
+              message:
+                'Chagans BBPS requires bill fetch before pay (enquiryId / reqId). Fetch bill again within validity window.',
+            },
+          },
+          { status: 400 }
+        )
+      }
+      if (!getChagansMerchantId()) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: { code: 'CHAGANS_CONFIG', message: 'BBPS_CHAGANS_MERCHANT_ID is not configured on server.' },
+          },
+          { status: 503 }
+        )
+      }
+    }
+
+    // Check upstream BBPS provider balance
     const providerBalance = await getBBPSWalletBalance()
     if (!providerBalance.success) {
       return NextResponse.json(
@@ -242,9 +270,14 @@ export async function POST(request: NextRequest) {
       amount: billAmountInRupees, agentTransactionId, inputParams,
       subServiceName, custConvFee: 1, billerAdhoc: true,
       paymentInfo: [{ infoName: 'Payment Account Info', infoValue: 'Cash Payment' }],
-      paymentMode: payment_mode || 'Cash', quickPay: 'N',
+      paymentMode: payment_mode || additional_info?.chagansPaymentMode || 'Cash', quickPay: 'N',
       reqId: reqId || additional_info?.reqId,
       billerResponse, additionalInfo: additionalInfoArray,
+      customerPan: pan_number || undefined,
+      customerName: customer_name || consumer_name || retailer.name || undefined,
+      customerEmail: customer_email || retailer.email || undefined,
+      customerMobile: customer_mobile || undefined,
+      upiId: upi_id || undefined,
     })
 
     // Update transaction

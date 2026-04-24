@@ -1,0 +1,268 @@
+{
+  "info": {
+    "_postman_id": "a1b2c3d4-bbps-chagans-0001",
+    "name": "BBPS Utility Bill Payment — Chagans Technologies",
+    "description": "Smoke / integration tests. Default biller BSESRAJPLDEL01 uses paramName CA Number (9 digits). Step 3 overwrites fetch rules from requiredFields; then run fetchBill.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "https://chagans.com" },
+    { "key": "clientId", "value": "YOUR_CLIENT_ID" },
+    { "key": "clientSecret", "value": "YOUR_CLIENT_SECRET_UUID" },
+    { "key": "bearerToken", "value": "YOUR_BEARER_TOKEN" },
+    { "key": "merchantId", "value": "MERCH_XYZ" },
+    { "key": "categoryKey", "value": "C04" },
+    { "key": "billerId", "value": "BSESRAJPLDEL01" },
+    { "key": "enquiryId", "value": "" },
+    { "key": "externalRef", "value": "CLIENTTXN001" },
+    { "key": "billAmount", "value": "450" },
+    { "key": "customerName", "value": "Test Customer" },
+    { "key": "customerMobile", "value": "9876543210" },
+    { "key": "customerEmail", "value": "customer@example.com" },
+    { "key": "customerPan", "value": "" },
+    { "key": "upiId", "value": "customer@upi" },
+    { "key": "fetchParamName", "value": "CA Number" },
+    { "key": "fetchParamValue", "value": "152562509" },
+    { "key": "fetchParamMinLength", "value": "9" },
+    { "key": "fetchParamMaxLength", "value": "9" },
+    { "key": "fetchParamDataType", "value": "NUMERIC" },
+    { "key": "createMerchantPath", "value": "bbps/createMerchant" }
+  ],
+  "item": [
+    {
+      "name": "1. Get All Categories",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "client-id", "value": "{{clientId}}" },
+          { "key": "client-secret", "value": "{{clientSecret}}" },
+          { "key": "authorization", "value": "Bearer {{bearerToken}}" },
+          { "key": "apiType", "value": "bbps" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": "{{baseUrl}}/bbps/getCategory",
+        "description": "Returns supported BBPS utility categories."
+      },
+      "response": []
+    },
+    {
+      "name": "2. Get Billers by Category",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "client-id", "value": "{{clientId}}" },
+          { "key": "client-secret", "value": "{{clientSecret}}" },
+          { "key": "authorization", "value": "Bearer {{bearerToken}}" },
+          { "key": "apiType", "value": "bbps" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"categoryKey\": \"{{categoryKey}}\"\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": "{{baseUrl}}/bbps/getBiller",
+        "description": "Copy a billerId from the response into the collection variable billerId (default BSESRAJPLDEL01)."
+      },
+      "response": []
+    },
+    {
+      "name": "3. Get Biller Input Fields",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "try {",
+              "  const j = pm.response.json();",
+              "  const eid = j.enquiryId || (j.data && j.data.enquiryId);",
+              "  if (eid) {",
+              "    pm.collectionVariables.set('enquiryId', eid);",
+              "    console.log('Saved enquiryId:', eid);",
+              "  } else {",
+              "    console.warn('No enquiryId in response; check success and billerId.');",
+              "  }",
+              "  const rf = j.data && j.data.requiredFields;",
+              "  if (Array.isArray(rf) && rf.length && rf[0].paramName) {",
+              "    const f = rf[0];",
+              "    pm.collectionVariables.set('fetchParamName', f.paramName);",
+              "    if (f.maxLength != null && String(f.maxLength) !== '') pm.collectionVariables.set('fetchParamMaxLength', String(f.maxLength));",
+              "    if (f.minLength != null && String(f.minLength) !== '') pm.collectionVariables.set('fetchParamMinLength', String(f.minLength));",
+              "    if (f.dataType) pm.collectionVariables.set('fetchParamDataType', String(f.dataType));",
+              "    console.log('Fetch rules from requiredFields[0]:', f.paramName, f.dataType, f.minLength + '-' + f.maxLength);",
+              "  }",
+              "} catch (e) { console.warn(e); }"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "client-id", "value": "{{clientId}}" },
+          { "key": "client-secret", "value": "{{clientSecret}}" },
+          { "key": "authorization", "value": "Bearer {{bearerToken}}" },
+          { "key": "apiType", "value": "bbps" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"billerId\": \"{{billerId}}\"\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": "{{baseUrl}}/bbps/getBillerField",
+        "description": "Must succeed before fetch/pay. Saves enquiryId (30 min TTL). If success:false API request failed, try another billerId from step 2."
+      },
+      "response": []
+    },
+    {
+      "name": "4. Fetch Bill",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "exec": [
+              "const eid = pm.collectionVariables.get('enquiryId');",
+              "if (!eid || String(eid).trim() === '') {",
+              "  throw new Error('enquiryId is empty. Run request 3 (Get Biller Input Fields) successfully first.');",
+              "}",
+              "const billerId = pm.collectionVariables.get('billerId');",
+              "const name = pm.collectionVariables.get('fetchParamName');",
+              "const val = String(pm.collectionVariables.get('fetchParamValue') ?? '').trim();",
+              "if (!name) throw new Error('fetchParamName is empty; run step 3 or set it to the exact paramName from requiredFields.');",
+              "if (!val) throw new Error('fetchParamValue is empty; set value per requiredFields from step 3 (e.g. CA Number for BSES RPL).');",
+              "const dtype = (pm.collectionVariables.get('fetchParamDataType') || '').toUpperCase();",
+              "const maxLen = parseInt(pm.collectionVariables.get('fetchParamMaxLength') || '999', 10);",
+              "const minLen = parseInt(pm.collectionVariables.get('fetchParamMinLength') || '1', 10);",
+              "if (dtype === 'NUMERIC' && !/^\\d+$/.test(val)) {",
+              "  throw new Error('fetchParamValue must be digits only for this biller (NUMERIC).');",
+              "}",
+              "if (val.length < minLen || val.length > maxLen) {",
+              "  throw new Error('fetchParamValue length must be ' + minLen + '-' + maxLen + ' (got ' + val.length + ').');",
+              "}",
+              "const body = { billerId, enquiryId: eid, parameters: {} };",
+              "body.parameters[name] = val;",
+              "pm.request.body.raw = JSON.stringify(body);"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "client-id", "value": "{{clientId}}" },
+          { "key": "client-secret", "value": "{{clientSecret}}" },
+          { "key": "authorization", "value": "Bearer {{bearerToken}}" },
+          { "key": "apiType", "value": "bbps" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": "{{baseUrl}}/bbps/fetchBill",
+        "description": "Pre-request builds body. BSESRAJPLDEL01: parameters { \"CA Number\": \"152562509\" } (9 digits). Always run step 3 first so enquiryId and rules match the biller."
+      },
+      "response": []
+    },
+    {
+      "name": "5a. Pay Bill (UPI — paymentMode UPI)",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "exec": [
+              "const eid = pm.collectionVariables.get('enquiryId');",
+              "if (!eid || String(eid).trim() === '') {",
+              "  throw new Error('enquiryId is empty. Run step 3 then 4 before pay.');",
+              "}"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "client-id", "value": "{{clientId}}" },
+          { "key": "client-secret", "value": "{{clientSecret}}" },
+          { "key": "authorization", "value": "Bearer {{bearerToken}}" },
+          { "key": "apiType", "value": "bbps" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"billerId\": \"{{billerId}}\",\n  \"enquiryId\": \"{{enquiryId}}\",\n  \"amount\": \"{{billAmount}}\",\n  \"externalRef\": \"{{externalRef}}\",\n  \"merchantId\": \"{{merchantId}}\",\n  \"customerPan\": \"{{customerPan}}\",\n  \"customerName\": \"{{customerName}}\",\n  \"customerMobile\": \"{{customerMobile}}\",\n  \"customerEmail\": \"{{customerEmail}}\",\n  \"upiId\": \"{{upiId}}\"\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": "{{baseUrl}}/bbps/payBill",
+        "description": "Only when fetchBill returned paymentMode UPI. customerMobile: 10-digit Indian number. Use a valid VPA in upiId."
+      },
+      "response": []
+    },
+    {
+      "name": "5b. Pay Bill (Cash — paymentMode Cash)",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "exec": [
+              "const eid = pm.collectionVariables.get('enquiryId');",
+              "if (!eid || String(eid).trim() === '') {",
+              "  throw new Error('enquiryId is empty. Run step 3 then 4 before pay.');",
+              "}"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "client-id", "value": "{{clientId}}" },
+          { "key": "client-secret", "value": "{{clientSecret}}" },
+          { "key": "authorization", "value": "Bearer {{bearerToken}}" },
+          { "key": "apiType", "value": "bbps" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"billerId\": \"{{billerId}}\",\n  \"enquiryId\": \"{{enquiryId}}\",\n  \"amount\": \"{{billAmount}}\",\n  \"externalRef\": \"{{externalRef}}_CASH\",\n  \"merchantId\": \"{{merchantId}}\",\n  \"customerPan\": \"{{customerPan}}\",\n  \"customerName\": \"{{customerName}}\",\n  \"customerMobile\": \"{{customerMobile}}\",\n  \"customerEmail\": \"{{customerEmail}}\"\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": "{{baseUrl}}/bbps/payBill",
+        "description": "Omit upiId when paymentMode is Cash. Same customer* fields as UPI flow."
+      },
+      "response": []
+    },
+    {
+      "name": "6. Create Merchant (KYC)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "client-id", "value": "{{clientId}}" },
+          { "key": "client-secret", "value": "{{clientSecret}}" },
+          { "key": "authorization", "value": "Bearer {{bearerToken}}" },
+          { "key": "apiType", "value": "bbps" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"mobile\": \"9876543210\",\n  \"name\": \"Test Merchant\",\n  \"gender\": \"M\",\n  \"pan\": \"ABCDE1234F\",\n  \"email\": \"merchant@example.com\",\n  \"address\": {\n    \"full\": \"123 Main Street\",\n    \"city\": \"Mumbai\",\n    \"pincode\": \"400001\"\n  },\n  \"aadhaar\": \"123456789012\",\n  \"dateOfBirth\": \"1990-01-15\",\n  \"latitude\": \"19.0760\",\n  \"longitude\": \"72.8777\",\n  \"bankAccountNo\": \"1234567890\",\n  \"bankIfsc\": \"SBIN0001234\"\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": "{{baseUrl}}/{{createMerchantPath}}",
+        "description": "PDF path was /createMerchant; host returned Cannot POST. Default URL uses createMerchantPath=bbps/createMerchant. If 404, edit collection variable to api/createMerchant or the path vendor provides. Body must be real KYC where required."
+      },
+      "response": []
+    }
+  ]
+}

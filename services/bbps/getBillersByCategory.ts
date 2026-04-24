@@ -6,8 +6,10 @@
  */
 
 import { bbpsClient } from './bbpsClient'
+import { chagansPost } from './chagansClient'
+import { displayCategoryToChagansKey, ensureChagansCategoryCache } from './chagansCategories'
 import { generateReqId, logBBPSApiCall, logBBPSApiError } from './helpers'
-import { isMockMode } from './config'
+import { getBBPSProvider, isMockMode } from './config'
 import { BBPSBiller } from './types'
 import { getMockBillersByCategory } from './mocks/getBillersByCategory'
 
@@ -68,6 +70,39 @@ export async function getBillersByCategory(
   if (isMockMode()) {
     logBBPSApiCall('getBillersByCategory', reqId, undefined, 'MOCK')
     return getMockBillersByCategory(category)
+  }
+
+  if (getBBPSProvider() === 'chagans') {
+    await ensureChagansCategoryCache()
+    const categoryKey = displayCategoryToChagansKey(category.trim())
+    if (!categoryKey) {
+      throw new Error(
+        `No Chagans BBPS category mapping for "${category}". Update chagansCategories.ts or use a supported category.`
+      )
+    }
+    const cg = await chagansPost<{
+      success: boolean
+      category?: string
+      categoryName?: string
+      data?: Array<{ billerId: string; billerName: string; icon?: string }>
+    }>('bbps/getBiller', { categoryKey })
+
+    if (!cg.ok || !cg.data?.success || !Array.isArray(cg.data.data)) {
+      logBBPSApiError('getBillersByCategory(chagans)', reqId, cg.error || 'getBiller failed')
+      throw new Error(cg.error || 'Failed to fetch billers from Chagans')
+    }
+    const catLabel = cg.data.categoryName || category.trim()
+    const categoryData = cg.data as Required<typeof cg.data>
+    return categoryData.data.map((b) => ({
+      biller_id: b.billerId,
+      biller_name: b.billerName,
+      category: catLabel,
+      category_name: catLabel,
+      is_active: true,
+      support_bill_fetch: true,
+      paymentMode: 'Cash',
+      metadata: { categoryKey: categoryData.category || categoryKey, icon: b.icon, ...b },
+    }))
   }
 
   try {

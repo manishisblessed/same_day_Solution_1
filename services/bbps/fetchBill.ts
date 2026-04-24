@@ -6,8 +6,9 @@
  */
 
 import { bbpsClient } from './bbpsClient'
+import { chagansPost } from './chagansClient'
 import { generateReqId, logBBPSApiCall, logBBPSApiError } from './helpers'
-import { isMockMode } from './config'
+import { getBBPSProvider, isMockMode } from './config'
 import { BBPSBillDetails } from './types'
 import { getMockBillDetails } from './mocks/fetchBill'
 
@@ -17,6 +18,8 @@ import { getMockBillDetails } from './mocks/fetchBill'
 export interface FetchBillParams {
   billerId: string
   consumerNumber: string
+  /** Chagans: enquiryId from /bbps/getBillerField (same session as pay) */
+  enquiryId?: string
   inputParams?: Array<{ paramName: string; paramValue: string | number }>
   ip?: string
   initChannel?: string
@@ -93,6 +96,7 @@ export async function fetchBill(
   const {
     billerId,
     consumerNumber,
+    enquiryId: providedEnquiryId,
     inputParams,
     ip = '127.0.0.1',
     initChannel = 'AGT',
@@ -131,6 +135,71 @@ export async function fetchBill(
     })
     const mockBill = getMockBillDetails(billerId, consumerNumber, inputParams)
     return { ...mockBill, reqId }
+  }
+
+  if (getBBPSProvider() === 'chagans') {
+    const enquiryId = providedEnquiryId?.trim()
+    if (!enquiryId) {
+      throw new Error(
+        'Chagans BBPS requires enquiryId from biller fields (/bbps/getBillerField). Call biller-info first or pass enquiry_id in fetch request.'
+      )
+    }
+
+    const requestInputParams =
+      inputParams && inputParams.length > 0
+        ? inputParams
+        : [{ paramName: 'Consumer Number', paramValue: consumerNumber || '' }]
+
+    const parameters: Record<string, string> = {}
+    for (const p of requestInputParams) {
+      parameters[p.paramName] = String(p.paramValue ?? '')
+    }
+
+    const cg = await chagansPost<{
+      success: boolean
+      message?: string
+      data?: {
+        billerResponse?: Record<string, unknown>
+        additionalInfo?: unknown
+        paymentMode?: string
+      }
+    }>('bbps/fetchBill', {
+      billerId,
+      enquiryId,
+      parameters,
+    })
+
+    if (!cg.ok || !cg.data?.success) {
+      logBBPSApiError('fetchBill(chagans)', reqId, cg.error || 'fetchBill failed', billerId)
+      throw new Error(cg.error || 'Failed to fetch bill from Chagans')
+    }
+
+    const br = (cg.data.data?.billerResponse || {}) as Record<string, any>
+    const rupeesStr = br.billAmount ?? br.amount ?? br.bill_amount ?? '0'
+    const rupees = parseFloat(String(rupeesStr).replace(/[,\s₹]/g, '')) || 0
+    const billAmountPaise = Math.round(rupees * 100)
+
+    const billDetails: BBPSBillDetails = {
+      biller_id: billerId,
+      consumer_number: consumerNumber || Object.values(parameters)[0] || '',
+      bill_amount: billAmountPaise,
+      due_date: br.dueDate || br.due_date,
+      bill_date: br.billDate || br.bill_date,
+      bill_number: br.billNumber || br.bill_number,
+      consumer_name: br.customerName || br.customer_name || br.consumerName,
+      reqId: enquiryId,
+      additional_info: {
+        ...cg.data.data,
+        reqId: enquiryId,
+        enquiryId,
+        chagansPaymentMode: cg.data.data?.paymentMode,
+        billerResponse: br,
+        responseCode: '000',
+      },
+    }
+
+    logBBPSApiCall('fetchBill(chagans)', reqId, billerId, 200, '000')
+    return billDetails
   }
 
   try {

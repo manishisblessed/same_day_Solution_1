@@ -1,13 +1,89 @@
 /**
  * BBPS API Configuration
- * Centralized configuration for SparkUpTech BBPS API
+ * SparkUpTech (default) or Chagans Technologies BBPS
  */
+
+export type BBPSProviderId = 'sparkup' | 'chagans'
+
+/**
+ * Active BBPS upstream: sparkup (default) or chagans.
+ *
+ * Chagans production checklist:
+ * - BBPS_PROVIDER=chagans
+ * - BBPS_CHAGANS_BASE_URL (default https://chagans.com)
+ * - Credentials (first match wins): CHAGHANS_BBPS_CLIENT_ID, CHAGHANS_BBPS_CONSUMER_SECRET,
+ *   CHAGHANS_BBPS_AUTH_TOKEN — or BBPS_CHAGANS_CLIENT_ID / _CLIENT_SECRET / _AUTH_TOKEN
+ * - Merchant: CHAGHANS_BBPS_MERCHANT_ID or BBPS_CHAGANS_MERCHANT_ID
+ * - USE_BBPS_MOCK=false
+ */
+export function getBBPSProvider(): BBPSProviderId {
+  const p = (process.env.BBPS_PROVIDER || 'sparkup').toLowerCase().trim()
+  return p === 'chagans' ? 'chagans' : 'sparkup'
+}
 
 /**
  * Get BBPS API Base URL from environment
  */
 export function getBBPSBaseUrl(): string {
   return process.env.BBPS_API_BASE_URL || 'https://api.sparkuptech.in/api/ba'
+}
+
+/** Chagans host (no path suffix) */
+export function getChagansBaseUrl(): string {
+  return (
+    process.env.BBPS_CHAGANS_BASE_URL ||
+    process.env.CHAGANS_API_BASE_URL ||
+    'https://chagans.com'
+  )
+}
+
+export function getChagansClientId(): string {
+  return (
+    process.env.CHAGHANS_BBPS_CLIENT_ID ||
+    process.env.BBPS_CHAGANS_CLIENT_ID ||
+    process.env.CHAGANS_CLIENT_ID ||
+    ''
+  )
+}
+
+export function getChagansClientSecret(): string {
+  return (
+    process.env.CHAGHANS_BBPS_CONSUMER_SECRET ||
+    process.env.BBPS_CHAGANS_CLIENT_SECRET ||
+    process.env.CHAGANS_CLIENT_SECRET ||
+    ''
+  )
+}
+
+/** Bearer token only (no "Bearer " prefix) */
+export function getChagansAuthToken(): string {
+  const t =
+    process.env.CHAGHANS_BBPS_AUTH_TOKEN ||
+    process.env.BBPS_CHAGANS_AUTH_TOKEN ||
+    process.env.CHAGANS_AUTH_TOKEN ||
+    ''
+  return t.replace(/^Bearer\s+/i, '').trim()
+}
+
+/** Merchant id from Chagans onboarding / KYC */
+export function getChagansMerchantId(): string {
+  return (
+    process.env.CHAGHANS_BBPS_MERCHANT_ID ||
+    process.env.BBPS_CHAGANS_MERCHANT_ID ||
+    process.env.CHAGANS_MERCHANT_ID ||
+    ''
+  )
+}
+
+export function validateChagansCredentials(): void {
+  const id = getChagansClientId()
+  const secret = getChagansClientSecret()
+  const token = getChagansAuthToken()
+  if (!id || !secret || !token) {
+    throw new Error(
+      'Chagans BBPS: set CHAGHANS_BBPS_CLIENT_ID, CHAGHANS_BBPS_CONSUMER_SECRET, and CHAGHANS_BBPS_AUTH_TOKEN (or BBPS_CHAGANS_* equivalents)'
+    )
+  }
 }
 
 /**

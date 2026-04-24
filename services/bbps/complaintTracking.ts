@@ -7,7 +7,7 @@
 
 import { bbpsClient } from './bbpsClient'
 import { generateReqId, logBBPSApiCall, logBBPSApiError } from './helpers'
-import { isMockMode } from './config'
+import { getBBPSProvider, isMockMode } from './config'
 import { BBPSComplaintTracking } from './types'
 import { getMockComplaintTracking } from './mocks/complaintTracking'
 
@@ -65,6 +65,16 @@ export async function complaintTracking(
   if (isMockMode()) {
     logBBPSApiCall('complaintTracking', reqId, undefined, 'MOCK')
     return getMockComplaintTracking(complaintId, complaintType)
+  }
+
+  if (getBBPSProvider() === 'chagans') {
+    logBBPSApiCall('complaintTracking(chagans)', reqId, undefined, 'NOT_SUPPORTED')
+    return {
+      complaint_id: complaintId,
+      status: 'NOT_AVAILABLE',
+      description:
+        'Complaint tracking via this API is not available for Chagans BBPS. Use Chagans support channels.',
+    }
   }
 
   try {

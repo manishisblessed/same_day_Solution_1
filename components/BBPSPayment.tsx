@@ -317,9 +317,10 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
           paramName: p.paramName,
           paramValue: '',
           dataType: p.dataType,
-          isOptional: p.isOptional,
-          minLength: p.minLength,
-          maxLength: p.maxLength,
+          isOptional:
+            typeof p.isOptional === 'boolean' ? (p.isOptional ? 'true' : 'false') : p.isOptional,
+          minLength: p.minLength != null ? String(p.minLength) : undefined,
+          maxLength: p.maxLength != null ? String(p.maxLength) : undefined,
           regEx: p.regEx,
         }))
         console.log('✅ Setting inputParamFields:', fields)
@@ -339,6 +340,55 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
       setConsumerNumber('')
     }
   }, [selectedBiller])
+
+  // Providers like Chagans return billers without paramInfo in the list; load fields + enquiryId from biller-info.
+  useEffect(() => {
+    if (!selectedBiller || !user?.partner_id) return
+
+    const paramInfoLen =
+      selectedBiller.metadata?.billerInputParams?.paramInfo?.length ||
+      selectedBiller.metadata?.paramInfo?.length ||
+      0
+    if (paramInfoLen > 0) return
+
+    let cancelled = false
+    ;(async () => {
+      try {
+        const data = await apiFetchJson<{
+          success?: boolean
+          biller_info?: {
+            billerInputParams?: { paramInfo?: InputParam[] }
+            enquiryId?: string
+          }
+        }>('/api/bbps/biller-info', {
+          method: 'POST',
+          body: JSON.stringify({
+            biller_id: selectedBiller.biller_id,
+            user_id: user.partner_id,
+          }),
+        })
+        if (cancelled || !data.success || !data.biller_info) return
+
+        const info = data.biller_info
+        const updated: BBPSBiller = {
+          ...selectedBiller,
+          metadata: {
+            ...selectedBiller.metadata,
+            billerInputParams: info.billerInputParams,
+            enquiryId: info.enquiryId,
+          },
+        }
+        setSelectedBiller(updated)
+        setBillers((prev) => prev.map((b) => (b.biller_id === updated.biller_id ? updated : b)))
+      } catch (e) {
+        console.warn('[BBPS] biller-info enrichment skipped:', e)
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [selectedBiller?.biller_id, user?.partner_id])
 
   const fetchWalletBalance = async () => {
     if (!user?.partner_id) {
@@ -789,6 +839,11 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
         requestBody.consumer_number = consumerNumber.trim()
       }
 
+      const enq = selectedBiller.metadata?.enquiryId
+      if (enq) {
+        requestBody.enquiry_id = enq
+      }
+
       console.log('Sending fetch bill request:', requestBody)
       
       const data = await apiFetchJson<{ success?: boolean; bill?: BillDetails; reqId?: string; error?: string; message?: string; messageType?: string }>('/api/bbps/bill/fetch', {
@@ -951,14 +1006,20 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
           bill_number: billDetails.bill_number,
           // CRITICAL: Pass reqId from fetchBill to correlate with BBPS provider
           reqId: billDetails.reqId || billDetails.additional_info?.reqId,
-          // Payment mode - fixed "Cash" for now
-          payment_mode: selectedBiller.paymentMode || 'Cash',
+          payment_mode:
+            billDetails.additional_info?.chagansPaymentMode ||
+            billDetails.additional_info?.paymentMode ||
+            selectedBiller.paymentMode ||
+            'Cash',
           additional_info: {
             ...billDetails.additional_info,
             inputParams: inputParamFields.length > 0 
               ? inputParamFields.map(f => ({ paramName: f.paramName, paramValue: inputParams[f.paramName] || '' }))
               : undefined,
           },
+          customer_email: user?.email || undefined,
+          customer_name: billDetails.consumer_name || user?.name || undefined,
+          customer_mobile: user?.phone || undefined,
           // Include user_id for fallback auth when cookie auth doesn't work
           user_id: user?.partner_id,
           // Include T-PIN for server-side verification

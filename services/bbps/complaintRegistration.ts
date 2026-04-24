@@ -7,7 +7,7 @@
 
 import { bbpsClient } from './bbpsClient'
 import { generateReqId, logBBPSApiCall, logBBPSApiError } from './helpers'
-import { isMockMode } from './config'
+import { getBBPSProvider, isMockMode } from './config'
 import { BBPSComplaintRequest, BBPSComplaintResponse } from './types'
 import { getMockComplaintRegistration } from './mocks/complaintRegistration'
 
@@ -87,6 +87,17 @@ export async function complaintRegistration(
       complaint_disposition: complaintDisposition,
     }
     return getMockComplaintRegistration(mockComplaint)
+  }
+
+  if (getBBPSProvider() === 'chagans') {
+    logBBPSApiCall('complaintRegistration(chagans)', reqId, undefined, 'NOT_SUPPORTED')
+    return {
+      success: false,
+      transaction_id: transactionId,
+      message: 'Complaint registration via this API is not available for Chagans BBPS. Contact Chagans support with your transaction reference.',
+      error_code: 'NOT_SUPPORTED',
+      error_message: 'Provider does not expose Sparkup-compatible complaint APIs.',
+    }
   }
 
   try {

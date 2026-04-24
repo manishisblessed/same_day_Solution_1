@@ -6,8 +6,9 @@
  */
 
 import { bbpsClient } from './bbpsClient'
+import { chagansPost } from './chagansClient'
 import { generateReqId, logBBPSApiCall, logBBPSApiError } from './helpers'
-import { isMockMode } from './config'
+import { getBBPSProvider, isMockMode } from './config'
 import { BBPSBillerInfo } from './types'
 import { getMockBillerInfo } from './mocks/fetchBillerInfo'
 
@@ -67,6 +68,61 @@ export async function fetchBillerInfo(
   if (isMockMode()) {
     logBBPSApiCall('fetchBillerInfo', reqId, billerId, 'MOCK')
     return getMockBillerInfo(billerId)
+  }
+
+  if (getBBPSProvider() === 'chagans') {
+    const cg = await chagansPost<{
+      success: boolean
+      data?: {
+        requiredFields?: Array<{
+          paramName: string
+          dataType?: string
+          isOptional?: string
+          minLength?: string
+          maxLength?: string
+        }>
+        billerName?: string
+        billerId?: string
+        billerCategory?: string
+        isFetchSupported?: boolean
+        billerPaymentExactness?: string
+      }
+      enquiryId?: string
+      message?: string
+    }>('bbps/getBillerField', { billerId })
+
+    if (!cg.ok || !cg.data?.success) {
+      logBBPSApiError('fetchBillerInfo(chagans)', reqId, cg.error || 'getBillerField failed', billerId)
+      throw new Error(cg.error || 'Failed to fetch biller fields from Chagans')
+    }
+
+    const d = cg.data.data
+    const required = d?.requiredFields || []
+    const paramInfo = required.map((f) => ({
+      paramName: f.paramName,
+      dataType: f.dataType,
+      isOptional: f.isOptional === 'true',
+      minLength: f.minLength,
+      maxLength: f.maxLength,
+    }))
+
+    let amountExactness: 'EXACT' | 'INEXACT' | 'ANY' | undefined
+    const ex = (d?.billerPaymentExactness || '').toLowerCase()
+    if (ex.includes('exact')) amountExactness = 'EXACT'
+    else if (ex.includes('inexact') || ex.includes('above')) amountExactness = 'INEXACT'
+
+    const billerInfo: BBPSBillerInfo = {
+      billerId: d?.billerId || billerId,
+      billerName: d?.billerName || '',
+      billerCategory: d?.billerCategory || undefined,
+      billerInputParams: { paramInfo },
+      supportBillFetch: d?.isFetchSupported !== false,
+      amountExactness,
+      enquiryId: cg.data.enquiryId,
+    }
+
+    logBBPSApiCall('fetchBillerInfo(chagans)', reqId, billerId, 200)
+    return billerInfo
   }
 
   try {

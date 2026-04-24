@@ -7,7 +7,7 @@
 
 import { bbpsClient } from './bbpsClient'
 import { generateReqId, logBBPSApiCall, logBBPSApiError } from './helpers'
-import { isMockMode } from './config'
+import { getBBPSProvider, isMockMode } from './config'
 import { BBPSTransactionStatus } from './types'
 import { getMockTransactionStatus } from './mocks/transactionStatus'
 
@@ -79,6 +79,21 @@ export async function transactionStatus(
   if (isMockMode()) {
     logBBPSApiCall('transactionStatus', reqId, undefined, 'MOCK')
     return getMockTransactionStatus(transactionId)
+  }
+
+  if (getBBPSProvider() === 'chagans') {
+    logBBPSApiCall('transactionStatus(chagans)', reqId, undefined, 'NOT_SUPPORTED')
+    return {
+      transaction_id: transactionId,
+      status: 'NOT_AVAILABLE',
+      payment_status:
+        'Chagans BBPS does not expose Sparkup-compatible transaction status. Use payment response and wallet history.',
+      response_code: 'N/A',
+      response_reason:
+        'Status polling is not integrated for this provider. If the payment API returned success, confirm in BBPS transaction records or contact support.',
+      txn_reference_id: transactionId,
+      reqId,
+    }
   }
 
   try {

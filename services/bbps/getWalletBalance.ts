@@ -7,7 +7,7 @@
 
 import { bbpsClient } from './bbpsClient'
 import { generateReqId, logBBPSApiCall, logBBPSApiError } from './helpers'
-import { isMockMode } from './config'
+import { getBBPSProvider, isMockMode } from './config'
 
 /**
  * Response from BBPS Wallet Balance API
@@ -58,6 +58,14 @@ export async function getBBPSWalletBalance(): Promise<{
       balance: 10000,
       lien: 0,
     }
+  }
+
+  if (getBBPSProvider() === 'chagans') {
+    // Chagans docs do not expose a Sparkup-style wallet endpoint; skip upstream balance gate.
+    console.warn(
+      '[BBPS] Chagans provider: skipping Sparkup wallet check (set BBPS_CHAGANS_CHECK_PROVIDER_BALANCE when API exists)'
+    )
+    return { success: true, balance: 1e12, lien: 0 }
   }
 
   try {

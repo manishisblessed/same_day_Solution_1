@@ -6,7 +6,10 @@
  */
 
 import { bbpsClient } from './bbpsClient'
+import { chagansPost } from './chagansClient'
+import { displayCategoryToChagansKey, ensureChagansCategoryCache } from './chagansCategories'
 import { generateReqId, logBBPSApiCall, logBBPSApiError } from './helpers'
+import { getBBPSProvider } from './config'
 import { BBPSBiller } from './types'
 
 /**
@@ -85,6 +88,59 @@ export async function getBillersByCategoryAndChannel(
 
   // This is the LIVE implementation - mock toggle is handled in index.ts
   try {
+    if (getBBPSProvider() === 'chagans') {
+      await ensureChagansCategoryCache()
+      const categoryKey = displayCategoryToChagansKey(fieldValue.trim())
+      if (!categoryKey) {
+        throw new Error(
+          `No Chagans BBPS category mapping for "${fieldValue}". Update chagansCategories.ts or use a supported category.`
+        )
+      }
+
+      const cg = await chagansPost<{
+        success: boolean
+        category?: string
+        categoryName?: string
+        data?: Array<{
+          billerId: string
+          billerName: string
+          categoryKey?: string
+          categoryName?: string
+          icon?: string
+        }>
+        message?: string
+      }>('bbps/getBiller', { categoryKey })
+
+      if (!cg.ok || !cg.data?.success || !Array.isArray(cg.data.data)) {
+        logBBPSApiError(
+          'getBillersByCategoryAndChannel(chagans)',
+          reqId,
+          cg.error || 'getBiller failed'
+        )
+        throw new Error(cg.error || 'Failed to fetch billers from Chagans')
+      }
+
+      const catLabel = cg.data.categoryName || fieldValue.trim()
+      const categoryData = cg.data as Required<typeof cg.data>
+      const billers: BBPSBiller[] = categoryData.data.map((b) => ({
+        biller_id: b.billerId,
+        biller_name: b.billerName,
+        category: catLabel,
+        category_name: catLabel,
+        is_active: true,
+        support_bill_fetch: true,
+        paymentMode: 'Cash',
+        metadata: {
+          categoryKey: categoryData.category || categoryKey,
+          icon: b.icon,
+          ...b,
+        },
+      }))
+
+      logBBPSApiCall('getBillersByCategoryAndChannel(chagans)', reqId, undefined, 200, 'OK')
+      return billers
+    }
+
     // Prepare request body
     const requestBody = {
       fieldValue: fieldValue.trim(),

@@ -6,8 +6,14 @@
  */
 
 import { bbpsClient } from './bbpsClient'
+import { chagansPost } from './chagansClient'
 import { generateReqId, logBBPSApiCall, logBBPSApiError } from './helpers'
-import { isMockMode, getBBPSBaseUrl } from './config'
+import {
+  getBBPSBaseUrl,
+  getBBPSProvider,
+  getChagansMerchantId,
+  isMockMode,
+} from './config'
 import { BBPSPaymentRequest, BBPSPaymentResponse } from './types'
 import { getMockPayRequest } from './mocks/payRequest'
 
@@ -73,6 +79,12 @@ export interface PayRequestParams {
     infoName: string
     infoValue: string
   }>
+  /** Chagans /bbps/payBill — payer KYC-style fields */
+  customerName?: string
+  customerEmail?: string
+  customerMobile?: string
+  /** Required when paymentMode is UPI */
+  upiId?: string
 }
 
 /**
@@ -139,6 +151,95 @@ interface BBPSPayRequestResponse {
  * @param params - Payment request parameters
  * @returns Payment response with transaction ID
  */
+async function payRequestChagans(params: PayRequestParams): Promise<BBPSPaymentResponse> {
+  const {
+    billerId,
+    billerName,
+    consumerNumber,
+    amount,
+    agentTransactionId,
+    paymentMode = 'Cash',
+    customerPan,
+    reqId: enquiryId,
+    customerName,
+    customerEmail,
+    customerMobile,
+    customerMobileNumber,
+    upiId,
+  } = params
+
+  const merchantId = getChagansMerchantId()
+  if (!merchantId) {
+    return {
+      success: false,
+      error_message: 'BBPS_CHAGANS_MERCHANT_ID is not configured',
+      agent_transaction_id: agentTransactionId,
+      reqId: enquiryId,
+    }
+  }
+
+  const mode = (paymentMode || 'Cash').toUpperCase()
+  const isUPI = mode === 'UPI'
+
+  const mobile =
+    (customerMobile || customerMobileNumber || consumerNumber || '')
+      .replace(/\D/g, '')
+      .slice(-10) || '0000000000'
+
+  const body: Record<string, unknown> = {
+    billerId,
+    enquiryId,
+    amount: String(Math.round(amount)),
+    externalRef: String(agentTransactionId).replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 64),
+    merchantId,
+    customerPan: (customerPan || '').trim().toUpperCase(),
+    customerName: (customerName || billerName || 'Customer').trim().slice(0, 120),
+    customerMobile: mobile,
+    customerEmail: (customerEmail || '').trim() || 'customer@local.invalid',
+  }
+
+  if (isUPI) {
+    const vpa = (upiId || '').trim()
+    if (!vpa || !vpa.includes('@')) {
+      return {
+        success: false,
+        error_message: 'Valid upiId (VPA) is required when payment mode is UPI',
+        agent_transaction_id: agentTransactionId,
+        reqId: enquiryId,
+      }
+    }
+    body.upiId = vpa
+  }
+
+  const cg = await chagansPost<{ success: boolean; message?: string; data?: { transactionId?: string; status?: string } }>(
+    'bbps/payBill',
+    body
+  )
+
+  if (!cg.ok) {
+    logBBPSApiError('payRequest(chagans)', enquiryId || '', cg.error || 'pay failed', billerId)
+    return {
+      success: false,
+      error_message: sanitizeErrorMessage(cg.error),
+      agent_transaction_id: agentTransactionId,
+      reqId: enquiryId,
+    }
+  }
+
+  const payload = cg.data as any
+  const ok = payload?.success === true
+  const d = payload?.data || {}
+  return {
+    success: ok,
+    transaction_id: d.transactionId || d.txnRefId,
+    agent_transaction_id: agentTransactionId,
+    status: d.status || (ok ? 'success' : 'failed'),
+    payment_status: payload?.message || d.status,
+    error_message: ok ? undefined : sanitizeErrorMessage(payload?.message || cg.error),
+    reqId: enquiryId,
+  }
+}
+
 export async function payRequest(
   params: PayRequestParams
 ): Promise<BBPSPaymentResponse> {
@@ -165,7 +266,31 @@ export async function payRequest(
     billNumber, // Bill number from fetchBill response
     billerResponse, // Bill details from fetchBill response
     additionalInfo, // Additional info from fetchBill response
+    customerName,
+    customerEmail,
+    customerMobile,
+    upiId,
   } = params
+
+  if (getBBPSProvider() === 'chagans') {
+    if (!providedReqId || String(providedReqId).trim() === '') {
+      throw new Error('Chagans BBPS requires reqId (enquiryId from bill fetch) for payment')
+    }
+    if (!billerId?.trim()) throw new Error('Biller ID is required')
+    if (!consumerNumber?.trim()) throw new Error('Consumer number is required')
+    if (!amount || amount <= 0) throw new Error('Amount must be greater than 0')
+    if (!agentTransactionId?.trim()) throw new Error('Agent transaction ID is required')
+    if (!billerName?.trim()) throw new Error('billerName is required')
+    return payRequestChagans({
+      ...params,
+      reqId: String(providedReqId).trim(),
+      customerName,
+      customerEmail,
+      customerMobile,
+      upiId,
+    })
+  }
+
   const reqId = providedReqId || generateReqId()
 
   // Validate input

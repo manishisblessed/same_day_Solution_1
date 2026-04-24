@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { createClient } from '@supabase/supabase-js'
 import { payRequest, generateAgentTransactionId, getBBPSWalletBalance } from '@/services/bbps'
+import { getBBPSProvider, getChagansMerchantId } from '@/services/bbps/config'
 import { paiseToRupees } from '@/lib/bbps/currency'
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
 import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger'
@@ -72,7 +73,27 @@ export async function POST(request: NextRequest) {
       )
       return addCorsHeaders(request, response)
     }
-    const { biller_id, consumer_number, amount, biller_name, consumer_name, due_date, bill_date, bill_number, additional_info, biller_category, tpin, reqId, payment_mode, is_prepaid, pan_number } = body
+    const {
+      biller_id,
+      consumer_number,
+      amount,
+      biller_name,
+      consumer_name,
+      due_date,
+      bill_date,
+      bill_number,
+      additional_info,
+      biller_category,
+      tpin,
+      reqId,
+      payment_mode,
+      is_prepaid,
+      pan_number,
+      customer_email,
+      customer_mobile,
+      customer_name,
+      upi_id,
+    } = body
 
     if (!biller_id || !consumer_number || !amount) {
       const response = NextResponse.json(
@@ -150,12 +171,35 @@ export async function POST(request: NextRequest) {
     // Convert paise to rupees for balance checks
     const billAmountInRupees = paiseToRupees(billAmountInPaise)
 
+    if (getBBPSProvider() === 'chagans') {
+      const enquiry = reqId || additional_info?.reqId
+      if (!enquiry || String(enquiry).trim() === '') {
+        const response = NextResponse.json(
+          {
+            error:
+              'Chagans BBPS requires a successful bill fetch before payment (enquiryId / reqId missing). Fetch the bill again, then pay within the enquiry validity window.',
+            code: 'CHAGANS_ENQUIRY_REQUIRED',
+          },
+          { status: 400 }
+        )
+        return addCorsHeaders(request, response)
+      }
+      if (!getChagansMerchantId()) {
+        const response = NextResponse.json(
+          {
+            error: 'Server configuration error: BBPS_CHAGANS_MERCHANT_ID is not set.',
+            code: 'CHAGANS_CONFIG',
+          },
+          { status: 503 }
+        )
+        return addCorsHeaders(request, response)
+      }
+    }
+
     // ========================================
-    // STEP 1: Check SparkUpTech BBPS Provider Balance
+    // STEP 1: Check upstream BBPS provider balance (Sparkup wallet; skipped for Chagans)
     // ========================================
-    // SparkUpTech wallet is our master BBPS wallet - it pays the actual bill amount
-    // We check this FIRST to ensure we can fulfill the payment
-    console.log('Checking SparkUpTech BBPS provider balance...')
+    console.log('Checking BBPS upstream provider balance...')
     const bbpsProviderBalance = await getBBPSWalletBalance()
     
     if (!bbpsProviderBalance.success) {
@@ -171,7 +215,9 @@ export async function POST(request: NextRequest) {
     }
     
     const availableProviderBalance = (bbpsProviderBalance.balance || 0) - (bbpsProviderBalance.lien || 0)
-    console.log(`SparkUpTech BBPS Balance: ₹${bbpsProviderBalance.balance}, Lien: ₹${bbpsProviderBalance.lien}, Available: ₹${availableProviderBalance}`)
+    console.log(
+      `BBPS provider balance: ₹${bbpsProviderBalance.balance}, Lien: ₹${bbpsProviderBalance.lien}, Available: ₹${availableProviderBalance}`
+    )
     
     // Check if provider has enough balance for the bill amount (no charges - charges stay with us)
     if (availableProviderBalance < billAmountInRupees) {
@@ -766,6 +812,15 @@ export async function POST(request: NextRequest) {
       // Include CLEANED billerResponse and additionalInfo (matching Postman format exactly)
       billerResponse,
       additionalInfo: additionalInfoArray,
+      customerName: customer_name || consumer_name || user.name || undefined,
+      customerEmail: customer_email || user.email || undefined,
+      customerMobile:
+        customer_mobile ||
+        customerMobileNumber ||
+        (typeof consumer_number === 'string' && /^[6-9]\d{9}$/.test(consumer_number.trim())
+          ? consumer_number.trim()
+          : undefined),
+      upiId: upi_id || undefined,
     })
 
     // Update transaction with payment response

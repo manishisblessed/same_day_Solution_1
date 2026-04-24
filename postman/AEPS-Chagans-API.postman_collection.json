@@ -1,0 +1,363 @@
+{
+  "info": {
+    "_postman_id": "c7e8f9a0-aeps-chagans-0001",
+    "name": "AEPS (Aadhaar Enabled Payment System) — Chagans Technologies",
+    "description": "AEPS — Chagans.\n\n**Auth (fixes `AUTH_401` / Invalid authentication token):**\n1. Open **Variables** on this collection and fill **CHAGHANS_AEPS_CLIENT_ID**, **CHAGHANS_AEPS_CONSUMER_SECRET**, **CHAGHANS_AEPS_AUTH_TOKEN** (same values as `.env.local`), **or**\n2. Import `Chagans-AEPS.postman_environment.json`, paste the three values there, and **select that environment** in the top-right (not “No environment”).\n\nIf variables are empty, Postman sends blank headers → 401.\n\n**Bearer:** Put the **raw token only** in `CHAGHANS_AEPS_AUTH_TOKEN` (no `Bearer ` prefix); the collection adds `Bearer ` in the header. If your `.env` already stores `Bearer xxx`, either strip the prefix in Postman or you will send `Bearer Bearer xxx` and get 401.\n\nConfirm the token is **valid for AEPS** and **not expired**.\n\n**Headers map:** `client-id`, `client-secret`, `authorization: Bearer …`, `apiType: aeps`.\n\n**PAN & name (JIO KYC):** Use a real **individual** PAN (`merchantPan`). **`merchantName` must match the name on PAN / ITD records** exactly (order, spelling, initials vs full words). If you see *name is not matching with pan records*, fix `merchantName` and usually **`merchantDateOfBirth`** to match the PAN holder.\n\n**After merchant KYC (`kycStatus: validated`):** AEPS agent login is separate. If **3.1** returns `loginStatus: false`, `bankList: []`, `kycStatus: PENDING` — you still need a **successful 3.2 biometric login** on your route (e.g. **AIRTEL**). **Run 3.1 before 3.2/4.x** so `wadh` is saved into `aepsWadh` (used in PID / resident auth).\n\n**`Resident authentication failed`:** UIDAI did not accept the biometric — not a Postman JSON fix. You need a **certified fingerprint/face device + RD service**, **PID built with the same `sessionKey` / `wadh` / keys** as Chagans/Airtel specify, **good scan quality**, and **Aadhaar + mobile** matching the resident. Placeholder `pidData` in Postman will always fail. Use Chagans’ **mobile/SDK integration** or get **test steps** from them for your route.\n\n**Test data:** Variables include your HDFC `bankIin`, etc. **merchantId** default is your validated merchant. **txnId:** `{{$guid}}` on payments.\n\n---\n**Official API doc v1.0 (Jan 2026, Vineet Singh) — endpoint map:**\n| § | PDF | Postman |\n|---|-----|--------|\n| 2.1 | `POST /aeps/createMerchant` | **2.1 Create Merchant** |\n| 2.2 | `POST /aeps/merchantList` + query `page`,`limit`,`kycStatus`,`mobile`,`search` | **2.2 Merchant List** |\n| 3.1 | `POST /aeps/loginStatus` body `type`, `merchantId` | **3.1** |\n| 3.2 | `POST /aeps/aepsLogin` — biometric fields per PDF | **3.2** |\n| 4.1 | `POST /aeps/aepsPayment` — `type` withdraw/deposit/balance/miniStatement | **4.1** ×4 |\n\n**PDF vs live API (your integration):** The PDF does **not** mention **`txnId`** on `aepsPayment`, or **`wadh`** on login/payment — live calls required/returned them; this collection keeps them. PDF sample `merchantId` is not a valid MongoDB ObjectId. Real responses may add **KYC pipe** fields (`bankPipe`, `providerResponse`), **route** (AIRTEL/JIO), **`wadh`**, **`kycStatus`** on login status, and different wording (e.g. *Status check successful*). Ask Chagans for an updated PDF if you need contract parity.\n\n**Biometrics:** PDF §3.2 / §4.1 match — real **`pidData`** and device fields from certified capture; doc error *Biometric authentication failed* = same class of issue as resident auth.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "https://chagans.com" },
+    {
+      "key": "CHAGHANS_AEPS_CLIENT_ID",
+      "value": "",
+      "description": "Required. Paste from .env.local or set in Chagans-AEPS Postman environment."
+    },
+    {
+      "key": "CHAGHANS_AEPS_CONSUMER_SECRET",
+      "value": "",
+      "description": "Required. Same as CHAGHANS_AEPS_CONSUMER_SECRET in .env.local"
+    },
+    {
+      "key": "CHAGHANS_AEPS_AUTH_TOKEN",
+      "value": "",
+      "description": "Raw JWT/string only (no 'Bearer '). Expired or wrong-scope token → AUTH_401."
+    },
+    { "key": "merchantId", "value": "69ea3db26d7c0047d40ceb2f", "description": "Validated merchant; overwritten if Create Merchant returns a new id" },
+    {
+      "key": "aepsWadh",
+      "value": "",
+      "description": "Filled by **3.1** test script from `data.wadh`. Required for real PID crypto; run 3.1 before biometric calls."
+    },
+    { "key": "aepsRoute", "value": "AIRTEL", "description": "Filled from **3.1** `data.route` when present" },
+    { "key": "aepsTransType", "value": "deposit" },
+    { "key": "bankIin", "value": "607094" },
+    { "key": "bankName", "value": "HDFC Bank" },
+    { "key": "bankAccountNo", "value": "50100104420821" },
+    { "key": "bankIfsc", "value": "HDFC0003756" },
+    { "key": "customerAadhaar", "value": "669812906054" },
+    { "key": "customerMobile", "value": "9971969046" },
+    { "key": "txnAmount", "value": "5000" },
+    { "key": "merchantEmail", "value": "" },
+    { "key": "merchantMobile", "value": "9971969046" },
+    {
+      "key": "merchantName",
+      "value": "Manish Kumar Shah",
+      "description": "Full name as on PAN / ITD (must match JIO KYC)."
+    },
+    {
+      "key": "merchantDateOfBirth",
+      "value": "1995-04-19",
+      "description": "YYYY-MM-DD (19-Apr-1995)."
+    },
+    { "key": "merchantGender", "value": "M", "description": "M or F per ID documents." },
+    {
+      "key": "merchantPan",
+      "value": "FXNPS8348A",
+      "description": "Individual PAN (4th char P). Update if KYC must match Aadhaar/name on file."
+    },
+    { "key": "merchantAadhaar", "value": "669812906054" }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "const raw = (pm.environment.get('CHAGHANS_AEPS_AUTH_TOKEN') || pm.collectionVariables.get('CHAGHANS_AEPS_AUTH_TOKEN') || '').trim();",
+          "if (raw) {",
+          "  const v = /^Bearer\\s+/i.test(raw) ? raw : ('Bearer ' + raw);",
+          "  pm.request.headers.upsert({ key: 'authorization', value: v });",
+          "}"
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "2. Merchant Management",
+      "item": [
+        {
+          "name": "2.1 Create Merchant",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "const ts = Date.now();",
+                  "pm.collectionVariables.set('merchantEmail', 'aeps.kyc.' + ts + '@gmail.com');"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Response time OK', function () { pm.expect(pm.response.responseTime).to.be.below(30000); });",
+                  "try {",
+                  "  const j = pm.response.json();",
+                  "  const mid = j.data && j.data.merchantId;",
+                  "  if (mid && /^[a-f0-9]{24}$/i.test(mid)) {",
+                  "    pm.collectionVariables.set('merchantId', mid);",
+                  "  }",
+                  "  pm.test('Has JSON body', function () { pm.expect(j).to.be.an('object'); });",
+                  "} catch (e) { pm.test('Parse JSON', function () { pm.expect.fail('Body is not JSON'); }); }"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "client-id", "value": "{{CHAGHANS_AEPS_CLIENT_ID}}" },
+              { "key": "client-secret", "value": "{{CHAGHANS_AEPS_CONSUMER_SECRET}}" },
+              { "key": "authorization", "value": "Bearer {{CHAGHANS_AEPS_AUTH_TOKEN}}" },
+              { "key": "apiType", "value": "aeps" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"mobile\": \"{{merchantMobile}}\",\n  \"name\": \"{{merchantName}}\",\n  \"gender\": \"{{merchantGender}}\",\n  \"pan\": \"{{merchantPan}}\",\n  \"email\": \"{{merchantEmail}}\",\n  \"address\": {\n    \"full\": \"123 Main Street, Andheri East\",\n    \"city\": \"Mumbai\",\n    \"pincode\": \"400001\"\n  },\n  \"aadhaar\": \"{{merchantAadhaar}}\",\n  \"dateOfBirth\": \"{{merchantDateOfBirth}}\",\n  \"latitude\": \"19.0760\",\n  \"longitude\": \"72.8777\",\n  \"bankAccountNo\": \"{{bankAccountNo}}\",\n  \"bankIfsc\": \"{{bankIfsc}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/aeps/createMerchant",
+            "description": "JIO matches **name** (and often **DOB**) to **PAN** records. Set `merchantName` to the exact name on the PAN for `merchantPan`; set `merchantDateOfBirth` if needed. Pre-request sets unique email only. On success, saves `merchantId` when 24-char hex."
+          },
+          "response": []
+        },
+        {
+          "name": "2.2 Merchant List",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Response time OK', function () { pm.expect(pm.response.responseTime).to.be.below(30000); });",
+                  "try {",
+                  "  const j = pm.response.json();",
+                  "  pm.test('Has JSON body', function () { pm.expect(j).to.be.an('object'); });",
+                  "} catch (e) { pm.test('Parse JSON', function () { pm.expect.fail('Body is not JSON'); }); }"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "client-id", "value": "{{CHAGHANS_AEPS_CLIENT_ID}}" },
+              { "key": "client-secret", "value": "{{CHAGHANS_AEPS_CONSUMER_SECRET}}" },
+              { "key": "authorization", "value": "Bearer {{CHAGHANS_AEPS_AUTH_TOKEN}}" },
+              { "key": "apiType", "value": "aeps" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/aeps/merchantList?page=1&limit=10",
+            "description": "`data: []` is expected until merchants exist for this partner."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "3. AEPS Authentication",
+      "item": [
+        {
+          "name": "3.1 Check AEPS Login Status",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Response time OK', function () { pm.expect(pm.response.responseTime).to.be.below(30000); });",
+                  "try {",
+                  "  const j = pm.response.json();",
+                  "  const d = j.data || {};",
+                  "  if (d.wadh) pm.collectionVariables.set('aepsWadh', d.wadh);",
+                  "  if (d.route) pm.collectionVariables.set('aepsRoute', d.route);",
+                  "  pm.test('Has JSON body', function () { pm.expect(j).to.be.an('object'); });",
+                  "} catch (e) { pm.test('Parse JSON', function () { pm.expect.fail('Body is not JSON'); }); }"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "client-id", "value": "{{CHAGHANS_AEPS_CLIENT_ID}}" },
+              { "key": "client-secret", "value": "{{CHAGHANS_AEPS_CONSUMER_SECRET}}" },
+              { "key": "authorization", "value": "Bearer {{CHAGHANS_AEPS_AUTH_TOKEN}}" },
+              { "key": "apiType", "value": "aeps" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"{{aepsTransType}}\",\n  \"merchantId\": \"{{merchantId}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/aeps/loginStatus",
+            "description": "Saves **`wadh`** and **`route`** into collection vars on success. `loginStatus: false` + empty `bankList` until agent biometric login succeeds. `kycStatus: PENDING` here is AEPS pipeline state, not merchant KYC."
+          },
+          "response": []
+        },
+        {
+          "name": "3.2 AEPS Login (biometric)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "if (!(pm.collectionVariables.get('aepsWadh') || '').trim()) {",
+                  "  console.warn('aepsWadh is empty — send **3.1 Check AEPS Login Status** first.');",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Response time OK', function () { pm.expect(pm.response.responseTime).to.be.below(30000); });",
+                  "try {",
+                  "  const j = pm.response.json();",
+                  "  pm.test('Has JSON body', function () { pm.expect(j).to.be.an('object'); });",
+                  "} catch (e) { pm.test('Parse JSON', function () { pm.expect.fail('Body is not JSON'); }); }"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "client-id", "value": "{{CHAGHANS_AEPS_CLIENT_ID}}" },
+              { "key": "client-secret", "value": "{{CHAGHANS_AEPS_CONSUMER_SECRET}}" },
+              { "key": "authorization", "value": "Bearer {{CHAGHANS_AEPS_AUTH_TOKEN}}" },
+              { "key": "apiType", "value": "aeps" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"merchantId\": \"{{merchantId}}\",\n  \"transType\": \"{{aepsTransType}}\",\n  \"wadh\": \"{{aepsWadh}}\",\n  \"bioType\": \"FINGER\",\n  \"dc\": \"device_code\",\n  \"ci\": \"certificate_identifier\",\n  \"hmac\": \"hash_value\",\n  \"dpId\": \"device_provider_id\",\n  \"mc\": \"model_code\",\n  \"pidDataType\": \"X\",\n  \"mi\": \"model_id\",\n  \"rdsId\": \"reader_id\",\n  \"sessionKey\": \"session_key\",\n  \"fCount\": \"1\",\n  \"errCode\": \"0\",\n  \"pCount\": \"0\",\n  \"fType\": \"0\",\n  \"iCount\": \"0\",\n  \"pType\": \"0\",\n  \"srno\": \"serial_number\",\n  \"pidData\": \"encrypted_biometric_data\",\n  \"qScore\": \"80\",\n  \"nmPoints\": \"20\",\n  \"rdsVer\": \"1.0.0\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/aeps/aepsLogin",
+            "description": "**Resident authentication failed** = real `pidData` + device fields from RD/certified scanner; placeholders always fail. Run **3.1** first for `wadh`. Confirm `aepsTransType` (deposit/withdraw) with Chagans."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "4. AEPS Transaction",
+      "item": [
+        {
+          "name": "4.1 AEPS Payment — Withdraw",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Response time OK', function () { pm.expect(pm.response.responseTime).to.be.below(30000); });",
+                  "try {",
+                  "  const j = pm.response.json();",
+                  "  pm.test('Has JSON body', function () { pm.expect(j).to.be.an('object'); });",
+                  "} catch (e) { pm.test('Parse JSON', function () { pm.expect.fail('Body is not JSON'); }); }"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "client-id", "value": "{{CHAGHANS_AEPS_CLIENT_ID}}" },
+              { "key": "client-secret", "value": "{{CHAGHANS_AEPS_CONSUMER_SECRET}}" },
+              { "key": "authorization", "value": "Bearer {{CHAGHANS_AEPS_AUTH_TOKEN}}" },
+              { "key": "apiType", "value": "aeps" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"txnId\": \"{{$guid}}\",\n  \"merchantId\": \"{{merchantId}}\",\n  \"type\": \"withdraw\",\n  \"amount\": \"{{txnAmount}}\",\n  \"iin\": \"{{bankIin}}\",\n  \"adhar\": \"{{customerAadhaar}}\",\n  \"cMobile\": \"{{customerMobile}}\",\n  \"wadh\": \"{{aepsWadh}}\",\n  \"bioType\": \"FINGER\",\n  \"dc\": \"device_code\",\n  \"ci\": \"certificate_identifier\",\n  \"hmac\": \"hash_value\",\n  \"dpId\": \"device_provider_id\",\n  \"mc\": \"model_code\",\n  \"pidDataType\": \"X\",\n  \"mi\": \"model_id\",\n  \"rdsId\": \"reader_id\",\n  \"sessionKey\": \"session_key\",\n  \"fCount\": \"1\",\n  \"errCode\": \"0\",\n  \"pCount\": \"0\",\n  \"fType\": \"0\",\n  \"iCount\": \"0\",\n  \"pType\": \"0\",\n  \"srno\": \"serial_number\",\n  \"pidData\": \"encrypted_biometric_data\",\n  \"qScore\": \"80\",\n  \"nmPoints\": \"20\",\n  \"rdsVer\": \"1.0.0\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/aeps/aepsPayment",
+            "description": "`txnId` is required by the live API (unique per attempt)."
+          },
+          "response": []
+        },
+        {
+          "name": "4.1 AEPS Payment — Deposit",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "client-id", "value": "{{CHAGHANS_AEPS_CLIENT_ID}}" },
+              { "key": "client-secret", "value": "{{CHAGHANS_AEPS_CONSUMER_SECRET}}" },
+              { "key": "authorization", "value": "Bearer {{CHAGHANS_AEPS_AUTH_TOKEN}}" },
+              { "key": "apiType", "value": "aeps" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"txnId\": \"{{$guid}}\",\n  \"merchantId\": \"{{merchantId}}\",\n  \"type\": \"deposit\",\n  \"amount\": \"{{txnAmount}}\",\n  \"iin\": \"{{bankIin}}\",\n  \"adhar\": \"{{customerAadhaar}}\",\n  \"cMobile\": \"{{customerMobile}}\",\n  \"wadh\": \"{{aepsWadh}}\",\n  \"bioType\": \"FINGER\",\n  \"dc\": \"device_code\",\n  \"ci\": \"certificate_identifier\",\n  \"hmac\": \"hash_value\",\n  \"dpId\": \"device_provider_id\",\n  \"mc\": \"model_code\",\n  \"pidDataType\": \"X\",\n  \"mi\": \"model_id\",\n  \"rdsId\": \"reader_id\",\n  \"sessionKey\": \"session_key\",\n  \"fCount\": \"1\",\n  \"errCode\": \"0\",\n  \"pCount\": \"0\",\n  \"fType\": \"0\",\n  \"iCount\": \"0\",\n  \"pType\": \"0\",\n  \"srno\": \"serial_number\",\n  \"pidData\": \"encrypted_biometric_data\",\n  \"qScore\": \"80\",\n  \"nmPoints\": \"20\",\n  \"rdsVer\": \"1.0.0\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/aeps/aepsPayment",
+            "description": "`txnId` is required by the live API."
+          },
+          "response": []
+        },
+        {
+          "name": "4.1 AEPS Payment — Balance",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "client-id", "value": "{{CHAGHANS_AEPS_CLIENT_ID}}" },
+              { "key": "client-secret", "value": "{{CHAGHANS_AEPS_CONSUMER_SECRET}}" },
+              { "key": "authorization", "value": "Bearer {{CHAGHANS_AEPS_AUTH_TOKEN}}" },
+              { "key": "apiType", "value": "aeps" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"txnId\": \"{{$guid}}\",\n  \"merchantId\": \"{{merchantId}}\",\n  \"type\": \"balance\",\n  \"amount\": \"0\",\n  \"iin\": \"{{bankIin}}\",\n  \"adhar\": \"{{customerAadhaar}}\",\n  \"cMobile\": \"{{customerMobile}}\",\n  \"wadh\": \"{{aepsWadh}}\",\n  \"bioType\": \"FINGER\",\n  \"dc\": \"device_code\",\n  \"ci\": \"certificate_identifier\",\n  \"hmac\": \"hash_value\",\n  \"dpId\": \"device_provider_id\",\n  \"mc\": \"model_code\",\n  \"pidDataType\": \"X\",\n  \"mi\": \"model_id\",\n  \"rdsId\": \"reader_id\",\n  \"sessionKey\": \"session_key\",\n  \"fCount\": \"1\",\n  \"errCode\": \"0\",\n  \"pCount\": \"0\",\n  \"fType\": \"0\",\n  \"iCount\": \"0\",\n  \"pType\": \"0\",\n  \"srno\": \"serial_number\",\n  \"pidData\": \"encrypted_biometric_data\",\n  \"qScore\": \"80\",\n  \"nmPoints\": \"20\",\n  \"rdsVer\": \"1.0.0\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/aeps/aepsPayment",
+            "description": "`txnId` is required by the live API."
+          },
+          "response": []
+        },
+        {
+          "name": "4.1 AEPS Payment — Mini Statement",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "client-id", "value": "{{CHAGHANS_AEPS_CLIENT_ID}}" },
+              { "key": "client-secret", "value": "{{CHAGHANS_AEPS_CONSUMER_SECRET}}" },
+              { "key": "authorization", "value": "Bearer {{CHAGHANS_AEPS_AUTH_TOKEN}}" },
+              { "key": "apiType", "value": "aeps" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"txnId\": \"{{$guid}}\",\n  \"merchantId\": \"{{merchantId}}\",\n  \"type\": \"miniStatement\",\n  \"amount\": \"0\",\n  \"iin\": \"{{bankIin}}\",\n  \"adhar\": \"{{customerAadhaar}}\",\n  \"cMobile\": \"{{customerMobile}}\",\n  \"wadh\": \"{{aepsWadh}}\",\n  \"bioType\": \"FINGER\",\n  \"dc\": \"device_code\",\n  \"ci\": \"certificate_identifier\",\n  \"hmac\": \"hash_value\",\n  \"dpId\": \"device_provider_id\",\n  \"mc\": \"model_code\",\n  \"pidDataType\": \"X\",\n  \"mi\": \"model_id\",\n  \"rdsId\": \"reader_id\",\n  \"sessionKey\": \"session_key\",\n  \"fCount\": \"1\",\n  \"errCode\": \"0\",\n  \"pCount\": \"0\",\n  \"fType\": \"0\",\n  \"iCount\": \"0\",\n  \"pType\": \"0\",\n  \"srno\": \"serial_number\",\n  \"pidData\": \"encrypted_biometric_data\",\n  \"qScore\": \"80\",\n  \"nmPoints\": \"20\",\n  \"rdsVer\": \"1.0.0\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/aeps/aepsPayment",
+            "description": "`txnId` is required by the live API."
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}

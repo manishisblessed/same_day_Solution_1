@@ -19,12 +19,12 @@ const POS_COLUMNS = [
 ].join(',')
 
 // Columns for partner_pos_machines table (different schema)
+// Use PostgREST resource embedding to join with partner_retailers for retailer info
 const PARTNER_POS_COLUMNS = [
   'id', 'partner_id', 'terminal_id', 'device_serial', 'machine_model',
   'status', 'activated_at', 'last_txn_at', 'metadata',
-  'retailer_code', 'retailer_name', 'retailer_business_name',
-  'retailer_city', 'retailer_state',
-  'created_at', 'updated_at'
+  'retailer_id', 'created_at', 'updated_at',
+  'partner_retailers(retailer_code,name,business_name,city,state)'
 ].join(',')
 
 /**
@@ -277,7 +277,9 @@ async function handlePartnerMachines(
     params.set('status', `eq.${statusFilter}`)
   }
   if (search) {
-    params.set('or', `(terminal_id.ilike.%${search}%,device_serial.ilike.%${search}%,machine_model.ilike.%${search}%,retailer_name.ilike.%${search}%)`)
+    // Note: Can't search on retailer_name directly since it's in partner_retailers table
+    // Search on terminal_id, device_serial, and machine_model only
+    params.set('or', `(terminal_id.ilike.%${search}%,device_serial.ilike.%${search}%,machine_model.ilike.%${search}%)`)
   }
 
   const restUrl = `${supabaseUrl}/rest/v1/partner_pos_machines?${params.toString()}`
@@ -309,26 +311,30 @@ async function handlePartnerMachines(
   console.log('[POS My Machines GET] Partner PostgREST returned', rawMachines.length, 'machines')
 
   // Transform partner_pos_machines format to match expected dashboard format
-  const transformedMachines = rawMachines.map(m => ({
-    id: m.id,
-    machine_id: m.terminal_id, // Map terminal_id to machine_id for UI consistency
-    serial_number: m.device_serial,
-    machine_type: m.machine_model,
-    tid: m.terminal_id,
-    mid: m.metadata?.mid || null,
-    brand: m.machine_model,
-    status: m.status,
-    inventory_status: 'assigned_to_partner',
-    activated_at: m.activated_at,
-    last_txn_at: m.last_txn_at,
-    retailer_code: m.retailer_code,
-    retailer_name: m.retailer_name,
-    retailer_business_name: m.retailer_business_name,
-    retailer_city: m.retailer_city,
-    retailer_state: m.retailer_state,
-    created_at: m.created_at,
-    updated_at: m.updated_at,
-  }))
+  // The partner_retailers data comes as a nested object from PostgREST embedding
+  const transformedMachines = rawMachines.map(m => {
+    const retailer = m.partner_retailers || {}
+    return {
+      id: m.id,
+      machine_id: m.terminal_id, // Map terminal_id to machine_id for UI consistency
+      serial_number: m.device_serial,
+      machine_type: m.machine_model,
+      tid: m.terminal_id,
+      mid: m.metadata?.mid || null,
+      brand: m.machine_model,
+      status: m.status,
+      inventory_status: 'assigned_to_partner',
+      activated_at: m.activated_at,
+      last_txn_at: m.last_txn_at,
+      retailer_code: retailer.retailer_code || null,
+      retailer_name: retailer.name || null,
+      retailer_business_name: retailer.business_name || null,
+      retailer_city: retailer.city || null,
+      retailer_state: retailer.state || null,
+      created_at: m.created_at,
+      updated_at: m.updated_at,
+    }
+  })
 
   // Sort by created_at descending
   transformedMachines.sort((a, b) => {

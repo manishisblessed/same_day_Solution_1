@@ -4,6 +4,7 @@ import { fetchBill } from '@/services/bbps'
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
 import { createClient } from '@supabase/supabase-js'
 import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger'
+import { getBBPSProvider } from '@/services/bbps/config'
 
 export const dynamic = 'force-dynamic'
 
@@ -35,6 +36,7 @@ export async function POST(request: NextRequest) {
   let init_channel: string | undefined
   let ip: string | undefined
   let mac: string | undefined
+  let enquiry_id: string | undefined
 
   try {
     const body = await request.json() as any
@@ -94,6 +96,7 @@ export async function POST(request: NextRequest) {
       init_channel,
       ip,
       mac,
+      enquiry_id,
     } = body)
 
     if (!biller_id) {
@@ -108,6 +111,18 @@ export async function POST(request: NextRequest) {
     if (!input_params && !consumer_number) {
       const response = NextResponse.json(
         { error: 'consumer_number or input_params is required' },
+        { status: 400 }
+      )
+      return addCorsHeaders(request, response)
+    }
+
+    // For Chagans BBPS, enquiry_id is required (from getBillerFields response)
+    if (getBBPSProvider() === 'chagans' && !enquiry_id) {
+      const response = NextResponse.json(
+        {
+          error: 'enquiry_id is required for Chagans BBPS',
+          message: 'Get enquiry_id from getBillerFields response before fetching bill',
+        },
         { status: 400 }
       )
       return addCorsHeaders(request, response)
@@ -233,6 +248,7 @@ export async function POST(request: NextRequest) {
     const billDetails = await fetchBill({
       billerId: biller_id,
       consumerNumber: effectiveConsumerNumber,
+      enquiryId: enquiry_id ? String(enquiry_id).trim() : undefined,
       inputParams,
       paymentInfo: finalPaymentInfo,
       paymentMode: finalPaymentMode,
