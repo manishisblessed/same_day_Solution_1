@@ -245,7 +245,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"merchantId\": \"{{merchantId}}\",\n  \"transType\": \"{{aepsTransType}}\",\n  \"wadh\": \"{{aepsWadh}}\",\n  \"bioType\": \"FINGER\",\n  \"dc\": \"device_code\",\n  \"ci\": \"certificate_identifier\",\n  \"hmac\": \"hash_value\",\n  \"dpId\": \"device_provider_id\",\n  \"mc\": \"model_code\",\n  \"pidDataType\": \"X\",\n  \"mi\": \"model_id\",\n  \"rdsId\": \"reader_id\",\n  \"sessionKey\": \"session_key\",\n  \"fCount\": \"1\",\n  \"errCode\": \"0\",\n  \"pCount\": \"0\",\n  \"fType\": \"0\",\n  \"iCount\": \"0\",\n  \"pType\": \"0\",\n  \"srno\": \"serial_number\",\n  \"pidData\": \"encrypted_biometric_data\",\n  \"qScore\": \"80\",\n  \"nmPoints\": \"20\",\n  \"rdsVer\": \"1.0.0\"\n}",
+              "raw": "{\n  \"merchantId\": \"{{merchantId}}\",\n  \"transType\": \"{{aepsTransType}}\",\n  \"wadh\": \"{{aepsWadh}}\",\n  \"bioType\": \"FINGER\",\n  \"dc\": \"device_code\",\n  \"ci\": \"certificate_identifier\",\n  \"hmac\": \"hash_value\",\n  \"dpId\": \"device_provider_id\",\n  \"mc\": \"model_code\",\n  \"pidDataType\": \"X\",\n  \"mi\": \"model_id\",\n  \"rdsId\": \"reader_id\",\n  \"sessionKey\": \"session_key\",\n  \"fCount\": \"1\",\n  \"errCode\": \"0\",\n  \"pCount\": \"0\",\n  \"fType\": \"2\",\n  \"iCount\": \"0\",\n  \"pType\": \"0\",\n  \"srno\": \"serial_number\",\n  \"pidData\": \"encrypted_biometric_data\",\n  \"qScore\": \"80\",\n  \"nmPoints\": \"20\",\n  \"rdsVer\": \"1.0.0\"\n}",
               "options": { "raw": { "language": "json" } }
             },
             "url": "{{baseUrl}}/aeps/aepsLogin",
@@ -286,7 +286,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"txnId\": \"{{$guid}}\",\n  \"merchantId\": \"{{merchantId}}\",\n  \"type\": \"withdraw\",\n  \"amount\": \"{{txnAmount}}\",\n  \"iin\": \"{{bankIin}}\",\n  \"adhar\": \"{{customerAadhaar}}\",\n  \"cMobile\": \"{{customerMobile}}\",\n  \"wadh\": \"{{aepsWadh}}\",\n  \"bioType\": \"FINGER\",\n  \"dc\": \"device_code\",\n  \"ci\": \"certificate_identifier\",\n  \"hmac\": \"hash_value\",\n  \"dpId\": \"device_provider_id\",\n  \"mc\": \"model_code\",\n  \"pidDataType\": \"X\",\n  \"mi\": \"model_id\",\n  \"rdsId\": \"reader_id\",\n  \"sessionKey\": \"session_key\",\n  \"fCount\": \"1\",\n  \"errCode\": \"0\",\n  \"pCount\": \"0\",\n  \"fType\": \"0\",\n  \"iCount\": \"0\",\n  \"pType\": \"0\",\n  \"srno\": \"serial_number\",\n  \"pidData\": \"encrypted_biometric_data\",\n  \"qScore\": \"80\",\n  \"nmPoints\": \"20\",\n  \"rdsVer\": \"1.0.0\"\n}",
+              "raw": "{\n  \"txnId\": \"{{$guid}}\",\n  \"merchantId\": \"{{merchantId}}\",\n  \"type\": \"withdraw\",\n  \"amount\": \"{{txnAmount}}\",\n  \"iin\": \"{{bankIin}}\",\n  \"adhar\": \"{{customerAadhaar}}\",\n  \"cMobile\": \"{{customerMobile}}\",\n  \"wadh\": \"{{aepsWadh}}\",\n  \"bioType\": \"FINGER\",\n  \"dc\": \"device_code\",\n  \"ci\": \"certificate_identifier\",\n  \"hmac\": \"hash_value\",\n  \"dpId\": \"device_provider_id\",\n  \"mc\": \"model_code\",\n  \"pidDataType\": \"X\",\n  \"mi\": \"model_id\",\n  \"rdsId\": \"reader_id\",\n  \"sessionKey\": \"session_key\",\n  \"fCount\": \"1\",\n  \"errCode\": \"0\",\n  \"pCount\": \"0\",\n  \"fType\": \"2\",\n  \"iCount\": \"0\",\n  \"pType\": \"0\",\n  \"srno\": \"serial_number\",\n  \"pidData\": \"encrypted_biometric_data\",\n  \"qScore\": \"80\",\n  \"nmPoints\": \"20\",\n  \"rdsVer\": \"1.0.0\"\n}",
               "options": { "raw": { "language": "json" } }
             },
             "url": "{{baseUrl}}/aeps/aepsPayment",
@@ -307,7 +307,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"txnId\": \"{{$guid}}\",\n  \"merchantId\": \"{{merchantId}}\",\n  \"type\": \"deposit\",\n  \"amount\": \"{{txnAmount}}\",\n  \"iin\": \"{{bankIin}}\",\n  \"adhar\": \"{{customerAadhaar}}\",\n  \"cMobile\": \"{{customerMobile}}\",\n  \"wadh\": \"{{aepsWadh}}\",\n  \"bioType\": \"FINGER\",\n  \"dc\": \"device_code\",\n  \"ci\": \"certificate_identifier\",\n  \"hmac\": \"hash_value\",\n  \"dpId\": \"device_provider_id\",\n  \"mc\": \"model_code\",\n  \"pidDataType\": \"X\",\n  \"mi\": \"model_id\",\n  \"rdsId\": \"reader_id\",\n  \"sessionKey\": \"session_key\",\n  \"fCount\": \"1\",\n  \"errCode\": \"0\",\n  \"pCount\": \"0\",\n  \"fType\": \"0\",\n  \"iCount\": \"0\",\n  \"pType\": \"0\",\n  \"srno\": \"serial_number\",\n  \"pidData\": \"encrypted_biometric_data\",\n  \"qScore\": \"80\",\n  \"nmPoints\": \"20\",\n  \"rdsVer\": \"1.0.0\"\n}",
+              "raw": "{\n  \"txnId\": \"{{$guid}}\",\n  \"merchantId\": \"{{merchantId}}\",\n  \"type\": \"deposit\",\n  \"amount\": \"{{txnAmount}}\",\n  \"iin\": \"{{bankIin}}\",\n  \"adhar\": \"{{customerAadhaar}}\",\n  \"cMobile\": \"{{customerMobile}}\",\n  \"wadh\": \"{{aepsWadh}}\",\n  \"bioType\": \"FINGER\",\n  \"dc\": \"device_code\",\n  \"ci\": \"certificate_identifier\",\n  \"hmac\": \"hash_value\",\n  \"dpId\": \"device_provider_id\",\n  \"mc\": \"model_code\",\n  \"pidDataType\": \"X\",\n  \"mi\": \"model_id\",\n  \"rdsId\": \"reader_id\",\n  \"sessionKey\": \"session_key\",\n  \"fCount\": \"1\",\n  \"errCode\": \"0\",\n  \"pCount\": \"0\",\n  \"fType\": \"2\",\n  \"iCount\": \"0\",\n  \"pType\": \"0\",\n  \"srno\": \"serial_number\",\n  \"pidData\": \"encrypted_biometric_data\",\n  \"qScore\": \"80\",\n  \"nmPoints\": \"20\",\n  \"rdsVer\": \"1.0.0\"\n}",
               "options": { "raw": { "language": "json" } }
             },
             "url": "{{baseUrl}}/aeps/aepsPayment",
@@ -328,7 +328,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"txnId\": \"{{$guid}}\",\n  \"merchantId\": \"{{merchantId}}\",\n  \"type\": \"balance\",\n  \"amount\": \"0\",\n  \"iin\": \"{{bankIin}}\",\n  \"adhar\": \"{{customerAadhaar}}\",\n  \"cMobile\": \"{{customerMobile}}\",\n  \"wadh\": \"{{aepsWadh}}\",\n  \"bioType\": \"FINGER\",\n  \"dc\": \"device_code\",\n  \"ci\": \"certificate_identifier\",\n  \"hmac\": \"hash_value\",\n  \"dpId\": \"device_provider_id\",\n  \"mc\": \"model_code\",\n  \"pidDataType\": \"X\",\n  \"mi\": \"model_id\",\n  \"rdsId\": \"reader_id\",\n  \"sessionKey\": \"session_key\",\n  \"fCount\": \"1\",\n  \"errCode\": \"0\",\n  \"pCount\": \"0\",\n  \"fType\": \"0\",\n  \"iCount\": \"0\",\n  \"pType\": \"0\",\n  \"srno\": \"serial_number\",\n  \"pidData\": \"encrypted_biometric_data\",\n  \"qScore\": \"80\",\n  \"nmPoints\": \"20\",\n  \"rdsVer\": \"1.0.0\"\n}",
+              "raw": "{\n  \"txnId\": \"{{$guid}}\",\n  \"merchantId\": \"{{merchantId}}\",\n  \"type\": \"balance\",\n  \"amount\": \"0\",\n  \"iin\": \"{{bankIin}}\",\n  \"adhar\": \"{{customerAadhaar}}\",\n  \"cMobile\": \"{{customerMobile}}\",\n  \"wadh\": \"{{aepsWadh}}\",\n  \"bioType\": \"FINGER\",\n  \"dc\": \"device_code\",\n  \"ci\": \"certificate_identifier\",\n  \"hmac\": \"hash_value\",\n  \"dpId\": \"device_provider_id\",\n  \"mc\": \"model_code\",\n  \"pidDataType\": \"X\",\n  \"mi\": \"model_id\",\n  \"rdsId\": \"reader_id\",\n  \"sessionKey\": \"session_key\",\n  \"fCount\": \"1\",\n  \"errCode\": \"0\",\n  \"pCount\": \"0\",\n  \"fType\": \"2\",\n  \"iCount\": \"0\",\n  \"pType\": \"0\",\n  \"srno\": \"serial_number\",\n  \"pidData\": \"encrypted_biometric_data\",\n  \"qScore\": \"80\",\n  \"nmPoints\": \"20\",\n  \"rdsVer\": \"1.0.0\"\n}",
               "options": { "raw": { "language": "json" } }
             },
             "url": "{{baseUrl}}/aeps/aepsPayment",
@@ -349,11 +349,119 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"txnId\": \"{{$guid}}\",\n  \"merchantId\": \"{{merchantId}}\",\n  \"type\": \"miniStatement\",\n  \"amount\": \"0\",\n  \"iin\": \"{{bankIin}}\",\n  \"adhar\": \"{{customerAadhaar}}\",\n  \"cMobile\": \"{{customerMobile}}\",\n  \"wadh\": \"{{aepsWadh}}\",\n  \"bioType\": \"FINGER\",\n  \"dc\": \"device_code\",\n  \"ci\": \"certificate_identifier\",\n  \"hmac\": \"hash_value\",\n  \"dpId\": \"device_provider_id\",\n  \"mc\": \"model_code\",\n  \"pidDataType\": \"X\",\n  \"mi\": \"model_id\",\n  \"rdsId\": \"reader_id\",\n  \"sessionKey\": \"session_key\",\n  \"fCount\": \"1\",\n  \"errCode\": \"0\",\n  \"pCount\": \"0\",\n  \"fType\": \"0\",\n  \"iCount\": \"0\",\n  \"pType\": \"0\",\n  \"srno\": \"serial_number\",\n  \"pidData\": \"encrypted_biometric_data\",\n  \"qScore\": \"80\",\n  \"nmPoints\": \"20\",\n  \"rdsVer\": \"1.0.0\"\n}",
+              "raw": "{\n  \"txnId\": \"{{$guid}}\",\n  \"merchantId\": \"{{merchantId}}\",\n  \"type\": \"miniStatement\",\n  \"amount\": \"0\",\n  \"iin\": \"{{bankIin}}\",\n  \"adhar\": \"{{customerAadhaar}}\",\n  \"cMobile\": \"{{customerMobile}}\",\n  \"wadh\": \"{{aepsWadh}}\",\n  \"bioType\": \"FINGER\",\n  \"dc\": \"device_code\",\n  \"ci\": \"certificate_identifier\",\n  \"hmac\": \"hash_value\",\n  \"dpId\": \"device_provider_id\",\n  \"mc\": \"model_code\",\n  \"pidDataType\": \"X\",\n  \"mi\": \"model_id\",\n  \"rdsId\": \"reader_id\",\n  \"sessionKey\": \"session_key\",\n  \"fCount\": \"1\",\n  \"errCode\": \"0\",\n  \"pCount\": \"0\",\n  \"fType\": \"2\",\n  \"iCount\": \"0\",\n  \"pType\": \"0\",\n  \"srno\": \"serial_number\",\n  \"pidData\": \"encrypted_biometric_data\",\n  \"qScore\": \"80\",\n  \"nmPoints\": \"20\",\n  \"rdsVer\": \"1.0.0\"\n}",
               "options": { "raw": { "language": "json" } }
             },
             "url": "{{baseUrl}}/aeps/aepsPayment",
             "description": "`txnId` is required by the live API."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "5. AEPS Mock (dev/test only — no Chagans device needed)",
+      "item": [
+        {
+          "name": "5.1 Mock AEPS Login (simulates biometric success)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Response time OK', function () { pm.expect(pm.response.responseTime).to.be.below(30000); });",
+                  "try {",
+                  "  const j = pm.response.json();",
+                  "  const d = j.data || {};",
+                  "  if (d.wadh) pm.collectionVariables.set('aepsWadh', d.wadh);",
+                  "  if (d.route) pm.collectionVariables.set('aepsRoute', d.route);",
+                  "  pm.test('Has JSON body', function () { pm.expect(j).to.be.an('object'); });",
+                  "} catch (e) { pm.test('Parse JSON', function () { pm.expect.fail('Body is not JSON'); }); }"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"merchantId\": \"{{merchantId}}\",\n  \"type\": \"{{aepsTransType}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "http://localhost:3000/api/aeps/mock-login",
+            "description": "**Mock only** — no real biometric needed. Simulates successful AEPS login, returns `loginStatus: true`, `bankList`, and `wadh`. Change **localhost:3000** to your backend URL. Saves `wadh` into collection vars for next payment calls."
+          },
+          "response": []
+        },
+        {
+          "name": "5.2 Mock AEPS Payment — Balance",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"merchantId\": \"{{merchantId}}\",\n  \"type\": \"balance\",\n  \"amount\": \"0\",\n  \"iin\": \"{{bankIin}}\",\n  \"adhar\": \"{{customerAadhaar}}\",\n  \"cMobile\": \"{{customerMobile}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "http://localhost:3000/api/aeps/mock-payment",
+            "description": "**Mock only** — simulates balance inquiry without real biometric/device."
+          },
+          "response": []
+        },
+        {
+          "name": "5.2 Mock AEPS Payment — Withdraw",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"merchantId\": \"{{merchantId}}\",\n  \"type\": \"withdraw\",\n  \"amount\": \"{{txnAmount}}\",\n  \"iin\": \"{{bankIin}}\",\n  \"adhar\": \"{{customerAadhaar}}\",\n  \"cMobile\": \"{{customerMobile}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "http://localhost:3000/api/aeps/mock-payment",
+            "description": "**Mock only** — simulates cash withdrawal without real biometric/device."
+          },
+          "response": []
+        },
+        {
+          "name": "5.2 Mock AEPS Payment — Deposit",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"merchantId\": \"{{merchantId}}\",\n  \"type\": \"deposit\",\n  \"amount\": \"{{txnAmount}}\",\n  \"iin\": \"{{bankIin}}\",\n  \"adhar\": \"{{customerAadhaar}}\",\n  \"cMobile\": \"{{customerMobile}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "http://localhost:3000/api/aeps/mock-payment",
+            "description": "**Mock only** — simulates cash deposit without real biometric/device."
+          },
+          "response": []
+        },
+        {
+          "name": "5.2 Mock AEPS Payment — Mini Statement",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"merchantId\": \"{{merchantId}}\",\n  \"type\": \"miniStatement\",\n  \"amount\": \"0\",\n  \"iin\": \"{{bankIin}}\",\n  \"adhar\": \"{{customerAadhaar}}\",\n  \"cMobile\": \"{{customerMobile}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "http://localhost:3000/api/aeps/mock-payment",
+            "description": "**Mock only** — simulates mini statement (last 5 txns) without real biometric/device."
           },
           "response": []
         }

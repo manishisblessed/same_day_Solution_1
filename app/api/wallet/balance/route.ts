@@ -55,6 +55,18 @@ export async function GET(request: NextRequest) {
 
     const supabase = createClient(supabaseUrl, supabaseAnonKey)
 
+    // Get wallet type from query params (default to 'primary')
+    const walletType = request.nextUrl.searchParams.get('wallet_type') || 'primary'
+    const validWalletTypes = ['primary', 'aeps', 'commission', 'settlement']
+    
+    if (!validWalletTypes.includes(walletType)) {
+      const response = NextResponse.json(
+        { error: 'Invalid wallet_type. Valid types: primary, aeps, commission, settlement' },
+        { status: 400 }
+      )
+      return addCorsHeaders(request, response)
+    }
+
     // Get wallet balance using new function (supports all roles)
     // Fallback to old function for retailers if new function doesn't exist
     let balance = 0
@@ -62,7 +74,7 @@ export async function GET(request: NextRequest) {
     
     const { data: newBalance, error: newError } = await supabase.rpc('get_wallet_balance_v2', {
       p_user_id: user.partner_id,
-      p_wallet_type: 'primary'
+      p_wallet_type: walletType
     })
 
     if (newError) {
@@ -98,7 +110,7 @@ export async function GET(request: NextRequest) {
         balance: 0,
         user_id: user.partner_id,
         user_role: user.role,
-        wallet_type: 'primary',
+        wallet_type: walletType,
         warning: 'Wallet function not available, returning 0'
       })
     }
@@ -116,7 +128,7 @@ export async function GET(request: NextRequest) {
       balance: balance || 0,
       user_id: user.partner_id,
       user_role: user.role,
-      wallet_type: 'primary'
+      wallet_type: walletType
     })
     return addCorsHeaders(request, successResponse)
   } catch (error: any) {

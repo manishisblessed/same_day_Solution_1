@@ -6,7 +6,7 @@ import Link from 'next/link'
 import { 
   LayoutDashboard, ShoppingCart, Activity, 
   Settings, TrendingUp, CreditCard, X, Menu,
-  Wallet, Receipt, Banknote, Percent, BookOpen, Repeat
+  Wallet, Receipt, Banknote, Percent, BookOpen, Repeat, Fingerprint
 } from 'lucide-react'
 import { apiFetch } from '@/lib/api-client'
 import { useAuth } from '@/contexts/AuthContext'
@@ -24,6 +24,7 @@ const sidebarItems: SidebarItem[] = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, href: '/dashboard/retailer?tab=dashboard' },
   { id: 'wallet', label: 'Wallet', icon: Wallet, href: '/dashboard/retailer?tab=wallet' },
   { id: 'services', label: 'Services', icon: Activity, href: '/dashboard/retailer?tab=services' },
+  { id: 'aeps', label: 'AEPS', icon: Fingerprint, href: '/dashboard/retailer?tab=aeps' },
   { id: 'bbps', label: 'BBPS Payments', icon: Receipt, href: '/dashboard/retailer?tab=bbps' },
   { id: 'payout', label: 'Settlement', icon: Banknote, href: '/dashboard/retailer?tab=payout' },
   { id: 'transactions', label: 'Transactions', icon: CreditCard, href: '/dashboard/retailer?tab=transactions' },
@@ -38,6 +39,7 @@ const sidebarItems: SidebarItem[] = [
 // Items not listed here are always visible (dashboard, wallet, ledger, reports).
 const SERVICE_TAB_MAP: Record<string, string[]> = {
   services:       [], // special: visible when ANY service is enabled
+  aeps:           ['aeps'],
   bbps:           ['bbps'],
   payout:         ['banking_payments', 'dmt'],
   transactions:   ['mini_atm_pos'],

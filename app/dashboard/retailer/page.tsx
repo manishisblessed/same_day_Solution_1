@@ -40,8 +40,9 @@ import POSTransactionsTable from '@/components/POSTransactionsTable'
 import PosBridgePanel from '@/components/PosBridgePanel'
 import ServiceTransactionReport from '@/components/ServiceTransactionReport'
 import PartnerSubscriptionsTab from '@/components/PartnerSubscriptionsTab'
+import AEPSDashboard from '@/components/AEPSDashboard'
 
-type TabType = 'dashboard' | 'wallet' | 'services' | 'bbps' | 'payout' | 'transactions' | 'ledger' | 'mdr-schemes' | 'reports' | 'settings' | 'pos-machines' | 'subscriptions'
+type TabType = 'dashboard' | 'wallet' | 'services' | 'aeps' | 'bbps' | 'payout' | 'transactions' | 'ledger' | 'mdr-schemes' | 'reports' | 'settings' | 'pos-machines' | 'subscriptions'
 
 function RetailerDashboardContent() {
   const { user, loading: authLoading } = useAuth()
@@ -51,7 +52,7 @@ function RetailerDashboardContent() {
   
   const getInitialTab = (): TabType => {
     const tab = searchParams?.get('tab')
-    if (tab && ['dashboard', 'wallet', 'services', 'bbps', 'payout', 'transactions', 'ledger', 'mdr-schemes', 'reports', 'settings', 'pos-machines', 'subscriptions'].includes(tab)) {
+    if (tab && ['dashboard', 'wallet', 'services', 'aeps', 'bbps', 'payout', 'transactions', 'ledger', 'mdr-schemes', 'reports', 'settings', 'pos-machines', 'subscriptions'].includes(tab)) {
       return tab as TabType
     }
     return 'dashboard'
@@ -102,7 +103,7 @@ function RetailerDashboardContent() {
 
   useEffect(() => {
     const tab = searchParams?.get('tab')
-    if (tab && ['dashboard', 'wallet', 'services', 'bbps', 'payout', 'transactions', 'ledger', 'mdr-schemes', 'reports', 'settings', 'pos-machines', 'subscriptions'].includes(tab)) {
+    if (tab && ['dashboard', 'wallet', 'services', 'aeps', 'bbps', 'payout', 'transactions', 'ledger', 'mdr-schemes', 'reports', 'settings', 'pos-machines', 'subscriptions'].includes(tab)) {
       if (tab !== activeTab) {
         setActiveTab(tab as TabType)
       }
@@ -495,6 +496,7 @@ function RetailerDashboardContent() {
           {activeTab === 'dashboard' && <DashboardTab user={user} stats={stats} chartData={chartData} recentTransactions={recentTransactions} />}
           {activeTab === 'wallet' && <WalletTab user={user} />}
           {activeTab === 'services' && <ServicesTab />}
+          {activeTab === 'aeps' && <AEPSDashboard />}
           {activeTab === 'bbps' && <BBPSTab />}
           {activeTab === 'payout' && <PayoutTransfer title="Settlement to Bank Account" />}
           {activeTab === 'transactions' && (
