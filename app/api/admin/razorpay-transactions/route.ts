@@ -93,12 +93,25 @@ export async function GET(request: NextRequest) {
       .order('transaction_time', { ascending: false, nullsFirst: false })
       .range(offset, offset + limit - 1)
 
-    // Apply company (merchant) filter: ashvam = base URL (slug or null), others = exact slug
+    // Apply company (merchant) filter: supports multiple comma-separated slugs
+    // ashvam = base URL (slug or null), others = exact slug
     if (merchantSlug && merchantSlug !== 'all') {
-      if (merchantSlug === 'ashvam') {
-        query = query.or('merchant_slug.eq.ashvam,merchant_slug.is.null')
-      } else {
-        query = query.eq('merchant_slug', merchantSlug)
+      const slugs = merchantSlug.split(',').map(s => s.trim()).filter(Boolean)
+      if (slugs.length === 1) {
+        if (slugs[0] === 'ashvam') {
+          query = query.or('merchant_slug.eq.ashvam,merchant_slug.is.null')
+        } else {
+          query = query.eq('merchant_slug', slugs[0])
+        }
+      } else if (slugs.length > 1) {
+        // Build OR condition for multiple slugs
+        const conditions = slugs.map(slug => {
+          if (slug === 'ashvam') {
+            return 'merchant_slug.eq.ashvam,merchant_slug.is.null'
+          }
+          return `merchant_slug.eq.${slug}`
+        }).join(',')
+        query = query.or(conditions)
       }
     }
 
@@ -160,6 +173,75 @@ export async function GET(request: NextRequest) {
       )
     }
 
+    // Build a separate query for aggregate stats (same filters, no pagination)
+    let statsQuery = supabase
+      .from('razorpay_pos_transactions')
+      .select('amount, display_status, customer_name, payer_name')
+
+    // Apply the same filters for stats query (supports multiple company slugs)
+    if (merchantSlug && merchantSlug !== 'all') {
+      const slugs = merchantSlug.split(',').map(s => s.trim()).filter(Boolean)
+      if (slugs.length === 1) {
+        if (slugs[0] === 'ashvam') {
+          statsQuery = statsQuery.or('merchant_slug.eq.ashvam,merchant_slug.is.null')
+        } else {
+          statsQuery = statsQuery.eq('merchant_slug', slugs[0])
+        }
+      } else if (slugs.length > 1) {
+        const conditions = slugs.map(slug => {
+          if (slug === 'ashvam') {
+            return 'merchant_slug.eq.ashvam,merchant_slug.is.null'
+          }
+          return `merchant_slug.eq.${slug}`
+        }).join(',')
+        statsQuery = statsQuery.or(conditions)
+      }
+    }
+    if (statusFilter && ['CAPTURED', 'FAILED', 'PENDING'].includes(statusFilter.toUpperCase())) {
+      const displayStatus = statusFilter.toUpperCase() === 'CAPTURED' ? 'SUCCESS' : statusFilter.toUpperCase()
+      statsQuery = statsQuery.eq('display_status', displayStatus)
+    }
+    if (dateFrom) {
+      const fromDate = dateFrom.includes('T') ? dateFrom : `${dateFrom}T00:00:00`
+      statsQuery = statsQuery.gte('transaction_time', fromDate)
+    }
+    if (dateTo) {
+      const toDate = dateTo.includes('T') ? dateTo : `${dateTo}T23:59:59`
+      statsQuery = statsQuery.lte('transaction_time', toDate)
+    }
+    if (paymentMode && paymentMode !== 'all') {
+      statsQuery = statsQuery.eq('payment_mode', paymentMode.toUpperCase())
+    }
+    if (settlementFilter && settlementFilter !== 'all') {
+      statsQuery = statsQuery.eq('settlement_status', settlementFilter.toUpperCase())
+    }
+    if (cardBrand && cardBrand !== 'all') {
+      statsQuery = statsQuery.eq('card_brand', cardBrand.toUpperCase())
+    }
+    if (acquiringBank && acquiringBank.trim()) {
+      statsQuery = statsQuery.ilike('acquiring_bank', `%${acquiringBank.trim()}%`)
+    }
+    if (searchQuery && searchQuery.trim()) {
+      const s = searchQuery.trim()
+      statsQuery = statsQuery.or(`txn_id.ilike.%${s}%,rrn.ilike.%${s}%,tid.ilike.%${s}%,mid_code.ilike.%${s}%,customer_name.ilike.%${s}%,username.ilike.%${s}%,card_number.ilike.%${s}%`)
+    }
+
+    const { data: statsData } = await statsQuery
+
+    // Calculate aggregate stats from all filtered transactions
+    const allFilteredTransactions = statsData || []
+    const capturedTransactions = allFilteredTransactions.filter((t: any) => t.display_status === 'SUCCESS')
+    const capturedCount = capturedTransactions.length
+    const capturedAmount = capturedTransactions.reduce((sum: number, t: any) => sum + (t.amount || 0), 0)
+    const avgAmount = capturedCount > 0 ? Math.round(capturedAmount / capturedCount) : 0
+    
+    // Count unique customers (by customer_name or payer_name)
+    const uniqueCustomers = new Set(
+      allFilteredTransactions
+        .map((t: any) => (t.customer_name || t.payer_name || '').trim().toLowerCase())
+        .filter((name: string) => name.length > 0)
+    ).size
+
     // Map fields to the format the frontend expects
     // Use dedicated columns first, fallback to raw_data extraction
     const mappedTransactions = (transactions || []).map((txn: any) => ({
@@ -220,6 +302,12 @@ export async function GET(request: NextRequest) {
         totalPages,
         hasNextPage,
         hasPrevPage
+      },
+      stats: {
+        capturedCount,
+        capturedAmount,
+        avgAmount,
+        uniqueCustomers
       }
     })
 

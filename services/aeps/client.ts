@@ -108,9 +108,12 @@ class AEPSClient {
    * Check AEPS login status and get bank list
    */
   async checkLoginStatus(data: AEPSLoginStatusRequest): Promise<AEPSLoginStatusResponse> {
-    // For login status, always use real API if credentials available
-    const useMock = !this.config.clientId || !this.config.authToken;
-    return this.request<AEPSLoginStatusResponse>('/loginStatus', 'POST', data, useMock ? true : false);
+    // In mock mode, use mock endpoint
+    if (this.config.useMock) {
+      return this.request<AEPSLoginStatusResponse>('/mock-login-status', 'POST', data, true);
+    }
+    // For production, always use real API regardless of credentials
+    return this.request<AEPSLoginStatusResponse>('/loginStatus', 'POST', data, false);
   }
 
   /**

@@ -3,6 +3,7 @@
  */
 
 import { getAEPSClient, AEPSAPIError } from './client';
+import { validateAadhaar, validateMobile, validateAmount } from '@/lib/validation';
 import type {
   AEPSTransactionType,
   AEPSPaymentResponse,
@@ -23,7 +24,6 @@ interface TransactionParams {
   bankName?: string;
   // Biometric data (for real transactions)
   biometricData?: {
-    wadh: string;
     bioType: 'FINGER' | 'FACE';
     dc: string;
     ci: string;
@@ -50,7 +50,6 @@ interface TransactionParams {
 
 interface TransactionResult {
   success: boolean;
-  transactionId?: string;
   orderId?: string;
   utr?: string;
   status: 'success' | 'failed' | 'pending';
@@ -113,13 +112,11 @@ class AEPSService {
     };
 
     const apiType = typeMap[transactionType] as 'balance' | 'withdraw' | 'deposit' | 'miniStatement';
-    const txnId = this.generateTxnId();
 
     try {
       // If using mock mode, simplified request
       if (this.client.isMockMode()) {
         const response = await this.client.aepsPayment({
-          txnId,
           merchantId,
           type: apiType,
           amount: String(amount || 0),
@@ -127,7 +124,6 @@ class AEPSService {
           adhar: customerAadhaar,
           cMobile: customerMobile,
           // Placeholder biometric data for mock
-          wadh: '',
           bioType: 'FINGER',
           dc: '', ci: '', hmac: '', dpId: '', mc: '', pidDataType: '', mi: '',
           rdsId: '', sessionKey: '', fCount: '', errCode: '', pCount: '',
@@ -135,7 +131,7 @@ class AEPSService {
           nmPoints: '', rdsVer: '',
         });
 
-        return this.formatResponse(response, txnId);
+        return this.formatResponse(response);
       }
 
       // Real transaction requires biometric data
@@ -149,7 +145,6 @@ class AEPSService {
       }
 
       const response = await this.client.aepsPayment({
-        txnId,
         merchantId,
         type: apiType,
         amount: String(amount || 0),
@@ -159,7 +154,7 @@ class AEPSService {
         ...biometricData,
       });
 
-      return this.formatResponse(response, txnId);
+      return this.formatResponse(response);
     } catch (error) {
       if (error instanceof AEPSAPIError) {
         return {
@@ -242,11 +237,10 @@ class AEPSService {
   /**
    * Format API response to standard result
    */
-  private formatResponse(response: AEPSPaymentResponse, txnId: string): TransactionResult {
+  private formatResponse(response: AEPSPaymentResponse): TransactionResult {
     if (response.success && response.data?.status === 'success') {
       return {
         success: true,
-        transactionId: txnId,
         orderId: response.data.orderId,
         utr: response.data.utr,
         status: 'success',
@@ -263,19 +257,11 @@ class AEPSService {
 
     return {
       success: false,
-      transactionId: txnId,
       orderId: response.data?.orderId,
       status: response.data?.status || 'failed',
       message: response.message || 'Transaction failed',
       error: response.code?.toString() || 'FAILED',
     };
-  }
-
-  /**
-   * Generate unique transaction ID
-   */
-  private generateTxnId(): string {
-    return `AEPS${Date.now()}${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
   }
 
   /**
@@ -286,31 +272,28 @@ class AEPSService {
   }
 
   /**
-   * Validate Aadhaar number format
+   * Validate Aadhaar number format with full Verhoeff algorithm
    */
-  validateAadhaar(aadhaar: string): { valid: boolean; error?: string } {
-    const cleanAadhaar = aadhaar.replace(/\s/g, '');
-    
-    if (!/^\d{12}$/.test(cleanAadhaar)) {
-      return { valid: false, error: 'Aadhaar must be exactly 12 digits' };
-    }
-
-    // Verhoeff algorithm check (simplified)
-    // In production, implement full Verhoeff validation
-    return { valid: true };
+  validateAadhaarNumber(aadhaar: string): { valid: boolean; error?: string; maskedAadhaar?: string } {
+    return validateAadhaar(aadhaar);
   }
 
   /**
    * Validate mobile number format
    */
-  validateMobile(mobile: string): { valid: boolean; error?: string } {
-    const cleanMobile = mobile.replace(/\s/g, '');
-    
-    if (!/^[6-9]\d{9}$/.test(cleanMobile)) {
-      return { valid: false, error: 'Mobile must be valid 10-digit Indian number' };
-    }
+  validateMobileNumber(mobile: string): { valid: boolean; error?: string; formattedMobile?: string } {
+    return validateMobile(mobile);
+  }
 
-    return { valid: true };
+  /**
+   * Validate transaction amount based on type
+   */
+  validateTransactionAmount(
+    amount: number | string,
+    transactionType: AEPSTransactionType
+  ): { valid: boolean; error?: string; parsedAmount?: number } {
+    const txnType = transactionType === 'aadhaar_to_aadhaar' ? 'cash_withdrawal' : transactionType;
+    return validateAmount(amount, txnType as 'balance_inquiry' | 'cash_withdrawal' | 'cash_deposit' | 'mini_statement');
   }
 
   /**
@@ -320,6 +303,49 @@ class AEPSService {
     const clean = aadhaar.replace(/\s/g, '');
     if (clean.length !== 12) return aadhaar;
     return `XXXX XXXX ${clean.slice(-4)}`;
+  }
+
+  /**
+   * Validate all transaction inputs before processing
+   */
+  validateTransactionInputs(params: {
+    customerAadhaar: string;
+    customerMobile: string;
+    amount?: number;
+    transactionType: AEPSTransactionType;
+    bankIin: string;
+  }): { valid: boolean; errors: string[] } {
+    const errors: string[] = [];
+
+    // Validate Aadhaar
+    const aadhaarResult = this.validateAadhaarNumber(params.customerAadhaar);
+    if (!aadhaarResult.valid) {
+      errors.push(aadhaarResult.error || 'Invalid Aadhaar');
+    }
+
+    // Validate Mobile
+    const mobileResult = this.validateMobileNumber(params.customerMobile);
+    if (!mobileResult.valid) {
+      errors.push(mobileResult.error || 'Invalid mobile number');
+    }
+
+    // Validate Amount (for financial transactions)
+    if (params.transactionType === 'cash_withdrawal' || params.transactionType === 'cash_deposit') {
+      const amountResult = this.validateTransactionAmount(params.amount || 0, params.transactionType);
+      if (!amountResult.valid) {
+        errors.push(amountResult.error || 'Invalid amount');
+      }
+    }
+
+    // Validate Bank IIN
+    if (!params.bankIin || !/^\d{6}$/.test(params.bankIin)) {
+      errors.push('Invalid bank IIN (must be 6 digits)');
+    }
+
+    return {
+      valid: errors.length === 0,
+      errors,
+    };
   }
 
   /**

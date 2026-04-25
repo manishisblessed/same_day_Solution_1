@@ -17,11 +17,11 @@ import {
   ChevronDown,
   ChevronUp,
   ExternalLink,
-  Send,
   X,
   Copy,
   FileJson,
   User,
+  Users,
   Terminal,
   Hash,
   Building,
@@ -35,15 +35,15 @@ import {
   FileSpreadsheet,
   Archive,
   Search,
-  SlidersHorizontal,
   RotateCcw,
   TrendingUp,
   AlertTriangle,
-  Banknote
+  Banknote,
+  Check,
+  Calculator
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { apiFetch } from '@/lib/api-client'
-import PosBridgePanel from '@/components/PosBridgePanel'
 
 interface RazorpayTransaction {
   txn_id: string
@@ -105,20 +105,25 @@ function RazorpayTransactionsPageContent() {
   const [page, setPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
   const [total, setTotal] = useState(0)
-  const [autoRefresh, setAutoRefresh] = useState(true)
+  const [stats, setStats] = useState({ capturedCount: 0, capturedAmount: 0, avgAmount: 0, uniqueCustomers: 0 })
   const [expandedTxn, setExpandedTxn] = useState<string | null>(null)
   const [showRawJson, setShowRawJson] = useState<string | null>(null)
   
   // Filters
-  const [statusFilter, setStatusFilter] = useState<'all' | 'CAPTURED' | 'FAILED' | 'PENDING'>('all')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
-  const [paymentModeFilter, setPaymentModeFilter] = useState('all')
   const [searchQuery, setSearchQuery] = useState('')
-  const [settlementFilter, setSettlementFilter] = useState('all')
-  const [companyFilter, setCompanyFilter] = useState<string>('all')
-  const [acquiringBankFilter, setAcquiringBankFilter] = useState('')
-  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false)
+  const [selectedCompanies, setSelectedCompanies] = useState<string[]>([])
+  const [showCompanyDropdown, setShowCompanyDropdown] = useState(false)
+  const companyDropdownRef = useRef<HTMLDivElement>(null)
+  
+  // Company options
+  const companyOptions = [
+    { slug: 'ashvam', name: 'ASHVAM LEARNING PRIVATE LIMITED', shortName: 'ASHVAM' },
+    { slug: 'teachway', name: 'Teachway Education Private Limited', shortName: 'Teachway' },
+    { slug: 'newscenaric', name: 'New Scenaric Travels', shortName: 'New Scenaric' },
+    { slug: 'lagoon', name: 'LAGOON CRAFT LABS SOLUTIONS PRIVATE LIMITED', shortName: 'Lagoon' },
+  ]
 
   // Export
   const [exporting, setExporting] = useState<string | null>(null)
@@ -131,16 +136,7 @@ function RazorpayTransactionsPageContent() {
   const [enrichResult, setEnrichResult] = useState<any>(null)
   const enrichFileRef = useRef<HTMLInputElement>(null)
 
-  // Test transaction modal state
-  const [showTestModal, setShowTestModal] = useState(false)
-  const [testMerchantSlug, setTestMerchantSlug] = useState<'ashvam' | 'teachway' | 'newscenaric' | 'lagoon'>('ashvam')
-  const [testAmount, setTestAmount] = useState('100')
-  const [testPaymentMode, setTestPaymentMode] = useState('UPI')
-  const [testCustomerName, setTestCustomerName] = useState('Test Customer')
-  const [testStatus, setTestStatus] = useState('AUTHORIZED')
-  const [testSending, setTestSending] = useState(false)
-  const [testResult, setTestResult] = useState<any>(null)
-  const [pageSize, setPageSize] = useState<10 | 25 | 100>(25)
+  const pageSize = 25
 
   // Search debounce
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -156,11 +152,14 @@ function RazorpayTransactionsPageContent() {
     return () => { if (searchTimerRef.current) clearTimeout(searchTimerRef.current) }
   }, [searchQuery])
 
-  // Close export menu on outside click
+  // Close dropdowns on outside click
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (exportMenuRef.current && !exportMenuRef.current.contains(e.target as Node)) {
         setShowExportMenu(false)
+      }
+      if (companyDropdownRef.current && !companyDropdownRef.current.contains(e.target as Node)) {
+        setShowCompanyDropdown(false)
       }
     }
     document.addEventListener('mousedown', handleClickOutside)
@@ -187,14 +186,10 @@ function RazorpayTransactionsPageContent() {
       const params = new URLSearchParams()
       params.set('page', String(page))
       params.set('limit', String(pageSize))
-      if (statusFilter !== 'all') params.set('status', statusFilter)
       if (dateFrom) params.set('date_from', dateFrom)
       if (dateTo) params.set('date_to', dateTo)
-      if (paymentModeFilter !== 'all') params.set('payment_mode', paymentModeFilter)
       if (debouncedSearch) params.set('search', debouncedSearch)
-      if (settlementFilter !== 'all') params.set('settlement_status', settlementFilter)
-      if (companyFilter !== 'all') params.set('merchant_slug', companyFilter)
-      if (acquiringBankFilter.trim()) params.set('acquiring_bank', acquiringBankFilter.trim())
+      if (selectedCompanies.length > 0) params.set('merchant_slug', selectedCompanies.join(','))
 
       const response = await apiFetch(`/api/admin/razorpay-transactions?${params.toString()}`)
       
@@ -221,6 +216,7 @@ function RazorpayTransactionsPageContent() {
       setTransactions(result.data || [])
       setTotalPages(result.pagination?.totalPages || 1)
       setTotal(result.pagination?.total || 0)
+      setStats(result.stats || { capturedCount: 0, capturedAmount: 0, avgAmount: 0, uniqueCustomers: 0 })
     } catch (err: any) {
       console.error('Error fetching transactions:', err)
       setError(err.message || 'Failed to load transactions')
@@ -229,55 +225,21 @@ function RazorpayTransactionsPageContent() {
         setLoading(false)
       }
     }
-  }, [user, page, pageSize, statusFilter, dateFrom, dateTo, paymentModeFilter, debouncedSearch, settlementFilter, companyFilter, acquiringBankFilter])
+  }, [user, page, pageSize, dateFrom, dateTo, debouncedSearch, selectedCompanies])
 
-  // Initial fetch and auto-refresh polling
+  // Initial fetch
   useEffect(() => {
     if (!user || user.role !== 'admin') return
 
     fetchTransactions()
+  }, [fetchTransactions, user])
 
-    let pollInterval: ReturnType<typeof setInterval> | null = null
-    if (autoRefresh) {
-      pollInterval = setInterval(() => {
-        fetchTransactions(true)
-      }, 10000)
-    }
-
-    return () => {
-      if (pollInterval) {
-        clearInterval(pollInterval)
-      }
-    }
-  }, [fetchTransactions, autoRefresh, user])
-
-  // Send test transaction
-  const sendTestTransaction = async () => {
-    setTestSending(true)
-    setTestResult(null)
-    try {
-      const response = await apiFetch('/api/admin/razorpay-transactions/test', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          merchantSlug: testMerchantSlug,
-          amount: parseFloat(testAmount) || 100,
-          paymentMode: testPaymentMode,
-          customerName: testCustomerName,
-          status: testStatus
-        })
-      })
-      const result = await response.json()
-      setTestResult(result)
-      if (result.success) {
-        setTimeout(() => fetchTransactions(), 1000)
-      }
-    } catch (err: any) {
-      setTestResult({ success: false, error: err.message })
-    } finally {
-      setTestSending(false)
-    }
-  }
+  // Set loading and clear old data when filters change
+  useEffect(() => {
+    setLoading(true)
+    setTransactions([])
+    setStats({ capturedCount: 0, capturedAmount: 0, avgAmount: 0, uniqueCustomers: 0 })
+  }, [dateFrom, dateTo, debouncedSearch, selectedCompanies])
 
   // Export transactions
   const exportTransactions = async (format: 'csv' | 'pdf' | 'zip') => {
@@ -286,14 +248,10 @@ function RazorpayTransactionsPageContent() {
     try {
       const params = new URLSearchParams()
       params.set('format', format)
-      if (statusFilter !== 'all') params.set('status', statusFilter)
       if (dateFrom) params.set('date_from', dateFrom)
       if (dateTo) params.set('date_to', dateTo)
-      if (paymentModeFilter !== 'all') params.set('payment_mode', paymentModeFilter)
       if (debouncedSearch) params.set('search', debouncedSearch)
-      if (settlementFilter !== 'all') params.set('settlement_status', settlementFilter)
-      if (companyFilter !== 'all') params.set('merchant_slug', companyFilter)
-      if (acquiringBankFilter.trim()) params.set('acquiring_bank', acquiringBankFilter.trim())
+      if (selectedCompanies.length > 0) params.set('merchant_slug', selectedCompanies.join(','))
 
       const response = await apiFetch(`/api/admin/razorpay-transactions/export?${params.toString()}`)
       
@@ -335,7 +293,7 @@ function RazorpayTransactionsPageContent() {
     } finally {
       setExporting(null)
     }
-  }
+  };
 
   const downloadFile = (content: string, filename: string, type: string) => {
     const blob = new Blob([content], { type })
@@ -347,7 +305,7 @@ function RazorpayTransactionsPageContent() {
     a.click()
     document.body.removeChild(a)
     URL.revokeObjectURL(url)
-  }
+  };
 
   const handleEnrichUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -374,24 +332,40 @@ function RazorpayTransactionsPageContent() {
       setEnrichUploading(false)
       if (enrichFileRef.current) enrichFileRef.current.value = ''
     }
-  }
+  };
 
   // Reset all filters
   const resetFilters = () => {
-    setStatusFilter('all')
     setDateFrom('')
     setDateTo('')
-    setPaymentModeFilter('all')
     setSearchQuery('')
-    setSettlementFilter('all')
-    setCompanyFilter('all')
-    setAcquiringBankFilter('')
+    setSelectedCompanies([])
+    setPage(1)
+  };
+
+  const hasActiveFilters = dateFrom || dateTo || searchQuery || selectedCompanies.length > 0
+  
+  // Toggle company selection
+  const toggleCompany = (slug: string) => {
+    setSelectedCompanies(prev => 
+      prev.includes(slug) 
+        ? prev.filter(s => s !== slug)
+        : [...prev, slug]
+    )
     setPage(1)
   }
-
-  const hasActiveFilters = statusFilter !== 'all' || dateFrom || dateTo || paymentModeFilter !== 'all' || searchQuery || settlementFilter !== 'all' || companyFilter !== 'all' || !!acquiringBankFilter.trim()
-
-  // Format date
+  
+  // Select all / deselect all companies
+  const toggleAllCompanies = () => {
+    if (selectedCompanies.length === companyOptions.length) {
+      setSelectedCompanies([])
+    } else {
+      setSelectedCompanies(companyOptions.map(c => c.slug))
+    }
+    setPage(1)
+  }
+  
+  // Format date helper function
   const formatDate = (dateString: string | null) => {
     if (!dateString) return 'N/A'
     try {
@@ -402,12 +376,13 @@ function RazorpayTransactionsPageContent() {
         year: 'numeric',
         hour: '2-digit',
         minute: '2-digit',
-        second: '2-digit'
+        second: '2-digit',
+        hour12: false
       })
     } catch {
       return 'Invalid Date'
     }
-  }
+  };
 
   // Format amount
   const formatAmount = (amount: number) => {
@@ -416,52 +391,50 @@ function RazorpayTransactionsPageContent() {
       currency: 'INR',
       minimumFractionDigits: 2
     }).format(amount)
-  }
+  };
 
-  // Copy to clipboard
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text)
-  }
+  };
 
-  // Get status badge
   const getStatusBadge = (status: 'CAPTURED' | 'FAILED' | 'PENDING') => {
-    switch (status) {
-      case 'CAPTURED':
-        return (
-          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400">
-            <CheckCircle2 className="w-3 h-3 mr-1" />
-            CAPTURED
-          </span>
-        )
-      case 'FAILED':
-        return (
-          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400">
-            <XCircle className="w-3 h-3 mr-1" />
-            FAILED
-          </span>
-        )
-      case 'PENDING':
-        return (
-          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400">
-            <Clock className="w-3 h-3 mr-1" />
-            PENDING
-          </span>
-        )
+    if (status === 'CAPTURED') {
+      return (
+        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400">
+          <CheckCircle2 className="w-3 h-3 mr-1" />
+          CAPTURED
+        </span>
+      )
     }
-  }
+    if (status === 'FAILED') {
+      return (
+        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400">
+          <XCircle className="w-3 h-3 mr-1" />
+          FAILED
+        </span>
+      )
+    }
+    if (status === 'PENDING') {
+      return (
+        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400">
+          <Clock className="w-3 h-3 mr-1" />
+          PENDING
+        </span>
+      )
+    }
+    return null
+  };
 
-  // Toggle expanded row
   const toggleExpand = (txnId: string) => {
     setExpandedTxn(expandedTxn === txnId ? null : txnId)
     setShowRawJson(null)
-  }
+  };
 
-  // Compute summary stats from loaded transactions
-  const capturedCount = transactions.filter(t => t.status === 'CAPTURED').length
-  const failedCount = transactions.filter(t => t.status === 'FAILED').length
-  const pendingCount = transactions.filter(t => t.status === 'PENDING').length
-  const totalAmountOnPage = transactions.reduce((sum, t) => sum + (t.amount || 0), 0)
-  const capturedAmount = transactions.filter(t => t.status === 'CAPTURED').reduce((sum, t) => sum + (t.amount || 0), 0)
+  // Use stats from API (aggregated from all filtered transactions, not just current page)
+  const capturedCount = loading ? 0 : stats.capturedCount
+  const capturedAmount = loading ? 0 : stats.capturedAmount
+  const avgAmount = loading ? 0 : stats.avgAmount
+  const uniqueCustomers = loading ? 0 : stats.uniqueCustomers
 
   if (authLoading || loading) {
     return (
@@ -572,26 +545,6 @@ function RazorpayTransactionsPageContent() {
                 Upload Report
               </button>
 
-              {/* Test Transaction Button */}
-              <button
-                onClick={() => { setShowTestModal(true); setTestResult(null) }}
-                className="flex items-center gap-2 px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors whitespace-nowrap"
-              >
-                <Send className="w-4 h-4" />
-                Test Transaction
-              </button>
-              <button
-                onClick={() => setAutoRefresh(!autoRefresh)}
-                className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
-                  autoRefresh
-                    ? 'bg-green-600 text-white hover:bg-green-700'
-                    : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
-                }`}
-                title={autoRefresh ? 'Auto-refresh enabled (every 10s)' : 'Auto-refresh disabled'}
-              >
-                <div className={`w-2 h-2 rounded-full ${autoRefresh ? 'bg-white animate-pulse' : 'bg-gray-500'}`} />
-                <span className="text-sm whitespace-nowrap">{autoRefresh ? 'Auto ON' : 'Auto OFF'}</span>
-              </button>
               <button
                 onClick={() => fetchTransactions()}
                 disabled={loading}
@@ -611,52 +564,36 @@ function RazorpayTransactionsPageContent() {
           )}
 
           {/* Summary Stats Cards */}
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4">
               <div className="flex items-center gap-2 mb-1">
                 <Receipt className="w-4 h-4 text-blue-500" />
-                <span className="text-xs text-gray-500 dark:text-gray-400">Total</span>
+                <span className="text-xs text-gray-500 dark:text-gray-400">Total Transactions</span>
               </div>
-              <p className="text-xl font-bold text-gray-900 dark:text-white">{total}</p>
+              <p className="text-2xl font-bold text-gray-900 dark:text-white">{total.toLocaleString('en-IN')}</p>
             </div>
             <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4">
               <div className="flex items-center gap-2 mb-1">
                 <TrendingUp className="w-4 h-4 text-green-500" />
                 <span className="text-xs text-gray-500 dark:text-gray-400">Captured</span>
               </div>
-              <p className="text-xl font-bold text-green-600">{capturedCount}</p>
-            </div>
-            <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4">
-              <div className="flex items-center gap-2 mb-1">
-                <XCircle className="w-4 h-4 text-red-500" />
-                <span className="text-xs text-gray-500 dark:text-gray-400">Failed</span>
-              </div>
-              <p className="text-xl font-bold text-red-600">{failedCount}</p>
-            </div>
-            <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4">
-              <div className="flex items-center gap-2 mb-1">
-                <Clock className="w-4 h-4 text-yellow-500" />
-                <span className="text-xs text-gray-500 dark:text-gray-400">Pending</span>
-              </div>
-              <p className="text-xl font-bold text-yellow-600">{pendingCount}</p>
+              <p className="text-2xl font-bold text-green-600">{capturedCount.toLocaleString('en-IN')}</p>
             </div>
             <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4">
               <div className="flex items-center gap-2 mb-1">
                 <Banknote className="w-4 h-4 text-emerald-500" />
-                <span className="text-xs text-gray-500 dark:text-gray-400">Captured Amt</span>
+                <span className="text-xs text-gray-500 dark:text-gray-400">Captured Amount</span>
               </div>
-              <p className="text-lg font-bold text-emerald-600 truncate" title={formatAmount(capturedAmount)}>{formatAmount(capturedAmount)}</p>
+              <p className="text-xl font-bold text-emerald-600 truncate" title={formatAmount(capturedAmount)}>{formatAmount(capturedAmount)}</p>
             </div>
             <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4">
               <div className="flex items-center gap-2 mb-1">
-                <IndianRupee className="w-4 h-4 text-purple-500" />
-                <span className="text-xs text-gray-500 dark:text-gray-400">Page Total</span>
+                <Calculator className="w-4 h-4 text-purple-500" />
+                <span className="text-xs text-gray-500 dark:text-gray-400">Avg Transaction</span>
               </div>
-              <p className="text-lg font-bold text-purple-600 truncate" title={formatAmount(totalAmountOnPage)}>{formatAmount(totalAmountOnPage)}</p>
+              <p className="text-xl font-bold text-purple-600 truncate" title={formatAmount(avgAmount)}>{formatAmount(avgAmount)}</p>
             </div>
           </div>
-
-          <PosBridgePanel variant="admin" />
 
           {/* Filters Section */}
           <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
@@ -737,150 +674,101 @@ function RazorpayTransactionsPageContent() {
                   </button>
                 </div>
 
-                {/* Company (POS) Filter */}
-                <div className="flex items-center gap-2 flex-shrink-0">
-                  <Building className="w-4 h-4 text-gray-400 flex-shrink-0" />
-                  <select
-                    value={companyFilter}
-                    onChange={(e) => { setCompanyFilter(e.target.value); setPage(1) }}
-                    className="px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-primary-500 focus:border-transparent min-w-[200px]"
+                {/* Company (POS) Multi-Select Filter */}
+                <div className="relative" ref={companyDropdownRef}>
+                  <button
+                    onClick={() => setShowCompanyDropdown(!showCompanyDropdown)}
+                    className="flex items-center gap-2 px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-primary-500 focus:border-transparent min-w-[200px] hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors"
                     title="Filter by company"
                   >
-                    <option value="all">All Companies</option>
-                    <option value="ashvam">ASHVAM LEARNING PRIVATE LIMITED</option>
-                    <option value="teachway">Teachway Education Private Limited</option>
-                    <option value="newscenaric">New Scenaric Travels</option>
-                    <option value="lagoon">LAGOON CRAFT LABS SOLUTIONS PRIVATE LIMITED</option>
-                  </select>
+                    <Building className="w-4 h-4 text-gray-400 flex-shrink-0" />
+                    <span className="flex-1 text-left truncate">
+                      {selectedCompanies.length === 0 
+                        ? 'All Companies' 
+                        : selectedCompanies.length === companyOptions.length
+                          ? 'All Companies'
+                          : selectedCompanies.length === 1
+                            ? companyOptions.find(c => c.slug === selectedCompanies[0])?.shortName
+                            : `${selectedCompanies.length} Companies`}
+                    </span>
+                    <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${showCompanyDropdown ? 'rotate-180' : ''}`} />
+                  </button>
+                  
+                  <AnimatePresence>
+                    {showCompanyDropdown && (
+                      <motion.div
+                        initial={{ opacity: 0, y: -5, scale: 0.95 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={{ opacity: 0, y: -5, scale: 0.95 }}
+                        transition={{ duration: 0.15 }}
+                        className="absolute right-0 mt-2 w-80 bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 z-50 overflow-hidden"
+                      >
+                        <div className="p-2">
+                          <div className="flex items-center justify-between px-3 py-2 border-b border-gray-200 dark:border-gray-700 mb-1">
+                            <span className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Select Companies</span>
+                            <button
+                              onClick={toggleAllCompanies}
+                              className="text-xs text-primary-600 dark:text-primary-400 hover:underline font-medium"
+                            >
+                              {selectedCompanies.length === companyOptions.length ? 'Deselect All' : 'Select All'}
+                            </button>
+                          </div>
+                          
+                          {companyOptions.map((company) => (
+                            <label
+                              key={company.slug}
+                              className="flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+                            >
+                              <div className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${
+                                selectedCompanies.includes(company.slug)
+                                  ? 'bg-primary-600 border-primary-600'
+                                  : 'border-gray-300 dark:border-gray-600'
+                              }`}>
+                                {selectedCompanies.includes(company.slug) && (
+                                  <Check className="w-3.5 h-3.5 text-white" />
+                                )}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="text-sm font-medium text-gray-900 dark:text-white">{company.shortName}</div>
+                                <div className="text-xs text-gray-500 dark:text-gray-400 truncate">{company.name}</div>
+                              </div>
+                              <input
+                                type="checkbox"
+                                checked={selectedCompanies.includes(company.slug)}
+                                onChange={() => toggleCompany(company.slug)}
+                                className="sr-only"
+                              />
+                            </label>
+                          ))}
+                        </div>
+                        
+                        {selectedCompanies.length > 0 && (
+                          <div className="border-t border-gray-200 dark:border-gray-700 px-3 py-2 bg-gray-50 dark:bg-gray-900/50">
+                            <p className="text-xs text-gray-600 dark:text-gray-400 flex items-center gap-1">
+                              <Filter className="w-3 h-3" />
+                              Showing data for {selectedCompanies.length} selected {selectedCompanies.length === 1 ? 'company' : 'companies'}
+                            </p>
+                          </div>
+                        )}
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
                 </div>
               </div>
 
-              {/* Status Filter Pills + Advanced Toggle */}
-              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mt-4">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider mr-1">Status:</span>
-                  {(['all', 'CAPTURED', 'FAILED', 'PENDING'] as const).map((status) => (
-                    <button
-                      key={status}
-                      onClick={() => { setStatusFilter(status); setPage(1) }}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors whitespace-nowrap ${
-                        statusFilter === status
-                          ? status === 'CAPTURED' ? 'bg-green-600 text-white' :
-                            status === 'FAILED' ? 'bg-red-600 text-white' :
-                            status === 'PENDING' ? 'bg-yellow-500 text-white' :
-                            'bg-primary-600 text-white'
-                          : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
-                      }`}
-                    >
-                      {status === 'all' ? 'All' : status}
-                    </button>
-                  ))}
-                </div>
-
-                <div className="flex items-center gap-2">
-                  {hasActiveFilters && (
-                    <button
-                      onClick={resetFilters}
-                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors"
-                    >
-                      <RotateCcw className="w-3 h-3" />
-                      Reset Filters
-                    </button>
-                  )}
+              {/* Advanced Filters Toggle */}
+              <div className="flex items-center justify-end gap-2 mt-4">
+                {hasActiveFilters && (
                   <button
-                    onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
-                      showAdvancedFilters
-                        ? 'bg-primary-100 dark:bg-primary-900/30 text-primary-700 dark:text-primary-400'
-                        : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
-                    }`}
+                    onClick={resetFilters}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors"
                   >
-                    <SlidersHorizontal className="w-3 h-3" />
-                    Advanced Filters
-                    {showAdvancedFilters ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                    <RotateCcw className="w-3 h-3" />
+                    Reset Filters
                   </button>
-                </div>
+                )}
               </div>
             </div>
-
-            {/* Advanced Filters (collapsible) */}
-            <AnimatePresence>
-              {showAdvancedFilters && (
-                <motion.div
-                  initial={{ height: 0, opacity: 0 }}
-                  animate={{ height: 'auto', opacity: 1 }}
-                  exit={{ height: 0, opacity: 0 }}
-                  transition={{ duration: 0.2 }}
-                  className="overflow-hidden"
-                >
-                  <div className="px-4 pb-4 pt-2 border-t border-gray-100 dark:border-gray-700">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                      {/* Payment Mode */}
-                      <div>
-                        <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">Payment Mode</label>
-                        <select
-                          value={paymentModeFilter}
-                          onChange={(e) => { setPaymentModeFilter(e.target.value); setPage(1) }}
-                          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                        >
-                          <option value="all">All Payment Modes</option>
-                          <option value="CARD">Card</option>
-                          <option value="UPI">UPI</option>
-                          <option value="CASH">Cash</option>
-                          <option value="WALLET">Wallet</option>
-                          <option value="NETBANKING">Netbanking</option>
-                          <option value="BHARATQR">BharatQR</option>
-                        </select>
-                      </div>
-
-                      {/* Settlement Status */}
-                      <div>
-                        <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">Settlement Status</label>
-                        <select
-                          value={settlementFilter}
-                          onChange={(e) => { setSettlementFilter(e.target.value); setPage(1) }}
-                          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                        >
-                          <option value="all">All Settlement Status</option>
-                          <option value="SETTLED">Settled</option>
-                          <option value="PENDING">Pending</option>
-                          <option value="FAILED">Failed</option>
-                        </select>
-                      </div>
-
-                      {/* Acquiring Bank */}
-                      <div>
-                        <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">Acquiring Bank</label>
-                        <input
-                          type="text"
-                          value={acquiringBankFilter}
-                          onChange={(e) => { setAcquiringBankFilter(e.target.value); setPage(1) }}
-                          placeholder="e.g. HDFC, AXIS"
-                          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-primary-500 focus:border-transparent placeholder-gray-400"
-                        />
-                      </div>
-
-                      {/* Page size */}
-                      <div>
-                        <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">Rows per page</label>
-                        <select
-                          value={pageSize}
-                          onChange={(e) => {
-                            setPageSize(Number(e.target.value) as 10 | 25 | 100)
-                            setPage(1)
-                          }}
-                          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-primary-500"
-                        >
-                          <option value={10}>10</option>
-                          <option value={25}>25</option>
-                          <option value={100}>100</option>
-                        </select>
-                      </div>
-                    </div>
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
           </div>
 
           {/* Transactions Table */}
@@ -1231,19 +1119,6 @@ function RazorpayTransactionsPageContent() {
             {total > 0 && (
               <div className="bg-gray-50 dark:bg-gray-900 px-6 py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-t border-gray-200 dark:border-gray-700">
                 <div className="flex flex-wrap items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
-                  <span className="whitespace-nowrap">Rows per page:</span>
-                  <select
-                    value={pageSize}
-                    onChange={(e) => {
-                      setPageSize(Number(e.target.value) as 10 | 25 | 100)
-                      setPage(1)
-                    }}
-                    className="px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800"
-                  >
-                    <option value={10}>10</option>
-                    <option value={25}>25</option>
-                    <option value={100}>100</option>
-                  </select>
                   <span className="text-xs text-gray-500 dark:text-gray-400">
                     {(page - 1) * pageSize + 1}–{Math.min(page * pageSize, total)} of {total}
                   </span>
@@ -1292,190 +1167,6 @@ function RazorpayTransactionsPageContent() {
           </div>
         </div>
       </div>
-
-      {/* Test Transaction Modal */}
-      <AnimatePresence>
-        {showTestModal && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-            onClick={() => setShowTestModal(false)}
-          >
-            <motion.div
-              initial={{ scale: 0.95, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-md mx-4 overflow-hidden"
-              onClick={(e) => e.stopPropagation()}
-            >
-              {/* Modal Header */}
-              <div className="flex items-center justify-between p-5 border-b border-gray-200 dark:border-gray-700">
-                <h2 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
-                  <Send className="w-5 h-5 text-orange-500" />
-                  Send Test Transaction
-                </h2>
-                <button
-                  onClick={() => setShowTestModal(false)}
-                  className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-
-              {/* Modal Body */}
-              <div className="p-5 space-y-4">
-                <p className="text-sm text-gray-500 dark:text-gray-400">
-                  Send a simulated POS transaction to test the webhook pipeline end-to-end.
-                </p>
-
-                {/* Company */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Company
-                  </label>
-                  <select
-                    value={testMerchantSlug}
-                    onChange={(e) => setTestMerchantSlug(e.target.value as any)}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                  >
-                    <option value="ashvam">ASHVAM LEARNING PRIVATE LIMITED</option>
-                    <option value="teachway">Teachway Education Private Limited</option>
-                    <option value="newscenaric">New Scenaric Travels</option>
-                    <option value="lagoon">LAGOON CRAFT LABS SOLUTIONS PRIVATE LIMITED</option>
-                  </select>
-                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                    This will post to <span className="font-mono">/api/razorpay/notification/{testMerchantSlug}</span>
-                  </p>
-                </div>
-
-                {/* Amount */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Amount (₹)
-                  </label>
-                  <input
-                    type="number"
-                    value={testAmount}
-                    onChange={(e) => setTestAmount(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                    placeholder="100"
-                    min="1"
-                  />
-                </div>
-
-                {/* Payment Mode */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Payment Mode
-                  </label>
-                  <select
-                    value={testPaymentMode}
-                    onChange={(e) => setTestPaymentMode(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                  >
-                    <option value="UPI">UPI</option>
-                    <option value="CARD">Card</option>
-                    <option value="CASH">Cash</option>
-                    <option value="WALLET">Wallet</option>
-                    <option value="NETBANKING">Netbanking</option>
-                    <option value="BHARATQR">BharatQR</option>
-                  </select>
-                </div>
-
-                {/* Customer Name */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Customer Name
-                  </label>
-                  <input
-                    type="text"
-                    value={testCustomerName}
-                    onChange={(e) => setTestCustomerName(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                    placeholder="Test Customer"
-                  />
-                </div>
-
-                {/* Status */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Transaction Status
-                  </label>
-                  <select
-                    value={testStatus}
-                    onChange={(e) => setTestStatus(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                  >
-                    <option value="AUTHORIZED">AUTHORIZED (→ CAPTURED)</option>
-                    <option value="FAILED">FAILED</option>
-                    <option value="VOIDED">VOIDED (→ FAILED)</option>
-                    <option value="PENDING">PENDING</option>
-                  </select>
-                </div>
-
-                {/* Test Result */}
-                {testResult && (
-                  <div className={`p-3 rounded-lg text-sm ${
-                    testResult.success 
-                      ? 'bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 text-green-800 dark:text-green-400' 
-                      : 'bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-800 dark:text-red-400'
-                  }`}>
-                    {testResult.success ? (
-                      <div>
-                        <div className="flex items-center gap-1 font-medium mb-1">
-                          <CheckCircle2 className="w-4 h-4" />
-                          Test transaction sent successfully!
-                        </div>
-                        <div className="text-xs space-y-0.5 mt-2">
-                          <p><span className="font-medium">Txn ID:</span> <span className="font-mono">{testResult.testTxnId}</span></p>
-                    <p><span className="font-medium">Company:</span> <span className="font-mono">{testMerchantSlug}</span></p>
-                          <p><span className="font-medium">Webhook Status:</span> {testResult.webhookResponse?.status}</p>
-                          <p><span className="font-medium">Processed:</span> {testResult.webhookResponse?.processed ? 'Yes' : 'No'}</p>
-                          <p><span className="font-medium">DB Status:</span> {testResult.webhookResponse?.status === 200 || testResult.webhookResponse?.processed ? 'Stored' : 'Check logs'}</p>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="flex items-center gap-1">
-                        <XCircle className="w-4 h-4" />
-                        {testResult.error || 'Failed to send test transaction'}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {/* Modal Footer */}
-              <div className="flex items-center justify-end gap-3 p-5 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50">
-                <button
-                  onClick={() => setShowTestModal(false)}
-                  className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-                >
-                  Close
-                </button>
-                <button
-                  onClick={sendTestTransaction}
-                  disabled={testSending || !testAmount}
-                  className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-orange-500 rounded-lg hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                >
-                  {testSending ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      Sending...
-                    </>
-                  ) : (
-                    <>
-                      <Send className="w-4 h-4" />
-                      Send Test
-                    </>
-                  )}
-                </button>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
 
       {/* Enrich / Upload Report Modal */}
       <AnimatePresence>

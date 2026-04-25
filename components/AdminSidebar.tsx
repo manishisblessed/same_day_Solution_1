@@ -7,7 +7,8 @@ import {
   LayoutDashboard, Users, Package, Crown, 
   BarChart3, Settings,
   Activity, X, Menu, CreditCard, Receipt, CheckCircle2,
-  Building2, FileBarChart, Layers, Key, Timer, History, Repeat, ScrollText, Wallet
+  Building2, FileBarChart, Layers, Key, Timer, History, Repeat, ScrollText, Wallet,
+  Fingerprint
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 
@@ -32,6 +33,7 @@ const sidebarItems: SidebarItem[] = [
   { id: 'pos-partner-api', label: 'POS Partner API', icon: Key, href: '/admin?tab=pos-partner-api' },
   { id: 'razorpay-transactions', label: 'Razorpay Transactions', icon: Receipt, href: '/admin/razorpay-transactions' },
   { id: 'services', label: 'Services', icon: Activity, href: '/admin?tab=services' },
+  { id: 'aeps', label: 'AEPS Management', icon: Fingerprint, href: '/admin?tab=aeps' },
   { id: 'reports', label: 'Reports', icon: FileBarChart, href: '/admin?tab=reports' },
   { id: 'settlement', label: 'Settlement', icon: Timer, href: '/admin?tab=settlement' },
   { id: 'revenue-wallet', label: 'Revenue Wallet', icon: Wallet, href: '/admin?tab=revenue-wallet' },

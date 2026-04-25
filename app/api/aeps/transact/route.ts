@@ -96,12 +96,12 @@ export async function POST(request: NextRequest) {
     const aepsService = getAEPSService();
 
     // Validate inputs
-    const aadhaarValidation = aepsService.validateAadhaar(customerAadhaar);
+    const aadhaarValidation = aepsService.validateAadhaarNumber(customerAadhaar);
     if (!aadhaarValidation.valid) {
       return NextResponse.json({ error: aadhaarValidation.error }, { status: 400 });
     }
 
-    const mobileValidation = aepsService.validateMobile(customerMobile);
+    const mobileValidation = aepsService.validateMobileNumber(customerMobile);
     if (!mobileValidation.valid) {
       return NextResponse.json({ error: mobileValidation.error }, { status: 400 });
     }

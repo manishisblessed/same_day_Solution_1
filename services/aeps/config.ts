@@ -15,8 +15,15 @@ export interface AEPSConfig {
 }
 
 export function getAEPSConfig(): AEPSConfig {
-  const useMock = process.env.AEPS_USE_MOCK === 'true' || 
-                  process.env.NODE_ENV === 'development';
+  // IMPORTANT: Only check AEPS_USE_MOCK env variable
+  // DO NOT force mock in development - let the env variable control it
+  // This allows local testing with real Chagans API when AEPS_USE_MOCK=false
+  const useMock = process.env.AEPS_USE_MOCK === 'true';
+  
+  // Log config on first load for debugging
+  if (typeof window === 'undefined') {
+    console.log(`[AEPS Config] Mode: ${useMock ? 'MOCK' : 'PRODUCTION'}, BaseURL: ${process.env.CHAGHANS_AEPS_BASE_URL || 'default'}`);
+  }
   
   return {
     useMock,

@@ -71,13 +71,13 @@ async function checkPendingTransactions() {
 }
 
 /**
- * Reconcile transactions with provider (placeholder - implement when API available)
+ * Reconcile transactions with Chagans API
  */
 async function reconcileTransactions() {
   try {
     const { data: reconTxns, error } = await supabase
       .from('aeps_transactions')
-      .select('id, order_id, transaction_type, amount, user_id')
+      .select('id, order_id, transaction_type, amount, user_id, merchant_id, created_at')
       .eq('status', 'under_reconciliation')
       .limit(20);
 
@@ -86,17 +86,126 @@ async function reconcileTransactions() {
       return;
     }
 
-    if (reconTxns && reconTxns.length > 0) {
-      console.log(`[AEPS Worker] ${reconTxns.length} transactions need reconciliation`);
-      
-      // TODO: Call Chagans API to check transaction status
-      // For now, just log them
-      for (const txn of reconTxns) {
-        console.log(`[AEPS Worker] Needs reconciliation: ${txn.id} | Order: ${txn.order_id} | Type: ${txn.transaction_type}`);
+    if (!reconTxns || reconTxns.length === 0) {
+      return;
+    }
+
+    console.log(`[AEPS Worker] ${reconTxns.length} transactions need reconciliation`);
+    
+    // Check if we should use mock or real API
+    const useMock = process.env.AEPS_USE_MOCK === 'true';
+    
+    if (useMock) {
+      console.log('[AEPS Worker] Mock mode - skipping Chagans status check');
+      return;
+    }
+
+    // Real API reconciliation
+    const clientId = process.env.CHAGHANS_AEPS_CLIENT_ID;
+    const clientSecret = process.env.CHAGHANS_AEPS_CONSUMER_SECRET;
+    const authToken = process.env.CHAGHANS_AEPS_AUTH_TOKEN;
+    const baseUrl = process.env.CHAGHANS_AEPS_BASE_URL || 'https://api.chagans.com/aeps';
+
+    if (!clientId || !clientSecret || !authToken) {
+      console.log('[AEPS Worker] Missing Chagans credentials - skipping reconciliation');
+      return;
+    }
+
+    for (const txn of reconTxns) {
+      try {
+        // Call Chagans status check API
+        const response = await fetch(`${baseUrl}/transactionStatus`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'client-id': clientId,
+            'client-secret': clientSecret,
+            'authorization': authToken.startsWith('Bearer ') ? authToken : `Bearer ${authToken}`,
+            'apiType': 'aeps',
+          },
+          body: JSON.stringify({
+            orderId: txn.order_id,
+            merchantId: txn.merchant_id,
+          }),
+        });
+
+        if (!response.ok) {
+          console.error(`[AEPS Worker] Status check failed for ${txn.id}: HTTP ${response.status}`);
+          continue;
+        }
+
+        const result = await response.json();
+        console.log(`[AEPS Worker] Status for ${txn.order_id}:`, result.success ? result.data?.status : 'unknown');
+
+        if (result.success && result.data) {
+          const status = result.data.status;
+          
+          if (status === 'success' || status === 'failed') {
+            // Update transaction with final status
+            const updateData = {
+              status: status,
+              completed_at: new Date().toISOString(),
+              utr: result.data.utr || null,
+              error_message: status === 'failed' ? (result.message || 'Transaction failed during reconciliation') : null,
+            };
+
+            await supabase
+              .from('aeps_transactions')
+              .update(updateData)
+              .eq('id', txn.id);
+
+            console.log(`[AEPS Worker] Reconciled ${txn.id} -> ${status}`);
+
+            // If successful withdrawal that was previously debited, no action needed
+            // If failed withdrawal, we need to refund
+            if (status === 'failed' && txn.transaction_type === 'cash_withdrawal' && txn.amount > 0) {
+              await refundFailedTransaction(txn);
+            }
+          }
+        }
+      } catch (apiErr) {
+        console.error(`[AEPS Worker] API error for ${txn.id}:`, apiErr.message);
       }
     }
   } catch (err) {
     console.error('[AEPS Worker] reconcileTransactions error:', err);
+  }
+}
+
+/**
+ * Refund failed withdrawal transaction
+ */
+async function refundFailedTransaction(txn) {
+  try {
+    // Add refund entry to wallet ledger
+    const { error } = await supabase.rpc('add_ledger_entry', {
+      p_retailer_id: txn.user_id,
+      p_tx_type: 'REFUND',
+      p_amount: txn.amount,
+      p_credit: true,
+      p_service_type: 'aeps',
+      p_description: `Refund for failed AEPS withdrawal ${txn.order_id}`,
+      p_reference_id: txn.order_id,
+      p_transaction_id: txn.id,
+      p_wallet_type: 'aeps',
+    });
+
+    if (error) {
+      console.error(`[AEPS Worker] Refund failed for ${txn.id}:`, error);
+    } else {
+      console.log(`[AEPS Worker] Refunded ${txn.amount} for transaction ${txn.id}`);
+      
+      // Update transaction to mark as refunded
+      await supabase
+        .from('aeps_transactions')
+        .update({ 
+          wallet_debited: false,
+          error_message: 'Transaction failed - wallet refunded'
+        })
+        .eq('id', txn.id);
+    }
+  } catch (err) {
+    console.error(`[AEPS Worker] refundFailedTransaction error:`, err);
   }
 }
 

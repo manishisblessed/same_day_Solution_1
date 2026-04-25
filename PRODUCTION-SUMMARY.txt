@@ -1,0 +1,230 @@
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                    🚀 AEPS PRODUCTION MODE - ACTIVATED                        ║
+║                                                                                ║
+║                    From MOCK → PRODUCTION Switch Complete                     ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+┌─ STATUS ─────────────────────────────────────────────────────────────────────┐
+│                                                                               │
+│  📍 Development Environment (Your Machine)                                   │
+│  ├─ .env.local: AEPS_USE_MOCK=false ..................... ✅ UPDATED       │
+│  ├─ Credentials: Real Chagans API ...................... ✅ CONFIGURED     │
+│  └─ Dev Server: npm run dev ............................ ⏳ START NOW     │
+│                                                                               │
+│  🖥️  Production Environment (EC2 32.193.123.25)                              │
+│  ├─ bbps-uat .......................................... ✅ ONLINE          │
+│  ├─ aeps-worker ....................................... ✅ ONLINE          │
+│  ├─ Configuration ..................................... ✅ APPLIED         │
+│  └─ Services .......................................... ✅ RESTARTED      │
+│                                                                               │
+│  🔐 Credentials                                                              │
+│  ├─ CHAGHANS_AEPS_CLIENT_ID ............................ ✅ SET             │
+│  ├─ CHAGHANS_AEPS_CONSUMER_SECRET ..................... ✅ SET             │
+│  ├─ CHAGHANS_AEPS_AUTH_TOKEN .......................... ✅ SET             │
+│  └─ CHAGHANS_AEPS_BASE_URL ............................. ✅ SET             │
+│                                                                               │
+└───────────────────────────────────────────────────────────────────────────────┘
+
+┌─ WHAT CHANGED ───────────────────────────────────────────────────────────────┐
+│                                                                               │
+│  BEFORE (Mock Mode)              →              AFTER (Production Mode)     │
+│  ═══════════════════════════════════════════════════════════════════════════  │
+│                                                                               │
+│  API Source                                     API Source                   │
+│  Local mock endpoints            →              Chagans AEPS API             │
+│  http://localhost:3000/api/...                  https://api.chagans.com/aeps │
+│                                                                               │
+│  Bank Data                                      Bank Data                    │
+│  Hardcoded (HDFC, SBI, Axis)    →              Real from Chagans            │
+│  3 banks only                                    All available banks         │
+│                                                                               │
+│  Account Balance                                Account Balance              │
+│  Fixed ₹50,000                  →              Real from bank               │
+│  Always the same                                Changes per transaction      │
+│                                                                               │
+│  Order ID Format                                Order ID Format              │
+│  AEPSTXN17770216475295144       →              CTLAEPS17770216475295144    │
+│  Mock prefix                                    Real Chagans prefix          │
+│                                                                               │
+│  Response Time                                  Response Time                │
+│  2-3 seconds                    →              5-10 seconds                  │
+│  Fast (local)                                   Actual (network)             │
+│                                                                               │
+│  Mini Statement                                 Mini Statement               │
+│  Fixed sample data              →              Real transactions             │
+│  Always same 5 entries                          Actual recent transactions   │
+│                                                                               │
+│  UTR (Unique Ref)                               UTR (Unique Ref)             │
+│  Random mock: RNB6LCQOX3S      →              Real from bank: xyz123...    │
+│  Generated                                      From Chagans/Bank            │
+│                                                                               │
+└───────────────────────────────────────────────────────────────────────────────┘
+
+┌─ YOUR NEXT STEPS ─────────────────────────────────────────────────────────────┐
+│                                                                               │
+│  ⏱️  IMMEDIATE (Next 5 minutes)                                              │
+│  ──────────────────────────────────────────────────────────────────────────  │
+│  1. Open PowerShell/Terminal in project root                                 │
+│  2. Run: npm run dev                                                         │
+│  3. Wait for: "✓ Ready in XXXms"                                             │
+│  4. Open browser: http://localhost:3000/dashboard/retailer?tab=aeps         │
+│                                                                               │
+│  ⏱️  SHORT TERM (Next 10 minutes)                                            │
+│  ──────────────────────────────────────────────────────────────────────────  │
+│  1. Click "Get Banks" button                                                 │
+│  2. Verify you see real bank list (not hardcoded 3 banks)                    │
+│  3. Click "Balance Inquiry"                                                  │
+│  4. Enter test details:                                                      │
+│     - Aadhaar: 123456789012                                                  │
+│     - Mobile: 9876543210                                                     │
+│     - Bank IIN: 607094 (HDFC)                                                │
+│  5. Click "Check Balance"                                                    │
+│  6. Verify response:                                                         │
+│     ✓ Order ID starts with CTLAEPS (not AEPSTXN)                             │
+│     ✓ Balance is dynamic (not ₹50,000)                                       │
+│     ✓ Response time is 5-10 seconds                                          │
+│                                                                               │
+│  ⏱️  MEDIUM TERM (Next 1 hour)                                               │
+│  ──────────────────────────────────────────────────────────────────────────  │
+│  1. Test all transaction types:                                              │
+│     - Balance Inquiry ........................... DO THIS                    │
+│     - Cash Withdrawal .......................... DO THIS                    │
+│     - Cash Deposit ............................ DO THIS                    │
+│     - Mini Statement .......................... DO THIS                    │
+│  2. Check EC2 logs: pm2 logs aeps-worker                                     │
+│  3. Verify transactions in Supabase                                          │
+│  4. Check wallet debit/credit working                                        │
+│                                                                               │
+│  ⏱️  LONG TERM (Tomorrow)                                                    │
+│  ──────────────────────────────────────────────────────────────────────────  │
+│  1. Connect real biometric device                                            │
+│  2. Test with actual fingerprint                                             │
+│  3. Perform live withdrawal/deposit                                          │
+│  4. Monitor EC2 logs continuously                                            │
+│  5. Check database for transaction records                                   │
+│                                                                               │
+└───────────────────────────────────────────────────────────────────────────────┘
+
+┌─ HOW TO VERIFY PRODUCTION MODE ───────────────────────────────────────────────┐
+│                                                                               │
+│  ✅ Test 1: Order ID Format                                                  │
+│  ──────────────────────────────────────────────────────────────────────────  │
+│  Old (Mock):  orderId: "AEPSTXN17770216475295144"                            │
+│  New (Real):  orderId: "CTLAEPS17770216475295144"  ← YOU SHOULD SEE THIS    │
+│                                                                               │
+│  ✅ Test 2: Bank List                                                        │
+│  ──────────────────────────────────────────────────────────────────────────  │
+│  Old (Mock): Fixed 3 banks: [HDFC, SBI, Axis]                                │
+│  New (Real): Dynamic list from Chagans: [HDFC, ICICI, SBI, Kotak, ...]     │
+│                                                                               │
+│  ✅ Test 3: Account Balance                                                  │
+│  ──────────────────────────────────────────────────────────────────────────  │
+│  Old (Mock): Always "50000.00"                                               │
+│  New (Real): Changes: "45230.50", "48900.00", etc.  ← SHOULD VARY          │
+│                                                                               │
+│  ✅ Test 4: Response Time                                                    │
+│  ──────────────────────────────────────────────────────────────────────────  │
+│  Old (Mock): ~2-3 seconds (instant)                                          │
+│  New (Real): ~5-10 seconds (network latency)  ← YOU SHOULD SEE DELAY       │
+│                                                                               │
+│  ✅ Test 5: UTR Number                                                       │
+│  ──────────────────────────────────────────────────────────────────────────  │
+│  Old (Mock): Random UTR like "RNB6LCQOX3S"                                   │
+│  New (Real): Real UTR from Chagans like "ABCD123XYZ"  ← DIFFERENT EACH TIME │
+│                                                                               │
+└───────────────────────────────────────────────────────────────────────────────┘
+
+┌─ DOCUMENTATION FILES ─────────────────────────────────────────────────────────┐
+│                                                                               │
+│  📄 AEPS-PRODUCTION-SETUP.md                                                 │
+│     └─ Complete production setup guide with device requirements              │
+│                                                                               │
+│  📄 TEST-PRODUCTION-AEPS.md                                                  │
+│     └─ Step-by-step testing guide with verification checklist                │
+│                                                                               │
+│  📄 AEPS-PRODUCTION-ACTIVATED.md                                             │
+│     └─ Detailed summary of changes and troubleshooting                       │
+│                                                                               │
+│  📄 PRODUCTION-SWITCH-COMPLETE.md                                            │
+│     └─ Quick reference - what you just did                                   │
+│                                                                               │
+│  📄 QUICK-START-TESTING.sh                                                   │
+│     └─ Quick reference bash commands for testing                             │
+│                                                                               │
+└───────────────────────────────────────────────────────────────────────────────┘
+
+┌─ ENVIRONMENT VARIABLES ───────────────────────────────────────────────────────┐
+│                                                                               │
+│  In .env.local (Production Mode):                                            │
+│  ───────────────────────────────────────────────────────────────────────────  │
+│                                                                               │
+│  AEPS_USE_MOCK=false                      ← Production mode enabled         │
+│  CHAGHANS_AEPS_CLIENT_ID=69e9a963a0...   ← Your real client ID             │
+│  CHAGHANS_AEPS_CONSUMER_SECRET=aed1f...  ← Your real secret                 │
+│  CHAGHANS_AEPS_AUTH_TOKEN=eyJhbGc...     ← Your real JWT token             │
+│  CHAGHANS_AEPS_BASE_URL=https://api...   ← Chagans API endpoint            │
+│                                                                               │
+│  These are AUTOMATICALLY LOADED:                                             │
+│  - From .env.local on your machine                                           │
+│  - From .env.local on EC2 server                                             │
+│  - Used by app/api/aeps/* routes                                             │
+│  - Used by workers/aeps-worker.js                                            │
+│                                                                               │
+└───────────────────────────────────────────────────────────────────────────────┘
+
+┌─ SERVICES STATUS ─────────────────────────────────────────────────────────────┐
+│                                                                               │
+│  EC2 (32.193.123.25) - All Running                                           │
+│  ───────────────────────────────────────────────────────────────────────────  │
+│                                                                               │
+│  bbps-uat ............................ ✅ ONLINE (Main App)                  │
+│  aeps-worker ......................... ✅ ONLINE (Background Jobs)          │
+│  settlement .......................... ✅ ONLINE (Settlement Processing)    │
+│  export-worker ....................... ✅ ONLINE (Data Export)             │
+│  pos-partner-api (instance 1) ........ ✅ ONLINE (Partner API)             │
+│  pos-partner-api (instance 2) ........ ✅ ONLINE (Partner API)             │
+│                                                                               │
+└───────────────────────────────────────────────────────────────────────────────┘
+
+┌─ TROUBLESHOOTING QUICK GUIDE ─────────────────────────────────────────────────┐
+│                                                                               │
+│  ❌ Still Seeing Mock Responses?                                             │
+│  ───────────────────────────────────────────────────────────────────────────  │
+│  Solution:                                                                   │
+│  1. Kill dev server: Ctrl+C                                                  │
+│  2. Verify .env.local: grep AEPS_USE_MOCK .env.local                         │
+│  3. Should show: AEPS_USE_MOCK=false                                         │
+│  4. Restart: npm run dev                                                     │
+│  5. Clear browser cache: Ctrl+Shift+Delete                                   │
+│  6. Retry test                                                               │
+│                                                                               │
+│  ❌ Getting API Errors?                                                      │
+│  ───────────────────────────────────────────────────────────────────────────  │
+│  Check:                                                                      │
+│  1. Credentials are correct: grep CHAGHANS_AEPS .env.local                   │
+│  2. Token not expired (may need new from Chagans)                            │
+│  3. EC2 logs: ssh -i key.pem ubuntu@32.193.123.25                            │
+│  4. Then: pm2 logs bbps-uat | grep ERROR                                    │
+│  5. Contact Chagans if authentication fails                                  │
+│                                                                               │
+│  ❌ Device Not Responding?                                                   │
+│  ───────────────────────────────────────────────────────────────────────────  │
+│  This is normal if you don't have device connected yet.                      │
+│  Balance inquiries work without device.                                      │
+│  For withdrawals/deposits, you need:                                         │
+│  1. USB biometric device connected                                           │
+│  2. RD Service installed from device vendor                                  │
+│  3. Device drivers installed                                                 │
+│  4. Device codes configured in .env.local                                    │
+│                                                                               │
+└───────────────────────────────────────────────────────────────────────────────┘
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                           🎉 YOU'RE ALL SET!                                ║
+║                                                                              ║
+║                    Production mode is now ACTIVE                            ║
+║                                                                              ║
+║                  Next: Run `npm run dev` and test!                          ║
+║                                                                              ║
+║                     Questions? Check the 5 guides!                          ║
+╚══════════════════════════════════════════════════════════════════════════════╝

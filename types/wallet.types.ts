@@ -17,7 +17,7 @@ export type SettlementMode = 'instant' | 't+1'
 
 export type SettlementStatus = 'pending' | 'processing' | 'success' | 'failed' | 'reversed' | 'hold'
 
-export type AEPSTransactionType = 'balance_inquiry' | 'cash_withdrawal' | 'aadhaar_to_aadhaar' | 'mini_statement'
+export type AEPSTransactionType = 'balance_inquiry' | 'cash_withdrawal' | 'cash_deposit' | 'mini_statement' | 'aadhaar_to_aadhaar'
 
 export type AEPSStatus = 'pending' | 'success' | 'failed' | 'reversed' | 'under_reconciliation'
 

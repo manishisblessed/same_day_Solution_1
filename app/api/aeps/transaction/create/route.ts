@@ -1,3 +1,16 @@
+/**
+ * @deprecated This route is DEPRECATED.
+ * 
+ * Use POST /api/aeps/transact instead, which:
+ * - Calls the actual Chagans AEPS API
+ * - Supports mock mode via AEPS_USE_MOCK env variable
+ * - Has proper biometric device integration
+ * - Handles real-time transaction processing
+ * 
+ * This legacy route does NOT call the provider and always simulates success.
+ * It is kept for backward compatibility but will be removed in a future release.
+ */
+
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { createClient } from '@supabase/supabase-js'
@@ -5,8 +18,10 @@ import { addCorsHeaders } from '@/lib/cors'
 import { checkAllLimits } from '@/lib/limits/enforcement'
 import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger'
 
-export const runtime = 'nodejs' // Force Node.js runtime (Supabase not compatible with Edge Runtime)
+export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
+
+// WARNING: This endpoint is deprecated. Do not use for new integrations.
 
 function generateIdempotencyKey(prefix: string): string {
   const timestamp = Date.now()
@@ -273,11 +288,17 @@ export async function POST(request: NextRequest) {
       metadata: { transaction_type: transaction_type, amount: amountDecimal },
     }).catch(() => {})
 
+    // Log deprecation warning
+    console.warn('[DEPRECATED] /api/aeps/transaction/create was called. Use /api/aeps/transact instead.');
+    
     return NextResponse.json({
       success: aepsSuccess,
       transaction_id: aepsTransaction.id,
       status: aepsSuccess ? 'success' : 'failed',
-      idempotency_key: idempotencyKey
+      idempotency_key: idempotencyKey,
+      // Deprecation notice
+      _deprecation_warning: 'This endpoint is deprecated. Please migrate to POST /api/aeps/transact',
+      _deprecated_since: '2026-04-25',
     })
   } catch (error: any) {
     console.error('Error creating AEPS transaction:', error)
