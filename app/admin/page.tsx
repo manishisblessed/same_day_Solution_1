@@ -5258,6 +5258,7 @@ function POSMachinesTab({
   const [distributorFilter, setDistributorFilter] = useState<string>('all')
   const [masterDistributorFilter, setMasterDistributorFilter] = useState<string>('all')
   const [partnerFilter, setPartnerFilter] = useState<string>('all')
+  const [assignmentFilter, setAssignmentFilter] = useState<string>('all')
   const [sortField, setSortField] = useState<keyof POSMachine>('created_at')
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc')
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set())
@@ -5360,6 +5361,25 @@ function POSMachinesTab({
       const matchesMasterDistributor =
         masterDistributorFilter === 'all' || machine.master_distributor_id === masterDistributorFilter
       const matchesPartner = partnerFilter === 'all' || machine.partner_id === partnerFilter
+      
+      // Assignment status filter
+      let matchesAssignment = true
+      if (assignmentFilter !== 'all') {
+        const inv = machine.inventory_status || ''
+        if (assignmentFilter === 'in_stock') {
+          matchesAssignment = inv === 'in_stock' || inv === 'received_from_bank'
+        } else if (assignmentFilter === 'assigned_to_retailer') {
+          matchesAssignment = inv === 'assigned_to_retailer'
+        } else if (assignmentFilter === 'assigned_to_distributor') {
+          matchesAssignment = inv === 'assigned_to_distributor'
+        } else if (assignmentFilter === 'assigned_to_master_distributor') {
+          matchesAssignment = inv === 'assigned_to_master_distributor'
+        } else if (assignmentFilter === 'assigned_to_partner') {
+          matchesAssignment = inv === 'assigned_to_partner'
+        } else if (assignmentFilter === 'damaged') {
+          matchesAssignment = inv === 'damaged_from_bank'
+        }
+      }
 
       return (
         matchesSearch &&
@@ -5368,7 +5388,8 @@ function POSMachinesTab({
         matchesRetailer &&
         matchesDistributor &&
         matchesMasterDistributor &&
-        matchesPartner
+        matchesPartner &&
+        matchesAssignment
       )
     })
 
@@ -5402,6 +5423,7 @@ function POSMachinesTab({
     distributorFilter,
     masterDistributorFilter,
     partnerFilter,
+    assignmentFilter,
     sortField,
     sortDirection,
     retailers,
@@ -5425,6 +5447,7 @@ function POSMachinesTab({
     distributorFilter,
     masterDistributorFilter,
     partnerFilter,
+    assignmentFilter,
     sortField,
     sortDirection,
   ])
@@ -5772,6 +5795,20 @@ function POSMachinesTab({
               {p.name}
             </option>
           ))}
+        </select>
+        <select
+          title="Filter by assignment status"
+          value={assignmentFilter}
+          onChange={(e) => setAssignmentFilter(e.target.value)}
+          className="min-w-[160px] max-w-[220px] px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+        >
+          <option value="all">All Assignments</option>
+          <option value="in_stock">In Stock</option>
+          <option value="assigned_to_retailer">Assigned to Retailer</option>
+          <option value="assigned_to_distributor">Assigned to Distributor</option>
+          <option value="assigned_to_master_distributor">Assigned to Master Distributor</option>
+          <option value="assigned_to_partner">Assigned to Partner</option>
+          <option value="damaged">Damaged</option>
         </select>
         <button
           onClick={onAdd}

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { createClient } from '@supabase/supabase-js';
 import { getCurrentUserWithFallback } from '@/lib/auth-server';
 import { getAEPSService } from '@/services/aeps';
 
@@ -21,9 +22,9 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const merchantId = request.nextUrl.searchParams.get('merchantId');
+    const inputMerchantId = request.nextUrl.searchParams.get('merchantId');
 
-    if (!merchantId) {
+    if (!inputMerchantId) {
       return NextResponse.json(
         { error: 'merchantId query param is required' },
         { status: 400 }
@@ -31,7 +32,31 @@ export async function GET(request: NextRequest) {
     }
 
     const aepsService = getAEPSService();
-    const banks = await aepsService.getBanks(merchantId);
+
+    // In production mode, look up the real Chagans merchantId
+    let chagansMerchantId = inputMerchantId;
+    if (!aepsService.isMockMode()) {
+      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+      const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+      const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+      const { data: merchantRecord } = await supabase
+        .from('aeps_merchants')
+        .select('merchant_id')
+        .eq('user_id', user.partner_id)
+        .maybeSingle();
+
+      if (merchantRecord?.merchant_id) {
+        chagansMerchantId = merchantRecord.merchant_id;
+      }
+    }
+
+    const rawBanks = await aepsService.getBanks(chagansMerchantId);
+
+    const banks = rawBanks.map((b: any) => ({
+      iin: b.iin,
+      bankName: b.bankName || b.name || 'Unknown Bank',
+    }));
 
     return NextResponse.json({
       success: true,

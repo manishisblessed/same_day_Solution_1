@@ -173,6 +173,58 @@ export async function GET(request: NextRequest) {
       )
     }
 
+    // Fetch POS machine assignments to get partner/retailer info
+    const uniqueTids = [...new Set((transactions || []).map((t: any) => t.tid).filter(Boolean))]
+    let posMachineMap: Record<string, any> = {}
+    let retailerMap: Record<string, any> = {}
+    let partnerMap: Record<string, any> = {}
+
+    if (uniqueTids.length > 0) {
+      // Fetch POS machines by TID
+      const { data: posMachines } = await supabase
+        .from('pos_machines')
+        .select('tid, retailer_id, partner_id')
+        .in('tid', uniqueTids)
+      
+      if (posMachines) {
+        posMachines.forEach((pm: any) => {
+          if (pm.tid) posMachineMap[pm.tid] = pm
+        })
+
+        // Get unique retailer_ids and partner_ids
+        const retailerIds = [...new Set(posMachines.map((pm: any) => pm.retailer_id).filter(Boolean))]
+        const partnerIds = [...new Set(posMachines.map((pm: any) => pm.partner_id).filter(Boolean))]
+
+        // Fetch retailer names
+        if (retailerIds.length > 0) {
+          const { data: retailers } = await supabase
+            .from('retailers')
+            .select('partner_id, name, business_name')
+            .in('partner_id', retailerIds)
+          
+          if (retailers) {
+            retailers.forEach((r: any) => {
+              retailerMap[r.partner_id] = r
+            })
+          }
+        }
+
+        // Fetch partner names (for co-branding partners)
+        if (partnerIds.length > 0) {
+          const { data: partners } = await supabase
+            .from('partners')
+            .select('id, name, business_name')
+            .in('id', partnerIds)
+          
+          if (partners) {
+            partners.forEach((p: any) => {
+              partnerMap[p.id] = p
+            })
+          }
+        }
+      }
+    }
+
     // Build a separate query for aggregate stats (same filters, no pagination)
     let statsQuery = supabase
       .from('razorpay_pos_transactions')
@@ -244,48 +296,64 @@ export async function GET(request: NextRequest) {
 
     // Map fields to the format the frontend expects
     // Use dedicated columns first, fallback to raw_data extraction
-    const mappedTransactions = (transactions || []).map((txn: any) => ({
-      txn_id: txn.txn_id,
-      amount: txn.amount,
-      payment_mode: txn.payment_mode,
-      // Map display_status back to frontend status: SUCCESS→CAPTURED
-      status: txn.display_status === 'SUCCESS' ? 'CAPTURED' : (txn.display_status || txn.status || 'PENDING'),
-      settlement_status: txn.settlement_status || txn.raw_data?.settlementStatus || null,
-      created_time: txn.transaction_time,
-      service_provider: 'RAZORPAY',
-      // Company (merchant_slug): ashvam, teachway, newscenaric, lagoon; null = legacy/ashvam
-      merchant_slug: txn.merchant_slug || 'ashvam',
-      // Customer & User Info
-      customer_name: txn.customer_name || txn.raw_data?.customerName || txn.raw_data?.payerName || null,
-      payer_name: txn.payer_name || txn.raw_data?.payerName || null,
-      username: txn.username || txn.raw_data?.username || null,
-      // Terminal & Device Info
-      tid: txn.tid || txn.raw_data?.tid || null,
-      mid: txn.mid_code || txn.raw_data?.mid || txn.raw_data?.merchantId || null,
-      device_serial: txn.device_serial || txn.raw_data?.deviceSerial || null,
-      merchant_name: txn.merchant_name || txn.raw_data?.merchantName || null,
-      // Transaction Details
-      txn_type: txn.txn_type || txn.raw_data?.txnType || 'CHARGE',
-      auth_code: txn.auth_code || txn.raw_data?.authCode || null,
-      currency: txn.currency || txn.raw_data?.currencyCode || 'INR',
-      // Card Details
-      card_brand: txn.card_brand || txn.raw_data?.paymentCardBrand || txn.raw_data?.cardBrand || null,
-      card_type: txn.card_type || txn.raw_data?.paymentCardType || txn.raw_data?.cardType || null,
-      card_number: txn.card_number || txn.raw_data?.cardNumber || txn.raw_data?.maskedCardNumber || null,
-      issuing_bank: txn.issuing_bank || txn.raw_data?.issuingBankName || txn.raw_data?.bankName || txn.raw_data?.issuingBank || null,
-      card_classification: txn.card_classification || txn.raw_data?.cardClassification || txn.raw_data?.cardCategory || null,
-      acquiring_bank: txn.acquiring_bank || txn.raw_data?.acquiringBank || txn.raw_data?.acquiringBankName || txn.raw_data?.acquirerCode || null,
-      // Reference Numbers
-      rrn: txn.rrn || txn.raw_data?.rrNumber || txn.raw_data?.rrn || null,
-      external_ref: txn.external_ref || txn.raw_data?.externalRefNumber || null,
-      // Dates
-      posting_date: txn.posting_date || txn.raw_data?.postingDate || null,
-      settled_on: txn.settled_on || txn.raw_data?.settledOn || txn.raw_data?.settlementDate || null,
-      // Receipt
-      customer_receipt_url: txn.receipt_url || txn.raw_data?.customerReceiptUrl || txn.raw_data?.receiptUrl || null,
-      // Raw data for JSON view
-      raw_data: txn.raw_data || null
-    }))
+    const mappedTransactions = (transactions || []).map((txn: any) => {
+      // Get POS machine assignment info
+      const posMachine = txn.tid ? posMachineMap[txn.tid] : null
+      const retailer = posMachine?.retailer_id ? retailerMap[posMachine.retailer_id] : null
+      const partner = posMachine?.partner_id ? partnerMap[posMachine.partner_id] : null
+
+      // Determine assigned entity (retailer or partner)
+      const assignedId = posMachine?.retailer_id || posMachine?.partner_id || null
+      const assignedName = retailer?.name || retailer?.business_name || partner?.name || partner?.business_name || null
+      const assignedType = posMachine?.retailer_id ? 'retailer' : (posMachine?.partner_id ? 'partner' : null)
+
+      return {
+        txn_id: txn.txn_id,
+        amount: txn.amount,
+        payment_mode: txn.payment_mode,
+        // Map display_status back to frontend status: SUCCESS→CAPTURED
+        status: txn.display_status === 'SUCCESS' ? 'CAPTURED' : (txn.display_status || txn.status || 'PENDING'),
+        settlement_status: txn.settlement_status || txn.raw_data?.settlementStatus || null,
+        created_time: txn.transaction_time,
+        service_provider: 'RAZORPAY',
+        // Company (merchant_slug): ashvam, teachway, newscenaric, lagoon; null = legacy/ashvam
+        merchant_slug: txn.merchant_slug || 'ashvam',
+        // Partner/Retailer assignment info (from POS machine)
+        assigned_id: assignedId,
+        assigned_name: assignedName,
+        assigned_type: assignedType,
+        // Customer & User Info
+        customer_name: txn.customer_name || txn.raw_data?.customerName || txn.raw_data?.payerName || null,
+        payer_name: txn.payer_name || txn.raw_data?.payerName || null,
+        username: txn.username || txn.raw_data?.username || null,
+        // Terminal & Device Info
+        tid: txn.tid || txn.raw_data?.tid || null,
+        mid: txn.mid_code || txn.raw_data?.mid || txn.raw_data?.merchantId || null,
+        device_serial: txn.device_serial || txn.raw_data?.deviceSerial || null,
+        merchant_name: txn.merchant_name || txn.raw_data?.merchantName || null,
+        // Transaction Details
+        txn_type: txn.txn_type || txn.raw_data?.txnType || 'CHARGE',
+        auth_code: txn.auth_code || txn.raw_data?.authCode || null,
+        currency: txn.currency || txn.raw_data?.currencyCode || 'INR',
+        // Card Details
+        card_brand: txn.card_brand || txn.raw_data?.paymentCardBrand || txn.raw_data?.cardBrand || null,
+        card_type: txn.card_type || txn.raw_data?.paymentCardType || txn.raw_data?.cardType || null,
+        card_number: txn.card_number || txn.raw_data?.cardNumber || txn.raw_data?.maskedCardNumber || null,
+        issuing_bank: txn.issuing_bank || txn.raw_data?.issuingBankName || txn.raw_data?.bankName || txn.raw_data?.issuingBank || null,
+        card_classification: txn.card_classification || txn.raw_data?.cardClassification || txn.raw_data?.cardCategory || null,
+        acquiring_bank: txn.acquiring_bank || txn.raw_data?.acquiringBank || txn.raw_data?.acquiringBankName || txn.raw_data?.acquirerCode || null,
+        // Reference Numbers
+        rrn: txn.rrn || txn.raw_data?.rrNumber || txn.raw_data?.rrn || null,
+        external_ref: txn.external_ref || txn.raw_data?.externalRefNumber || null,
+        // Dates
+        posting_date: txn.posting_date || txn.raw_data?.postingDate || null,
+        settled_on: txn.settled_on || txn.raw_data?.settledOn || txn.raw_data?.settlementDate || null,
+        // Receipt
+        customer_receipt_url: txn.receipt_url || txn.raw_data?.customerReceiptUrl || txn.raw_data?.receiptUrl || null,
+        // Raw data for JSON view
+        raw_data: txn.raw_data || null
+      }
+    })
 
     // Calculate pagination metadata
     const totalPages = count ? Math.ceil(count / limit) : 1

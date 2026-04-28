@@ -113,34 +113,103 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Database error', message: error.message }, { status: 500 })
     }
 
-    const rows = (transactions || []).map((txn: any) => ({
-      'Transaction ID': txn.txn_id || '',
-      'Date & Time': txn.transaction_time ? new Date(txn.transaction_time).toLocaleString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }) : '',
-      'Amount (₹)': txn.amount || 0,
-      'Currency': txn.currency || 'INR',
-      'Payment Mode': txn.payment_mode || '',
-      'Status': txn.display_status === 'SUCCESS' ? 'CAPTURED' : (txn.display_status || txn.status || 'PENDING'),
-      'Settlement Status': txn.settlement_status || 'PENDING',
-      'Consumer Name': txn.customer_name || txn.payer_name || '',
-      'Username': txn.username || '',
-      'TID': txn.tid || '',
-      'MID': txn.mid_code || '',
-      'Card Number': txn.card_number || '',
-      'Card Brand': txn.card_brand || '',
-      'Card Type': txn.card_type || '',
-      'Issuing Bank': txn.issuing_bank || '',
-      'Card Classification': txn.card_classification || '',
-      'RRN': txn.rrn || '',
-      'Auth Code': txn.auth_code || '',
-      'External Ref': txn.external_ref || '',
-      'Device Serial': txn.device_serial || '',
-      'Settled On': txn.settled_on ? new Date(txn.settled_on).toLocaleString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }) : '',
-    }))
+    // Fetch POS machine assignments to get partner/retailer info
+    const uniqueTids = [...new Set((transactions || []).map((t: any) => t.tid).filter(Boolean))]
+    let posMachineMap: Record<string, any> = {}
+    let retailerMap: Record<string, any> = {}
+    let partnerMap: Record<string, any> = {}
+
+    if (uniqueTids.length > 0) {
+      const { data: posMachines } = await supabase
+        .from('pos_machines')
+        .select('tid, retailer_id, partner_id')
+        .in('tid', uniqueTids)
+      
+      if (posMachines) {
+        posMachines.forEach((pm: any) => {
+          if (pm.tid) posMachineMap[pm.tid] = pm
+        })
+
+        const retailerIds = [...new Set(posMachines.map((pm: any) => pm.retailer_id).filter(Boolean))]
+        const partnerIds = [...new Set(posMachines.map((pm: any) => pm.partner_id).filter(Boolean))]
+
+        if (retailerIds.length > 0) {
+          const { data: retailers } = await supabase
+            .from('retailers')
+            .select('partner_id, name, business_name')
+            .in('partner_id', retailerIds)
+          
+          if (retailers) {
+            retailers.forEach((r: any) => {
+              retailerMap[r.partner_id] = r
+            })
+          }
+        }
+
+        if (partnerIds.length > 0) {
+          const { data: partners } = await supabase
+            .from('partners')
+            .select('id, name, business_name')
+            .in('id', partnerIds)
+          
+          if (partners) {
+            partners.forEach((p: any) => {
+              partnerMap[p.id] = p
+            })
+          }
+        }
+      }
+    }
+
+    // Company name mapping
+    const getCompanyName = (slug: string | null) => {
+      switch (slug) {
+        case 'ashvam': return 'ASHVAM LEARNING PRIVATE LIMITED'
+        case 'teachway': return 'Teachway Education Private Limited'
+        case 'newscenaric': return 'New Scenaric Travels'
+        case 'lagoon': return 'LAGOON CRAFT LABS SOLUTIONS PRIVATE LIMITED'
+        default: return 'ASHVAM LEARNING PRIVATE LIMITED'
+      }
+    }
+
+    const rows = (transactions || []).map((txn: any) => {
+      const posMachine = txn.tid ? posMachineMap[txn.tid] : null
+      const retailer = posMachine?.retailer_id ? retailerMap[posMachine.retailer_id] : null
+      const partner = posMachine?.partner_id ? partnerMap[posMachine.partner_id] : null
+      const assignedId = posMachine?.retailer_id || posMachine?.partner_id || ''
+      const assignedName = retailer?.name || retailer?.business_name || partner?.name || partner?.business_name || ''
+
+      return {
+        'Transaction ID': txn.txn_id || '',
+        'Date & Time': txn.transaction_time ? new Date(txn.transaction_time).toLocaleString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }) : '',
+        'Amount (₹)': txn.amount || 0,
+        'Currency': txn.currency || 'INR',
+        'Payment Mode': txn.payment_mode || '',
+        'Status': txn.display_status === 'SUCCESS' ? 'CAPTURED' : (txn.display_status || txn.status || 'PENDING'),
+        'Settlement Status': txn.settlement_status || 'PENDING',
+        'Consumer Name': txn.customer_name || txn.payer_name || '',
+        'Username': txn.username || '',
+        'Company Name': getCompanyName(txn.merchant_slug),
+        'Partner/Retailer ID': assignedId,
+        'Partner/Retailer Name': assignedName,
+        'TID': txn.tid || '',
+        'MID': txn.mid_code || '',
+        'Card Number': txn.card_number || '',
+        'Card Brand': txn.card_brand || '',
+        'Card Type': txn.card_type || '',
+        'RRN': txn.rrn || '',
+        'Auth Code': txn.auth_code || '',
+        'External Ref': txn.external_ref || '',
+        'Device Serial': txn.device_serial || '',
+        'Settled On': txn.settled_on ? new Date(txn.settled_on).toLocaleString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }) : '',
+      }
+    })
 
     const headers = Object.keys(rows[0] || {
       'Transaction ID': '', 'Date & Time': '', 'Amount (₹)': 0, 'Currency': '', 'Payment Mode': '',
-      'Status': '', 'Settlement Status': '', 'Consumer Name': '', 'Username': '', 'TID': '', 'MID': '',
-      'Card Number': '', 'Card Brand': '', 'Card Type': '', 'Issuing Bank': '', 'Card Classification': '',
+      'Status': '', 'Settlement Status': '', 'Consumer Name': '', 'Username': '', 'Company Name': '',
+      'Partner/Retailer ID': '', 'Partner/Retailer Name': '', 'TID': '', 'MID': '',
+      'Card Number': '', 'Card Brand': '', 'Card Type': '',
       'RRN': '', 'Auth Code': '', 'External Ref': '', 'Device Serial': '', 'Settled On': ''
     })
 

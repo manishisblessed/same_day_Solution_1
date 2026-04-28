@@ -104,6 +104,7 @@ export interface AEPSLoginStatusResponse {
 export interface AEPSLoginRequest {
   merchantId: string;
   transType: 'deposit' | 'withdraw';
+  wadh?: string;
   bioType: 'FINGER' | 'FACE';
   // Device fields
   dc: string;
@@ -141,6 +142,7 @@ export interface AEPSLoginResponse {
 
 // AEPS Payment
 export interface AEPSPaymentRequest {
+  txnId: string;
   merchantId: string;
   type: 'withdraw' | 'deposit' | 'balance' | 'miniStatement';
   amount: string;

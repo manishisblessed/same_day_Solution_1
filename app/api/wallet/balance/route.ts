@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger'
-import { getCurrentUserFromRequest } from '@/lib/auth-server-request'
+import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { createClient } from '@supabase/supabase-js'
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
 
@@ -26,9 +26,8 @@ export async function GET(request: NextRequest) {
       return addCorsHeaders(request, errorResponse)
     }
     
-    // Get current user from request - reads cookies directly from request object
-    // This is more reliable than using cookies() from next/headers in API routes
-    const user = await getCurrentUserFromRequest(request)
+    // Get current user from request using fallback auth
+    const { user } = await getCurrentUserWithFallback(request)
     if (!user || !user.partner_id) {
       console.error('Wallet Balance API: User not authenticated', {
         hasUser: !!user,

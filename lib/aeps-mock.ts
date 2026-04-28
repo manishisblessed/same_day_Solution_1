@@ -3,6 +3,8 @@
  * Use in app/api/aeps/mock-login/route.ts and app/api/aeps/mock-payment/route.ts
  */
 
+import type { AEPSBank, AEPSLoginStatusResponse, AEPSRoute } from '@/types/aeps.types';
+
 export interface MockLoginRequest {
   merchantId: string;
   type: 'deposit' | 'withdraw';
@@ -50,6 +52,42 @@ export interface MockPaymentResponse {
     }>;
   };
   type: string;
+}
+
+/** Bank list used by mock login-status (keep in sync with mock-login-status route) */
+const MOCK_AEPS_BANK_LIST: AEPSBank[] = [
+  { iin: '607152', bankName: 'State Bank of India' },
+  { iin: '607094', bankName: 'HDFC Bank' },
+  { iin: '607095', bankName: 'ICICI Bank' },
+  { iin: '607161', bankName: 'Punjab National Bank' },
+  { iin: '505290', bankName: 'Axis Bank' },
+  { iin: '607153', bankName: 'Bank of Baroda' },
+  { iin: '607096', bankName: 'Kotak Mahindra Bank' },
+  { iin: '607154', bankName: 'Canara Bank' },
+];
+
+/**
+ * Mock login-status payload for server routes. Use this instead of HTTP-calling
+ * /api/aeps/mock-login-status from the server: that internal fetch has no session cookies.
+ */
+export function getMockLoginStatusResponse(
+  merchantId: string,
+  type: 'deposit' | 'withdraw' = 'withdraw'
+): AEPSLoginStatusResponse {
+  const wadhSeed = `${merchantId}_${type}_${Date.now()}_${Math.random()}`;
+  const wadh = Buffer.from(wadhSeed).toString('base64');
+  return {
+    success: true,
+    code: 200,
+    message: 'Mock login status retrieved',
+    data: {
+      loginStatus: false,
+      bankList: MOCK_AEPS_BANK_LIST,
+      wadh,
+      route: 'AIRTEL' as AEPSRoute,
+      kycStatus: 'pending',
+    },
+  };
 }
 
 /**

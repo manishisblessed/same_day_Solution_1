@@ -53,6 +53,10 @@ interface RazorpayTransaction {
   settlement_status: string | null
   created_time: string
   service_provider?: string | null
+  // Partner/Retailer assignment info (from POS machine)
+  assigned_id: string | null
+  assigned_name: string | null
+  assigned_type: 'retailer' | 'partner' | null
   // Customer & User Info
   customer_name: string | null
   payer_name: string | null
@@ -808,22 +812,16 @@ function RazorpayTransactionsPageContent() {
                       Brand
                     </th>
                     <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                      Issuing Bank
+                      Partner/Retailer ID
                     </th>
                     <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                      Card Class
-                    </th>
-                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                      Acquiring Bank
+                      Partner/Retailer Name
                     </th>
                     <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                       RRN
                     </th>
                     <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                       Status
-                    </th>
-                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                      Settlement
                     </th>
                     <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                       MID
@@ -836,7 +834,7 @@ function RazorpayTransactionsPageContent() {
                 <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
                   {transactions.length === 0 ? (
                     <tr>
-                      <td colSpan={18} className="px-6 py-12 text-center text-gray-500 dark:text-gray-400">
+                      <td colSpan={16} className="px-6 py-12 text-center text-gray-500 dark:text-gray-400">
                         <div className="flex flex-col items-center gap-2">
                           {loading ? (
                             <>
@@ -929,22 +927,22 @@ function RazorpayTransactionsPageContent() {
                           <td className="px-3 py-3 whitespace-nowrap text-xs text-gray-600 dark:text-gray-400">
                             {txn.card_brand || '-'}
                           </td>
-                          <td className="px-3 py-3 whitespace-nowrap text-xs text-gray-600 dark:text-gray-400 max-w-[120px] truncate" title={txn.issuing_bank || '-'}>
-                            {txn.issuing_bank || '-'}
-                          </td>
-                          <td className="px-3 py-3 whitespace-nowrap text-xs text-gray-600 dark:text-gray-400">
-                            {txn.card_classification ? (
-                              <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium ${
-                                txn.card_classification.toLowerCase().includes('credit') ? 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400' :
-                                txn.card_classification.toLowerCase().includes('debit') ? 'bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-400' :
-                                'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300'
-                              }`}>
-                                {txn.card_classification}
-                              </span>
+                          <td className="px-3 py-3 whitespace-nowrap text-xs font-mono text-gray-600 dark:text-gray-400 max-w-[140px] truncate" title={txn.assigned_id || '-'}>
+                            {txn.assigned_id ? (
+                              <div className="flex items-center gap-1">
+                                <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium ${
+                                  txn.assigned_type === 'retailer' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' :
+                                  txn.assigned_type === 'partner' ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400' :
+                                  'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300'
+                                }`}>
+                                  {txn.assigned_type === 'retailer' ? 'R' : txn.assigned_type === 'partner' ? 'P' : '?'}
+                                </span>
+                                <span className="truncate">{txn.assigned_id}</span>
+                              </div>
                             ) : '-'}
                           </td>
-                          <td className="px-3 py-3 whitespace-nowrap text-xs text-gray-600 dark:text-gray-400 max-w-[140px] truncate" title={txn.acquiring_bank || '-'}>
-                            {txn.acquiring_bank || '-'}
+                          <td className="px-3 py-3 whitespace-nowrap text-xs text-gray-600 dark:text-gray-400 max-w-[160px] truncate" title={txn.assigned_name || '-'}>
+                            {txn.assigned_name || '-'}
                           </td>
                           <td className="px-3 py-3 whitespace-nowrap text-xs font-mono text-gray-600 dark:text-gray-400">
                             <div className="flex items-center gap-1">
@@ -962,15 +960,6 @@ function RazorpayTransactionsPageContent() {
                           </td>
                           <td className="px-3 py-3 whitespace-nowrap">
                             {getStatusBadge(txn.status)}
-                          </td>
-                          <td className="px-3 py-3 whitespace-nowrap text-xs">
-                            <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
-                              txn.settlement_status === 'SETTLED' ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400' :
-                              txn.settlement_status === 'FAILED' ? 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400' :
-                              'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
-                            }`}>
-                              {txn.settlement_status || 'PENDING'}
-                            </span>
                           </td>
                           <td className="px-3 py-3 whitespace-nowrap text-xs font-mono text-gray-600 dark:text-gray-400">
                             {txn.mid || '-'}
@@ -990,7 +979,7 @@ function RazorpayTransactionsPageContent() {
                               exit={{ opacity: 0, height: 0 }}
                               transition={{ duration: 0.2 }}
                             >
-                              <td colSpan={17} className="px-0 py-0">
+                              <td colSpan={16} className="px-0 py-0">
                                 <div className="bg-gray-50 dark:bg-gray-900/50 border-t border-b border-gray-200 dark:border-gray-700">
                                   <div className="p-6">
                                     <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
@@ -1011,6 +1000,11 @@ function RazorpayTransactionsPageContent() {
                                       <DetailItem icon={<User className="w-4 h-4" />} label="Consumer Name" value={txn.customer_name} />
                                       <DetailItem icon={<User className="w-4 h-4" />} label="Payer Name" value={txn.payer_name} />
                                       <DetailItem label="Username" value={txn.username} mono />
+                                      
+                                      {/* Partner/Retailer Assignment Info */}
+                                      <DetailItem icon={<Users className="w-4 h-4" />} label="Partner/Retailer ID" value={txn.assigned_id} mono />
+                                      <DetailItem icon={<User className="w-4 h-4" />} label="Partner/Retailer Name" value={txn.assigned_name} />
+                                      <DetailItem label="Assignment Type" value={txn.assigned_type ? (txn.assigned_type === 'retailer' ? 'Retailer' : 'Partner') : null} />
                                       
                                       {/* Terminal / Device Info */}
                                       <DetailItem icon={<Terminal className="w-4 h-4" />} label="TID (Terminal ID)" value={txn.tid} mono />

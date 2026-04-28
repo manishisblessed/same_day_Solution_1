@@ -114,16 +114,18 @@ class AEPSService {
     const apiType = typeMap[transactionType] as 'balance' | 'withdraw' | 'deposit' | 'miniStatement';
 
     try {
+      const txnId = crypto.randomUUID();
+
       // If using mock mode, simplified request
       if (this.client.isMockMode()) {
         const response = await this.client.aepsPayment({
+          txnId,
           merchantId,
           type: apiType,
           amount: String(amount || 0),
           iin: bankIin,
           adhar: customerAadhaar,
           cMobile: customerMobile,
-          // Placeholder biometric data for mock
           bioType: 'FINGER',
           dc: '', ci: '', hmac: '', dpId: '', mc: '', pidDataType: '', mi: '',
           rdsId: '', sessionKey: '', fCount: '', errCode: '', pCount: '',
@@ -144,7 +146,23 @@ class AEPSService {
         };
       }
 
+      console.log('[AEPS Service] aepsPayment request:', {
+        txnId,
+        merchantId,
+        type: apiType,
+        amount: String(amount || 0),
+        iin: bankIin,
+        adhar: customerAadhaar?.substring(0, 4) + '****',
+        cMobile: customerMobile,
+        bioType: biometricData.bioType,
+        srno: biometricData.srno,
+        ci: biometricData.ci,
+        fCount: biometricData.fCount,
+        fType: biometricData.fType,
+      });
+
       const response = await this.client.aepsPayment({
+        txnId,
         merchantId,
         type: apiType,
         amount: String(amount || 0),
@@ -153,6 +171,8 @@ class AEPSService {
         cMobile: customerMobile,
         ...biometricData,
       });
+
+      console.log('[AEPS Service] aepsPayment response:', JSON.stringify(response));
 
       return this.formatResponse(response);
     } catch (error) {

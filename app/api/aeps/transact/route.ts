@@ -95,9 +95,29 @@ export async function POST(request: NextRequest) {
 
     const aepsService = getAEPSService();
 
+    // Look up the real Chagans merchantId from our database
+    let chagansMerchantId = merchantId;
+    if (!aepsService.isMockMode()) {
+      const { data: merchantRecord } = await supabase
+        .from('aeps_merchants')
+        .select('merchant_id')
+        .eq('user_id', user.partner_id)
+        .maybeSingle();
+
+      if (!merchantRecord?.merchant_id) {
+        return NextResponse.json(
+          { error: 'Merchant not registered. Please complete KYC first.' },
+          { status: 400 }
+        );
+      }
+      chagansMerchantId = merchantRecord.merchant_id;
+      console.log('[AEPS Transact] Using Chagans merchantId:', chagansMerchantId);
+    }
+
     // Validate inputs
     const aadhaarValidation = aepsService.validateAadhaarNumber(customerAadhaar);
     if (!aadhaarValidation.valid) {
+      console.log('[AEPS Transact] Aadhaar validation failed:', aadhaarValidation.error, '| input:', customerAadhaar?.substring(0, 4) + '****');
       return NextResponse.json({ error: aadhaarValidation.error }, { status: 400 });
     }
 
@@ -233,11 +253,11 @@ export async function POST(request: NextRequest) {
         .eq('id', aepsTransaction.id);
     }
 
-    // Process transaction via AEPS service
+    // Process transaction via AEPS service (use Chagans merchantId for real API)
     const result = await aepsService.processTransaction({
       userId: user.partner_id,
       userRole: user.role,
-      merchantId,
+      merchantId: chagansMerchantId,
       transactionType,
       amount: txnAmount,
       customerAadhaar,
