@@ -177,6 +177,7 @@ class AEPSService {
       return this.formatResponse(response);
     } catch (error) {
       if (error instanceof AEPSAPIError) {
+        console.error('[AEPS Service] aepsPayment ERROR:', error.statusCode, error.message, JSON.stringify(error.data));
         return {
           success: false,
           status: 'failed',
@@ -185,6 +186,7 @@ class AEPSService {
         };
       }
 
+      console.error('[AEPS Service] aepsPayment UNKNOWN ERROR:', error);
       return {
         success: false,
         status: 'failed',

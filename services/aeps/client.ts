@@ -47,16 +47,25 @@ class AEPSClient {
 
       clearTimeout(timeoutId);
 
+      const responseText = await response.text();
+      let responseData: any;
+      try {
+        responseData = JSON.parse(responseText);
+      } catch {
+        responseData = { rawText: responseText };
+      }
+
+      console.log(`[AEPS Client] ${method} ${path} → ${response.status}:`, JSON.stringify(responseData).substring(0, 500));
+
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
         throw new AEPSAPIError(
-          errorData.message || `HTTP ${response.status}`,
+          responseData.message || `HTTP ${response.status}`,
           response.status,
-          errorData
+          responseData
         );
       }
 
-      return response.json();
+      return responseData;
     } catch (error: any) {
       clearTimeout(timeoutId);
       
