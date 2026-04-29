@@ -176,7 +176,6 @@ export async function GET(request: NextRequest) {
       const posMachine = txn.tid ? posMachineMap[txn.tid] : null
       const retailer = posMachine?.retailer_id ? retailerMap[posMachine.retailer_id] : null
       const partner = posMachine?.partner_id ? partnerMap[posMachine.partner_id] : null
-      const assignedId = posMachine?.retailer_id || posMachine?.partner_id || ''
       const assignedName = retailer?.name || retailer?.business_name || partner?.name || partner?.business_name || ''
 
       return {
@@ -190,7 +189,6 @@ export async function GET(request: NextRequest) {
         'Consumer Name': txn.customer_name || txn.payer_name || '',
         'Username': txn.username || '',
         'Company Name': getCompanyName(txn.merchant_slug),
-        'Partner/Retailer ID': assignedId,
         'Partner/Retailer Name': assignedName,
         'TID': txn.tid || '',
         'MID': txn.mid_code || '',
@@ -208,7 +206,7 @@ export async function GET(request: NextRequest) {
     const headers = Object.keys(rows[0] || {
       'Transaction ID': '', 'Date & Time': '', 'Amount (₹)': 0, 'Currency': '', 'Payment Mode': '',
       'Status': '', 'Settlement Status': '', 'Consumer Name': '', 'Username': '', 'Company Name': '',
-      'Partner/Retailer ID': '', 'Partner/Retailer Name': '', 'TID': '', 'MID': '',
+      'Partner/Retailer Name': '', 'TID': '', 'MID': '',
       'Card Number': '', 'Card Brand': '', 'Card Type': '',
       'RRN': '', 'Auth Code': '', 'External Ref': '', 'Device Serial': '', 'Settled On': ''
     })

@@ -812,9 +812,6 @@ function RazorpayTransactionsPageContent() {
                       Brand
                     </th>
                     <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                      Partner/Retailer ID
-                    </th>
-                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                       Partner/Retailer Name
                     </th>
                     <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
@@ -834,7 +831,7 @@ function RazorpayTransactionsPageContent() {
                 <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
                   {transactions.length === 0 ? (
                     <tr>
-                      <td colSpan={16} className="px-6 py-12 text-center text-gray-500 dark:text-gray-400">
+                      <td colSpan={15} className="px-6 py-12 text-center text-gray-500 dark:text-gray-400">
                         <div className="flex flex-col items-center gap-2">
                           {loading ? (
                             <>
@@ -927,20 +924,6 @@ function RazorpayTransactionsPageContent() {
                           <td className="px-3 py-3 whitespace-nowrap text-xs text-gray-600 dark:text-gray-400">
                             {txn.card_brand || '-'}
                           </td>
-                          <td className="px-3 py-3 whitespace-nowrap text-xs font-mono text-gray-600 dark:text-gray-400 max-w-[140px] truncate" title={txn.assigned_id || '-'}>
-                            {txn.assigned_id ? (
-                              <div className="flex items-center gap-1">
-                                <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium ${
-                                  txn.assigned_type === 'retailer' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' :
-                                  txn.assigned_type === 'partner' ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400' :
-                                  'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300'
-                                }`}>
-                                  {txn.assigned_type === 'retailer' ? 'R' : txn.assigned_type === 'partner' ? 'P' : '?'}
-                                </span>
-                                <span className="truncate">{txn.assigned_id}</span>
-                              </div>
-                            ) : '-'}
-                          </td>
                           <td className="px-3 py-3 whitespace-nowrap text-xs text-gray-600 dark:text-gray-400 max-w-[160px] truncate" title={txn.assigned_name || '-'}>
                             {txn.assigned_name || '-'}
                           </td>
@@ -979,7 +962,7 @@ function RazorpayTransactionsPageContent() {
                               exit={{ opacity: 0, height: 0 }}
                               transition={{ duration: 0.2 }}
                             >
-                              <td colSpan={16} className="px-0 py-0">
+                              <td colSpan={15} className="px-0 py-0">
                                 <div className="bg-gray-50 dark:bg-gray-900/50 border-t border-b border-gray-200 dark:border-gray-700">
                                   <div className="p-6">
                                     <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
@@ -1002,7 +985,6 @@ function RazorpayTransactionsPageContent() {
                                       <DetailItem label="Username" value={txn.username} mono />
                                       
                                       {/* Partner/Retailer Assignment Info */}
-                                      <DetailItem icon={<Users className="w-4 h-4" />} label="Partner/Retailer ID" value={txn.assigned_id} mono />
                                       <DetailItem icon={<User className="w-4 h-4" />} label="Partner/Retailer Name" value={txn.assigned_name} />
                                       <DetailItem label="Assignment Type" value={txn.assigned_type ? (txn.assigned_type === 'retailer' ? 'Retailer' : 'Partner') : null} />
                                       
