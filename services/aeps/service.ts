@@ -22,7 +22,7 @@ interface TransactionParams {
   customerMobile: string;
   bankIin: string;
   bankName?: string;
-  // Biometric data (for real transactions)
+  wadh?: string;
   biometricData?: {
     bioType: 'FINGER' | 'FACE';
     dc: string;
@@ -99,6 +99,7 @@ class AEPSService {
       customerAadhaar,
       customerMobile,
       bankIin,
+      wadh,
       biometricData,
     } = params;
 
@@ -126,6 +127,7 @@ class AEPSService {
           iin: bankIin,
           adhar: customerAadhaar,
           cMobile: customerMobile,
+          wadh: wadh || '',
           bioType: 'FINGER',
           dc: '', ci: '', hmac: '', dpId: '', mc: '', pidDataType: '', mi: '',
           rdsId: '', sessionKey: '', fCount: '', errCode: '', pCount: '',
@@ -154,6 +156,7 @@ class AEPSService {
         iin: bankIin,
         adhar: customerAadhaar?.substring(0, 4) + '****',
         cMobile: customerMobile,
+        wadh: wadh ? `${wadh.substring(0, 20)}...` : 'MISSING',
         bioType: biometricData.bioType,
         srno: biometricData.srno,
         ci: biometricData.ci,
@@ -169,6 +172,7 @@ class AEPSService {
         iin: bankIin,
         adhar: customerAadhaar,
         cMobile: customerMobile,
+        wadh: wadh || '',
         ...biometricData,
       });
 

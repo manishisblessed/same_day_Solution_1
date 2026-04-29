@@ -63,6 +63,7 @@ export async function POST(request: NextRequest) {
       bankIin,
       bankName,
       biometricData,
+      wadh,
     } = body;
 
     // Validation
@@ -264,6 +265,7 @@ export async function POST(request: NextRequest) {
       customerMobile,
       bankIin,
       bankName,
+      wadh,
       biometricData,
     });
 

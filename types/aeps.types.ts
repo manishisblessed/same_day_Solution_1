@@ -149,6 +149,7 @@ export interface AEPSPaymentRequest {
   iin: string;
   adhar: string;
   cMobile: string;
+  wadh: string;
   bioType: 'FINGER' | 'FACE';
   // Device fields (same as login)
   dc: string;

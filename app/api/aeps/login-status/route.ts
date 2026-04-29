@@ -147,7 +147,8 @@ export async function POST(request: NextRequest) {
     console.log('[AEPS Login Status] Using Chagans merchantId:', chagansMerchantId, 'for user:', user.partner_id);
 
     const result = await aepsService.checkLoginStatus(chagansMerchantId, type);
-    console.log('[AEPS Login Status] Chagans result:', JSON.stringify(result).substring(0, 500));
+    console.log('[AEPS Login Status] Chagans result:', JSON.stringify(result).substring(0, 1000));
+    console.log('[AEPS Login Status] wadh from Chagans:', result.data?.wadh || 'NOT_PRESENT');
 
     const bankList = (result.data?.bankList || []).map((b: any) => ({
       iin: b.iin,
