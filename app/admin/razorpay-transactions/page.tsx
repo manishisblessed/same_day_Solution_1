@@ -109,7 +109,7 @@ function RazorpayTransactionsPageContent() {
   const [page, setPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
   const [total, setTotal] = useState(0)
-  const [stats, setStats] = useState({ capturedCount: 0, capturedAmount: 0, avgAmount: 0, uniqueCustomers: 0 })
+  const [stats, setStats] = useState({ capturedAmount: 0, avgAmount: 0 })
   const [expandedTxn, setExpandedTxn] = useState<string | null>(null)
   const [showRawJson, setShowRawJson] = useState<string | null>(null)
   
@@ -118,6 +118,7 @@ function RazorpayTransactionsPageContent() {
   const [dateTo, setDateTo] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedCompanies, setSelectedCompanies] = useState<string[]>([])
+  const [pendingCompanies, setPendingCompanies] = useState<string[]>([])
   const [showCompanyDropdown, setShowCompanyDropdown] = useState(false)
   const companyDropdownRef = useRef<HTMLDivElement>(null)
   
@@ -142,19 +143,23 @@ function RazorpayTransactionsPageContent() {
 
   const pageSize = 25
 
-  // Search debounce
-  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const [debouncedSearch, setDebouncedSearch] = useState('')
+  // Applied filters — only updated when Search button is clicked
+  const [appliedFilters, setAppliedFilters] = useState({
+    dateFrom: '',
+    dateTo: '',
+    search: '',
+    companies: [] as string[],
+  })
 
-  // Debounce search input
-  useEffect(() => {
-    if (searchTimerRef.current) clearTimeout(searchTimerRef.current)
-    searchTimerRef.current = setTimeout(() => {
-      setDebouncedSearch(searchQuery)
-      setPage(1)
-    }, 500)
-    return () => { if (searchTimerRef.current) clearTimeout(searchTimerRef.current) }
-  }, [searchQuery])
+  const applySearch = () => {
+    setAppliedFilters({
+      dateFrom,
+      dateTo,
+      search: searchQuery,
+      companies: selectedCompanies,
+    })
+    setPage(1)
+  }
 
   // Close dropdowns on outside click
   useEffect(() => {
@@ -190,10 +195,10 @@ function RazorpayTransactionsPageContent() {
       const params = new URLSearchParams()
       params.set('page', String(page))
       params.set('limit', String(pageSize))
-      if (dateFrom) params.set('date_from', dateFrom)
-      if (dateTo) params.set('date_to', dateTo)
-      if (debouncedSearch) params.set('search', debouncedSearch)
-      if (selectedCompanies.length > 0) params.set('merchant_slug', selectedCompanies.join(','))
+      if (appliedFilters.dateFrom) params.set('date_from', appliedFilters.dateFrom)
+      if (appliedFilters.dateTo) params.set('date_to', appliedFilters.dateTo)
+      if (appliedFilters.search) params.set('search', appliedFilters.search)
+      if (appliedFilters.companies.length > 0) params.set('merchant_slug', appliedFilters.companies.join(','))
 
       const response = await apiFetch(`/api/admin/razorpay-transactions?${params.toString()}`)
       
@@ -220,7 +225,7 @@ function RazorpayTransactionsPageContent() {
       setTransactions(result.data || [])
       setTotalPages(result.pagination?.totalPages || 1)
       setTotal(result.pagination?.total || 0)
-      setStats(result.stats || { capturedCount: 0, capturedAmount: 0, avgAmount: 0, uniqueCustomers: 0 })
+      setStats(result.stats || { capturedAmount: 0, avgAmount: 0 })
     } catch (err: any) {
       console.error('Error fetching transactions:', err)
       setError(err.message || 'Failed to load transactions')
@@ -229,7 +234,7 @@ function RazorpayTransactionsPageContent() {
         setLoading(false)
       }
     }
-  }, [user, page, pageSize, dateFrom, dateTo, debouncedSearch, selectedCompanies])
+  }, [user, page, pageSize, appliedFilters])
 
   // Initial fetch
   useEffect(() => {
@@ -238,12 +243,12 @@ function RazorpayTransactionsPageContent() {
     fetchTransactions()
   }, [fetchTransactions, user])
 
-  // Set loading and clear old data when filters change
+  // Set loading and clear old data when applied filters change
   useEffect(() => {
     setLoading(true)
     setTransactions([])
-    setStats({ capturedCount: 0, capturedAmount: 0, avgAmount: 0, uniqueCustomers: 0 })
-  }, [dateFrom, dateTo, debouncedSearch, selectedCompanies])
+    setStats({ capturedAmount: 0, avgAmount: 0 })
+  }, [appliedFilters])
 
   // Export transactions
   const exportTransactions = async (format: 'csv' | 'pdf' | 'zip') => {
@@ -252,10 +257,10 @@ function RazorpayTransactionsPageContent() {
     try {
       const params = new URLSearchParams()
       params.set('format', format)
-      if (dateFrom) params.set('date_from', dateFrom)
-      if (dateTo) params.set('date_to', dateTo)
-      if (debouncedSearch) params.set('search', debouncedSearch)
-      if (selectedCompanies.length > 0) params.set('merchant_slug', selectedCompanies.join(','))
+      if (appliedFilters.dateFrom) params.set('date_from', appliedFilters.dateFrom)
+      if (appliedFilters.dateTo) params.set('date_to', appliedFilters.dateTo)
+      if (appliedFilters.search) params.set('search', appliedFilters.search)
+      if (appliedFilters.companies.length > 0) params.set('merchant_slug', appliedFilters.companies.join(','))
 
       const response = await apiFetch(`/api/admin/razorpay-transactions/export?${params.toString()}`)
       
@@ -344,29 +349,35 @@ function RazorpayTransactionsPageContent() {
     setDateTo('')
     setSearchQuery('')
     setSelectedCompanies([])
+    setPendingCompanies([])
+    setAppliedFilters({ dateFrom: '', dateTo: '', search: '', companies: [] })
     setPage(1)
   };
 
   const hasActiveFilters = dateFrom || dateTo || searchQuery || selectedCompanies.length > 0
   
-  // Toggle company selection
+  // Toggle company selection (pending - not applied until "Apply" is clicked)
   const toggleCompany = (slug: string) => {
-    setSelectedCompanies(prev => 
+    setPendingCompanies(prev => 
       prev.includes(slug) 
         ? prev.filter(s => s !== slug)
         : [...prev, slug]
     )
-    setPage(1)
   }
   
-  // Select all / deselect all companies
+  // Select all / deselect all companies (pending)
   const toggleAllCompanies = () => {
-    if (selectedCompanies.length === companyOptions.length) {
-      setSelectedCompanies([])
+    if (pendingCompanies.length === companyOptions.length) {
+      setPendingCompanies([])
     } else {
-      setSelectedCompanies(companyOptions.map(c => c.slug))
+      setPendingCompanies(companyOptions.map(c => c.slug))
     }
-    setPage(1)
+  }
+
+  // Apply company filter
+  const applyCompanyFilter = () => {
+    setSelectedCompanies(pendingCompanies)
+    setShowCompanyDropdown(false)
   }
   
   // Format date helper function
@@ -435,10 +446,8 @@ function RazorpayTransactionsPageContent() {
   };
 
   // Use stats from API (aggregated from all filtered transactions, not just current page)
-  const capturedCount = loading ? 0 : stats.capturedCount
   const capturedAmount = loading ? 0 : stats.capturedAmount
   const avgAmount = loading ? 0 : stats.avgAmount
-  const uniqueCustomers = loading ? 0 : stats.uniqueCustomers
 
   if (authLoading || loading) {
     return (
@@ -568,20 +577,13 @@ function RazorpayTransactionsPageContent() {
           )}
 
           {/* Summary Stats Cards */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div className="grid grid-cols-3 gap-3">
             <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4">
               <div className="flex items-center gap-2 mb-1">
                 <Receipt className="w-4 h-4 text-blue-500" />
                 <span className="text-xs text-gray-500 dark:text-gray-400">Total Transactions</span>
               </div>
               <p className="text-2xl font-bold text-gray-900 dark:text-white">{total.toLocaleString('en-IN')}</p>
-            </div>
-            <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4">
-              <div className="flex items-center gap-2 mb-1">
-                <TrendingUp className="w-4 h-4 text-green-500" />
-                <span className="text-xs text-gray-500 dark:text-gray-400">Captured</span>
-              </div>
-              <p className="text-2xl font-bold text-green-600">{capturedCount.toLocaleString('en-IN')}</p>
             </div>
             <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4">
               <div className="flex items-center gap-2 mb-1">
@@ -602,51 +604,53 @@ function RazorpayTransactionsPageContent() {
           {/* Filters Section */}
           <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
             {/* Search & Primary Filters */}
-            <div className="p-4">
-              <div className="flex flex-col lg:flex-row gap-4">
-                {/* Search Box */}
-                <div className="flex-1 relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                  <input
-                    type="text"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Search by TID, MID, RRN, Transaction ID, Customer Name..."
-                    className="w-full pl-10 pr-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-primary-500 focus:border-transparent placeholder-gray-400"
-                  />
-                  {searchQuery && (
-                    <button onClick={() => setSearchQuery('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
-                      <X className="w-4 h-4" />
-                    </button>
-                  )}
-                </div>
+            <div className="p-4 space-y-3">
+              {/* Row 1: Search Input */}
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') applySearch() }}
+                  placeholder="Search by TID, MID, RRN, Transaction ID, Customer Name..."
+                  className="w-full pl-10 pr-8 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-primary-500 focus:border-transparent placeholder-gray-400"
+                />
+                {searchQuery && (
+                  <button onClick={() => { setSearchQuery(''); setAppliedFilters(f => ({ ...f, search: '' })); setPage(1) }} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                    <X className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
 
+              {/* Row 2: Date Range + Quick Dates + Company + Search Button */}
+              <div className="flex flex-wrap items-center gap-3">
                 {/* Date Range */}
                 <div className="flex items-center gap-2">
                   <Calendar className="w-4 h-4 text-gray-400 flex-shrink-0" />
                   <input
                     type="date"
                     value={dateFrom}
-                    onChange={(e) => { setDateFrom(e.target.value); setPage(1) }}
-                    className="px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                    onChange={(e) => setDateFrom(e.target.value)}
+                    className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                     title="From date"
                   />
                   <span className="text-gray-400 text-sm">to</span>
                   <input
                     type="date"
                     value={dateTo}
-                    onChange={(e) => { setDateTo(e.target.value); setPage(1) }}
-                    className="px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                    onChange={(e) => setDateTo(e.target.value)}
+                    className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                     title="To date"
                   />
                 </div>
 
                 {/* Quick Date Buttons */}
-                <div className="flex items-center gap-1.5 flex-shrink-0">
+                <div className="flex items-center gap-1.5">
                   <button
                     onClick={() => { 
                       const today = new Date().toISOString().split('T')[0]
-                      setDateFrom(today); setDateTo(today); setPage(1)
+                      setDateFrom(today); setDateTo(today)
                     }}
                     className="px-3 py-2 text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors whitespace-nowrap"
                   >
@@ -654,11 +658,19 @@ function RazorpayTransactionsPageContent() {
                   </button>
                   <button
                     onClick={() => { 
+                      const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+                      setDateFrom(yesterday); setDateTo(yesterday)
+                    }}
+                    className="px-3 py-2 text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors whitespace-nowrap"
+                  >
+                    Yesterday
+                  </button>
+                  <button
+                    onClick={() => { 
                       const today = new Date()
                       const weekAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000)
                       setDateFrom(weekAgo.toISOString().split('T')[0])
                       setDateTo(today.toISOString().split('T')[0])
-                      setPage(1)
                     }}
                     className="px-3 py-2 text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors whitespace-nowrap"
                   >
@@ -670,7 +682,6 @@ function RazorpayTransactionsPageContent() {
                       const monthAgo = new Date(today.getFullYear(), today.getMonth() - 1, today.getDate())
                       setDateFrom(monthAgo.toISOString().split('T')[0])
                       setDateTo(today.toISOString().split('T')[0])
-                      setPage(1)
                     }}
                     className="px-3 py-2 text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors whitespace-nowrap"
                   >
@@ -681,8 +692,11 @@ function RazorpayTransactionsPageContent() {
                 {/* Company (POS) Multi-Select Filter */}
                 <div className="relative" ref={companyDropdownRef}>
                   <button
-                    onClick={() => setShowCompanyDropdown(!showCompanyDropdown)}
-                    className="flex items-center gap-2 px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-primary-500 focus:border-transparent min-w-[200px] hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors"
+                    onClick={() => {
+                      if (!showCompanyDropdown) setPendingCompanies([...selectedCompanies])
+                      setShowCompanyDropdown(!showCompanyDropdown)
+                    }}
+                    className="flex items-center gap-2 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-primary-500 focus:border-transparent min-w-[180px] hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors"
                     title="Filter by company"
                   >
                     <Building className="w-4 h-4 text-gray-400 flex-shrink-0" />
@@ -714,7 +728,7 @@ function RazorpayTransactionsPageContent() {
                               onClick={toggleAllCompanies}
                               className="text-xs text-primary-600 dark:text-primary-400 hover:underline font-medium"
                             >
-                              {selectedCompanies.length === companyOptions.length ? 'Deselect All' : 'Select All'}
+                              {pendingCompanies.length === companyOptions.length ? 'Deselect All' : 'Select All'}
                             </button>
                           </div>
                           
@@ -724,11 +738,11 @@ function RazorpayTransactionsPageContent() {
                               className="flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
                             >
                               <div className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${
-                                selectedCompanies.includes(company.slug)
+                                pendingCompanies.includes(company.slug)
                                   ? 'bg-primary-600 border-primary-600'
                                   : 'border-gray-300 dark:border-gray-600'
                               }`}>
-                                {selectedCompanies.includes(company.slug) && (
+                                {pendingCompanies.includes(company.slug) && (
                                   <Check className="w-3.5 h-3.5 text-white" />
                                 )}
                               </div>
@@ -738,7 +752,7 @@ function RazorpayTransactionsPageContent() {
                               </div>
                               <input
                                 type="checkbox"
-                                checked={selectedCompanies.includes(company.slug)}
+                                checked={pendingCompanies.includes(company.slug)}
                                 onChange={() => toggleCompany(company.slug)}
                                 className="sr-only"
                               />
@@ -746,29 +760,41 @@ function RazorpayTransactionsPageContent() {
                           ))}
                         </div>
                         
-                        {selectedCompanies.length > 0 && (
-                          <div className="border-t border-gray-200 dark:border-gray-700 px-3 py-2 bg-gray-50 dark:bg-gray-900/50">
-                            <p className="text-xs text-gray-600 dark:text-gray-400 flex items-center gap-1">
-                              <Filter className="w-3 h-3" />
-                              Showing data for {selectedCompanies.length} selected {selectedCompanies.length === 1 ? 'company' : 'companies'}
-                            </p>
-                          </div>
-                        )}
+                        <div className="border-t border-gray-200 dark:border-gray-700 px-3 py-2.5 bg-gray-50 dark:bg-gray-900/50 flex items-center justify-between gap-2">
+                          <p className="text-xs text-gray-500 dark:text-gray-400">
+                            {pendingCompanies.length === 0
+                              ? 'All companies'
+                              : `${pendingCompanies.length} selected`}
+                          </p>
+                          <button
+                            onClick={applyCompanyFilter}
+                            className="px-4 py-1.5 text-xs font-semibold text-white bg-primary-600 hover:bg-primary-700 rounded-lg transition-colors"
+                          >
+                            Apply
+                          </button>
+                        </div>
                       </motion.div>
                     )}
                   </AnimatePresence>
                 </div>
-              </div>
 
-              {/* Advanced Filters Toggle */}
-              <div className="flex items-center justify-end gap-2 mt-4">
+                {/* Search Button */}
+                <button
+                  onClick={applySearch}
+                  className="flex items-center gap-1.5 px-5 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors text-sm font-medium whitespace-nowrap"
+                >
+                  <Search className="w-4 h-4" />
+                  Search
+                </button>
+
+                {/* Reset Filters */}
                 {hasActiveFilters && (
                   <button
                     onClick={resetFilters}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors"
+                    className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors whitespace-nowrap"
                   >
                     <RotateCcw className="w-3 h-3" />
-                    Reset Filters
+                    Reset
                   </button>
                 )}
               </div>

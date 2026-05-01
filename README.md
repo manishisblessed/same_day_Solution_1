@@ -77,9 +77,11 @@ NEXT_PUBLIC_APP_URL=http://localhost:3000
      - `supabase-schema.sql` (main schema)
      - `supabase-schema-bbps.sql` (BBPS tables)
      - `supabase-schema-razorpay.sql` (Razorpay tables)
+     - `supabase-aeps-schema.sql` (AEPS transactions and merchants)
      - `supabase-schema-wallet-ledger-integration.sql` (Wallet and ledger system)
      - `supabase-admin-sub-admin-impersonation-migration.sql` (Admin system)
      - `supabase-multiple-departments-migration.sql` (Sub-admin departments)
+     - `supabase-aeps-deposit-migration.sql` (AEPS deposit support — run on existing DBs)
 
 5. **Create an admin user:**
 ```bash

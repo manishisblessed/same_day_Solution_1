@@ -216,8 +216,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Debit wallet for withdrawal (before calling API)
-    let ledgerId: string | null = null;
+    // Pre-debit wallet for withdrawal (lock funds before calling external API)
+    let withdrawalLedgerId: string | null = null;
     if (transactionType === 'cash_withdrawal') {
       const { data: debitLedgerId, error: debitError } = await supabase.rpc('add_ledger_entry', {
         p_user_id: user.partner_id,
@@ -231,7 +231,7 @@ export async function POST(request: NextRequest) {
         p_reference_id: idempotencyKey,
         p_transaction_id: aepsTransaction.id,
         p_status: 'pending',
-        p_remarks: `AEPS ${transactionType} - Amount: ₹${txnAmount}`
+        p_remarks: `AEPS cash_withdrawal - Amount: ₹${txnAmount}`
       });
 
       if (debitError) {
@@ -247,10 +247,10 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      ledgerId = debitLedgerId;
+      withdrawalLedgerId = debitLedgerId;
       await supabase
         .from('aeps_transactions')
-        .update({ wallet_debited: true, wallet_debit_id: ledgerId })
+        .update({ wallet_debited: true, wallet_debit_id: withdrawalLedgerId })
         .eq('id', aepsTransaction.id);
     }
 
@@ -269,30 +269,58 @@ export async function POST(request: NextRequest) {
       biometricData,
     });
 
-    // Update transaction based on result
     if (result.success) {
-      await supabase
-        .from('aeps_transactions')
-        .update({
-          status: 'success',
-          order_id: result.orderId,
-          utr: result.utr,
-          account_number_masked: result.data?.accountNumber,
-          balance_after: result.data?.balance ? parseFloat(result.data.balance) : null,
-          mini_statement: result.data?.miniStatement || null,
-          completed_at: new Date().toISOString()
-        })
-        .eq('id', aepsTransaction.id);
+      // --- SUCCESS PATH ---
+      const updateData: Record<string, unknown> = {
+        status: 'success',
+        order_id: result.orderId,
+        utr: result.utr,
+        account_number_masked: result.data?.accountNumber,
+        balance_after: result.data?.balance ? parseFloat(result.data.balance) : null,
+        mini_statement: result.data?.miniStatement || null,
+        completed_at: new Date().toISOString()
+      };
 
-      // Complete ledger entry
-      if (ledgerId) {
+      // For withdrawal: confirm the pending debit
+      if (withdrawalLedgerId) {
         await supabase
           .from('wallet_ledger')
           .update({ status: 'completed' })
-          .eq('id', ledgerId);
+          .eq('id', withdrawalLedgerId);
       }
+
+      // For deposit: credit wallet ONLY after API confirms success
+      if (transactionType === 'cash_deposit') {
+        const { data: creditLedgerId, error: creditError } = await supabase.rpc('add_ledger_entry', {
+          p_user_id: user.partner_id,
+          p_user_role: user.role,
+          p_wallet_type: 'aeps',
+          p_fund_category: 'aeps',
+          p_service_type: 'aeps',
+          p_tx_type: 'AEPS_CREDIT',
+          p_credit: txnAmount,
+          p_debit: 0,
+          p_reference_id: idempotencyKey,
+          p_transaction_id: aepsTransaction.id,
+          p_status: 'completed',
+          p_remarks: `AEPS cash_deposit - Amount: ₹${txnAmount}`
+        });
+
+        if (creditError) {
+          console.error('[AEPS Transact] Wallet credit error after successful deposit:', creditError);
+          updateData.error_message = 'Deposit succeeded but wallet credit failed. Contact support.';
+        } else {
+          updateData.wallet_credited = true;
+          updateData.wallet_credit_id = creditLedgerId;
+        }
+      }
+
+      await supabase
+        .from('aeps_transactions')
+        .update(updateData)
+        .eq('id', aepsTransaction.id);
     } else {
-      // Transaction failed
+      // --- FAILURE PATH ---
       await supabase
         .from('aeps_transactions')
         .update({
@@ -302,8 +330,8 @@ export async function POST(request: NextRequest) {
         })
         .eq('id', aepsTransaction.id);
 
-      // Reverse wallet debit if withdrawal failed
-      if (ledgerId && transactionType === 'cash_withdrawal') {
+      // Reverse wallet debit for failed withdrawal
+      if (withdrawalLedgerId) {
         await supabase.rpc('add_ledger_entry', {
           p_user_id: user.partner_id,
           p_user_role: user.role,
@@ -316,14 +344,15 @@ export async function POST(request: NextRequest) {
           p_reference_id: `REVERSAL_${idempotencyKey}`,
           p_transaction_id: aepsTransaction.id,
           p_status: 'completed',
-          p_remarks: `AEPS transaction failed - Reversal`
+          p_remarks: `AEPS withdrawal failed - Reversal`
         });
 
         await supabase
           .from('wallet_ledger')
           .update({ status: 'reversed' })
-          .eq('id', ledgerId);
+          .eq('id', withdrawalLedgerId);
       }
+      // For failed deposits: no wallet reversal needed since we never credited
     }
 
     // Log activity

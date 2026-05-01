@@ -48,114 +48,174 @@ export async function GET(request: NextRequest) {
     const cardBrand = searchParams.get('card_brand')
     const merchantSlug = searchParams.get('merchant_slug') // all | ashvam | teachway | newscenaric | lagoon
 
-    // Build query - fetch all matching transactions (up to 10000 for export)
-    let query = supabase
-      .from('razorpay_pos_transactions')
-      .select('txn_id, amount, payment_mode, display_status, status, transaction_time, tid, device_serial, merchant_name, merchant_slug, customer_name, payer_name, username, txn_type, auth_code, card_number, issuing_bank, card_classification, mid_code, card_brand, card_type, currency, rrn, external_ref, settlement_status, settled_on, receipt_url, posting_date')
-      .order('transaction_time', { ascending: false, nullsFirst: false })
-      .limit(10000)
+    // Build base query function with all filters applied
+    const buildExportQuery = () => {
+      let q = supabase
+        .from('razorpay_pos_transactions')
+        .select('txn_id, amount, payment_mode, display_status, status, transaction_time, tid, device_serial, merchant_name, merchant_slug, customer_name, payer_name, username, txn_type, auth_code, card_number, issuing_bank, card_classification, mid_code, card_brand, card_type, currency, rrn, external_ref, settlement_status, settled_on, receipt_url, posting_date')
+        .order('transaction_time', { ascending: false, nullsFirst: false })
 
-    // Apply company filter: supports multiple comma-separated slugs
-    if (merchantSlug && merchantSlug !== 'all') {
-      const slugs = merchantSlug.split(',').map(s => s.trim()).filter(Boolean)
-      if (slugs.length === 1) {
-        if (slugs[0] === 'ashvam') {
-          query = query.or('merchant_slug.eq.ashvam,merchant_slug.is.null')
-        } else {
-          query = query.eq('merchant_slug', slugs[0])
-        }
-      } else if (slugs.length > 1) {
-        const conditions = slugs.map(slug => {
-          if (slug === 'ashvam') {
-            return 'merchant_slug.eq.ashvam,merchant_slug.is.null'
+      // Apply company filter: supports multiple comma-separated slugs
+      if (merchantSlug && merchantSlug !== 'all') {
+        const slugs = merchantSlug.split(',').map(s => s.trim()).filter(Boolean)
+        if (slugs.length === 1) {
+          if (slugs[0] === 'ashvam') {
+            q = q.or('merchant_slug.eq.ashvam,merchant_slug.is.null')
+          } else {
+            q = q.eq('merchant_slug', slugs[0])
           }
-          return `merchant_slug.eq.${slug}`
-        }).join(',')
-        query = query.or(conditions)
+        } else if (slugs.length > 1) {
+          const conditions = slugs.map(slug => {
+            if (slug === 'ashvam') {
+              return 'merchant_slug.eq.ashvam,merchant_slug.is.null'
+            }
+            return `merchant_slug.eq.${slug}`
+          }).join(',')
+          q = q.or(conditions)
+        }
+      }
+
+      // Apply filters
+      if (statusFilter && ['CAPTURED', 'FAILED', 'PENDING'].includes(statusFilter.toUpperCase())) {
+        const displayStatus = statusFilter.toUpperCase() === 'CAPTURED' ? 'SUCCESS' : statusFilter.toUpperCase()
+        q = q.eq('display_status', displayStatus)
+      }
+
+      if (dateFrom) {
+        const fromDate = dateFrom.includes('T') ? dateFrom : `${dateFrom}T00:00:00`
+        q = q.gte('transaction_time', fromDate)
+      }
+      if (dateTo) {
+        const toDate = dateTo.includes('T') ? dateTo : `${dateTo}T23:59:59`
+        q = q.lte('transaction_time', toDate)
+      }
+
+      if (paymentMode && paymentMode !== 'all') {
+        q = q.eq('payment_mode', paymentMode.toUpperCase())
+      }
+
+      if (settlementFilter && settlementFilter !== 'all') {
+        q = q.eq('settlement_status', settlementFilter.toUpperCase())
+      }
+
+      if (cardBrand && cardBrand !== 'all') {
+        q = q.eq('card_brand', cardBrand.toUpperCase())
+      }
+
+      if (searchQuery && searchQuery.trim()) {
+        const s = searchQuery.trim()
+        q = q.or(`txn_id.ilike.%${s}%,rrn.ilike.%${s}%,tid.ilike.%${s}%,mid_code.ilike.%${s}%,customer_name.ilike.%${s}%,username.ilike.%${s}%,card_number.ilike.%${s}%`)
+      }
+
+      return q
+    }
+
+    // Fetch all transactions in batches to bypass Supabase 1000-row limit
+    const PAGE_SIZE = 1000
+    let allTransactions: any[] = []
+    let offset = 0
+    let hasMore = true
+
+    while (hasMore) {
+      const { data: batch, error: batchError } = await buildExportQuery()
+        .range(offset, offset + PAGE_SIZE - 1)
+
+      if (batchError) {
+        return NextResponse.json({ error: 'Database error', message: batchError.message }, { status: 500 })
+      }
+
+      if (batch && batch.length > 0) {
+        allTransactions = allTransactions.concat(batch)
+        offset += PAGE_SIZE
+        if (batch.length < PAGE_SIZE) {
+          hasMore = false
+        }
+      } else {
+        hasMore = false
       }
     }
 
-    // Apply filters
-    if (statusFilter && ['CAPTURED', 'FAILED', 'PENDING'].includes(statusFilter.toUpperCase())) {
-      const displayStatus = statusFilter.toUpperCase() === 'CAPTURED' ? 'SUCCESS' : statusFilter.toUpperCase()
-      query = query.eq('display_status', displayStatus)
-    }
-
-    if (dateFrom) {
-      const fromDate = dateFrom.includes('T') ? dateFrom : `${dateFrom}T00:00:00`
-      query = query.gte('transaction_time', fromDate)
-    }
-    if (dateTo) {
-      const toDate = dateTo.includes('T') ? dateTo : `${dateTo}T23:59:59`
-      query = query.lte('transaction_time', toDate)
-    }
-
-    if (paymentMode && paymentMode !== 'all') {
-      query = query.eq('payment_mode', paymentMode.toUpperCase())
-    }
-
-    if (settlementFilter && settlementFilter !== 'all') {
-      query = query.eq('settlement_status', settlementFilter.toUpperCase())
-    }
-
-    if (cardBrand && cardBrand !== 'all') {
-      query = query.eq('card_brand', cardBrand.toUpperCase())
-    }
-
-    if (searchQuery && searchQuery.trim()) {
-      const s = searchQuery.trim()
-      query = query.or(`txn_id.ilike.%${s}%,rrn.ilike.%${s}%,tid.ilike.%${s}%,mid_code.ilike.%${s}%,customer_name.ilike.%${s}%,username.ilike.%${s}%,card_number.ilike.%${s}%`)
-    }
-
-    const { data: transactions, error } = await query
-
-    if (error) {
-      return NextResponse.json({ error: 'Database error', message: error.message }, { status: 500 })
-    }
+    const transactions = allTransactions
 
     // Fetch POS machine assignments to get partner/retailer info
     const uniqueTids = [...new Set((transactions || []).map((t: any) => t.tid).filter(Boolean))]
     let posMachineMap: Record<string, any> = {}
     let retailerMap: Record<string, any> = {}
+    let distributorMap: Record<string, any> = {}
+    let masterDistributorMap: Record<string, any> = {}
     let partnerMap: Record<string, any> = {}
 
     if (uniqueTids.length > 0) {
-      const { data: posMachines } = await supabase
-        .from('pos_machines')
-        .select('tid, retailer_id, partner_id')
-        .in('tid', uniqueTids)
-      
-      if (posMachines) {
-        posMachines.forEach((pm: any) => {
-          if (pm.tid) posMachineMap[pm.tid] = pm
-        })
+      // Batch TIDs in chunks to avoid PostgREST URL length limits
+      const BATCH_SIZE = 50
+      for (let i = 0; i < uniqueTids.length; i += BATCH_SIZE) {
+        const tidBatch = uniqueTids.slice(i, i + BATCH_SIZE)
+        const { data: posMachines } = await supabase
+          .from('pos_machines')
+          .select('tid, retailer_id, distributor_id, master_distributor_id, partner_id')
+          .in('tid', tidBatch)
+        
+        if (posMachines) {
+          posMachines.forEach((pm: any) => {
+            if (pm.tid) posMachineMap[pm.tid] = pm
+          })
+        }
+      }
 
-        const retailerIds = [...new Set(posMachines.map((pm: any) => pm.retailer_id).filter(Boolean))]
-        const partnerIds = [...new Set(posMachines.map((pm: any) => pm.partner_id).filter(Boolean))]
+      const allPosMachines = Object.values(posMachineMap)
+      const retailerIds = [...new Set(allPosMachines.map((pm: any) => pm.retailer_id).filter(Boolean))]
+      const distributorIds = [...new Set(allPosMachines.map((pm: any) => pm.distributor_id).filter(Boolean))]
+      const masterDistributorIds = [...new Set(allPosMachines.map((pm: any) => pm.master_distributor_id).filter(Boolean))]
+      const partnerIds = [...new Set(allPosMachines.map((pm: any) => pm.partner_id).filter(Boolean))]
 
-        if (retailerIds.length > 0) {
+      if (retailerIds.length > 0) {
+        for (let i = 0; i < retailerIds.length; i += BATCH_SIZE) {
+          const batch = retailerIds.slice(i, i + BATCH_SIZE)
           const { data: retailers } = await supabase
             .from('retailers')
             .select('partner_id, name, business_name')
-            .in('partner_id', retailerIds)
-          
+            .in('partner_id', batch)
           if (retailers) {
-            retailers.forEach((r: any) => {
-              retailerMap[r.partner_id] = r
-            })
+            retailers.forEach((r: any) => { retailerMap[r.partner_id] = r })
           }
         }
+      }
 
-        if (partnerIds.length > 0) {
+      if (distributorIds.length > 0) {
+        for (let i = 0; i < distributorIds.length; i += BATCH_SIZE) {
+          const batch = distributorIds.slice(i, i + BATCH_SIZE)
+          const { data: distributors } = await supabase
+            .from('distributors')
+            .select('partner_id, name, business_name')
+            .in('partner_id', batch)
+          if (distributors) {
+            distributors.forEach((d: any) => { distributorMap[d.partner_id] = d })
+          }
+        }
+      }
+
+      if (masterDistributorIds.length > 0) {
+        for (let i = 0; i < masterDistributorIds.length; i += BATCH_SIZE) {
+          const batch = masterDistributorIds.slice(i, i + BATCH_SIZE)
+          const { data: masterDistributors } = await supabase
+            .from('master_distributors')
+            .select('partner_id, name, business_name')
+            .in('partner_id', batch)
+          if (masterDistributors) {
+            masterDistributors.forEach((md: any) => { masterDistributorMap[md.partner_id] = md })
+          }
+        }
+      }
+
+      if (partnerIds.length > 0) {
+        for (let i = 0; i < partnerIds.length; i += BATCH_SIZE) {
+          const batch = partnerIds.slice(i, i + BATCH_SIZE)
           const { data: partners } = await supabase
             .from('partners')
             .select('id, name, business_name')
-            .in('id', partnerIds)
-          
+            .in('id', batch)
           if (partners) {
-            partners.forEach((p: any) => {
-              partnerMap[p.id] = p
-            })
+            partners.forEach((p: any) => { partnerMap[p.id] = p })
           }
         }
       }
@@ -174,9 +234,23 @@ export async function GET(request: NextRequest) {
 
     const rows = (transactions || []).map((txn: any) => {
       const posMachine = txn.tid ? posMachineMap[txn.tid] : null
-      const retailer = posMachine?.retailer_id ? retailerMap[posMachine.retailer_id] : null
-      const partner = posMachine?.partner_id ? partnerMap[posMachine.partner_id] : null
-      const assignedName = retailer?.name || retailer?.business_name || partner?.name || partner?.business_name || ''
+      let assignedName = ''
+
+      if (posMachine) {
+        if (posMachine.retailer_id) {
+          const retailer = retailerMap[posMachine.retailer_id]
+          assignedName = retailer?.name || retailer?.business_name || ''
+        } else if (posMachine.distributor_id) {
+          const distributor = distributorMap[posMachine.distributor_id]
+          assignedName = distributor?.name || distributor?.business_name || ''
+        } else if (posMachine.master_distributor_id) {
+          const masterDist = masterDistributorMap[posMachine.master_distributor_id]
+          assignedName = masterDist?.name || masterDist?.business_name || ''
+        } else if (posMachine.partner_id) {
+          const partner = partnerMap[posMachine.partner_id]
+          assignedName = partner?.name || partner?.business_name || ''
+        }
+      }
 
       return {
         'Transaction ID': txn.txn_id || '',

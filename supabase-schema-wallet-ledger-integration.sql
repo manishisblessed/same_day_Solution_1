@@ -355,7 +355,7 @@ CREATE TABLE IF NOT EXISTS aeps_transactions (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   user_id TEXT NOT NULL,
   user_role TEXT NOT NULL CHECK (user_role IN ('retailer', 'distributor', 'master_distributor')),
-  transaction_type TEXT NOT NULL CHECK (transaction_type IN ('balance_inquiry', 'cash_withdrawal', 'aadhaar_to_aadhaar', 'mini_statement')),
+  transaction_type TEXT NOT NULL CHECK (transaction_type IN ('balance_inquiry', 'cash_withdrawal', 'cash_deposit', 'mini_statement', 'aadhaar_to_aadhaar')),
   is_financial BOOLEAN NOT NULL, -- true for cash_withdrawal, aadhaar_to_aadhaar
   amount DECIMAL(12, 2), -- Only for financial transactions
   rrn TEXT UNIQUE, -- Retrieval Reference Number

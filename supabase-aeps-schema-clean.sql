@@ -50,6 +50,8 @@ CREATE TABLE aeps_transactions (
   -- Wallet tracking
   wallet_debited BOOLEAN DEFAULT FALSE,
   wallet_debit_id TEXT,
+  wallet_credited BOOLEAN DEFAULT FALSE,
+  wallet_credit_id TEXT,
   
   -- Idempotency
   idempotency_key TEXT UNIQUE,

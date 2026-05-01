@@ -177,13 +177,15 @@ export async function GET(request: NextRequest) {
     const uniqueTids = [...new Set((transactions || []).map((t: any) => t.tid).filter(Boolean))]
     let posMachineMap: Record<string, any> = {}
     let retailerMap: Record<string, any> = {}
+    let distributorMap: Record<string, any> = {}
+    let masterDistributorMap: Record<string, any> = {}
     let partnerMap: Record<string, any> = {}
 
     if (uniqueTids.length > 0) {
       // Fetch POS machines by TID
       const { data: posMachines } = await supabase
         .from('pos_machines')
-        .select('tid, retailer_id, partner_id')
+        .select('tid, retailer_id, distributor_id, master_distributor_id, partner_id')
         .in('tid', uniqueTids)
       
       if (posMachines) {
@@ -191,8 +193,10 @@ export async function GET(request: NextRequest) {
           if (pm.tid) posMachineMap[pm.tid] = pm
         })
 
-        // Get unique retailer_ids and partner_ids
+        // Get unique IDs for all assignment types
         const retailerIds = [...new Set(posMachines.map((pm: any) => pm.retailer_id).filter(Boolean))]
+        const distributorIds = [...new Set(posMachines.map((pm: any) => pm.distributor_id).filter(Boolean))]
+        const masterDistributorIds = [...new Set(posMachines.map((pm: any) => pm.master_distributor_id).filter(Boolean))]
         const partnerIds = [...new Set(posMachines.map((pm: any) => pm.partner_id).filter(Boolean))]
 
         // Fetch retailer names
@@ -205,6 +209,34 @@ export async function GET(request: NextRequest) {
           if (retailers) {
             retailers.forEach((r: any) => {
               retailerMap[r.partner_id] = r
+            })
+          }
+        }
+
+        // Fetch distributor names
+        if (distributorIds.length > 0) {
+          const { data: distributors } = await supabase
+            .from('distributors')
+            .select('partner_id, name, business_name')
+            .in('partner_id', distributorIds)
+          
+          if (distributors) {
+            distributors.forEach((d: any) => {
+              distributorMap[d.partner_id] = d
+            })
+          }
+        }
+
+        // Fetch master distributor names
+        if (masterDistributorIds.length > 0) {
+          const { data: masterDistributors } = await supabase
+            .from('master_distributors')
+            .select('partner_id, name, business_name')
+            .in('partner_id', masterDistributorIds)
+          
+          if (masterDistributors) {
+            masterDistributors.forEach((md: any) => {
+              masterDistributorMap[md.partner_id] = md
             })
           }
         }
@@ -225,87 +257,104 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // Build a separate query for aggregate stats (same filters, no pagination)
-    let statsQuery = supabase
-      .from('razorpay_pos_transactions')
-      .select('amount, display_status, customer_name, payer_name')
-
-    // Apply the same filters for stats query (supports multiple company slugs)
-    if (merchantSlug && merchantSlug !== 'all') {
-      const slugs = merchantSlug.split(',').map(s => s.trim()).filter(Boolean)
-      if (slugs.length === 1) {
-        if (slugs[0] === 'ashvam') {
-          statsQuery = statsQuery.or('merchant_slug.eq.ashvam,merchant_slug.is.null')
-        } else {
-          statsQuery = statsQuery.eq('merchant_slug', slugs[0])
-        }
-      } else if (slugs.length > 1) {
-        const conditions = slugs.map(slug => {
-          if (slug === 'ashvam') {
-            return 'merchant_slug.eq.ashvam,merchant_slug.is.null'
+    // Build a separate query for aggregate stats using RPC-style approach
+    // We use multiple targeted queries to avoid the 1000-row default limit
+    
+    // Helper: build base filter for stats queries
+    const buildStatsFilter = (q: any) => {
+      if (merchantSlug && merchantSlug !== 'all') {
+        const slugs = merchantSlug.split(',').map(s => s.trim()).filter(Boolean)
+        if (slugs.length === 1) {
+          if (slugs[0] === 'ashvam') {
+            q = q.or('merchant_slug.eq.ashvam,merchant_slug.is.null')
+          } else {
+            q = q.eq('merchant_slug', slugs[0])
           }
-          return `merchant_slug.eq.${slug}`
-        }).join(',')
-        statsQuery = statsQuery.or(conditions)
+        } else if (slugs.length > 1) {
+          const conditions = slugs.map(slug => {
+            if (slug === 'ashvam') return 'merchant_slug.eq.ashvam,merchant_slug.is.null'
+            return `merchant_slug.eq.${slug}`
+          }).join(',')
+          q = q.or(conditions)
+        }
+      }
+      if (statusFilter && ['CAPTURED', 'FAILED', 'PENDING'].includes(statusFilter.toUpperCase())) {
+        const displayStatus = statusFilter.toUpperCase() === 'CAPTURED' ? 'SUCCESS' : statusFilter.toUpperCase()
+        q = q.eq('display_status', displayStatus)
+      }
+      if (dateFrom) {
+        const fromDate = dateFrom.includes('T') ? dateFrom : `${dateFrom}T00:00:00`
+        q = q.gte('transaction_time', fromDate)
+      }
+      if (dateTo) {
+        const toDate = dateTo.includes('T') ? dateTo : `${dateTo}T23:59:59`
+        q = q.lte('transaction_time', toDate)
+      }
+      if (paymentMode && paymentMode !== 'all') q = q.eq('payment_mode', paymentMode.toUpperCase())
+      if (settlementFilter && settlementFilter !== 'all') q = q.eq('settlement_status', settlementFilter.toUpperCase())
+      if (cardBrand && cardBrand !== 'all') q = q.eq('card_brand', cardBrand.toUpperCase())
+      if (acquiringBank && acquiringBank.trim()) q = q.ilike('acquiring_bank', `%${acquiringBank.trim()}%`)
+      if (searchQuery && searchQuery.trim()) {
+        const s = searchQuery.trim()
+        q = q.or(`txn_id.ilike.%${s}%,rrn.ilike.%${s}%,tid.ilike.%${s}%,mid_code.ilike.%${s}%,customer_name.ilike.%${s}%,username.ilike.%${s}%,card_number.ilike.%${s}%`)
+      }
+      return q
+    }
+
+    // Fetch amounts in pages to avoid the 1000-row limit
+    let totalCapturedAmount = 0
+    const pageLimit = 1000
+    let statsOffset = 0
+    let hasMoreStats = true
+    while (hasMoreStats) {
+      let amountQuery = supabase
+        .from('razorpay_pos_transactions')
+        .select('amount')
+        .eq('display_status', 'SUCCESS')
+        .range(statsOffset, statsOffset + pageLimit - 1)
+      amountQuery = buildStatsFilter(amountQuery)
+      const { data: amountData } = await amountQuery
+      if (amountData && amountData.length > 0) {
+        totalCapturedAmount += amountData.reduce((sum: number, t: any) => sum + (t.amount || 0), 0)
+        statsOffset += pageLimit
+        if (amountData.length < pageLimit) hasMoreStats = false
+      } else {
+        hasMoreStats = false
       }
     }
-    if (statusFilter && ['CAPTURED', 'FAILED', 'PENDING'].includes(statusFilter.toUpperCase())) {
-      const displayStatus = statusFilter.toUpperCase() === 'CAPTURED' ? 'SUCCESS' : statusFilter.toUpperCase()
-      statsQuery = statsQuery.eq('display_status', displayStatus)
-    }
-    if (dateFrom) {
-      const fromDate = dateFrom.includes('T') ? dateFrom : `${dateFrom}T00:00:00`
-      statsQuery = statsQuery.gte('transaction_time', fromDate)
-    }
-    if (dateTo) {
-      const toDate = dateTo.includes('T') ? dateTo : `${dateTo}T23:59:59`
-      statsQuery = statsQuery.lte('transaction_time', toDate)
-    }
-    if (paymentMode && paymentMode !== 'all') {
-      statsQuery = statsQuery.eq('payment_mode', paymentMode.toUpperCase())
-    }
-    if (settlementFilter && settlementFilter !== 'all') {
-      statsQuery = statsQuery.eq('settlement_status', settlementFilter.toUpperCase())
-    }
-    if (cardBrand && cardBrand !== 'all') {
-      statsQuery = statsQuery.eq('card_brand', cardBrand.toUpperCase())
-    }
-    if (acquiringBank && acquiringBank.trim()) {
-      statsQuery = statsQuery.ilike('acquiring_bank', `%${acquiringBank.trim()}%`)
-    }
-    if (searchQuery && searchQuery.trim()) {
-      const s = searchQuery.trim()
-      statsQuery = statsQuery.or(`txn_id.ilike.%${s}%,rrn.ilike.%${s}%,tid.ilike.%${s}%,mid_code.ilike.%${s}%,customer_name.ilike.%${s}%,username.ilike.%${s}%,card_number.ilike.%${s}%`)
-    }
 
-    const { data: statsData } = await statsQuery
-
-    // Calculate aggregate stats from all filtered transactions
-    const allFilteredTransactions = statsData || []
-    const capturedTransactions = allFilteredTransactions.filter((t: any) => t.display_status === 'SUCCESS')
-    const capturedCount = capturedTransactions.length
-    const capturedAmount = capturedTransactions.reduce((sum: number, t: any) => sum + (t.amount || 0), 0)
-    const avgAmount = capturedCount > 0 ? Math.round(capturedAmount / capturedCount) : 0
-    
-    // Count unique customers (by customer_name or payer_name)
-    const uniqueCustomers = new Set(
-      allFilteredTransactions
-        .map((t: any) => (t.customer_name || t.payer_name || '').trim().toLowerCase())
-        .filter((name: string) => name.length > 0)
-    ).size
+    // total count comes from the main paginated query (exact count)
+    const totalTransactions = count || 0
+    const capturedAmount = totalCapturedAmount
+    const avgAmount = totalTransactions > 0 ? Math.round(capturedAmount / totalTransactions) : 0
 
     // Map fields to the format the frontend expects
     // Use dedicated columns first, fallback to raw_data extraction
     const mappedTransactions = (transactions || []).map((txn: any) => {
-      // Get POS machine assignment info
+      // Get POS machine assignment info - check in order: retailer, distributor, master_distributor, partner
       const posMachine = txn.tid ? posMachineMap[txn.tid] : null
-      const retailer = posMachine?.retailer_id ? retailerMap[posMachine.retailer_id] : null
-      const partner = posMachine?.partner_id ? partnerMap[posMachine.partner_id] : null
+      let assignedName = null
+      let assignedType = null
 
-      // Determine assigned entity (retailer or partner)
-      const assignedId = posMachine?.retailer_id || posMachine?.partner_id || null
-      const assignedName = retailer?.name || retailer?.business_name || partner?.name || partner?.business_name || null
-      const assignedType = posMachine?.retailer_id ? 'retailer' : (posMachine?.partner_id ? 'partner' : null)
+      if (posMachine) {
+        if (posMachine.retailer_id) {
+          const retailer = retailerMap[posMachine.retailer_id]
+          assignedName = retailer?.name || retailer?.business_name
+          assignedType = 'retailer'
+        } else if (posMachine.distributor_id) {
+          const distributor = distributorMap[posMachine.distributor_id]
+          assignedName = distributor?.name || distributor?.business_name
+          assignedType = 'distributor'
+        } else if (posMachine.master_distributor_id) {
+          const masterDist = masterDistributorMap[posMachine.master_distributor_id]
+          assignedName = masterDist?.name || masterDist?.business_name
+          assignedType = 'master_distributor'
+        } else if (posMachine.partner_id) {
+          const partner = partnerMap[posMachine.partner_id]
+          assignedName = partner?.name || partner?.business_name
+          assignedType = 'partner'
+        }
+      }
 
       return {
         txn_id: txn.txn_id,
@@ -318,8 +367,7 @@ export async function GET(request: NextRequest) {
         service_provider: 'RAZORPAY',
         // Company (merchant_slug): ashvam, teachway, newscenaric, lagoon; null = legacy/ashvam
         merchant_slug: txn.merchant_slug || 'ashvam',
-        // Partner/Retailer assignment info (from POS machine)
-        assigned_id: assignedId,
+        // Partner/Retailer/Distributor/MD assignment info (from POS machine)
         assigned_name: assignedName,
         assigned_type: assignedType,
         // Customer & User Info
@@ -372,10 +420,8 @@ export async function GET(request: NextRequest) {
         hasPrevPage
       },
       stats: {
-        capturedCount,
         capturedAmount,
         avgAmount,
-        uniqueCustomers
       }
     })
 
