@@ -83,6 +83,29 @@ type FlowStep = 'check_merchant' | 'kyc_form' | 'biometric_login' | 'transaction
 type TransactionType = 'balance_inquiry' | 'cash_withdrawal' | 'cash_deposit' | 'mini_statement';
 
 // ============================================================================
+// DEVICE FINGERPRINT — Detects device/system changes to trigger re-2FA
+// ============================================================================
+
+function generateDeviceFingerprint(): string {
+  const nav = typeof navigator !== 'undefined' ? navigator : null;
+  const scr = typeof screen !== 'undefined' ? screen : null;
+  const parts = [
+    nav?.userAgent || '',
+    nav?.language || '',
+    nav?.hardwareConcurrency || 0,
+    scr ? `${scr.width}x${scr.height}x${scr.colorDepth}` : '',
+    Intl.DateTimeFormat().resolvedOptions().timeZone || '',
+    nav?.platform || '',
+  ];
+  const raw = parts.join('|');
+  let hash = 0;
+  for (let i = 0; i < raw.length; i++) {
+    hash = ((hash << 5) - hash + raw.charCodeAt(i)) | 0;
+  }
+  return `DF_${Math.abs(hash).toString(36)}`;
+}
+
+// ============================================================================
 // SHARED BIOMETRIC CAPTURE UTILITY
 // ============================================================================
 
@@ -455,7 +478,8 @@ const BiometricLogin = ({
   onError,
   isMockMode,
   initialWadh,
-  onKycUpdateSuccess
+  onKycUpdateSuccess,
+  deviceFingerprint
 }: {
   merchantInfo: MerchantInfo;
   onSuccess: (wadh: string) => void;
@@ -463,6 +487,7 @@ const BiometricLogin = ({
   isMockMode: boolean;
   initialWadh: string;
   onKycUpdateSuccess?: (message: string) => void;
+  deviceFingerprint: string;
 }) => {
   const [status, setStatus] = useState<'idle' | 'scanning' | 'processing' | 'success' | 'error'>('idle');
   const [message, setMessage] = useState('');
@@ -523,7 +548,8 @@ const BiometricLogin = ({
           method: 'POST',
           body: JSON.stringify({
             merchantId: merchantInfo.merchant_id,
-            type: 'withdraw'
+            type: 'withdraw',
+            deviceFingerprint
           })
         });
         
@@ -548,6 +574,7 @@ const BiometricLogin = ({
           merchantId: merchantInfo.merchant_id,
           transType: 'withdraw',
           wadh: initialWadh || '',
+          deviceFingerprint,
           ...biometricData
         };
         console.log('[Biometric] Login payload keys:', Object.keys(loginPayload));
@@ -693,7 +720,9 @@ const TransactionPanel = ({
   wadh,
   walletBalance,
   isMockMode,
-  onTransactionComplete
+  onTransactionComplete,
+  onSessionExpired,
+  deviceFingerprint
 }: {
   merchantInfo: MerchantInfo;
   banks: Bank[];
@@ -701,6 +730,8 @@ const TransactionPanel = ({
   walletBalance: number;
   isMockMode: boolean;
   onTransactionComplete: (result: TransactionResult) => void;
+  onSessionExpired: () => void;
+  deviceFingerprint: string;
 }) => {
   const [transactionType, setTransactionType] = useState<TransactionType>('balance_inquiry');
   const [selectedBank, setSelectedBank] = useState('');
@@ -741,9 +772,6 @@ const TransactionPanel = ({
       if (isNaN(amtNum) || amtNum < 100) newErrors.amount = 'Minimum amount is ₹100';
       if (amtNum > 10000) newErrors.amount = 'Maximum amount is ₹10,000';
       if (amtNum % 100 !== 0) newErrors.amount = 'Amount must be multiple of ₹100';
-      if (transactionType === 'cash_withdrawal' && amtNum > walletBalance) {
-        newErrors.amount = 'Insufficient wallet balance';
-      }
     }
 
     setErrors(newErrors);
@@ -799,7 +827,8 @@ const TransactionPanel = ({
         customerAadhaar: aadhaar.replace(/\s/g, ''),
         customerMobile: mobile,
         amount: parseFloat(amount) || 0,
-        wadh
+        wadh,
+        deviceFingerprint
       };
 
       if (biometricData) {
@@ -810,6 +839,13 @@ const TransactionPanel = ({
         method: 'POST',
         body: JSON.stringify(payload)
       });
+
+      // Handle 2FA session expiry or device change — redirect to re-auth
+      if (data.code === 'SESSION_2FA_EXPIRED' || data.code === 'DEVICE_CHANGED') {
+        setShow2FA(false);
+        onSessionExpired();
+        return;
+      }
       
       const txnResult: TransactionResult = {
         success: data.success,
@@ -823,8 +859,13 @@ const TransactionPanel = ({
       setShow2FA(false);
       setResult(txnResult);
       onTransactionComplete(txnResult);
-    } catch (error) {
+    } catch (error: any) {
       setShow2FA(false);
+      // Check if the error response has session/device codes
+      if (error?.code === 'SESSION_2FA_EXPIRED' || error?.code === 'DEVICE_CHANGED') {
+        onSessionExpired();
+        return;
+      }
       const errorResult: TransactionResult = {
         success: false,
         status: 'failed',
@@ -1220,6 +1261,7 @@ export default function AEPSUnifiedFlow({ user }: { user: AEPSUser }) {
   const [wadh, setWadh] = useState<string>('');
   const [walletBalance, setWalletBalance] = useState(0);
   const [isMockMode, setIsMockMode] = useState(false);
+  const [deviceFP] = useState(() => generateDeviceFingerprint());
 
   const steps = [
     { id: 'check_merchant', label: 'Merchant', icon: <User className="w-5 h-5" /> },
@@ -1236,7 +1278,7 @@ export default function AEPSUnifiedFlow({ user }: { user: AEPSUser }) {
       const [loginStatus, walletData] = await Promise.all([
         apiFetchJson('/api/aeps/login-status', {
           method: 'POST',
-          body: JSON.stringify({ merchantId: user.partner_id, type: 'withdraw' })
+          body: JSON.stringify({ merchantId: user.partner_id, type: 'withdraw', deviceFingerprint: deviceFP })
         }),
         apiFetchJson('/api/wallet/balance?wallet_type=aeps').catch(() => ({ balance: 0 }))
       ]);
@@ -1257,10 +1299,16 @@ export default function AEPSUnifiedFlow({ user }: { user: AEPSUser }) {
           setWadh(loginStatus.data.wadh);
         }
 
+        // Check if 2FA session is still valid (24h window, same device)
         if (loginStatus.data.loginStatus && loginStatus.data.wadh) {
           setBanks(loginStatus.data.bankList || []);
           setCurrentStep('transaction');
         } else {
+          if (loginStatus.data.sessionExpired) {
+            setNotification({ message: '2FA session expired (24 hours). Please re-authenticate.', type: 'info' });
+          } else if (loginStatus.data.deviceChanged) {
+            setNotification({ message: 'New device detected. Please re-authenticate for this device.', type: 'info' });
+          }
           const banksData = await apiFetchJson(`/api/aeps/banks?merchantId=${user.partner_id}`);
           setBanks(banksData.data || banksData.banks || []);
           setCurrentStep('biometric_login');
@@ -1277,7 +1325,7 @@ export default function AEPSUnifiedFlow({ user }: { user: AEPSUser }) {
     } finally {
       setIsLoading(false);
     }
-  }, [user.partner_id, user.name]);
+  }, [user.partner_id, user.name, deviceFP]);
 
   useEffect(() => {
     checkMerchantStatus();
@@ -1352,6 +1400,11 @@ export default function AEPSUnifiedFlow({ user }: { user: AEPSUser }) {
         .then(data => setWalletBalance(data.balance || 0))
         .catch(() => {});
     }
+  };
+
+  const handleSessionExpired = () => {
+    setError('2FA session expired or device changed. Please re-authenticate.');
+    setCurrentStep('biometric_login');
   };
 
   const getStepIndex = () => {
@@ -1437,6 +1490,7 @@ export default function AEPSUnifiedFlow({ user }: { user: AEPSUser }) {
               onError={setError}
               isMockMode={isMockMode}
               initialWadh={wadh}
+              deviceFingerprint={deviceFP}
               onKycUpdateSuccess={(msg) => {
                 setError(null);
                 setNotification({ message: msg, type: 'success' });
@@ -1452,6 +1506,8 @@ export default function AEPSUnifiedFlow({ user }: { user: AEPSUser }) {
               walletBalance={walletBalance}
               isMockMode={isMockMode}
               onTransactionComplete={handleTransactionComplete}
+              onSessionExpired={handleSessionExpired}
+              deviceFingerprint={deviceFP}
             />
           )}
         </motion.div>

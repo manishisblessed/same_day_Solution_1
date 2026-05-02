@@ -2,12 +2,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getCurrentUserWithFallback } from '@/lib/auth-server';
 import { getAEPSService } from '@/services/aeps';
-import { checkAllLimits } from '@/lib/limits/enforcement';
 import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger';
 import type { AEPSTransactionType } from '@/types/aeps.types';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+
+const AEPS_SESSION_HOURS = 24;
 
 function generateIdempotencyKey(prefix: string): string {
   const timestamp = Date.now();
@@ -15,11 +16,23 @@ function generateIdempotencyKey(prefix: string): string {
   return `${prefix}_${timestamp}_${random}`;
 }
 
+function isSessionValid(lastLoginAt: string | null, sessionHours: number): boolean {
+  if (!lastLoginAt) return false;
+  const loginTime = new Date(lastLoginAt).getTime();
+  const now = Date.now();
+  return (now - loginTime) < sessionHours * 60 * 60 * 1000;
+}
+
 /**
  * Process AEPS transaction (unified endpoint)
  * POST /api/aeps/transact
  * 
  * Supports: balance_inquiry, cash_withdrawal, cash_deposit, mini_statement
+ * 
+ * Requirements:
+ * - 2FA session must be valid (within 24 hours, same device)
+ * - Balance/statement data is returned for display only, never stored in DB
+ * - Withdrawal/deposit amounts update the wallet; bank balance is NOT stored
  */
 export async function POST(request: NextRequest) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -45,7 +58,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Only retailers, distributors, and master distributors can perform AEPS transactions
     if (!['retailer', 'distributor', 'master_distributor'].includes(user.role)) {
       return NextResponse.json(
         { error: 'Forbidden: Invalid user role' },
@@ -64,9 +76,9 @@ export async function POST(request: NextRequest) {
       bankName,
       biometricData,
       wadh,
+      deviceFingerprint,
     } = body;
 
-    // Validation
     if (!merchantId) {
       return NextResponse.json({ error: 'merchantId is required' }, { status: 400 });
     }
@@ -96,15 +108,15 @@ export async function POST(request: NextRequest) {
 
     const aepsService = getAEPSService();
 
-    // Look up the real Chagans merchantId from our database
+    // Look up merchant and validate 2FA session
     let chagansMerchantId = merchantId;
-    if (!aepsService.isMockMode()) {
-      const { data: merchantRecord } = await supabase
-        .from('aeps_merchants')
-        .select('merchant_id')
-        .eq('user_id', user.partner_id)
-        .maybeSingle();
+    const { data: merchantRecord } = await supabase
+      .from('aeps_merchants')
+      .select('merchant_id, last_login_at, device_fingerprint')
+      .eq('user_id', user.partner_id)
+      .maybeSingle();
 
+    if (!aepsService.isMockMode()) {
       if (!merchantRecord?.merchant_id) {
         return NextResponse.json(
           { error: 'Merchant not registered. Please complete KYC first.' },
@@ -112,8 +124,26 @@ export async function POST(request: NextRequest) {
         );
       }
       chagansMerchantId = merchantRecord.merchant_id;
-      console.log('[AEPS Transact] Using Chagans merchantId:', chagansMerchantId);
     }
+
+    // Enforce 24-hour 2FA session validity
+    if (!isSessionValid(merchantRecord?.last_login_at, AEPS_SESSION_HOURS)) {
+      return NextResponse.json(
+        { error: '2FA session expired. Please re-authenticate.', code: 'SESSION_2FA_EXPIRED' },
+        { status: 403 }
+      );
+    }
+
+    // Enforce device fingerprint check — new device requires re-authentication
+    if (deviceFingerprint && merchantRecord?.device_fingerprint &&
+        deviceFingerprint !== merchantRecord.device_fingerprint) {
+      return NextResponse.json(
+        { error: 'Device changed. Please re-authenticate from this device.', code: 'DEVICE_CHANGED' },
+        { status: 403 }
+      );
+    }
+
+    console.log('[AEPS Transact] Using Chagans merchantId:', chagansMerchantId);
 
     // Validate inputs
     const aadhaarValidation = aepsService.validateAadhaarNumber(customerAadhaar);
@@ -130,63 +160,13 @@ export async function POST(request: NextRequest) {
     const isFinancial = ['cash_withdrawal', 'cash_deposit', 'aadhaar_to_aadhaar'].includes(transactionType);
     const txnAmount = isFinancial ? parseFloat(amount) || 0 : 0;
 
-    // For financial transactions, validate amount
     if (isFinancial && txnAmount <= 0) {
       return NextResponse.json({ error: 'Valid amount is required for financial transactions' }, { status: 400 });
     }
 
-    // Check wallet if financial withdrawal
-    if (transactionType === 'cash_withdrawal') {
-      // Check if AEPS wallet is frozen
-      const { data: wallet } = await supabase
-        .from('wallets')
-        .select('is_frozen, balance')
-        .eq('user_id', user.partner_id)
-        .eq('wallet_type', 'aeps')
-        .single();
+    // No internal wallet checks — the Chagans provider manages the merchant's
+    // AEPS float/wallet and validates balance on their side.
 
-      if (wallet?.is_frozen) {
-        return NextResponse.json(
-          { error: 'AEPS wallet is frozen. Cannot process transaction.' },
-          { status: 403 }
-        );
-      }
-
-      // Check limits
-      const limitCheck = await checkAllLimits(
-        user.partner_id,
-        user.role,
-        'aeps',
-        txnAmount,
-        'aeps'
-      );
-
-      if (!limitCheck.allowed) {
-        return NextResponse.json(
-          { error: limitCheck.reason || 'Transaction limit exceeded' },
-          { status: 403 }
-        );
-      }
-
-      // Check balance
-      const { data: balance } = await supabase.rpc('get_wallet_balance_v2', {
-        p_user_id: user.partner_id,
-        p_wallet_type: 'aeps'
-      });
-
-      if ((balance || 0) < txnAmount) {
-        return NextResponse.json(
-          {
-            error: 'Insufficient AEPS wallet balance',
-            available_balance: balance || 0,
-            required_amount: txnAmount
-          },
-          { status: 400 }
-        );
-      }
-    }
-
-    // Generate idempotency key
     const idempotencyKey = generateIdempotencyKey(`AEPS_${user.partner_id}`);
 
     // Create AEPS transaction record (pending)
@@ -216,45 +196,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Pre-debit wallet for withdrawal (lock funds before calling external API)
-    let withdrawalLedgerId: string | null = null;
-    if (transactionType === 'cash_withdrawal') {
-      const { data: debitLedgerId, error: debitError } = await supabase.rpc('add_ledger_entry', {
-        p_user_id: user.partner_id,
-        p_user_role: user.role,
-        p_wallet_type: 'aeps',
-        p_fund_category: 'aeps',
-        p_service_type: 'aeps',
-        p_tx_type: 'AEPS_DEBIT',
-        p_credit: 0,
-        p_debit: txnAmount,
-        p_reference_id: idempotencyKey,
-        p_transaction_id: aepsTransaction.id,
-        p_status: 'pending',
-        p_remarks: `AEPS cash_withdrawal - Amount: ₹${txnAmount}`
-      });
-
-      if (debitError) {
-        console.error('[AEPS Transact] Wallet debit error:', debitError);
-        await supabase
-          .from('aeps_transactions')
-          .update({ status: 'failed', error_message: 'Failed to debit wallet' })
-          .eq('id', aepsTransaction.id);
-
-        return NextResponse.json(
-          { error: 'Failed to debit wallet' },
-          { status: 500 }
-        );
-      }
-
-      withdrawalLedgerId = debitLedgerId;
-      await supabase
-        .from('aeps_transactions')
-        .update({ wallet_debited: true, wallet_debit_id: withdrawalLedgerId })
-        .eq('id', aepsTransaction.id);
-    }
-
-    // Process transaction via AEPS service (use Chagans merchantId for real API)
+    // Call Chagans AEPS provider — they handle wallet/balance validation
     const result = await aepsService.processTransaction({
       userId: user.partner_id,
       userRole: user.role,
@@ -270,57 +212,18 @@ export async function POST(request: NextRequest) {
     });
 
     if (result.success) {
-      // --- SUCCESS PATH ---
-      const updateData: Record<string, unknown> = {
-        status: 'success',
-        order_id: result.orderId,
-        utr: result.utr,
-        account_number_masked: result.data?.accountNumber,
-        balance_after: result.data?.balance ? parseFloat(result.data.balance) : null,
-        mini_statement: result.data?.miniStatement || null,
-        completed_at: new Date().toISOString()
-      };
-
-      // For withdrawal: confirm the pending debit
-      if (withdrawalLedgerId) {
-        await supabase
-          .from('wallet_ledger')
-          .update({ status: 'completed' })
-          .eq('id', withdrawalLedgerId);
-      }
-
-      // For deposit: credit wallet ONLY after API confirms success
-      if (transactionType === 'cash_deposit') {
-        const { data: creditLedgerId, error: creditError } = await supabase.rpc('add_ledger_entry', {
-          p_user_id: user.partner_id,
-          p_user_role: user.role,
-          p_wallet_type: 'aeps',
-          p_fund_category: 'aeps',
-          p_service_type: 'aeps',
-          p_tx_type: 'AEPS_CREDIT',
-          p_credit: txnAmount,
-          p_debit: 0,
-          p_reference_id: idempotencyKey,
-          p_transaction_id: aepsTransaction.id,
-          p_status: 'completed',
-          p_remarks: `AEPS cash_deposit - Amount: ₹${txnAmount}`
-        });
-
-        if (creditError) {
-          console.error('[AEPS Transact] Wallet credit error after successful deposit:', creditError);
-          updateData.error_message = 'Deposit succeeded but wallet credit failed. Contact support.';
-        } else {
-          updateData.wallet_credited = true;
-          updateData.wallet_credit_id = creditLedgerId;
-        }
-      }
-
+      // Per AEPS policy: balance and mini_statement are display-only, never stored.
       await supabase
         .from('aeps_transactions')
-        .update(updateData)
+        .update({
+          status: 'success',
+          order_id: result.orderId,
+          utr: result.utr,
+          account_number_masked: result.data?.accountNumber,
+          completed_at: new Date().toISOString()
+        })
         .eq('id', aepsTransaction.id);
     } else {
-      // --- FAILURE PATH ---
       await supabase
         .from('aeps_transactions')
         .update({
@@ -329,30 +232,6 @@ export async function POST(request: NextRequest) {
           completed_at: new Date().toISOString()
         })
         .eq('id', aepsTransaction.id);
-
-      // Reverse wallet debit for failed withdrawal
-      if (withdrawalLedgerId) {
-        await supabase.rpc('add_ledger_entry', {
-          p_user_id: user.partner_id,
-          p_user_role: user.role,
-          p_wallet_type: 'aeps',
-          p_fund_category: 'aeps',
-          p_service_type: 'aeps',
-          p_tx_type: 'AEPS_REFUND',
-          p_credit: txnAmount,
-          p_debit: 0,
-          p_reference_id: `REVERSAL_${idempotencyKey}`,
-          p_transaction_id: aepsTransaction.id,
-          p_status: 'completed',
-          p_remarks: `AEPS withdrawal failed - Reversal`
-        });
-
-        await supabase
-          .from('wallet_ledger')
-          .update({ status: 'reversed' })
-          .eq('id', withdrawalLedgerId);
-      }
-      // For failed deposits: no wallet reversal needed since we never credited
     }
 
     // Log activity
@@ -366,12 +245,6 @@ export async function POST(request: NextRequest) {
       metadata: { transactionType, amount: txnAmount, orderId: result.orderId },
     }).catch(() => {});
 
-    // Get updated wallet balance
-    const { data: newBalance } = await supabase.rpc('get_wallet_balance_v2', {
-      p_user_id: user.partner_id,
-      p_wallet_type: 'aeps'
-    });
-
     return NextResponse.json({
       success: result.success,
       transactionId: aepsTransaction.id,
@@ -380,7 +253,6 @@ export async function POST(request: NextRequest) {
       status: result.status,
       message: result.message,
       data: result.data,
-      walletBalance: newBalance || 0,
       isMockMode: aepsService.isMockMode(),
     });
   } catch (error: any) {

@@ -118,6 +118,7 @@ CREATE TABLE IF NOT EXISTS aeps_merchants (
   api_error TEXT,
   last_login_at TIMESTAMP WITH TIME ZONE,
   login_wadh TEXT,
+  device_fingerprint TEXT,
   
   -- Timestamps
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),

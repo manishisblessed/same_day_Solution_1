@@ -8,15 +8,21 @@ import { getAEPSService } from '@/services/aeps';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
+const AEPS_SESSION_HOURS = 24;
+
+function isSessionValid(lastLoginAt: string | null, sessionHours: number): boolean {
+  if (!lastLoginAt) return false;
+  const loginTime = new Date(lastLoginAt).getTime();
+  const now = Date.now();
+  return (now - loginTime) < sessionHours * 60 * 60 * 1000;
+}
+
 /**
  * Check AEPS login status for merchant
  * POST /api/aeps/login-status
  * 
- * IMPORTANT: The merchantId sent from frontend can be either:
- * - Our internal partner_id (e.g., RET35258193)
- * - Or an already-resolved Chagans merchantId
- * 
- * We look up the real Chagans merchantId from aeps_merchants table.
+ * Returns whether 2FA session is valid (within 24 hours, same device).
+ * If device changed or session expired, loginStatus = false to force re-auth.
  */
 export async function POST(request: NextRequest) {
   try {
@@ -31,7 +37,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { merchantId: inputMerchantId, type = 'withdraw' } = body;
+    const { merchantId: inputMerchantId, type = 'withdraw', deviceFingerprint } = body;
 
     if (!inputMerchantId) {
       return NextResponse.json(
@@ -50,34 +56,62 @@ export async function POST(request: NextRequest) {
     const aepsService = getAEPSService();
     const config = getAEPSConfig();
 
-    // In mock mode, return mock data directly
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+    // Query merchant record (needed for both mock and production)
+    const { data: merchantRecord, error: dbError } = await supabase
+      .from('aeps_merchants')
+      .select('merchant_id, kyc_status, name, mobile, last_login_at, login_wadh, device_fingerprint')
+      .eq('user_id', user.partner_id)
+      .maybeSingle();
+
+    // Check 24-hour session validity and device match
+    const sessionActive = isSessionValid(merchantRecord?.last_login_at, AEPS_SESSION_HOURS);
+    const deviceMatch = !deviceFingerprint || !merchantRecord?.device_fingerprint ||
+      deviceFingerprint === merchantRecord.device_fingerprint;
+    const twoFAValid = sessionActive && deviceMatch;
+
+    // wadh goes into <Opts wadh="..."> for biometric capture — must be short or empty.
+    // Chagans doesn't provide wadh; if a stale long value was stored (e.g. xId), discard it.
+    const storedWadh = merchantRecord?.login_wadh || '';
+    const safeWadh = storedWadh.length > 100 ? '' : storedWadh;
+
+    // In mock mode, return mock data but respect 2FA session
     if (config.useMock) {
       const result = getMockLoginStatusResponse(inputMerchantId, type);
+
+      if (merchantRecord?.kyc_status === 'validated' && twoFAValid) {
+        return NextResponse.json({
+          success: true,
+          data: {
+            loginStatus: true,
+            bankList: result.data?.bankList || [],
+            wadh: safeWadh || result.data?.wadh || null,
+            route: result.data?.route || null,
+            kycStatus: 'validated',
+          },
+          isMockMode: true,
+        });
+      }
+
       return NextResponse.json({
         success: result.success,
         data: {
-          loginStatus: result.data?.loginStatus || false,
+          loginStatus: false,
           bankList: result.data?.bankList || [],
           wadh: result.data?.wadh || null,
           route: result.data?.route || null,
-          kycStatus: result.data?.kycStatus || null,
+          kycStatus: merchantRecord?.kyc_status || result.data?.kycStatus || null,
+          sessionExpired: sessionActive ? undefined : true,
+          deviceChanged: deviceMatch ? undefined : true,
         },
         isMockMode: true,
       });
     }
 
     // --- PRODUCTION MODE ---
-    // Look up the real Chagans merchantId from our database
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
-
-    // Query by user_id (partner_id) to find the Chagans merchant_id
-    const { data: merchantRecord, error: dbError } = await supabase
-      .from('aeps_merchants')
-      .select('merchant_id, kyc_status, name, mobile')
-      .eq('user_id', user.partner_id)
-      .maybeSingle();
 
     if (dbError) {
       console.error('[AEPS Login Status] DB Error:', dbError);
@@ -99,12 +133,10 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // Check if merchant has a pending/mock/temp ID - they need to complete or retry KYC
+    // Check if merchant has a pending/mock/temp ID
     const chagansMerchantId = merchantRecord.merchant_id;
     if (chagansMerchantId.startsWith('MOCK_') || chagansMerchantId.startsWith('TEMP_') || chagansMerchantId.startsWith('PENDING_') || chagansMerchantId.startsWith('CHAGANS_')) {
-      // Check KYC status - if validated, allow to proceed (mock mode for testing)
-      if (merchantRecord.kyc_status === 'validated') {
-        // Mock/test mode - allow transactions
+      if (merchantRecord.kyc_status === 'validated' && twoFAValid) {
         return NextResponse.json({
           success: true,
           data: {
@@ -119,7 +151,7 @@ export async function POST(request: NextRequest) {
               { iin: '607027', bankName: 'Canara Bank' },
               { iin: '607105', bankName: 'Union Bank of India' },
             ],
-            wadh: `WADH_${Date.now()}`,
+            wadh: safeWadh || '',
             route: 'AIRTEL',
             kycStatus: merchantRecord.kyc_status,
             merchantName: merchantRecord.name,
@@ -137,32 +169,77 @@ export async function POST(request: NextRequest) {
           wadh: null,
           route: null,
           kycStatus: merchantRecord.kyc_status || 'pending',
+          sessionExpired: merchantRecord.kyc_status === 'validated' && !sessionActive ? true : undefined,
+          deviceChanged: merchantRecord.kyc_status === 'validated' && !deviceMatch ? true : undefined,
         },
         message: merchantRecord.kyc_status === 'pending' 
-          ? 'KYC verification in progress. Please wait.' 
+          ? 'KYC verification in progress. Please wait.'
+          : !sessionActive ? '2FA session expired. Please re-authenticate.'
+          : !deviceMatch ? 'Device changed. Please re-authenticate.'
           : 'Please complete KYC registration for AEPS.',
         isMockMode: false,
       });
     }
     console.log('[AEPS Login Status] Using Chagans merchantId:', chagansMerchantId, 'for user:', user.partner_id);
 
-    const result = await aepsService.checkLoginStatus(chagansMerchantId, type);
-    console.log('[AEPS Login Status] Chagans result:', JSON.stringify(result).substring(0, 1000));
-    console.log('[AEPS Login Status] wadh from Chagans:', result.data?.wadh || 'NOT_PRESENT');
+    let result: any;
+    try {
+      result = await aepsService.checkLoginStatus(chagansMerchantId, type);
+      console.log('[AEPS Login Status] Chagans result:', JSON.stringify(result).substring(0, 1000));
+    } catch (apiError: any) {
+      console.error('[AEPS Login Status] Chagans API error:', apiError.statusCode, apiError.message);
+      if (apiError.statusCode === 429) {
+        const retryAfter = apiError.data?.retryAfter || 10;
+        return NextResponse.json({
+          success: false,
+          data: {
+            loginStatus: false,
+            bankList: [],
+            wadh: null,
+            route: null,
+            kycStatus: merchantRecord.kyc_status,
+          },
+          message: `Too many requests. Please wait ${retryAfter} seconds and try again.`,
+          retryAfter,
+          isMockMode: false,
+        }, { status: 429 });
+      }
+      // For 2FA valid sessions, return cached status on transient API errors
+      if (twoFAValid) {
+        return NextResponse.json({
+          success: true,
+          data: {
+            loginStatus: true,
+            bankList: [],
+            wadh: safeWadh || null,
+            route: null,
+            kycStatus: merchantRecord.kyc_status,
+          },
+          message: 'Using cached session (Chagans temporarily unavailable)',
+          isMockMode: false,
+        });
+      }
+      throw apiError;
+    }
 
     const bankList = (result.data?.bankList || []).map((b: any) => ({
       iin: b.iin,
       bankName: b.bankName || b.name || 'Unknown Bank',
     }));
 
+    // Even if Chagans says logged in, our 24hr session / device check overrides
+    const effectiveLoginStatus = twoFAValid && (result.data?.loginStatus || false);
+
     return NextResponse.json({
       success: result.success,
       data: {
-        loginStatus: result.data?.loginStatus || false,
+        loginStatus: effectiveLoginStatus,
         bankList,
-        wadh: result.data?.wadh || null,
+        wadh: effectiveLoginStatus ? (result.data?.wadh || safeWadh || null) : (result.data?.wadh || null),
         route: result.data?.route || null,
         kycStatus: merchantRecord.kyc_status || result.data?.kycStatus || null,
+        sessionExpired: !sessionActive ? true : undefined,
+        deviceChanged: !deviceMatch ? true : undefined,
       },
       isMockMode: false,
     });

@@ -43,6 +43,7 @@ export async function POST(request: NextRequest) {
       merchantId,
       transType = 'withdraw',
       wadh,
+      deviceFingerprint,
       // Biometric data from RD service
       bioType,
       dc, ci, hmac, dpId, mc, pidDataType, mi,
@@ -64,12 +65,12 @@ export async function POST(request: NextRequest) {
     if (config.useMock) {
       const mockWadh = `MOCK_WADH_${Date.now()}`;
       
-      // Update merchant last login
       await supabase
         .from('aeps_merchants')
         .update({
           last_login_at: new Date().toISOString(),
           login_wadh: mockWadh,
+          device_fingerprint: deviceFingerprint || null,
           updated_at: new Date().toISOString(),
         })
         .eq('user_id', user.partner_id);
@@ -143,13 +144,19 @@ export async function POST(request: NextRequest) {
       console.log('[AEPS Login] Chagans response:', JSON.stringify(loginResponse).substring(0, 500));
 
       if (loginResponse.success) {
-        const responseWadh = loginResponse.data?.wadh || wadh || '';
+        // wadh is a UIDAI biometric hash used in <Opts wadh="..."> XML.
+        // Chagans does NOT return wadh — their xId is an internal reference, NOT a wadh.
+        // wadh must be short/empty; passing a long string causes device error 850.
+        const responseWadh = loginResponse.data?.wadh || '';
+
+        console.log('[AEPS Login] Resolved wadh:', responseWadh || 'EMPTY (normal for Chagans)');
 
         await supabase
           .from('aeps_merchants')
           .update({
             last_login_at: new Date().toISOString(),
             login_wadh: responseWadh,
+            device_fingerprint: deviceFingerprint || null,
             updated_at: new Date().toISOString(),
           })
           .eq('user_id', user.partner_id);
@@ -160,7 +167,7 @@ export async function POST(request: NextRequest) {
           activity_category: 'aeps',
           activity_description: 'AEPS biometric login successful',
           reference_id: merchantRecord.merchant_id,
-          metadata: { transType, route: loginResponse.data?.route },
+          metadata: { transType, route: loginResponse.data?.route, xId: (loginResponse as any).xId },
         }).catch(() => {});
 
         return NextResponse.json({

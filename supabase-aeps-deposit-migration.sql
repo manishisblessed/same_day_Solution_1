@@ -121,6 +121,18 @@ BEGIN
   END IF;
 END $$;
 
+-- 8. Add device_fingerprint to aeps_merchants for 2FA device tracking
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'aeps_merchants' AND column_name = 'device_fingerprint'
+  ) THEN
+    ALTER TABLE aeps_merchants ADD COLUMN device_fingerprint TEXT;
+  END IF;
+END $$;
+
 -- ============================================================================
 -- DONE - All columns and constraints are now compatible with cash_deposit
+-- and 2FA device tracking
 -- ============================================================================
