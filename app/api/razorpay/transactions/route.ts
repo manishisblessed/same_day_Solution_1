@@ -131,43 +131,61 @@ export async function GET(request: NextRequest) {
     }
 
     // ========================================================================
-    // PARTNER: Get TIDs from partner_pos_machines + pos_machines, 
-    // then query razorpay_pos_transactions by TID and device_serial
+    // PARTNER: Get assignment windows from pos_assignment_history,
+    // query razorpay_pos_transactions by TID/serial, then filter by windows
     // ========================================================================
     if (user.role === 'partner' && user.partner_id) {
-      // Collect TIDs and device serials from both tables
+      const { data: assignmentHistory } = await supabase
+        .from('pos_assignment_history')
+        .select('pos_machine_id, created_at, returned_date, status')
+        .eq('assigned_to', user.partner_id)
+        .like('action', 'assigned_to_%')
+        .order('created_at', { ascending: false })
+
+      if (!assignmentHistory || assignmentHistory.length === 0) {
+        return NextResponse.json({
+          success: true,
+          data: [],
+          pagination: { page, limit, total: 0, totalPages: 0, hasNextPage: false, hasPrevPage: false }
+        })
+      }
+
+      const posMachineIds = [...new Set(assignmentHistory.map((a: any) => a.pos_machine_id).filter(Boolean))]
       let tids: string[] = []
       let serials: string[] = []
+      const machineIdToTidSerial = new Map<string, { tid: string, serial: string }>()
 
-      // 1) Get TIDs from partner_pos_machines (Partner API table)
-      const { data: partnerMachines } = await supabase
-        .from('partner_pos_machines')
-        .select('terminal_id, device_serial')
-        .eq('partner_id', user.partner_id)
-        .eq('status', 'active')
+      if (posMachineIds.length > 0) {
+        const { data: machines } = await supabase
+          .from('pos_machines')
+          .select('id, tid, serial_number')
+          .in('id', posMachineIds)
 
-      if (partnerMachines) {
-        tids.push(...partnerMachines.map((m: any) => m.terminal_id).filter(Boolean))
-        serials.push(...partnerMachines.map((m: any) => m.device_serial).filter(Boolean))
+        if (machines) {
+          machines.forEach((m: any) => {
+            if (m.tid) tids.push(m.tid)
+            if (m.serial_number) serials.push(m.serial_number)
+            machineIdToTidSerial.set(m.id, { tid: m.tid, serial: m.serial_number })
+          })
+        }
       }
 
-      // 2) Also get TIDs/serials from pos_machines where partner_id matches
-      const { data: posMachines } = await supabase
-        .from('pos_machines')
-        .select('tid, serial_number')
-        .eq('partner_id', user.partner_id)
-        .in('status', ['active', 'inactive']) // Include all non-deleted
-
-      if (posMachines) {
-        tids.push(...posMachines.map((m: any) => m.tid).filter(Boolean))
-        serials.push(...posMachines.map((m: any) => m.serial_number).filter(Boolean))
-      }
-
-      // Deduplicate
       tids = Array.from(new Set(tids))
       serials = Array.from(new Set(serials))
 
-      console.log(`[Partner Txn] partner_id: ${user.partner_id}, TIDs: [${tids.join(',')}], serials: [${serials.join(',')}]`)
+      // Build assignment windows: Map<tid_or_serial, {from: Date, to: Date | null}[]>
+      const assignmentWindows = new Map<string, { from: Date, to: Date | null }[]>()
+      for (const ah of assignmentHistory) {
+        const machine = machineIdToTidSerial.get(ah.pos_machine_id)
+        if (!machine) continue
+        const window = { from: new Date(ah.created_at), to: ah.returned_date ? new Date(ah.returned_date) : null }
+        for (const key of [machine.tid, machine.serial].filter(Boolean)) {
+          if (!assignmentWindows.has(key)) assignmentWindows.set(key, [])
+          assignmentWindows.get(key)!.push(window)
+        }
+      }
+
+      console.log(`[Partner Txn] partner_id: ${user.partner_id}, TIDs: [${tids.join(',')}], serials: [${serials.join(',')}], windows: ${assignmentHistory.length}`)
 
       if (tids.length === 0 && serials.length === 0) {
         return NextResponse.json({
@@ -177,18 +195,18 @@ export async function GET(request: NextRequest) {
         })
       }
 
-      // Build OR filter: match by tid OR device_serial
       const orConditions: string[] = []
       if (tids.length > 0) orConditions.push(`tid.in.(${tids.join(',')})`)
       if (serials.length > 0) orConditions.push(`device_serial.in.(${serials.join(',')})`)
 
+      // Fetch all matching transactions (in-memory filtering requires full result set)
       let query = supabase
         .from('razorpay_pos_transactions')
-        .select('*', { count: 'exact' })
+        .select('*')
         .or(orConditions.join(','))
         .order('transaction_time', { ascending: false, nullsFirst: false })
+        .limit(5000)
 
-      // Apply filters
       if (dateFrom) query = query.gte('transaction_time', dateFrom)
       if (dateTo) query = query.lte('transaction_time', dateTo)
       if (statusFilter && statusFilter !== 'all') {
@@ -198,17 +216,26 @@ export async function GET(request: NextRequest) {
       if (tidFilter) query = query.eq('tid', tidFilter)
       if (targetDeviceSerial) query = query.eq('device_serial', targetDeviceSerial)
 
-      query = query.range(offset, offset + limit - 1)
-
-      const { data: transactions, error, count } = await query
+      const { data: allTransactions, error } = await query
 
       if (error) {
         console.error('Error fetching POS transactions for partner:', error)
         return NextResponse.json({ error: 'Failed to fetch transactions' }, { status: 500 })
       }
 
+      // Filter transactions to only those within assignment windows
+      const filtered = (allTransactions || []).filter((tx: any) => {
+        const txTime = new Date(tx.transaction_time)
+        const windows = assignmentWindows.get(tx.tid) || assignmentWindows.get(tx.device_serial) || []
+        return windows.some((w: { from: Date, to: Date | null }) => txTime >= w.from && (!w.to || txTime <= w.to))
+      })
+
+      // Paginate in-memory after filtering
+      const total = filtered.length
+      const paginatedData = filtered.slice(offset, offset + limit)
+
       // Enrich with machine_id
-      const uniqueSerials = Array.from(new Set((transactions || []).map((t: any) => t.device_serial).filter(Boolean)))
+      const uniqueSerials = Array.from(new Set(paginatedData.map((t: any) => t.device_serial).filter(Boolean)))
       const machineMap = new Map<string, string>()
       if (uniqueSerials.length > 0) {
         const { data: machines } = await supabase
@@ -220,56 +247,75 @@ export async function GET(request: NextRequest) {
         })
       }
 
-      const enriched = (transactions || []).map((tx: any) => ({
+      const enriched = paginatedData.map((tx: any) => ({
         ...tx,
         machine_id: machineMap.get(tx.device_serial || '') || null
       }))
 
-      const totalPages = count ? Math.ceil(count / limit) : 1
+      const totalPages = total > 0 ? Math.ceil(total / limit) : 1
       return NextResponse.json({
         success: true,
         data: enriched,
-        pagination: { page, limit, total: count || 0, totalPages, hasNextPage: page < totalPages, hasPrevPage: page > 1 }
+        pagination: { page, limit, total, totalPages, hasNextPage: page < totalPages, hasPrevPage: page > 1 }
       })
     }
 
     // ========================================================================
-    // RETAILER: Get TIDs + device serials from pos_machines AND pos_device_mapping
-    // Query razorpay_pos_transactions by both TID and device_serial for maximum coverage
+    // RETAILER: Get assignment windows from pos_assignment_history,
+    // query razorpay_pos_transactions by TID/serial, then filter by windows
     // ========================================================================
     if (user.role === 'retailer' && user.partner_id) {
+      const { data: assignmentHistory } = await supabase
+        .from('pos_assignment_history')
+        .select('pos_machine_id, created_at, returned_date, status')
+        .eq('assigned_to', user.partner_id)
+        .like('action', 'assigned_to_%')
+        .order('created_at', { ascending: false })
+
+      if (!assignmentHistory || assignmentHistory.length === 0) {
+        return NextResponse.json({
+          success: true,
+          data: [],
+          pagination: { page, limit, total: 0, totalPages: 0, hasNextPage: false, hasPrevPage: false }
+        })
+      }
+
+      const posMachineIds = [...new Set(assignmentHistory.map((a: any) => a.pos_machine_id).filter(Boolean))]
       let tids: string[] = []
       let deviceSerials: string[] = []
+      const machineIdToTidSerial = new Map<string, { tid: string, serial: string }>()
 
-      // 1) Get device serials from pos_device_mapping (existing approach)
-      const { data: deviceMappings } = await supabase
-        .from('pos_device_mapping')
-        .select('device_serial, tid')
-        .eq('retailer_id', user.partner_id)
-        .eq('status', 'ACTIVE')
+      if (posMachineIds.length > 0) {
+        const { data: machines } = await supabase
+          .from('pos_machines')
+          .select('id, tid, serial_number')
+          .in('id', posMachineIds)
 
-      if (deviceMappings) {
-        deviceSerials.push(...deviceMappings.map((m: any) => m.device_serial).filter(Boolean))
-        tids.push(...deviceMappings.map((m: any) => m.tid).filter(Boolean))
+        if (machines) {
+          machines.forEach((m: any) => {
+            if (m.tid) tids.push(m.tid)
+            if (m.serial_number) deviceSerials.push(m.serial_number)
+            machineIdToTidSerial.set(m.id, { tid: m.tid, serial: m.serial_number })
+          })
+        }
       }
 
-      // 2) Also get TIDs and serials from pos_machines where retailer_id matches
-      const { data: retailerMachines } = await supabase
-        .from('pos_machines')
-        .select('tid, serial_number')
-        .eq('retailer_id', user.partner_id)
-        .in('status', ['active', 'inactive'])
-
-      if (retailerMachines) {
-        tids.push(...retailerMachines.map((m: any) => m.tid).filter(Boolean))
-        deviceSerials.push(...retailerMachines.map((m: any) => m.serial_number).filter(Boolean))
-      }
-
-      // Deduplicate
       tids = Array.from(new Set(tids))
       deviceSerials = Array.from(new Set(deviceSerials))
 
-      console.log(`[Retailer Txn] retailer_id: ${user.partner_id}, TIDs: [${tids.join(',')}], serials: [${deviceSerials.join(',')}]`)
+      // Build assignment windows: Map<tid_or_serial, {from: Date, to: Date | null}[]>
+      const assignmentWindows = new Map<string, { from: Date, to: Date | null }[]>()
+      for (const ah of assignmentHistory) {
+        const machine = machineIdToTidSerial.get(ah.pos_machine_id)
+        if (!machine) continue
+        const window = { from: new Date(ah.created_at), to: ah.returned_date ? new Date(ah.returned_date) : null }
+        for (const key of [machine.tid, machine.serial].filter(Boolean)) {
+          if (!assignmentWindows.has(key)) assignmentWindows.set(key, [])
+          assignmentWindows.get(key)!.push(window)
+        }
+      }
+
+      console.log(`[Retailer Txn] retailer_id: ${user.partner_id}, TIDs: [${tids.join(',')}], serials: [${deviceSerials.join(',')}], windows: ${assignmentHistory.length}`)
 
       if (tids.length === 0 && deviceSerials.length === 0) {
         return NextResponse.json({
@@ -279,12 +325,10 @@ export async function GET(request: NextRequest) {
         })
       }
 
-      // Build OR filter: match by tid OR device_serial
       const orConditions: string[] = []
       if (tids.length > 0) orConditions.push(`tid.in.(${tids.join(',')})`)
       if (deviceSerials.length > 0) orConditions.push(`device_serial.in.(${deviceSerials.join(',')})`)
 
-      // If machine_id or device_serial filter provided, validate access
       if (targetDeviceSerial && !deviceSerials.includes(targetDeviceSerial)) {
         return NextResponse.json({
           success: true,
@@ -293,13 +337,14 @@ export async function GET(request: NextRequest) {
         })
       }
 
+      // Fetch all matching transactions (in-memory filtering requires full result set)
       let query = supabase
         .from('razorpay_pos_transactions')
-        .select('*', { count: 'exact' })
+        .select('*')
         .or(orConditions.join(','))
         .order('transaction_time', { ascending: false, nullsFirst: false })
+        .limit(5000)
 
-      // Apply additional filters
       if (targetDeviceSerial) query = query.eq('device_serial', targetDeviceSerial)
       if (dateFrom) query = query.gte('transaction_time', dateFrom)
       if (dateTo) query = query.lte('transaction_time', dateTo)
@@ -309,17 +354,26 @@ export async function GET(request: NextRequest) {
       }
       if (tidFilter) query = query.eq('tid', tidFilter)
 
-      query = query.range(offset, offset + limit - 1)
-
-      const { data: transactions, error, count } = await query
+      const { data: allTransactions, error } = await query
 
       if (error) {
         console.error('Error fetching Razorpay POS transactions for retailer:', error)
         return NextResponse.json({ error: 'Failed to fetch transactions' }, { status: 500 })
       }
 
+      // Filter transactions to only those within assignment windows
+      const filtered = (allTransactions || []).filter((tx: any) => {
+        const txTime = new Date(tx.transaction_time)
+        const windows = assignmentWindows.get(tx.tid) || assignmentWindows.get(tx.device_serial) || []
+        return windows.some((w: { from: Date, to: Date | null }) => txTime >= w.from && (!w.to || txTime <= w.to))
+      })
+
+      // Paginate in-memory after filtering
+      const total = filtered.length
+      const paginatedData = filtered.slice(offset, offset + limit)
+
       // Enrich with machine_id
-      const uniqueSerials = Array.from(new Set((transactions || []).map((t: any) => t.device_serial).filter(Boolean)))
+      const uniqueSerials = Array.from(new Set(paginatedData.map((t: any) => t.device_serial).filter(Boolean)))
       const machineMap = new Map<string, string>()
       if (uniqueSerials.length > 0) {
         const { data: machines } = await supabase
@@ -331,16 +385,16 @@ export async function GET(request: NextRequest) {
         })
       }
 
-      const enriched = (transactions || []).map((tx: any) => ({
+      const enriched = paginatedData.map((tx: any) => ({
         ...tx,
         machine_id: machineMap.get(tx.device_serial || '') || null
       }))
 
-      const totalPages = count ? Math.ceil(count / limit) : 1
+      const totalPages = total > 0 ? Math.ceil(total / limit) : 1
       return NextResponse.json({
         success: true,
         data: enriched,
-        pagination: { page, limit, total: count || 0, totalPages, hasNextPage: page < totalPages, hasPrevPage: page > 1 }
+        pagination: { page, limit, total, totalPages, hasNextPage: page < totalPages, hasPrevPage: page > 1 }
       })
     }
 

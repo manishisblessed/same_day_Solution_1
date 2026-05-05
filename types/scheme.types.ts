@@ -14,7 +14,7 @@ export type ChargeType = 'flat' | 'percentage';
 export type TransferMode = 'IMPS' | 'NEFT' | 'RTGS';
 export type PaymentMode = 'CARD' | 'UPI';
 export type CardType = 'CREDIT' | 'DEBIT' | 'PREPAID';
-export type UserRole = 'admin' | 'master_distributor' | 'distributor' | 'retailer';
+export type UserRole = 'admin' | 'master_distributor' | 'distributor' | 'retailer' | 'partner';
 
 // ============================================================================
 // MASTER SCHEME
@@ -162,7 +162,7 @@ export interface ResolvedScheme {
   scheme_id: string;
   scheme_name: string;
   scheme_type: SchemeType;
-  resolved_via: 'retailer_mapping' | 'distributor_mapping' | 'md_mapping' | 'global';
+  resolved_via: 'retailer_mapping' | 'partner_mapping' | 'distributor_mapping' | 'md_mapping' | 'global';
 }
 
 // ============================================================================

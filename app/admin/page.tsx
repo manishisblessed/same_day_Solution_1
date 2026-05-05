@@ -34,8 +34,9 @@ import AdminSubscriptionsTab from '@/components/AdminSubscriptionsTab'
 import AdminWalletLedgerTab from '@/components/AdminWalletLedgerTab'
 import AdminRevenueWalletTab from '@/components/AdminRevenueWalletTab'
 import AdminAEPSManagement from '@/components/admin/AdminAEPSManagement'
+import PortalManagementTab from '@/components/admin/PortalManagementTab'
 
-type TabType = 'dashboard' | 'retailers' | 'distributors' | 'master-distributors' | 'services' | 'pos-machines' | 'pos-history' | 'pos-tracking-report' | 'transactions' | 'partners' | 'pos-partner-api' | 'reports' | 'settlement' | 'revenue-wallet' | 'performance' | 'subscriptions' | 'wallet-ledger' | 'aeps'
+type TabType = 'dashboard' | 'retailers' | 'distributors' | 'master-distributors' | 'services' | 'pos-machines' | 'pos-history' | 'pos-tracking-report' | 'transactions' | 'partners' | 'pos-partner-api' | 'reports' | 'settlement' | 'revenue-wallet' | 'performance' | 'subscriptions' | 'wallet-ledger' | 'aeps' | 'portal-management'
 type SortField = 'name' | 'email' | 'partner_id' | 'created_at' | 'status'
 type SortDirection = 'asc' | 'desc'
 
@@ -48,7 +49,7 @@ function AdminDashboardContent() {
   // Initialize activeTab from URL or default to 'dashboard'
   const getInitialTab = (): TabType => {
     const tab = searchParams?.get('tab')
-    if (tab && ['dashboard', 'retailers', 'distributors', 'master-distributors', 'pos-machines', 'pos-history', 'pos-tracking-report', 'pos-partner-api', 'services', 'transactions', 'partners', 'reports', 'settlement', 'revenue-wallet', 'performance', 'subscriptions', 'wallet-ledger', 'aeps'].includes(tab)) {
+    if (tab && ['dashboard', 'retailers', 'distributors', 'master-distributors', 'pos-machines', 'pos-history', 'pos-tracking-report', 'pos-partner-api', 'services', 'transactions', 'partners', 'reports', 'settlement', 'revenue-wallet', 'performance', 'subscriptions', 'wallet-ledger', 'aeps', 'portal-management'].includes(tab)) {
       return tab as TabType
     }
     return 'dashboard'
@@ -121,7 +122,7 @@ function AdminDashboardContent() {
   // Sync activeTab with URL query params
   useEffect(() => {
     const tab = searchParams?.get('tab')
-    if (tab && ['dashboard', 'retailers', 'distributors', 'master-distributors', 'pos-machines', 'pos-history', 'pos-tracking-report', 'pos-partner-api', 'services', 'transactions', 'partners', 'reports', 'settlement', 'revenue-wallet', 'performance', 'subscriptions', 'wallet-ledger', 'aeps'].includes(tab)) {
+    if (tab && ['dashboard', 'retailers', 'distributors', 'master-distributors', 'pos-machines', 'pos-history', 'pos-tracking-report', 'pos-partner-api', 'services', 'transactions', 'partners', 'reports', 'settlement', 'revenue-wallet', 'performance', 'subscriptions', 'wallet-ledger', 'aeps', 'portal-management'].includes(tab)) {
       if (tab !== activeTab) {
         setActiveTab(tab as TabType)
       }
@@ -558,6 +559,8 @@ function AdminDashboardContent() {
             <AdminSubscriptionsTab />
           ) : activeTab === 'aeps' ? (
             <AdminAEPSManagement />
+          ) : activeTab === 'portal-management' ? (
+            <PortalManagementTab />
           ) : (
             <>
           {/* Filters & Actions - Compact */}
@@ -1914,6 +1917,98 @@ function AdminDashboardOverview({
         </motion.div>
       </div>
 
+      {/* Chagans Technologies Balance Card */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.3 }}
+        className="bg-gradient-to-br from-indigo-950 via-indigo-900 to-indigo-950 rounded-2xl p-6 shadow-xl border border-indigo-700"
+      >
+        <div className="flex items-center justify-between mb-5">
+          <div className="flex items-center gap-3">
+            <div className="p-3 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl shadow-lg">
+              <Globe className="w-6 h-6 text-white" />
+            </div>
+            <div>
+              <h3 className="text-lg font-bold text-white">Chagans Technologies Limited</h3>
+              <p className="text-sm text-indigo-300">BBPS Bill Payment Provider</p>
+            </div>
+          </div>
+          <button
+            onClick={fetchSparkupBalance}
+            disabled={sparkupLoading}
+            className="flex items-center gap-2 px-4 py-2 bg-indigo-700 hover:bg-indigo-600 text-white rounded-lg text-sm font-medium transition-all disabled:opacity-50"
+          >
+            <RefreshCw className={`w-4 h-4 ${sparkupLoading ? 'animate-spin' : ''}`} />
+            {sparkupLoading ? 'Refreshing...' : 'Refresh'}
+          </button>
+        </div>
+
+        {sparkupBalance ? (
+          <div className={`rounded-xl p-5 border ${
+            sparkupBalance.bbps.success
+              ? 'bg-gradient-to-r from-indigo-600/20 to-purple-600/20 border-indigo-500/30'
+              : 'bg-red-900/20 border-red-500/30'
+          }`}>
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-indigo-600 rounded-lg">
+                  <Wallet className="w-5 h-5 text-white" />
+                </div>
+                <div>
+                  <p className="font-semibold text-white">Chagans BBPS Wallet</p>
+                  <p className="text-xs text-indigo-300">Bill Fetch &amp; Pay Services</p>
+                </div>
+              </div>
+              {sparkupBalance.bbps.success ? (
+                <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-green-500/20 text-green-400">
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span className="text-sm font-medium">Active</span>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-red-500/20 text-red-400">
+                  <XCircle className="w-4 h-4" />
+                  <span className="text-sm font-medium">Error</span>
+                </div>
+              )}
+            </div>
+
+            {sparkupBalance.bbps.success ? (
+              <div className="grid grid-cols-3 gap-4">
+                <div className="text-center p-3 bg-indigo-800/50 rounded-lg">
+                  <p className="text-xs text-indigo-300 mb-1">Total Balance</p>
+                  <p className="text-xl font-bold text-white">₹{sparkupBalance.bbps.balance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</p>
+                </div>
+                <div className="text-center p-3 bg-indigo-800/50 rounded-lg">
+                  <p className="text-xs text-indigo-300 mb-1">Lien Amount</p>
+                  <p className="text-xl font-bold text-orange-400">₹{sparkupBalance.bbps.lien.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</p>
+                </div>
+                <div className="text-center p-3 bg-green-900/30 rounded-lg border border-green-500/30">
+                  <p className="text-xs text-green-300 mb-1">Available</p>
+                  <p className="text-xl font-bold text-green-400">₹{sparkupBalance.bbps.available_balance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</p>
+                </div>
+              </div>
+            ) : (
+              <p className="text-sm text-red-400">{sparkupBalance.bbps.error || 'Failed to fetch balance'}</p>
+            )}
+
+            {sparkupBalance.last_checked && (
+              <p className="text-xs text-indigo-300 mt-4 text-right">
+                Last updated: {new Date(sparkupBalance.last_checked).toLocaleString('en-IN')}
+              </p>
+            )}
+          </div>
+        ) : (
+          <div className="text-center py-8">
+            {sparkupLoading ? (
+              <RefreshCw className="w-6 h-6 text-indigo-400 animate-spin mx-auto" />
+            ) : (
+              <p className="text-indigo-400">Unable to fetch Chagans balance</p>
+            )}
+          </div>
+        )}
+      </motion.div>
+
       {/* Sparkup Provider Balance Card */}
       <motion.div
         initial={{ opacity: 0, y: 20 }}
@@ -1943,9 +2038,9 @@ function AdminDashboardOverview({
 
         {sparkupBalance ? (
           <div className="space-y-4">
-            {/* Main Balance Card */}
+            {/* Payout Balance Card (real Sparkup balance) */}
             <div className={`rounded-xl p-5 border ${
-              sparkupBalance.bbps.success 
+              sparkupBalance.payout.success 
                 ? 'bg-gradient-to-r from-cyan-600/20 to-blue-600/20 border-cyan-500/30' 
                 : 'bg-red-900/20 border-red-500/30'
             }`}>
@@ -1956,10 +2051,10 @@ function AdminDashboardOverview({
                   </div>
                   <div>
                     <p className="font-semibold text-white">Sparkup Master Wallet</p>
-                    <p className="text-xs text-slate-400">BBPS, Payout, DMT Services</p>
+                    <p className="text-xs text-slate-400">Payout, DMT, IMPS/NEFT Services</p>
                   </div>
                 </div>
-                {sparkupBalance.bbps.success ? (
+                {sparkupBalance.payout.success ? (
                   <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-green-500/20 text-green-400">
                     <CheckCircle2 className="w-4 h-4" />
                     <span className="text-sm font-medium">Active</span>
@@ -1972,23 +2067,23 @@ function AdminDashboardOverview({
                 )}
               </div>
               
-              {sparkupBalance.bbps.success ? (
+              {sparkupBalance.payout.success ? (
                 <div className="grid grid-cols-3 gap-4">
                   <div className="text-center p-3 bg-slate-800/50 rounded-lg">
                     <p className="text-xs text-slate-400 mb-1">Total Balance</p>
-                    <p className="text-xl font-bold text-white">₹{sparkupBalance.bbps.balance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</p>
+                    <p className="text-xl font-bold text-white">₹{sparkupBalance.payout.balance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</p>
                   </div>
                   <div className="text-center p-3 bg-slate-800/50 rounded-lg">
                     <p className="text-xs text-slate-400 mb-1">Lien Amount</p>
-                    <p className="text-xl font-bold text-orange-400">₹{sparkupBalance.bbps.lien.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</p>
+                    <p className="text-xl font-bold text-orange-400">₹{sparkupBalance.payout.lien.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</p>
                   </div>
                   <div className="text-center p-3 bg-green-900/30 rounded-lg border border-green-500/30">
                     <p className="text-xs text-green-300 mb-1">Available</p>
-                    <p className="text-xl font-bold text-green-400">₹{sparkupBalance.bbps.available_balance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</p>
+                    <p className="text-xl font-bold text-green-400">₹{sparkupBalance.payout.available_balance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</p>
                   </div>
                 </div>
               ) : (
-                <p className="text-sm text-red-400">{sparkupBalance.bbps.error || 'Failed to fetch balance'}</p>
+                <p className="text-sm text-red-400">{sparkupBalance.payout.error || 'Failed to fetch balance'}</p>
               )}
               
               {sparkupBalance.last_checked && (

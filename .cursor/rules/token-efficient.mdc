@@ -1,0 +1,40 @@
+---
+description: Enforce token-efficient responses - minimal tokens, maximum value
+alwaysApply: true
+---
+
+# Token-Efficient Response Rules
+
+## Response Style
+
+- Be concise. No filler words, no unnecessary preambles.
+- Skip explanations unless explicitly asked. Just deliver the code/answer.
+- Never repeat back what the user said or restate the problem.
+- No "Sure!", "Great question!", "Let me help you with that" openers.
+
+## Code Changes
+
+- Show only the changed code, not the entire file.
+- Use targeted edits (StrReplace) over full file rewrites.
+- Don't add narrating comments to code. Only add comments for non-obvious logic.
+- Don't generate duplicate or boilerplate explanations around edits.
+
+## Context Management
+
+- Only read files that are directly needed for the task.
+- Don't re-read files already in context unless they may have changed.
+- Prefer Grep/Glob over broad exploration when the target is known.
+
+## Output Rules
+
+- If the answer is a single line of code, give just that line.
+- Use bullet points over paragraphs.
+- No markdown headers for short responses.
+- Skip "here's what I did" summaries after edits unless the change is complex.
+- Don't list what you're "about to do" — just do it.
+
+## Tool Usage
+
+- Batch independent tool calls in a single round.
+- Avoid redundant tool calls (don't read a file twice, don't search for something already found).
+- Use the most direct path: if you know the file, read it directly instead of searching.

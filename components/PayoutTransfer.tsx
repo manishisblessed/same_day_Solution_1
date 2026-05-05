@@ -56,9 +56,10 @@ interface SavedBeneficiary {
 
 interface PayoutTransferProps {
   title?: string
+  readOnly?: boolean
 }
 
-export default function PayoutTransfer({ title }: PayoutTransferProps = {}) {
+export default function PayoutTransfer({ title, readOnly }: PayoutTransferProps = {}) {
   const { user } = useAuth()
   
   // Wallet state
@@ -1073,6 +1074,68 @@ export default function PayoutTransfer({ title }: PayoutTransferProps = {}) {
     if (!bankSearchQuery) return banks.filter(b => b.isPopular).slice(0, 10)
     return banks.slice(0, 20)
   }, [banks, bankSearchQuery])
+
+  if (readOnly) {
+    return (
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="space-y-4"
+      >
+        <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl p-4">
+          <div className="flex items-center gap-2">
+            <Eye className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+            <p className="text-sm text-blue-800 dark:text-blue-300 font-medium">Read-only view — Payout & settlement history</p>
+          </div>
+        </div>
+        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6 border border-gray-200 dark:border-gray-700">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xl font-bold text-gray-900 dark:text-white">{title || 'Payouts / Settlements'}</h2>
+            <button onClick={fetchRecentTransactions} className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 text-sm hover:bg-gray-50 dark:hover:bg-gray-700">
+              <RefreshCw className={`w-4 h-4 ${loadingTransactions ? 'animate-spin' : ''}`} />
+              Refresh
+            </button>
+          </div>
+          {loadingTransactions ? (
+            <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin text-gray-400" /></div>
+          ) : recentTransactions.length === 0 ? (
+            <p className="text-center text-gray-500 dark:text-gray-400 py-8">No settlement transactions found</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-gray-50 dark:bg-gray-900/50">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Beneficiary</th>
+                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Amount</th>
+                    <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Status</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Reference</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                  {recentTransactions.map((tx) => (
+                    <tr key={tx.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
+                      <td className="px-4 py-3 text-sm text-gray-900 dark:text-white whitespace-nowrap">{new Date(tx.created_at).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' })}</td>
+                      <td className="px-4 py-3 text-sm text-gray-700 dark:text-gray-300">{tx.account_holder_name || '-'}</td>
+                      <td className="px-4 py-3 text-sm text-right font-medium text-gray-900 dark:text-white">₹{Number(tx.amount).toLocaleString('en-IN')}</td>
+                      <td className="px-4 py-3 text-center">
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                          tx.status === 'SUCCESS' ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400' :
+                          tx.status === 'PENDING' || tx.status === 'PROCESSING' ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400' :
+                          'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400'
+                        }`}>{tx.status}</span>
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400 font-mono text-xs">{tx.rrn || tx.provider_txn_id || '-'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </motion.div>
+    )
+  }
 
   return (
     <motion.div

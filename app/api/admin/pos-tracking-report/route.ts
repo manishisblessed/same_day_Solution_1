@@ -36,14 +36,21 @@ export async function GET(request: NextRequest) {
 
     const sp = request.nextUrl.searchParams
     const view = sp.get('view') || 'movement'
+    const format = sp.get('format') || 'json'
     const page = Math.max(1, parseInt(sp.get('page') || '1'))
     const rawLimit = parseInt(sp.get('limit') || '25')
-    const limit = [10, 25, 50, 100].includes(rawLimit) ? rawLimit : 25
+    
+    let limit: number
+    if (format === 'csv') {
+      limit = rawLimit > 0 ? rawLimit : 100000
+    } else {
+      limit = [10, 25, 50, 100].includes(rawLimit) ? rawLimit : 25
+    }
+    
     const offset = (page - 1) * limit
     const dateFrom = sp.get('date_from')
     const dateTo = sp.get('date_to')
     const search = sp.get('search')
-    const format = sp.get('format') || 'json'
 
     let query = supabase
       .from('pos_assignment_history')

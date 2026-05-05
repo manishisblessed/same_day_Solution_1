@@ -173,8 +173,9 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // Fetch POS machine assignments to get partner/retailer info
+    // Fetch POS machine assignment history for time-aware assignee resolution
     const uniqueTids = [...new Set((transactions || []).map((t: any) => t.tid).filter(Boolean))]
+    const tidToAssignments: Record<string, { assigned_to: string, assigned_to_role: string, from: Date, to: Date | null }[]> = {}
     let posMachineMap: Record<string, any> = {}
     let retailerMap: Record<string, any> = {}
     let distributorMap: Record<string, any> = {}
@@ -182,78 +183,82 @@ export async function GET(request: NextRequest) {
     let partnerMap: Record<string, any> = {}
 
     if (uniqueTids.length > 0) {
-      // Fetch POS machines by TID
       const { data: posMachines } = await supabase
         .from('pos_machines')
-        .select('tid, retailer_id, distributor_id, master_distributor_id, partner_id')
+        .select('id, tid, retailer_id, distributor_id, master_distributor_id, partner_id')
         .in('tid', uniqueTids)
-      
+
       if (posMachines) {
+        const machineIdToTid = new Map<string, string>()
         posMachines.forEach((pm: any) => {
-          if (pm.tid) posMachineMap[pm.tid] = pm
+          if (pm.tid) {
+            posMachineMap[pm.tid] = pm
+            machineIdToTid.set(pm.id, pm.tid)
+          }
         })
 
-        // Get unique IDs for all assignment types
-        const retailerIds = [...new Set(posMachines.map((pm: any) => pm.retailer_id).filter(Boolean))]
-        const distributorIds = [...new Set(posMachines.map((pm: any) => pm.distributor_id).filter(Boolean))]
-        const masterDistributorIds = [...new Set(posMachines.map((pm: any) => pm.master_distributor_id).filter(Boolean))]
-        const partnerIds = [...new Set(posMachines.map((pm: any) => pm.partner_id).filter(Boolean))]
+        // Fetch assignment history for all machines
+        const machineIds = posMachines.map((pm: any) => pm.id).filter(Boolean)
+        if (machineIds.length > 0) {
+          const { data: history } = await supabase
+            .from('pos_assignment_history')
+            .select('pos_machine_id, assigned_to, assigned_to_role, created_at, returned_date, status')
+            .in('pos_machine_id', machineIds)
+            .like('action', 'assigned_to_%')
+            .order('created_at', { ascending: false })
 
-        // Fetch retailer names
-        if (retailerIds.length > 0) {
-          const { data: retailers } = await supabase
-            .from('retailers')
-            .select('partner_id, name, business_name')
-            .in('partner_id', retailerIds)
-          
-          if (retailers) {
-            retailers.forEach((r: any) => {
-              retailerMap[r.partner_id] = r
-            })
+          if (history) {
+            for (const h of history) {
+              const tid = machineIdToTid.get(h.pos_machine_id)
+              if (!tid) continue
+              if (!tidToAssignments[tid]) tidToAssignments[tid] = []
+              tidToAssignments[tid].push({
+                assigned_to: h.assigned_to,
+                assigned_to_role: h.assigned_to_role,
+                from: new Date(h.created_at),
+                to: h.returned_date ? new Date(h.returned_date) : null
+              })
+            }
           }
         }
 
-        // Fetch distributor names
-        if (distributorIds.length > 0) {
-          const { data: distributors } = await supabase
-            .from('distributors')
-            .select('partner_id, name, business_name')
-            .in('partner_id', distributorIds)
-          
-          if (distributors) {
-            distributors.forEach((d: any) => {
-              distributorMap[d.partner_id] = d
-            })
+        // Collect all unique assignee IDs by role (from both history and current assignment)
+        const retailerIds = new Set<string>()
+        const distributorIds = new Set<string>()
+        const masterDistributorIds = new Set<string>()
+        const partnerIds = new Set<string>()
+
+        for (const tid in tidToAssignments) {
+          for (const a of tidToAssignments[tid]) {
+            switch (a.assigned_to_role) {
+              case 'retailer': retailerIds.add(a.assigned_to); break
+              case 'distributor': distributorIds.add(a.assigned_to); break
+              case 'master_distributor': masterDistributorIds.add(a.assigned_to); break
+              case 'partner': partnerIds.add(a.assigned_to); break
+            }
           }
         }
 
-        // Fetch master distributor names
-        if (masterDistributorIds.length > 0) {
-          const { data: masterDistributors } = await supabase
-            .from('master_distributors')
-            .select('partner_id, name, business_name')
-            .in('partner_id', masterDistributorIds)
-          
-          if (masterDistributors) {
-            masterDistributors.forEach((md: any) => {
-              masterDistributorMap[md.partner_id] = md
-            })
-          }
-        }
+        // Also include current assignment IDs as fallback
+        posMachines.forEach((pm: any) => {
+          if (pm.retailer_id) retailerIds.add(pm.retailer_id)
+          if (pm.distributor_id) distributorIds.add(pm.distributor_id)
+          if (pm.master_distributor_id) masterDistributorIds.add(pm.master_distributor_id)
+          if (pm.partner_id) partnerIds.add(pm.partner_id)
+        })
 
-        // Fetch partner names (for co-branding partners)
-        if (partnerIds.length > 0) {
-          const { data: partners } = await supabase
-            .from('partners')
-            .select('id, name, business_name')
-            .in('id', partnerIds)
-          
-          if (partners) {
-            partners.forEach((p: any) => {
-              partnerMap[p.id] = p
-            })
-          }
-        }
+        // Fetch names in parallel
+        const [retailerResult, distributorResult, mdResult, partnerResult] = await Promise.all([
+          retailerIds.size > 0 ? supabase.from('retailers').select('partner_id, name, business_name').in('partner_id', [...retailerIds]) : Promise.resolve({ data: [] as any[] }),
+          distributorIds.size > 0 ? supabase.from('distributors').select('partner_id, name, business_name').in('partner_id', [...distributorIds]) : Promise.resolve({ data: [] as any[] }),
+          masterDistributorIds.size > 0 ? supabase.from('master_distributors').select('partner_id, name, business_name').in('partner_id', [...masterDistributorIds]) : Promise.resolve({ data: [] as any[] }),
+          partnerIds.size > 0 ? supabase.from('partners').select('id, name, business_name').in('id', [...partnerIds]) : Promise.resolve({ data: [] as any[] }),
+        ])
+
+        for (const r of (retailerResult.data || [])) retailerMap[r.partner_id] = r
+        for (const d of (distributorResult.data || [])) distributorMap[d.partner_id] = d
+        for (const md of (mdResult.data || [])) masterDistributorMap[md.partner_id] = md
+        for (const p of (partnerResult.data || [])) partnerMap[p.id] = p
       }
     }
 
@@ -331,28 +336,57 @@ export async function GET(request: NextRequest) {
     // Map fields to the format the frontend expects
     // Use dedicated columns first, fallback to raw_data extraction
     const mappedTransactions = (transactions || []).map((txn: any) => {
-      // Get POS machine assignment info - check in order: retailer, distributor, master_distributor, partner
-      const posMachine = txn.tid ? posMachineMap[txn.tid] : null
+      // Historical assignee resolution: find who had the machine at transaction time
       let assignedName = null
       let assignedType = null
 
-      if (posMachine) {
-        if (posMachine.retailer_id) {
-          const retailer = retailerMap[posMachine.retailer_id]
-          assignedName = retailer?.name || retailer?.business_name
-          assignedType = 'retailer'
-        } else if (posMachine.distributor_id) {
-          const distributor = distributorMap[posMachine.distributor_id]
-          assignedName = distributor?.name || distributor?.business_name
-          assignedType = 'distributor'
-        } else if (posMachine.master_distributor_id) {
-          const masterDist = masterDistributorMap[posMachine.master_distributor_id]
-          assignedName = masterDist?.name || masterDist?.business_name
-          assignedType = 'master_distributor'
-        } else if (posMachine.partner_id) {
-          const partner = partnerMap[posMachine.partner_id]
-          assignedName = partner?.name || partner?.business_name
-          assignedType = 'partner'
+      if (txn.tid && tidToAssignments[txn.tid]) {
+        const txTime = new Date(txn.transaction_time)
+        const matchingAssignment = tidToAssignments[txn.tid].find(
+          (a: { from: Date, to: Date | null }) => txTime >= a.from && (!a.to || txTime <= a.to)
+        )
+        if (matchingAssignment) {
+          const id = matchingAssignment.assigned_to
+          switch (matchingAssignment.assigned_to_role) {
+            case 'retailer':
+              assignedName = retailerMap[id]?.name || retailerMap[id]?.business_name
+              assignedType = 'retailer'
+              break
+            case 'distributor':
+              assignedName = distributorMap[id]?.name || distributorMap[id]?.business_name
+              assignedType = 'distributor'
+              break
+            case 'master_distributor':
+              assignedName = masterDistributorMap[id]?.name || masterDistributorMap[id]?.business_name
+              assignedType = 'master_distributor'
+              break
+            case 'partner':
+              assignedName = partnerMap[id]?.name || partnerMap[id]?.business_name
+              assignedType = 'partner'
+              break
+          }
+        }
+      }
+
+      // Fallback to current pos_machines assignment ONLY if no history exists for this TID
+      // (handles machines assigned before history tracking was implemented).
+      // If history exists but no window matches, the machine was unassigned at that time.
+      if (!assignedName && txn.tid && !tidToAssignments[txn.tid]) {
+        const posMachine = posMachineMap[txn.tid]
+        if (posMachine) {
+          if (posMachine.retailer_id) {
+            assignedName = retailerMap[posMachine.retailer_id]?.name || retailerMap[posMachine.retailer_id]?.business_name
+            assignedType = 'retailer'
+          } else if (posMachine.distributor_id) {
+            assignedName = distributorMap[posMachine.distributor_id]?.name || distributorMap[posMachine.distributor_id]?.business_name
+            assignedType = 'distributor'
+          } else if (posMachine.master_distributor_id) {
+            assignedName = masterDistributorMap[posMachine.master_distributor_id]?.name || masterDistributorMap[posMachine.master_distributor_id]?.business_name
+            assignedType = 'master_distributor'
+          } else if (posMachine.partner_id) {
+            assignedName = partnerMap[posMachine.partner_id]?.name || partnerMap[posMachine.partner_id]?.business_name
+            assignedType = 'partner'
+          }
         }
       }
 

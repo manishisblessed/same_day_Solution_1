@@ -173,38 +173,61 @@ export async function POST(request: NextRequest) {
     const offset = (pageNum - 1) * pageSizeNum
 
     // ========================================================================
-    // Step 1: Get partner's TIDs from assigned machines (for fallback query
-    //         and terminal_id access validation)
+    // Step 1: Get assignment windows from pos_assignment_history
     // ========================================================================
-    let tids: string[] = []
-    let serials: string[] = []
+    const { data: assignmentHistory } = await supabase
+      .from('pos_assignment_history')
+      .select('pos_machine_id, created_at, returned_date, status')
+      .eq('assigned_to', partner.id)
+      .like('action', 'assigned_to_%')
+      .order('created_at', { ascending: false })
 
-    const { data: partnerMachines } = await supabase
-      .from('partner_pos_machines')
-      .select('terminal_id, device_serial')
-      .eq('partner_id', partner.id)
-      .eq('status', 'active')
-
-    if (partnerMachines) {
-      tids.push(...partnerMachines.map((m: any) => m.terminal_id).filter(Boolean))
-      serials.push(...partnerMachines.map((m: any) => m.device_serial).filter(Boolean))
+    if (!assignmentHistory || assignmentHistory.length === 0) {
+      return NextResponse.json({
+        success: true,
+        company: 'Same Day Solution',
+        data: [],
+        pagination: { page: pageNum, page_size: pageSizeNum, total_records: 0, total_pages: 0, has_next: false, has_prev: false },
+        summary: EMPTY_SUMMARY,
+      })
     }
 
-    const { data: posMachines } = await supabase
-      .from('pos_machines')
-      .select('tid, serial_number')
-      .eq('partner_id', partner.id)
-      .in('status', ['active', 'inactive'])
+    const posMachineIds = [...new Set(assignmentHistory.map((a: any) => a.pos_machine_id).filter(Boolean))]
+    let tids: string[] = []
+    let serials: string[] = []
+    const machineIdToTidSerial = new Map<string, { tid: string, serial: string }>()
 
-    if (posMachines) {
-      tids.push(...posMachines.map((m: any) => m.tid).filter(Boolean))
-      serials.push(...posMachines.map((m: any) => m.serial_number).filter(Boolean))
+    if (posMachineIds.length > 0) {
+      const { data: machines } = await supabase
+        .from('pos_machines')
+        .select('id, tid, serial_number')
+        .in('id', posMachineIds)
+
+      if (machines) {
+        machines.forEach((m: any) => {
+          if (m.tid) tids.push(m.tid)
+          if (m.serial_number) serials.push(m.serial_number)
+          machineIdToTidSerial.set(m.id, { tid: m.tid, serial: m.serial_number })
+        })
+      }
     }
 
     tids = Array.from(new Set(tids))
     serials = Array.from(new Set(serials))
 
-    console.log(`[Partner API Txn] partner: ${partner.name} (${partner.id}), TIDs: [${tids.join(',')}], serials: [${serials.join(',')}]`)
+    // Build assignment windows: Map<tid_or_serial, {from: Date, to: Date | null}[]>
+    const assignmentWindows = new Map<string, { from: Date, to: Date | null }[]>()
+    for (const ah of assignmentHistory) {
+      const machine = machineIdToTidSerial.get(ah.pos_machine_id)
+      if (!machine) continue
+      const window = { from: new Date(ah.created_at), to: ah.returned_date ? new Date(ah.returned_date) : null }
+      for (const key of [machine.tid, machine.serial].filter(Boolean)) {
+        if (!assignmentWindows.has(key)) assignmentWindows.set(key, [])
+        assignmentWindows.get(key)!.push(window)
+      }
+    }
+
+    console.log(`[Partner API Txn] partner: ${partner.name} (${partner.id}), TIDs: [${tids.join(',')}], serials: [${serials.join(',')}], windows: ${assignmentHistory.length}`)
 
     if (tids.length === 0 && serials.length === 0) {
       return NextResponse.json({
@@ -216,7 +239,6 @@ export async function POST(request: NextRequest) {
       })
     }
 
-    // If terminal_id filter provided, validate access
     if (terminal_id && !tids.includes(terminal_id)) {
       return NextResponse.json({
         success: true,
@@ -377,32 +399,41 @@ export async function POST(request: NextRequest) {
       return tb - ta
     })
 
+    // Filter merged rows by assignment windows
+    const filteredRows = mergedRows.filter((tx: any) => {
+      const txTime = new Date(tx.txn_time)
+      const tid = tx.terminal_id
+      const serial = tx.device_serial
+      const windows = (tid ? assignmentWindows.get(tid) : undefined) || (serial ? assignmentWindows.get(serial) : undefined) || []
+      return windows.some((w: { from: Date, to: Date | null }) => txTime >= w.from && (!w.to || txTime <= w.to))
+    })
+
     // ========================================================================
-    // Step 4: Calculate summary from full merged set, then paginate
+    // Step 4: Calculate summary from filtered set, then paginate
     // ========================================================================
-    const totalRecords = mergedRows.length
+    const totalRecords = filteredRows.length
     const totalPages = totalRecords > 0 ? Math.ceil(totalRecords / pageSizeNum) : 0
 
     const getStatusStr = (t: any) => (t.status || '').toUpperCase()
     const getAmt = (t: any) => parseFloat(t.amount) || 0
 
-    const totalAmount = mergedRows.reduce((s, t) => s + getAmt(t), 0)
-    const authorizedCount = mergedRows.filter(t => getStatusStr(t) === 'AUTHORIZED').length
-    const capturedCount = mergedRows.filter(t => getStatusStr(t) === 'CAPTURED').length
-    const failedCount = mergedRows.filter(t => getStatusStr(t) === 'FAILED').length
-    const refundedCount = mergedRows.filter(t => getStatusStr(t) === 'REFUNDED').length
-    const capturedAmount = mergedRows
+    const totalAmount = filteredRows.reduce((s, t) => s + getAmt(t), 0)
+    const authorizedCount = filteredRows.filter(t => getStatusStr(t) === 'AUTHORIZED').length
+    const capturedCount = filteredRows.filter(t => getStatusStr(t) === 'CAPTURED').length
+    const failedCount = filteredRows.filter(t => getStatusStr(t) === 'FAILED').length
+    const refundedCount = filteredRows.filter(t => getStatusStr(t) === 'REFUNDED').length
+    const capturedAmount = filteredRows
       .filter(t => getStatusStr(t) === 'CAPTURED')
       .reduce((s, t) => s + getAmt(t), 0)
-    const uniqueTerminals = new Set(mergedRows.map(t => t.terminal_id).filter(Boolean))
+    const uniqueTerminals = new Set(filteredRows.map(t => t.terminal_id).filter(Boolean))
 
     // Paginate
-    const paginatedData = mergedRows.slice(offset, offset + pageSizeNum)
+    const paginatedData = filteredRows.slice(offset, offset + pageSizeNum)
 
     // Strip internal _source field from response
     const responseData = paginatedData.map(({ _source, ...rest }) => rest)
 
-    console.log(`[Partner API Txn] partner: ${partner.name}, pos_txn: ${ptResult.data?.length || 0}, rpt_txn: ${rptResult.data?.length || 0}, merged: ${totalRecords}`)
+    console.log(`[Partner API Txn] partner: ${partner.name}, pos_txn: ${ptResult.data?.length || 0}, rpt_txn: ${rptResult.data?.length || 0}, merged: ${mergedRows.length}, filtered: ${totalRecords}`)
 
     return NextResponse.json({
       success: true,

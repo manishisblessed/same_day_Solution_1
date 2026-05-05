@@ -65,7 +65,7 @@ export async function GET(request: NextRequest) {
     };
 
     // Non-admin: can only see their own mappings or their downstream
-    if (user.role === 'retailer') {
+    if (user.role === 'retailer' || user.role === 'partner') {
       filters.entity_id = user.partner_id;
     }
     // Distributors can only see mappings they assigned or for their own retailers
@@ -106,8 +106,13 @@ export async function POST(request: NextRequest) {
     }
 
     // Validate entity_role value
-    if (!['retailer', 'distributor', 'master_distributor'].includes(body.entity_role)) {
+    if (!['retailer', 'distributor', 'master_distributor', 'partner'].includes(body.entity_role)) {
       return NextResponse.json({ error: 'Invalid entity_role' }, { status: 400 });
+    }
+
+    // Only admin can assign schemes to partners
+    if (body.entity_role === 'partner' && user.role !== 'admin') {
+      return NextResponse.json({ error: 'Only admin can assign schemes to partners' }, { status: 403 });
     }
 
     // Ownership verification: ensure the assigner has authority over the target entity
@@ -203,9 +208,9 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: 'Mapping id is required' }, { status: 400 });
     }
 
-    // Retailers cannot delete mappings
-    if (user.role === 'retailer') {
-      return NextResponse.json({ error: 'Retailers cannot delete scheme mappings' }, { status: 403 });
+    // Retailers and partners cannot delete mappings
+    if (user.role === 'retailer' || user.role === 'partner') {
+      return NextResponse.json({ error: 'Retailers and partners cannot delete scheme mappings' }, { status: 403 });
     }
 
     const supabase = getSupabase();

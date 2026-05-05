@@ -8,7 +8,7 @@ import {
   BarChart3, Settings,
   Activity, X, Menu, CreditCard, Receipt, CheckCircle2,
   Building2, FileBarChart, Layers, Key, Timer, History, Repeat, ScrollText, Wallet,
-  Fingerprint
+  Fingerprint, Server
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 
@@ -40,6 +40,7 @@ const sidebarItems: SidebarItem[] = [
   { id: 'wallet-ledger', label: 'Wallet ledger', icon: ScrollText, href: '/admin?tab=wallet-ledger' },
   { id: 'performance', label: 'Performance', icon: Activity, href: '/admin?tab=performance' },
   { id: 'subscriptions', label: 'Subscriptions', icon: Repeat, href: '/admin?tab=subscriptions' },
+  { id: 'portal-management', label: 'Portal Management', icon: Server, href: '/admin?tab=portal-management' },
   { id: 'settings', label: 'Settings', icon: Settings, href: '/admin/settings' },
 ]
 

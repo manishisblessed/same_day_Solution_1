@@ -38,9 +38,12 @@ import PartnerSubscriptionsTab from '@/components/PartnerSubscriptionsTab'
 import POSTransactionsTable from '@/components/POSTransactionsTable'
 import POSPartnerAPIManagement from '@/components/POSPartnerAPIManagement'
 import ServiceTransactionReport from '@/components/ServiceTransactionReport'
-import { Crown, Sparkles, BarChart3, Zap } from 'lucide-react'
+import APIDashboardTab from '@/components/partner/APIDashboardTab'
+import BusinessAnalyticsTab from '@/components/partner/BusinessAnalyticsTab'
+import ReconciliationTab from '@/components/partner/ReconciliationTab'
+import { Crown, Sparkles, BarChart3, Zap, Scale, Server } from 'lucide-react'
 
-type TabType = 'dashboard' | 'wallet' | 'services' | 'bbps' | 'payout' | 'transactions' | 'ledger' | 'mdr-schemes' | 'reports' | 'settings' | 'pos-machines' | 'subscriptions' | 'api-management' | 'analytics'
+type TabType = 'dashboard' | 'wallet' | 'services' | 'bbps' | 'payout' | 'transactions' | 'ledger' | 'mdr-schemes' | 'reports' | 'settings' | 'pos-machines' | 'subscriptions' | 'api-management' | 'analytics' | 'api-dashboard' | 'reconciliation'
 
 function PartnerDashboardContent() {
   const { user, loading: authLoading } = useAuth()
@@ -50,7 +53,7 @@ function PartnerDashboardContent() {
   
   const getInitialTab = (): TabType => {
     const tab = searchParams?.get('tab')
-    if (tab && ['dashboard', 'wallet', 'services', 'bbps', 'payout', 'transactions', 'ledger', 'mdr-schemes', 'reports', 'settings', 'pos-machines', 'subscriptions', 'api-management', 'analytics'].includes(tab)) {
+    if (tab && ['dashboard', 'wallet', 'services', 'bbps', 'payout', 'transactions', 'ledger', 'mdr-schemes', 'reports', 'settings', 'pos-machines', 'subscriptions', 'api-management', 'analytics', 'api-dashboard', 'reconciliation'].includes(tab)) {
       return tab as TabType
     }
     return 'dashboard'
@@ -87,7 +90,7 @@ function PartnerDashboardContent() {
 
   useEffect(() => {
     const tab = searchParams?.get('tab')
-    if (tab && ['dashboard', 'wallet', 'services', 'bbps', 'payout', 'transactions', 'ledger', 'mdr-schemes', 'reports', 'settings', 'pos-machines', 'subscriptions', 'api-management', 'analytics'].includes(tab)) {
+    if (tab && ['dashboard', 'wallet', 'services', 'bbps', 'payout', 'transactions', 'ledger', 'mdr-schemes', 'reports', 'settings', 'pos-machines', 'subscriptions', 'api-management', 'analytics', 'api-dashboard', 'reconciliation'].includes(tab)) {
       if (tab !== activeTab) {
         setActiveTab(tab as TabType)
       }
@@ -380,17 +383,19 @@ function PartnerDashboardContent() {
           {/* Tab Content */}
           {activeTab === 'dashboard' && <DashboardTab user={user} stats={stats} chartData={chartData} recentTransactions={recentTransactions} />}
           {activeTab === 'wallet' && <WalletTab user={user} />}
-          {activeTab === 'services' && <ServicesTab />}
-          {activeTab === 'bbps' && <BBPSTab />}
-          {activeTab === 'payout' && <PayoutTransfer title="Settlement to Bank Account" />}
+          {activeTab === 'services' && <APIIntegrationsTab />}
+          {activeTab === 'bbps' && <BBPSTab readOnly />}
+          {activeTab === 'payout' && <PayoutTransfer title="Payouts / Settlements" readOnly />}
           {activeTab === 'transactions' && <POSTransactionsTable autoPoll={true} pollInterval={15000} />}
           {activeTab === 'ledger' && <PartnerLedgerTab user={user} />}
           {activeTab === 'mdr-schemes' && <MDRSchemesTab user={user} />}
           {activeTab === 'pos-machines' && <POSMachinesTab user={user} accentColor="purple" />}
           {activeTab === 'subscriptions' && <PartnerSubscriptionsTab />}
           {activeTab === 'reports' && <ReportsTab chartData={chartData} stats={stats} />}
+          {activeTab === 'api-dashboard' && <APIDashboardTab />}
           {activeTab === 'api-management' && <APIManagementTab user={user} />}
-          {activeTab === 'analytics' && <AdvancedAnalyticsTab user={user} stats={stats} chartData={chartData} />}
+          {activeTab === 'analytics' && <BusinessAnalyticsTab />}
+          {activeTab === 'reconciliation' && <ReconciliationTab />}
           {activeTab === 'settings' && <SettingsTab user={user} />}
         </div>
       </div>
@@ -695,11 +700,10 @@ function DashboardTab({ user, stats, chartData, recentTransactions }: { user: an
   )
 }
 
-// BBPS Tab Component with Sub-tabs
-function BBPSTab() {
+// BBPS API Transactions Tab Component with Sub-tabs
+function BBPSTab({ readOnly = false }: { readOnly?: boolean }) {
   const [bbpsSubTab, setBbpsSubTab] = useState<'recharge' | 'utilities' | 'creditcard' | 'others'>('recharge')
 
-  // Category groupings - ALL 28 categories covered
   const RECHARGE_CATEGORIES = [
     'Mobile Prepaid', 'DTH', 'Fastag', 'NCMC Recharge', 'Broadband Postpaid', 
     'Landline Postpaid', 'Mobile Postpaid', 'Cable TV'
@@ -712,7 +716,6 @@ function BBPSTab() {
   
   const CREDITCARD_CATEGORIES = ['Credit Card']
   
-  // Other services - Insurance, Loans, Education, Health, etc.
   const OTHER_CATEGORIES = [
     'Insurance', 'Loan Repayment', 'Education Fees', 'Hospital', 'Hospital and Pathology',
     'Clubs and Associations', 'Subscription', 'Recurring Deposit', 'NPS', 'Donation'
@@ -724,6 +727,24 @@ function BBPSTab() {
     { id: 'creditcard' as const, label: 'Credit Card', description: 'Credit Card Bill Payment', color: 'from-purple-500 to-purple-600' },
     { id: 'others' as const, label: 'Other Services', description: 'Insurance, Loan, Education, Health', color: 'from-orange-500 to-orange-600' },
   ]
+
+  if (readOnly) {
+    return (
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="space-y-4"
+      >
+        <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl p-4">
+          <div className="flex items-center gap-2">
+            <Eye className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+            <p className="text-sm text-blue-800 dark:text-blue-300 font-medium">Read-only view — BBPS API transaction history</p>
+          </div>
+        </div>
+        <BBPSTransactionsTable />
+      </motion.div>
+    )
+  }
 
   return (
     <motion.div
@@ -753,7 +774,6 @@ function BBPSTab() {
         </div>
       </div>
 
-      {/* BBPS Payment Component with Category Filter */}
       <BBPSPayment 
         categoryFilter={
           bbpsSubTab === 'recharge' ? RECHARGE_CATEGORIES :
@@ -772,8 +792,8 @@ function BBPSTab() {
   )
 }
 
-// Services Tab Component
-function ServicesTab() {
+// API Integrations Tab Component (formerly Services)
+function APIIntegrationsTab() {
   const { user } = useAuth()
   const [services, setServices] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
@@ -1053,6 +1073,7 @@ function TransactionsTab({ transactions }: { transactions: any[] }) {
 function WalletTab({ user }: { user: any }) {
   const [walletBalance, setWalletBalance] = useState<number | null>(null)
   const [aepsBalance, setAepsBalance] = useState<number | null>(null)
+  const [aepsEnabled, setAepsEnabled] = useState(false)
   const [loading, setLoading] = useState(true)
   const [ledgerEntries, setLedgerEntries] = useState<any[]>([])
   const [showSettlement, setShowSettlement] = useState(false)
@@ -1082,18 +1103,33 @@ function WalletTab({ user }: { user: any }) {
       }
 
       let aepsBalanceData = 0
+      let isAepsEnabled = false
       try {
-        const { data: balance } = await supabase.rpc('get_wallet_balance_v2', {
-          p_user_id: user.partner_id,
-          p_wallet_type: 'aeps',
-        })
-        aepsBalanceData = Number(balance) || 0
+        const params = new URLSearchParams()
+        if (user.partner_id) params.set('partner_id', user.partner_id)
+        if (user.role) params.set('role', user.role)
+        const svcRes = await apiFetch(`/api/user/enabled-services?${params.toString()}`)
+        const svcData = await svcRes.json()
+        isAepsEnabled = !!svcData?.services?.aeps
       } catch {
-        aepsBalanceData = 0
+        isAepsEnabled = false
+      }
+
+      if (isAepsEnabled) {
+        try {
+          const { data: balance } = await supabase.rpc('get_wallet_balance_v2', {
+            p_user_id: user.partner_id,
+            p_wallet_type: 'aeps',
+          })
+          aepsBalanceData = Number(balance) || 0
+        } catch {
+          aepsBalanceData = 0
+        }
       }
 
       setWalletBalance(primaryBalance)
       setAepsBalance(aepsBalanceData)
+      setAepsEnabled(isAepsEnabled)
 
       const { data: ledger } = await supabase
         .from('partner_wallet_ledger')
@@ -1159,7 +1195,7 @@ function WalletTab({ user }: { user: any }) {
   return (
     <div className="space-y-6">
       {/* Wallet Balance Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className={`grid grid-cols-1 ${aepsEnabled ? 'md:grid-cols-2' : ''} gap-4`}>
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -1182,21 +1218,23 @@ function WalletTab({ user }: { user: any }) {
           </button>
         </motion.div>
 
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl shadow-lg p-6 text-white"
-        >
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-purple-100 text-sm font-medium mb-1">AEPS Wallet</p>
-              <p className="text-3xl font-bold">
-                ₹{aepsBalance?.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00'}
-              </p>
+        {aepsEnabled && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl shadow-lg p-6 text-white"
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-purple-100 text-sm font-medium mb-1">AEPS Wallet</p>
+                <p className="text-3xl font-bold">
+                  ₹{aepsBalance?.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00'}
+                </p>
+              </div>
+              <Wallet className="w-12 h-12 text-purple-200" />
             </div>
-            <Wallet className="w-12 h-12 text-purple-200" />
-          </div>
-        </motion.div>
+          </motion.div>
+        )}
       </div>
 
       {/* Settlement Modal */}
@@ -1339,9 +1377,59 @@ function WalletTab({ user }: { user: any }) {
 function ReportsTab({ chartData, stats }: { chartData: any[], stats: any }) {
   const { user } = useAuth()
   const [reportType, setReportType] = useState<'ledger' | 'transactions' | 'commission'>('ledger')
+  const [serviceFilter, setServiceFilter] = useState('all')
   const [dateRange, setDateRange] = useState({ start: '', end: '' })
-  const [format, setFormat] = useState<'csv' | 'pdf' | 'zip'>('csv')
+  const [format, setFormat] = useState<'csv' | 'pdf' | 'xlsx' | 'zip'>('csv')
   const [downloading, setDownloading] = useState(false)
+  const [statusBreakdown, setStatusBreakdown] = useState<{ success: number; failed: number; pending: number; total: number } | null>(null)
+  const [breakdownLoading, setBreakdownLoading] = useState(false)
+
+  const SERVICE_TYPES = [
+    { value: 'all', label: 'All Services' },
+    { value: 'bbps', label: 'BBPS' },
+    { value: 'aeps', label: 'AEPS' },
+    { value: 'pos', label: 'POS' },
+    { value: 'settlement', label: 'Settlement' },
+    { value: 'credit', label: 'Credits' },
+    { value: 'debit', label: 'Debits' },
+    { value: 'commission', label: 'Commission' },
+    { value: 'dmt', label: 'DMT' },
+  ]
+
+  useEffect(() => {
+    if (!user?.partner_id || !dateRange.start || !dateRange.end) {
+      setStatusBreakdown(null)
+      return
+    }
+    const fetchBreakdown = async () => {
+      setBreakdownLoading(true)
+      try {
+        let query = supabase
+          .from('partner_wallet_ledger')
+          .select('status')
+          .eq('partner_id', user.partner_id)
+          .gte('created_at', dateRange.start)
+          .lte('created_at', dateRange.end + 'T23:59:59')
+
+        if (serviceFilter !== 'all') {
+          query = query.eq('transaction_type', serviceFilter)
+        }
+
+        const { data } = await query
+        if (data) {
+          const success = data.filter(r => r.status === 'completed' || r.status === 'success').length
+          const failed = data.filter(r => r.status === 'failed').length
+          const pending = data.filter(r => r.status === 'pending' || r.status === 'processing').length
+          setStatusBreakdown({ success, failed, pending, total: data.length })
+        }
+      } catch {
+        setStatusBreakdown(null)
+      } finally {
+        setBreakdownLoading(false)
+      }
+    }
+    fetchBreakdown()
+  }, [user?.partner_id, dateRange.start, dateRange.end, serviceFilter])
 
   const handleDownload = async () => {
     if (!dateRange.start || !dateRange.end) {
@@ -1351,43 +1439,71 @@ function ReportsTab({ chartData, stats }: { chartData: any[], stats: any }) {
 
     setDownloading(true)
     try {
-      const response = await apiFetch(`/api/reports/${reportType}?start=${dateRange.start}&end=${dateRange.end}&format=${format}`, {
-        method: 'GET',
-      })
+      const serviceParam = serviceFilter !== 'all' ? `&service=${serviceFilter}` : ''
 
-      if (response.ok) {
-        if (format === 'zip') {
-          // For ZIP, handle JSON response
-          const data = await response.json()
-          if (data.files) {
-            // Create a simple text file listing (in production, use JSZip)
-            const fileList = Object.keys(data.files).join('\n')
-            const blob = new Blob([fileList], { type: 'text/plain' })
+      if (format === 'xlsx') {
+        const response = await apiFetch(
+          `/api/reports/${reportType}?start=${dateRange.start}&end=${dateRange.end}&format=csv${serviceParam}`
+        )
+        if (!response.ok) throw new Error('Download failed')
+        const csvText = await response.text()
+        const rows = csvText.split('\n').map(row => row.split(','))
+        const header = rows[0]
+        const dataRows = rows.slice(1).filter(r => r.length > 1)
+
+        let xlsContent = '<html><head><meta charset="UTF-8"></head><body><table border="1">'
+        xlsContent += '<tr>' + header.map(h => `<th>${h}</th>`).join('') + '</tr>'
+        dataRows.forEach(row => {
+          xlsContent += '<tr>' + row.map(c => `<td>${c}</td>`).join('') + '</tr>'
+        })
+        xlsContent += '</table></body></html>'
+
+        const blob = new Blob([xlsContent], { type: 'application/vnd.ms-excel' })
+        const url = window.URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `${reportType}_report_${dateRange.start}_to_${dateRange.end}.xls`
+        document.body.appendChild(a)
+        a.click()
+        window.URL.revokeObjectURL(url)
+        document.body.removeChild(a)
+        alert('Report downloaded successfully!')
+      } else {
+        const response = await apiFetch(
+          `/api/reports/${reportType}?start=${dateRange.start}&end=${dateRange.end}&format=${format}${serviceParam}`
+        )
+        if (response.ok) {
+          if (format === 'zip') {
+            const data = await response.json()
+            if (data.files) {
+              const fileList = Object.keys(data.files).join('\n')
+              const blob = new Blob([fileList], { type: 'text/plain' })
+              const url = window.URL.createObjectURL(blob)
+              const a = document.createElement('a')
+              a.href = url
+              a.download = `${reportType}_report_${dateRange.start}_to_${dateRange.end}.txt`
+              document.body.appendChild(a)
+              a.click()
+              window.URL.revokeObjectURL(url)
+              document.body.removeChild(a)
+            }
+          } else {
+            const blob = await response.blob()
             const url = window.URL.createObjectURL(blob)
             const a = document.createElement('a')
             a.href = url
-            a.download = `${reportType}_report_${dateRange.start}_to_${dateRange.end}.txt`
+            const extension = format === 'pdf' ? 'html' : format
+            a.download = `${reportType}_report_${dateRange.start}_to_${dateRange.end}.${extension}`
             document.body.appendChild(a)
             a.click()
             window.URL.revokeObjectURL(url)
             document.body.removeChild(a)
           }
+          alert('Report downloaded successfully!')
         } else {
-          const blob = await response.blob()
-          const url = window.URL.createObjectURL(blob)
-          const a = document.createElement('a')
-          a.href = url
-          const extension = format === 'pdf' ? 'html' : format
-          a.download = `${reportType}_report_${dateRange.start}_to_${dateRange.end}.${extension}`
-          document.body.appendChild(a)
-          a.click()
-          window.URL.revokeObjectURL(url)
-          document.body.removeChild(a)
+          const error = await response.json()
+          alert(error.error || 'Failed to download report')
         }
-        alert('Report downloaded successfully!')
-      } else {
-        const error = await response.json()
-        alert(error.error || 'Failed to download report')
       }
     } catch (error) {
       console.error('Download error:', error)
@@ -1397,10 +1513,40 @@ function ReportsTab({ chartData, stats }: { chartData: any[], stats: any }) {
     }
   }
 
+  const successRate = statusBreakdown && statusBreakdown.total > 0
+    ? ((statusBreakdown.success / statusBreakdown.total) * 100).toFixed(1)
+    : null
+
   return (
     <div className="space-y-6">
       {/* Service Transaction Report */}
       <ServiceTransactionReport userRole="retailer" userName={user?.name || user?.email} />
+
+      {/* Success vs Failure Breakdown */}
+      {statusBreakdown && (
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="grid grid-cols-2 lg:grid-cols-4 gap-3"
+        >
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md border border-gray-200 dark:border-gray-700 p-4">
+            <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Total Transactions</p>
+            <p className="text-2xl font-bold text-gray-900 dark:text-white">{statusBreakdown.total.toLocaleString()}</p>
+          </div>
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md border border-green-200 dark:border-green-800 p-4">
+            <p className="text-xs text-green-600 dark:text-green-400 mb-1">Successful</p>
+            <p className="text-2xl font-bold text-green-600 dark:text-green-400">{statusBreakdown.success.toLocaleString()}</p>
+          </div>
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md border border-red-200 dark:border-red-800 p-4">
+            <p className="text-xs text-red-600 dark:text-red-400 mb-1">Failed</p>
+            <p className="text-2xl font-bold text-red-600 dark:text-red-400">{statusBreakdown.failed.toLocaleString()}</p>
+          </div>
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md border border-blue-200 dark:border-blue-800 p-4">
+            <p className="text-xs text-blue-600 dark:text-blue-400 mb-1">Success Rate</p>
+            <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">{successRate || '—'}%</p>
+          </div>
+        </motion.div>
+      )}
 
       {/* Performance Charts */}
       <motion.div
@@ -1446,17 +1592,31 @@ function ReportsTab({ chartData, stats }: { chartData: any[], stats: any }) {
       >
         <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Download Reports</h3>
         <div className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Report Type</label>
-            <select
-              value={reportType}
-              onChange={(e) => setReportType(e.target.value as 'ledger' | 'transactions' | 'commission')}
-              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-            >
-              <option value="ledger">Ledger Report</option>
-              <option value="transactions">Transaction Report</option>
-              <option value="commission">Commission Report</option>
-            </select>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Report Type</label>
+              <select
+                value={reportType}
+                onChange={(e) => setReportType(e.target.value as 'ledger' | 'transactions' | 'commission')}
+                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+              >
+                <option value="ledger">Ledger Report</option>
+                <option value="transactions">Transaction Report</option>
+                <option value="commission">Commission Report</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Filter by API / Service</label>
+              <select
+                value={serviceFilter}
+                onChange={(e) => setServiceFilter(e.target.value)}
+                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+              >
+                {SERVICE_TYPES.map(s => (
+                  <option key={s.value} value={s.value}>{s.label}</option>
+                ))}
+              </select>
+            </div>
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
@@ -1482,10 +1642,11 @@ function ReportsTab({ chartData, stats }: { chartData: any[], stats: any }) {
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Format</label>
             <select
               value={format}
-              onChange={(e) => setFormat(e.target.value as 'csv' | 'pdf' | 'zip')}
+              onChange={(e) => setFormat(e.target.value as 'csv' | 'pdf' | 'xlsx' | 'zip')}
               className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
             >
               <option value="csv">CSV</option>
+              <option value="xlsx">Excel (.xls)</option>
               <option value="pdf">PDF (HTML)</option>
               <option value="zip">ZIP (Bulk Export)</option>
             </select>
@@ -1677,8 +1838,8 @@ function MDRSchemesTab({ user }: { user: any }) {
           <div className="flex-1">
             <h3 className="font-semibold text-blue-900 dark:text-blue-200 mb-1">Scheme Information</h3>
             <p className="text-sm text-blue-800 dark:text-blue-300">
-              Your charges and rates (MDR, BBPS, Payout) are determined by schemes assigned to you by your distributor. 
-              Only schemes that are mapped to your account are shown here. These charges are automatically applied during transactions.
+              Your charges and rates (MDR, BBPS, Payout) are determined by schemes assigned to your partner account by the admin. 
+              Only schemes mapped to your account are shown here. These charges are automatically applied during API transactions and reflected in your reports.
             </p>
           </div>
         </div>
@@ -1714,7 +1875,7 @@ function MDRSchemesTab({ user }: { user: any }) {
             <AlertCircle className="w-12 h-12 text-gray-400 mx-auto mb-4" />
             <p className="text-gray-600 dark:text-gray-400">No applicable schemes found</p>
             <p className="text-sm text-gray-500 dark:text-gray-500 mt-2">
-              Contact your distributor or admin to set up MDR schemes
+              Contact your admin to assign MDR/BBPS/Payout schemes to your partner account
             </p>
           </div>
         ) : (
@@ -1887,7 +2048,7 @@ function MDRSchemesTab({ user }: { user: any }) {
             transition={{ delay: 0.2 }}
             className="bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 p-6"
           >
-            <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4">Custom Schemes (From Distributor)</h3>
+            <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4">Custom Schemes (Assigned)</h3>
             {customMdrRates.length > 0 ? (
               <div className="overflow-x-auto">
                 <table className="w-full">
@@ -1934,7 +2095,7 @@ function MDRSchemesTab({ user }: { user: any }) {
                 <AlertCircle className="w-12 h-12 text-gray-400 mx-auto mb-4" />
                 <p className="text-gray-600 dark:text-gray-400">No MDR rates configured for custom schemes</p>
                 <p className="text-sm text-gray-500 dark:text-gray-500 mt-2">
-                  Contact your distributor to configure MDR rates for the assigned schemes
+                  Contact your admin to configure MDR rates for the assigned schemes
                 </p>
               </div>
             )}
@@ -2497,68 +2658,6 @@ function APIManagementTab({ user }: { user: any }) {
   )
 }
 
-// VIP Feature: Advanced Analytics Tab
-function AdvancedAnalyticsTab({ user, stats, chartData }: { user: any, stats: any, chartData: any[] }) {
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="space-y-4"
-    >
-      <div className="bg-gradient-to-r from-purple-50 to-pink-50 dark:from-purple-900/20 dark:to-pink-900/20 border-2 border-purple-200 dark:border-purple-800 rounded-xl p-6 mb-4">
-        <div className="flex items-center gap-3 mb-2">
-          <BarChart3 className="w-6 h-6 text-purple-600 dark:text-purple-400" />
-          <h2 className="text-2xl font-bold text-gray-900 dark:text-white">VIP Feature: Advanced Analytics</h2>
-        </div>
-        <p className="text-gray-600 dark:text-gray-400">
-          Access detailed analytics, trends, and insights. This is an exclusive feature for VIP Partners.
-        </p>
-      </div>
-      
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md border border-gray-200 dark:border-gray-700 p-6">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Performance Metrics</h3>
-          <div className="space-y-3">
-            <div className="flex justify-between items-center">
-              <span className="text-gray-600 dark:text-gray-400">Total Revenue</span>
-              <span className="font-bold text-purple-600 dark:text-purple-400">₹{stats.totalRevenue.toLocaleString()}</span>
-            </div>
-            <div className="flex justify-between items-center">
-              <span className="text-gray-600 dark:text-gray-400">Total Transactions</span>
-              <span className="font-bold text-purple-600 dark:text-purple-400">{stats.totalTransactions}</span>
-            </div>
-            <div className="flex justify-between items-center">
-              <span className="text-gray-600 dark:text-gray-400">Commission Earned</span>
-              <span className="font-bold text-green-600 dark:text-green-400">₹{stats.commissionEarned.toLocaleString()}</span>
-            </div>
-          </div>
-        </div>
-        
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md border border-gray-200 dark:border-gray-700 p-6">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">VIP Benefits</h3>
-          <ul className="space-y-2 text-sm text-gray-600 dark:text-gray-400">
-            <li className="flex items-center gap-2">
-              <Check className="w-4 h-4 text-purple-600" />
-              Priority Support
-            </li>
-            <li className="flex items-center gap-2">
-              <Check className="w-4 h-4 text-purple-600" />
-              Advanced Analytics
-            </li>
-            <li className="flex items-center gap-2">
-              <Check className="w-4 h-4 text-purple-600" />
-              API Access
-            </li>
-            <li className="flex items-center gap-2">
-              <Check className="w-4 h-4 text-purple-600" />
-              Custom Reports
-            </li>
-          </ul>
-        </div>
-      </div>
-    </motion.div>
-  )
-}
 
 // Partner Ledger Tab - Full wallet transaction history
 function PartnerLedgerTab({ user }: { user: any }) {

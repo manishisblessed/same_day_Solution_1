@@ -83,6 +83,7 @@ function SchemeManagementPageContent() {
   const [retailers, setRetailers] = useState<any[]>([])
   const [distributors, setDistributors] = useState<any[]>([])
   const [masterDistributors, setMasterDistributors] = useState<any[]>([])
+  const [partners, setPartners] = useState<any[]>([])
   
   // ============================================================================
   // FETCH DATA
@@ -169,14 +170,16 @@ function SchemeManagementPageContent() {
   }, [filterType, filterStatus, searchQuery])
 
   const fetchUsers = useCallback(async () => {
-    const [r, d, md] = await Promise.all([
+    const [r, d, md, p] = await Promise.all([
       supabase.from('retailers').select('partner_id, name, email, status').eq('status', 'active'),
       supabase.from('distributors').select('partner_id, name, email, status').eq('status', 'active'),
       supabase.from('master_distributors').select('partner_id, name, email, status').eq('status', 'active'),
+      supabase.from('partners').select('id, name, email, status, business_name').eq('status', 'active'),
     ])
     setRetailers(r.data || [])
     setDistributors(d.data || [])
     setMasterDistributors(md.data || [])
+    setPartners((p.data || []).map((partner: any) => ({ ...partner, partner_id: partner.id })))
   }, [])
 
   useEffect(() => {
@@ -513,6 +516,7 @@ function SchemeManagementPageContent() {
     if (role === 'retailer') return retailers
     if (role === 'distributor') return distributors
     if (role === 'master_distributor') return masterDistributors
+    if (role === 'partner') return partners
     return []
   }
 
@@ -1304,6 +1308,7 @@ function SchemeManagementPageContent() {
                     <option value="retailer">Retailer</option>
                     <option value="distributor">Distributor</option>
                     <option value="master_distributor">Master Distributor</option>
+                    <option value="partner">Partner</option>
                   </select>
                 </div>
                 <div>

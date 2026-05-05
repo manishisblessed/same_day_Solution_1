@@ -7,7 +7,8 @@ import {
   LayoutDashboard, ShoppingCart, Activity, 
   Settings, TrendingUp, CreditCard, X, Menu,
   Wallet, Receipt, Banknote, Percent, BookOpen,
-  Crown, Sparkles, Key, BarChart3, Zap, Repeat
+  Crown, Sparkles, Key, BarChart3, Zap, Repeat,
+  Server, Scale
 } from 'lucide-react'
 import { apiFetch } from '@/lib/api-client'
 import { useAuth } from '@/contexts/AuthContext'
@@ -25,18 +26,20 @@ interface SidebarItem {
 const sidebarItems: SidebarItem[] = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, href: '/dashboard/partner?tab=dashboard' },
   { id: 'wallet', label: 'Wallet', icon: Wallet, href: '/dashboard/partner?tab=wallet' },
-  { id: 'services', label: 'Services', icon: Activity, href: '/dashboard/partner?tab=services' },
-  { id: 'bbps', label: 'BBPS Payments', icon: Receipt, href: '/dashboard/partner?tab=bbps' },
-  { id: 'payout', label: 'Settlement', icon: Banknote, href: '/dashboard/partner?tab=payout' },
+  { id: 'services', label: 'API Integrations', icon: Activity, href: '/dashboard/partner?tab=services' },
+  { id: 'bbps', label: 'BBPS API Transactions', icon: Receipt, href: '/dashboard/partner?tab=bbps' },
+  { id: 'payout', label: 'Payouts / Settlements', icon: Banknote, href: '/dashboard/partner?tab=payout' },
   { id: 'transactions', label: 'Transactions', icon: CreditCard, href: '/dashboard/partner?tab=transactions' },
   { id: 'ledger', label: 'Ledger', icon: BookOpen, href: '/dashboard/partner?tab=ledger' },
   { id: 'pos-machines', label: 'My POS Machines', icon: CreditCard, href: '/dashboard/partner?tab=pos-machines' },
   { id: 'subscriptions', label: 'Subscriptions', icon: Repeat, href: '/dashboard/partner?tab=subscriptions' },
   { id: 'mdr-schemes', label: 'MDR Schemes', icon: Percent, href: '/dashboard/partner?tab=mdr-schemes' },
   { id: 'reports', label: 'Reports', icon: TrendingUp, href: '/dashboard/partner?tab=reports' },
+  { id: 'api-dashboard', label: 'API Dashboard', icon: Server, href: '/dashboard/partner?tab=api-dashboard' },
+  { id: 'analytics', label: 'Business Analytics', icon: BarChart3, href: '/dashboard/partner?tab=analytics' },
+  { id: 'reconciliation', label: 'Reconciliation', icon: Scale, href: '/dashboard/partner?tab=reconciliation' },
   // VIP Features
   { id: 'api-management', label: 'API Management', icon: Key, href: '/dashboard/partner?tab=api-management', vip: true },
-  { id: 'analytics', label: 'Advanced Analytics', icon: BarChart3, href: '/dashboard/partner?tab=analytics', vip: true },
   { id: 'settings', label: 'Settings', icon: Settings, href: '/dashboard/partner?tab=settings' },
 ]
 
