@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { createClient } from '@supabase/supabase-js'
+import { resolveTransactionAssignments } from '@/lib/pos-assignment-resolver'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -137,89 +138,15 @@ export async function GET(request: NextRequest) {
 
     const transactions = allTransactions
 
-    // Fetch POS machine assignments to get partner/retailer info
-    const uniqueTids = [...new Set((transactions || []).map((t: any) => t.tid).filter(Boolean))]
-    let posMachineMap: Record<string, any> = {}
-    let retailerMap: Record<string, any> = {}
-    let distributorMap: Record<string, any> = {}
-    let masterDistributorMap: Record<string, any> = {}
-    let partnerMap: Record<string, any> = {}
-
-    if (uniqueTids.length > 0) {
-      // Batch TIDs in chunks to avoid PostgREST URL length limits
-      const BATCH_SIZE = 50
-      for (let i = 0; i < uniqueTids.length; i += BATCH_SIZE) {
-        const tidBatch = uniqueTids.slice(i, i + BATCH_SIZE)
-        const { data: posMachines } = await supabase
-          .from('pos_machines')
-          .select('tid, retailer_id, distributor_id, master_distributor_id, partner_id')
-          .in('tid', tidBatch)
-        
-        if (posMachines) {
-          posMachines.forEach((pm: any) => {
-            if (pm.tid) posMachineMap[pm.tid] = pm
-          })
-        }
-      }
-
-      const allPosMachines = Object.values(posMachineMap)
-      const retailerIds = [...new Set(allPosMachines.map((pm: any) => pm.retailer_id).filter(Boolean))]
-      const distributorIds = [...new Set(allPosMachines.map((pm: any) => pm.distributor_id).filter(Boolean))]
-      const masterDistributorIds = [...new Set(allPosMachines.map((pm: any) => pm.master_distributor_id).filter(Boolean))]
-      const partnerIds = [...new Set(allPosMachines.map((pm: any) => pm.partner_id).filter(Boolean))]
-
-      if (retailerIds.length > 0) {
-        for (let i = 0; i < retailerIds.length; i += BATCH_SIZE) {
-          const batch = retailerIds.slice(i, i + BATCH_SIZE)
-          const { data: retailers } = await supabase
-            .from('retailers')
-            .select('partner_id, name, business_name')
-            .in('partner_id', batch)
-          if (retailers) {
-            retailers.forEach((r: any) => { retailerMap[r.partner_id] = r })
-          }
-        }
-      }
-
-      if (distributorIds.length > 0) {
-        for (let i = 0; i < distributorIds.length; i += BATCH_SIZE) {
-          const batch = distributorIds.slice(i, i + BATCH_SIZE)
-          const { data: distributors } = await supabase
-            .from('distributors')
-            .select('partner_id, name, business_name')
-            .in('partner_id', batch)
-          if (distributors) {
-            distributors.forEach((d: any) => { distributorMap[d.partner_id] = d })
-          }
-        }
-      }
-
-      if (masterDistributorIds.length > 0) {
-        for (let i = 0; i < masterDistributorIds.length; i += BATCH_SIZE) {
-          const batch = masterDistributorIds.slice(i, i + BATCH_SIZE)
-          const { data: masterDistributors } = await supabase
-            .from('master_distributors')
-            .select('partner_id, name, business_name')
-            .in('partner_id', batch)
-          if (masterDistributors) {
-            masterDistributors.forEach((md: any) => { masterDistributorMap[md.partner_id] = md })
-          }
-        }
-      }
-
-      if (partnerIds.length > 0) {
-        for (let i = 0; i < partnerIds.length; i += BATCH_SIZE) {
-          const batch = partnerIds.slice(i, i + BATCH_SIZE)
-          const { data: partners } = await supabase
-            .from('partners')
-            .select('id, name, business_name')
-            .in('id', batch)
-          if (partners) {
-            partners.forEach((p: any) => { partnerMap[p.id] = p })
-          }
-        }
-      }
-    }
+    // Time-aware partner/retailer resolution using assignment history
+    const assignmentMap = await resolveTransactionAssignments(
+      supabase,
+      (transactions || []).map((t: any) => ({
+        txn_id: t.txn_id,
+        tid: t.tid,
+        transaction_time: t.transaction_time,
+      }))
+    )
 
     // Company name mapping
     const getCompanyName = (slug: string | null) => {
@@ -233,24 +160,8 @@ export async function GET(request: NextRequest) {
     }
 
     const rows = (transactions || []).map((txn: any) => {
-      const posMachine = txn.tid ? posMachineMap[txn.tid] : null
-      let assignedName = ''
-
-      if (posMachine) {
-        if (posMachine.retailer_id) {
-          const retailer = retailerMap[posMachine.retailer_id]
-          assignedName = retailer?.name || retailer?.business_name || ''
-        } else if (posMachine.distributor_id) {
-          const distributor = distributorMap[posMachine.distributor_id]
-          assignedName = distributor?.name || distributor?.business_name || ''
-        } else if (posMachine.master_distributor_id) {
-          const masterDist = masterDistributorMap[posMachine.master_distributor_id]
-          assignedName = masterDist?.name || masterDist?.business_name || ''
-        } else if (posMachine.partner_id) {
-          const partner = partnerMap[posMachine.partner_id]
-          assignedName = partner?.name || partner?.business_name || ''
-        }
-      }
+      const assignment = assignmentMap[txn.txn_id]
+      const assignedName = assignment?.assigned_name || ''
 
       return {
         'Transaction ID': txn.txn_id || '',
