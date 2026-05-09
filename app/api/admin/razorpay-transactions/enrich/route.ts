@@ -134,6 +134,11 @@ export async function POST(request: NextRequest) {
           updateData.display_status = 'SUCCESS'
           updateData.settlement_status = 'SETTLED'
         }
+        // Fix merchant slug/name from report
+        if (record.company) {
+          updateData.merchant_name = record.company
+          updateData.merchant_slug = detectMerchantSlug(record.company)
+        }
 
         if (Object.keys(updateData).length === 0) {
           skipped++
