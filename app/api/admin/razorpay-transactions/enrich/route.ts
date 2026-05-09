@@ -112,8 +112,8 @@ export async function POST(request: NextRequest) {
         .maybeSingle()
 
       if (existing) {
-        // UPDATE existing record with enrichment fields
-        const updateData: Record<string, string> = {}
+        // UPDATE existing record with enrichment fields + fix status
+        const updateData: Record<string, any> = {}
         if (record.card_classification && record.card_classification !== 'NULL') {
           updateData.card_classification = record.card_classification
         }
@@ -128,6 +128,11 @@ export async function POST(request: NextRequest) {
         }
         if (record.card_number) {
           updateData.card_number = record.card_number
+        }
+        // Fix display_status for settled transactions
+        if (isSuccessStatus(record.status)) {
+          updateData.display_status = 'SUCCESS'
+          updateData.settlement_status = 'SETTLED'
         }
 
         if (Object.keys(updateData).length === 0) {
@@ -157,8 +162,8 @@ export async function POST(request: NextRequest) {
 
         const insertData: Record<string, any> = {
           txn_id: record.txn_id,
-          status: record.status === 'SETTLED' ? 'AUTHORIZED' : (record.status || 'AUTHORIZED'),
-          display_status: (record.status === 'SETTLED' || record.status === 'AUTHORIZED' || record.status === 'CAPTURED') ? 'SUCCESS' : 'PENDING',
+          status: isSuccessStatus(record.status) ? 'AUTHORIZED' : (record.status || 'AUTHORIZED'),
+          display_status: isSuccessStatus(record.status) ? 'SUCCESS' : 'PENDING',
           amount: record.amount,
           payment_mode: (record.mode || 'CARD').toUpperCase(),
           device_serial: record.device_serial || null,
@@ -180,7 +185,7 @@ export async function POST(request: NextRequest) {
           currency: 'INR',
           rrn: record.rrn || null,
           external_ref: record.ref || null,
-          settlement_status: record.status === 'SETTLED' ? 'SETTLED' : 'PENDING',
+          settlement_status: isSuccessStatus(record.status) ? 'SETTLED' : 'PENDING',
           receipt_url: record.receipt_url || null,
           card_txn_type: (record.card_txn_type && record.card_txn_type !== 'NULL') ? record.card_txn_type : null,
           acquiring_bank: (record.acquiring_bank && record.acquiring_bank !== 'NULL') ? record.acquiring_bank : null,
@@ -217,6 +222,12 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     )
   }
+}
+
+function isSuccessStatus(status?: string | null): boolean {
+  if (!status) return false
+  const s = status.toUpperCase().trim()
+  return ['SETTLED', 'SETTLEMENT_POSTED', 'AUTHORIZED', 'CAPTURED', 'SUCCESS'].includes(s)
 }
 
 function parseReportDate(dateStr?: string | null): string {

@@ -66,7 +66,7 @@ export async function GET(request: NextRequest) {
     const searchParams = request.nextUrl.searchParams
     const page = parseInt(searchParams.get('page') || '1')
     const rawLimit = parseInt(searchParams.get('limit') || '25', 10)
-    const limit = [10, 25, 100].includes(rawLimit) ? rawLimit : 25
+    const limit = [10, 25, 50, 100].includes(rawLimit) ? rawLimit : 25
     const offset = (page - 1) * limit
     const statusFilter = searchParams.get('status') // Optional filter by status
     const dateFrom = searchParams.get('date_from') // Date range start (YYYY-MM-DD or ISO)
@@ -85,6 +85,15 @@ export async function GET(request: NextRequest) {
         { status: 400 }
       )
     }
+
+    // Fix misclassified transactions: raw status CAPTURED/SUCCESS should be display_status SUCCESS
+    // This handles records that were stored before the mapTransactionStatus fix
+    // Also covers SETTLEMENT_POSTED from report uploads
+    await supabase
+      .from('razorpay_pos_transactions')
+      .update({ display_status: 'SUCCESS' })
+      .eq('display_status', 'PENDING')
+      .in('status', ['CAPTURED', 'SUCCESS', 'AUTHORIZED', 'SETTLEMENT_POSTED'])
 
     // Build query from razorpay_pos_transactions (the table webhook writes to)
     // Select dedicated columns + raw_data for fallback extraction
@@ -184,65 +193,68 @@ export async function GET(request: NextRequest) {
       }))
     )
 
-    // Build a separate query for aggregate stats using RPC-style approach
+    // Build a separate query for aggregate stats
     // We use multiple targeted queries to avoid the 1000-row default limit
-    
-    // Helper: build base filter for stats queries
-    const buildStatsFilter = (q: any) => {
+
+    // Fetch amounts in pages to avoid the 1000-row limit
+    let totalCapturedAmount = 0
+    let totalCapturedCount = 0
+    const pageLimit = 1000
+    let statsOffset = 0
+    let hasMoreStats = true
+
+    // Determine what display_status to use for stats:
+    // If user selected a specific status filter, only aggregate that status.
+    // Otherwise aggregate SUCCESS (captured) transactions.
+    const statsDisplayStatus = (statusFilter && ['CAPTURED', 'FAILED', 'PENDING'].includes(statusFilter.toUpperCase()))
+      ? (statusFilter.toUpperCase() === 'CAPTURED' ? 'SUCCESS' : statusFilter.toUpperCase())
+      : 'SUCCESS'
+
+    while (hasMoreStats) {
+      let amountQuery = supabase
+        .from('razorpay_pos_transactions')
+        .select('amount')
+        .eq('display_status', statsDisplayStatus)
+        .range(statsOffset, statsOffset + pageLimit - 1)
+
+      // Apply all filters EXCEPT status (already handled above)
       if (merchantSlug && merchantSlug !== 'all') {
         const slugs = merchantSlug.split(',').map(s => s.trim()).filter(Boolean)
         if (slugs.length === 1) {
           if (slugs[0] === 'ashvam') {
-            q = q.or('merchant_slug.eq.ashvam,merchant_slug.is.null')
+            amountQuery = amountQuery.or('merchant_slug.eq.ashvam,merchant_slug.is.null')
           } else {
-            q = q.eq('merchant_slug', slugs[0])
+            amountQuery = amountQuery.eq('merchant_slug', slugs[0])
           }
         } else if (slugs.length > 1) {
           const conditions = slugs.map(slug => {
             if (slug === 'ashvam') return 'merchant_slug.eq.ashvam,merchant_slug.is.null'
             return `merchant_slug.eq.${slug}`
           }).join(',')
-          q = q.or(conditions)
+          amountQuery = amountQuery.or(conditions)
         }
-      }
-      if (statusFilter && ['CAPTURED', 'FAILED', 'PENDING'].includes(statusFilter.toUpperCase())) {
-        const displayStatus = statusFilter.toUpperCase() === 'CAPTURED' ? 'SUCCESS' : statusFilter.toUpperCase()
-        q = q.eq('display_status', displayStatus)
       }
       if (dateFrom) {
         const fromDate = dateFrom.includes('T') ? dateFrom : `${dateFrom}T00:00:00+05:30`
-        q = q.gte('transaction_time', fromDate)
+        amountQuery = amountQuery.gte('transaction_time', fromDate)
       }
       if (dateTo) {
         const toDate = dateTo.includes('T') ? dateTo : `${dateTo}T23:59:59+05:30`
-        q = q.lte('transaction_time', toDate)
+        amountQuery = amountQuery.lte('transaction_time', toDate)
       }
-      if (paymentMode && paymentMode !== 'all') q = q.eq('payment_mode', paymentMode.toUpperCase())
-      if (settlementFilter && settlementFilter !== 'all') q = q.eq('settlement_status', settlementFilter.toUpperCase())
-      if (cardBrand && cardBrand !== 'all') q = q.eq('card_brand', cardBrand.toUpperCase())
-      if (acquiringBank && acquiringBank.trim()) q = q.ilike('acquiring_bank', `%${acquiringBank.trim()}%`)
+      if (paymentMode && paymentMode !== 'all') amountQuery = amountQuery.eq('payment_mode', paymentMode.toUpperCase())
+      if (settlementFilter && settlementFilter !== 'all') amountQuery = amountQuery.eq('settlement_status', settlementFilter.toUpperCase())
+      if (cardBrand && cardBrand !== 'all') amountQuery = amountQuery.eq('card_brand', cardBrand.toUpperCase())
+      if (acquiringBank && acquiringBank.trim()) amountQuery = amountQuery.ilike('acquiring_bank', `%${acquiringBank.trim()}%`)
       if (searchQuery && searchQuery.trim()) {
         const s = searchQuery.trim()
-        q = q.or(`txn_id.ilike.%${s}%,rrn.ilike.%${s}%,tid.ilike.%${s}%,mid_code.ilike.%${s}%,customer_name.ilike.%${s}%,username.ilike.%${s}%,card_number.ilike.%${s}%`)
+        amountQuery = amountQuery.or(`txn_id.ilike.%${s}%,rrn.ilike.%${s}%,tid.ilike.%${s}%,mid_code.ilike.%${s}%,customer_name.ilike.%${s}%,username.ilike.%${s}%,card_number.ilike.%${s}%`)
       }
-      return q
-    }
 
-    // Fetch amounts in pages to avoid the 1000-row limit
-    let totalCapturedAmount = 0
-    const pageLimit = 1000
-    let statsOffset = 0
-    let hasMoreStats = true
-    while (hasMoreStats) {
-      let amountQuery = supabase
-        .from('razorpay_pos_transactions')
-        .select('amount')
-        .eq('display_status', 'SUCCESS')
-        .range(statsOffset, statsOffset + pageLimit - 1)
-      amountQuery = buildStatsFilter(amountQuery)
       const { data: amountData } = await amountQuery
       if (amountData && amountData.length > 0) {
         totalCapturedAmount += amountData.reduce((sum: number, t: any) => sum + (t.amount || 0), 0)
+        totalCapturedCount += amountData.length
         statsOffset += pageLimit
         if (amountData.length < pageLimit) hasMoreStats = false
       } else {
@@ -253,7 +265,7 @@ export async function GET(request: NextRequest) {
     // total count comes from the main paginated query (exact count)
     const totalTransactions = count || 0
     const capturedAmount = totalCapturedAmount
-    const avgAmount = totalTransactions > 0 ? Math.round(capturedAmount / totalTransactions) : 0
+    const avgAmount = totalCapturedCount > 0 ? Math.round(capturedAmount / totalCapturedCount) : 0
 
     // Map fields to the format the frontend expects
     // Use dedicated columns first, fallback to raw_data extraction
