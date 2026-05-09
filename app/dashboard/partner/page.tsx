@@ -200,7 +200,7 @@ function PartnerDashboardContent() {
         type: entry.description || entry.transaction_type || 'Wallet',
         amount: Number(entry.credit) || Number(entry.debit) || 0,
         status: entry.status || 'completed',
-        date: new Date(entry.created_at).toLocaleDateString(),
+        date: new Date(entry.created_at).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' }),
         customer: 'Customer',
         source: 'ledger',
         timestamp: new Date(entry.created_at).getTime(),
@@ -211,7 +211,7 @@ function PartnerDashboardContent() {
         type: 'POS Transaction',
         amount: parseFloat(tx.amount || 0) / 100 || 0, // Convert from paise to rupees
         status: (tx.display_status || tx.status || 'PENDING').toLowerCase(),
-        date: tx.transaction_time ? new Date(tx.transaction_time).toLocaleDateString() : new Date().toLocaleDateString(),
+        date: tx.transaction_time ? new Date(tx.transaction_time).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' }) : new Date().toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' }),
         customer: 'POS Customer',
         source: 'pos',
         timestamp: tx.transaction_time ? new Date(tx.transaction_time).getTime() : new Date().getTime(),
@@ -1338,7 +1338,7 @@ function WalletTab({ user }: { user: any }) {
                 ledgerEntries.map((entry) => (
                   <tr key={entry.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
                     <td className="px-4 py-3 text-sm text-gray-900 dark:text-white">
-                      {new Date(entry.created_at).toLocaleDateString()}
+                      {new Date(entry.created_at).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' })}
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-900 dark:text-white">{entry.transaction_type}</td>
                     <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400 max-w-[200px] truncate" title={entry.description || ''}>

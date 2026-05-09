@@ -44,6 +44,7 @@ export async function POST(request: NextRequest) {
       subscription_amount,
       billing_day,
       gst_percent,
+      assigned_date,
     } = body
 
     if (!assignTo || typeof assignTo !== 'string') {
@@ -101,6 +102,8 @@ export async function POST(request: NextRequest) {
         .limit(1)
         .maybeSingle()
 
+      const effectiveAssignDate = assigned_date || new Date().toISOString()
+
       let result
       if (assignToType === 'master_distributor') {
         result = await adminAssignOneToMasterDistributor(
@@ -113,7 +116,8 @@ export async function POST(request: NextRequest) {
           activeAssignment,
           subAmount,
           bDay,
-          gst
+          gst,
+          effectiveAssignDate
         )
       } else if (assignToType === 'distributor') {
         result = await adminAssignOneToDistributor(
@@ -126,10 +130,11 @@ export async function POST(request: NextRequest) {
           activeAssignment,
           subAmount,
           bDay,
-          gst
+          gst,
+          effectiveAssignDate
         )
       } else if (assignToType === 'partner') {
-        result = await adminAssignOneToPartner(supabase, request, user, machine, assignTo, notes, activeAssignment)
+        result = await adminAssignOneToPartner(supabase, request, user, machine, assignTo, notes, activeAssignment, effectiveAssignDate)
       } else {
         result = await adminAssignOneToRetailer(
           supabase,
@@ -141,7 +146,8 @@ export async function POST(request: NextRequest) {
           activeAssignment,
           subAmount,
           bDay,
-          gst
+          gst,
+          effectiveAssignDate
         )
       }
 

@@ -24,6 +24,7 @@ interface TrackingEntry {
   previous_holder: string | null
   previous_holder_role: string | null
   status: 'active' | 'returned'
+  assigned_date: string | null
   returned_date: string | null
   return_reason: string | null
   notes: string | null
@@ -48,6 +49,8 @@ const ACTION_CONFIG: Record<string, { label: string; color: string; icon: any; b
   unassigned_from_master_distributor: { label: 'Returned ← MD', color: 'text-orange-700 dark:text-orange-400', icon: RotateCcw, bgColor: 'bg-orange-50 dark:bg-orange-900/30' },
   unassigned_from_partner: { label: 'Returned ← Partner', color: 'text-orange-700 dark:text-orange-400', icon: RotateCcw, bgColor: 'bg-orange-50 dark:bg-orange-900/30' },
   reassigned: { label: 'Reassigned', color: 'text-amber-700 dark:text-amber-400', icon: ArrowLeftRight, bgColor: 'bg-amber-50 dark:bg-amber-900/30' },
+  recalled_to_master_distributor: { label: 'Recalled → MD', color: 'text-violet-700 dark:text-violet-400', icon: RotateCcw, bgColor: 'bg-violet-50 dark:bg-violet-900/30' },
+  recalled_to_distributor: { label: 'Recalled → Distributor', color: 'text-violet-700 dark:text-violet-400', icon: RotateCcw, bgColor: 'bg-violet-50 dark:bg-violet-900/30' },
 }
 
 const FALLBACK_ACTION = { label: 'Unknown', color: 'text-gray-700 dark:text-gray-400', icon: History, bgColor: 'bg-gray-50 dark:bg-gray-900/30' }
@@ -338,14 +341,14 @@ export default function POSTrackingReport() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-gray-50 dark:bg-gray-900/50 border-b border-gray-200 dark:border-gray-700">
-                  <th className="px-4 py-3 text-left font-semibold text-gray-700 dark:text-gray-300 whitespace-nowrap">DATE</th>
                   <th className="px-4 py-3 text-left font-semibold text-gray-700 dark:text-gray-300 whitespace-nowrap">MACHINE</th>
                   <th className="px-4 py-3 text-left font-semibold text-gray-700 dark:text-gray-300 whitespace-nowrap">ACTION</th>
                   <th className="px-4 py-3 text-left font-semibold text-gray-700 dark:text-gray-300 whitespace-nowrap">ASSIGNED BY</th>
                   <th className="px-4 py-3 text-left font-semibold text-gray-700 dark:text-gray-300 whitespace-nowrap">FROM (PREV HOLDER)</th>
                   <th className="px-4 py-3 text-left font-semibold text-gray-700 dark:text-gray-300 whitespace-nowrap">TO (MERCHANT)</th>
-                  <th className="px-4 py-3 text-left font-semibold text-gray-700 dark:text-gray-300 whitespace-nowrap">STATUS</th>
+                  <th className="px-4 py-3 text-left font-semibold text-gray-700 dark:text-gray-300 whitespace-nowrap">ASSIGNED DATE</th>
                   <th className="px-4 py-3 text-left font-semibold text-gray-700 dark:text-gray-300 whitespace-nowrap">RETURN DATE</th>
+                  <th className="px-4 py-3 text-left font-semibold text-gray-700 dark:text-gray-300 whitespace-nowrap">STATUS</th>
                   <th className="px-4 py-3 text-left font-semibold text-gray-700 dark:text-gray-300 whitespace-nowrap">RETURN REASON</th>
                   <th className="px-4 py-3 text-left font-semibold text-gray-700 dark:text-gray-300 whitespace-nowrap">NOTES</th>
                 </tr>
@@ -357,9 +360,6 @@ export default function POSTrackingReport() {
                   const machine = machineMap[h.pos_machine_id]
                   return (
                     <tr key={h.id} className="hover:bg-gray-50 dark:hover:bg-gray-900/30 transition-colors">
-                      <td className="px-4 py-3 text-gray-600 dark:text-gray-400 whitespace-nowrap text-xs">
-                        {formatDate(h.created_at)}
-                      </td>
                       <td className="px-4 py-3">
                         <div className="font-semibold text-gray-900 dark:text-white">{h.machine_id}</div>
                         {machine && (
@@ -399,6 +399,12 @@ export default function POSTrackingReport() {
                           <span className="text-gray-400">Stock / Unassigned</span>
                         )}
                       </td>
+                      <td className="px-4 py-3 text-xs text-gray-600 dark:text-gray-400 whitespace-nowrap">
+                        {h.assigned_date ? formatDate(h.assigned_date) : formatDate(h.created_at)}
+                      </td>
+                      <td className="px-4 py-3 text-xs text-gray-600 dark:text-gray-400 whitespace-nowrap">
+                        {h.returned_date ? formatDate(h.returned_date) : '-'}
+                      </td>
                       <td className="px-4 py-3">
                         <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${
                           h.status === 'active'
@@ -408,9 +414,6 @@ export default function POSTrackingReport() {
                           {h.status === 'active' ? <CheckCircle2 className="w-3 h-3" /> : <XCircle className="w-3 h-3" />}
                           {h.status === 'active' ? 'Active' : 'Returned'}
                         </span>
-                      </td>
-                      <td className="px-4 py-3 text-xs text-gray-600 dark:text-gray-400 whitespace-nowrap">
-                        {h.returned_date ? formatDate(h.returned_date) : '-'}
                       </td>
                       <td className="px-4 py-3 text-xs text-gray-600 dark:text-gray-400 max-w-[160px] truncate" title={h.return_reason || ''}>
                         {h.return_reason || '-'}

@@ -327,7 +327,7 @@ export default function POSTransactionsTable({
     const csv = [
       ['Date/Time', 'TID', 'Device Serial', 'Amount', 'Status', 'Settlement', 'Payment Mode', 'Card Brand', 'Card Classification', 'MDR Rate', 'Net Amount', 'Transaction ID'].join(','),
       ...filteredTransactions.map(t => [
-        t.transaction_time ? new Date(t.transaction_time).toISOString() : '',
+        t.transaction_time ? new Date(t.transaction_time).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }) : '',
         t.tid || '',
         t.device_serial || '',
         t.amount || 0,

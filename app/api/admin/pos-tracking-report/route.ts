@@ -121,11 +121,42 @@ export async function GET(request: NextRequest) {
       machines?.forEach((m: any) => { machineMap[m.id] = m })
     }
 
-    // Summary stats
-    const totalAssignments = (history || []).filter((h: any) => h.action?.startsWith('assigned_to_')).length
-    const totalReturns = (history || []).filter((h: any) => h.action?.startsWith('unassigned_from_')).length
-    const totalReassignments = (history || []).filter((h: any) => h.action === 'reassigned').length
-    const activeAssignments = (history || []).filter((h: any) => h.status === 'active').length
+    // Summary stats — query full dataset, not just the current page
+    const buildSummaryQuery = (extraFilter?: (q: any) => any) => {
+      let q = supabase
+        .from('pos_assignment_history')
+        .select('id', { count: 'exact', head: true })
+      if (dateFrom) q = q.gte('created_at', dateFrom)
+      if (dateTo) q = q.lte('created_at', dateTo + 'T23:59:59.999Z')
+      if (search) {
+        q = q.or(
+          `machine_id.ilike.%${search}%,assigned_to.ilike.%${search}%,assigned_by.ilike.%${search}%,previous_holder.ilike.%${search}%,notes.ilike.%${search}%,return_reason.ilike.%${search}%`
+        )
+      }
+      if (view === 'device') {
+        const machineUuid = sp.get('machine_id')
+        const machineCode = sp.get('machine_code')
+        if (machineUuid) q = q.eq('pos_machine_id', machineUuid)
+        else if (machineCode) q = q.ilike('machine_id', `%${machineCode}%`)
+      } else if (view === 'merchant') {
+        const merchantId = sp.get('merchant_id')
+        if (merchantId) q = q.or(`assigned_to.eq.${merchantId},previous_holder.eq.${merchantId}`)
+      }
+      if (extraFilter) q = extraFilter(q)
+      return q
+    }
+
+    const [assignRes, returnRes, reassignRes, activeRes] = await Promise.all([
+      buildSummaryQuery(q => q.like('action', 'assigned_to_%')),
+      buildSummaryQuery(q => q.like('action', 'unassigned_from_%')),
+      buildSummaryQuery(q => q.eq('action', 'reassigned')),
+      buildSummaryQuery(q => q.eq('status', 'active')),
+    ])
+
+    const totalAssignments = assignRes.count || 0
+    const totalReturns = returnRes.count || 0
+    const totalReassignments = reassignRes.count || 0
+    const activeAssignments = activeRes.count || 0
 
     const totalPages = count ? Math.ceil(count / limit) : 1
 
@@ -133,7 +164,8 @@ export async function GET(request: NextRequest) {
       const rows = (history || []).map((h: any) => {
         const machine = machineMap[h.pos_machine_id]
         return {
-          'Date': new Date(h.created_at).toLocaleDateString('en-IN'),
+          'Record Date': new Date(h.created_at).toLocaleDateString('en-IN'),
+          'Assigned Date': h.assigned_date ? new Date(h.assigned_date).toLocaleDateString('en-IN') : '',
           'Machine ID': h.machine_id,
           'Serial Number': machine?.serial_number || '',
           'MID': machine?.mid || '',
@@ -207,6 +239,8 @@ function formatAction(action: string): string {
     unassigned_from_master_distributor: 'Returned from Master Distributor',
     unassigned_from_partner: 'Returned from Partner',
     reassigned: 'Reassigned',
+    recalled_to_master_distributor: 'Recalled to Master Distributor',
+    recalled_to_distributor: 'Recalled to Distributor',
   }
   return map[action] || action
 }

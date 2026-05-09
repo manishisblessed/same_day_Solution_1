@@ -20,6 +20,7 @@ interface HistoryEntry {
   previous_holder: string | null
   previous_holder_role: string | null
   status: 'active' | 'returned'
+  assigned_date: string | null
   returned_date: string | null
   notes: string | null
   created_at: string
@@ -36,6 +37,8 @@ const ACTION_CONFIG: Record<string, { label: string; color: string; icon: any; b
   unassigned_from_master_distributor: { label: 'Returned from Master Distributor', color: 'text-orange-700', icon: RotateCcw, bgColor: 'bg-orange-100 dark:bg-orange-900/30' },
   unassigned_from_partner: { label: 'Returned from Partner', color: 'text-orange-700', icon: RotateCcw, bgColor: 'bg-orange-100 dark:bg-orange-900/30' },
   reassigned: { label: 'Reassigned', color: 'text-amber-700', icon: ArrowRight, bgColor: 'bg-amber-100 dark:bg-amber-900/30' },
+  recalled_to_master_distributor: { label: 'Recalled to MD', color: 'text-violet-700', icon: RotateCcw, bgColor: 'bg-violet-100 dark:bg-violet-900/30' },
+  recalled_to_distributor: { label: 'Recalled to Distributor', color: 'text-violet-700', icon: RotateCcw, bgColor: 'bg-violet-100 dark:bg-violet-900/30' },
 }
 
 const FALLBACK_ACTION = { label: 'Unknown', color: 'text-gray-700', icon: History, bgColor: 'bg-gray-100 dark:bg-gray-900/30' }
@@ -234,15 +237,14 @@ export default function POSMachineHistoryTab() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-gray-50 dark:bg-gray-900/50 border-b border-gray-200 dark:border-gray-700">
-                  <th className="px-4 py-3 text-left font-semibold text-gray-700 dark:text-gray-300">DATE</th>
                   <th className="px-4 py-3 text-left font-semibold text-gray-700 dark:text-gray-300">MACHINE</th>
                   <th className="px-4 py-3 text-left font-semibold text-gray-700 dark:text-gray-300">ACTION</th>
                   <th className="px-4 py-3 text-left font-semibold text-gray-700 dark:text-gray-300">BY</th>
                   <th className="px-4 py-3 text-left font-semibold text-gray-700 dark:text-gray-300">FROM</th>
                   <th className="px-4 py-3 text-left font-semibold text-gray-700 dark:text-gray-300">TO</th>
-                  <th className="px-4 py-3 text-left font-semibold text-gray-700 dark:text-gray-300">ASSIGNMENT</th>
-                  <th className="px-4 py-3 text-left font-semibold text-gray-700 dark:text-gray-300">RETURNED</th>
-                  <th className="px-4 py-3 text-left font-semibold text-gray-700 dark:text-gray-300">CURRENT STATUS</th>
+                  <th className="px-4 py-3 text-left font-semibold text-gray-700 dark:text-gray-300">ASSIGNED DATE</th>
+                  <th className="px-4 py-3 text-left font-semibold text-gray-700 dark:text-gray-300">RETURN DATE</th>
+                  <th className="px-4 py-3 text-left font-semibold text-gray-700 dark:text-gray-300">STATUS</th>
                   <th className="px-4 py-3 text-left font-semibold text-gray-700 dark:text-gray-300">NOTES</th>
                 </tr>
               </thead>
@@ -253,9 +255,6 @@ export default function POSMachineHistoryTab() {
                   const machine = machineMap[h.pos_machine_id]
                   return (
                     <tr key={h.id} className="hover:bg-gray-50 dark:hover:bg-gray-900/30 transition-colors">
-                      <td className="px-4 py-3 text-gray-600 dark:text-gray-400 whitespace-nowrap text-xs">
-                        {formatDate(h.created_at)}
-                      </td>
                       <td className="px-4 py-3">
                         <div className="font-semibold text-gray-900 dark:text-white">{h.machine_id}</div>
                         {machine && (
@@ -292,6 +291,12 @@ export default function POSMachineHistoryTab() {
                           <span className="text-gray-400">Stock</span>
                         )}
                       </td>
+                      <td className="px-4 py-3 text-xs text-gray-600 dark:text-gray-400 whitespace-nowrap">
+                        {h.assigned_date ? formatDate(h.assigned_date) : formatDate(h.created_at)}
+                      </td>
+                      <td className="px-4 py-3 text-xs text-gray-600 dark:text-gray-400 whitespace-nowrap">
+                        {h.returned_date ? formatDate(h.returned_date) : '-'}
+                      </td>
                       <td className="px-4 py-3">
                         <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
                           h.status === 'active'
@@ -300,23 +305,6 @@ export default function POSMachineHistoryTab() {
                         }`}>
                           {h.status === 'active' ? 'Active' : 'Returned'}
                         </span>
-                      </td>
-                      <td className="px-4 py-3 text-xs text-gray-600 dark:text-gray-400 whitespace-nowrap">
-                        {h.returned_date ? formatDate(h.returned_date) : '-'}
-                      </td>
-                      <td className="px-4 py-3">
-                        {machine ? (
-                          <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
-                            machine.inventory_status === 'in_stock' ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400' :
-                            machine.inventory_status === 'assigned_to_retailer' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400' :
-                            machine.inventory_status === 'assigned_to_distributor' ? 'bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-400' :
-                            machine.inventory_status === 'assigned_to_master_distributor' ? 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400' :
-                            machine.inventory_status === 'assigned_to_partner' ? 'bg-teal-100 text-teal-800 dark:bg-teal-900/30 dark:text-teal-400' :
-                            'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
-                          }`}>
-                            {(machine.inventory_status || 'unknown').replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase())}
-                          </span>
-                        ) : '-'}
                       </td>
                       <td className="px-4 py-3 text-xs text-gray-500 dark:text-gray-400 max-w-[200px] truncate" title={h.notes || ''}>
                         {h.notes || '-'}

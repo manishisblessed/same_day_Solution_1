@@ -94,7 +94,8 @@ export async function adminAssignOneToPartner(
   machine: any,
   assignTo: string,
   notes: string | undefined,
-  activeAssignment: any
+  activeAssignment: any,
+  assignedDate?: string
 ): Promise<AdminSingleAssignResult> {
   const { data: partner, error: partnerError } = await supabase
     .from('partners')
@@ -154,6 +155,7 @@ export async function adminAssignOneToPartner(
 
   await syncPartnerPosMachine(supabase, machine, assignTo, partner)
 
+  const effectiveDate = assignedDate || new Date().toISOString()
   await supabase.from('pos_assignment_history').insert({
     pos_machine_id: machine.id,
     machine_id: machine.machine_id,
@@ -174,6 +176,7 @@ export async function adminAssignOneToPartner(
             ? 'master_distributor'
             : null,
     status: 'active',
+    assigned_date: effectiveDate,
     notes: notes || `Admin assigned to Partner ${partner.name}`,
   })
 
@@ -192,7 +195,8 @@ export async function adminAssignOneToMasterDistributor(
   activeAssignment: any,
   subscriptionAmount: number | null,
   billingDay: number,
-  gstPercent: number
+  gstPercent: number,
+  assignedDate?: string
 ): Promise<AdminSingleAssignResult> {
   const { data: md, error: mdError } = await supabase
     .from('master_distributors')
@@ -240,6 +244,7 @@ export async function adminAssignOneToMasterDistributor(
     return { ok: false, error: 'Failed to assign machine', status: 500 }
   }
 
+  const effectiveDateMd = assignedDate || new Date().toISOString()
   await supabase.from('pos_assignment_history').insert({
     pos_machine_id: machine.id,
     machine_id: machine.machine_id,
@@ -251,6 +256,7 @@ export async function adminAssignOneToMasterDistributor(
     previous_holder: machine.master_distributor_id || null,
     previous_holder_role: machine.master_distributor_id ? 'master_distributor' : null,
     status: 'active',
+    assigned_date: effectiveDateMd,
     notes: notes || `Admin assigned to ${md.name}`,
   })
 
@@ -286,7 +292,8 @@ export async function adminAssignOneToDistributor(
   activeAssignment: any,
   subscriptionAmount: number | null,
   billingDay: number,
-  gstPercent: number
+  gstPercent: number,
+  assignedDate?: string
 ): Promise<AdminSingleAssignResult> {
   const { data: dist, error: distError } = await supabase
     .from('distributors')
@@ -346,6 +353,7 @@ export async function adminAssignOneToDistributor(
     return { ok: false, error: 'Failed to assign machine', status: 500 }
   }
 
+  const effectiveDateDist = assignedDate || new Date().toISOString()
   await supabase.from('pos_assignment_history').insert({
     pos_machine_id: machine.id,
     machine_id: machine.machine_id,
@@ -363,6 +371,7 @@ export async function adminAssignOneToDistributor(
           ? 'partner'
           : null,
     status: 'active',
+    assigned_date: effectiveDateDist,
     notes: notes || `Admin assigned to Distributor ${dist.name}`,
   })
 
@@ -403,7 +412,8 @@ export async function adminAssignOneToRetailer(
   activeAssignment: any,
   subscriptionAmount: number | null,
   billingDay: number,
-  gstPercent: number
+  gstPercent: number,
+  assignedDate?: string
 ): Promise<AdminSingleAssignResult> {
   const { data: retailer, error: retailerError } = await supabase
     .from('retailers')
@@ -467,6 +477,7 @@ export async function adminAssignOneToRetailer(
     return { ok: false, error: 'Failed to assign machine', status: 500 }
   }
 
+  const effectiveDateRt = assignedDate || new Date().toISOString()
   await supabase.from('pos_assignment_history').insert({
     pos_machine_id: machine.id,
     machine_id: machine.machine_id,
@@ -486,6 +497,7 @@ export async function adminAssignOneToRetailer(
             ? 'partner'
             : null,
     status: 'active',
+    assigned_date: effectiveDateRt,
     notes: notes || `Admin assigned to Retailer ${retailer.name}`,
   })
 

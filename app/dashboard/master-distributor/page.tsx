@@ -654,7 +654,7 @@ function WalletTab({ user }: { user: any }) {
                 ledgerEntries.map((entry) => (
                   <tr key={entry.id} className="hover:bg-gray-50">
                     <td className="px-4 py-3 text-sm text-gray-900">
-                      {new Date(entry.created_at).toLocaleDateString()}
+                      {new Date(entry.created_at).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' })}
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-900">{entry.transaction_type}</td>
                     <td className="px-4 py-3 text-sm text-gray-500">{entry.fund_category || '-'}</td>
@@ -1932,7 +1932,7 @@ function CommissionTab({ commissionData, stats }: { commissionData: any[], stats
                 commissionData.map((entry) => (
                   <tr key={entry.id} className="hover:bg-gray-50">
                     <td className="px-4 py-3 text-sm text-gray-900">
-                      {new Date(entry.created_at).toLocaleDateString()}
+                      {new Date(entry.created_at).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' })}
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-900">{entry.reference_id || '-'}</td>
                     <td className="px-4 py-3 text-sm text-gray-500">{entry.service_type || '-'}</td>

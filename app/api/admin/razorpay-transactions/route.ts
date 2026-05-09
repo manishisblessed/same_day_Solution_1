@@ -122,13 +122,13 @@ export async function GET(request: NextRequest) {
       query = query.eq('display_status', displayStatus)
     }
 
-    // Apply date range filter
+    // Apply date range filter (IST boundaries — +05:30 offset)
     if (dateFrom) {
-      const fromDate = dateFrom.includes('T') ? dateFrom : `${dateFrom}T00:00:00`
+      const fromDate = dateFrom.includes('T') ? dateFrom : `${dateFrom}T00:00:00+05:30`
       query = query.gte('transaction_time', fromDate)
     }
     if (dateTo) {
-      const toDate = dateTo.includes('T') ? dateTo : `${dateTo}T23:59:59`
+      const toDate = dateTo.includes('T') ? dateTo : `${dateTo}T23:59:59+05:30`
       query = query.lte('transaction_time', toDate)
     }
 
@@ -210,11 +210,11 @@ export async function GET(request: NextRequest) {
         q = q.eq('display_status', displayStatus)
       }
       if (dateFrom) {
-        const fromDate = dateFrom.includes('T') ? dateFrom : `${dateFrom}T00:00:00`
+        const fromDate = dateFrom.includes('T') ? dateFrom : `${dateFrom}T00:00:00+05:30`
         q = q.gte('transaction_time', fromDate)
       }
       if (dateTo) {
-        const toDate = dateTo.includes('T') ? dateTo : `${dateTo}T23:59:59`
+        const toDate = dateTo.includes('T') ? dateTo : `${dateTo}T23:59:59+05:30`
         q = q.lte('transaction_time', toDate)
       }
       if (paymentMode && paymentMode !== 'all') q = q.eq('payment_mode', paymentMode.toUpperCase())

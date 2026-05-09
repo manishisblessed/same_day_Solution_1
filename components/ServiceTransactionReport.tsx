@@ -536,12 +536,12 @@ export default function ServiceTransactionReport({ userRole, userName }: Service
                   <tr key={txn.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors">
                     <td className="px-4 py-3 text-sm text-gray-900 dark:text-white whitespace-nowrap">
                       {new Date(txn.created_at).toLocaleDateString('en-IN', {
-                        day: '2-digit', month: 'short', year: '2-digit',
+                        timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: '2-digit',
                       })}
                       <br />
                       <span className="text-xs text-gray-500">
                         {new Date(txn.created_at).toLocaleTimeString('en-IN', {
-                          hour: '2-digit', minute: '2-digit',
+                          timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit',
                         })}
                       </span>
                     </td>
@@ -797,7 +797,7 @@ function ViewTransactionModal({ txn, userRole, onClose }: { txn: Transaction; us
             <h4 className="text-xs font-semibold text-gray-400 uppercase mb-2">Transaction Info</h4>
             <DetailRow label="Transaction ID" value={txn.transaction_id} mono />
             <DetailRow label="TID" value={txn.tid} mono />
-            <DetailRow label="Date" value={new Date(txn.created_at).toLocaleString('en-IN')} />
+            <DetailRow label="Date" value={new Date(txn.created_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} />
             <DetailRow label="Payment Mode" value={txn.payment_mode} />
             <DetailRow label="Card Type" value={txn.card_type} />
             <DetailRow label="Device Serial" value={txn.device_serial} />

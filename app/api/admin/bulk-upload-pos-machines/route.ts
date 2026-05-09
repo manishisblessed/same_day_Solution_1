@@ -339,6 +339,7 @@ export async function POST(request: NextRequest) {
       const batchRef = `${Date.now().toString(36)}`
       const batchNote = `Bulk stock upload [${batchRef}] · ${insertedMachines.length} machine(s) in file`
 
+      const now = new Date().toISOString()
       const historyRecords = insertedMachines.map((m: { id: string; machine_id: string }) => ({
         pos_machine_id: m.id,
         machine_id: m.machine_id,
@@ -348,6 +349,7 @@ export async function POST(request: NextRequest) {
         assigned_to: null,
         assigned_to_role: null,
         status: 'returned',
+        returned_date: now,
         notes: batchNote,
       }))
 

@@ -45,7 +45,8 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { machine_id, return_reason } = body
+    const { machine_id, return_reason, return_date: returnDateInput } = body
+    const effectiveReturnDate = returnDateInput || new Date().toISOString()
 
     if (!machine_id) {
       return NextResponse.json({ error: 'machine_id is required' }, { status: 400 })
@@ -201,7 +202,7 @@ export async function POST(request: NextRequest) {
       const histPatchRes = await fetch(historyPatchUrl, {
         method: 'PATCH',
         headers,
-        body: JSON.stringify({ status: 'returned', returned_date: new Date().toISOString() }),
+        body: JSON.stringify({ status: 'returned', returned_date: effectiveReturnDate }),
       })
       if (!histPatchRes.ok) {
         const errBody = await histPatchRes.text()
@@ -234,6 +235,7 @@ export async function POST(request: NextRequest) {
           previous_holder: previousHolder,
           previous_holder_role: previousHolderRole,
           status: 'returned',
+          returned_date: effectiveReturnDate,
           return_reason: return_reason || null,
           notes: `Returned to stock by admin. Was ${currentStatus}.${return_reason ? ` Reason: ${return_reason}` : ''}`,
         }),

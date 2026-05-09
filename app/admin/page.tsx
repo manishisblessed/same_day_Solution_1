@@ -265,12 +265,24 @@ function AdminDashboardContent() {
   const handleReturnToStock = async (machine: POSMachine) => {
     const assigned = ['assigned_to_retailer', 'assigned_to_distributor', 'assigned_to_master_distributor', 'assigned_to_partner'].includes(machine.inventory_status || '')
     if (!assigned) return
-    if (!confirm(`Return "${machine.machine_id}" to stock? It will be removed from the current holder and available for reassignment.`)) return
+
+    const returnDate = prompt(`Return "${machine.machine_id}" to stock.\n\nEnter return date (YYYY-MM-DD):`, new Date().toISOString().slice(0, 10))
+    if (!returnDate) return
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(returnDate)) {
+      alert('Invalid date format. Use YYYY-MM-DD.')
+      return
+    }
+    const returnReason = prompt('Enter return reason (optional):') || ''
+
     try {
       const res = await apiFetch('/api/admin/pos-machines/return', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ machine_id: machine.id }),
+        body: JSON.stringify({
+          machine_id: machine.id,
+          return_date: new Date(returnDate + 'T00:00:00').toISOString(),
+          return_reason: returnReason.trim() || undefined,
+        }),
       })
       const data = await res.json()
       if (data.success) {
@@ -517,14 +529,18 @@ function AdminDashboardContent() {
                 }
                 fetchData()
               }}
-              onBulkReturn={async (ids: string[]) => {
+              onBulkReturn={async (ids: string[], returnDate?: string, returnReason?: string) => {
                 const results: { ok: number; fail: number } = { ok: 0, fail: 0 }
                 for (const id of ids) {
                   try {
                     const res = await apiFetch('/api/admin/pos-machines/return', {
                       method: 'POST',
                       headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ machine_id: id }),
+                      body: JSON.stringify({
+                        machine_id: id,
+                        return_date: returnDate || undefined,
+                        return_reason: returnReason || undefined,
+                      }),
                     })
                     const data = await res.json()
                     if (data.success) results.ok++
@@ -1719,7 +1735,7 @@ function AdminDashboardOverview({
       if (!transactions) return
 
       const rowForExport = (t: any) => [
-        new Date(t.created_at).toLocaleString(),
+        new Date(t.created_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }),
         t.razorpay_payment_id || t.transaction_id || t.id,
         t.transaction_type || (t.mode && t.settlement_type ? `${t.mode} (${t.settlement_type})` : 'MDR'),
         t.amount,
@@ -5344,7 +5360,7 @@ function POSMachinesTab({
   onDelete: (id: string) => void
   onReturnToStock?: (machine: POSMachine) => void
   onBulkDelete?: (ids: string[]) => Promise<void>
-  onBulkReturn?: (ids: string[]) => Promise<{ ok: number; fail: number }>
+  onBulkReturn?: (ids: string[], returnDate?: string, returnReason?: string) => Promise<{ ok: number; fail: number }>
 }) {
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('all')
@@ -5370,6 +5386,7 @@ function POSMachinesTab({
   const [bulkAssignTargetId, setBulkAssignTargetId] = useState('')
   const [bulkAssignUserSearch, setBulkAssignUserSearch] = useState('')
   const [bulkNotes, setBulkNotes] = useState('')
+  const [bulkAssignDate, setBulkAssignDate] = useState(() => new Date().toISOString().slice(0, 10))
   const [bulkSubscriptionAmount, setBulkSubscriptionAmount] = useState('')
   const [bulkBillingDay, setBulkBillingDay] = useState(1)
   const [bulkAssigning, setBulkAssigning] = useState(false)
@@ -5377,6 +5394,8 @@ function POSMachinesTab({
   const [bulkAssignSummary, setBulkAssignSummary] = useState<string | null>(null)
   const [bulkDeleting, setBulkDeleting] = useState(false)
   const [bulkReturning, setBulkReturning] = useState(false)
+  const [bulkReturnDate, setBulkReturnDate] = useState(() => new Date().toISOString().slice(0, 10))
+  const [bulkReturnReason, setBulkReturnReason] = useState('')
   const [showBulkDeleteModal, setShowBulkDeleteModal] = useState(false)
   const [showBulkReturnModal, setShowBulkReturnModal] = useState(false)
   const [bulkModalPickedIds, setBulkModalPickedIds] = useState<Set<string>>(new Set())
@@ -6109,10 +6128,10 @@ function POSMachinesTab({
                       </span>
                     </td>
                     <td className="px-3 py-2 text-sm text-gray-700 dark:text-gray-300 whitespace-nowrap">
-                      {machine.delivery_date ? new Date(machine.delivery_date).toLocaleDateString() : '-'}
+                      {machine.delivery_date ? new Date(machine.delivery_date).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' }) : '-'}
                     </td>
                     <td className="px-3 py-2 text-sm text-gray-700 dark:text-gray-300 whitespace-nowrap">
-                      {machine.installation_date ? new Date(machine.installation_date).toLocaleDateString() : '-'}
+                      {machine.installation_date ? new Date(machine.installation_date).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' }) : '-'}
                     </td>
                     <td className="px-3 py-2 text-sm text-gray-700 dark:text-gray-300 max-w-[140px]">
                       {machine.location ? (
@@ -6491,6 +6510,10 @@ function POSMachinesTab({
                       )
                     })}
                   </select>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Assignment Date <span className="text-red-500">*</span></label>
+                    <input type="date" value={bulkAssignDate} onChange={(e) => setBulkAssignDate(e.target.value)} disabled={bulkAssigning} required className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white" />
+                  </div>
                   <input type="text" value={bulkNotes} onChange={(e) => setBulkNotes(e.target.value)} disabled={bulkAssigning} placeholder="Notes (optional)" className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white" />
                   {bulkAssignRole !== 'partner' && (
                     <div className="grid grid-cols-2 gap-3">
@@ -6518,18 +6541,24 @@ function POSMachinesTab({
                   </button>
                   <button
                     type="button"
-                    disabled={bulkAssigning || !bulkAssignTargetId || assignPickedCount === 0}
+                    disabled={bulkAssigning || !bulkAssignTargetId || assignPickedCount === 0 || !bulkAssignDate}
                     onClick={async () => {
                       if (!bulkAssignTargetId || assignPickedCount === 0) return
                       setBulkAssigning(true)
                       setBulkAssignError(null)
                       setBulkAssignSummary(null)
                       try {
+                        if (!bulkAssignDate) {
+                          setBulkAssignError('Assignment date is required')
+                          setBulkAssigning(false)
+                          return
+                        }
                         const payload: Record<string, unknown> = {
                           machine_ids: Array.from(bulkModalPickedIds),
                           assign_to: bulkAssignTargetId,
                           assign_to_type: bulkAssignRole,
                           notes: bulkNotes.trim() || undefined,
+                          assigned_date: new Date(bulkAssignDate + 'T00:00:00').toISOString(),
                         }
                         const amt = bulkSubscriptionAmount.trim()
                         if (bulkAssignRole !== 'partner' && amt) {
@@ -6864,6 +6893,16 @@ function POSMachinesTab({
                     </table>
                   </div>
                 </div>
+                <div className="space-y-3 mb-4">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Return Date <span className="text-red-500">*</span></label>
+                    <input type="date" value={bulkReturnDate} onChange={(e) => setBulkReturnDate(e.target.value)} disabled={bulkReturning} required className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Return Reason</label>
+                    <input type="text" value={bulkReturnReason} onChange={(e) => setBulkReturnReason(e.target.value)} disabled={bulkReturning} placeholder="Reason for return (optional)" className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white" />
+                  </div>
+                </div>
                 {pickedCount > 0 && (
                   <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-3 mb-4 max-h-32 overflow-y-auto">
                     <p className="text-xs font-medium text-amber-800 dark:text-amber-300 mb-1">Will return {pickedAssignedCount} machine(s):</p>
@@ -6891,13 +6930,15 @@ function POSMachinesTab({
                       type="button"
                       disabled={bulkReturning}
                       onClick={async () => {
+                        if (!bulkReturnDate) { alert('Return date is required'); return }
                         const ids = Array.from(bulkModalPickedIds).filter((id) => {
                           const m = posMachines.find((pm) => pm.id === id)
                           return m && assignableStatuses.includes(m.inventory_status || '')
                         })
                         setBulkReturning(true)
+                        const returnDateISO = new Date(bulkReturnDate + 'T00:00:00').toISOString()
                         try {
-                          const r = await onBulkReturn(ids)
+                          const r = await onBulkReturn(ids, returnDateISO, bulkReturnReason.trim() || undefined)
                           alert(`Returned ${r.ok} machine(s) to stock.${r.fail > 0 ? ` ${r.fail} failed.` : ''}`)
                           setSelectedItems(new Set())
                           setBulkModalPickedIds(new Set())

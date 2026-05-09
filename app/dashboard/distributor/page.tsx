@@ -777,7 +777,7 @@ function WalletTab({ user }: { user: any }) {
                 ledgerEntries.map((entry) => (
                   <tr key={entry.id} className="hover:bg-gray-50">
                     <td className="px-4 py-3 text-sm text-gray-900">
-                      {new Date(entry.created_at).toLocaleDateString()}
+                      {new Date(entry.created_at).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' })}
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-900">{entry.transaction_type}</td>
                     <td className="px-4 py-3 text-sm text-gray-500">{entry.fund_category || '-'}</td>
@@ -1138,7 +1138,7 @@ function NetworkTab({ retailers, user, onRefresh }: { retailers: any[], user: an
               <div>
                 <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">Other</h4>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <DetailField label="Created At" value={detailRetailer.created_at ? new Date(detailRetailer.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : null} />
+                  <DetailField label="Created At" value={detailRetailer.created_at ? new Date(detailRetailer.created_at).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric' }) : null} />
                   <DetailField label="Distributor ID" value={detailRetailer.distributor_id} />
                 </div>
               </div>
@@ -2033,7 +2033,7 @@ function CommissionTab({ commissionData, stats }: { commissionData: any[], stats
                 commissionData.map((entry) => (
                   <tr key={entry.id} className="hover:bg-gray-50">
                     <td className="px-4 py-3 text-sm text-gray-900">
-                      {new Date(entry.created_at).toLocaleDateString()}
+                      {new Date(entry.created_at).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' })}
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-900">{entry.reference_id || '-'}</td>
                     <td className="px-4 py-3 text-sm text-gray-500">{entry.service_type || '-'}</td>

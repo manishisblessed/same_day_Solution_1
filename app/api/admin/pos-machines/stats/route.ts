@@ -40,13 +40,14 @@ export async function GET(request: NextRequest) {
     }
 
     // Manual fallback
-    const [totalResult, statusBreakdown, returnedHistory, activeAssignments] = await Promise.all([
+    const [totalResult, statusBreakdown, returnedMachines, activeAssignments] = await Promise.all([
       supabase.from('pos_machines').select('id', { count: 'exact', head: true }),
       supabase.from('pos_machines').select('inventory_status'),
       supabase
         .from('pos_assignment_history')
-        .select('id', { count: 'exact', head: true })
-        .eq('status', 'returned'),
+        .select('pos_machine_id')
+        .eq('status', 'returned')
+        .like('action', 'assigned_to_%'),
       supabase
         .from('pos_assignment_history')
         .select('id', { count: 'exact', head: true })
@@ -55,7 +56,8 @@ export async function GET(request: NextRequest) {
     ])
 
     const total = totalResult.count || 0
-    const returnedCount = returnedHistory.count || 0
+    const uniqueReturnedMachines = new Set((returnedMachines.data || []).map((r: any) => r.pos_machine_id))
+    const returnedCount = uniqueReturnedMachines.size
     const activeCount = activeAssignments.count || 0
 
     // Aggregate inventory_status counts

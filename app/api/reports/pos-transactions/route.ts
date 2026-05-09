@@ -38,8 +38,10 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url)
     const machineId = searchParams.get('machine_id')
     const deviceSerial = searchParams.get('device_serial')
-    const dateFrom = searchParams.get('date_from') || searchParams.get('start')
-    const dateTo = searchParams.get('date_to') || searchParams.get('end')
+    const rawDateFrom = searchParams.get('date_from') || searchParams.get('start')
+    const rawDateTo = searchParams.get('date_to') || searchParams.get('end')
+    const dateFrom = rawDateFrom ? (rawDateFrom.includes('T') ? rawDateFrom : `${rawDateFrom}T00:00:00+05:30`) : null
+    const dateTo = rawDateTo ? (rawDateTo.includes('T') ? rawDateTo : `${rawDateTo}T23:59:59+05:30`) : null
     const status = searchParams.get('status')
     const groupBy = searchParams.get('group_by') || 'machine'
     const format = searchParams.get('format') || 'json'

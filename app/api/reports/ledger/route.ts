@@ -33,8 +33,10 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url)
 
     // Extract filters (support both date_from/date_to and start/end)
-    const dateFrom = searchParams.get('date_from') || searchParams.get('start')
-    const dateTo = searchParams.get('date_to') || searchParams.get('end')
+    const rawDateFrom = searchParams.get('date_from') || searchParams.get('start')
+    const rawDateTo = searchParams.get('date_to') || searchParams.get('end')
+    const dateFrom = rawDateFrom ? (rawDateFrom.includes('T') ? rawDateFrom : `${rawDateFrom}T00:00:00+05:30`) : null
+    const dateTo = rawDateTo ? (rawDateTo.includes('T') ? rawDateTo : `${rawDateTo}T23:59:59+05:30`) : null
     const user_id = searchParams.get('user_id')
     const user_role = searchParams.get('user_role')
     const wallet_type = searchParams.get('wallet_type')
@@ -168,7 +170,7 @@ export async function GET(request: NextRequest) {
 <body>
   <h1>Ledger Report</h1>
   <div class="metadata">
-    <strong>Generated:</strong> ${new Date().toLocaleString()}<br>
+    <strong>Generated:</strong> ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}<br>
     <strong>Total Records:</strong> ${count || 0}<br>
     ${dateFrom ? `<strong>From:</strong> ${dateFrom}<br>` : ''}
     ${dateTo ? `<strong>To:</strong> ${dateTo}` : ''}
@@ -231,7 +233,7 @@ export async function GET(request: NextRequest) {
 <body>
   <h1>Ledger Report</h1>
   <div class="metadata">
-    <strong>Generated:</strong> ${new Date().toLocaleString()}<br>
+    <strong>Generated:</strong> ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}<br>
     <strong>Total Records:</strong> ${count || 0}
   </div>
   <table>

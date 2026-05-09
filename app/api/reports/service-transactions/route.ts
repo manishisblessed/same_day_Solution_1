@@ -75,8 +75,10 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url)
     const service = (searchParams.get('service') || 'all') as ServiceType
-    const dateFrom = searchParams.get('date_from')
-    const dateTo = searchParams.get('date_to')
+    const rawDateFrom = searchParams.get('date_from')
+    const rawDateTo = searchParams.get('date_to')
+    const dateFrom = rawDateFrom ? (rawDateFrom.includes('T') ? rawDateFrom : `${rawDateFrom}T00:00:00+05:30`) : null
+    const dateTo = rawDateTo ? (rawDateTo.includes('T') ? rawDateTo : `${rawDateTo}T23:59:59+05:30`) : null
     const status = searchParams.get('status')
     const search = searchParams.get('search')
     const rawLimit = parseInt(searchParams.get('limit') || '25', 10)
@@ -711,7 +713,7 @@ function generateCSV(results: NormalizedTransaction[], summary: any, dateFrom: s
   ]
 
   const rows = results.map(r => [
-    new Date(r.created_at).toLocaleString('en-IN'),
+    new Date(r.created_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }),
     r.service_type,
     r.transaction_id,
     r.tid || '-',
@@ -743,7 +745,7 @@ function generateCSV(results: NormalizedTransaction[], summary: any, dateFrom: s
 
   const csvContent = [
     `Service Transaction Report`,
-    `Generated: ${new Date().toLocaleString('en-IN')}`,
+    `Generated: ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}`,
     `Service: ${service}`,
     `Date Range: ${dateFrom || 'All'} to ${dateTo || 'Now'}`,
     `Total Transactions: ${summary.total_transactions}`,
@@ -808,7 +810,7 @@ function generatePDF(results: NormalizedTransaction[], summary: any, dateFrom: s
 <body>
   <div class="header">
     <h1>Service-wise Transaction Report</h1>
-    <p>Generated on ${new Date().toLocaleString('en-IN')} | User: ${user.name || user.email} (${user.role})</p>
+    <p>Generated on ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} | User: ${user.name || user.email} (${user.role})</p>
   </div>
 
   <div class="meta">
@@ -870,7 +872,7 @@ function generatePDF(results: NormalizedTransaction[], summary: any, dateFrom: s
       ${results.map((r, i) => `
       <tr>
         <td>${i + 1}</td>
-        <td>${new Date(r.created_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: '2-digit', hour: '2-digit', minute: '2-digit' })}</td>
+        <td>${new Date(r.created_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: '2-digit', hour: '2-digit', minute: '2-digit' })}</td>
         <td><span class="badge badge-${r.service_type.toLowerCase()}">${r.service_type}</span></td>
         <td style="font-family: monospace; font-size: 9px;">${r.transaction_id.length > 16 ? r.transaction_id.slice(0, 16) + '...' : r.transaction_id}${r.tid ? '<br/>TID: ' + r.tid : ''}</td>
         <td class="amount">₹${r.amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>

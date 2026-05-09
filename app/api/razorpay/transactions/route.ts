@@ -50,8 +50,10 @@ export async function GET(request: NextRequest) {
     const offset = (page - 1) * limit
     const machineId = searchParams.get('machine_id')
     const deviceSerial = searchParams.get('device_serial')
-    const dateFrom = searchParams.get('date_from')
-    const dateTo = searchParams.get('date_to')
+    const rawDateFrom = searchParams.get('date_from')
+    const rawDateTo = searchParams.get('date_to')
+    const dateFrom = rawDateFrom ? (rawDateFrom.includes('T') ? rawDateFrom : `${rawDateFrom}T00:00:00+05:30`) : null
+    const dateTo = rawDateTo ? (rawDateTo.includes('T') ? rawDateTo : `${rawDateTo}T23:59:59+05:30`) : null
     const statusFilter = searchParams.get('status')
     const tidFilter = searchParams.get('tid') || searchParams.get('terminal_id')
 

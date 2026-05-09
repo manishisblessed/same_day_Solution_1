@@ -144,7 +144,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: true, message: `Backfilled ${created} history records`, count: created })
     }
 
-    const { pos_machine_id, machine_id, action, assigned_to, assigned_to_role, previous_holder, previous_holder_role, notes, return_reason } = body
+    const { pos_machine_id, machine_id, action, assigned_to, assigned_to_role, previous_holder, previous_holder_role, notes, return_reason, assigned_date } = body
 
     if (!pos_machine_id || !machine_id || !action) {
       return NextResponse.json({ error: 'pos_machine_id, machine_id, and action are required' }, { status: 400 })
@@ -166,6 +166,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    const now = new Date().toISOString()
     const { error } = await supabase.from('pos_assignment_history').insert({
       pos_machine_id,
       machine_id,
@@ -177,6 +178,8 @@ export async function POST(request: NextRequest) {
       previous_holder: previous_holder || null,
       previous_holder_role: previous_holder_role || null,
       status: isAssignAction ? 'active' : 'returned',
+      assigned_date: assigned_date || now,
+      returned_date: isAssignAction ? null : now,
       return_reason: return_reason || null,
       notes: notes || null,
     })
@@ -214,7 +217,7 @@ export async function POST(request: NextRequest) {
 async function backfillHistory(supabase: any, adminEmail: string): Promise<number> {
   const { data: machines } = await supabase
     .from('pos_machines')
-    .select('id, machine_id, retailer_id, distributor_id, master_distributor_id, partner_id, inventory_status, created_at')
+    .select('id, machine_id, retailer_id, distributor_id, master_distributor_id, partner_id, inventory_status, created_at, last_assigned_at')
     .neq('inventory_status', 'in_stock')
     .neq('inventory_status', 'received_from_bank')
     .neq('inventory_status', 'damaged_from_bank')
@@ -232,6 +235,7 @@ async function backfillHistory(supabase: any, adminEmail: string): Promise<numbe
 
   if (machinesNeedingHistory.length === 0) return 0
 
+  const now = new Date().toISOString()
   const records = machinesNeedingHistory.map((m: any) => {
     let action = 'created'
     let assignedTo: string | null = null
@@ -255,6 +259,9 @@ async function backfillHistory(supabase: any, adminEmail: string): Promise<numbe
       assignedToRole = 'partner'
     }
 
+    const isActive = action.startsWith('assigned_to_')
+    const eventDate = m.last_assigned_at || m.created_at
+
     return {
       pos_machine_id: m.id,
       machine_id: m.machine_id,
@@ -263,9 +270,10 @@ async function backfillHistory(supabase: any, adminEmail: string): Promise<numbe
       assigned_by_role: 'admin',
       assigned_to: assignedTo,
       assigned_to_role: assignedToRole,
-      status: action.startsWith('assigned_to_') ? 'active' : 'returned',
+      status: isActive ? 'active' : 'returned',
+      returned_date: isActive ? null : now,
       notes: 'Backfilled from existing assignment data',
-      created_at: m.created_at,
+      created_at: eventDate,
     }
   })
 

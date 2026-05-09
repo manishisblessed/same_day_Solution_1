@@ -174,7 +174,7 @@ export default function ReportsPage() {
   const exportCSV = (data: any[], filename: string) => {
     const headers = ['Date', 'Transaction ID', 'Type', 'Amount', 'Status', 'Partner ID', 'Description']
     const rows = data.map(t => [
-      new Date(t.created_at).toLocaleString('en-IN'),
+      new Date(t.created_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }),
       t.razorpay_payment_id || t.transaction_id || t.id,
       t.transaction_type || (t.mode && t.settlement_type ? `${t.mode} (${t.settlement_type})` : 'MDR'),
       t.amount || '0',
@@ -190,7 +190,7 @@ export default function ReportsPage() {
     // Using tab-separated values for basic Excel compatibility
     const headers = ['Date', 'Transaction ID', 'Type', 'Amount', 'Status', 'Partner ID', 'Description']
     const rows = data.map(t => [
-      new Date(t.created_at).toLocaleString('en-IN'),
+      new Date(t.created_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }),
       t.razorpay_payment_id || t.transaction_id || t.id,
       t.transaction_type || (t.mode && t.settlement_type ? `${t.mode} (${t.settlement_type})` : 'MDR'),
       t.amount || '0',
@@ -541,6 +541,7 @@ export default function ReportsPage() {
                     <tr key={item.id || idx} className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
                       <td className="px-6 py-4 text-sm text-gray-900 dark:text-white">
                         {new Date(item.created_at).toLocaleDateString('en-IN', {
+                          timeZone: 'Asia/Kolkata',
                           day: '2-digit',
                           month: 'short',
                           year: 'numeric',

@@ -472,12 +472,13 @@ function RazorpayTransactionsPageContent() {
     setShowCompanyDropdown(false)
   }
   
-  // Format date helper function
+  // Format date helper function — always display in IST regardless of browser/server timezone
   const formatDate = (dateString: string | null) => {
     if (!dateString) return 'N/A'
     try {
       const date = new Date(dateString)
       return date.toLocaleString('en-IN', {
+        timeZone: 'Asia/Kolkata',
         day: '2-digit',
         month: '2-digit',
         year: 'numeric',
