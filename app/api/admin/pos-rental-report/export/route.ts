@@ -34,9 +34,9 @@ export async function GET(request: NextRequest) {
     const allData = await buildRentalData(supabase, period, {
       dateFrom: sp.get('dateFrom'),
       dateTo: sp.get('dateTo'),
-      company: sp.get('company'),
-      partnerType: sp.get('partnerType'),
-      status: sp.get('status'),
+      company: period === 'all_history' ? sp.get('company') : null,
+      partnerType: period === 'all_history' ? sp.get('partnerType') : null,
+      status: period === 'all_history' ? sp.get('status') : null,
       search: sp.get('search')
     })
 

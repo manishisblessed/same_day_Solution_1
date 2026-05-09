@@ -157,16 +157,18 @@ export async function buildRentalData(
       partnerCache[partnerKey] = info
     }
 
-    // Apply filters
+    // Apply filters (search works on ALL periods, other filters only on all_history)
     if (filters.company && info.companyName !== filters.company) continue
     if (filters.partnerType && info.partnerType !== filters.partnerType) continue
     if (filters.status && assignment.status !== filters.status) continue
     if (filters.search) {
       const sl = filters.search.toLowerCase()
-      const tidMatch = pos.tid && pos.tid.toString().includes(filters.search)
+      const tidMatch = pos.tid && pos.tid.toString().toLowerCase().includes(sl)
+      const serialMatch = pos.serial_number && pos.serial_number.toString().toLowerCase().includes(sl)
       if (!info.companyName.toLowerCase().includes(sl) &&
           !info.partnerName.toLowerCase().includes(sl) &&
-          !tidMatch) continue
+          !tidMatch &&
+          !serialMatch) continue
     }
 
     const rentalDays = calcRentalDays(assignment.created_at, assignment.returned_date)
@@ -253,10 +255,10 @@ export async function GET(request: NextRequest) {
     const allData = await buildRentalData(supabase, period, {
       dateFrom: sp.get('dateFrom'),
       dateTo: sp.get('dateTo'),
-      company: sp.get('company'),
-      partnerType: sp.get('partnerType'),
-      status: sp.get('status'),
-      search: sp.get('search')
+      company: period === 'all_history' ? sp.get('company') : null,
+      partnerType: period === 'all_history' ? sp.get('partnerType') : null,
+      status: period === 'all_history' ? sp.get('status') : null,
+      search: sp.get('search')   // works on all tabs
     })
 
     const total = allData.length

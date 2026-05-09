@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, Suspense } from 'react'
+import { useState, useEffect, Suspense, useRef } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useRouter } from 'next/navigation'
 import AdminSidebar from '@/components/AdminSidebar'
@@ -11,12 +11,14 @@ import {
   ChevronLeft,
   ChevronRight,
   Search,
-  Calendar,
   Filter,
-  X
+  X,
+  Eye,
+  Copy,
+  Check
 } from 'lucide-react'
 import { apiFetch } from '@/lib/api-client'
-import { motion } from 'framer-motion'
+import { motion, AnimatePresence } from 'framer-motion'
 
 type TabType = 'current_month' | 'last_month' | 'all_history'
 
@@ -40,9 +42,105 @@ interface FilterState {
   company: string
   partnerType: string
   status: string
-  searchQuery: string
 }
 
+// ── TID Modal ─────────────────────────────────────────────────────────────────
+function TIDModal({
+  partnerName,
+  companyName,
+  tids,
+  onClose,
+}: {
+  partnerName: string
+  companyName: string
+  tids: string[]
+  onClose: () => void
+}) {
+  const [copied, setCopied] = useState(false)
+  const [tidSearch, setTidSearch] = useState('')
+
+  const filtered = tids.filter(t => t.toLowerCase().includes(tidSearch.toLowerCase()))
+
+  const handleCopyAll = () => {
+    navigator.clipboard.writeText(tids.join(', '))
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+        exit={{ opacity: 0, scale: 0.95 }}
+        className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-lg max-h-[80vh] flex flex-col"
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-start justify-between p-5 border-b border-gray-200 dark:border-gray-700">
+          <div>
+            <h2 className="text-lg font-bold text-gray-900 dark:text-white">
+              All TIDs — {tids.length} POS
+            </h2>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
+              {partnerName} · {companyName}
+            </p>
+          </div>
+          <button onClick={onClose} className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg">
+            <X className="w-5 h-5 text-gray-500" />
+          </button>
+        </div>
+
+        {/* Search inside modal */}
+        <div className="px-5 pt-4 pb-2">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+            <input
+              type="text"
+              value={tidSearch}
+              onChange={e => setTidSearch(e.target.value)}
+              placeholder="Search TID..."
+              autoFocus
+              className="w-full pl-9 pr-4 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+            />
+          </div>
+          {tidSearch && (
+            <p className="text-xs text-gray-500 mt-1">{filtered.length} of {tids.length} matched</p>
+          )}
+        </div>
+
+        {/* TID List */}
+        <div className="flex-1 overflow-y-auto px-5 pb-4">
+          <div className="grid grid-cols-2 gap-2 mt-2">
+            {filtered.map((tid, i) => (
+              <div
+                key={i}
+                className="flex items-center gap-2 px-3 py-2 bg-gray-50 dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700"
+              >
+                <span className="text-xs text-gray-400 w-5 shrink-0">{tids.indexOf(tid) + 1}.</span>
+                <span className="font-mono text-sm text-gray-900 dark:text-white flex-1">{tid}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="px-5 py-3 border-t border-gray-200 dark:border-gray-700 flex justify-between items-center">
+          <span className="text-sm text-gray-500">Total: {tids.length} TIDs</span>
+          <button
+            onClick={handleCopyAll}
+            className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white text-sm rounded-lg hover:bg-primary-700 transition-colors"
+          >
+            {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+            {copied ? 'Copied!' : 'Copy All'}
+          </button>
+        </div>
+      </motion.div>
+    </div>
+  )
+}
+
+// ── Main Page ─────────────────────────────────────────────────────────────────
 export default function POSRentalReportPage() {
   return (
     <Suspense fallback={<div className="min-h-screen flex items-center justify-center"><Loader2 className="w-8 h-8 animate-spin text-primary-600" /></div>}>
@@ -56,23 +154,31 @@ function POSRentalReportContent() {
   const router = useRouter()
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [activeTab, setActiveTab] = useState<TabType>('current_month')
-  
+
   const [records, setRecords] = useState<RentalRecord[]>([])
   const [loading, setLoading] = useState(false)
   const [page, setPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
   const [total, setTotal] = useState(0)
   const [stats, setStats] = useState({ totalPOS: 0, totalDays: 0, totalRevenue: 0 })
-  
+
+  // Global search (all tabs)
+  const [globalSearch, setGlobalSearch] = useState('')
+  const searchDebounceRef = useRef<NodeJS.Timeout | null>(null)
+
+  // Advanced filters (All History tab)
   const [filters, setFilters] = useState<FilterState>({
     dateFrom: '',
     dateTo: '',
     company: '',
     partnerType: '',
     status: '',
-    searchQuery: ''
   })
   const [companies, setCompanies] = useState<string[]>([])
+  const [showFilters, setShowFilters] = useState(false)
+
+  // TID modal
+  const [tidModal, setTidModal] = useState<{ partnerName: string; companyName: string; tids: string[] } | null>(null)
 
   // Auth check
   useEffect(() => {
@@ -81,38 +187,42 @@ function POSRentalReportContent() {
     }
   }, [user, authLoading, router])
 
-  // Fetch companies for filter dropdown
   useEffect(() => {
-    if (user && user.role === 'admin') {
-      fetchCompanies()
-    }
+    if (user && user.role === 'admin') fetchCompanies()
   }, [user])
 
   const fetchCompanies = async () => {
     try {
       const response = await apiFetch('/api/admin/pos-rental-report/companies')
       const result = await response.json()
-      if (response.ok) {
-        setCompanies(result.companies || [])
-      }
+      if (response.ok) setCompanies(result.companies || [])
     } catch (err) {
       console.error('Error fetching companies:', err)
     }
   }
 
-  // Fetch data based on active tab
   useEffect(() => {
-    if (user && user.role === 'admin') {
-      fetchRentalData()
-    }
+    if (user && user.role === 'admin') fetchRentalData()
   }, [activeTab, page, filters, user])
 
+  // Debounce global search
+  useEffect(() => {
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current)
+    searchDebounceRef.current = setTimeout(() => {
+      setPage(1)
+      fetchRentalData()
+    }, 400)
+    return () => { if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current) }
+  }, [globalSearch])
+
   const fetchRentalData = async () => {
+    if (!user || user.role !== 'admin') return
     setLoading(true)
     try {
-      let params = new URLSearchParams()
+      const params = new URLSearchParams()
       params.append('period', activeTab)
       params.append('page', page.toString())
+      if (globalSearch) params.append('search', globalSearch)
 
       if (activeTab === 'all_history') {
         if (filters.dateFrom) params.append('dateFrom', filters.dateFrom)
@@ -120,22 +230,18 @@ function POSRentalReportContent() {
         if (filters.company) params.append('company', filters.company)
         if (filters.partnerType) params.append('partnerType', filters.partnerType)
         if (filters.status) params.append('status', filters.status)
-        if (filters.searchQuery) params.append('search', filters.searchQuery)
       }
 
-      const response = await apiFetch(`/api/admin/pos-rental-report?${params.toString()}`)
+      const response = await apiFetch(`/api/admin/pos-rental-report?${params}`)
       const result = await response.json()
-
-      if (!response.ok) {
-        throw new Error(result.error || 'Failed to fetch rental data')
-      }
+      if (!response.ok) throw new Error(result.error || 'Failed to fetch')
 
       setRecords(result.data || [])
       setTotalPages(result.pagination?.totalPages || 1)
       setTotal(result.pagination?.total || 0)
       setStats(result.stats || { totalPOS: 0, totalDays: 0, totalRevenue: 0 })
     } catch (err: any) {
-      console.error('Error fetching rental data:', err)
+      console.error('Error:', err)
     } finally {
       setLoading(false)
     }
@@ -143,39 +249,31 @@ function POSRentalReportContent() {
 
   const handleExport = async () => {
     try {
-      let params = new URLSearchParams()
+      const params = new URLSearchParams()
       params.append('period', activeTab)
-
+      if (globalSearch) params.append('search', globalSearch)
       if (activeTab === 'all_history') {
         if (filters.dateFrom) params.append('dateFrom', filters.dateFrom)
         if (filters.dateTo) params.append('dateTo', filters.dateTo)
         if (filters.company) params.append('company', filters.company)
         if (filters.partnerType) params.append('partnerType', filters.partnerType)
         if (filters.status) params.append('status', filters.status)
-        if (filters.searchQuery) params.append('search', filters.searchQuery)
       }
 
-      const response = await apiFetch(`/api/admin/pos-rental-report/export?${params.toString()}`)
-      
-      if (!response.ok) {
-        throw new Error('Export failed')
-      }
+      const response = await apiFetch(`/api/admin/pos-rental-report/export?${params}`)
+      if (!response.ok) throw new Error('Export failed')
 
       const blob = await response.blob()
       const url = window.URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      
-      const now = new Date()
-      const dateStr = now.toISOString().split('T')[0]
-      a.download = `POS_Rental_Report_${activeTab}_${dateStr}.xlsx`
-      
+      a.download = `POS_Rental_Report_${activeTab}_${new Date().toISOString().split('T')[0]}.xlsx`
       document.body.appendChild(a)
       a.click()
       window.URL.revokeObjectURL(url)
       document.body.removeChild(a)
     } catch (err: any) {
-      console.error('Error exporting:', err)
+      console.error('Export error:', err)
     }
   }
 
@@ -185,28 +283,24 @@ function POSRentalReportContent() {
   }
 
   const handleResetFilters = () => {
-    setFilters({
-      dateFrom: '',
-      dateTo: '',
-      company: '',
-      partnerType: '',
-      status: '',
-      searchQuery: ''
-    })
+    setFilters({ dateFrom: '', dateTo: '', company: '', partnerType: '', status: '' })
+    setGlobalSearch('')
     setPage(1)
   }
 
-  const getTabLabel = () => {
-    if (activeTab === 'current_month') return '📅 Current Month (May 2026)'
-    if (activeTab === 'last_month') return '📆 Last Month (April 2026)'
-    return '📚 All History (Jan 2024 to Now)'
+  const getTabPeriod = () => {
+    const now = new Date()
+    if (activeTab === 'current_month') {
+      return `01 ${now.toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })} — Today`
+    }
+    const lm = new Date(now.getFullYear(), now.getMonth() - 1, 1)
+    if (activeTab === 'last_month') {
+      return `${lm.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })} (Complete)`
+    }
+    return 'From First Assignment to Today'
   }
 
-  const getTabPeriod = () => {
-    if (activeTab === 'current_month') return 'Period: 01-May-2026 to Today'
-    if (activeTab === 'last_month') return 'Period: 01-Apr-2026 to 30-Apr-2026'
-    return 'Period: From First Assignment to Today'
-  }
+  const activeFilterCount = Object.values(filters).filter(Boolean).length
 
   if (authLoading) {
     return (
@@ -222,38 +316,24 @@ function POSRentalReportContent() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-gray-50 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900">
       <AdminSidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
-      
+
       <div className="lg:pl-56">
-        <div className="p-6 space-y-6">
+        <div className="p-6 space-y-5">
           {/* Header */}
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
-                📊 POS Rental Report
-              </h1>
-              <p className="text-gray-600 dark:text-gray-400 mt-1">
-                Rental charges on prorata basis
-              </p>
-            </div>
-            <button
-              onClick={() => setSidebarOpen(true)}
-              className="lg:hidden p-2 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg"
-            >
-              <Filter className="w-6 h-6" />
-            </button>
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">📊 POS Rental Report</h1>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">Prorata basis · rates synced from subscription scheme</p>
           </div>
 
           {/* Tabs */}
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow">
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow">
+            {/* Tab bar */}
             <div className="flex border-b border-gray-200 dark:border-gray-700">
               {(['current_month', 'last_month', 'all_history'] as TabType[]).map((tab) => (
                 <button
                   key={tab}
-                  onClick={() => {
-                    setActiveTab(tab)
-                    setPage(1)
-                  }}
-                  className={`flex-1 px-4 py-4 font-medium text-center transition-all ${
+                  onClick={() => { setActiveTab(tab); setPage(1) }}
+                  className={`flex-1 px-4 py-3.5 text-sm font-medium text-center transition-all ${
                     activeTab === tab
                       ? 'border-b-2 border-primary-600 text-primary-600 dark:text-primary-400'
                       : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
@@ -266,223 +346,195 @@ function POSRentalReportContent() {
               ))}
             </div>
 
-            {/* Tab Content */}
-            <div className="p-6 space-y-6">
-              {/* Tab Header */}
-              <div>
-                <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-1">
-                  {getTabLabel()}
-                </h2>
-                <p className="text-sm text-gray-600 dark:text-gray-400">
-                  {getTabPeriod()}
-                </p>
+            <div className="p-5 space-y-5">
+              {/* Period label + stats row */}
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <p className="text-sm text-gray-500 dark:text-gray-400">{getTabPeriod()}</p>
               </div>
 
               {/* Stats Cards */}
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-4 border border-blue-200 dark:border-blue-800">
-                  <p className="text-sm text-blue-600 dark:text-blue-400">Total POS</p>
-                  <p className="text-2xl font-bold text-blue-900 dark:text-blue-100 mt-1">
-                    {stats.totalPOS}
-                  </p>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-3 border border-blue-100 dark:border-blue-800">
+                  <p className="text-xs text-blue-600 dark:text-blue-400">Total Partners</p>
+                  <p className="text-xl font-bold text-blue-900 dark:text-blue-100 mt-0.5">{total}</p>
                 </div>
-                <div className="bg-purple-50 dark:bg-purple-900/20 rounded-lg p-4 border border-purple-200 dark:border-purple-800">
-                  <p className="text-sm text-purple-600 dark:text-purple-400">Total Days</p>
-                  <p className="text-2xl font-bold text-purple-900 dark:text-purple-100 mt-1">
-                    {stats.totalDays.toLocaleString()}
-                  </p>
+                <div className="bg-purple-50 dark:bg-purple-900/20 rounded-lg p-3 border border-purple-100 dark:border-purple-800">
+                  <p className="text-xs text-purple-600 dark:text-purple-400">Total POS</p>
+                  <p className="text-xl font-bold text-purple-900 dark:text-purple-100 mt-0.5">{stats.totalPOS}</p>
                 </div>
-                <div className="bg-green-50 dark:bg-green-900/20 rounded-lg p-4 border border-green-200 dark:border-green-800">
-                  <p className="text-sm text-green-600 dark:text-green-400">Total Revenue</p>
-                  <p className="text-2xl font-bold text-green-900 dark:text-green-100 mt-1">
-                    ₹{stats.totalRevenue.toLocaleString()}
-                  </p>
+                <div className="bg-orange-50 dark:bg-orange-900/20 rounded-lg p-3 border border-orange-100 dark:border-orange-800">
+                  <p className="text-xs text-orange-600 dark:text-orange-400">Total Days</p>
+                  <p className="text-xl font-bold text-orange-900 dark:text-orange-100 mt-0.5">{stats.totalDays.toLocaleString()}</p>
                 </div>
-                <div className="bg-orange-50 dark:bg-orange-900/20 rounded-lg p-4 border border-orange-200 dark:border-orange-800">
-                  <p className="text-sm text-orange-600 dark:text-orange-400">Avg Days</p>
-                  <p className="text-2xl font-bold text-orange-900 dark:text-orange-100 mt-1">
-                    {stats.totalPOS > 0 ? (stats.totalDays / stats.totalPOS).toFixed(1) : 0}
+                <div className="bg-green-50 dark:bg-green-900/20 rounded-lg p-3 border border-green-100 dark:border-green-800">
+                  <p className="text-xs text-green-600 dark:text-green-400">Total Revenue</p>
+                  <p className="text-xl font-bold text-green-900 dark:text-green-100 mt-0.5">
+                    ₹{stats.totalRevenue.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </p>
                 </div>
               </div>
 
-              {/* Filters (only for All History tab) */}
-              {activeTab === 'all_history' && (
-                <motion.div
-                  initial={{ opacity: 0, height: 0 }}
-                  animate={{ opacity: 1, height: 'auto' }}
-                  className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-4 border border-gray-200 dark:border-gray-700"
-                >
-                  <h3 className="font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+              {/* ── Search + Action Bar (all tabs) ── */}
+              <div className="flex flex-wrap gap-2 items-center">
+                {/* Global search */}
+                <div className="relative flex-1 min-w-[220px]">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                  <input
+                    type="text"
+                    value={globalSearch}
+                    onChange={e => setGlobalSearch(e.target.value)}
+                    placeholder="Search by Partner / Retailer name or TID..."
+                    className="w-full pl-9 pr-4 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500"
+                  />
+                  {globalSearch && (
+                    <button
+                      onClick={() => setGlobalSearch('')}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+
+                {/* Advanced filters toggle (All History only) */}
+                {activeTab === 'all_history' && (
+                  <button
+                    onClick={() => setShowFilters(f => !f)}
+                    className={`flex items-center gap-2 px-3 py-2 text-sm rounded-lg border transition-colors ${
+                      showFilters || activeFilterCount > 0
+                        ? 'bg-primary-50 border-primary-300 text-primary-700 dark:bg-primary-900/20 dark:border-primary-700 dark:text-primary-400'
+                        : 'bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300'
+                    }`}
+                  >
                     <Filter className="w-4 h-4" />
                     Filters
-                  </h3>
+                    {activeFilterCount > 0 && (
+                      <span className="ml-0.5 px-1.5 py-0.5 text-xs bg-primary-600 text-white rounded-full">{activeFilterCount}</span>
+                    )}
+                  </button>
+                )}
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                        Date From
-                      </label>
-                      <input
-                        type="date"
-                        value={filters.dateFrom}
-                        onChange={(e) => handleFilterChange('dateFrom', e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                        Date To
-                      </label>
-                      <input
-                        type="date"
-                        value={filters.dateTo}
-                        onChange={(e) => handleFilterChange('dateTo', e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                        Company
-                      </label>
-                      <select
-                        value={filters.company}
-                        onChange={(e) => handleFilterChange('company', e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
-                      >
-                        <option value="">All Companies</option>
-                        {companies.map((company) => (
-                          <option key={company} value={company}>
-                            {company}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                        Partner Type
-                      </label>
-                      <select
-                        value={filters.partnerType}
-                        onChange={(e) => handleFilterChange('partnerType', e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
-                      >
-                        <option value="">All Types</option>
-                        <option value="Retailer">Retailer</option>
-                        <option value="Distributor">Distributor</option>
-                        <option value="Master Distributor">Master Distributor</option>
-                        <option value="Partner">Partner</option>
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                        Status
-                      </label>
-                      <select
-                        value={filters.status}
-                        onChange={(e) => handleFilterChange('status', e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
-                      >
-                        <option value="">All Status</option>
-                        <option value="active">Active</option>
-                        <option value="returned">Returned</option>
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                        Search
-                      </label>
-                      <input
-                        type="text"
-                        value={filters.searchQuery}
-                        onChange={(e) => handleFilterChange('searchQuery', e.target.value)}
-                        placeholder="Search company, partner, TID..."
-                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => fetchRentalData()}
-                      className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors flex items-center gap-2"
-                    >
-                      <Search className="w-4 h-4" />
-                      Apply Filters
-                    </button>
-                    <button
-                      onClick={handleResetFilters}
-                      className="px-4 py-2 bg-gray-300 dark:bg-gray-700 text-gray-900 dark:text-white rounded-lg hover:bg-gray-400 dark:hover:bg-gray-600 transition-colors"
-                    >
-                      Reset
-                    </button>
-                  </div>
-                </motion.div>
-              )}
-
-              {/* Actions */}
-              <div className="flex gap-2">
                 <button
                   onClick={() => fetchRentalData()}
                   disabled={loading}
-                  className="flex items-center gap-2 px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50 transition-colors"
+                  className="flex items-center gap-2 px-3 py-2 text-sm bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50 transition-colors"
                 >
                   <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
                   Refresh
                 </button>
+
                 <button
                   onClick={handleExport}
                   disabled={loading || records.length === 0}
-                  className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50 transition-colors"
+                  className="flex items-center gap-2 px-4 py-2 text-sm bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50 transition-colors"
                 >
                   <Download className="w-4 h-4" />
                   Export Excel
                 </button>
               </div>
 
-              {/* Results count */}
-              {activeTab === 'all_history' && (
-                <p className="text-sm text-gray-600 dark:text-gray-400">
-                  Showing {records.length} results (filtered from {total} total)
-                </p>
-              )}
+              {/* Advanced filters panel */}
+              <AnimatePresence>
+                {activeTab === 'all_history' && showFilters && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: 'auto' }}
+                    exit={{ opacity: 0, height: 0 }}
+                    className="overflow-hidden"
+                  >
+                    <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-4 border border-gray-200 dark:border-gray-700 space-y-4">
+                      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Date From</label>
+                          <input type="date" value={filters.dateFrom} onChange={e => handleFilterChange('dateFrom', e.target.value)}
+                            className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white" />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Date To</label>
+                          <input type="date" value={filters.dateTo} onChange={e => handleFilterChange('dateTo', e.target.value)}
+                            className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white" />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Company</label>
+                          <select value={filters.company} onChange={e => handleFilterChange('company', e.target.value)}
+                            className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white">
+                            <option value="">All Companies</option>
+                            {companies.map(c => <option key={c} value={c}>{c}</option>)}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Partner Type</label>
+                          <select value={filters.partnerType} onChange={e => handleFilterChange('partnerType', e.target.value)}
+                            className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white">
+                            <option value="">All Types</option>
+                            <option value="Retailer">Retailer</option>
+                            <option value="Distributor">Distributor</option>
+                            <option value="Master Distributor">Master Distributor</option>
+                            <option value="Partner">Partner</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Status</label>
+                          <select value={filters.status} onChange={e => handleFilterChange('status', e.target.value)}
+                            className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white">
+                            <option value="">All</option>
+                            <option value="active">Active</option>
+                            <option value="returned">Returned</option>
+                          </select>
+                        </div>
+                      </div>
+                      <div className="flex gap-2">
+                        <button onClick={handleResetFilters}
+                          className="px-3 py-1.5 text-sm bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50">
+                          Reset All
+                        </button>
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              {/* Result count */}
+              <div className="flex items-center justify-between text-sm text-gray-500 dark:text-gray-400">
+                <span>
+                  {globalSearch
+                    ? `${records.length} result${records.length !== 1 ? 's' : ''} for "${globalSearch}"`
+                    : `${total} partner${total !== 1 ? 's' : ''} · ${stats.totalPOS} POS machines`}
+                </span>
+                {totalPages > 1 && <span>Page {page} of {totalPages}</span>}
+              </div>
 
               {/* Table */}
-              <div className="bg-white dark:bg-gray-800 rounded-lg shadow overflow-hidden">
+              <div className="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
                 <div className="overflow-x-auto">
-                  <table className="w-full">
-                    <thead className="bg-gray-50 dark:bg-gray-900">
-                      <tr>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Sr.</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Company</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Partner / Retailer</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Type</th>
-                        <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">No. of POS</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">TIDs</th>
-                        <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Rate/Month</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Assigned</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Return</th>
-                        <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Total Days</th>
-                        <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Prorata (₹)</th>
-                        <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Status</th>
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="bg-gray-50 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700">
+                        <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase w-10">Sr.</th>
+                        <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Company</th>
+                        <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Partner / Retailer</th>
+                        <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Type</th>
+                        <th className="px-3 py-3 text-center text-xs font-semibold text-gray-500 uppercase w-20">No. of POS</th>
+                        <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase">TIDs</th>
+                        <th className="px-3 py-3 text-right text-xs font-semibold text-gray-500 uppercase">Rate/Month</th>
+                        <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Assigned</th>
+                        <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Return</th>
+                        <th className="px-3 py-3 text-center text-xs font-semibold text-gray-500 uppercase">Total Days</th>
+                        <th className="px-3 py-3 text-right text-xs font-semibold text-gray-500 uppercase">Prorata (₹)</th>
+                        <th className="px-3 py-3 text-center text-xs font-semibold text-gray-500 uppercase">Status</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                    <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-100 dark:divide-gray-700">
                       {loading ? (
                         <tr>
-                          <td colSpan={12} className="px-6 py-12 text-center">
+                          <td colSpan={12} className="py-16 text-center">
                             <Loader2 className="w-6 h-6 animate-spin text-primary-600 mx-auto" />
                           </td>
                         </tr>
                       ) : records.length === 0 ? (
                         <tr>
-                          <td colSpan={12} className="px-6 py-12 text-center text-gray-500 dark:text-gray-400">
-                            No records found
+                          <td colSpan={12} className="py-16 text-center text-gray-500 dark:text-gray-400">
+                            {globalSearch ? `No results found for "${globalSearch}"` : 'No records found'}
                           </td>
                         </tr>
                       ) : (
@@ -491,50 +543,62 @@ function POSRentalReportContent() {
                             key={idx}
                             initial={{ opacity: 0 }}
                             animate={{ opacity: 1 }}
-                            className="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
+                            className="hover:bg-gray-50 dark:hover:bg-gray-700/40 transition-colors"
                           >
-                            <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                            <td className="px-3 py-3 text-gray-400 text-xs">
                               {((page - 1) * 25) + idx + 1}
                             </td>
-                            <td className="px-4 py-3 text-sm font-medium text-gray-900 dark:text-white max-w-[200px]">
-                              <div className="truncate" title={record.company_name}>{record.company_name}</div>
+                            <td className="px-3 py-3 font-medium text-gray-900 dark:text-white max-w-[180px]">
+                              <div className="truncate" title={record.company_name}>{record.company_name || '—'}</div>
                             </td>
-                            <td className="px-4 py-3 text-sm text-gray-700 dark:text-gray-300 max-w-[200px]">
+                            <td className="px-3 py-3 text-gray-700 dark:text-gray-300 max-w-[180px]">
                               <div className="truncate" title={record.partner_name}>{record.partner_name}</div>
                             </td>
-                            <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-600 dark:text-gray-400">
+                            <td className="px-3 py-3 text-gray-500 dark:text-gray-400 whitespace-nowrap">
                               {record.partner_type}
                             </td>
-                            <td className="px-4 py-3 whitespace-nowrap text-sm font-bold text-center text-gray-900 dark:text-white">
+                            <td className="px-3 py-3 text-center font-bold text-gray-900 dark:text-white">
                               {record.pos_count}
                             </td>
-                            <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400 max-w-[180px]">
-                              <div className="truncate text-xs" title={record.pos_tids.join(', ')}>
-                                {record.pos_tids.join(', ')}
+                            {/* TIDs cell with View button */}
+                            <td className="px-3 py-3">
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs text-gray-500 truncate max-w-[120px]" title={record.pos_tids.join(', ')}>
+                                  {record.pos_tids.slice(0, 2).join(', ')}
+                                  {record.pos_tids.length > 2 && ` +${record.pos_tids.length - 2} more`}
+                                </span>
+                                <button
+                                  onClick={() => setTidModal({ partnerName: record.partner_name, companyName: record.company_name, tids: record.pos_tids })}
+                                  className="shrink-0 flex items-center gap-1 px-2 py-0.5 text-xs bg-primary-50 dark:bg-primary-900/20 text-primary-600 dark:text-primary-400 border border-primary-200 dark:border-primary-800 rounded-full hover:bg-primary-100 transition-colors"
+                                  title="View all TIDs"
+                                >
+                                  <Eye className="w-3 h-3" />
+                                  All
+                                </button>
                               </div>
                             </td>
-                            <td className="px-4 py-3 whitespace-nowrap text-sm text-right text-gray-900 dark:text-white">
-                              ₹{record.monthly_rate.toLocaleString()}
+                            <td className="px-3 py-3 text-right text-gray-900 dark:text-white whitespace-nowrap">
+                              ₹{record.monthly_rate.toLocaleString('en-IN')}
                             </td>
-                            <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-600 dark:text-gray-400">
+                            <td className="px-3 py-3 text-gray-600 dark:text-gray-400 whitespace-nowrap">
                               {new Date(record.earliest_assigned_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' })}
                             </td>
-                            <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-600 dark:text-gray-400">
+                            <td className="px-3 py-3 text-gray-600 dark:text-gray-400 whitespace-nowrap">
                               {record.latest_return_date
                                 ? new Date(record.latest_return_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' })
-                                : '-'}
+                                : '—'}
                             </td>
-                            <td className="px-4 py-3 whitespace-nowrap text-sm text-center text-gray-700 dark:text-gray-300">
-                              {record.total_rental_days} d
+                            <td className="px-3 py-3 text-center text-gray-700 dark:text-gray-300 whitespace-nowrap">
+                              {record.total_rental_days}d
                             </td>
-                            <td className="px-4 py-3 whitespace-nowrap text-sm font-bold text-right text-primary-600 dark:text-primary-400">
+                            <td className="px-3 py-3 text-right font-bold text-primary-600 dark:text-primary-400 whitespace-nowrap">
                               ₹{record.total_prorata_amount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                             </td>
-                            <td className="px-4 py-3 whitespace-nowrap text-center">
-                              <span className={`inline-flex px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                            <td className="px-3 py-3 text-center">
+                              <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${
                                 record.status === 'active'
-                                  ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400'
-                                  : 'bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-400'
+                                  ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                                  : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400'
                               }`}>
                                 {record.status === 'active' ? 'Active' : 'Returned'}
                               </span>
@@ -548,22 +612,20 @@ function POSRentalReportContent() {
 
                 {/* Pagination */}
                 {totalPages > 1 && (
-                  <div className="bg-gray-50 dark:bg-gray-900 px-6 py-4 flex items-center justify-between border-t border-gray-200 dark:border-gray-700">
-                    <div className="text-sm text-gray-600 dark:text-gray-400">
-                      Page {page} of {totalPages}
-                    </div>
+                  <div className="bg-gray-50 dark:bg-gray-900 px-4 py-3 flex items-center justify-between border-t border-gray-200 dark:border-gray-700">
+                    <span className="text-sm text-gray-500">Page {page} / {totalPages}</span>
                     <div className="flex gap-2">
                       <button
                         onClick={() => setPage(p => Math.max(1, p - 1))}
                         disabled={page === 1 || loading}
-                        className="p-2 rounded-lg border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50"
+                        className="p-1.5 rounded-lg border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-40"
                       >
                         <ChevronLeft className="w-4 h-4" />
                       </button>
                       <button
                         onClick={() => setPage(p => Math.min(totalPages, p + 1))}
                         disabled={page === totalPages || loading}
-                        className="p-2 rounded-lg border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50"
+                        className="p-1.5 rounded-lg border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-40"
                       >
                         <ChevronRight className="w-4 h-4" />
                       </button>
@@ -575,6 +637,18 @@ function POSRentalReportContent() {
           </div>
         </div>
       </div>
+
+      {/* TID Modal */}
+      <AnimatePresence>
+        {tidModal && (
+          <TIDModal
+            partnerName={tidModal.partnerName}
+            companyName={tidModal.companyName}
+            tids={tidModal.tids}
+            onClose={() => setTidModal(null)}
+          />
+        )}
+      </AnimatePresence>
     </div>
   )
 }
