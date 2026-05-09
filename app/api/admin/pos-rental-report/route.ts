@@ -14,10 +14,9 @@ export interface PartnerRentalRow {
   monthly_rate: number           // rate per machine per month
   earliest_assigned_date: string // earliest assignment date
   latest_return_date: string | null // null if any POS still active
-  total_rental_days: number      // sum of rental days across all machines
-  total_prorata_amount: number   // sum of prorata amounts
+  period_days: number            // actual rental period: (return/today) - earliest_assigned
+  total_prorata_amount: number   // sum of prorata amounts across all machines
   status: string                 // 'active' if any POS still active, else 'returned'
-  // per-machine detail
   machines: {
     tid: string
     serial_number: string
@@ -185,7 +184,7 @@ export async function buildRentalData(
         monthly_rate: info.monthlyRate,
         earliest_assigned_date: assignment.created_at,
         latest_return_date: assignment.returned_date,
-        total_rental_days: 0,
+        period_days: 0,
         total_prorata_amount: 0,
         status: 'returned',
         machines: []
@@ -195,7 +194,6 @@ export async function buildRentalData(
     const row = partnerMap[partnerKey]
     row.pos_count += 1
     if (pos.tid) row.pos_tids.push(String(pos.tid))
-    row.total_rental_days += rentalDays
     row.total_prorata_amount = Math.round((row.total_prorata_amount + prorataAmount) * 100) / 100
 
     // Track earliest assigned date
@@ -208,7 +206,6 @@ export async function buildRentalData(
       row.status = 'active'
       row.latest_return_date = null
     } else if (row.status !== 'active' && assignment.returned_date) {
-      // Track latest return date
       if (!row.latest_return_date || new Date(assignment.returned_date) > new Date(row.latest_return_date)) {
         row.latest_return_date = assignment.returned_date
       }
@@ -223,6 +220,16 @@ export async function buildRentalData(
       prorata_amount: prorataAmount,
       machine_status: assignment.status
     })
+  }
+
+  // Compute period_days for each partner after all machines are aggregated
+  // period_days = actual rental period (latest_return or today) - earliest_assigned
+  const now = new Date()
+  for (const row of Object.values(partnerMap)) {
+    const endDate = row.latest_return_date ? new Date(row.latest_return_date) : now
+    row.period_days = Math.max(0, Math.floor(
+      (endDate.getTime() - new Date(row.earliest_assigned_date).getTime()) / (1000 * 60 * 60 * 24)
+    ))
   }
 
   // Sort by company name then partner name
@@ -266,7 +273,7 @@ export async function GET(request: NextRequest) {
 
     const stats = {
       totalPOS: allData.reduce((s, r) => s + r.pos_count, 0),
-      totalDays: allData.reduce((s, r) => s + r.total_rental_days, 0),
+      totalDays: allData.reduce((s, r) => s + r.period_days, 0),
       totalRevenue: Math.round(allData.reduce((s, r) => s + r.total_prorata_amount, 0) * 100) / 100
     }
 

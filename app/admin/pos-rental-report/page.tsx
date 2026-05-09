@@ -31,7 +31,7 @@ interface RentalRecord {
   monthly_rate: number
   earliest_assigned_date: string
   latest_return_date: string | null
-  total_rental_days: number
+  period_days: number
   total_prorata_amount: number
   status: string
 }
@@ -363,8 +363,10 @@ function POSRentalReportContent() {
                   <p className="text-xl font-bold text-purple-900 dark:text-purple-100 mt-0.5">{stats.totalPOS}</p>
                 </div>
                 <div className="bg-orange-50 dark:bg-orange-900/20 rounded-lg p-3 border border-orange-100 dark:border-orange-800">
-                  <p className="text-xs text-orange-600 dark:text-orange-400">Total Days</p>
-                  <p className="text-xl font-bold text-orange-900 dark:text-orange-100 mt-0.5">{stats.totalDays.toLocaleString()}</p>
+                  <p className="text-xs text-orange-600 dark:text-orange-400">Avg Rental Period</p>
+                  <p className="text-xl font-bold text-orange-900 dark:text-orange-100 mt-0.5">
+                    {total > 0 ? Math.round(stats.totalDays / total) : 0} days
+                  </p>
                 </div>
                 <div className="bg-green-50 dark:bg-green-900/20 rounded-lg p-3 border border-green-100 dark:border-green-800">
                   <p className="text-xs text-green-600 dark:text-green-400">Total Revenue</p>
@@ -517,9 +519,7 @@ function POSRentalReportContent() {
                         <th className="px-3 py-3 text-center text-xs font-semibold text-gray-500 uppercase w-20">No. of POS</th>
                         <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase">TIDs</th>
                         <th className="px-3 py-3 text-right text-xs font-semibold text-gray-500 uppercase">Rate/Month</th>
-                        <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Assigned</th>
-                        <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Return</th>
-                        <th className="px-3 py-3 text-center text-xs font-semibold text-gray-500 uppercase">Total Days</th>
+                        <th className="px-3 py-3 text-center text-xs font-semibold text-gray-500 uppercase">Rental Period</th>
                         <th className="px-3 py-3 text-right text-xs font-semibold text-gray-500 uppercase">Prorata (₹)</th>
                         <th className="px-3 py-3 text-center text-xs font-semibold text-gray-500 uppercase">Status</th>
                       </tr>
@@ -527,13 +527,13 @@ function POSRentalReportContent() {
                     <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-100 dark:divide-gray-700">
                       {loading ? (
                         <tr>
-                          <td colSpan={12} className="py-16 text-center">
+                        <td colSpan={10} className="py-16 text-center">
                             <Loader2 className="w-6 h-6 animate-spin text-primary-600 mx-auto" />
                           </td>
                         </tr>
                       ) : records.length === 0 ? (
                         <tr>
-                          <td colSpan={12} className="py-16 text-center text-gray-500 dark:text-gray-400">
+                          <td colSpan={10} className="py-16 text-center text-gray-500 dark:text-gray-400">
                             {globalSearch ? `No results found for "${globalSearch}"` : 'No records found'}
                           </td>
                         </tr>
@@ -580,16 +580,19 @@ function POSRentalReportContent() {
                             <td className="px-3 py-3 text-right text-gray-900 dark:text-white whitespace-nowrap">
                               ₹{record.monthly_rate.toLocaleString('en-IN')}
                             </td>
-                            <td className="px-3 py-3 text-gray-600 dark:text-gray-400 whitespace-nowrap">
-                              {new Date(record.earliest_assigned_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' })}
-                            </td>
-                            <td className="px-3 py-3 text-gray-600 dark:text-gray-400 whitespace-nowrap">
-                              {record.latest_return_date
-                                ? new Date(record.latest_return_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' })
-                                : '—'}
-                            </td>
                             <td className="px-3 py-3 text-center text-gray-700 dark:text-gray-300 whitespace-nowrap">
-                              {record.total_rental_days}d
+                              <div className="flex flex-col items-center gap-0.5">
+                                <span className="font-semibold text-sm text-gray-900 dark:text-white">
+                                  {record.period_days} days
+                                </span>
+                                <span className="text-xs text-gray-400">
+                                  {new Date(record.earliest_assigned_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
+                                  {' → '}
+                                  {record.latest_return_date
+                                    ? new Date(record.latest_return_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })
+                                    : 'Today'}
+                                </span>
+                              </div>
                             </td>
                             <td className="px-3 py-3 text-right font-bold text-primary-600 dark:text-primary-400 whitespace-nowrap">
                               ₹{record.total_prorata_amount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}

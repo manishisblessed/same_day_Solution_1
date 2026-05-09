@@ -149,7 +149,7 @@ export async function GET(request: NextRequest) {
         rate: row.monthly_rate,
         assigned: formatDate(row.earliest_assigned_date),
         returned: formatDate(row.latest_return_date),
-        days: row.total_rental_days,
+        days: row.period_days,
         prorata: row.total_prorata_amount,
         status: row.status === 'active' ? 'Active' : 'Returned',
       })
@@ -200,7 +200,7 @@ export async function GET(request: NextRequest) {
       rate: '',
       assigned: '',
       returned: '',
-      days: totalDays,
+      days: allData.reduce((s, r) => s + r.period_days, 0),
       prorata: Math.round(totalRevenue * 100) / 100,
       status: ''
     })
