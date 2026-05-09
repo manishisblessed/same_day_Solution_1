@@ -176,8 +176,8 @@ function mapRazorpayStatus(razorpayStatus: string): RazorpayTransaction['status'
 /**
  * Map Razorpay POS transaction status to admin-friendly status
  * 
- * STATUS MAPPING RULE (MANDATORY):
- * - AUTHORIZED → CAPTURED
+ * STATUS MAPPING RULE:
+ * - AUTHORIZED, CAPTURED, SUCCESS → CAPTURED (display_status = SUCCESS)
  * - FAILED, VOIDED, REFUNDED → FAILED
  * - Everything else → PENDING
  * 
@@ -187,8 +187,8 @@ function mapRazorpayStatus(razorpayStatus: string): RazorpayTransaction['status'
 export function mapTransactionStatus(payload: any): 'CAPTURED' | 'FAILED' | 'PENDING' {
   const rawStatus = (payload.status || '').toUpperCase().trim()
   
-  // AUTHORIZED → CAPTURED
-  if (rawStatus === 'AUTHORIZED') {
+  // AUTHORIZED, CAPTURED, SUCCESS → CAPTURED
+  if (['AUTHORIZED', 'CAPTURED', 'SUCCESS'].includes(rawStatus)) {
     return 'CAPTURED'
   }
   

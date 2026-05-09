@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, Suspense, useRef } from 'react'
+import React, { useState, useEffect, Suspense, useRef } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useRouter } from 'next/navigation'
 import AdminSidebar from '@/components/AdminSidebar'
@@ -10,10 +10,10 @@ import {
   RefreshCw,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   Search,
   Filter,
   X,
-  Eye,
   Copy,
   Check
 } from 'lucide-react'
@@ -22,6 +22,16 @@ import { motion, AnimatePresence } from 'framer-motion'
 
 type TabType = 'current_month' | 'last_month' | 'all_history'
 
+interface MachineDetail {
+  tid: string
+  serial_number: string
+  assigned_date: string
+  return_date: string | null
+  days_in_period: number
+  prorata_amount: number
+  machine_status: string
+}
+
 interface RentalRecord {
   company_name: string
   partner_name: string
@@ -29,11 +39,9 @@ interface RentalRecord {
   pos_count: number
   pos_tids: string[]
   monthly_rate: number
-  billing_period_start: string
-  billing_period_end: string
-  billable_days: number
   total_prorata_amount: number
   status: string
+  machines: MachineDetail[]
 }
 
 interface FilterState {
@@ -160,7 +168,7 @@ function POSRentalReportContent() {
   const [page, setPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
   const [total, setTotal] = useState(0)
-  const [stats, setStats] = useState({ totalPOS: 0, totalBillableDays: 0, totalRevenue: 0 })
+  const [stats, setStats] = useState({ totalPOS: 0, avgDaysPerPOS: 0, activePOS: 0, totalRevenue: 0 })
 
   // Global search (all tabs)
   const [globalSearch, setGlobalSearch] = useState('')
@@ -179,6 +187,16 @@ function POSRentalReportContent() {
 
   // TID modal
   const [tidModal, setTidModal] = useState<{ partnerName: string; companyName: string; tids: string[] } | null>(null)
+
+  // Expandable rows
+  const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set())
+  const toggleRow = (idx: number) => {
+    setExpandedRows(prev => {
+      const next = new Set(prev)
+      next.has(idx) ? next.delete(idx) : next.add(idx)
+      return next
+    })
+  }
 
   // Auth check
   useEffect(() => {
@@ -239,7 +257,7 @@ function POSRentalReportContent() {
       setRecords(result.data || [])
       setTotalPages(result.pagination?.totalPages || 1)
       setTotal(result.pagination?.total || 0)
-      setStats(result.stats || { totalPOS: 0, totalBillableDays: 0, totalRevenue: 0 })
+      setStats(result.stats || { totalPOS: 0, avgDaysPerPOS: 0, activePOS: 0, totalRevenue: 0 })
     } catch (err: any) {
       console.error('Error:', err)
     } finally {
@@ -363,9 +381,9 @@ function POSRentalReportContent() {
                   <p className="text-xl font-bold text-purple-900 dark:text-purple-100 mt-0.5">{stats.totalPOS}</p>
                 </div>
                 <div className="bg-orange-50 dark:bg-orange-900/20 rounded-lg p-3 border border-orange-100 dark:border-orange-800">
-                  <p className="text-xs text-orange-600 dark:text-orange-400">Avg Days / POS</p>
+                  <p className="text-xs text-orange-600 dark:text-orange-400">Active POS</p>
                   <p className="text-xl font-bold text-orange-900 dark:text-orange-100 mt-0.5">
-                    {stats.totalPOS > 0 ? (stats.totalBillableDays / stats.totalPOS).toFixed(1) : 0} days
+                    {stats.activePOS} <span className="text-sm font-normal text-orange-600">/ {stats.totalPOS}</span>
                   </p>
                 </div>
                 <div className="bg-green-50 dark:bg-green-900/20 rounded-lg p-3 border border-green-100 dark:border-green-800">
@@ -512,100 +530,150 @@ function POSRentalReportContent() {
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="bg-gray-50 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700">
+                        <th className="px-2 py-3 text-center text-xs font-semibold text-gray-500 uppercase w-8"></th>
                         <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase w-10">Sr.</th>
-                        <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Company</th>
                         <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Partner / Retailer</th>
                         <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Type</th>
-                        <th className="px-3 py-3 text-center text-xs font-semibold text-gray-500 uppercase w-20">No. of POS</th>
-                        <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase">TIDs</th>
+                        <th className="px-3 py-3 text-center text-xs font-semibold text-gray-500 uppercase">POS (Active / Total)</th>
                         <th className="px-3 py-3 text-right text-xs font-semibold text-gray-500 uppercase">Rate/Month</th>
-                        <th className="px-3 py-3 text-center text-xs font-semibold text-gray-500 uppercase">Rental Period</th>
-                        <th className="px-3 py-3 text-right text-xs font-semibold text-gray-500 uppercase">Prorata (₹)</th>
+                        <th className="px-3 py-3 text-right text-xs font-semibold text-gray-500 uppercase">Total Prorata (₹)</th>
                         <th className="px-3 py-3 text-center text-xs font-semibold text-gray-500 uppercase">Status</th>
                       </tr>
                     </thead>
                     <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-100 dark:divide-gray-700">
                       {loading ? (
                         <tr>
-                        <td colSpan={10} className="py-16 text-center">
+                          <td colSpan={8} className="py-16 text-center">
                             <Loader2 className="w-6 h-6 animate-spin text-primary-600 mx-auto" />
                           </td>
                         </tr>
                       ) : records.length === 0 ? (
                         <tr>
-                          <td colSpan={10} className="py-16 text-center text-gray-500 dark:text-gray-400">
+                          <td colSpan={8} className="py-16 text-center text-gray-500 dark:text-gray-400">
                             {globalSearch ? `No results found for "${globalSearch}"` : 'No records found'}
                           </td>
                         </tr>
                       ) : (
-                        records.map((record, idx) => (
-                          <motion.tr
-                            key={idx}
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                            className="hover:bg-gray-50 dark:hover:bg-gray-700/40 transition-colors"
-                          >
-                            <td className="px-3 py-3 text-gray-400 text-xs">
-                              {((page - 1) * 25) + idx + 1}
-                            </td>
-                            <td className="px-3 py-3 font-medium text-gray-900 dark:text-white max-w-[180px]">
-                              <div className="truncate" title={record.company_name}>{record.company_name || '—'}</div>
-                            </td>
-                            <td className="px-3 py-3 text-gray-700 dark:text-gray-300 max-w-[180px]">
-                              <div className="truncate" title={record.partner_name}>{record.partner_name}</div>
-                            </td>
-                            <td className="px-3 py-3 text-gray-500 dark:text-gray-400 whitespace-nowrap">
-                              {record.partner_type}
-                            </td>
-                            <td className="px-3 py-3 text-center font-bold text-gray-900 dark:text-white">
-                              {record.pos_count}
-                            </td>
-                            {/* TIDs cell with View button */}
-                            <td className="px-3 py-3">
-                              <div className="flex items-center gap-2">
-                                <span className="text-xs text-gray-500 truncate max-w-[120px]" title={record.pos_tids.join(', ')}>
-                                  {record.pos_tids.slice(0, 2).join(', ')}
-                                  {record.pos_tids.length > 2 && ` +${record.pos_tids.length - 2} more`}
-                                </span>
-                                <button
-                                  onClick={() => setTidModal({ partnerName: record.partner_name, companyName: record.company_name, tids: record.pos_tids })}
-                                  className="shrink-0 flex items-center gap-1 px-2 py-0.5 text-xs bg-primary-50 dark:bg-primary-900/20 text-primary-600 dark:text-primary-400 border border-primary-200 dark:border-primary-800 rounded-full hover:bg-primary-100 transition-colors"
-                                  title="View all TIDs"
-                                >
-                                  <Eye className="w-3 h-3" />
-                                  All
-                                </button>
-                              </div>
-                            </td>
-                            <td className="px-3 py-3 text-right text-gray-900 dark:text-white whitespace-nowrap">
-                              ₹{record.monthly_rate.toLocaleString('en-IN')}
-                            </td>
-                            <td className="px-3 py-3 text-center text-gray-700 dark:text-gray-300 whitespace-nowrap">
-                              <div className="flex flex-col items-center gap-0.5">
-                                <span className="font-semibold text-sm text-gray-900 dark:text-white">
-                                  {record.billable_days} days
-                                </span>
-                                <span className="text-xs text-gray-400">
-                                  {new Date(record.billing_period_start).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
-                                  {' → '}
-                                  {new Date(record.billing_period_end).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
-                                </span>
-                              </div>
-                            </td>
-                            <td className="px-3 py-3 text-right font-bold text-primary-600 dark:text-primary-400 whitespace-nowrap">
-                              ₹{record.total_prorata_amount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                            </td>
-                            <td className="px-3 py-3 text-center">
-                              <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${
-                                record.status === 'active'
-                                  ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
-                                  : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400'
-                              }`}>
-                                {record.status === 'active' ? 'Active' : 'Returned'}
-                              </span>
-                            </td>
-                          </motion.tr>
-                        ))
+                        records.map((record, idx) => {
+                          const globalIdx = ((page - 1) * 25) + idx
+                          const isExpanded = expandedRows.has(globalIdx)
+                          const activeMachines = record.machines?.filter(m => m.machine_status === 'active').length || 0
+                          return (
+                            <React.Fragment key={idx}>
+                              {/* ── Partner summary row ── */}
+                              <tr
+                                onClick={() => toggleRow(globalIdx)}
+                                className={`cursor-pointer transition-colors ${isExpanded ? 'bg-blue-50/60 dark:bg-blue-900/10' : 'hover:bg-gray-50 dark:hover:bg-gray-700/40'}`}
+                              >
+                                <td className="px-2 py-3 text-center">
+                                  <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform mx-auto ${isExpanded ? 'rotate-180' : ''}`} />
+                                </td>
+                                <td className="px-3 py-3 text-gray-400 text-xs">
+                                  {globalIdx + 1}
+                                </td>
+                                <td className="px-3 py-3 max-w-[220px]">
+                                  <div className="font-medium text-gray-900 dark:text-white truncate" title={record.partner_name}>{record.partner_name}</div>
+                                  <div className="text-xs text-gray-500 dark:text-gray-400 truncate" title={record.company_name}>{record.company_name || '—'}</div>
+                                </td>
+                                <td className="px-3 py-3 text-gray-500 dark:text-gray-400 whitespace-nowrap">
+                                  {record.partner_type}
+                                </td>
+                                <td className="px-3 py-3 text-center whitespace-nowrap">
+                                  <span className="font-bold text-gray-900 dark:text-white">{record.pos_count}</span>
+                                  {record.pos_count > 0 && (
+                                    <span className="text-xs ml-1">
+                                      (<span className="text-green-600">{activeMachines}</span>
+                                      {' / '}
+                                      <span className="text-gray-500">{record.pos_count}</span>)
+                                    </span>
+                                  )}
+                                </td>
+                                <td className="px-3 py-3 text-right text-gray-900 dark:text-white whitespace-nowrap">
+                                  ₹{record.monthly_rate.toLocaleString('en-IN')}
+                                </td>
+                                <td className="px-3 py-3 text-right font-bold text-primary-600 dark:text-primary-400 whitespace-nowrap">
+                                  ₹{record.total_prorata_amount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                </td>
+                                <td className="px-3 py-3 text-center">
+                                  <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${
+                                    record.status === 'active'
+                                      ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                                      : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400'
+                                  }`}>
+                                    {record.status === 'active' ? 'Active' : 'Returned'}
+                                  </span>
+                                </td>
+                              </tr>
+
+                              {/* ── Expanded machine detail rows ── */}
+                              {isExpanded && record.machines && record.machines.length > 0 && (
+                                <tr>
+                                  <td colSpan={8} className="p-0">
+                                    <div className="bg-gray-50 dark:bg-gray-900/60 border-y border-gray-200 dark:border-gray-700">
+                                      <table className="w-full text-xs">
+                                        <thead>
+                                          <tr className="bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400">
+                                            <th className="px-3 py-2 text-left font-semibold w-10">#</th>
+                                            <th className="px-3 py-2 text-left font-semibold">TID</th>
+                                            <th className="px-3 py-2 text-left font-semibold">Serial No.</th>
+                                            <th className="px-3 py-2 text-center font-semibold">Assigned Date</th>
+                                            <th className="px-3 py-2 text-center font-semibold">Return Date</th>
+                                            <th className="px-3 py-2 text-center font-semibold">Days</th>
+                                            <th className="px-3 py-2 text-right font-semibold">Prorata (₹)</th>
+                                            <th className="px-3 py-2 text-center font-semibold">Status</th>
+                                          </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                                          {record.machines.map((m, mi) => (
+                                            <tr key={mi} className="hover:bg-white dark:hover:bg-gray-800/60">
+                                              <td className="px-3 py-2 text-gray-400">{mi + 1}</td>
+                                              <td className="px-3 py-2 font-mono font-medium text-gray-900 dark:text-white">{m.tid || '—'}</td>
+                                              <td className="px-3 py-2 text-gray-600 dark:text-gray-400">{m.serial_number || '—'}</td>
+                                              <td className="px-3 py-2 text-center text-gray-700 dark:text-gray-300">
+                                                {new Date(m.assigned_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                                              </td>
+                                              <td className="px-3 py-2 text-center text-gray-700 dark:text-gray-300">
+                                                {m.return_date
+                                                  ? new Date(m.return_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+                                                  : <span className="text-green-600 font-medium">Active</span>}
+                                              </td>
+                                              <td className="px-3 py-2 text-center font-semibold text-gray-900 dark:text-white">{m.days_in_period}</td>
+                                              <td className="px-3 py-2 text-right font-semibold text-primary-600 dark:text-primary-400">
+                                                ₹{m.prorata_amount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                              </td>
+                                              <td className="px-3 py-2 text-center">
+                                                <span className={`inline-flex px-2 py-0.5 rounded-full text-[10px] font-medium ${
+                                                  m.machine_status === 'active'
+                                                    ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                                                    : 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400'
+                                                }`}>
+                                                  {m.machine_status === 'active' ? 'Active' : 'Returned'}
+                                                </span>
+                                              </td>
+                                            </tr>
+                                          ))}
+                                          {/* Machine total row */}
+                                          <tr className="bg-gray-100 dark:bg-gray-800 font-semibold text-xs">
+                                            <td colSpan={5} className="px-3 py-2 text-right text-gray-600 dark:text-gray-400">
+                                              Total ({record.machines.length} machines)
+                                            </td>
+                                            <td className="px-3 py-2 text-center text-gray-900 dark:text-white">
+                                              {record.machines.reduce((s, m) => s + m.days_in_period, 0)}
+                                            </td>
+                                            <td className="px-3 py-2 text-right text-primary-600 dark:text-primary-400">
+                                              ₹{record.total_prorata_amount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                            </td>
+                                            <td></td>
+                                          </tr>
+                                        </tbody>
+                                      </table>
+                                    </div>
+                                  </td>
+                                </tr>
+                              )}
+                            </React.Fragment>
+                          )
+                        })
                       )}
                     </tbody>
                   </table>

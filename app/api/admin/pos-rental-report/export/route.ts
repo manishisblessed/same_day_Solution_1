@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { createClient } from '@supabase/supabase-js'
 import ExcelJS from 'exceljs'
-import { buildRentalData } from '../route'
+import { buildRentalData } from '@/lib/pos-rental-data'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -70,10 +70,10 @@ export async function GET(request: NextRequest) {
     ]
 
     const totalPOS = allData.reduce((s, r) => s + r.pos_count, 0)
-    const totalBillableDays = allData.reduce((s, r) => s + r.billable_days, 0)
     const totalRevenue = allData.reduce((s, r) => s + r.total_prorata_amount, 0)
-    const activeCount = allData.filter(r => r.status === 'active').reduce((s, r) => s + r.pos_count, 0)
-    const returnedCount = allData.filter(r => r.status !== 'active').reduce((s, r) => s + r.pos_count, 0)
+    const totalMachines = allData.flatMap(r => r.machines)
+    const activeCount = totalMachines.filter(m => m.machine_status === 'active').length
+    const returnedCount = totalMachines.filter(m => m.machine_status !== 'active').length
 
     const addSummaryRow = (label: string, value: string | number, bold = false) => {
       const row = summarySheet.addRow([label, value])
@@ -90,10 +90,8 @@ export async function GET(request: NextRequest) {
     addSummaryRow('Total POS Machines', totalPOS, true)
     addSummaryRow('Active POS', activeCount)
     addSummaryRow('Returned POS', returnedCount)
-    addSummaryRow('Total Billable Days', totalBillableDays)
     addSummaryRow('Total Revenue (₹)', `₹${totalRevenue.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, true)
-    if (allData.length > 0 && totalPOS > 0) {
-      addSummaryRow('Avg Billable Days per POS', (totalBillableDays / totalPOS).toFixed(1))
+    if (allData.length > 0) {
       addSummaryRow('Avg Revenue per Partner', `₹${(totalRevenue / allData.length).toFixed(2)}`)
     }
 
@@ -117,11 +115,10 @@ export async function GET(request: NextRequest) {
       { header: 'Company Name', key: 'company', width: 32 },
       { header: 'Partner / Retailer Name', key: 'partner', width: 32 },
       { header: 'Type', key: 'type', width: 16 },
-      { header: 'No. of POS', key: 'pos_count', width: 10 },
+      { header: 'Total POS', key: 'pos_count', width: 10 },
+      { header: 'Active POS', key: 'active_pos', width: 10 },
       { header: 'TID(s)', key: 'tids', width: 38 },
       { header: 'Rate / Month (₹)', key: 'rate', width: 16 },
-      { header: 'Billing Period', key: 'period', width: 24 },
-      { header: 'Billable Days', key: 'days', width: 14 },
       { header: 'Prorata Amount (₹)', key: 'prorata', width: 20 },
       { header: 'Status', key: 'status', width: 12 },
     ]
@@ -138,16 +135,16 @@ export async function GET(request: NextRequest) {
       const isEven = idx % 2 === 0
       const bgColor = isEven ? 'FFFAFAFA' : 'FFFFFFFF'
 
+      const activePosCount = row.machines.filter(m => m.machine_status === 'active').length
       const dataRow = reportSheet.addRow({
         sr: idx + 1,
         company: row.company_name,
         partner: row.partner_name,
         type: row.partner_type,
         pos_count: row.pos_count,
+        active_pos: activePosCount,
         tids: row.pos_tids.join(', '),
         rate: row.monthly_rate,
-        period: `${formatDate(row.billing_period_start)} → ${formatDate(row.billing_period_end)}`,
-        days: row.billable_days,
         prorata: row.total_prorata_amount,
         status: row.status === 'active' ? 'Active' : 'Returned',
       })
@@ -166,8 +163,8 @@ export async function GET(request: NextRequest) {
 
       // Right-align numeric columns
       dataRow.getCell('rate').alignment = { horizontal: 'right', vertical: 'middle' }
-      dataRow.getCell('days').alignment = { horizontal: 'center', vertical: 'middle' }
       dataRow.getCell('pos_count').alignment = { horizontal: 'center', vertical: 'middle' }
+      dataRow.getCell('active_pos').alignment = { horizontal: 'center', vertical: 'middle' }
       dataRow.getCell('prorata').alignment = { horizontal: 'right', vertical: 'middle' }
       dataRow.getCell('prorata').font = { bold: true }
 
@@ -194,10 +191,9 @@ export async function GET(request: NextRequest) {
       partner: '',
       type: '',
       pos_count: totalPOS,
+      active_pos: activeCount,
       tids: '',
       rate: '',
-      period: '',
-      days: totalBillableDays,
       prorata: Math.round(totalRevenue * 100) / 100,
       status: ''
     })
@@ -209,8 +205,8 @@ export async function GET(request: NextRequest) {
     })
     totalRow.getCell('prorata').numFmt = '₹#,##0.00'
     totalRow.getCell('prorata').alignment = { horizontal: 'right', vertical: 'middle' }
-    totalRow.getCell('days').alignment = { horizontal: 'center', vertical: 'middle' }
     totalRow.getCell('pos_count').alignment = { horizontal: 'center', vertical: 'middle' }
+    totalRow.getCell('active_pos').alignment = { horizontal: 'center', vertical: 'middle' }
 
     // Freeze header row
     reportSheet.views = [{ state: 'frozen', ySplit: 1 }]
@@ -225,8 +221,9 @@ export async function GET(request: NextRequest) {
       { header: 'TID', key: 'tid', width: 14 },
       { header: 'Serial No.', key: 'serial', width: 18 },
       { header: 'Rate / Month (₹)', key: 'rate', width: 16 },
-      { header: 'Billing Period', key: 'billing_period', width: 24 },
-      { header: 'Days in Period', key: 'days', width: 14 },
+      { header: 'Assigned Date', key: 'assigned', width: 16 },
+      { header: 'Return Date', key: 'return', width: 16 },
+      { header: 'Days', key: 'days', width: 10 },
       { header: 'Prorata Amount (₹)', key: 'prorata', width: 20 },
       { header: 'Status', key: 'status', width: 12 },
     ]
@@ -247,7 +244,8 @@ export async function GET(request: NextRequest) {
           tid: m.tid,
           serial: m.serial_number,
           rate: partner.monthly_rate,
-          billing_period: `${formatDate(partner.billing_period_start)} → ${formatDate(partner.billing_period_end)}`,
+          assigned: formatDate(m.assigned_date),
+          return: formatDate(m.return_date),
           days: m.days_in_period,
           prorata: m.prorata_amount,
           status: m.machine_status === 'active' ? 'Active' : 'Returned'
@@ -280,7 +278,7 @@ export async function GET(request: NextRequest) {
     const dateStr = today2.toISOString().split('T')[0]
     const fileName = `POS_Rental_Report_${period}_${dateStr}.xlsx`
 
-    return new NextResponse(buffer as Buffer, {
+    return new NextResponse(Buffer.from(buffer as ArrayBuffer), {
       status: 200,
       headers: {
         'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
