@@ -1,29 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { createClient } from '@supabase/supabase-js'
+import ExcelJS from 'exceljs'
+import { buildRentalData } from '../route'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-// Simple XLSX generation helper
-function generateXLSX(data: any[], filename: string) {
-  const headers = Object.keys(data[0] || {})
-  const csvContent = [
-    headers.join(','),
-    ...data.map(row => 
-      headers.map(header => {
-        const value = row[header]
-        if (value === null || value === undefined) return ''
-        if (Array.isArray(value)) return `"${value.join(', ')}"`
-        if (typeof value === 'string' && (value.includes(',') || value.includes('"'))) {
-          return `"${value.replace(/"/g, '""')}"`
-        }
-        return String(value)
-      }).join(',')
-    )
-  ].join('\n')
-
-  return Buffer.from(csvContent, 'utf-8')
+function formatDate(dateStr: string | null): string {
+  if (!dateStr) return '-'
+  return new Date(dateStr).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
 }
 
 export async function GET(request: NextRequest) {
@@ -32,187 +18,283 @@ export async function GET(request: NextRequest) {
     const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
 
     if (!supabaseUrl || !supabaseServiceKey) {
-      return NextResponse.json(
-        { error: 'Supabase configuration missing' },
-        { status: 500 }
-      )
+      return NextResponse.json({ error: 'Supabase configuration missing' }, { status: 500 })
     }
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey)
-
     const { user: admin } = await getCurrentUserWithFallback(request)
 
     if (!admin || admin.role !== 'admin') {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 })
     }
 
-    const searchParams = request.nextUrl.searchParams
-    const period = searchParams.get('period') || 'current_month'
-    const company = searchParams.get('company')
-    const partnerType = searchParams.get('partnerType')
-    const status = searchParams.get('status')
-    const search = searchParams.get('search')
+    const sp = request.nextUrl.searchParams
+    const period = sp.get('period') || 'current_month'
 
-    // Determine date range
+    const allData = await buildRentalData(supabase, period, {
+      dateFrom: sp.get('dateFrom'),
+      dateTo: sp.get('dateTo'),
+      company: sp.get('company'),
+      partnerType: sp.get('partnerType'),
+      status: sp.get('status'),
+      search: sp.get('search')
+    })
+
+    // Get period label for title
     const today = new Date()
     const currentYear = today.getFullYear()
     const currentMonth = today.getMonth()
-
-    let startDate: string
-    let endDate: string
-
+    let periodLabel = ''
     if (period === 'current_month') {
-      startDate = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-01`
-      endDate = today.toISOString().split('T')[0]
+      periodLabel = today.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })
     } else if (period === 'last_month') {
       const lastMonth = currentMonth === 0 ? 11 : currentMonth - 1
       const lastMonthYear = currentMonth === 0 ? currentYear - 1 : currentYear
-      startDate = `${lastMonthYear}-${String(lastMonth + 1).padStart(2, '0')}-01`
-      const lastDay = new Date(lastMonthYear, lastMonth + 1, 0)
-      endDate = lastDay.toISOString().split('T')[0]
+      periodLabel = new Date(lastMonthYear, lastMonth, 1).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })
     } else {
-      startDate = searchParams.get('dateFrom') || '2024-01-01'
-      endDate = searchParams.get('dateTo') || today.toISOString().split('T')[0]
+      const dateFrom = sp.get('dateFrom') || '01 Jan 2024'
+      const dateTo = sp.get('dateTo') || today.toLocaleDateString('en-IN')
+      periodLabel = `${dateFrom} to ${dateTo}`
     }
 
-    // Fetch all assignments in date range
-    const { data: assignments, error } = await supabase
-      .from('pos_assignment_history')
-      .select('*')
-      .gte('created_at', `${startDate}T00:00:00`)
-      .lte('created_at', `${endDate}T23:59:59`)
-      .order('created_at', { ascending: false })
+    // Build Excel workbook
+    const workbook = new ExcelJS.Workbook()
+    workbook.creator = 'Same Day Solution Pvt. Ltd.'
+    workbook.created = new Date()
 
-    if (error) throw error
+    // ── SUMMARY SHEET ──
+    const summarySheet = workbook.addWorksheet('Summary')
+    summarySheet.columns = [
+      { width: 35 },
+      { width: 20 },
+    ]
 
-    const enrichedData = []
+    const totalPOS = allData.reduce((s, r) => s + r.pos_count, 0)
+    const totalDays = allData.reduce((s, r) => s + r.total_rental_days, 0)
+    const totalRevenue = allData.reduce((s, r) => s + r.total_prorata_amount, 0)
+    const activeCount = allData.filter(r => r.status === 'active').reduce((s, r) => s + r.pos_count, 0)
+    const returnedCount = allData.filter(r => r.status !== 'active').reduce((s, r) => s + r.pos_count, 0)
 
-    if (assignments) {
-      for (const assignment of assignments) {
-        const { data: pos } = await supabase
-          .from('pos_machines')
-          .select('*')
-          .eq('id', assignment.pos_machine_id)
-          .single()
+    const addSummaryRow = (label: string, value: string | number, bold = false) => {
+      const row = summarySheet.addRow([label, value])
+      row.getCell(1).font = { bold }
+      row.getCell(2).font = { bold }
+    }
 
-        if (!pos) continue
+    summarySheet.addRow(['POS RENTAL REPORT — PRORATA BASIS']).font = { bold: true, size: 14 }
+    summarySheet.addRow(['Same Day Solution Pvt. Ltd.']).font = { italic: true }
+    summarySheet.addRow(['Period:', periodLabel])
+    summarySheet.addRow(['Generated on:', today.toLocaleString('en-IN')])
+    summarySheet.addRow([])
+    addSummaryRow('Total Partners', allData.length, true)
+    addSummaryRow('Total POS Machines', totalPOS, true)
+    addSummaryRow('Active POS', activeCount)
+    addSummaryRow('Returned POS', returnedCount)
+    addSummaryRow('Total Rental Days', totalDays)
+    addSummaryRow('Total Revenue (₹)', `₹${totalRevenue.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, true)
+    if (allData.length > 0) {
+      addSummaryRow('Avg Days per POS', (totalDays / totalPOS).toFixed(1))
+      addSummaryRow('Avg Revenue per Partner', `₹${(totalRevenue / allData.length).toFixed(2)}`)
+    }
 
-        let companyName = ''
-        let partnerName = ''
-        let pType = ''
+    // ── PARTNER-WISE REPORT SHEET ──
+    const reportSheet = workbook.addWorksheet('Rental Report')
 
-        if (pos.retailer_id) {
-          const { data: retailer } = await supabase
-            .from('retailers')
-            .select('name, business_name')
-            .eq('partner_id', pos.retailer_id)
-            .single()
-          partnerName = retailer?.name || pos.retailer_id
-          companyName = retailer?.business_name || retailer?.name || 'Unknown'
-          pType = 'Retailer'
-        } else if (pos.distributor_id) {
-          const { data: dist } = await supabase
-            .from('distributors')
-            .select('name, business_name')
-            .eq('partner_id', pos.distributor_id)
-            .single()
-          partnerName = dist?.name || pos.distributor_id
-          companyName = dist?.business_name || dist?.name || 'Unknown'
-          pType = 'Distributor'
-        } else if (pos.master_distributor_id) {
-          const { data: md } = await supabase
-            .from('master_distributors')
-            .select('name, business_name')
-            .eq('partner_id', pos.master_distributor_id)
-            .single()
-          partnerName = md?.name || pos.master_distributor_id
-          companyName = md?.business_name || md?.name || 'Unknown'
-          pType = 'Master Distributor'
-        } else if (pos.partner_id) {
-          const { data: partner } = await supabase
-            .from('partners')
-            .select('name, business_name')
-            .eq('id', pos.partner_id)
-            .single()
-          partnerName = partner?.name || pos.partner_id
-          companyName = partner?.business_name || partner?.name || 'Unknown'
-          pType = 'Partner'
-        }
-
-        // Apply filters
-        if (company && companyName !== company) continue
-        if (partnerType && pType !== partnerType) continue
-        if (status && assignment.status !== status) continue
-        if (search) {
-          const searchLower = search.toLowerCase()
-          if (!companyName.toLowerCase().includes(searchLower) &&
-              !partnerName.toLowerCase().includes(searchLower) &&
-              !(pos.tid && pos.tid.includes(search)) &&
-              !(pos.serial_number && pos.serial_number.includes(search))) {
-            continue
-          }
-        }
-
-        // Get subscription rate
-        let monthlyRate = 500
-        if (pos.retailer_id) {
-          const { data: sub } = await supabase
-            .from('subscriptions')
-            .select('id')
-            .eq('user_id', pos.retailer_id)
-            .eq('user_role', 'retailer')
-            .maybeSingle()
-
-          if (sub) {
-            const { data: item } = await supabase
-              .from('subscription_items')
-              .select('retailer_rate')
-              .eq('subscription_id', sub.id)
-              .eq('is_active', true)
-              .maybeSingle()
-
-            if (item) monthlyRate = item.retailer_rate || 500
-          }
-        }
-
-        const rentalDays =
-          assignment.returned_date
-            ? Math.floor((new Date(assignment.returned_date).getTime() - new Date(assignment.created_at).getTime()) / (1000 * 60 * 60 * 24))
-            : Math.floor((new Date().getTime() - new Date(assignment.created_at).getTime()) / (1000 * 60 * 60 * 24))
-
-        const prorataAmount = (monthlyRate / 30) * rentalDays
-
-        enrichedData.push({
-          Month: new Date(assignment.created_at).toISOString().split('T')[0].substring(0, 7),
-          Company: companyName,
-          Partner: partnerName,
-          'Partner Type': pType,
-          'POS Count': 1,
-          'TIDs': pos.tid || '',
-          'Monthly Rate (₹)': monthlyRate,
-          'Assigned Date': new Date(assignment.created_at).toLocaleDateString('en-IN'),
-          'Return Date': assignment.returned_date ? new Date(assignment.returned_date).toLocaleDateString('en-IN') : '-',
-          'Rental Days': rentalDays,
-          'Prorata Amount (₹)': Math.round(prorataAmount * 100) / 100,
-          'Status': assignment.status === 'active' ? 'Active' : 'Returned'
-        })
+    const headerStyle: Partial<ExcelJS.Style> = {
+      fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E3A5F' } },
+      font: { color: { argb: 'FFFFFFFF' }, bold: true, size: 11 },
+      alignment: { horizontal: 'center', vertical: 'middle', wrapText: true },
+      border: {
+        top: { style: 'thin', color: { argb: 'FFCCCCCC' } },
+        left: { style: 'thin', color: { argb: 'FFCCCCCC' } },
+        bottom: { style: 'thin', color: { argb: 'FFCCCCCC' } },
+        right: { style: 'thin', color: { argb: 'FFCCCCCC' } }
       }
     }
 
-    const csvContent = generateXLSX(enrichedData, `POS_Rental_Report_${period}`)
+    reportSheet.columns = [
+      { header: 'Sr.', key: 'sr', width: 5 },
+      { header: 'Company Name', key: 'company', width: 32 },
+      { header: 'Partner / Retailer Name', key: 'partner', width: 32 },
+      { header: 'Type', key: 'type', width: 16 },
+      { header: 'No. of POS', key: 'pos_count', width: 10 },
+      { header: 'TID(s)', key: 'tids', width: 38 },
+      { header: 'Rate / Month (₹)', key: 'rate', width: 16 },
+      { header: 'First Assigned', key: 'assigned', width: 16 },
+      { header: 'Last Return', key: 'returned', width: 16 },
+      { header: 'Total Days', key: 'days', width: 11 },
+      { header: 'Prorata Amount (₹)', key: 'prorata', width: 20 },
+      { header: 'Status', key: 'status', width: 12 },
+    ]
 
-    return new NextResponse(csvContent, {
+    // Style header row
+    const headerRow = reportSheet.getRow(1)
+    headerRow.height = 36
+    headerRow.eachCell((cell) => {
+      Object.assign(cell, headerStyle)
+    })
+
+    // Data rows
+    allData.forEach((row, idx) => {
+      const isEven = idx % 2 === 0
+      const bgColor = isEven ? 'FFFAFAFA' : 'FFFFFFFF'
+
+      const dataRow = reportSheet.addRow({
+        sr: idx + 1,
+        company: row.company_name,
+        partner: row.partner_name,
+        type: row.partner_type,
+        pos_count: row.pos_count,
+        tids: row.pos_tids.join(', '),
+        rate: row.monthly_rate,
+        assigned: formatDate(row.earliest_assigned_date),
+        returned: formatDate(row.latest_return_date),
+        days: row.total_rental_days,
+        prorata: row.total_prorata_amount,
+        status: row.status === 'active' ? 'Active' : 'Returned',
+      })
+
+      dataRow.height = 20
+      dataRow.eachCell((cell) => {
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bgColor } }
+        cell.border = {
+          top: { style: 'hair', color: { argb: 'FFDDDDDD' } },
+          left: { style: 'hair', color: { argb: 'FFDDDDDD' } },
+          bottom: { style: 'hair', color: { argb: 'FFDDDDDD' } },
+          right: { style: 'hair', color: { argb: 'FFDDDDDD' } }
+        }
+        cell.alignment = { vertical: 'middle', wrapText: false }
+      })
+
+      // Right-align numeric columns
+      dataRow.getCell('rate').alignment = { horizontal: 'right', vertical: 'middle' }
+      dataRow.getCell('days').alignment = { horizontal: 'center', vertical: 'middle' }
+      dataRow.getCell('pos_count').alignment = { horizontal: 'center', vertical: 'middle' }
+      dataRow.getCell('prorata').alignment = { horizontal: 'right', vertical: 'middle' }
+      dataRow.getCell('prorata').font = { bold: true }
+
+      // Format rupee columns
+      dataRow.getCell('rate').numFmt = '₹#,##0.00'
+      dataRow.getCell('prorata').numFmt = '₹#,##0.00'
+
+      // Color status cell
+      const statusCell = dataRow.getCell('status')
+      statusCell.alignment = { horizontal: 'center', vertical: 'middle' }
+      if (row.status === 'active') {
+        statusCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE8F5E9' } }
+        statusCell.font = { color: { argb: 'FF2E7D32' }, bold: true }
+      } else {
+        statusCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEEEEEE' } }
+        statusCell.font = { color: { argb: 'FF757575' } }
+      }
+    })
+
+    // Totals row
+    const totalRow = reportSheet.addRow({
+      sr: '',
+      company: 'TOTAL',
+      partner: '',
+      type: '',
+      pos_count: totalPOS,
+      tids: '',
+      rate: '',
+      assigned: '',
+      returned: '',
+      days: totalDays,
+      prorata: Math.round(totalRevenue * 100) / 100,
+      status: ''
+    })
+    totalRow.height = 24
+    totalRow.eachCell((cell) => {
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E3A5F' } }
+      cell.font = { color: { argb: 'FFFFFFFF' }, bold: true }
+      cell.alignment = { vertical: 'middle' }
+    })
+    totalRow.getCell('prorata').numFmt = '₹#,##0.00'
+    totalRow.getCell('prorata').alignment = { horizontal: 'right', vertical: 'middle' }
+    totalRow.getCell('days').alignment = { horizontal: 'center', vertical: 'middle' }
+    totalRow.getCell('pos_count').alignment = { horizontal: 'center', vertical: 'middle' }
+
+    // Freeze header row
+    reportSheet.views = [{ state: 'frozen', ySplit: 1 }]
+
+    // ── MACHINE-WISE DETAIL SHEET ──
+    const detailSheet = workbook.addWorksheet('Machine-wise Detail')
+    detailSheet.columns = [
+      { header: 'Sr.', key: 'sr', width: 5 },
+      { header: 'Company Name', key: 'company', width: 32 },
+      { header: 'Partner Name', key: 'partner', width: 32 },
+      { header: 'Type', key: 'type', width: 16 },
+      { header: 'TID', key: 'tid', width: 14 },
+      { header: 'Serial No.', key: 'serial', width: 18 },
+      { header: 'Rate / Month (₹)', key: 'rate', width: 16 },
+      { header: 'Assigned Date', key: 'assigned', width: 16 },
+      { header: 'Return Date', key: 'returned', width: 16 },
+      { header: 'Rental Days', key: 'days', width: 12 },
+      { header: 'Prorata Amount (₹)', key: 'prorata', width: 20 },
+      { header: 'Status', key: 'status', width: 12 },
+    ]
+
+    const dHeaderRow = detailSheet.getRow(1)
+    dHeaderRow.height = 36
+    dHeaderRow.eachCell((cell) => { Object.assign(cell, headerStyle) })
+
+    let detailSr = 1
+    allData.forEach((partner) => {
+      partner.machines.forEach((m, mi) => {
+        const isEven = detailSr % 2 === 0
+        const row = detailSheet.addRow({
+          sr: detailSr++,
+          company: partner.company_name,
+          partner: partner.partner_name,
+          type: partner.partner_type,
+          tid: m.tid,
+          serial: m.serial_number,
+          rate: partner.monthly_rate,
+          assigned: formatDate(m.assigned_date),
+          returned: formatDate(m.return_date),
+          days: m.rental_days,
+          prorata: m.prorata_amount,
+          status: m.machine_status === 'active' ? 'Active' : 'Returned'
+        })
+        row.height = 20
+        row.eachCell((cell) => {
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: isEven ? 'FFFAFAFA' : 'FFFFFFFF' } }
+          cell.border = {
+            top: { style: 'hair', color: { argb: 'FFDDDDDD' } },
+            left: { style: 'hair', color: { argb: 'FFDDDDDD' } },
+            bottom: { style: 'hair', color: { argb: 'FFDDDDDD' } },
+            right: { style: 'hair', color: { argb: 'FFDDDDDD' } }
+          }
+          cell.alignment = { vertical: 'middle' }
+        })
+        row.getCell('rate').numFmt = '₹#,##0.00'
+        row.getCell('prorata').numFmt = '₹#,##0.00'
+        row.getCell('prorata').font = { bold: true }
+        row.getCell('prorata').alignment = { horizontal: 'right', vertical: 'middle' }
+        row.getCell('days').alignment = { horizontal: 'center', vertical: 'middle' }
+      })
+    })
+
+    detailSheet.views = [{ state: 'frozen', ySplit: 1 }]
+
+    // Generate Excel buffer
+    const buffer = await workbook.xlsx.writeBuffer()
+
+    const today2 = new Date()
+    const dateStr = today2.toISOString().split('T')[0]
+    const fileName = `POS_Rental_Report_${period}_${dateStr}.xlsx`
+
+    return new NextResponse(buffer as Buffer, {
       status: 200,
       headers: {
-        'Content-Type': 'text/csv; charset=utf-8',
-        'Content-Disposition': `attachment; filename="POS_Rental_Report_${period}_${new Date().toISOString().split('T')[0]}.csv"`
+        'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'Content-Disposition': `attachment; filename="${fileName}"`,
+        'Cache-Control': 'no-cache'
       }
     })
   } catch (error: any) {
     console.error('Error in export API:', error)
-    return NextResponse.json(
-      { error: error.message || 'Internal server error' },
-      { status: 500 }
-    )
+    return NextResponse.json({ error: error.message || 'Internal server error' }, { status: 500 })
   }
 }

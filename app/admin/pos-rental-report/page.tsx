@@ -21,18 +21,17 @@ import { motion } from 'framer-motion'
 type TabType = 'current_month' | 'last_month' | 'all_history'
 
 interface RentalRecord {
-  month: string
   company_name: string
   partner_name: string
   partner_type: string
   pos_count: number
   pos_tids: string[]
   monthly_rate: number
-  assigned_date: string
-  return_date: string | null
-  rental_days: number
-  prorata_amount: number
-  status: 'active' | 'returned'
+  earliest_assigned_date: string
+  latest_return_date: string | null
+  total_rental_days: number
+  total_prorata_amount: number
+  status: string
 }
 
 interface FilterState {
@@ -459,32 +458,30 @@ function POSRentalReportContent() {
                   <table className="w-full">
                     <thead className="bg-gray-50 dark:bg-gray-900">
                       <tr>
-                        {activeTab === 'all_history' && (
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Month</th>
-                        )}
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Company</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Partner</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Type</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">POS</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">TIDs</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Rate/Month</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Assigned</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Return</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Days</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Prorata (₹)</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Status</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Sr.</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Company</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Partner / Retailer</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Type</th>
+                        <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">No. of POS</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">TIDs</th>
+                        <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Rate/Month</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Assigned</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Return</th>
+                        <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Total Days</th>
+                        <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Prorata (₹)</th>
+                        <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Status</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
                       {loading ? (
                         <tr>
-                          <td colSpan={activeTab === 'all_history' ? 12 : 11} className="px-6 py-12 text-center">
+                          <td colSpan={12} className="px-6 py-12 text-center">
                             <Loader2 className="w-6 h-6 animate-spin text-primary-600 mx-auto" />
                           </td>
                         </tr>
                       ) : records.length === 0 ? (
                         <tr>
-                          <td colSpan={activeTab === 'all_history' ? 12 : 11} className="px-6 py-12 text-center text-gray-500 dark:text-gray-400">
+                          <td colSpan={12} className="px-6 py-12 text-center text-gray-500 dark:text-gray-400">
                             No records found
                           </td>
                         </tr>
@@ -496,50 +493,50 @@ function POSRentalReportContent() {
                             animate={{ opacity: 1 }}
                             className="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
                           >
-                            {activeTab === 'all_history' && (
-                              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600 dark:text-gray-400">
-                                {record.month}
-                              </td>
-                            )}
-                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
-                              {record.company_name}
+                            <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                              {((page - 1) * 25) + idx + 1}
                             </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600 dark:text-gray-400">
-                              {record.partner_name}
+                            <td className="px-4 py-3 text-sm font-medium text-gray-900 dark:text-white max-w-[200px]">
+                              <div className="truncate" title={record.company_name}>{record.company_name}</div>
                             </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600 dark:text-gray-400">
+                            <td className="px-4 py-3 text-sm text-gray-700 dark:text-gray-300 max-w-[200px]">
+                              <div className="truncate" title={record.partner_name}>{record.partner_name}</div>
+                            </td>
+                            <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-600 dark:text-gray-400">
                               {record.partner_type}
                             </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
+                            <td className="px-4 py-3 whitespace-nowrap text-sm font-bold text-center text-gray-900 dark:text-white">
                               {record.pos_count}
                             </td>
-                            <td className="px-6 py-4 text-sm text-gray-600 dark:text-gray-400">
-                              <div className="max-w-xs truncate" title={record.pos_tids.join(', ')}>
+                            <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400 max-w-[180px]">
+                              <div className="truncate text-xs" title={record.pos_tids.join(', ')}>
                                 {record.pos_tids.join(', ')}
                               </div>
                             </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
+                            <td className="px-4 py-3 whitespace-nowrap text-sm text-right text-gray-900 dark:text-white">
                               ₹{record.monthly_rate.toLocaleString()}
                             </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600 dark:text-gray-400">
-                              {new Date(record.assigned_date).toLocaleDateString('en-IN', { month: 'short', day: '2-digit', year: '2-digit' })}
+                            <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-600 dark:text-gray-400">
+                              {new Date(record.earliest_assigned_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' })}
                             </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600 dark:text-gray-400">
-                              {record.return_date ? new Date(record.return_date).toLocaleDateString('en-IN', { month: 'short', day: '2-digit', year: '2-digit' }) : '-'}
+                            <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-600 dark:text-gray-400">
+                              {record.latest_return_date
+                                ? new Date(record.latest_return_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' })
+                                : '-'}
                             </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600 dark:text-gray-400">
-                              {record.rental_days} d
+                            <td className="px-4 py-3 whitespace-nowrap text-sm text-center text-gray-700 dark:text-gray-300">
+                              {record.total_rental_days} d
                             </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-primary-600 dark:text-primary-400">
-                              ₹{record.prorata_amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            <td className="px-4 py-3 whitespace-nowrap text-sm font-bold text-right text-primary-600 dark:text-primary-400">
+                              ₹{record.total_prorata_amount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                             </td>
-                            <td className="px-6 py-4 whitespace-nowrap">
+                            <td className="px-4 py-3 whitespace-nowrap text-center">
                               <span className={`inline-flex px-2.5 py-0.5 rounded-full text-xs font-medium ${
                                 record.status === 'active'
                                   ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400'
                                   : 'bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-400'
                               }`}>
-                                {record.status === 'active' ? '🟢 Active' : '⊘ Returned'}
+                                {record.status === 'active' ? 'Active' : 'Returned'}
                               </span>
                             </td>
                           </motion.tr>
