@@ -8,7 +8,7 @@ import {
   BarChart3, Settings,
   Activity, X, Menu, CreditCard, Receipt, CheckCircle2,
   Building2, FileBarChart, Layers, Key, Timer, History, Repeat, ScrollText, Wallet,
-  Fingerprint, Server
+  Fingerprint, Server, TrendingUp
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 
@@ -30,6 +30,7 @@ const sidebarItems: SidebarItem[] = [
   { id: 'pos-machines', label: 'POS Machines', icon: CreditCard, href: '/admin?tab=pos-machines' },
   { id: 'pos-history', label: 'POS History', icon: History, href: '/admin?tab=pos-history' },
   { id: 'pos-tracking-report', label: 'POS Tracking Report', icon: FileBarChart, href: '/admin?tab=pos-tracking-report' },
+  { id: 'pos-rental-report', label: 'POS Rental Report', icon: TrendingUp, href: '/admin/pos-rental-report' },
   { id: 'pos-partner-api', label: 'POS Partner API', icon: Key, href: '/admin?tab=pos-partner-api' },
   { id: 'razorpay-transactions', label: 'Razorpay Transactions', icon: Receipt, href: '/admin/razorpay-transactions' },
   { id: 'services', label: 'Services', icon: Activity, href: '/admin?tab=services' },
