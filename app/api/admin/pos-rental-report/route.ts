@@ -11,18 +11,19 @@ export interface PartnerRentalRow {
   partner_type: string
   pos_count: number
   pos_tids: string[]
-  monthly_rate: number           // rate per machine per month
-  earliest_assigned_date: string // earliest assignment date
-  latest_return_date: string | null // null if any POS still active
-  period_days: number            // actual rental period: (return/today) - earliest_assigned
-  total_prorata_amount: number   // sum of prorata amounts across all machines
-  status: string                 // 'active' if any POS still active, else 'returned'
+  monthly_rate: number
+  // For prorata calculation within the selected period
+  billing_period_start: string   // e.g. "01-May-2026"
+  billing_period_end: string     // e.g. "10-May-2026" (today) or "31-May-2026"
+  billable_days: number          // days POS was active within this billing period
+  total_prorata_amount: number
+  status: string
   machines: {
     tid: string
     serial_number: string
     assigned_date: string
     return_date: string | null
-    rental_days: number
+    days_in_period: number       // days this machine was active in selected period
     prorata_amount: number
     machine_status: string
   }[]
@@ -54,10 +55,38 @@ function getDateRange(period: string, dateFrom: string | null, dateTo: string | 
   }
 }
 
-function calcRentalDays(assignedDate: string, returnDate: string | null): number {
-  const end = returnDate ? new Date(returnDate) : new Date()
-  const start = new Date(assignedDate)
-  return Math.max(0, Math.floor((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)))
+/**
+ * Calculate days a POS was active within a specific billing period.
+ * 
+ * @param assignedDate - when POS was assigned to partner
+ * @param returnDate - when POS was returned (null if still active)
+ * @param periodStart - billing period start (e.g., May 1)
+ * @param periodEnd - billing period end (e.g., May 10 or May 31)
+ * @returns number of billable days within the period
+ */
+function calcDaysInPeriod(
+  assignedDate: string,
+  returnDate: string | null,
+  periodStart: Date,
+  periodEnd: Date
+): number {
+  const assigned = new Date(assignedDate)
+  const returned = returnDate ? new Date(returnDate) : new Date() // if not returned, use today
+
+  // Effective start = later of (assigned date, period start)
+  const effectiveStart = assigned > periodStart ? assigned : periodStart
+  
+  // Effective end = earlier of (return date or today, period end)
+  const effectiveEnd = returned < periodEnd ? returned : periodEnd
+
+  // If the POS wasn't active during this period at all
+  if (effectiveStart > effectiveEnd) return 0
+
+  // Calculate days (inclusive of both start and end dates)
+  const diffMs = effectiveEnd.getTime() - effectiveStart.getTime()
+  const days = Math.floor(diffMs / (1000 * 60 * 60 * 24)) + 1 // +1 for inclusive
+  
+  return Math.max(0, days)
 }
 
 export async function buildRentalData(
@@ -66,13 +95,20 @@ export async function buildRentalData(
   filters: { dateFrom?: string | null; dateTo?: string | null; company?: string | null; partnerType?: string | null; status?: string | null; search?: string | null }
 ): Promise<PartnerRentalRow[]> {
   const { startDate, endDate } = getDateRange(period, filters.dateFrom || null, filters.dateTo || null)
+  
+  const periodStart = new Date(startDate)
+  const periodEnd = new Date(endDate)
+  periodStart.setHours(0, 0, 0, 0)
+  periodEnd.setHours(23, 59, 59, 999)
 
-  // Fetch all assignments in date range
+  // For prorata billing, we need ALL assignments that overlap with the billing period:
+  // 1. Assigned before/during period AND (not returned OR returned after period start)
+  // This includes machines assigned before the month that are still active during it
   const { data: assignments, error } = await supabase
     .from('pos_assignment_history')
     .select('*')
-    .gte('created_at', `${startDate}T00:00:00`)
-    .lte('created_at', `${endDate}T23:59:59`)
+    .lte('created_at', `${endDate}T23:59:59`) // assigned on or before period end
+    .or(`returned_date.is.null,returned_date.gte.${startDate}`) // still active OR returned after period start
     .order('created_at', { ascending: false })
 
   if (error) throw error
@@ -156,7 +192,13 @@ export async function buildRentalData(
       partnerCache[partnerKey] = info
     }
 
-    // Apply filters (search works on ALL periods, other filters only on all_history)
+    // Calculate days this POS was active WITHIN the billing period
+    const daysInPeriod = calcDaysInPeriod(assignment.created_at, assignment.returned_date, periodStart, periodEnd)
+    
+    // Skip if this POS had 0 days in the billing period
+    if (daysInPeriod === 0) continue
+
+    // Apply filters
     if (filters.company && info.companyName !== filters.company) continue
     if (filters.partnerType && info.partnerType !== filters.partnerType) continue
     if (filters.status && assignment.status !== filters.status) continue
@@ -170,8 +212,8 @@ export async function buildRentalData(
           !serialMatch) continue
     }
 
-    const rentalDays = calcRentalDays(assignment.created_at, assignment.returned_date)
-    const prorataAmount = Math.round((info.monthlyRate / 30) * rentalDays * 100) / 100
+    // Prorata = (monthly_rate / 30) × days_in_this_period
+    const prorataAmount = Math.round((info.monthlyRate / 30) * daysInPeriod * 100) / 100
 
     // Group by partnerKey
     if (!partnerMap[partnerKey]) {
@@ -182,9 +224,9 @@ export async function buildRentalData(
         pos_count: 0,
         pos_tids: [],
         monthly_rate: info.monthlyRate,
-        earliest_assigned_date: assignment.created_at,
-        latest_return_date: assignment.returned_date,
-        period_days: 0,
+        billing_period_start: startDate,
+        billing_period_end: endDate,
+        billable_days: 0,
         total_prorata_amount: 0,
         status: 'returned',
         machines: []
@@ -194,21 +236,12 @@ export async function buildRentalData(
     const row = partnerMap[partnerKey]
     row.pos_count += 1
     if (pos.tid) row.pos_tids.push(String(pos.tid))
+    row.billable_days += daysInPeriod
     row.total_prorata_amount = Math.round((row.total_prorata_amount + prorataAmount) * 100) / 100
 
-    // Track earliest assigned date
-    if (new Date(assignment.created_at) < new Date(row.earliest_assigned_date)) {
-      row.earliest_assigned_date = assignment.created_at
-    }
-
-    // If any machine is still active, the overall status is active
-    if (!assignment.returned_date) {
+    // If any machine is still active (within period), mark as active
+    if (!assignment.returned_date || new Date(assignment.returned_date) > periodEnd) {
       row.status = 'active'
-      row.latest_return_date = null
-    } else if (row.status !== 'active' && assignment.returned_date) {
-      if (!row.latest_return_date || new Date(assignment.returned_date) > new Date(row.latest_return_date)) {
-        row.latest_return_date = assignment.returned_date
-      }
     }
 
     row.machines.push({
@@ -216,20 +249,10 @@ export async function buildRentalData(
       serial_number: pos.serial_number || '',
       assigned_date: assignment.created_at,
       return_date: assignment.returned_date,
-      rental_days: rentalDays,
+      days_in_period: daysInPeriod,
       prorata_amount: prorataAmount,
       machine_status: assignment.status
     })
-  }
-
-  // Compute period_days for each partner after all machines are aggregated
-  // period_days = actual rental period (latest_return or today) - earliest_assigned
-  const now = new Date()
-  for (const row of Object.values(partnerMap)) {
-    const endDate = row.latest_return_date ? new Date(row.latest_return_date) : now
-    row.period_days = Math.max(0, Math.floor(
-      (endDate.getTime() - new Date(row.earliest_assigned_date).getTime()) / (1000 * 60 * 60 * 24)
-    ))
   }
 
   // Sort by company name then partner name
@@ -273,7 +296,7 @@ export async function GET(request: NextRequest) {
 
     const stats = {
       totalPOS: allData.reduce((s, r) => s + r.pos_count, 0),
-      totalDays: allData.reduce((s, r) => s + r.period_days, 0),
+      totalBillableDays: allData.reduce((s, r) => s + r.billable_days, 0),
       totalRevenue: Math.round(allData.reduce((s, r) => s + r.total_prorata_amount, 0) * 100) / 100
     }
 

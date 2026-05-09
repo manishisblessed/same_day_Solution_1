@@ -70,7 +70,7 @@ export async function GET(request: NextRequest) {
     ]
 
     const totalPOS = allData.reduce((s, r) => s + r.pos_count, 0)
-    const totalDays = allData.reduce((s, r) => s + r.total_rental_days, 0)
+    const totalBillableDays = allData.reduce((s, r) => s + r.billable_days, 0)
     const totalRevenue = allData.reduce((s, r) => s + r.total_prorata_amount, 0)
     const activeCount = allData.filter(r => r.status === 'active').reduce((s, r) => s + r.pos_count, 0)
     const returnedCount = allData.filter(r => r.status !== 'active').reduce((s, r) => s + r.pos_count, 0)
@@ -83,17 +83,17 @@ export async function GET(request: NextRequest) {
 
     summarySheet.addRow(['POS RENTAL REPORT — PRORATA BASIS']).font = { bold: true, size: 14 }
     summarySheet.addRow(['Same Day Solution Pvt. Ltd.']).font = { italic: true }
-    summarySheet.addRow(['Period:', periodLabel])
+    summarySheet.addRow(['Billing Period:', periodLabel])
     summarySheet.addRow(['Generated on:', today.toLocaleString('en-IN')])
     summarySheet.addRow([])
     addSummaryRow('Total Partners', allData.length, true)
     addSummaryRow('Total POS Machines', totalPOS, true)
     addSummaryRow('Active POS', activeCount)
     addSummaryRow('Returned POS', returnedCount)
-    addSummaryRow('Total Rental Days', totalDays)
+    addSummaryRow('Total Billable Days', totalBillableDays)
     addSummaryRow('Total Revenue (₹)', `₹${totalRevenue.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, true)
-    if (allData.length > 0) {
-      addSummaryRow('Avg Days per POS', (totalDays / totalPOS).toFixed(1))
+    if (allData.length > 0 && totalPOS > 0) {
+      addSummaryRow('Avg Billable Days per POS', (totalBillableDays / totalPOS).toFixed(1))
       addSummaryRow('Avg Revenue per Partner', `₹${(totalRevenue / allData.length).toFixed(2)}`)
     }
 
@@ -120,9 +120,8 @@ export async function GET(request: NextRequest) {
       { header: 'No. of POS', key: 'pos_count', width: 10 },
       { header: 'TID(s)', key: 'tids', width: 38 },
       { header: 'Rate / Month (₹)', key: 'rate', width: 16 },
-      { header: 'First Assigned', key: 'assigned', width: 16 },
-      { header: 'Last Return', key: 'returned', width: 16 },
-      { header: 'Total Days', key: 'days', width: 11 },
+      { header: 'Billing Period', key: 'period', width: 24 },
+      { header: 'Billable Days', key: 'days', width: 14 },
       { header: 'Prorata Amount (₹)', key: 'prorata', width: 20 },
       { header: 'Status', key: 'status', width: 12 },
     ]
@@ -147,9 +146,8 @@ export async function GET(request: NextRequest) {
         pos_count: row.pos_count,
         tids: row.pos_tids.join(', '),
         rate: row.monthly_rate,
-        assigned: formatDate(row.earliest_assigned_date),
-        returned: formatDate(row.latest_return_date),
-        days: row.period_days,
+        period: `${formatDate(row.billing_period_start)} → ${formatDate(row.billing_period_end)}`,
+        days: row.billable_days,
         prorata: row.total_prorata_amount,
         status: row.status === 'active' ? 'Active' : 'Returned',
       })
@@ -198,9 +196,8 @@ export async function GET(request: NextRequest) {
       pos_count: totalPOS,
       tids: '',
       rate: '',
-      assigned: '',
-      returned: '',
-      days: allData.reduce((s, r) => s + r.period_days, 0),
+      period: '',
+      days: totalBillableDays,
       prorata: Math.round(totalRevenue * 100) / 100,
       status: ''
     })
@@ -228,9 +225,8 @@ export async function GET(request: NextRequest) {
       { header: 'TID', key: 'tid', width: 14 },
       { header: 'Serial No.', key: 'serial', width: 18 },
       { header: 'Rate / Month (₹)', key: 'rate', width: 16 },
-      { header: 'Assigned Date', key: 'assigned', width: 16 },
-      { header: 'Return Date', key: 'returned', width: 16 },
-      { header: 'Rental Days', key: 'days', width: 12 },
+      { header: 'Billing Period', key: 'billing_period', width: 24 },
+      { header: 'Days in Period', key: 'days', width: 14 },
       { header: 'Prorata Amount (₹)', key: 'prorata', width: 20 },
       { header: 'Status', key: 'status', width: 12 },
     ]
@@ -251,9 +247,8 @@ export async function GET(request: NextRequest) {
           tid: m.tid,
           serial: m.serial_number,
           rate: partner.monthly_rate,
-          assigned: formatDate(m.assigned_date),
-          returned: formatDate(m.return_date),
-          days: m.rental_days,
+          billing_period: `${formatDate(partner.billing_period_start)} → ${formatDate(partner.billing_period_end)}`,
+          days: m.days_in_period,
           prorata: m.prorata_amount,
           status: m.machine_status === 'active' ? 'Active' : 'Returned'
         })

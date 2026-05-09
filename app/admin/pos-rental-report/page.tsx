@@ -29,9 +29,9 @@ interface RentalRecord {
   pos_count: number
   pos_tids: string[]
   monthly_rate: number
-  earliest_assigned_date: string
-  latest_return_date: string | null
-  period_days: number
+  billing_period_start: string
+  billing_period_end: string
+  billable_days: number
   total_prorata_amount: number
   status: string
 }
@@ -160,7 +160,7 @@ function POSRentalReportContent() {
   const [page, setPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
   const [total, setTotal] = useState(0)
-  const [stats, setStats] = useState({ totalPOS: 0, totalDays: 0, totalRevenue: 0 })
+  const [stats, setStats] = useState({ totalPOS: 0, totalBillableDays: 0, totalRevenue: 0 })
 
   // Global search (all tabs)
   const [globalSearch, setGlobalSearch] = useState('')
@@ -239,7 +239,7 @@ function POSRentalReportContent() {
       setRecords(result.data || [])
       setTotalPages(result.pagination?.totalPages || 1)
       setTotal(result.pagination?.total || 0)
-      setStats(result.stats || { totalPOS: 0, totalDays: 0, totalRevenue: 0 })
+      setStats(result.stats || { totalPOS: 0, totalBillableDays: 0, totalRevenue: 0 })
     } catch (err: any) {
       console.error('Error:', err)
     } finally {
@@ -363,9 +363,9 @@ function POSRentalReportContent() {
                   <p className="text-xl font-bold text-purple-900 dark:text-purple-100 mt-0.5">{stats.totalPOS}</p>
                 </div>
                 <div className="bg-orange-50 dark:bg-orange-900/20 rounded-lg p-3 border border-orange-100 dark:border-orange-800">
-                  <p className="text-xs text-orange-600 dark:text-orange-400">Avg Rental Period</p>
+                  <p className="text-xs text-orange-600 dark:text-orange-400">Avg Days / POS</p>
                   <p className="text-xl font-bold text-orange-900 dark:text-orange-100 mt-0.5">
-                    {total > 0 ? Math.round(stats.totalDays / total) : 0} days
+                    {stats.totalPOS > 0 ? (stats.totalBillableDays / stats.totalPOS).toFixed(1) : 0} days
                   </p>
                 </div>
                 <div className="bg-green-50 dark:bg-green-900/20 rounded-lg p-3 border border-green-100 dark:border-green-800">
@@ -583,14 +583,12 @@ function POSRentalReportContent() {
                             <td className="px-3 py-3 text-center text-gray-700 dark:text-gray-300 whitespace-nowrap">
                               <div className="flex flex-col items-center gap-0.5">
                                 <span className="font-semibold text-sm text-gray-900 dark:text-white">
-                                  {record.period_days} days
+                                  {record.billable_days} days
                                 </span>
                                 <span className="text-xs text-gray-400">
-                                  {new Date(record.earliest_assigned_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
+                                  {new Date(record.billing_period_start).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
                                   {' → '}
-                                  {record.latest_return_date
-                                    ? new Date(record.latest_return_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })
-                                    : 'Today'}
+                                  {new Date(record.billing_period_end).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
                                 </span>
                               </div>
                             </td>
