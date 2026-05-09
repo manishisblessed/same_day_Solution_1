@@ -139,6 +139,10 @@ export async function POST(request: NextRequest) {
           updateData.merchant_name = record.company
           updateData.merchant_slug = detectMerchantSlug(record.company)
         }
+        // Fix transaction_time from report (webhook may store receipt time instead of actual txn time)
+        if (record.date) {
+          updateData.transaction_time = parseReportDate(record.date)
+        }
 
         if (Object.keys(updateData).length === 0) {
           skipped++
