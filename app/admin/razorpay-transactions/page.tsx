@@ -1431,7 +1431,7 @@ function RazorpayTransactionsPageContent() {
 
               <div className="p-5 space-y-4">
                 <p className="text-sm text-gray-500 dark:text-gray-400">
-                  Upload the Razorpay POS transaction report (tab-separated .txt/.csv) to enrich existing transactions with fields not available via webhook:
+                  Upload the Razorpay/Ezetap POS transaction report (tab-separated .txt/.csv). This will enrich existing transactions AND insert any missing ones (e.g. from webhook failures):
                 </p>
                 <div className="grid grid-cols-2 gap-2 text-xs">
                   <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-indigo-50 dark:bg-indigo-900/20 rounded-lg text-indigo-700 dark:text-indigo-400">
@@ -1488,8 +1488,8 @@ function RazorpayTransactionsPageContent() {
                         <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
                           <p>Total in report: <span className="font-semibold">{enrichResult.summary?.total_in_report}</span></p>
                           <p>Updated: <span className="font-semibold text-green-600">{enrichResult.summary?.updated}</span></p>
+                          <p>Inserted: <span className="font-semibold text-blue-600">{enrichResult.summary?.inserted}</span></p>
                           <p>Skipped: <span className="font-semibold">{enrichResult.summary?.skipped}</span></p>
-                          <p>Not found: <span className="font-semibold text-amber-600">{enrichResult.summary?.not_found}</span></p>
                         </div>
                       </div>
                     ) : (

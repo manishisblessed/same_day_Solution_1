@@ -5,18 +5,44 @@ import { createClient } from '@supabase/supabase-js'
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
+interface ParsedRecord {
+  txn_id: string
+  date?: string | null
+  consumer?: string | null
+  username?: string | null
+  mode?: string | null
+  amount?: number | null
+  auth_code?: string | null
+  card_number?: string | null
+  issuing_bank?: string | null
+  card_type?: string | null
+  card_brand?: string | null
+  card_classification?: string | null
+  card_txn_type?: string | null
+  rrn?: string | null
+  device_serial?: string | null
+  status?: string | null
+  mid?: string | null
+  tid?: string | null
+  ref?: string | null
+  acquiring_bank?: string | null
+  receipt_url?: string | null
+  company?: string | null
+  payer?: string | null
+}
+
 /**
  * POST /api/admin/razorpay-transactions/enrich
  * 
- * Admin-only endpoint to enrich POS transactions with data from Razorpay's
- * downloadable report. These fields are NOT available via webhook:
- *   - card_classification (STANDARD, PLATINUM, CLASSIC, PREPAID, ANY)
- *   - card_txn_type / entry mode (EMV with PIN, Contactless, Swipe)
- *   - issuing_bank (HDFC, AMEX, ICICI, etc.)
- *   - acquiring_bank (HDFC, AMEX, etc.)
+ * Admin-only endpoint that:
+ * 1. ENRICHES existing transactions with report-only fields
+ * 2. INSERTS missing transactions that don't exist in the database
  * 
- * Accepts: Tab-separated text (Razorpay report format) or JSON array.
- * Matches by txn_id (the "ID" column in Razorpay report).
+ * This handles the case where webhooks were missed (e.g. SSL certificate expired)
+ * and the admin uploads the Ezetap/Razorpay report to backfill missing data.
+ * 
+ * Accepts: Tab-separated text (Razorpay/Ezetap report format) or JSON.
+ * Matches by txn_id (the "ID" column in the report).
  */
 export async function POST(request: NextRequest) {
   try {
@@ -39,14 +65,7 @@ export async function POST(request: NextRequest) {
     }
 
     const contentType = request.headers.get('content-type') || ''
-    let records: Array<{
-      txn_id: string
-      card_classification?: string | null
-      card_txn_type?: string | null
-      issuing_bank?: string | null
-      acquiring_bank?: string | null
-      card_number?: string | null
-    }> = []
+    let records: ParsedRecord[] = []
 
     if (contentType.includes('text/plain') || contentType.includes('text/tab-separated')) {
       const text = await request.text()
@@ -75,8 +94,8 @@ export async function POST(request: NextRequest) {
     const supabase = createClient(supabaseUrl, supabaseServiceKey)
 
     let updated = 0
+    let inserted = 0
     let skipped = 0
-    let notFound = 0
     const errors: string[] = []
 
     for (const record of records) {
@@ -85,40 +104,98 @@ export async function POST(request: NextRequest) {
         continue
       }
 
-      const updateData: Record<string, string> = {}
-      if (record.card_classification && record.card_classification !== 'NULL') {
-        updateData.card_classification = record.card_classification
-      }
-      if (record.card_txn_type && record.card_txn_type !== 'NULL') {
-        updateData.card_txn_type = record.card_txn_type
-      }
-      if (record.issuing_bank && record.issuing_bank !== 'NULL') {
-        updateData.issuing_bank = record.issuing_bank
-      }
-      if (record.acquiring_bank && record.acquiring_bank !== 'NULL') {
-        updateData.acquiring_bank = record.acquiring_bank
-      }
-      if (record.card_number) {
-        updateData.card_number = record.card_number
-      }
-
-      if (Object.keys(updateData).length === 0) {
-        skipped++
-        continue
-      }
-
-      const { data, error } = await supabase
+      // Check if transaction exists
+      const { data: existing } = await supabase
         .from('razorpay_pos_transactions')
-        .update(updateData)
-        .eq('txn_id', record.txn_id)
         .select('id')
+        .eq('txn_id', record.txn_id)
+        .maybeSingle()
 
-      if (error) {
-        errors.push(`${record.txn_id}: ${error.message}`)
-      } else if (!data || data.length === 0) {
-        notFound++
+      if (existing) {
+        // UPDATE existing record with enrichment fields
+        const updateData: Record<string, string> = {}
+        if (record.card_classification && record.card_classification !== 'NULL') {
+          updateData.card_classification = record.card_classification
+        }
+        if (record.card_txn_type && record.card_txn_type !== 'NULL') {
+          updateData.card_txn_type = record.card_txn_type
+        }
+        if (record.issuing_bank && record.issuing_bank !== 'NULL') {
+          updateData.issuing_bank = record.issuing_bank
+        }
+        if (record.acquiring_bank && record.acquiring_bank !== 'NULL') {
+          updateData.acquiring_bank = record.acquiring_bank
+        }
+        if (record.card_number) {
+          updateData.card_number = record.card_number
+        }
+
+        if (Object.keys(updateData).length === 0) {
+          skipped++
+          continue
+        }
+
+        const { error } = await supabase
+          .from('razorpay_pos_transactions')
+          .update(updateData)
+          .eq('txn_id', record.txn_id)
+
+        if (error) {
+          errors.push(`${record.txn_id}: update failed - ${error.message}`)
+        } else {
+          updated++
+        }
       } else {
-        updated++
+        // INSERT missing transaction
+        if (!record.amount || record.amount <= 0) {
+          skipped++
+          continue
+        }
+
+        const txnTime = parseReportDate(record.date)
+        const merchantSlug = detectMerchantSlug(record.company)
+
+        const insertData: Record<string, any> = {
+          txn_id: record.txn_id,
+          status: record.status === 'SETTLED' ? 'AUTHORIZED' : (record.status || 'AUTHORIZED'),
+          display_status: (record.status === 'SETTLED' || record.status === 'AUTHORIZED' || record.status === 'CAPTURED') ? 'SUCCESS' : 'PENDING',
+          amount: record.amount,
+          payment_mode: (record.mode || 'CARD').toUpperCase(),
+          device_serial: record.device_serial || null,
+          tid: record.tid || null,
+          merchant_name: record.company || null,
+          merchant_slug: merchantSlug,
+          transaction_time: txnTime,
+          customer_name: record.consumer || record.payer || null,
+          payer_name: record.payer || record.consumer || null,
+          username: record.username || null,
+          txn_type: 'CHARGE',
+          auth_code: record.auth_code || null,
+          card_number: record.card_number || null,
+          issuing_bank: (record.issuing_bank && record.issuing_bank !== 'NULL') ? record.issuing_bank : null,
+          card_classification: (record.card_classification && record.card_classification !== 'NULL') ? record.card_classification : null,
+          mid_code: record.mid || null,
+          card_brand: record.card_brand || null,
+          card_type: record.card_type || null,
+          currency: 'INR',
+          rrn: record.rrn || null,
+          external_ref: record.ref || null,
+          settlement_status: record.status === 'SETTLED' ? 'SETTLED' : 'PENDING',
+          receipt_url: record.receipt_url || null,
+          card_txn_type: (record.card_txn_type && record.card_txn_type !== 'NULL') ? record.card_txn_type : null,
+          acquiring_bank: (record.acquiring_bank && record.acquiring_bank !== 'NULL') ? record.acquiring_bank : null,
+          raw_data: { _source: 'admin_report_upload', txn_id: record.txn_id },
+        }
+
+        const { error } = await supabase
+          .from('razorpay_pos_transactions')
+          .insert(insertData)
+
+        if (error) {
+          errors.push(`${record.txn_id}: insert failed - ${error.message}`)
+        } else {
+          inserted++
+        }
       }
     }
 
@@ -127,11 +204,11 @@ export async function POST(request: NextRequest) {
       summary: {
         total_in_report: records.length,
         updated,
+        inserted,
         skipped,
-        not_found: notFound,
         errors: errors.length,
       },
-      ...(errors.length > 0 && { error_details: errors.slice(0, 20) }),
+      ...(errors.length > 0 && { error_details: errors.slice(0, 30) }),
     })
   } catch (error: any) {
     console.error('Error in enrich endpoint:', error)
@@ -142,48 +219,122 @@ export async function POST(request: NextRequest) {
   }
 }
 
+function parseReportDate(dateStr?: string | null): string {
+  if (!dateStr) return new Date().toISOString()
+  const trimmed = dateStr.trim()
+  if (trimmed.includes('T')) return trimmed
+
+  // Format: "2026-5-9 12:22" → ISO with IST offset
+  const parts = trimmed.split(' ')
+  const dateParts = parts[0].split('-')
+  if (dateParts.length !== 3) return new Date().toISOString()
+
+  const year = dateParts[0]
+  const month = dateParts[1].padStart(2, '0')
+  const day = dateParts[2].padStart(2, '0')
+  const time = parts[1] ? `${parts[1]}:00` : '00:00:00'
+  return `${year}-${month}-${day}T${time}+05:30`
+}
+
+function detectMerchantSlug(company?: string | null): string {
+  if (!company) return 'ashvam'
+  const lower = company.toLowerCase().trim()
+  if (lower.includes('teachway')) return 'teachway'
+  if (lower.includes('scenaric') || lower.includes('sceneric')) return 'newscenaric'
+  if (lower.includes('lagoon')) return 'lagoon'
+  if (lower.includes('ashvam')) return 'ashvam'
+  return 'ashvam'
+}
+
 /**
- * Parse Razorpay POS report (tab-separated format).
- * Header row: ID  Date  Consumer  Username  Type  Mode  Amount  Txn Type  Auth Code  Card  Issuing Bank  Card Type  Brand Type  Card Classification  Card Txn Type  RRN  Device Serial  MID  TID  Ref#  Acquiring Bank  Receipt URL
+ * Parse Razorpay/Ezetap POS report (tab-separated format).
+ * Handles both New Scenaric and Teachway report formats with varying columns.
  */
-function parseTabSeparatedReport(text: string): Array<{
-  txn_id: string
-  card_classification?: string | null
-  card_txn_type?: string | null
-  issuing_bank?: string | null
-  acquiring_bank?: string | null
-  card_number?: string | null
-}> {
+function parseTabSeparatedReport(text: string): ParsedRecord[] {
   const lines = text.split('\n').map(l => l.trim()).filter(Boolean)
   if (lines.length < 2) return []
 
-  const headerLine = lines[0]
-  const headers = headerLine.split('\t').map(h => h.trim().toLowerCase())
+  const headers = lines[0].split('\t').map(h => h.trim().toLowerCase())
+
+  const findCol = (names: string[]) => {
+    for (const name of names) {
+      const idx = headers.findIndex(h => h === name)
+      if (idx !== -1) return idx
+    }
+    return -1
+  }
 
   const colIdx = {
-    id: headers.findIndex(h => h === 'id'),
-    card: headers.findIndex(h => h === 'card'),
-    issuingBank: headers.findIndex(h => h === 'issuing bank'),
-    cardClassification: headers.findIndex(h => h === 'card classification'),
-    cardTxnType: headers.findIndex(h => h === 'card txn type'),
-    acquiringBank: headers.findIndex(h => h === 'acquiring bank'),
+    id: findCol(['id']),
+    date: findCol(['date']),
+    consumer: findCol(['consumer']),
+    username: findCol(['username']),
+    mode: findCol(['mode']),
+    amount: findCol(['amount']),
+    authCode: findCol(['auth code']),
+    card: findCol(['card']),
+    issuingBank: findCol(['issuing bank']),
+    cardType: findCol(['card type']),
+    brandType: findCol(['brand type']),
+    cardClassification: findCol(['card classification']),
+    cardTxnType: findCol(['card txn type']),
+    rrn: findCol(['rrn']),
+    deviceSerial: findCol(['device serial']),
+    status: findCol(['status']),
+    mid: findCol(['mid']),
+    tid: findCol(['tid']),
+    ref: findCol(['ref#']),
+    acquiringBank: findCol(['acquiring bank']),
+    receiptUrl: findCol(['receipt url']),
+    company: findCol(['company']),
+    payer: findCol(['payer']),
   }
 
   if (colIdx.id === -1) return []
 
-  const records = []
+  const getVal = (cols: string[], idx: number): string | null => {
+    if (idx === -1) return null
+    const v = (cols[idx] || '').trim().replace(/^'/, '')
+    return v || null
+  }
+
+  const records: ParsedRecord[] = []
   for (let i = 1; i < lines.length; i++) {
     const cols = lines[i].split('\t')
-    const txnId = cols[colIdx.id]?.trim().replace(/^'/, '')
+    const txnId = getVal(cols, colIdx.id)
     if (!txnId) continue
+
+    const amountStr = getVal(cols, colIdx.amount)
+    const amount = amountStr ? parseFloat(amountStr) : null
+
+    // Clean TID: remove leading zeros (e.g., '0096202861' → '96202861')
+    let tid = getVal(cols, colIdx.tid)
+    if (tid) tid = tid.replace(/^0+/, '')
 
     records.push({
       txn_id: txnId,
-      card_number: colIdx.card !== -1 ? (cols[colIdx.card]?.trim() || null) : null,
-      issuing_bank: colIdx.issuingBank !== -1 ? (cols[colIdx.issuingBank]?.trim() || null) : null,
-      card_classification: colIdx.cardClassification !== -1 ? (cols[colIdx.cardClassification]?.trim() || null) : null,
-      card_txn_type: colIdx.cardTxnType !== -1 ? (cols[colIdx.cardTxnType]?.trim() || null) : null,
-      acquiring_bank: colIdx.acquiringBank !== -1 ? (cols[colIdx.acquiringBank]?.trim() || null) : null,
+      date: getVal(cols, colIdx.date),
+      consumer: getVal(cols, colIdx.consumer),
+      username: getVal(cols, colIdx.username),
+      mode: getVal(cols, colIdx.mode),
+      amount,
+      auth_code: getVal(cols, colIdx.authCode),
+      card_number: getVal(cols, colIdx.card),
+      issuing_bank: getVal(cols, colIdx.issuingBank),
+      card_type: getVal(cols, colIdx.cardType),
+      card_brand: getVal(cols, colIdx.brandType),
+      card_classification: getVal(cols, colIdx.cardClassification),
+      card_txn_type: getVal(cols, colIdx.cardTxnType),
+      rrn: getVal(cols, colIdx.rrn),
+      device_serial: getVal(cols, colIdx.deviceSerial),
+      status: getVal(cols, colIdx.status),
+      mid: getVal(cols, colIdx.mid),
+      tid,
+      ref: getVal(cols, colIdx.ref),
+      acquiring_bank: getVal(cols, colIdx.acquiringBank),
+      receipt_url: getVal(cols, colIdx.receiptUrl),
+      company: getVal(cols, colIdx.company),
+      payer: getVal(cols, colIdx.payer),
     })
   }
 
