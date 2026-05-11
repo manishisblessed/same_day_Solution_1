@@ -5,6 +5,24 @@ import { createClient } from '@supabase/supabase-js'
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
+async function batchFetchIn<T>(
+  supabase: any,
+  table: string,
+  column: string,
+  ids: string[],
+  selectCols: string
+): Promise<T[]> {
+  if (ids.length === 0) return []
+  const CHUNK = 500
+  const results: T[] = []
+  for (let i = 0; i < ids.length; i += CHUNK) {
+    const chunk = ids.slice(i, i + CHUNK)
+    const { data } = await supabase.from(table).select(selectCols).in(column, chunk)
+    if (data) results.push(...data)
+  }
+  return results
+}
+
 export async function GET(request: NextRequest) {
   try {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
@@ -25,56 +43,55 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 })
     }
 
-    // Get all unique company names from assignments
     const { data: assignments } = await supabase
       .from('pos_assignment_history')
       .select('pos_machine_id')
 
+    if (!assignments || assignments.length === 0) {
+      return NextResponse.json({ companies: [] })
+    }
+
+    const machineIds = [...new Set(assignments.map((a: any) => a.pos_machine_id))] as string[]
+
+    const machines: any[] = await batchFetchIn(
+      supabase,
+      'pos_machines',
+      'id',
+      machineIds,
+      'id, retailer_id, distributor_id, master_distributor_id, partner_id'
+    )
+
+    const retailerIds = new Set<string>()
+    const distributorIds = new Set<string>()
+    const mdIds = new Set<string>()
+    const partnerIds = new Set<string>()
+
+    for (const pos of machines) {
+      if (pos.retailer_id) retailerIds.add(pos.retailer_id)
+      if (pos.distributor_id) distributorIds.add(pos.distributor_id)
+      if (pos.master_distributor_id) mdIds.add(pos.master_distributor_id)
+      if (pos.partner_id) partnerIds.add(pos.partner_id)
+    }
+
+    const [retailers, distributors, masterDists, partners] = await Promise.all([
+      batchFetchIn<any>(supabase, 'retailers', 'partner_id', [...retailerIds], 'partner_id, business_name, name'),
+      batchFetchIn<any>(supabase, 'distributors', 'partner_id', [...distributorIds], 'partner_id, business_name, name'),
+      batchFetchIn<any>(supabase, 'master_distributors', 'partner_id', [...mdIds], 'partner_id, business_name, name'),
+      batchFetchIn<any>(supabase, 'partners', 'id', [...partnerIds], 'id, business_name, name'),
+    ])
+
     const companies = new Set<string>()
-
-    if (assignments) {
-      for (const assignment of assignments) {
-        const { data: pos } = await supabase
-          .from('pos_machines')
-          .select('retailer_id, distributor_id, master_distributor_id, partner_id')
-          .eq('id', assignment.pos_machine_id)
-          .maybeSingle()
-
-        if (!pos) continue
-
-        if (pos.retailer_id) {
-          const { data: retailer } = await supabase
-            .from('retailers')
-            .select('business_name, name')
-            .eq('partner_id', pos.retailer_id)
-            .maybeSingle()
-          if (retailer) companies.add(retailer.business_name || retailer.name)
-        }
-        if (pos.distributor_id) {
-          const { data: dist } = await supabase
-            .from('distributors')
-            .select('business_name, name')
-            .eq('partner_id', pos.distributor_id)
-            .maybeSingle()
-          if (dist) companies.add(dist.business_name || dist.name)
-        }
-        if (pos.master_distributor_id) {
-          const { data: md } = await supabase
-            .from('master_distributors')
-            .select('business_name, name')
-            .eq('partner_id', pos.master_distributor_id)
-            .maybeSingle()
-          if (md) companies.add(md.business_name || md.name)
-        }
-        if (pos.partner_id) {
-          const { data: partner } = await supabase
-            .from('partners')
-            .select('business_name, name')
-            .eq('id', pos.partner_id)
-            .maybeSingle()
-          if (partner) companies.add(partner.business_name || partner.name)
-        }
-      }
+    for (const r of retailers) {
+      if (r.business_name || r.name) companies.add(r.business_name || r.name)
+    }
+    for (const d of distributors) {
+      if (d.business_name || d.name) companies.add(d.business_name || d.name)
+    }
+    for (const md of masterDists) {
+      if (md.business_name || md.name) companies.add(md.business_name || md.name)
+    }
+    for (const p of partners) {
+      if (p.business_name || p.name) companies.add(p.business_name || p.name)
     }
 
     return NextResponse.json({

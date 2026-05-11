@@ -64,6 +64,32 @@ function calcDaysInPeriod(
   return Math.max(0, days)
 }
 
+async function batchFetchIn<T>(
+  supabase: any,
+  table: string,
+  column: string,
+  ids: string[],
+  selectCols: string
+): Promise<T[]> {
+  if (ids.length === 0) return []
+  const CHUNK = 500
+  const results: T[] = []
+  for (let i = 0; i < ids.length; i += CHUNK) {
+    const chunk = ids.slice(i, i + CHUNK)
+    const { data } = await supabase.from(table).select(selectCols).in(column, chunk)
+    if (data) results.push(...data)
+  }
+  return results
+}
+
+function toMap<T>(items: T[], keyFn: (item: T) => string): Record<string, T> {
+  const map: Record<string, T> = {}
+  for (const item of items) {
+    map[keyFn(item)] = item
+  }
+  return map
+}
+
 export async function buildRentalData(
   supabase: any,
   period: string,
@@ -86,77 +112,111 @@ export async function buildRentalData(
   if (error) throw error
   if (!assignments || assignments.length === 0) return []
 
-  const partnerCache: Record<string, { companyName: string; partnerName: string; partnerType: string; monthlyRate: number }> = {}
-  const posCache: Record<string, any> = {}
+  // --- Batch-load all POS machines ---
+  const machineIds = [...new Set(assignments.map((a: any) => a.pos_machine_id))] as string[]
+  const machinesRaw: any[] = await batchFetchIn(
+    supabase, 'pos_machines', 'id', machineIds,
+    'id, tid, serial_number, retailer_id, distributor_id, master_distributor_id, partner_id'
+  )
+  const posMap = toMap(machinesRaw, (m: any) => m.id)
+
+  // --- Collect all unique partner IDs by type ---
+  const retailerIds = new Set<string>()
+  const distributorIds = new Set<string>()
+  const mdIds = new Set<string>()
+  const partnerIds = new Set<string>()
+
+  for (const pos of machinesRaw) {
+    if (pos.retailer_id) retailerIds.add(pos.retailer_id)
+    if (pos.distributor_id) distributorIds.add(pos.distributor_id)
+    if (pos.master_distributor_id) mdIds.add(pos.master_distributor_id)
+    if (pos.partner_id) partnerIds.add(pos.partner_id)
+  }
+
+  // --- Batch-load partner details & subscriptions in parallel ---
+  const allUserIds = [...retailerIds, ...distributorIds, ...mdIds, ...partnerIds]
+
+  const [retailers, distributors, masterDists, partners, subscriptions] = await Promise.all([
+    batchFetchIn<any>(supabase, 'retailers', 'partner_id', [...retailerIds], 'partner_id, name, business_name'),
+    batchFetchIn<any>(supabase, 'distributors', 'partner_id', [...distributorIds], 'partner_id, name, business_name'),
+    batchFetchIn<any>(supabase, 'master_distributors', 'partner_id', [...mdIds], 'partner_id, name, business_name'),
+    batchFetchIn<any>(supabase, 'partners', 'id', [...partnerIds], 'id, name, business_name'),
+    batchFetchIn<any>(supabase, 'subscriptions', 'user_id', allUserIds, 'id, user_id, user_role'),
+  ])
+
+  const retailerMap = toMap(retailers, (r: any) => r.partner_id)
+  const distributorMap = toMap(distributors, (d: any) => d.partner_id)
+  const mdMap = toMap(masterDists, (m: any) => m.partner_id)
+  const partnerMap_raw = toMap(partners, (p: any) => p.id)
+
+  const subByUser: Record<string, any> = {}
+  for (const sub of subscriptions) {
+    subByUser[sub.user_id] = sub
+  }
+
+  // --- Batch-load subscription items for all subscriptions ---
+  const subIds = subscriptions.map((s: any) => s.id)
+  const subItems: any[] = await batchFetchIn(
+    supabase, 'subscription_items', 'subscription_id', subIds,
+    'subscription_id, retailer_rate, distributor_rate, md_rate, is_active'
+  )
+  const activeItemBySub: Record<string, any> = {}
+  for (const item of subItems) {
+    if (item.is_active) activeItemBySub[item.subscription_id] = item
+  }
+
+  // --- Helper to resolve partner info from cache ---
+  function resolvePartner(pos: any): { companyName: string; partnerName: string; partnerType: string; monthlyRate: number } {
+    let companyName = ''
+    let partnerName = ''
+    let partnerType = ''
+    let monthlyRate = 500
+
+    const getRate = (userId: string, rateField: string): number => {
+      const sub = subByUser[userId]
+      if (!sub) return 500
+      const item = activeItemBySub[sub.id]
+      return item?.[rateField] || 500
+    }
+
+    if (pos.retailer_id) {
+      const r = retailerMap[pos.retailer_id]
+      partnerName = r?.name || pos.retailer_id
+      companyName = r?.business_name || r?.name || 'Unknown'
+      partnerType = 'Retailer'
+      monthlyRate = getRate(pos.retailer_id, 'retailer_rate')
+    } else if (pos.distributor_id) {
+      const d = distributorMap[pos.distributor_id]
+      partnerName = d?.name || pos.distributor_id
+      companyName = d?.business_name || d?.name || 'Unknown'
+      partnerType = 'Distributor'
+      monthlyRate = getRate(pos.distributor_id, 'distributor_rate')
+    } else if (pos.master_distributor_id) {
+      const md = mdMap[pos.master_distributor_id]
+      partnerName = md?.name || pos.master_distributor_id
+      companyName = md?.business_name || md?.name || 'Unknown'
+      partnerType = 'Master Distributor'
+      monthlyRate = getRate(pos.master_distributor_id, 'md_rate')
+    } else if (pos.partner_id) {
+      const p = partnerMap_raw[pos.partner_id]
+      partnerName = p?.name || pos.partner_id
+      companyName = p?.business_name || p?.name || 'Unknown'
+      partnerType = 'Partner'
+      monthlyRate = getRate(pos.partner_id, 'retailer_rate')
+    }
+
+    return { companyName, partnerName, partnerType, monthlyRate }
+  }
+
+  // --- Build the rental rows ---
   const partnerMap: Record<string, PartnerRentalRow> = {}
 
   for (const assignment of assignments) {
-    let pos = posCache[assignment.pos_machine_id]
-    if (!pos) {
-      const { data } = await supabase
-        .from('pos_machines')
-        .select('id, tid, serial_number, retailer_id, distributor_id, master_distributor_id, partner_id')
-        .eq('id', assignment.pos_machine_id)
-        .maybeSingle()
-      if (!data) continue
-      pos = data
-      posCache[assignment.pos_machine_id] = pos
-    }
+    const pos = posMap[assignment.pos_machine_id]
+    if (!pos) continue
 
     const partnerKey = pos.retailer_id || pos.distributor_id || pos.master_distributor_id || pos.partner_id || 'unknown'
-
-    let info = partnerCache[partnerKey]
-    if (!info) {
-      let companyName = ''
-      let partnerName = ''
-      let partnerType = ''
-      let monthlyRate = 500
-
-      if (pos.retailer_id) {
-        const { data: r } = await supabase.from('retailers').select('name, business_name').eq('partner_id', pos.retailer_id).maybeSingle()
-        partnerName = r?.name || pos.retailer_id
-        companyName = r?.business_name || r?.name || 'Unknown'
-        partnerType = 'Retailer'
-        const { data: sub } = await supabase.from('subscriptions').select('id').eq('user_id', pos.retailer_id).eq('user_role', 'retailer').maybeSingle()
-        if (sub) {
-          const { data: item } = await supabase.from('subscription_items').select('retailer_rate').eq('subscription_id', sub.id).eq('is_active', true).maybeSingle()
-          if (item?.retailer_rate) monthlyRate = item.retailer_rate
-        }
-      } else if (pos.distributor_id) {
-        const { data: d } = await supabase.from('distributors').select('name, business_name').eq('partner_id', pos.distributor_id).maybeSingle()
-        partnerName = d?.name || pos.distributor_id
-        companyName = d?.business_name || d?.name || 'Unknown'
-        partnerType = 'Distributor'
-        const { data: sub } = await supabase.from('subscriptions').select('id').eq('user_id', pos.distributor_id).eq('user_role', 'distributor').maybeSingle()
-        if (sub) {
-          const { data: item } = await supabase.from('subscription_items').select('distributor_rate').eq('subscription_id', sub.id).eq('is_active', true).maybeSingle()
-          if (item?.distributor_rate) monthlyRate = item.distributor_rate
-        }
-      } else if (pos.master_distributor_id) {
-        const { data: md } = await supabase.from('master_distributors').select('name, business_name').eq('partner_id', pos.master_distributor_id).maybeSingle()
-        partnerName = md?.name || pos.master_distributor_id
-        companyName = md?.business_name || md?.name || 'Unknown'
-        partnerType = 'Master Distributor'
-        const { data: sub } = await supabase.from('subscriptions').select('id').eq('user_id', pos.master_distributor_id).eq('user_role', 'master_distributor').maybeSingle()
-        if (sub) {
-          const { data: item } = await supabase.from('subscription_items').select('md_rate').eq('subscription_id', sub.id).eq('is_active', true).maybeSingle()
-          if (item?.md_rate) monthlyRate = item.md_rate
-        }
-      } else if (pos.partner_id) {
-        const { data: p } = await supabase.from('partners').select('name, business_name').eq('id', pos.partner_id).maybeSingle()
-        partnerName = p?.name || pos.partner_id
-        companyName = p?.business_name || p?.name || 'Unknown'
-        partnerType = 'Partner'
-        const { data: sub } = await supabase.from('subscriptions').select('id').eq('user_id', pos.partner_id).maybeSingle()
-        if (sub) {
-          const { data: item } = await supabase.from('subscription_items').select('retailer_rate').eq('subscription_id', sub.id).eq('is_active', true).maybeSingle()
-          if (item?.retailer_rate) monthlyRate = item.retailer_rate
-        }
-      }
-
-      info = { companyName, partnerName, partnerType, monthlyRate }
-      partnerCache[partnerKey] = info
-    }
+    const info = resolvePartner(pos)
 
     const daysInPeriod = calcDaysInPeriod(assignment.created_at, assignment.returned_date, periodStart, periodEnd)
     if (daysInPeriod === 0) continue
