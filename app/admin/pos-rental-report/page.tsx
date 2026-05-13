@@ -29,6 +29,7 @@ interface MachineDetail {
   return_date: string | null
   days_in_period: number
   prorata_amount: number
+  monthly_rate: number
   machine_status: string
 }
 
@@ -39,6 +40,8 @@ interface RentalRecord {
   pos_count: number
   pos_tids: string[]
   monthly_rate: number
+  monthly_rate_display: string
+  has_plan: boolean
   total_prorata_amount: number
   status: string
   machines: MachineDetail[]
@@ -403,7 +406,7 @@ function POSRentalReportContent() {
                     type="text"
                     value={globalSearch}
                     onChange={e => setGlobalSearch(e.target.value)}
-                    placeholder="Search by Partner / Retailer name or TID..."
+                    placeholder="Search by Partner name or TID..."
                     className="w-full pl-9 pr-4 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500"
                   />
                   {globalSearch && (
@@ -487,9 +490,8 @@ function POSRentalReportContent() {
                           <select value={filters.partnerType} onChange={e => handleFilterChange('partnerType', e.target.value)}
                             className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white">
                             <option value="">All Types</option>
-                            <option value="Retailer">Retailer</option>
-                            <option value="Distributor">Distributor</option>
                             <option value="Master Distributor">Master Distributor</option>
+                            <option value="Distributor">Distributor</option>
                             <option value="Partner">Partner</option>
                           </select>
                         </div>
@@ -532,7 +534,7 @@ function POSRentalReportContent() {
                       <tr className="bg-gray-50 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700">
                         <th className="px-2 py-3 text-center text-xs font-semibold text-gray-500 uppercase w-8"></th>
                         <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase w-10">Sr.</th>
-                        <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Partner / Retailer</th>
+                        <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Partner</th>
                         <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Type</th>
                         <th className="px-3 py-3 text-center text-xs font-semibold text-gray-500 uppercase">POS (Active / Total)</th>
                         <th className="px-3 py-3 text-right text-xs font-semibold text-gray-500 uppercase">Rate/Month</th>
@@ -588,8 +590,12 @@ function POSRentalReportContent() {
                                     </span>
                                   )}
                                 </td>
-                                <td className="px-3 py-3 text-right text-gray-900 dark:text-white whitespace-nowrap">
-                                  ₹{record.monthly_rate.toLocaleString('en-IN')}
+                                <td className="px-3 py-3 text-right whitespace-nowrap">
+                                  {record.has_plan ? (
+                                    <span className="text-gray-900 dark:text-white">{record.monthly_rate_display || `₹${record.monthly_rate.toLocaleString('en-IN')}`}</span>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400">No Plan</span>
+                                  )}
                                 </td>
                                 <td className="px-3 py-3 text-right font-bold text-primary-600 dark:text-primary-400 whitespace-nowrap">
                                   ₹{record.total_prorata_amount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -616,6 +622,7 @@ function POSRentalReportContent() {
                                             <th className="px-3 py-2 text-left font-semibold w-10">#</th>
                                             <th className="px-3 py-2 text-left font-semibold">TID</th>
                                             <th className="px-3 py-2 text-left font-semibold">Serial No.</th>
+                                            <th className="px-3 py-2 text-right font-semibold">Rate/Mo</th>
                                             <th className="px-3 py-2 text-center font-semibold">Assigned Date</th>
                                             <th className="px-3 py-2 text-center font-semibold">Return Date</th>
                                             <th className="px-3 py-2 text-center font-semibold">Days</th>
@@ -629,6 +636,7 @@ function POSRentalReportContent() {
                                               <td className="px-3 py-2 text-gray-400">{mi + 1}</td>
                                               <td className="px-3 py-2 font-mono font-medium text-gray-900 dark:text-white">{m.tid || '—'}</td>
                                               <td className="px-3 py-2 text-gray-600 dark:text-gray-400">{m.serial_number || '—'}</td>
+                                              <td className="px-3 py-2 text-right text-gray-700 dark:text-gray-300">₹{(m.monthly_rate || 0).toLocaleString('en-IN')}</td>
                                               <td className="px-3 py-2 text-center text-gray-700 dark:text-gray-300">
                                                 {new Date(m.assigned_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
                                               </td>
@@ -654,8 +662,8 @@ function POSRentalReportContent() {
                                           ))}
                                           {/* Machine total row */}
                                           <tr className="bg-gray-100 dark:bg-gray-800 font-semibold text-xs">
-                                            <td colSpan={5} className="px-3 py-2 text-right text-gray-600 dark:text-gray-400">
-                                              Total ({record.machines.length} machines)
+                                            <td colSpan={6} className="px-3 py-2 text-right text-gray-600 dark:text-gray-400">
+                                              Total ({record.machines.length} assignment{record.machines.length !== 1 ? 's' : ''})
                                             </td>
                                             <td className="px-3 py-2 text-center text-gray-900 dark:text-white">
                                               {record.machines.reduce((s, m) => s + m.days_in_period, 0)}

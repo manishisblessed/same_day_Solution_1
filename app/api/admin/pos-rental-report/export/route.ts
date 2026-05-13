@@ -113,12 +113,13 @@ export async function GET(request: NextRequest) {
     reportSheet.columns = [
       { header: 'Sr.', key: 'sr', width: 5 },
       { header: 'Company Name', key: 'company', width: 32 },
-      { header: 'Partner / Retailer Name', key: 'partner', width: 32 },
+      { header: 'Partner Name', key: 'partner', width: 32 },
       { header: 'Type', key: 'type', width: 16 },
       { header: 'Total POS', key: 'pos_count', width: 10 },
       { header: 'Active POS', key: 'active_pos', width: 10 },
       { header: 'TID(s)', key: 'tids', width: 38 },
-      { header: 'Rate / Month (₹)', key: 'rate', width: 16 },
+      { header: 'Rate / Month (₹)', key: 'rate', width: 20 },
+      { header: 'Subscription', key: 'plan_status', width: 14 },
       { header: 'Prorata Amount (₹)', key: 'prorata', width: 20 },
       { header: 'Status', key: 'status', width: 12 },
     ]
@@ -144,7 +145,8 @@ export async function GET(request: NextRequest) {
         pos_count: row.pos_count,
         active_pos: activePosCount,
         tids: row.pos_tids.join(', '),
-        rate: row.monthly_rate,
+        rate: row.monthly_rate_display || `₹${row.monthly_rate}`,
+        plan_status: row.has_plan ? 'Active' : 'No Plan',
         prorata: row.total_prorata_amount,
         status: row.status === 'active' ? 'Active' : 'Returned',
       })
@@ -168,11 +170,16 @@ export async function GET(request: NextRequest) {
       dataRow.getCell('prorata').alignment = { horizontal: 'right', vertical: 'middle' }
       dataRow.getCell('prorata').font = { bold: true }
 
-      // Format rupee columns
-      dataRow.getCell('rate').numFmt = '₹#,##0.00'
       dataRow.getCell('prorata').numFmt = '₹#,##0.00'
 
-      // Color status cell
+      // Color plan_status cell
+      const planCell = dataRow.getCell('plan_status')
+      planCell.alignment = { horizontal: 'center', vertical: 'middle' }
+      if (!row.has_plan) {
+        planCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFEBEE' } }
+        planCell.font = { color: { argb: 'FFC62828' }, bold: true }
+      }
+
       const statusCell = dataRow.getCell('status')
       statusCell.alignment = { horizontal: 'center', vertical: 'middle' }
       if (row.status === 'active') {
@@ -194,6 +201,7 @@ export async function GET(request: NextRequest) {
       active_pos: activeCount,
       tids: '',
       rate: '',
+      plan_status: '',
       prorata: Math.round(totalRevenue * 100) / 100,
       status: ''
     })
@@ -243,7 +251,7 @@ export async function GET(request: NextRequest) {
           type: partner.partner_type,
           tid: m.tid,
           serial: m.serial_number,
-          rate: partner.monthly_rate,
+          rate: (m as any).monthly_rate ?? partner.monthly_rate,
           assigned: formatDate(m.assigned_date),
           return: formatDate(m.return_date),
           days: m.days_in_period,

@@ -348,8 +348,8 @@ export async function POST(request: NextRequest) {
         assigned_by_role: 'admin',
         assigned_to: null,
         assigned_to_role: null,
-        status: 'returned',
-        returned_date: now,
+        status: 'in_stock',
+        returned_date: null,
         notes: batchNote,
       }))
 

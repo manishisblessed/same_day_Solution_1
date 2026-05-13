@@ -58,32 +58,26 @@ export async function GET(request: NextRequest) {
       'pos_machines',
       'id',
       machineIds,
-      'id, retailer_id, distributor_id, master_distributor_id, partner_id'
+      'id, distributor_id, master_distributor_id, partner_id'
     )
 
-    const retailerIds = new Set<string>()
     const distributorIds = new Set<string>()
     const mdIds = new Set<string>()
     const partnerIds = new Set<string>()
 
     for (const pos of machines) {
-      if (pos.retailer_id) retailerIds.add(pos.retailer_id)
       if (pos.distributor_id) distributorIds.add(pos.distributor_id)
       if (pos.master_distributor_id) mdIds.add(pos.master_distributor_id)
       if (pos.partner_id) partnerIds.add(pos.partner_id)
     }
 
-    const [retailers, distributors, masterDists, partners] = await Promise.all([
-      batchFetchIn<any>(supabase, 'retailers', 'partner_id', [...retailerIds], 'partner_id, business_name, name'),
+    const [distributors, masterDists, partners] = await Promise.all([
       batchFetchIn<any>(supabase, 'distributors', 'partner_id', [...distributorIds], 'partner_id, business_name, name'),
       batchFetchIn<any>(supabase, 'master_distributors', 'partner_id', [...mdIds], 'partner_id, business_name, name'),
       batchFetchIn<any>(supabase, 'partners', 'id', [...partnerIds], 'id, business_name, name'),
     ])
 
     const companies = new Set<string>()
-    for (const r of retailers) {
-      if (r.business_name || r.name) companies.add(r.business_name || r.name)
-    }
     for (const d of distributors) {
       if (d.business_name || d.name) companies.add(d.business_name || d.name)
     }
