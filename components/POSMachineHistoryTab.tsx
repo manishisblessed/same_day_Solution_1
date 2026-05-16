@@ -4,7 +4,8 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
   History, Search, RefreshCw, ChevronLeft, ChevronRight,
   ArrowRight, ArrowDown, ArrowUp, Package, Loader2,
-  Filter, AlertCircle, CreditCard, RotateCcw, Truck, UserCheck
+  Filter, AlertCircle, CreditCard, RotateCcw, Truck, UserCheck, Download,
+  Pencil, Check, X
 } from 'lucide-react'
 import { apiFetch } from '@/lib/api-client'
 
@@ -21,6 +22,8 @@ interface HistoryEntry {
   previous_holder_role: string | null
   status: 'active' | 'returned'
   assigned_date: string | null
+  transit_date: string | null
+  delivered_date: string | null
   returned_date: string | null
   notes: string | null
   created_at: string
@@ -57,6 +60,11 @@ export default function POSMachineHistoryTab() {
   const [total, setTotal] = useState(0)
   const [backfilling, setBackfilling] = useState(false)
   const [backfillDone, setBackfillDone] = useState(false)
+  const [exporting, setExporting] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editTransit, setEditTransit] = useState('')
+  const [editDelivered, setEditDelivered] = useState('')
+  const [saving, setSaving] = useState(false)
 
   const [statusFilter, setStatusFilter] = useState('all')
 
@@ -110,12 +118,66 @@ export default function POSMachineHistoryTab() {
     }
   }
 
+  const handleExportCSV = async () => {
+    setExporting(true)
+    try {
+      let url = `/api/admin/pos-machines/history?format=csv&limit=999999&page=1`
+      if (actionFilter !== 'all') url += `&action=${actionFilter}`
+      if (statusFilter !== 'all') url += `&assignment_status=${statusFilter}`
+      if (search) url += `&search=${encodeURIComponent(search)}`
+
+      const res = await apiFetch(url)
+      if (!res.ok) throw new Error('Export failed')
+
+      const blob = await res.blob()
+      const blobUrl = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = blobUrl
+      a.download = `pos_history_${new Date().toISOString().slice(0, 10)}.csv`
+      a.click()
+      URL.revokeObjectURL(blobUrl)
+    } catch (err: any) {
+      setError(err.message)
+    } finally {
+      setExporting(false)
+    }
+  }
+
+  const startEditing = (h: HistoryEntry) => {
+    setEditingId(h.id)
+    setEditTransit(h.transit_date ? new Date(h.transit_date).toISOString().slice(0, 10) : '')
+    setEditDelivered(h.delivered_date ? new Date(h.delivered_date).toISOString().slice(0, 10) : '')
+  }
+
+  const handleSaveDates = async () => {
+    if (!editingId) return
+    setSaving(true)
+    try {
+      const res = await apiFetch('/api/admin/pos-machines/history/update-dates', {
+        method: 'PATCH',
+        body: JSON.stringify({
+          history_id: editingId,
+          transit_date: editTransit ? new Date(editTransit + 'T00:00:00').toISOString() : null,
+          delivered_date: editDelivered ? new Date(editDelivered + 'T00:00:00').toISOString() : null,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) { setError(data.error || 'Failed to update'); return }
+      setEditingId(null)
+      fetchHistory()
+    } catch (err: any) {
+      setError(err.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
   const resolveName = (id: string | null, role: string | null) => {
     if (!id) return '-'
     const name = nameMap[id]
     if (name) return name
     if (id.includes('@')) return id
-    return id.substring(0, 12) + '...'
+    return `Unknown/Deleted`
   }
 
   const formatDate = (dateStr: string) => {
@@ -141,13 +203,23 @@ export default function POSMachineHistoryTab() {
             Full lifecycle &amp; assignment trail for every POS machine ({total} events)
           </p>
         </div>
-        <button
-          onClick={fetchHistory}
-          disabled={loading}
-          className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50"
-        >
-          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /> Refresh
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleExportCSV}
+            disabled={exporting || loading || total === 0}
+            className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 transition-colors"
+          >
+            {exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+            Export CSV
+          </button>
+          <button
+            onClick={fetchHistory}
+            disabled={loading}
+            className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50"
+          >
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /> Refresh
+          </button>
+        </div>
       </div>
 
       {/* Filters */}
@@ -241,11 +313,15 @@ export default function POSMachineHistoryTab() {
                   <th className="px-4 py-3 text-left font-semibold text-gray-700 dark:text-gray-300">ACTION</th>
                   <th className="px-4 py-3 text-left font-semibold text-gray-700 dark:text-gray-300">BY</th>
                   <th className="px-4 py-3 text-left font-semibold text-gray-700 dark:text-gray-300">FROM</th>
-                  <th className="px-4 py-3 text-left font-semibold text-gray-700 dark:text-gray-300">TO</th>
+                  <th className="px-4 py-3 text-left font-semibold text-gray-700 dark:text-gray-300">WAS ASSIGNED TO</th>
                   <th className="px-4 py-3 text-left font-semibold text-gray-700 dark:text-gray-300">ASSIGNED DATE</th>
+                  <th className="px-4 py-3 text-left font-semibold text-gray-700 dark:text-gray-300">TRANSIT DATE</th>
+                  <th className="px-4 py-3 text-left font-semibold text-gray-700 dark:text-gray-300">DELIVERED DATE</th>
                   <th className="px-4 py-3 text-left font-semibold text-gray-700 dark:text-gray-300">RETURN DATE</th>
                   <th className="px-4 py-3 text-left font-semibold text-gray-700 dark:text-gray-300">STATUS</th>
+                  <th className="px-4 py-3 text-left font-semibold text-gray-700 dark:text-gray-300">CURRENT HOLDER</th>
                   <th className="px-4 py-3 text-left font-semibold text-gray-700 dark:text-gray-300">NOTES</th>
+                  <th className="px-4 py-3 text-left font-semibold text-gray-700 dark:text-gray-300"></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
@@ -288,11 +364,28 @@ export default function POSMachineHistoryTab() {
                             <div className="text-gray-400 capitalize">{roleLabel(h.assigned_to_role)}</div>
                           </>
                         ) : (
-                          <span className="text-gray-400">Stock</span>
+                          <div>
+                            <div className="text-orange-600 dark:text-orange-400 font-medium">Admin Stock</div>
+                            <div className="text-gray-400">Returned</div>
+                          </div>
                         )}
                       </td>
                       <td className="px-4 py-3 text-xs text-gray-600 dark:text-gray-400 whitespace-nowrap">
                         {h.assigned_date ? formatDate(h.assigned_date) : formatDate(h.created_at)}
+                      </td>
+                      <td className="px-4 py-3 text-xs whitespace-nowrap">
+                        {editingId === h.id ? (
+                          <input type="date" value={editTransit} onChange={(e) => setEditTransit(e.target.value)} className="px-1.5 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-900 text-gray-900 dark:text-white w-[130px]" />
+                        ) : (
+                          <span className={h.transit_date ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400'}>{h.transit_date ? formatDate(h.transit_date) : '-'}</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-xs whitespace-nowrap">
+                        {editingId === h.id ? (
+                          <input type="date" value={editDelivered} onChange={(e) => setEditDelivered(e.target.value)} className="px-1.5 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-900 text-gray-900 dark:text-white w-[130px]" />
+                        ) : (
+                          <span className={h.delivered_date ? 'text-green-600 dark:text-green-400' : 'text-gray-400'}>{h.delivered_date ? formatDate(h.delivered_date) : '-'}</span>
+                        )}
                       </td>
                       <td className="px-4 py-3 text-xs text-gray-600 dark:text-gray-400 whitespace-nowrap">
                         {h.returned_date ? formatDate(h.returned_date) : '-'}
@@ -306,8 +399,42 @@ export default function POSMachineHistoryTab() {
                           {h.status === 'active' ? 'Active' : 'Returned'}
                         </span>
                       </td>
+                      <td className="px-4 py-3 text-xs">
+                        {(() => {
+                          if (!machine) return <span className="text-gray-400">-</span>
+                          const inv = machine.inventory_status
+                          if (inv === 'in_stock' || inv === 'received_from_bank') {
+                            return <span className="text-orange-600 dark:text-orange-400 font-medium">In Stock</span>
+                          }
+                          const holderId = machine.partner_id || machine.master_distributor_id || machine.distributor_id || machine.retailer_id
+                          const holderName = holderId ? resolveName(holderId, null) : '-'
+                          const holderRole = machine.partner_id ? 'Partner' : machine.master_distributor_id ? 'MD' : machine.distributor_id ? 'Distributor' : machine.retailer_id ? 'Retailer' : ''
+                          return (
+                            <div>
+                              <div className="text-gray-800 dark:text-gray-200">{holderName}</div>
+                              <div className="text-gray-400">{holderRole}</div>
+                            </div>
+                          )
+                        })()}
+                      </td>
                       <td className="px-4 py-3 text-xs text-gray-500 dark:text-gray-400 max-w-[200px] truncate" title={h.notes || ''}>
                         {h.notes || '-'}
+                      </td>
+                      <td className="px-4 py-3">
+                        {editingId === h.id ? (
+                          <div className="flex items-center gap-1">
+                            <button onClick={handleSaveDates} disabled={saving} className="p-1 rounded hover:bg-green-100 dark:hover:bg-green-900/30 text-green-600" title="Save">
+                              {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                            </button>
+                            <button onClick={() => setEditingId(null)} className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500" title="Cancel">
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        ) : (
+                          <button onClick={() => startEditing(h)} className="p-1 rounded hover:bg-blue-100 dark:hover:bg-blue-900/30 text-blue-500" title="Update Transit/Delivered Dates">
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                        )}
                       </td>
                     </tr>
                   )

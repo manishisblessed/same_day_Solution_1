@@ -53,6 +53,7 @@ export default function POSMachinesTab({ user, accentColor = 'blue' }: POSMachin
   const [bulkNotes, setBulkNotes] = useState('')
   const [bulkSubscriptionAmount, setBulkSubscriptionAmount] = useState('')
   const [bulkBillingDay, setBulkBillingDay] = useState(1)
+  const [bulkAssignedDate, setBulkAssignedDate] = useState(new Date().toISOString().slice(0, 10))
   const [bulkError, setBulkError] = useState<string | null>(null)
   const [bulkSummary, setBulkSummary] = useState<string | null>(null)
 
@@ -288,6 +289,7 @@ export default function POSMachinesTab({ user, accentColor = 'blue' }: POSMachin
                 setBulkNotes('')
                 setBulkSubscriptionAmount('')
                 setBulkBillingDay(1)
+                setBulkAssignedDate(new Date().toISOString().slice(0, 10))
                 setBulkError(null)
                 setBulkSummary(null)
                 setShowBulkAssignModal(true)
@@ -641,6 +643,7 @@ export default function POSMachinesTab({ user, accentColor = 'blue' }: POSMachin
                       setBulkNotes('')
                       setBulkSubscriptionAmount('')
                       setBulkBillingDay(1)
+                      setBulkAssignedDate(new Date().toISOString().slice(0, 10))
                       setBulkError(null)
                       setBulkSummary(null)
                       setShowBulkAssignModal(true)
@@ -786,6 +789,10 @@ export default function POSMachinesTab({ user, accentColor = 'blue' }: POSMachin
                     ))}
                   </select>
                   <input type="text" value={bulkNotes} onChange={(e) => setBulkNotes(e.target.value)} placeholder="Notes (optional)" className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white" />
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Assigned Date *</label>
+                    <input type="date" value={bulkAssignedDate} onChange={(e) => setBulkAssignedDate(e.target.value)} className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white" />
+                  </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Subscription / month (optional)</label>
@@ -815,6 +822,7 @@ export default function POSMachinesTab({ user, accentColor = 'blue' }: POSMachin
                           machine_ids: Array.from(bulkModalPickedIds),
                           assign_to: bulkAssignTarget,
                           notes: bulkNotes.trim() || undefined,
+                          assigned_date: bulkAssignedDate ? new Date(bulkAssignedDate + 'T00:00:00').toISOString() : undefined,
                         }
                         const amt = bulkSubscriptionAmount.trim()
                         if (amt) { const n = parseFloat(amt); if (!Number.isNaN(n) && n > 0) { payload.subscription_amount = n; payload.billing_day = bulkBillingDay; payload.gst_percent = 18 } }
@@ -1002,6 +1010,7 @@ function AssignModal({
   const [selectedUser, setSelectedUser] = useState('')
   const [assignToType, setAssignToType] = useState<'master_distributor' | 'partner' | ''>('')
   const [notes, setNotes] = useState('')
+  const [assignedDate, setAssignedDate] = useState(new Date().toISOString().slice(0, 10))
   const [subscriptionAmount, setSubscriptionAmount] = useState('')
   const [billingDay, setBillingDay] = useState(1)
   const [loading, setLoading] = useState(false)
@@ -1070,6 +1079,7 @@ function AssignModal({
         assign_to: selectedUser,
         assign_to_type: isAdmin ? assignToType : undefined,
         notes,
+        assigned_date: assignedDate ? new Date(assignedDate + 'T00:00:00').toISOString() : undefined,
       }
       if (showSubscriptionFields) {
         const amount = subscriptionAmount.trim() ? parseFloat(subscriptionAmount) : null
@@ -1314,6 +1324,19 @@ function AssignModal({
                 </div>
               </>
             )}
+          </div>
+
+          {/* Assigned Date */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              Assigned Date *
+            </label>
+            <input
+              type="date"
+              value={assignedDate}
+              onChange={(e) => setAssignedDate(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white text-sm"
+            />
           </div>
 
           {/* Notes */}

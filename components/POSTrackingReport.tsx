@@ -25,6 +25,8 @@ interface TrackingEntry {
   previous_holder_role: string | null
   status: 'active' | 'returned'
   assigned_date: string | null
+  transit_date: string | null
+  delivered_date: string | null
   returned_date: string | null
   return_reason: string | null
   notes: string | null
@@ -347,6 +349,8 @@ export default function POSTrackingReport() {
                   <th className="px-4 py-3 text-left font-semibold text-gray-700 dark:text-gray-300 whitespace-nowrap">FROM (PREV HOLDER)</th>
                   <th className="px-4 py-3 text-left font-semibold text-gray-700 dark:text-gray-300 whitespace-nowrap">TO (MERCHANT)</th>
                   <th className="px-4 py-3 text-left font-semibold text-gray-700 dark:text-gray-300 whitespace-nowrap">ASSIGNED DATE</th>
+                  <th className="px-4 py-3 text-left font-semibold text-gray-700 dark:text-gray-300 whitespace-nowrap">TRANSIT DATE</th>
+                  <th className="px-4 py-3 text-left font-semibold text-gray-700 dark:text-gray-300 whitespace-nowrap">DELIVERED DATE</th>
                   <th className="px-4 py-3 text-left font-semibold text-gray-700 dark:text-gray-300 whitespace-nowrap">RETURN DATE</th>
                   <th className="px-4 py-3 text-left font-semibold text-gray-700 dark:text-gray-300 whitespace-nowrap">STATUS</th>
                   <th className="px-4 py-3 text-left font-semibold text-gray-700 dark:text-gray-300 whitespace-nowrap">RETURN REASON</th>
@@ -401,6 +405,12 @@ export default function POSTrackingReport() {
                       </td>
                       <td className="px-4 py-3 text-xs text-gray-600 dark:text-gray-400 whitespace-nowrap">
                         {h.assigned_date ? formatDate(h.assigned_date) : formatDate(h.created_at)}
+                      </td>
+                      <td className="px-4 py-3 text-xs whitespace-nowrap">
+                        <span className={h.transit_date ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400'}>{h.transit_date ? formatDate(h.transit_date) : '-'}</span>
+                      </td>
+                      <td className="px-4 py-3 text-xs whitespace-nowrap">
+                        <span className={h.delivered_date ? 'text-green-600 dark:text-green-400' : 'text-gray-400'}>{h.delivered_date ? formatDate(h.delivered_date) : '-'}</span>
                       </td>
                       <td className="px-4 py-3 text-xs text-gray-600 dark:text-gray-400 whitespace-nowrap">
                         {h.returned_date ? formatDate(h.returned_date) : '-'}

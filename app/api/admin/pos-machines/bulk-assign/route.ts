@@ -2,10 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { createClient } from '@supabase/supabase-js'
 import {
-  adminAssignOneToDistributor,
   adminAssignOneToMasterDistributor,
   adminAssignOneToPartner,
-  adminAssignOneToRetailer,
 } from '@/lib/pos-machine-admin-assign'
 
 export const runtime = 'nodejs'
@@ -13,11 +11,12 @@ export const dynamic = 'force-dynamic'
 
 const MAX_BULK = 100
 
-type AssignToType = 'master_distributor' | 'distributor' | 'retailer' | 'partner'
+type AssignToType = 'master_distributor' | 'partner'
 
 /**
  * POST /api/admin/pos-machines/bulk-assign
- * Admin only. Assign many machines to one Master Distributor, Distributor, Retailer, or Partner.
+ * Admin only. Assign machines to Master Distributor or Partner.
+ * Distributors/Retailers must be assigned by their upstream hierarchy (MD → DT → RT).
  */
 export async function POST(request: NextRequest) {
   try {
@@ -51,10 +50,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'assign_to is required' }, { status: 400 })
     }
 
-    const validTypes: AssignToType[] = ['master_distributor', 'distributor', 'retailer', 'partner']
+    const validTypes: AssignToType[] = ['master_distributor', 'partner']
     if (!assignToType || !validTypes.includes(assignToType as AssignToType)) {
       return NextResponse.json(
-        { error: 'assign_to_type must be master_distributor, distributor, retailer, or partner' },
+        { error: 'Admin can only assign to master_distributor or partner. Distributors/Retailers must be assigned by their upstream hierarchy.' },
         { status: 400 }
       )
     }
@@ -119,36 +118,8 @@ export async function POST(request: NextRequest) {
           gst,
           effectiveAssignDate
         )
-      } else if (assignToType === 'distributor') {
-        result = await adminAssignOneToDistributor(
-          supabase,
-          request,
-          user,
-          machine,
-          assignTo,
-          notes,
-          activeAssignment,
-          subAmount,
-          bDay,
-          gst,
-          effectiveAssignDate
-        )
-      } else if (assignToType === 'partner') {
-        result = await adminAssignOneToPartner(supabase, request, user, machine, assignTo, notes, activeAssignment, effectiveAssignDate)
       } else {
-        result = await adminAssignOneToRetailer(
-          supabase,
-          request,
-          user,
-          machine,
-          assignTo,
-          notes,
-          activeAssignment,
-          subAmount,
-          bDay,
-          gst,
-          effectiveAssignDate
-        )
+        result = await adminAssignOneToPartner(supabase, request, user, machine, assignTo, notes, activeAssignment, effectiveAssignDate)
       }
 
       if (result.ok) {

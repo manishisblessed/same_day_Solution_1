@@ -38,7 +38,7 @@ export async function POST(request: NextRequest) {
     const partnerId: string = user.partner_id
 
     const body = await request.json()
-    const { machine_ids: rawIds, assign_to, notes, subscription_amount, billing_day, gst_percent } = body
+    const { machine_ids: rawIds, assign_to, notes, subscription_amount, billing_day, gst_percent, assigned_date } = body
 
     if (!assign_to || typeof assign_to !== 'string') {
       return NextResponse.json({ error: 'assign_to is required' }, { status: 400 })
@@ -113,14 +113,16 @@ export async function POST(request: NextRequest) {
               .eq('id', activeAsgn.id)
           }
 
+          const effectiveDate = assigned_date || new Date().toISOString()
+
           const { error: upErr } = await supabase.from('pos_machines').update({
-            partner_id: null,  // Clear partner_id when moving to hierarchy
+            partner_id: null,
             distributor_id: assign_to,
             retailer_id: null,
             inventory_status: 'assigned_to_distributor',
             assigned_by: partnerId,
             assigned_by_role: 'master_distributor',
-            last_assigned_at: new Date().toISOString(),
+            last_assigned_at: effectiveDate,
             updated_at: new Date().toISOString(),
           }).eq('id', id)
 
@@ -137,6 +139,7 @@ export async function POST(request: NextRequest) {
             previous_holder: machine.distributor_id || null,
             previous_holder_role: machine.distributor_id ? 'distributor' : null,
             status: 'active',
+            assigned_date: effectiveDate,
             notes: notes || 'Bulk assigned by MD',
           })
 
@@ -172,13 +175,15 @@ export async function POST(request: NextRequest) {
               .eq('id', activeAsgn.id)
           }
 
+          const effectiveDateRt = assigned_date || new Date().toISOString()
+
           const { error: upErr } = await supabase.from('pos_machines').update({
-            partner_id: null,  // Clear partner_id when moving to hierarchy
+            partner_id: null,
             retailer_id: assign_to,
             inventory_status: 'assigned_to_retailer',
             assigned_by: partnerId,
             assigned_by_role: 'distributor',
-            last_assigned_at: new Date().toISOString(),
+            last_assigned_at: effectiveDateRt,
             updated_at: new Date().toISOString(),
           }).eq('id', id)
 
@@ -195,6 +200,7 @@ export async function POST(request: NextRequest) {
             previous_holder: machine.retailer_id || null,
             previous_holder_role: machine.retailer_id ? 'retailer' : null,
             status: 'active',
+            assigned_date: effectiveDateRt,
             notes: notes || 'Bulk assigned by Distributor',
           })
 

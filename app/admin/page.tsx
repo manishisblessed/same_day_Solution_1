@@ -5381,7 +5381,7 @@ function POSMachinesTab({
 
   const [showBulkAssignModal, setShowBulkAssignModal] = useState(false)
   const [bulkAssignRole, setBulkAssignRole] = useState<
-    'master_distributor' | 'distributor' | 'retailer' | 'partner'
+    'master_distributor' | 'partner'
   >('master_distributor')
   const [bulkAssignTargetId, setBulkAssignTargetId] = useState('')
   const [bulkAssignUserSearch, setBulkAssignUserSearch] = useState('')
@@ -6422,7 +6422,7 @@ function POSMachinesTab({
                     value={bulkAssignRole}
                     onChange={(e) => {
                       setBulkAssignRole(
-                        e.target.value as 'master_distributor' | 'distributor' | 'retailer' | 'partner'
+                        e.target.value as 'master_distributor' | 'partner'
                       )
                       setBulkAssignTargetId('')
                       setBulkAssignUserSearch('')
@@ -6431,8 +6431,6 @@ function POSMachinesTab({
                     className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
                   >
                     <option value="master_distributor">Master Distributor (MD)</option>
-                    <option value="distributor">Distributor (DT)</option>
-                    <option value="retailer">Retailer (RT)</option>
                     <option value="partner">Partner</option>
                   </select>
                   <input
@@ -6453,11 +6451,7 @@ function POSMachinesTab({
                       Select{' '}
                       {bulkAssignRole === 'master_distributor'
                         ? 'Master Distributor'
-                        : bulkAssignRole === 'distributor'
-                          ? 'Distributor'
-                          : bulkAssignRole === 'partner'
-                            ? 'Partner'
-                            : 'Retailer'}
+                        : 'Partner'}
                       …
                     </option>
                     {(bulkAssignRole === 'master_distributor'
@@ -6470,36 +6464,16 @@ function POSMachinesTab({
                             (m.email || '').toLowerCase().includes(q2)
                           )
                         })
-                      : bulkAssignRole === 'distributor'
-                        ? distributors.filter((d) => {
-                            const q2 = bulkAssignUserSearch.toLowerCase()
-                            if (!q2) return true
-                            return (
-                              (d.name || '').toLowerCase().includes(q2) ||
-                              (d.partner_id || '').toLowerCase().includes(q2) ||
-                              (d.email || '').toLowerCase().includes(q2)
-                            )
-                          })
-                        : bulkAssignRole === 'partner'
-                          ? partners.filter((p) => {
-                              const q2 = bulkAssignUserSearch.toLowerCase()
-                              if (!q2) return true
-                              return (
-                                (p.name || '').toLowerCase().includes(q2) ||
-                                (p.id || '').toLowerCase().includes(q2) ||
-                                (p.email || '').toLowerCase().includes(q2) ||
-                                (p.business_name || '').toLowerCase().includes(q2)
-                              )
-                            })
-                          : retailers.filter((r) => {
-                              const q2 = bulkAssignUserSearch.toLowerCase()
-                              if (!q2) return true
-                              return (
-                                (r.name || '').toLowerCase().includes(q2) ||
-                                (r.partner_id || '').toLowerCase().includes(q2) ||
-                                (r.email || '').toLowerCase().includes(q2)
-                              )
-                            })
+                      : partners.filter((p) => {
+                          const q2 = bulkAssignUserSearch.toLowerCase()
+                          if (!q2) return true
+                          return (
+                            (p.name || '').toLowerCase().includes(q2) ||
+                            (p.id || '').toLowerCase().includes(q2) ||
+                            (p.email || '').toLowerCase().includes(q2) ||
+                            (p.business_name || '').toLowerCase().includes(q2)
+                          )
+                        })
                     ).map((row: any) => {
                       const value = bulkAssignRole === 'partner' ? row.id : row.partner_id
                       const label = row.name || row.business_name || value
@@ -7130,7 +7104,7 @@ function POSMachineModal({
     partner_id: '',
     machine_type: 'POS' as 'POS' | 'WPOS' | 'Mini-ATM',
     status: 'active' as 'active' | 'inactive' | 'maintenance' | 'damaged' | 'returned',
-    inventory_status: 'in_stock' as 'in_stock' | 'received_from_bank' | 'assigned_to_master_distributor' | 'assigned_to_distributor' | 'assigned_to_retailer' | 'assigned_to_partner' | 'damaged_from_bank',
+    inventory_status: 'in_stock' as 'in_stock' | 'received_from_bank' | 'assigned_to_retailer' | 'assigned_to_distributor' | 'assigned_to_master_distributor' | 'assigned_to_partner' | 'damaged_from_bank',
     delivery_date: '',
     installation_date: '',
     location: '',
@@ -7191,22 +7165,8 @@ function POSMachineModal({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
 
-    // For hierarchical flow: machines can be added to inventory without retailer
-    // Only require retailer when inventory_status is 'assigned_to_retailer'
-    const isDirectAssignToRetailer = formData.inventory_status === 'assigned_to_retailer'
-    const isAssignToDistributor = formData.inventory_status === 'assigned_to_distributor'
     const isAssignToMD = formData.inventory_status === 'assigned_to_master_distributor'
     const isAssignToPartner = formData.inventory_status === 'assigned_to_partner'
-
-    if (isDirectAssignToRetailer && !formData.retailer_id) {
-      alert('Retailer is required when assigning directly to retailer')
-      return
-    }
-
-    if (isAssignToDistributor && !formData.distributor_id) {
-      alert('Distributor is required when assigning to distributor')
-      return
-    }
 
     if (isAssignToMD && !formData.master_distributor_id) {
       alert('Master Distributor is required when assigning to master distributor')
@@ -7216,30 +7176,6 @@ function POSMachineModal({
     if (isAssignToPartner && !formData.partner_id) {
       alert('Partner is required when assigning to partner')
       return
-    }
-
-    // If assigning to retailer, validate the full hierarchy
-    let resolvedDistributorId = formData.distributor_id || null
-    let resolvedMDId = formData.master_distributor_id || null
-
-    if (formData.retailer_id) {
-      const retailer = retailers.find(r => r.partner_id === formData.retailer_id)
-      if (!retailer) {
-        alert('Invalid retailer selected')
-        return
-      }
-      if (isDirectAssignToRetailer) {
-        if (!retailer.distributor_id) {
-          alert('Selected retailer must be assigned to a distributor')
-          return
-        }
-        if (!retailer.master_distributor_id) {
-          alert('Selected retailer must be assigned to a master distributor')
-          return
-        }
-        resolvedDistributorId = retailer.distributor_id
-        resolvedMDId = retailer.master_distributor_id
-      }
     }
 
     setLoading(true)
@@ -7253,10 +7189,10 @@ function POSMachineModal({
         mid: formData.mid || null,
         tid: formData.tid || null,
         brand: formData.brand || null,
-        retailer_id: (isAssignToPartner || isReturningToStock) ? null : (formData.retailer_id || null),
-        distributor_id: (isAssignToPartner || isReturningToStock) ? null : resolvedDistributorId,
-        master_distributor_id: (isAssignToPartner || isReturningToStock) ? null : resolvedMDId,
-        partner_id: (isReturningToStock ? null : (isAssignToPartner ? formData.partner_id || null : null)),
+        retailer_id: isReturningToStock ? null : null,
+        distributor_id: isReturningToStock ? null : null,
+        master_distributor_id: (isAssignToMD && !isReturningToStock) ? (formData.master_distributor_id || null) : null,
+        partner_id: (isAssignToPartner && !isReturningToStock) ? (formData.partner_id || null) : null,
         machine_type: formData.machine_type,
         status: formData.status,
         inventory_status: formData.inventory_status,
@@ -7315,7 +7251,7 @@ function POSMachineModal({
       }
 
       // Record assignment history for any non-stock inventory status
-      const hasAssignment = ['assigned_to_retailer', 'assigned_to_distributor', 'assigned_to_master_distributor', 'assigned_to_partner'].includes(formData.inventory_status)
+      const hasAssignment = ['assigned_to_master_distributor', 'assigned_to_partner'].includes(formData.inventory_status)
       if (hasAssignment) {
         try {
           let assignedTo: string | null = null
@@ -7323,13 +7259,7 @@ function POSMachineModal({
           let previousHolder: string | null = null
           let previousHolderRole: string | null = null
 
-          if (formData.inventory_status === 'assigned_to_retailer' && formData.retailer_id) {
-            assignedTo = formData.retailer_id
-            assignedToRole = 'retailer'
-          } else if (formData.inventory_status === 'assigned_to_distributor' && formData.distributor_id) {
-            assignedTo = formData.distributor_id
-            assignedToRole = 'distributor'
-          } else if (formData.inventory_status === 'assigned_to_master_distributor' && formData.master_distributor_id) {
+          if (formData.inventory_status === 'assigned_to_master_distributor' && formData.master_distributor_id) {
             assignedTo = formData.master_distributor_id
             assignedToRole = 'master_distributor'
           } else if (formData.inventory_status === 'assigned_to_partner' && formData.partner_id) {
@@ -7531,8 +7461,6 @@ function POSMachineModal({
                 <option value="in_stock">In Stock</option>
                 <option value="received_from_bank">Received from Bank</option>
                 <option value="assigned_to_master_distributor">Assigned to Master Distributor</option>
-                <option value="assigned_to_distributor">Assigned to Distributor</option>
-                <option value="assigned_to_retailer">Assigned to Retailer</option>
                 <option value="assigned_to_partner">Assigned to Partner</option>
                 <option value="damaged_from_bank">Damaged from Bank</option>
               </select>
@@ -7563,57 +7491,8 @@ function POSMachineModal({
                   ))}
               </select>
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Distributor {formData.inventory_status === 'assigned_to_distributor' && <span className="text-red-500">*</span>}
-              </label>
-              <select
-                value={formData.distributor_id}
-                onChange={(e) => setFormData({ ...formData, distributor_id: e.target.value })}
-                required={formData.inventory_status === 'assigned_to_distributor'}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
-              >
-                <option value="">Select Distributor (Optional)</option>
-                {distributors
-                  .filter(d => d.status === 'active' && (!formData.master_distributor_id || d.master_distributor_id === formData.master_distributor_id))
-                  .map((d) => (
-                    <option key={d.id} value={d.partner_id}>
-                      {d.partner_id} - {d.name}
-                    </option>
-                  ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Retailer {formData.inventory_status === 'assigned_to_retailer' && <span className="text-red-500">*</span>}
-              </label>
-              <select
-                value={formData.retailer_id}
-                onChange={(e) => {
-                  const retailer = retailers.find(r => r.partner_id === e.target.value)
-                  setFormData({ 
-                    ...formData, 
-                    retailer_id: e.target.value,
-                    distributor_id: retailer?.distributor_id || formData.distributor_id,
-                    master_distributor_id: retailer?.master_distributor_id || formData.master_distributor_id
-                  })
-                }}
-                required={formData.inventory_status === 'assigned_to_retailer'}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
-              >
-                <option value="">Select Retailer (Optional)</option>
-                {retailers
-                  .filter(r => r.status === 'active')
-                  .map((r) => (
-                    <option key={r.id} value={r.partner_id}>
-                      {r.partner_id} - {r.name} ({r.email})
-                    </option>
-                  ))}
-              </select>
-              {formData.inventory_status === 'assigned_to_retailer' && retailers.filter(r => r.status === 'active').length === 0 && (
-                <p className="text-xs text-red-500 mt-1">No active retailers available. Please create one first.</p>
-              )}
-            </div>
+            {/* Distributor & Retailer fields removed: admin can only assign to MD or Partner.
+               Distributors are assigned by MDs, Retailers by Distributors. */}
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Partner {formData.inventory_status === 'assigned_to_partner' && <span className="text-red-500">*</span>}

@@ -97,18 +97,27 @@ export async function GET(request: NextRequest) {
     const nameMap: Record<string, string> = {}
     if (partnerIds.size > 0) {
       const ids = Array.from(partnerIds)
-      const [ret, dist, md, partners, admins] = await Promise.all([
+      const [ret, dist, md, partnersById, partnersByPid, admins] = await Promise.all([
         supabase.from('retailers').select('partner_id, name').in('partner_id', ids),
         supabase.from('distributors').select('partner_id, name').in('partner_id', ids),
         supabase.from('master_distributors').select('partner_id, name').in('partner_id', ids),
-        supabase.from('partners').select('id, name').in('id', ids),
+        supabase.from('partners').select('id, name, business_name').in('id', ids),
+        supabase.from('partners').select('id, partner_id, name, business_name').in('partner_id', ids),
         supabase.from('admin_users').select('email, name').in('email', ids),
       ])
-      ret.data?.forEach((r: any) => { nameMap[r.partner_id] = r.name })
-      dist.data?.forEach((d: any) => { nameMap[d.partner_id] = d.name })
-      md.data?.forEach((m: any) => { nameMap[m.partner_id] = m.name })
-      partners.data?.forEach((p: any) => { nameMap[p.id] = p.name })
-      admins.data?.forEach((a: any) => { nameMap[a.email] = a.name })
+      ret.data?.forEach((r: any) => { if (r.name) nameMap[r.partner_id] = r.name })
+      dist.data?.forEach((d: any) => { if (d.name) nameMap[d.partner_id] = d.name })
+      md.data?.forEach((m: any) => { if (m.name) nameMap[m.partner_id] = m.name })
+      partnersById.data?.forEach((p: any) => { const n = p.name || p.business_name; if (n) nameMap[p.id] = n })
+      partnersByPid.data?.forEach((p: any) => { const n = p.name || p.business_name; if (n && p.partner_id) nameMap[p.partner_id] = n })
+      admins.data?.forEach((a: any) => { nameMap[a.email] = a.name || a.email })
+
+      for (const h of (history || [])) {
+        if (h.assigned_to && !nameMap[h.assigned_to] && h.notes) {
+          const m = h.notes.match(/assigned to (?:Partner|Retailer|Distributor|Master Distributor)\s+(.+)/i)
+          if (m && m[1]) nameMap[h.assigned_to] = m[1].trim()
+        }
+      }
     }
 
     const machineUuids = Array.from(new Set((history || []).map((h: any) => h.pos_machine_id)))
@@ -121,11 +130,12 @@ export async function GET(request: NextRequest) {
       machines?.forEach((m: any) => { machineMap[m.id] = m })
     }
 
-    // Summary stats — query full dataset, not just the current page
+    // Summary stats — count DISTINCT pos_machine_id to avoid inflated counts
+    // when a machine has multiple history rows (reassigned, returned, etc.)
     const buildSummaryQuery = (extraFilter?: (q: any) => any) => {
       let q = supabase
         .from('pos_assignment_history')
-        .select('id', { count: 'exact', head: true })
+        .select('pos_machine_id')
       if (dateFrom) q = q.gte('created_at', dateFrom)
       if (dateTo) q = q.lte('created_at', dateTo + 'T23:59:59.999Z')
       if (search) {
@@ -153,10 +163,13 @@ export async function GET(request: NextRequest) {
       buildSummaryQuery(q => q.eq('status', 'active')),
     ])
 
-    const totalAssignments = assignRes.count || 0
-    const totalReturns = returnRes.count || 0
-    const totalReassignments = reassignRes.count || 0
-    const activeAssignments = activeRes.count || 0
+    const countDistinct = (rows: any[] | null) =>
+      new Set((rows || []).map((r: any) => r.pos_machine_id)).size
+
+    const totalAssignments = countDistinct(assignRes.data)
+    const totalReturns = countDistinct(returnRes.data)
+    const totalReassignments = countDistinct(reassignRes.data)
+    const activeAssignments = countDistinct(activeRes.data)
 
     const totalPages = count ? Math.ceil(count / limit) : 1
 
@@ -166,6 +179,8 @@ export async function GET(request: NextRequest) {
         return {
           'Record Date': new Date(h.created_at).toLocaleDateString('en-IN'),
           'Assigned Date': h.assigned_date ? new Date(h.assigned_date).toLocaleDateString('en-IN') : '',
+          'Transit Date': h.transit_date ? new Date(h.transit_date).toLocaleDateString('en-IN') : '',
+          'Delivered Date': h.delivered_date ? new Date(h.delivered_date).toLocaleDateString('en-IN') : '',
           'Machine ID': h.machine_id,
           'Serial Number': machine?.serial_number || '',
           'MID': machine?.mid || '',
