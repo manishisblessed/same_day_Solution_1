@@ -10,6 +10,10 @@ export const dynamic = 'force-dynamic';
  * Returns mock login status and bank list for testing
  */
 export async function POST(request: NextRequest) {
+  if (process.env.NODE_ENV === 'production' && process.env.AEPS_USE_MOCK !== 'true') {
+    return NextResponse.json({ error: 'Not available' }, { status: 404 });
+  }
+
   try {
     const { user, method } = await getCurrentUserWithFallback(request);
     console.log('[AEPS Mock Login Status] Auth:', method, '|', user?.email || 'none');

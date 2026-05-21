@@ -5,6 +5,8 @@
 export * from './config';
 export * from './client';
 export * from './service';
+export * from './commission';
+export * from './error-codes';
 
 // Re-export types for convenience
 export type {

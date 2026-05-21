@@ -9,6 +9,10 @@ import { mockAepsLogin } from '@/lib/aeps-mock';
  * Use in Postman collection "5. AEPS Mock" for dev/test
  */
 export async function POST(req: NextRequest) {
+  if (process.env.NODE_ENV === 'production' && process.env.AEPS_USE_MOCK !== 'true') {
+    return NextResponse.json({ error: 'Not available' }, { status: 404 });
+  }
+
   try {
     const body = await req.json();
     const result = mockAepsLogin(body);

@@ -276,7 +276,7 @@ class AEPSService {
           accountNumber: response.data.accountNumber,
           amount: response.data.amount,
           balance: response.data.bankAccountBalance || undefined,
-          miniStatement: response.data.miniStatement,
+          miniStatement: (response.data.miniStatement || []).slice(0, 10),
         },
       };
     }

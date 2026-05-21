@@ -39,7 +39,6 @@ interface AEPSTransaction {
   order_id?: string
   status: string
   error_message?: string
-  balance_after?: number
   wallet_debited?: boolean
   created_at: string
   completed_at?: string

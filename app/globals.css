@@ -98,3 +98,32 @@
   animation-delay: 4s;
 }
 
+/* AEPS Receipt Print Styles */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  #aeps-receipt, #aeps-receipt * {
+    visibility: visible;
+  }
+  #aeps-receipt {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    padding: 20px;
+  }
+  .print\:hidden {
+    display: none !important;
+  }
+  .print\:shadow-none {
+    box-shadow: none !important;
+  }
+  .print\:rounded-none {
+    border-radius: 0 !important;
+  }
+  .print\:p-4 {
+    padding: 1rem !important;
+  }
+}
+

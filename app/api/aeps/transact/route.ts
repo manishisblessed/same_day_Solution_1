@@ -3,6 +3,8 @@ import { createClient } from '@supabase/supabase-js';
 import { getCurrentUserWithFallback } from '@/lib/auth-server';
 import { getAEPSService } from '@/services/aeps';
 import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger';
+import { distributeCommission, mapTransactionTypeToServiceType } from '@/services/aeps/commission';
+import { formatErrorForReceipt, cleanProviderMessage } from '@/services/aeps/error-codes';
 import type { AEPSTransactionType } from '@/types/aeps.types';
 
 export const runtime = 'nodejs';
@@ -87,6 +89,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'transactionType is required' }, { status: 400 });
     }
 
+    if (!deviceFingerprint) {
+      return NextResponse.json(
+        { error: 'deviceFingerprint is required for security verification', code: 'DEVICE_FINGERPRINT_REQUIRED' },
+        { status: 400 }
+      );
+    }
+
     const validTypes: AEPSTransactionType[] = [
       'balance_inquiry', 'cash_withdrawal', 'cash_deposit', 'mini_statement', 'aadhaar_to_aadhaar'
     ];
@@ -135,10 +144,10 @@ export async function POST(request: NextRequest) {
     }
 
     // Enforce device fingerprint check — new device requires re-authentication
-    if (deviceFingerprint && merchantRecord?.device_fingerprint &&
-        deviceFingerprint !== merchantRecord.device_fingerprint) {
+    const storedFingerprint = merchantRecord?.device_fingerprint;
+    if (!storedFingerprint || deviceFingerprint !== storedFingerprint) {
       return NextResponse.json(
-        { error: 'Device changed. Please re-authenticate from this device.', code: 'DEVICE_CHANGED' },
+        { error: 'Device changed or not registered. Please re-authenticate.', code: 'DEVICE_CHANGED' },
         { status: 403 }
       );
     }
@@ -162,6 +171,20 @@ export async function POST(request: NextRequest) {
 
     if (isFinancial && txnAmount <= 0) {
       return NextResponse.json({ error: 'Valid amount is required for financial transactions' }, { status: 400 });
+    }
+
+    if (isFinancial && txnAmount > 10000) {
+      return NextResponse.json(
+        { error: 'Maximum AEPS transaction amount is ₹10,000 (NPCI limit)', code: 'AMOUNT_LIMIT_EXCEEDED' },
+        { status: 400 }
+      );
+    }
+
+    if (isFinancial && txnAmount % 100 !== 0) {
+      return NextResponse.json(
+        { error: 'Amount must be a multiple of ₹100', code: 'INVALID_AMOUNT' },
+        { status: 400 }
+      );
     }
 
     // No internal wallet checks — the Chagans provider manages the merchant's
@@ -219,42 +242,146 @@ export async function POST(request: NextRequest) {
           status: 'success',
           order_id: result.orderId,
           utr: result.utr,
+          rrn: (result as any).rrn || null,
+          stan: (result as any).stan || null,
           account_number_masked: result.data?.accountNumber,
           completed_at: new Date().toISOString()
         })
         .eq('id', aepsTransaction.id);
+
+      // Commission distribution (only on successful financial txns + mini_statement)
+      let commissionResult = null;
+      const commissionEnabled = process.env.AEPS_COMMISSION_ENABLED === 'true';
+      const eligibleForCommission = (isFinancial || transactionType === 'mini_statement') && commissionEnabled;
+
+      if (eligibleForCommission) {
+        // Look up retailer's hierarchy (DT and MD)
+        const { data: retailerInfo } = await supabase
+          .from('retailers')
+          .select('distributor_id, master_distributor_id')
+          .eq('user_id', user.partner_id)
+          .maybeSingle();
+
+        const serviceType = mapTransactionTypeToServiceType(transactionType);
+        commissionResult = await distributeCommission({
+          transactionId: aepsTransaction.id,
+          serviceType,
+          amount: txnAmount || 0,
+          rtUserId: user.partner_id,
+          dtUserId: retailerInfo?.distributor_id || undefined,
+          mdUserId: retailerInfo?.master_distributor_id || undefined,
+        });
+
+        if (commissionResult.success && commissionResult.commissionId) {
+          await supabase
+            .from('aeps_transactions')
+            .update({ commission_id: commissionResult.commissionId })
+            .eq('id', aepsTransaction.id);
+        }
+      }
+
+      // Log activity
+      const ctx = getRequestContext(request);
+      logActivityFromContext(ctx, user, {
+        activity_type: 'aeps_transaction',
+        activity_category: 'aeps',
+        activity_description: `AEPS ${transactionType} for ₹${txnAmount || 0}`,
+        reference_id: aepsTransaction.id,
+        reference_table: 'aeps_transactions',
+        metadata: { transactionType, amount: txnAmount, orderId: result.orderId },
+      }).catch(() => {});
+
+      // Get merchant details for receipt
+      const { data: merchantDetails } = await supabase
+        .from('aeps_merchants')
+        .select('name, address_city')
+        .eq('user_id', user.partner_id)
+        .maybeSingle();
+
+      return NextResponse.json({
+        success: true,
+        receipt: {
+          txnId: aepsTransaction.id,
+          orderId: result.orderId || null,
+          utr: result.utr || null,
+          rrn: (result as any).rrn || null,
+          stan: (result as any).stan || null,
+          timestamp: new Date().toISOString(),
+          type: transactionType,
+          customer: {
+            aadhaarMasked: aepsService.maskAadhaar(customerAadhaar),
+            bankName: bankName || null,
+            accountNumberMasked: result.data?.accountNumber || null,
+          },
+          transaction: {
+            amount: isFinancial ? txnAmount : null,
+            commission: commissionResult?.breakdown?.rtAmount || null,
+          },
+          bank: {
+            availableBalance: result.data?.balance || null,
+          },
+          miniStatement: transactionType === 'mini_statement'
+            ? (result.data?.miniStatement || []).slice(0, 10)
+            : null,
+          retailer: {
+            id: user.partner_id,
+            name: merchantDetails?.name || user.email,
+            location: merchantDetails?.address_city || null,
+          },
+          status: 'SUCCESS',
+        },
+        isMockMode: aepsService.isMockMode(),
+      });
     } else {
+      // Format error using NPCI code mapping
+      const errorInfo = formatErrorForReceipt(
+        result.message || result.error || 'Transaction failed',
+        (result as any).code
+      );
+
       await supabase
         .from('aeps_transactions')
         .update({
           status: 'failed',
-          error_message: result.message || result.error,
+          error_message: errorInfo.errorMessage,
           completed_at: new Date().toISOString()
         })
         .eq('id', aepsTransaction.id);
+
+      // Log activity
+      const ctx = getRequestContext(request);
+      logActivityFromContext(ctx, user, {
+        activity_type: 'aeps_transaction',
+        activity_category: 'aeps',
+        activity_description: `AEPS ${transactionType} FAILED: ${errorInfo.errorCode}`,
+        reference_id: aepsTransaction.id,
+        reference_table: 'aeps_transactions',
+        metadata: { transactionType, amount: txnAmount, errorCode: errorInfo.errorCode },
+      }).catch(() => {});
+
+      return NextResponse.json({
+        success: false,
+        receipt: {
+          txnId: aepsTransaction.id,
+          orderId: result.orderId || null,
+          timestamp: new Date().toISOString(),
+          type: transactionType,
+          customer: {
+            aadhaarMasked: aepsService.maskAadhaar(customerAadhaar),
+            bankName: bankName || null,
+          },
+          transaction: {
+            amount: isFinancial ? txnAmount : null,
+          },
+          retailer: {
+            id: user.partner_id,
+          },
+          status: 'FAILED',
+          error: errorInfo,
+        },
+        isMockMode: aepsService.isMockMode(),
+      });
     }
-
-    // Log activity
-    const ctx = getRequestContext(request);
-    logActivityFromContext(ctx, user, {
-      activity_type: 'aeps_transaction',
-      activity_category: 'aeps',
-      activity_description: `AEPS ${transactionType} for ₹${txnAmount || 0}`,
-      reference_id: aepsTransaction.id,
-      reference_table: 'aeps_transactions',
-      metadata: { transactionType, amount: txnAmount, orderId: result.orderId },
-    }).catch(() => {});
-
-    return NextResponse.json({
-      success: result.success,
-      transactionId: aepsTransaction.id,
-      orderId: result.orderId,
-      utr: result.utr,
-      status: result.status,
-      message: result.message,
-      data: result.data,
-      isMockMode: aepsService.isMockMode(),
-    });
   } catch (error: any) {
     console.error('[AEPS Transact] Error:', error);
     return NextResponse.json(

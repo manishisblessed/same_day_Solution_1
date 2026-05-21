@@ -46,6 +46,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    if (!deviceFingerprint) {
+      return NextResponse.json(
+        { error: 'deviceFingerprint is required for security verification', code: 'DEVICE_FINGERPRINT_REQUIRED' },
+        { status: 400 }
+      );
+    }
+
     if (!['deposit', 'withdraw'].includes(type)) {
       return NextResponse.json(
         { error: 'type must be deposit or withdraw' },
@@ -69,8 +76,9 @@ export async function POST(request: NextRequest) {
 
     // Check 24-hour session validity and device match
     const sessionActive = isSessionValid(merchantRecord?.last_login_at, AEPS_SESSION_HOURS);
-    const deviceMatch = !deviceFingerprint || !merchantRecord?.device_fingerprint ||
-      deviceFingerprint === merchantRecord.device_fingerprint;
+    const deviceMatch = merchantRecord?.device_fingerprint
+      ? deviceFingerprint === merchantRecord.device_fingerprint
+      : false; // No stored fingerprint = treat as new device, require login
     const twoFAValid = sessionActive && deviceMatch;
 
     // wadh goes into <Opts wadh="..."> for biometric capture — must be short or empty.

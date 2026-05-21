@@ -218,8 +218,6 @@ export interface AEPSTransactionRecord {
   order_id?: string;
   status: AEPSStatus;
   error_message?: string;
-  balance_after?: number;
-  mini_statement?: MiniStatementEntry[];
   wallet_debited?: boolean;
   wallet_debit_id?: string;
   idempotency_key?: string;

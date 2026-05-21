@@ -59,24 +59,49 @@ interface BiometricData {
   rdsVer: string;
 }
 
+interface ReceiptData {
+  txnId: string;
+  orderId?: string | null;
+  utr?: string | null;
+  rrn?: string | null;
+  stan?: string | null;
+  timestamp: string;
+  type: string;
+  customer: {
+    aadhaarMasked?: string | null;
+    bankName?: string | null;
+    accountNumberMasked?: string | null;
+  };
+  transaction: {
+    amount?: number | null;
+    commission?: number | null;
+  };
+  bank?: {
+    availableBalance?: string | null;
+  };
+  miniStatement?: Array<{
+    date: string;
+    narration: string;
+    txnType: 'Cr' | 'Dr';
+    amount: number | string;
+  }> | null;
+  retailer: {
+    id: string;
+    name?: string;
+    location?: string | null;
+  };
+  status: 'SUCCESS' | 'FAILED';
+  error?: {
+    errorCode: string;
+    errorMessage: string;
+    action: string;
+    retryable: boolean;
+  };
+}
+
 interface TransactionResult {
   success: boolean;
-  orderId?: string;
-  utr?: string;
-  status: string;
-  message: string;
-  data?: {
-    bankName?: string;
-    accountNumber?: string;
-    amount?: number;
-    balance?: string;
-    miniStatement?: Array<{
-      date: string;
-      narration: string;
-      txnType: 'Cr' | 'Dr';
-      amount: number;
-    }>;
-  };
+  receipt: ReceiptData;
 }
 
 type FlowStep = 'check_merchant' | 'kyc_form' | 'biometric_login' | 'transaction';
@@ -849,11 +874,7 @@ const TransactionPanel = ({
       
       const txnResult: TransactionResult = {
         success: data.success,
-        orderId: data.data?.orderId,
-        utr: data.data?.utr,
-        status: data.data?.status || (data.success ? 'success' : 'failed'),
-        message: data.message || (data.success ? 'Transaction successful' : 'Transaction failed'),
-        data: data.data
+        receipt: data.receipt,
       };
 
       setShow2FA(false);
@@ -861,15 +882,27 @@ const TransactionPanel = ({
       onTransactionComplete(txnResult);
     } catch (error: any) {
       setShow2FA(false);
-      // Check if the error response has session/device codes
       if (error?.code === 'SESSION_2FA_EXPIRED' || error?.code === 'DEVICE_CHANGED') {
         onSessionExpired();
         return;
       }
       const errorResult: TransactionResult = {
         success: false,
-        status: 'failed',
-        message: error instanceof Error ? error.message : 'Transaction failed'
+        receipt: {
+          txnId: '',
+          timestamp: new Date().toISOString(),
+          type: transactionType,
+          customer: {},
+          transaction: {},
+          retailer: { id: '' },
+          status: 'FAILED',
+          error: {
+            errorCode: 'UNKNOWN',
+            errorMessage: error instanceof Error ? error.message : 'Transaction failed',
+            action: 'retry',
+            retryable: true,
+          },
+        },
       };
       setResult(errorResult);
     } finally {
@@ -885,79 +918,266 @@ const TransactionPanel = ({
     setSelectedBank('');
   };
 
+  const handleRetry = () => {
+    setResult(null);
+    setShow2FA(true);
+    setTwoFAStatus('idle');
+    setTwoFAMessage('');
+  };
+
+  const handlePrint = () => {
+    window.print();
+  };
+
+  const handleShare = async () => {
+    const r = result!.receipt;
+    const typeLabel = transactionType === 'cash_withdrawal' ? 'Withdrawal'
+      : transactionType === 'cash_deposit' ? 'Deposit'
+      : transactionType === 'balance_inquiry' ? 'Balance Enquiry'
+      : 'Mini Statement';
+    const text = [
+      'SAME DAY SOLUTION PVT LTD',
+      `Transaction Receipt`,
+      `Txn ID: ${r.txnId}`,
+      r.rrn ? `RRN: ${r.rrn}` : '',
+      `Date: ${new Date(r.timestamp).toLocaleString('en-IN')}`,
+      `Type: ${typeLabel}`,
+      r.transaction.amount ? `Amount: ₹${r.transaction.amount}` : '',
+      r.bank?.availableBalance ? `Balance: ₹${r.bank.availableBalance}` : '',
+      `Status: ${r.status}`,
+      r.error ? `Reason: ${r.error.errorMessage}` : '',
+    ].filter(Boolean).join('\n');
+
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: 'AEPS Receipt', text });
+      } catch { /* user cancelled */ }
+    } else {
+      const phoneNum = mobile || '';
+      window.open(`https://wa.me/${phoneNum ? '91' + phoneNum : ''}?text=${encodeURIComponent(text)}`, '_blank');
+    }
+  };
+
   if (result) {
+    const r = result.receipt;
+    const isSuccess = r.status === 'SUCCESS';
+    const isFailed = r.status === 'FAILED';
+    const showAmount = transactionType === 'cash_withdrawal' || transactionType === 'cash_deposit';
+    const showBalance = transactionType === 'balance_inquiry'
+      || transactionType === 'cash_withdrawal'
+      || transactionType === 'cash_deposit'
+      || (transactionType === 'mini_statement' && !!r.bank?.availableBalance);
+    const showMiniStmt = transactionType === 'mini_statement'
+      && Array.isArray(r.miniStatement) && r.miniStatement.length > 0;
+
+    const typeLabel = transactionType === 'cash_withdrawal' ? 'Cash Withdrawal'
+      : transactionType === 'cash_deposit' ? 'Cash Deposit'
+      : transactionType === 'balance_inquiry' ? 'Balance Enquiry'
+      : 'Mini Statement';
+
+    const balanceLabel = transactionType === 'cash_withdrawal' ? 'Remaining Balance'
+      : transactionType === 'cash_deposit' ? 'Updated Balance'
+      : 'Available Balance';
+
     return (
-      <div className="bg-white rounded-2xl shadow-xl p-8 max-w-2xl mx-auto">
-        <div className={`w-20 h-20 mx-auto mb-6 rounded-full flex items-center justify-center ${
-          result.success ? 'bg-green-100' : 'bg-red-100'
-        }`}>
-          {result.success ? (
-            <CheckCircle2 className="w-10 h-10 text-green-600" />
-          ) : (
-            <XCircle className="w-10 h-10 text-red-600" />
-          )}
-        </div>
-
-        <h2 className={`text-2xl font-bold text-center mb-2 ${result.success ? 'text-green-600' : 'text-red-600'}`}>
-          {result.success ? 'Transaction Successful' : 'Transaction Failed'}
-        </h2>
-        <p className="text-center text-gray-600 mb-6">{result.message}</p>
-
-        {result.success && result.data && (
-          <div className="bg-gray-50 rounded-xl p-4 mb-6 space-y-2">
-            {result.orderId && (
-              <div className="flex justify-between">
-                <span className="text-gray-500">Order ID:</span>
-                <span className="font-mono font-semibold">{result.orderId}</span>
-              </div>
-            )}
-            {result.utr && (
-              <div className="flex justify-between">
-                <span className="text-gray-500">UTR:</span>
-                <span className="font-mono font-semibold">{result.utr}</span>
-              </div>
-            )}
-            {result.data.balance && (
-              <div className="flex justify-between">
-                <span className="text-gray-500">Balance:</span>
-                <span className="font-semibold text-green-600">₹{result.data.balance}</span>
-              </div>
-            )}
-            {result.data.amount && (
-              <div className="flex justify-between">
-                <span className="text-gray-500">Amount:</span>
-                <span className="font-semibold">₹{result.data.amount}</span>
-              </div>
-            )}
+      <div className="bg-white rounded-2xl shadow-xl max-w-2xl mx-auto overflow-hidden print:shadow-none print:rounded-none">
+        {/* Receipt — printable area */}
+        <div id="aeps-receipt">
+          {/* Branded Header */}
+          <div className="bg-gradient-to-r from-blue-600 to-blue-700 px-8 py-5 text-center">
+            <h1 className="text-xl font-bold text-white tracking-wide">SAME DAY SOLUTION PVT LTD</h1>
+            <p className="text-blue-200 text-xs mt-1 uppercase tracking-widest">Transaction Receipt</p>
           </div>
-        )}
 
-        {result.data?.miniStatement && (
-          <div className="bg-gray-50 rounded-xl p-4 mb-6">
-            <h3 className="font-semibold mb-3">Mini Statement</h3>
-            <div className="space-y-2 text-sm">
-              {result.data.miniStatement.map((entry, i) => (
-                <div key={i} className="flex justify-between items-center py-2 border-b border-gray-200 last:border-0">
-                  <div>
-                    <p className="font-medium">{entry.narration}</p>
-                    <p className="text-gray-500 text-xs">{entry.date}</p>
-                  </div>
-                  <span className={entry.txnType === 'Cr' ? 'text-green-600' : 'text-red-600'}>
-                    {entry.txnType === 'Cr' ? '+' : '-'}₹{entry.amount}
-                  </span>
-                </div>
-              ))}
+          {/* Status Banner */}
+          <div className={`px-8 py-4 ${isSuccess ? 'bg-green-50 border-b-2 border-green-200' : 'bg-red-50 border-b-2 border-red-200'}`}>
+            <div className="flex items-center justify-center gap-3">
+              {isSuccess ? (
+                <CheckCircle2 className="w-7 h-7 text-green-500" />
+              ) : (
+                <XCircle className="w-7 h-7 text-red-500" />
+              )}
+              <div>
+                <h2 className={`text-lg font-bold ${isSuccess ? 'text-green-700' : 'text-red-700'}`}>
+                  {isSuccess ? 'Transaction Successful' : 'Transaction Failed'}
+                </h2>
+                {isFailed && r.error && (
+                  <p className="text-sm text-red-600">{r.error.errorMessage}</p>
+                )}
+              </div>
             </div>
           </div>
-        )}
 
-        <button
-          onClick={resetForm}
-          className="w-full py-3 bg-gradient-to-r from-orange-500 to-orange-600 text-white font-semibold rounded-xl hover:from-orange-600 hover:to-orange-700 transition-all flex items-center justify-center gap-2"
-        >
-          <RefreshCw className="w-5 h-5" />
-          New Transaction
-        </button>
+          <div className="px-8 py-6 space-y-0">
+            {/* Transaction Meta */}
+            <div className="bg-blue-50 rounded-xl p-4 mb-5">
+              <div className="space-y-2.5 text-sm">
+                {r.txnId && (
+                  <div className="flex justify-between items-center">
+                    <span className="text-blue-800 font-medium">Txn ID</span>
+                    <span className="font-mono text-xs text-gray-700 bg-white px-2 py-0.5 rounded">{r.txnId.slice(0, 18)}...</span>
+                  </div>
+                )}
+                {r.rrn && (
+                  <div className="flex justify-between items-center">
+                    <span className="text-blue-800 font-medium">RRN</span>
+                    <span className="font-mono text-gray-700">{r.rrn}</span>
+                  </div>
+                )}
+                {r.utr && (
+                  <div className="flex justify-between items-center">
+                    <span className="text-blue-800 font-medium">UTR</span>
+                    <span className="font-mono text-gray-700">{r.utr}</span>
+                  </div>
+                )}
+                <div className="flex justify-between items-center">
+                  <span className="text-blue-800 font-medium">Date & Time</span>
+                  <span className="text-gray-700">{new Date(r.timestamp).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Customer Details */}
+            <div className="mb-5">
+              <div className="flex items-center gap-2 mb-3">
+                <div className="w-1 h-4 bg-blue-500 rounded-full"></div>
+                <h3 className="text-xs font-bold text-blue-800 uppercase tracking-wider">Customer Details</h3>
+              </div>
+              <div className="space-y-2 text-sm pl-3 border-l-2 border-blue-100">
+                {r.customer.aadhaarMasked && (
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">Aadhaar</span>
+                    <span className="font-medium text-gray-800">{r.customer.aadhaarMasked}</span>
+                  </div>
+                )}
+                {r.customer.bankName && (
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">Bank</span>
+                    <span className="font-medium text-gray-800">{r.customer.bankName}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Transaction Details */}
+            <div className="mb-5">
+              <div className="flex items-center gap-2 mb-3">
+                <div className="w-1 h-4 bg-blue-500 rounded-full"></div>
+                <h3 className="text-xs font-bold text-blue-800 uppercase tracking-wider">Transaction Details</h3>
+              </div>
+              <div className="space-y-2 text-sm pl-3 border-l-2 border-blue-100">
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Type</span>
+                  <span className="font-semibold text-gray-800">{typeLabel}</span>
+                </div>
+                {showAmount && r.transaction.amount != null && (
+                  <div className="flex justify-between items-center bg-gray-50 -ml-3 pl-3 pr-2 py-2 rounded-r-lg">
+                    <span className="text-gray-500">Amount</span>
+                    <span className="font-bold text-xl text-gray-900">₹{Number(r.transaction.amount).toLocaleString('en-IN')}</span>
+                  </div>
+                )}
+                {showBalance && r.bank?.availableBalance && (
+                  <div className="flex justify-between items-center bg-green-50 -ml-3 pl-3 pr-2 py-2 rounded-r-lg">
+                    <span className="text-green-700 font-medium">{balanceLabel}</span>
+                    <span className="font-bold text-xl text-green-600">₹{r.bank.availableBalance}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Mini Statement */}
+            {showMiniStmt && r.miniStatement && (
+              <div className="mb-5">
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="w-1 h-4 bg-blue-500 rounded-full"></div>
+                  <h3 className="text-xs font-bold text-blue-800 uppercase tracking-wider">Mini Statement</h3>
+                </div>
+                <div className="bg-gray-50 rounded-xl overflow-hidden">
+                  {r.miniStatement.map((entry, i) => (
+                    <div key={i} className="flex justify-between items-center px-4 py-2.5 border-b border-gray-100 last:border-0">
+                      <div>
+                        <p className="font-medium text-gray-800 text-sm">{entry.narration}</p>
+                        <p className="text-gray-400 text-xs">{entry.date}</p>
+                      </div>
+                      <span className={`font-bold text-sm ${entry.txnType === 'Cr' ? 'text-green-600' : 'text-red-600'}`}>
+                        {entry.txnType === 'Cr' ? '+' : '-'}₹{entry.amount}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Error details for failed */}
+            {isFailed && r.error && (
+              <div className="mb-5">
+                <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-sm">
+                  <div className="flex items-start gap-2">
+                    <XCircle className="w-4 h-4 text-red-500 mt-0.5 shrink-0" />
+                    <div>
+                      <p className="font-semibold text-red-800">Error {r.error.errorCode}</p>
+                      <p className="text-red-600 mt-0.5">{r.error.errorMessage}</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Retailer Info */}
+            {r.retailer.id && (
+              <div className="flex justify-between items-center text-xs text-gray-400 py-3 border-t border-gray-100">
+                <span>Retailer: {r.retailer.name || r.retailer.id.slice(0, 12)}</span>
+                {r.retailer.location && <span className="flex items-center gap-1"><MapPin className="w-3 h-3" />{r.retailer.location}</span>}
+              </div>
+            )}
+          </div>
+
+          {/* Branded Footer */}
+          <div className="bg-gradient-to-r from-blue-600 to-blue-700 px-8 py-3 text-center">
+            <p className="text-blue-200 text-xs">System Generated Receipt • www.samedaysolution.in</p>
+          </div>
+        </div>
+
+        {/* Action Buttons — hidden in print */}
+        <div className="px-8 py-6 bg-gray-50 print:hidden">
+          <div className="flex flex-wrap gap-3">
+            <button
+              onClick={handlePrint}
+              className="flex-1 min-w-[120px] py-3 bg-white border-2 border-blue-200 text-blue-700 font-semibold rounded-xl hover:bg-blue-50 transition-all flex items-center justify-center gap-2 shadow-sm"
+            >
+              <FileText className="w-4 h-4" />
+              Print
+            </button>
+
+            {isSuccess && (
+              <button
+                onClick={handleShare}
+                className="flex-1 min-w-[120px] py-3 bg-white border-2 border-green-200 text-green-700 font-semibold rounded-xl hover:bg-green-50 transition-all flex items-center justify-center gap-2 shadow-sm"
+              >
+                <ArrowRight className="w-4 h-4" />
+                Share
+              </button>
+            )}
+
+            {isFailed && r.error?.retryable && (
+              <button
+                onClick={handleRetry}
+                className="flex-1 min-w-[120px] py-3 bg-white border-2 border-orange-200 text-orange-700 font-semibold rounded-xl hover:bg-orange-50 transition-all flex items-center justify-center gap-2 shadow-sm"
+              >
+                <RefreshCw className="w-4 h-4" />
+                Retry
+              </button>
+            )}
+
+            <button
+              onClick={resetForm}
+              className="flex-1 min-w-[120px] py-3 bg-gradient-to-r from-blue-500 to-blue-600 text-white font-semibold rounded-xl hover:from-blue-600 hover:to-blue-700 transition-all flex items-center justify-center gap-2 shadow-md shadow-blue-500/20"
+            >
+              <RefreshCw className="w-4 h-4" />
+              New Transaction
+            </button>
+          </div>
+        </div>
       </div>
     );
   }

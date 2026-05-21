@@ -22,7 +22,6 @@ interface Transaction {
   created_at: string;
   completed_at?: string;
   error_message?: string;
-  balance_after?: number;
 }
 
 interface AEPSTransactionHistoryProps {
@@ -329,11 +328,6 @@ export default function AEPSTransactionHistory({
                         {txn.transaction_type === 'cash_withdrawal' && txn.amount ? '-' : ''}
                         {formatCurrency(txn.amount)}
                       </span>
-                      {txn.balance_after !== undefined && txn.balance_after !== null && (
-                        <div className="text-xs text-gray-500">
-                          Bal: ₹{txn.balance_after.toLocaleString('en-IN')}
-                        </div>
-                      )}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-center">
                       <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium ${status.bg} ${status.color}`}>
