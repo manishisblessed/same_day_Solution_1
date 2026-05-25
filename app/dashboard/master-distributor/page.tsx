@@ -13,8 +13,8 @@ import {
   ArrowUpCircle, ArrowDownCircle, Download, Search, Filter,
   Eye, EyeOff, RefreshCw, Settings, Plus, X, Menu, Layers,
   Edit2, Trash2, ChevronDown, ChevronUp, Link2,
-  AlertCircle, CheckCircle, User, Bell, Shield, Sliders,
-  CreditCard, Banknote
+  AlertCircle, CheckCircle, ShieldCheck, User, Bell, Shield, Sliders,
+  CreditCard, Banknote, Loader2
 } from 'lucide-react'
 import TransactionsTable from '@/components/TransactionsTable'
 import { LineChart, Line, BarChart, Bar, AreaChart, Area, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
@@ -146,14 +146,14 @@ function MasterDistributorDashboardContent() {
       const { data: commissionLedger } = await supabase
         .from('commission_ledger')
         .select('*')
-        .eq('user_id', user.partner_id)
+        .eq('md_user_id', user.partner_id)
         .order('created_at', { ascending: false })
         .limit(100)
 
       setCommissionData(commissionLedger || [])
 
       // Calculate stats
-      const totalCommission = commissionLedger?.reduce((sum, entry) => sum + (entry.commission_amount || 0), 0) || 0
+      const totalCommission = commissionLedger?.reduce((sum, entry) => sum + (entry.md_amount || 0), 0) || 0
 
       // Fetch transaction data for analytics
       const { data: transactions } = await supabase
@@ -246,7 +246,7 @@ function MasterDistributorDashboardContent() {
         const monthName = monthNames[entryDate.getMonth()]
         
         if (monthlyData[monthName]) {
-          monthlyData[monthName].commission += (entry.commission_amount || 0)
+          monthlyData[monthName].commission += (entry.md_amount || 0)
         }
       })
 
@@ -1130,57 +1130,80 @@ function NetworkTab({ distributors, retailers, user, onRefresh, defaultView, onN
 
 // Add Distributor Modal Component
 function AddDistributorModal({ onClose, onSuccess }: { onClose: () => void, onSuccess: () => void }) {
-  const [currentStep, setCurrentStep] = useState(1) // 1: Basic Details, 2: Documents
+  const [currentStep, setCurrentStep] = useState(1)
   const [formData, setFormData] = useState({
     name: '',
     email: '',
     phone: '',
     password: '',
+    status: 'active',
     business_name: '',
     address: '',
     city: '',
     state: '',
     pincode: '',
     commission_rate: '',
-    // Bank account details (mandatory)
     bank_name: '',
     account_number: '',
     ifsc_code: '',
-    bank_document: null as File | null,
-    // Document fields
     aadhar_number: '',
-    aadhar_front_attachment: null as File | null,
-    aadhar_back_attachment: null as File | null,
     pan_number: '',
-    pan_attachment: null as File | null,
     udhyam_applicable: false,
     udhyam_number: '',
-    udhyam_attachment: null as File | null,
     gst_applicable: false,
     gst_number: '',
-    gst_attachment: null as File | null,
+    cin_applicable: false,
+    cin_number: '',
   })
   const [loading, setLoading] = useState(false)
-  const [uploadingDocs, setUploadingDocs] = useState(false)
   const [showCreateFormPassword, setShowCreateFormPassword] = useState(false)
 
-  // Helper to upload document with auth token (fallback for cookie issues)
-  const uploadWithAuth = async (uploadFormData: FormData): Promise<Response> => {
-    const { data: { session } } = await supabase.auth.getSession()
-    const headers: HeadersInit = {}
-    if (session?.access_token) {
-      headers['Authorization'] = `Bearer ${session.access_token}`
-    }
-    return apiFetch('/api/admin/upload-document', {
-      method: 'POST',
-      body: uploadFormData,
-      headers,
-    })
-  }
+  // eKYC verification state
+  const [panVerified, setPanVerified] = useState(false)
+  const [panRegisteredName, setPanRegisteredName] = useState('')
+  const [panType, setPanType] = useState('')
+  const [verifyingPan, setVerifyingPan] = useState(false)
+  const [panError, setPanError] = useState('')
+
+  const [bankVerified, setBankVerified] = useState(false)
+  const [bankVerifiedName, setBankVerifiedName] = useState('')
+  const [bankUtr, setBankUtr] = useState('')
+  const [verifyingBank, setVerifyingBank] = useState(false)
+  const [bankError, setBankError] = useState('')
+  const [bankNameMismatch, setBankNameMismatch] = useState('')
+
+  const [gstVerified, setGstVerified] = useState(false)
+  const [gstLegalName, setGstLegalName] = useState('')
+  const [gstTradeName, setGstTradeName] = useState('')
+  const [gstStatus, setGstStatus] = useState('')
+  const [gstTaxpayerType, setGstTaxpayerType] = useState('')
+  const [gstConstitution, setGstConstitution] = useState('')
+  const [gstAddress, setGstAddress] = useState('')
+  const [verifyingGst, setVerifyingGst] = useState(false)
+  const [gstError, setGstError] = useState('')
+
+  const [ekychubOrderIds, setEkychubOrderIds] = useState<Record<string, string>>({})
+
+  const [cinVerified, setCinVerified] = useState(false)
+  const [cinCompanyName, setCinCompanyName] = useState('')
+  const [cinStatus, setCinStatus] = useState('')
+  const [cinIncorporationDate, setCinIncorporationDate] = useState('')
+  const [verifyingCin, setVerifyingCin] = useState(false)
+  const [cinError, setCinError] = useState('')
+
+  const [aadhaarVerified, setAadhaarVerified] = useState(false)
+  const [aadhaarName, setAadhaarName] = useState('')
+  const [aadhaarGender, setAadhaarGender] = useState('')
+  const [aadhaarDob, setAadhaarDob] = useState('')
+  const [aadhaarAddress, setAadhaarAddress] = useState('')
+  const [aadhaarUid, setAadhaarUid] = useState('')
+  const [digilockerLoading, setDigilockerLoading] = useState(false)
+  const [digilockerError, setDigilockerError] = useState('')
+  const [digilockerUrl, setDigilockerUrl] = useState('')
+  const [digilockerVerificationId, setDigilockerVerificationId] = useState('')
 
   const handleStep1Next = (e: React.FormEvent) => {
     e.preventDefault()
-    // Validate basic fields
     if (!formData.name || !formData.email || !formData.phone || !formData.password) {
       alert('Please fill all required fields')
       return
@@ -1188,159 +1211,257 @@ function AddDistributorModal({ onClose, onSuccess }: { onClose: () => void, onSu
     setCurrentStep(2)
   }
 
+  const handleVerifyPan = async () => {
+    if (!formData.pan_number || formData.pan_number.length !== 10) {
+      setPanError('Enter valid 10-character PAN')
+      return
+    }
+    setVerifyingPan(true)
+    setPanError('')
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const headers: HeadersInit = { 'Content-Type': 'application/json' }
+      if (session?.access_token) headers['Authorization'] = `Bearer ${session.access_token}`
+      const res = await apiFetch('/api/kyc/verify-pan', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ pan: formData.pan_number })
+      })
+      const data = await res.json()
+      if (data.success) {
+        setPanVerified(true)
+        setPanRegisteredName(data.data.registered_name || '')
+        setPanType(data.data.type || '')
+        setEkychubOrderIds(prev => ({ ...prev, pan: data.orderid }))
+      } else {
+        setPanError(data.error || 'PAN verification failed')
+        setPanVerified(false)
+      }
+    } catch (err: any) {
+      setPanError(err.message || 'PAN verification failed')
+      setPanVerified(false)
+    } finally {
+      setVerifyingPan(false)
+    }
+  }
+
+  const fuzzyNameMatch = (name1: string, name2: string): boolean => {
+    if (!name1 || !name2) return false
+    const normalize = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim()
+    const n1 = normalize(name1), n2 = normalize(name2)
+    if (n1 === n2) return true
+    if (n1.includes(n2) || n2.includes(n1)) return true
+    const words1 = n1.split(' '), words2 = n2.split(' ')
+    const common = words1.filter(w => w.length > 1 && words2.includes(w))
+    return common.length >= Math.min(2, Math.min(words1.length, words2.length))
+  }
+
+  const handleVerifyBank = async () => {
+    if (!formData.account_number || !formData.ifsc_code) {
+      setBankError('Account number and IFSC code are required')
+      return
+    }
+    setVerifyingBank(true)
+    setBankError('')
+    setBankNameMismatch('')
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const headers: HeadersInit = { 'Content-Type': 'application/json' }
+      if (session?.access_token) headers['Authorization'] = `Bearer ${session.access_token}`
+      const res = await apiFetch('/api/kyc/verify-bank', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ account_number: formData.account_number, ifsc: formData.ifsc_code })
+      })
+      const data = await res.json()
+      if (data.success) {
+        const holderName = data.data.nameAtBank || ''
+        setBankVerified(true)
+        setBankVerifiedName(holderName)
+        setBankUtr(data.data.utr || '')
+        if (data.data.bankName) {
+          setFormData(prev => ({ ...prev, bank_name: data.data.bankName }))
+        }
+        setEkychubOrderIds(prev => ({ ...prev, bank: data.orderid }))
+        if (holderName) {
+          const matchesBusiness = fuzzyNameMatch(holderName, formData.business_name)
+          const matchesAadhaar = fuzzyNameMatch(holderName, aadhaarName)
+          if (!matchesBusiness && !matchesAadhaar) {
+            setBankNameMismatch(`Account holder name "${holderName}" does not match Business Name "${formData.business_name}"${aadhaarName ? ` or Aadhaar Name "${aadhaarName}"` : ''}. Please verify the correct bank account.`)
+            setBankVerified(false)
+          }
+        }
+      } else {
+        setBankError(data.error || 'Bank verification failed')
+        setBankVerified(false)
+      }
+    } catch (err: any) {
+      setBankError(err.message || 'Bank verification failed')
+      setBankVerified(false)
+    } finally {
+      setVerifyingBank(false)
+    }
+  }
+
+  const handleVerifyGst = async () => {
+    if (!formData.gst_number || formData.gst_number.length !== 15) {
+      setGstError('Enter valid 15-character GST number')
+      return
+    }
+    setVerifyingGst(true)
+    setGstError('')
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const headers: HeadersInit = { 'Content-Type': 'application/json' }
+      if (session?.access_token) headers['Authorization'] = `Bearer ${session.access_token}`
+      const res = await apiFetch('/api/kyc/verify-gst', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ gst: formData.gst_number })
+      })
+      const data = await res.json()
+      if (data.success) {
+        setGstVerified(true)
+        setGstLegalName(data.data.legal_name || '')
+        setGstTradeName(data.data.trade_name || '')
+        setGstStatus(data.data.status || '')
+        setGstTaxpayerType(data.data.taxpayer_type || '')
+        setGstConstitution(data.data.constitution || '')
+        setGstAddress(data.data.address || '')
+        setEkychubOrderIds(prev => ({ ...prev, gst: data.orderid }))
+      } else {
+        setGstError(data.error || 'GST verification failed')
+        setGstVerified(false)
+      }
+    } catch (err: any) {
+      setGstError(err.message || 'GST verification failed')
+      setGstVerified(false)
+    } finally {
+      setVerifyingGst(false)
+    }
+  }
+
+  const handleVerifyCin = async () => {
+    if (!formData.cin_number || formData.cin_number.length < 10) { setCinError('Enter valid CIN number'); return }
+    setVerifyingCin(true); setCinError('')
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const headers: HeadersInit = { 'Content-Type': 'application/json' }
+      if (session?.access_token) headers['Authorization'] = `Bearer ${session.access_token}`
+      const res = await apiFetch('/api/kyc/verify-cin', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ cin: formData.cin_number.toUpperCase() })
+      })
+      const data = await res.json()
+      if (data.success) {
+        setCinVerified(true); setCinCompanyName(data.data.company_name || ''); setCinStatus(data.data.cin_status || ''); setCinIncorporationDate(data.data.incorporation_date || '')
+        setEkychubOrderIds(prev => ({ ...prev, cin: data.orderid }))
+      } else { setCinError(data.error || 'CIN verification failed'); setCinVerified(false) }
+    } catch (err: any) { setCinError(err.message || 'CIN verification failed'); setCinVerified(false) }
+    finally { setVerifyingCin(false) }
+  }
+
+  const handleDigilockerAadhaar = async () => {
+    setDigilockerLoading(true); setDigilockerError(''); setDigilockerUrl('')
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const headers: HeadersInit = { 'Content-Type': 'application/json' }
+      if (session?.access_token) headers['Authorization'] = `Bearer ${session.access_token}`
+      const res = await apiFetch('/api/kyc/verify-digilocker', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ type: 'aadhaar' })
+      })
+      const data = await res.json()
+      if (data.success && data.data.url) {
+        setDigilockerUrl(data.data.url); setDigilockerVerificationId(data.data.verification_id || '')
+        window.open(data.data.url, '_blank')
+      } else { setDigilockerError(data.error || 'Failed to generate Digilocker URL') }
+    } catch (err: any) { setDigilockerError(err.message || 'Digilocker verification failed') }
+    finally { setDigilockerLoading(false) }
+  }
+
+  useEffect(() => {
+    if (gstVerified && (gstTradeName || gstLegalName)) {
+      setFormData(prev => ({ ...prev, business_name: gstTradeName || gstLegalName, address: gstAddress || prev.address }))
+    }
+  }, [gstVerified, gstTradeName, gstLegalName, gstAddress])
+
+  useEffect(() => {
+    if (aadhaarVerified && aadhaarAddress && !formData.gst_applicable) {
+      setFormData(prev => ({ ...prev, address: aadhaarAddress || prev.address }))
+    }
+  }, [aadhaarVerified, aadhaarAddress])
+
+  useEffect(() => {
+    const handleDigilockerMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'DIGILOCKER_RESULT') {
+        if (event.data.success && event.data.data) {
+          const d = event.data.data
+          setAadhaarVerified(true); setAadhaarName(d.name || ''); setAadhaarUid(d.uid || '')
+          setAadhaarDob(d.dob || ''); setAadhaarGender(d.gender || ''); setAadhaarAddress(d.address || '')
+          if (d.verification_id) setDigilockerVerificationId(d.verification_id)
+          if (d.uid) setFormData(prev => ({ ...prev, aadhar_number: d.uid.replace(/\s/g, '') }))
+        } else if (event.data.error) { setDigilockerError(event.data.error) }
+      }
+    }
+    const handleStorageChange = (event: StorageEvent) => {
+      if (event.key === 'digilocker_result' && event.newValue) {
+        try {
+          const result = JSON.parse(event.newValue)
+          if (result.success && result.data) {
+            const d = result.data
+            setAadhaarVerified(true); setAadhaarName(d.name || ''); setAadhaarUid(d.uid || '')
+            setAadhaarDob(d.dob || ''); setAadhaarGender(d.gender || ''); setAadhaarAddress(d.address || '')
+            if (d.verification_id) setDigilockerVerificationId(d.verification_id)
+            if (d.uid) setFormData(prev => ({ ...prev, aadhar_number: d.uid.replace(/\s/g, '') }))
+          } else if (result.error) { setDigilockerError(result.error) }
+          localStorage.removeItem('digilocker_result')
+        } catch (e) {}
+      }
+    }
+    window.addEventListener('message', handleDigilockerMessage)
+    window.addEventListener('storage', handleStorageChange)
+    return () => { window.removeEventListener('message', handleDigilockerMessage); window.removeEventListener('storage', handleStorageChange) }
+  }, [])
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    
-    // Validate bank account requirements
-    if (!formData.bank_name || !formData.account_number || !formData.ifsc_code || !formData.bank_document) {
-      alert('Bank Name, Account Number, IFSC Code, and Bank Document (passbook/cheque) are mandatory')
+
+    if (!panVerified) {
+      alert('PAN verification is mandatory')
       return
     }
-    // Validate document requirements
-    if (!formData.aadhar_number || !formData.aadhar_front_attachment || !formData.aadhar_back_attachment) {
-      alert('AADHAR Number, AADHAR Front, and AADHAR Back attachments are mandatory')
+    if (!aadhaarVerified) {
+      alert('Aadhaar verification via Digilocker is mandatory')
       return
     }
-    if (!formData.pan_number || !formData.pan_attachment) {
-      alert('PAN Number and PAN Attachment are mandatory')
+    if (!bankVerified) {
+      alert('Bank account verification is required')
       return
     }
-    // Validate UDHYAM if applicable checkbox is checked
-    if (formData.udhyam_applicable) {
-      if (!formData.udhyam_number || !formData.udhyam_attachment) {
-        alert('UDHYAM Number and Certificate are required when UDHYAM is applicable')
-        return
-      }
+    if (bankNameMismatch) {
+      alert('Bank account holder name does not match. Please use the correct bank account.')
+      return
     }
-    
-    // Validate GST if applicable checkbox is checked
-    if (formData.gst_applicable) {
-      if (!formData.gst_number || !formData.gst_attachment) {
-        alert('GST Number and Certificate are required when GST is applicable')
-        return
-      }
+    if (formData.gst_applicable && !gstVerified) {
+      alert('Please verify GST before submission')
+      return
+    }
+    if (formData.cin_applicable && !cinVerified) {
+      alert('Please verify CIN before submission')
+      return
     }
 
-    setUploadingDocs(true)
-
+    setLoading(true)
     try {
-      // First, upload all documents
-      const partnerId = `DIS${Date.now().toString().slice(-8)}`
-      let bankDocumentUrl = ''
-      let aadharFrontUrl = ''
-      let aadharBackUrl = ''
-      let panUrl = ''
-      let udhyamUrl = ''
-      let gstUrl = ''
-
-      // Upload Bank Document
-      if (formData.bank_document) {
-        const bankFormData = new FormData()
-        bankFormData.append('file', formData.bank_document)
-        bankFormData.append('documentType', 'bank')
-        bankFormData.append('partnerId', partnerId)
-        
-        const bankResponse = await uploadWithAuth(bankFormData)
-        
-        if (!bankResponse.ok) {
-          const error = await bankResponse.json()
-          throw new Error(error.error || 'Failed to upload bank document')
-        }
-        const bankResult = await bankResponse.json()
-        bankDocumentUrl = bankResult.url
-      }
-
-      // Upload AADHAR Front
-      if (formData.aadhar_front_attachment) {
-        const aadharFrontFormData = new FormData()
-        aadharFrontFormData.append('file', formData.aadhar_front_attachment)
-        aadharFrontFormData.append('documentType', 'aadhar-front')
-        aadharFrontFormData.append('partnerId', partnerId)
-        
-        const aadharFrontResponse = await uploadWithAuth(aadharFrontFormData)
-        
-        if (!aadharFrontResponse.ok) {
-          const error = await aadharFrontResponse.json()
-          throw new Error(error.error || 'Failed to upload AADHAR Front document')
-        }
-        const aadharFrontResult = await aadharFrontResponse.json()
-        aadharFrontUrl = aadharFrontResult.url
-      }
-
-      // Upload AADHAR Back
-      if (formData.aadhar_back_attachment) {
-        const aadharBackFormData = new FormData()
-        aadharBackFormData.append('file', formData.aadhar_back_attachment)
-        aadharBackFormData.append('documentType', 'aadhar-back')
-        aadharBackFormData.append('partnerId', partnerId)
-        
-        const aadharBackResponse = await uploadWithAuth(aadharBackFormData)
-        
-        if (!aadharBackResponse.ok) {
-          const error = await aadharBackResponse.json()
-          throw new Error(error.error || 'Failed to upload AADHAR Back document')
-        }
-        const aadharBackResult = await aadharBackResponse.json()
-        aadharBackUrl = aadharBackResult.url
-      }
-
-      // Upload PAN
-      if (formData.pan_attachment) {
-        const panFormData = new FormData()
-        panFormData.append('file', formData.pan_attachment)
-        panFormData.append('documentType', 'pan')
-        panFormData.append('partnerId', partnerId)
-        
-        const panResponse = await uploadWithAuth(panFormData)
-        
-        if (!panResponse.ok) {
-          const error = await panResponse.json()
-          throw new Error(error.error || 'Failed to upload PAN document')
-        }
-        const panResult = await panResponse.json()
-        panUrl = panResult.url
-      }
-
-      // Upload UDHYAM (if applicable and provided)
-      if (formData.udhyam_applicable && formData.udhyam_attachment) {
-        const udhyamFormData = new FormData()
-        udhyamFormData.append('file', formData.udhyam_attachment)
-        udhyamFormData.append('documentType', 'udhyam')
-        udhyamFormData.append('partnerId', partnerId)
-        
-        const udhyamResponse = await uploadWithAuth(udhyamFormData)
-        
-        if (udhyamResponse.ok) {
-          const udhyamResult = await udhyamResponse.json()
-          udhyamUrl = udhyamResult.url
-        }
-      }
-
-      // Upload GST (if applicable and provided)
-      if (formData.gst_applicable && formData.gst_attachment) {
-        const gstFormData = new FormData()
-        gstFormData.append('file', formData.gst_attachment)
-        gstFormData.append('documentType', 'gst')
-        gstFormData.append('partnerId', partnerId)
-        
-        const gstResponse = await uploadWithAuth(gstFormData)
-        
-        if (gstResponse.ok) {
-          const gstResult = await gstResponse.json()
-          gstUrl = gstResult.url
-        }
-      }
-
-      // Now create the distributor with all data
-      setLoading(true)
-      
-      // Get auth token for fallback authentication
       const { data: { session } } = await supabase.auth.getSession()
-      const authHeaders: HeadersInit = {}
+      const authHeaders: HeadersInit = { 'Content-Type': 'application/json' }
       if (session?.access_token) {
         authHeaders['Authorization'] = `Bearer ${session.access_token}`
       }
-      
+
       const response = await apiFetch('/api/master-distributor/create-distributor', {
         method: 'POST',
         headers: authHeaders,
@@ -1356,21 +1477,40 @@ function AddDistributorModal({ onClose, onSuccess }: { onClose: () => void, onSu
             state: formData.state || null,
             pincode: formData.pincode || null,
             commission_rate: formData.commission_rate ? parseFloat(formData.commission_rate) : null,
-            // Bank account details (mandatory)
-            bank_name: formData.bank_name,
+            pan_number: formData.pan_number,
             account_number: formData.account_number,
             ifsc_code: formData.ifsc_code,
-            bank_document_url: bankDocumentUrl,
-            // Document fields
+            bank_name: formData.bank_name || null,
             aadhar_number: formData.aadhar_number || null,
-            aadhar_front_url: aadharFrontUrl || null,
-            aadhar_back_url: aadharBackUrl || null,
-            pan_number: formData.pan_number || null,
-            pan_attachment_url: panUrl || null,
-            udhyam_number: formData.udhyam_number || null,
-            udhyam_certificate_url: udhyamUrl || null,
-            gst_number: formData.gst_number || null,
-            gst_certificate_url: gstUrl || null,
+            gst_number: formData.gst_applicable ? formData.gst_number : null,
+            udhyam_number: formData.udhyam_applicable ? formData.udhyam_number : null,
+            pan_verified: panVerified,
+            pan_registered_name: panRegisteredName || null,
+            pan_type: panType || null,
+            bank_verified: bankVerified,
+            bank_verified_name: bankVerifiedName || null,
+            bank_utr: bankUtr || null,
+            gst_verified: gstVerified,
+            gst_legal_name: gstLegalName || null,
+            gst_trade_name: gstTradeName || null,
+            gst_status: gstStatus || null,
+            gst_taxpayer_type: gstTaxpayerType || null,
+            gst_constitution: gstConstitution || null,
+            gst_address: gstAddress || null,
+            ekychub_order_ids: ekychubOrderIds,
+            cin_number: formData.cin_number || null,
+            cin_verified: cinVerified,
+            cin_company_name: cinCompanyName || null,
+            cin_status: cinStatus || null,
+            cin_incorporation_date: cinIncorporationDate || null,
+            aadhaar_verified: aadhaarVerified,
+            aadhaar_name: aadhaarName || null,
+            aadhaar_dob: aadhaarDob || null,
+            aadhaar_gender: aadhaarGender || null,
+            aadhaar_address: aadhaarAddress || null,
+            aadhaar_uid: aadhaarUid || null,
+            digilocker_verification_id: digilockerVerificationId || null,
+            status: formData.status,
           }
         })
       })
@@ -1387,7 +1527,6 @@ function AddDistributorModal({ onClose, onSuccess }: { onClose: () => void, onSu
       alert(error.message || 'Failed to create distributor')
     } finally {
       setLoading(false)
-      setUploadingDocs(false)
     }
   }
 
@@ -1403,17 +1542,22 @@ function AddDistributorModal({ onClose, onSuccess }: { onClose: () => void, onSu
             <div>
               <h3 className="text-xl font-bold">Add Distributor</h3>
               <p className="text-sm text-gray-500 mt-1">
-                Step {currentStep} of 2: {currentStep === 1 ? 'Basic Details' : 'Document Upload'}
+                Step {currentStep} of 3: {currentStep === 1 ? 'Personal Details' : currentStep === 2 ? 'Business & Address' : 'KYC Verification'}
               </p>
             </div>
             <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
               <X className="w-5 h-5" />
             </button>
           </div>
-          {/* Progress indicator */}
-          <div className="mt-4 flex gap-2">
-            <div className={`flex-1 h-2 rounded ${currentStep >= 1 ? 'bg-yellow-600' : 'bg-gray-200'}`}></div>
-            <div className={`flex-1 h-2 rounded ${currentStep >= 2 ? 'bg-yellow-600' : 'bg-gray-200'}`}></div>
+          <div className="mt-4 flex gap-1.5">
+            <div className={`flex-1 h-2 rounded-full ${currentStep >= 1 ? 'bg-yellow-600' : 'bg-gray-200'}`}></div>
+            <div className={`flex-1 h-2 rounded-full ${currentStep >= 2 ? 'bg-yellow-600' : 'bg-gray-200'}`}></div>
+            <div className={`flex-1 h-2 rounded-full ${currentStep >= 3 ? 'bg-yellow-600' : 'bg-gray-200'}`}></div>
+          </div>
+          <div className="flex justify-between mt-1.5">
+            <span className={`text-xs font-medium ${currentStep === 1 ? 'text-yellow-600' : 'text-gray-400'}`}>Personal</span>
+            <span className={`text-xs font-medium ${currentStep === 2 ? 'text-yellow-600' : 'text-gray-400'}`}>Business</span>
+            <span className={`text-xs font-medium ${currentStep === 3 ? 'text-yellow-600' : 'text-gray-400'}`}>KYC</span>
           </div>
         </div>
 
@@ -1446,7 +1590,7 @@ function AddDistributorModal({ onClose, onSuccess }: { onClose: () => void, onSu
                 type="tel"
                 required
                 value={formData.phone}
-                onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                onChange={(e) => setFormData({ ...formData, phone: e.target.value.replace(/\D/g, '').slice(0, 10) })}
                 className="w-full px-3 py-2 border rounded-lg"
               />
             </div>
@@ -1466,13 +1610,16 @@ function AddDistributorModal({ onClose, onSuccess }: { onClose: () => void, onSu
               </div>
             </div>
             <div>
-              <label className="block text-sm font-medium mb-1">Business Name</label>
-              <input
-                type="text"
-                value={formData.business_name}
-                onChange={(e) => setFormData({ ...formData, business_name: e.target.value })}
+              <label className="block text-sm font-medium mb-1">Status</label>
+              <select
+                value={formData.status}
+                onChange={(e) => setFormData({ ...formData, status: e.target.value })}
                 className="w-full px-3 py-2 border rounded-lg"
-              />
+              >
+                <option value="active">Active</option>
+                <option value="inactive">Inactive</option>
+                <option value="pending">Pending</option>
+              </select>
             </div>
             <div>
               <label className="block text-sm font-medium mb-1">Commission Rate (%)</label>
@@ -1481,79 +1628,6 @@ function AddDistributorModal({ onClose, onSuccess }: { onClose: () => void, onSu
                 step="0.01"
                 value={formData.commission_rate}
                 onChange={(e) => setFormData({ ...formData, commission_rate: e.target.value })}
-                className="w-full px-3 py-2 border rounded-lg"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1">Address</label>
-              <input
-                type="text"
-                value={formData.address}
-                onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                className="w-full px-3 py-2 border rounded-lg"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1">City</label>
-              <input
-                type="text"
-                value={formData.city}
-                onChange={(e) => setFormData({ ...formData, city: e.target.value })}
-                className="w-full px-3 py-2 border rounded-lg"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1">State</label>
-              <select
-                value={formData.state}
-                onChange={(e) => setFormData({ ...formData, state: e.target.value })}
-                className="w-full px-3 py-2 border rounded-lg"
-              >
-                <option value="">Select State</option>
-                <option value="Andhra Pradesh">Andhra Pradesh</option>
-                <option value="Arunachal Pradesh">Arunachal Pradesh</option>
-                <option value="Assam">Assam</option>
-                <option value="Bihar">Bihar</option>
-                <option value="Chhattisgarh">Chhattisgarh</option>
-                <option value="Goa">Goa</option>
-                <option value="Gujarat">Gujarat</option>
-                <option value="Haryana">Haryana</option>
-                <option value="Himachal Pradesh">Himachal Pradesh</option>
-                <option value="Jharkhand">Jharkhand</option>
-                <option value="Karnataka">Karnataka</option>
-                <option value="Kerala">Kerala</option>
-                <option value="Madhya Pradesh">Madhya Pradesh</option>
-                <option value="Maharashtra">Maharashtra</option>
-                <option value="Manipur">Manipur</option>
-                <option value="Meghalaya">Meghalaya</option>
-                <option value="Mizoram">Mizoram</option>
-                <option value="Nagaland">Nagaland</option>
-                <option value="Odisha">Odisha</option>
-                <option value="Punjab">Punjab</option>
-                <option value="Rajasthan">Rajasthan</option>
-                <option value="Sikkim">Sikkim</option>
-                <option value="Tamil Nadu">Tamil Nadu</option>
-                <option value="Telangana">Telangana</option>
-                <option value="Tripura">Tripura</option>
-                <option value="Uttar Pradesh">Uttar Pradesh</option>
-                <option value="Uttarakhand">Uttarakhand</option>
-                <option value="West Bengal">West Bengal</option>
-                <option value="Andaman and Nicobar Islands">Andaman and Nicobar Islands</option>
-                <option value="Chandigarh">Chandigarh</option>
-                <option value="Dadra and Nagar Haveli and Daman and Diu">Dadra and Nagar Haveli and Daman and Diu</option>
-                <option value="Delhi">Delhi</option>
-                <option value="Jammu and Kashmir">Jammu and Kashmir</option>
-                <option value="Ladakh">Ladakh</option>
-                <option value="Lakshadweep">Lakshadweep</option>
-                <option value="Puducherry">Puducherry</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1">Pincode</label>
-              <input
-                type="text"
-                value={formData.pincode}
-                onChange={(e) => setFormData({ ...formData, pincode: e.target.value })}
                 className="w-full px-3 py-2 border rounded-lg"
               />
             </div>
@@ -1571,295 +1645,257 @@ function AddDistributorModal({ onClose, onSuccess }: { onClose: () => void, onSu
               type="submit"
               className="flex-1 px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700"
             >
-              Next: Upload Documents
+              Next: Business Details
             </button>
           </div>
         </form>
-        ) : (
-          <form onSubmit={handleSubmit} className="p-6 space-y-4">
-            <div className="mb-4">
-              <h4 className="text-lg font-semibold mb-2">Bank Account & Document Details</h4>
-              <p className="text-sm text-gray-600">Please provide bank account details and upload all required documents for verification.</p>
+        ) : currentStep === 2 ? (
+          <div className="p-6 space-y-5">
+            <div className="mb-2">
+              <h4 className="text-lg font-semibold mb-1 flex items-center gap-2"><Building2 className="w-5 h-5" /> Business & Address</h4>
+              <p className="text-sm text-gray-600">Business registration and address details.</p>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* Bank Account Details Section */}
-              <div className="md:col-span-2">
-                <h5 className="text-md font-semibold mb-3 text-yellow-600 border-b pb-2">Bank Account Details (Mandatory)</h5>
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">
-                  Bank Name *
-                  <span className="text-xs text-red-500 ml-1">(Mandatory)</span>
-                </label>
+            {/* GST Section */}
+            <div className={`border rounded-lg p-4 ${gstVerified ? 'border-green-400 bg-green-50/50' : 'border-gray-200'}`}>
+              <div className="flex items-center mb-3">
                 <input
-                  type="text"
-                  required
-                  value={formData.bank_name}
-                  onChange={(e) => setFormData({ ...formData, bank_name: e.target.value })}
-                  className="w-full px-3 py-2 border rounded-lg"
-                  placeholder="Enter bank name"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">
-                  Account Number *
-                  <span className="text-xs text-red-500 ml-1">(Mandatory)</span>
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={formData.account_number}
-                  onChange={(e) => setFormData({ ...formData, account_number: e.target.value })}
-                  className="w-full px-3 py-2 border rounded-lg"
-                  placeholder="Enter account number"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">
-                  IFSC Code *
-                  <span className="text-xs text-red-500 ml-1">(Mandatory)</span>
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={formData.ifsc_code}
-                  onChange={(e) => setFormData({ ...formData, ifsc_code: e.target.value.toUpperCase() })}
-                  className="w-full px-3 py-2 border rounded-lg"
-                  placeholder="Enter IFSC code"
-                  maxLength={11}
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">
-                  Bank Document (Passbook/Cheque) *
-                  <span className="text-xs text-red-500 ml-1">(Mandatory)</span>
-                </label>
-                <input
-                  type="file"
-                  required
-                  accept="image/*,application/pdf"
+                  type="checkbox"
+                  id="gst_applicable_step2"
+                  checked={formData.gst_applicable}
                   onChange={(e) => {
-                    const file = e.target.files?.[0] || null
-                    setFormData({ ...formData, bank_document: file })
+                    const checked = e.target.checked
+                    setFormData({ ...formData, gst_applicable: checked, gst_number: checked ? formData.gst_number : '' })
+                    if (!checked) { setGstVerified(false); setGstError(''); setGstLegalName(''); setGstTradeName(''); setGstStatus(''); setGstTaxpayerType(''); setGstConstitution(''); setGstAddress('') }
                   }}
-                  className="w-full px-3 py-2 border rounded-lg file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-yellow-50 file:text-yellow-700 hover:file:bg-yellow-100"
+                  className="w-4 h-4 text-yellow-600 border-gray-300 rounded focus:ring-yellow-500"
                 />
-                <p className="text-xs text-gray-500 mt-1">Upload passbook or cancelled cheque</p>
-              </div>
-
-              {/* Document Details Section */}
-              <div className="md:col-span-2 mt-4">
-                <h5 className="text-md font-semibold mb-3 text-yellow-600 border-b pb-2">Identity & Business Documents</h5>
-              </div>
-              {/* AADHAR Number */}
-              <div className="md:col-span-2">
-                <label className="block text-sm font-medium mb-1">
-                  AADHAR Number *
-                  <span className="text-xs text-red-500 ml-1">(Mandatory)</span>
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={formData.aadhar_number}
-                  onChange={(e) => setFormData({ ...formData, aadhar_number: e.target.value })}
-                  className="w-full px-3 py-2 border rounded-lg"
-                  placeholder="Enter 12-digit AADHAR number"
-                />
-              </div>
-              {/* AADHAR Front Attachment */}
-              <div>
-                <label className="block text-sm font-medium mb-1">
-                  AADHAR Front *
-                  <span className="text-xs text-red-500 ml-1">(Mandatory)</span>
-                </label>
-                <input
-                  type="file"
-                  required
-                  accept="image/*,application/pdf"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0] || null
-                    setFormData({ ...formData, aadhar_front_attachment: file })
-                  }}
-                  className="w-full px-3 py-2 border rounded-lg file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-yellow-50 file:text-yellow-700 hover:file:bg-yellow-100"
-                />
-                {formData.aadhar_front_attachment && (
-                  <p className="text-xs text-green-600 mt-1">✓ {formData.aadhar_front_attachment.name}</p>
-                )}
-              </div>
-              {/* AADHAR Back Attachment */}
-              <div>
-                <label className="block text-sm font-medium mb-1">
-                  AADHAR Back *
-                  <span className="text-xs text-red-500 ml-1">(Mandatory)</span>
-                </label>
-                <input
-                  type="file"
-                  required
-                  accept="image/*,application/pdf"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0] || null
-                    setFormData({ ...formData, aadhar_back_attachment: file })
-                  }}
-                  className="w-full px-3 py-2 border rounded-lg file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-yellow-50 file:text-yellow-700 hover:file:bg-yellow-100"
-                />
-                {formData.aadhar_back_attachment && (
-                  <p className="text-xs text-green-600 mt-1">✓ {formData.aadhar_back_attachment.name}</p>
-                )}
-              </div>
-
-              {/* PAN Number */}
-              <div className="md:col-span-2">
-                <label className="block text-sm font-medium mb-1">
-                  PAN Number *
-                  <span className="text-xs text-red-500 ml-1">(Mandatory)</span>
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={formData.pan_number}
-                  onChange={(e) => setFormData({ ...formData, pan_number: e.target.value.toUpperCase() })}
-                  className="w-full px-3 py-2 border rounded-lg"
-                  placeholder="Enter PAN number (e.g., ABCDE1234F)"
-                  maxLength={10}
-                />
-              </div>
-              {/* PAN Attachment */}
-              <div className="md:col-span-2">
-                <label className="block text-sm font-medium mb-1">
-                  PAN Attachment *
-                  <span className="text-xs text-red-500 ml-1">(Mandatory)</span>
-                </label>
-                <input
-                  type="file"
-                  required
-                  accept="image/*,application/pdf"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0] || null
-                    setFormData({ ...formData, pan_attachment: file })
-                  }}
-                  className="w-full px-3 py-2 border rounded-lg file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-yellow-50 file:text-yellow-700 hover:file:bg-yellow-100"
-                />
-              </div>
-
-              {/* UDHYAM Section */}
-              <div className="md:col-span-2">
-                <div className="flex items-center mb-2">
-                  <input
-                    type="checkbox"
-                    id="udhyam_applicable"
-                    checked={formData.udhyam_applicable}
-                    onChange={(e) => {
-                      const checked = e.target.checked
-                      setFormData({ 
-                        ...formData, 
-                        udhyam_applicable: checked,
-                        // Clear fields if unchecked
-                        udhyam_number: checked ? formData.udhyam_number : '',
-                        udhyam_attachment: checked ? formData.udhyam_attachment : null
-                      })
-                    }}
-                    className="w-4 h-4 text-yellow-600 border-gray-300 rounded focus:ring-yellow-500"
-                  />
-                  <label htmlFor="udhyam_applicable" className="ml-2 text-sm font-medium">
-                    UDHYAM Certificate Applicable
-                    {formData.udhyam_applicable && <span className="text-xs text-red-500 ml-1">(Mandatory if checked)</span>}
-                  </label>
-                </div>
-              </div>
-              {formData.udhyam_applicable && (
-                <>
-                  <div>
-                    <label className="block text-sm font-medium mb-1">
-                      UDHYAM Number *
-                      <span className="text-xs text-red-500 ml-1">(Required)</span>
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      value={formData.udhyam_number}
-                      onChange={(e) => setFormData({ ...formData, udhyam_number: e.target.value })}
-                      className="w-full px-3 py-2 border rounded-lg"
-                      placeholder="Enter UDHYAM registration number"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium mb-1">
-                      UDHYAM Certificate *
-                      <span className="text-xs text-red-500 ml-1">(Required)</span>
-                    </label>
-                    <input
-                      type="file"
-                      required
-                      accept="image/*,application/pdf"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0] || null
-                        setFormData({ ...formData, udhyam_attachment: file })
-                      }}
-                      className="w-full px-3 py-2 border rounded-lg file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-yellow-50 file:text-yellow-700 hover:file:bg-yellow-100"
-                    />
-                  </div>
-                </>
-              )}
-
-              {/* GST Section */}
-              <div className="md:col-span-2">
-                <div className="flex items-center mb-2">
-                  <input
-                    type="checkbox"
-                    id="gst_applicable"
-                    checked={formData.gst_applicable}
-                    onChange={(e) => {
-                      const checked = e.target.checked
-                      setFormData({ 
-                        ...formData, 
-                        gst_applicable: checked,
-                        // Clear fields if unchecked
-                        gst_number: checked ? formData.gst_number : '',
-                        gst_attachment: checked ? formData.gst_attachment : null
-                      })
-                    }}
-                    className="w-4 h-4 text-yellow-600 border-gray-300 rounded focus:ring-yellow-500"
-                  />
-                  <label htmlFor="gst_applicable" className="ml-2 text-sm font-medium">
-                    GST Certificate Applicable
-                    {formData.gst_applicable && <span className="text-xs text-red-500 ml-1">(Mandatory if checked)</span>}
-                  </label>
-                </div>
+                <label htmlFor="gst_applicable_step2" className="ml-2 text-md font-semibold text-yellow-600">GST Registered</label>
               </div>
               {formData.gst_applicable && (
                 <>
-                  <div>
-                    <label className="block text-sm font-medium mb-1">
-                      GST Number *
-                      <span className="text-xs text-red-500 ml-1">(Required)</span>
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      value={formData.gst_number}
-                      onChange={(e) => setFormData({ ...formData, gst_number: e.target.value.toUpperCase() })}
-                      className="w-full px-3 py-2 border rounded-lg"
-                      placeholder="Enter GST number"
-                    />
+                  <div className="flex gap-2 items-end">
+                    <div className="flex-1">
+                      <label className="block text-sm font-medium mb-1">GST Number</label>
+                      <input
+                        type="text"
+                        required
+                        value={formData.gst_number}
+                        onChange={(e) => {
+                          setFormData({ ...formData, gst_number: e.target.value.toUpperCase() })
+                          if (gstVerified) { setGstVerified(false); setGstLegalName(''); setGstTradeName(''); setGstStatus(''); setGstTaxpayerType(''); setGstConstitution(''); setGstAddress('') }
+                        }}
+                        className="w-full px-3 py-2 border rounded-lg"
+                        placeholder="Enter 15-character GST number"
+                        maxLength={15}
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleVerifyGst}
+                      disabled={verifyingGst || gstVerified}
+                      className="px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 disabled:opacity-50 flex items-center gap-2 whitespace-nowrap"
+                    >
+                      {verifyingGst ? <Loader2 className="w-4 h-4 animate-spin" /> : gstVerified ? <CheckCircle className="w-4 h-4" /> : null}
+                      {gstVerified ? 'Verified' : 'Verify GST'}
+                    </button>
                   </div>
-                  <div>
-                    <label className="block text-sm font-medium mb-1">
-                      GST Certificate *
-                      <span className="text-xs text-red-500 ml-1">(Required)</span>
-                    </label>
-                    <input
-                      type="file"
-                      required
-                      accept="image/*,application/pdf"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0] || null
-                        setFormData({ ...formData, gst_attachment: file })
-                      }}
-                      className="w-full px-3 py-2 border rounded-lg file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-yellow-50 file:text-yellow-700 hover:file:bg-yellow-100"
-                    />
-                  </div>
+                  {gstError && (
+                    <div className="mt-2 flex items-center gap-1 text-red-600 text-sm">
+                      <AlertCircle className="w-4 h-4" /> {gstError}
+                    </div>
+                  )}
+                  {gstVerified && (
+                    <div className="mt-3 bg-green-50 border border-green-200 rounded-lg p-3 text-sm">
+                      <div className="flex items-center gap-1 text-green-700 font-medium mb-1">
+                        <CheckCircle className="w-4 h-4" /> GST Verified
+                      </div>
+                      <div className="grid grid-cols-2 gap-1 text-green-800">
+                        <p>Legal Name: <span className="font-medium">{gstLegalName}</span></p>
+                        {gstTradeName && <p>Trade Name: <span className="font-medium">{gstTradeName}</span></p>}
+                        <p>Status: <span className="font-medium">{gstStatus}</span></p>
+                        {gstTaxpayerType && <p>Taxpayer: <span className="font-medium">{gstTaxpayerType}</span></p>}
+                        {gstConstitution && <p>Constitution: <span className="font-medium">{gstConstitution}</span></p>}
+                      </div>
+                    </div>
+                  )}
                 </>
+              )}
+            </div>
+
+            {/* Business Name */}
+            <div>
+              <label className="block text-sm font-medium mb-1">Business Name *</label>
+              <input
+                type="text"
+                value={formData.business_name}
+                onChange={(e) => setFormData({ ...formData, business_name: e.target.value })}
+                className={`w-full px-3 py-2 border rounded-lg ${gstVerified ? 'bg-gray-50' : ''}`}
+                placeholder={gstVerified ? 'Auto-filled from GST' : 'Enter business name'}
+                readOnly={gstVerified}
+              />
+            </div>
+
+            {/* CIN Section */}
+            <div className={`border rounded-lg p-4 ${cinVerified ? 'border-green-400 bg-green-50/50' : 'border-gray-200'}`}>
+              <div className="flex items-center mb-3">
+                <input
+                  type="checkbox"
+                  id="cin_applicable_step2"
+                  checked={formData.cin_applicable}
+                  onChange={(e) => {
+                    const checked = e.target.checked
+                    setFormData({ ...formData, cin_applicable: checked, cin_number: checked ? formData.cin_number : '' })
+                    if (!checked) { setCinVerified(false); setCinError(''); setCinCompanyName(''); setCinStatus(''); setCinIncorporationDate('') }
+                  }}
+                  className="w-4 h-4 text-yellow-600 border-gray-300 rounded focus:ring-yellow-500"
+                />
+                <label htmlFor="cin_applicable_step2" className="ml-2 text-md font-semibold text-yellow-600">Company CIN Verification</label>
+              </div>
+              {formData.cin_applicable && (
+                <>
+                  <div className="flex gap-2 items-end">
+                    <div className="flex-1">
+                      <label className="block text-sm font-medium mb-1">CIN Number</label>
+                      <input
+                        type="text"
+                        value={formData.cin_number}
+                        onChange={(e) => {
+                          setFormData({ ...formData, cin_number: e.target.value.toUpperCase() })
+                          if (cinVerified) { setCinVerified(false); setCinCompanyName(''); setCinStatus(''); setCinIncorporationDate('') }
+                        }}
+                        className="w-full px-3 py-2 border rounded-lg"
+                        placeholder="Enter CIN number"
+                        maxLength={21}
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleVerifyCin}
+                      disabled={verifyingCin || cinVerified}
+                      className="px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 disabled:opacity-50 flex items-center gap-2 whitespace-nowrap"
+                    >
+                      {verifyingCin ? <Loader2 className="w-4 h-4 animate-spin" /> : cinVerified ? <CheckCircle className="w-4 h-4" /> : null}
+                      {cinVerified ? 'Verified' : 'Verify CIN'}
+                    </button>
+                  </div>
+                  {cinError && (
+                    <div className="mt-2 flex items-center gap-1 text-red-600 text-sm">
+                      <AlertCircle className="w-4 h-4" /> {cinError}
+                    </div>
+                  )}
+                  {cinVerified && (
+                    <div className="mt-3 bg-green-50 border border-green-200 rounded-lg p-3 text-sm">
+                      <div className="flex items-center gap-1 text-green-700 font-medium mb-1">
+                        <CheckCircle className="w-4 h-4" /> CIN Verified
+                      </div>
+                      <div className="text-green-800">
+                        <p>Company: <span className="font-medium">{cinCompanyName}</span></p>
+                        <p>Status: <span className="font-medium">{cinStatus}</span></p>
+                        {cinIncorporationDate && <p>Incorporation: <span className="font-medium">{cinIncorporationDate}</span></p>}
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+
+            {/* UDHYAM Section */}
+            <div className="border rounded-lg p-4 border-gray-200">
+              <div className="flex items-center mb-3">
+                <input
+                  type="checkbox"
+                  id="udhyam_applicable_step2"
+                  checked={formData.udhyam_applicable}
+                  onChange={(e) => {
+                    const checked = e.target.checked
+                    setFormData({ ...formData, udhyam_applicable: checked, udhyam_number: checked ? formData.udhyam_number : '' })
+                  }}
+                  className="w-4 h-4 text-yellow-600 border-gray-300 rounded focus:ring-yellow-500"
+                />
+                <label htmlFor="udhyam_applicable_step2" className="ml-2 text-md font-semibold text-yellow-600">UDHYAM Registration</label>
+              </div>
+              {formData.udhyam_applicable && (
+                <div>
+                  <label className="block text-sm font-medium mb-1">UDHYAM Number</label>
+                  <input
+                    type="text"
+                    value={formData.udhyam_number}
+                    onChange={(e) => setFormData({ ...formData, udhyam_number: e.target.value })}
+                    className="w-full px-3 py-2 border rounded-lg"
+                    placeholder="Enter UDHYAM registration number"
+                  />
+                </div>
+              )}
+            </div>
+
+            {/* Aadhaar Verification via Digilocker */}
+            <div className={`border rounded-lg p-4 ${aadhaarVerified ? 'border-green-400 bg-green-50/50' : 'border-gray-200'}`}>
+              <h5 className="text-md font-semibold mb-3 text-yellow-600">Aadhaar Verification</h5>
+              <div className="flex gap-2 items-end">
+                <div className="flex-1">
+                  <label className="block text-sm font-medium mb-1">Aadhaar Number</label>
+                  <input
+                    type="text"
+                    value={formData.aadhar_number}
+                    onChange={(e) => setFormData({ ...formData, aadhar_number: e.target.value.replace(/\D/g, '').slice(0, 12) })}
+                    className="w-full px-3 py-2 border rounded-lg"
+                    placeholder="Enter 12-digit Aadhaar number"
+                    maxLength={12}
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={handleDigilockerAadhaar}
+                  disabled={digilockerLoading || aadhaarVerified}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2 whitespace-nowrap"
+                >
+                  {digilockerLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : aadhaarVerified ? <CheckCircle className="w-4 h-4" /> : <ShieldCheck className="w-4 h-4" />}
+                  {aadhaarVerified ? 'Verified' : 'Verify via Digilocker'}
+                </button>
+              </div>
+              {digilockerError && (
+                <div className="mt-2 flex items-center gap-1 text-red-600 text-sm">
+                  <AlertCircle className="w-4 h-4" /> {digilockerError}
+                </div>
+              )}
+              {digilockerUrl && !aadhaarVerified && (
+                <div className="mt-2 text-sm text-blue-600">
+                  <a href={digilockerUrl} target="_blank" rel="noopener noreferrer" className="underline">Click here if Digilocker window didn&apos;t open</a>
+                </div>
+              )}
+              {aadhaarVerified && (
+                <div className="mt-3 bg-green-50 border border-green-200 rounded-lg p-3 text-sm">
+                  <div className="flex items-center gap-1 text-green-700 font-medium mb-1">
+                    <CheckCircle className="w-4 h-4" /> Aadhaar Verified via Digilocker
+                  </div>
+                  <div className="text-green-800">
+                    <p>Name: <span className="font-medium">{aadhaarName}</span></p>
+                    {aadhaarDob && <p>DOB: <span className="font-medium">{aadhaarDob}</span></p>}
+                    {aadhaarGender && <p>Gender: <span className="font-medium">{aadhaarGender}</span></p>}
+                    {aadhaarUid && <p>UID: <span className="font-medium">XXXX-XXXX-{aadhaarUid.slice(-4)}</span></p>}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Address */}
+            <div className="border rounded-lg p-4 border-gray-200">
+              <h5 className="text-md font-semibold mb-3 text-yellow-600">Address</h5>
+              {(gstVerified && gstAddress) || (aadhaarVerified && aadhaarAddress) ? (
+                <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-sm">
+                  <div className="flex items-center gap-1 text-green-700 font-medium mb-1">
+                    <CheckCircle className="w-4 h-4" /> Address from {gstVerified && gstAddress ? 'GST' : 'Aadhaar'} Verification
+                  </div>
+                  <p className="text-green-800">{formData.address}</p>
+                </div>
+              ) : (
+                <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+                  <div className="flex items-center gap-2 text-amber-700 font-medium mb-1 text-sm">
+                    <AlertCircle className="w-4 h-4" /> Address will be captured from API
+                  </div>
+                  <p className="text-xs text-amber-600">Verify GST to auto-fill address, or verify Aadhaar via Digilocker if GST is not applicable.</p>
+                </div>
               )}
             </div>
 
@@ -1873,6 +1909,154 @@ function AddDistributorModal({ onClose, onSuccess }: { onClose: () => void, onSu
               </button>
               <button
                 type="button"
+                onClick={() => {
+                  if (!formData.business_name) { alert('Business Name is required.'); return }
+                  if (formData.gst_applicable && !gstVerified) { alert('Please verify GST number'); return }
+                  if (formData.cin_applicable && !cinVerified) { alert('Please verify CIN number'); return }
+                  if (!aadhaarVerified) { alert('Aadhaar verification via Digilocker is mandatory'); return }
+                  if (!formData.address) { alert('Address is required. Verify GST or Aadhaar to capture address.'); return }
+                  setCurrentStep(3)
+                }}
+                className="flex-1 px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700"
+              >
+                Next: KYC Verification
+              </button>
+            </div>
+          </div>
+        ) : (
+          <form onSubmit={handleSubmit} className="p-6 space-y-5">
+            <div className="mb-2">
+              <h4 className="text-lg font-semibold mb-1">KYC Verification</h4>
+              <p className="text-sm text-gray-600">Verify identity and bank details using eKYC.</p>
+            </div>
+
+            {/* PAN Verification */}
+            <div className={`border rounded-lg p-4 ${panVerified ? 'border-green-400 bg-green-50/50' : 'border-gray-200'}`}>
+              <h5 className="text-md font-semibold mb-3 text-yellow-600">PAN Verification *</h5>
+              <div className="flex gap-2 items-end">
+                <div className="flex-1">
+                  <label className="block text-sm font-medium mb-1">PAN Number</label>
+                  <input
+                    type="text"
+                    required
+                    value={formData.pan_number}
+                    onChange={(e) => {
+                      setFormData({ ...formData, pan_number: e.target.value.toUpperCase() })
+                      if (panVerified) { setPanVerified(false); setPanRegisteredName(''); setPanType('') }
+                    }}
+                    className="w-full px-3 py-2 border rounded-lg"
+                    placeholder="ABCDE1234F"
+                    maxLength={10}
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={handleVerifyPan}
+                  disabled={verifyingPan || panVerified}
+                  className="px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 disabled:opacity-50 flex items-center gap-2 whitespace-nowrap"
+                >
+                  {verifyingPan ? <Loader2 className="w-4 h-4 animate-spin" /> : panVerified ? <CheckCircle className="w-4 h-4" /> : null}
+                  {panVerified ? 'Verified' : 'Verify PAN'}
+                </button>
+              </div>
+              {panError && (
+                <div className="mt-2 flex items-center gap-1 text-red-600 text-sm">
+                  <AlertCircle className="w-4 h-4" /> {panError}
+                </div>
+              )}
+              {panVerified && (
+                <div className="mt-3 bg-green-50 border border-green-200 rounded-lg p-3 text-sm">
+                  <div className="flex items-center gap-1 text-green-700 font-medium mb-1">
+                    <CheckCircle className="w-4 h-4" /> PAN Verified
+                  </div>
+                  <p className="text-green-800">Name: <span className="font-medium">{panRegisteredName}</span></p>
+                  {panType && <p className="text-green-800">Type: <span className="font-medium">{panType}</span></p>}
+                </div>
+              )}
+            </div>
+
+            {/* Bank Account Verification */}
+            <div className={`border rounded-lg p-4 ${bankVerified ? 'border-green-400 bg-green-50/50' : 'border-gray-200'}`}>
+              <h5 className="text-md font-semibold mb-3 text-yellow-600">Bank Account Verification *</h5>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium mb-1">Account Number</label>
+                  <input
+                    type="text"
+                    required
+                    value={formData.account_number}
+                    onChange={(e) => {
+                      setFormData({ ...formData, account_number: e.target.value })
+                      if (bankVerified) { setBankVerified(false); setBankVerifiedName(''); setBankUtr('') }
+                    }}
+                    className="w-full px-3 py-2 border rounded-lg"
+                    placeholder="Enter account number"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">IFSC Code</label>
+                  <input
+                    type="text"
+                    required
+                    value={formData.ifsc_code}
+                    onChange={(e) => {
+                      setFormData({ ...formData, ifsc_code: e.target.value.toUpperCase() })
+                      if (bankVerified) { setBankVerified(false); setBankVerifiedName(''); setBankUtr('') }
+                    }}
+                    className="w-full px-3 py-2 border rounded-lg"
+                    placeholder="Enter IFSC code"
+                    maxLength={11}
+                  />
+                </div>
+              </div>
+              <div className="mt-3">
+                <button
+                  type="button"
+                  onClick={handleVerifyBank}
+                  disabled={verifyingBank || bankVerified}
+                  className={`w-full px-4 py-2.5 rounded-lg flex items-center justify-center gap-2 font-medium transition-colors ${bankVerified ? 'bg-green-100 text-green-700 border border-green-300' : 'bg-yellow-600 text-white hover:bg-yellow-700'} disabled:opacity-50`}
+                >
+                  {verifyingBank ? <Loader2 className="w-4 h-4 animate-spin" /> : bankVerified ? <CheckCircle className="w-4 h-4" /> : <ShieldCheck className="w-4 h-4" />}
+                  {verifyingBank ? 'Verifying...' : bankVerified ? 'Bank Account Verified' : 'Verify Bank Account'}
+                </button>
+              </div>
+              {bankVerified && formData.bank_name && (
+                <div className="mt-2 p-2 bg-green-50 border border-green-200 rounded-lg">
+                  <p className="text-xs text-gray-500">Bank Name</p>
+                  <p className="text-sm font-medium text-green-800">{formData.bank_name}</p>
+                </div>
+              )}
+              {bankError && (
+                <div className="mt-2 flex items-center gap-1 text-red-600 text-sm">
+                  <AlertCircle className="w-4 h-4" /> {bankError}
+                </div>
+              )}
+              {bankNameMismatch && (
+                <div className="mt-2 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+                  <AlertCircle className="w-4 h-4 inline mr-1" /> {bankNameMismatch}
+                </div>
+              )}
+              {bankVerified && (
+                <div className="mt-3 bg-green-50 border border-green-200 rounded-lg p-3 text-sm">
+                  <div className="flex items-center gap-1 text-green-700 font-medium mb-1">
+                    <CheckCircle className="w-4 h-4" /> Bank Account Verified
+                  </div>
+                  <p className="text-green-800">Name at Bank: <span className="font-medium">{bankVerifiedName}</span></p>
+                  {bankUtr && <p className="text-green-800">UTR: <span className="font-medium">{bankUtr}</span></p>}
+                </div>
+              )}
+            </div>
+
+            <div className="flex gap-3 pt-4 border-t">
+              <button
+                type="button"
+                onClick={() => setCurrentStep(2)}
+                className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300"
+              >
+                Back
+              </button>
+              <button
+                type="button"
                 onClick={onClose}
                 className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300"
               >
@@ -1880,12 +2064,23 @@ function AddDistributorModal({ onClose, onSuccess }: { onClose: () => void, onSu
               </button>
               <button
                 type="submit"
-                disabled={loading || uploadingDocs}
+                disabled={loading || !panVerified || !aadhaarVerified || !bankVerified || !!bankNameMismatch}
                 className="flex-1 px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 disabled:opacity-50"
               >
-                {uploadingDocs ? 'Uploading Documents...' : loading ? 'Creating...' : 'Submit for Verification'}
+                {loading ? 'Creating...' : 'Submit for Verification'}
               </button>
             </div>
+
+            {(!panVerified || !aadhaarVerified) && (
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                <p className="text-sm font-medium text-amber-800 mb-1">Required verifications:</p>
+                <ul className="text-xs text-amber-700 space-y-1">
+                  {!panVerified && <li>• PAN verification is mandatory</li>}
+                  {!aadhaarVerified && <li>• Aadhaar verification via Digilocker is mandatory</li>}
+                  {!bankVerified && <li>• Bank account verification is mandatory</li>}
+                </ul>
+              </div>
+            )}
           </form>
         )}
       </motion.div>
@@ -1938,7 +2133,7 @@ function CommissionTab({ commissionData, stats }: { commissionData: any[], stats
                     <td className="px-4 py-3 text-sm text-gray-500">{entry.service_type || '-'}</td>
                     <td className="px-4 py-3 text-sm text-gray-900">{entry.mdr_percentage || 0}%</td>
                     <td className="px-4 py-3 text-sm font-medium text-green-600">
-                      ₹{entry.commission_amount?.toLocaleString('en-IN', { minimumFractionDigits: 2 }) || '0.00'}
+                      ₹{entry.md_amount?.toLocaleString('en-IN', { minimumFractionDigits: 2 }) || '0.00'}
                     </td>
                     <td className="px-4 py-3 text-sm">
                       <span className="px-2 py-1 rounded-full text-xs bg-green-100 text-green-800">

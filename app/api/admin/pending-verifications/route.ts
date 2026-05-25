@@ -50,19 +50,21 @@ export async function GET(request: NextRequest) {
     // Get Supabase admin client
     const supabase = getSupabaseAdmin()
 
+    const verificationFields = 'partner_id, name, email, phone, status, verification_status, aadhar_number, pan_number, gst_number, udhyam_number, pan_verified, pan_registered_name, pan_type, bank_verified, bank_verified_name, bank_name, account_number, ifsc_code, gst_verified, gst_legal_name, gst_trade_name, gst_status, auto_verification_score, created_at'
+
     // Fetch all partners with pending_verification status
     const [retailersResult, distributorsResult, masterDistributorsResult] = await Promise.all([
       supabase
         .from('retailers')
-        .select('partner_id, name, email, phone, status, verification_status, aadhar_number, aadhar_attachment_url, pan_number, pan_attachment_url, udhyam_number, udhyam_certificate_url, gst_number, gst_certificate_url, created_at')
+        .select(verificationFields)
         .eq('status', 'pending_verification'),
       supabase
         .from('distributors')
-        .select('partner_id, name, email, phone, status, verification_status, aadhar_number, aadhar_attachment_url, pan_number, pan_attachment_url, udhyam_number, udhyam_certificate_url, gst_number, gst_certificate_url, created_at')
+        .select(verificationFields)
         .eq('status', 'pending_verification'),
       supabase
         .from('master_distributors')
-        .select('partner_id, name, email, phone, status, verification_status, aadhar_number, aadhar_attachment_url, pan_number, pan_attachment_url, udhyam_number, udhyam_certificate_url, gst_number, gst_certificate_url, created_at')
+        .select(verificationFields)
         .eq('status', 'pending_verification')
     ])
 

@@ -246,10 +246,10 @@ function RetailerDashboardContent() {
       // Fetch commission data
       const { data: commissionData } = await supabase
         .from('commission_ledger')
-        .select('commission_amount')
-        .eq('user_id', user.partner_id)
-      
-      const commissionEarned = commissionData?.reduce((sum, entry) => sum + (entry.commission_amount || 0), 0) || 0
+        .select('rt_amount')
+        .eq('rt_user_id', user.partner_id)
+
+      const commissionEarned = commissionData?.reduce((sum, entry) => sum + (entry.rt_amount || 0), 0) || 0
 
       setStats({
         totalTransactions,

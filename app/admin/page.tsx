@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useMemo, Suspense } from 'react'
+import React, { useState, useEffect, useMemo, Suspense } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase/client'
@@ -18,7 +18,7 @@ import {
   Building2, Briefcase, Phone, Mail, Clock, Percent, IndianRupee,
   FileBarChart, Printer, Sheet, BadgeIndianRupee, Banknote,
   CheckCircle2, AlertTriangle, XCircle, Zap, Globe, Smartphone, FileDown,
-  Shield
+  Shield, ShieldCheck, Loader2, CheckCircle, ChevronDown, ChevronUp, Info
 } from 'lucide-react'
 import TransactionsTable from '@/components/TransactionsTable'
 import POSTransactionsTable from '@/components/POSTransactionsTable'
@@ -91,6 +91,7 @@ function AdminDashboardContent() {
   const [currentPage, setCurrentPage] = useState(1)
   const [itemsPerPage, setItemsPerPage] = useState(10)
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set())
+  const [expandedRow, setExpandedRow] = useState<string | null>(null)
   
   const [retailers, setRetailers] = useState<Retailer[]>([])
   const [distributors, setDistributors] = useState<Distributor[]>([])
@@ -756,12 +757,12 @@ function AdminDashboardContent() {
                     </tr>
                   ) : (
                     paginatedData.map((item: any, idx: number) => (
+                      <React.Fragment key={item.id}>
                       <motion.tr
-                        key={item.id}
                         initial={{ opacity: 0, x: -20 }}
                         animate={{ opacity: 1, x: 0 }}
                         transition={{ delay: idx * 0.05 }}
-                        className="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
+                        className={`hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors ${expandedRow === item.id ? 'bg-indigo-50/50 dark:bg-indigo-900/10' : ''}`}
                       >
                         <td className="px-3 py-2">
                           <input
@@ -903,6 +904,13 @@ function AdminDashboardContent() {
                               <Key className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
                             </button>
                             <button
+                              onClick={() => setExpandedRow(expandedRow === item.id ? null : item.id)}
+                              className={`p-1 sm:p-1.5 ${expandedRow === item.id ? 'text-indigo-600 bg-indigo-50 dark:bg-indigo-900/20' : 'text-gray-600 hover:bg-gray-50 dark:hover:bg-gray-900/20'} rounded transition-colors`}
+                              title="View KYC Details"
+                            >
+                              {expandedRow === item.id ? <ChevronUp className="w-3 h-3 sm:w-3.5 sm:h-3.5" /> : <ChevronDown className="w-3 h-3 sm:w-3.5 sm:h-3.5" />}
+                            </button>
+                            <button
                               onClick={() => {
                                 setEditingItem(item)
                                 setShowModal(true)
@@ -922,6 +930,129 @@ function AdminDashboardContent() {
                           </div>
                         </td>
                       </motion.tr>
+                      {expandedRow === item.id && (
+                        <tr key={`${item.id}-details`}>
+                          <td colSpan={8} className="px-0 py-0">
+                            <div className="bg-gray-50 dark:bg-gray-900/50 border-t border-b border-gray-200 dark:border-gray-700 p-4 sm:p-6">
+                              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                {/* Basic Information */}
+                                <div className="bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
+                                  <h4 className="text-sm font-semibold text-gray-900 dark:text-white mb-3 flex items-center gap-2">
+                                    <Users className="w-4 h-4 text-blue-500" /> Basic Information
+                                  </h4>
+                                  <div className="space-y-2 text-xs">
+                                    <div className="flex justify-between"><span className="text-gray-500">Partner ID:</span><span className="font-medium text-gray-900 dark:text-white">{item.partner_id}</span></div>
+                                    <div className="flex justify-between"><span className="text-gray-500">Business Name:</span><span className="font-medium text-gray-900 dark:text-white">{item.business_name || 'N/A'}</span></div>
+                                    <div className="flex justify-between"><span className="text-gray-500">Phone:</span><span className="font-medium text-gray-900 dark:text-white">{item.phone || 'N/A'}</span></div>
+                                    <div className="flex justify-between"><span className="text-gray-500">Address:</span><span className="font-medium text-gray-900 dark:text-white text-right max-w-[180px]">{item.address || 'N/A'}</span></div>
+                                    {item.city && <div className="flex justify-between"><span className="text-gray-500">City:</span><span className="font-medium text-gray-900 dark:text-white">{item.city}</span></div>}
+                                    {item.state && <div className="flex justify-between"><span className="text-gray-500">State:</span><span className="font-medium text-gray-900 dark:text-white">{item.state}</span></div>}
+                                    {item.pincode && <div className="flex justify-between"><span className="text-gray-500">Pincode:</span><span className="font-medium text-gray-900 dark:text-white">{item.pincode}</span></div>}
+                                    <div className="flex justify-between"><span className="text-gray-500">Commission:</span><span className="font-medium text-gray-900 dark:text-white">{item.commission_rate ? `${item.commission_rate}%` : 'N/A'}</span></div>
+                                    {item.auto_verification_score !== undefined && (
+                                      <div className="flex justify-between items-center">
+                                        <span className="text-gray-500">Verification Score:</span>
+                                        <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${item.auto_verification_score >= 80 ? 'bg-green-100 text-green-800' : item.auto_verification_score >= 40 ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800'}`}>
+                                          {item.auto_verification_score}/100
+                                        </span>
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+
+                                {/* PAN Verification */}
+                                <div className="bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
+                                  <h4 className="text-sm font-semibold text-gray-900 dark:text-white mb-3 flex items-center gap-2">
+                                    <CreditCard className="w-4 h-4 text-orange-500" /> PAN Verification
+                                    {item.pan_verified ? <span className="ml-auto px-2 py-0.5 bg-green-100 text-green-800 rounded-full text-[10px] font-bold">VERIFIED</span> : <span className="ml-auto px-2 py-0.5 bg-gray-100 text-gray-600 rounded-full text-[10px] font-bold">NOT VERIFIED</span>}
+                                  </h4>
+                                  <div className="space-y-2 text-xs">
+                                    <div className="flex justify-between"><span className="text-gray-500">PAN Number:</span><span className="font-medium text-gray-900 dark:text-white">{item.pan_number || 'N/A'}</span></div>
+                                    {item.pan_registered_name && <div className="flex justify-between"><span className="text-gray-500">Registered Name:</span><span className="font-medium text-gray-900 dark:text-white">{item.pan_registered_name}</span></div>}
+                                    {item.pan_type && <div className="flex justify-between"><span className="text-gray-500">PAN Type:</span><span className="font-medium text-gray-900 dark:text-white">{item.pan_type}</span></div>}
+                                  </div>
+                                </div>
+
+                                {/* Bank Verification */}
+                                <div className="bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
+                                  <h4 className="text-sm font-semibold text-gray-900 dark:text-white mb-3 flex items-center gap-2">
+                                    <Building2 className="w-4 h-4 text-blue-500" /> Bank Verification
+                                    {item.bank_verified ? <span className="ml-auto px-2 py-0.5 bg-green-100 text-green-800 rounded-full text-[10px] font-bold">VERIFIED</span> : <span className="ml-auto px-2 py-0.5 bg-gray-100 text-gray-600 rounded-full text-[10px] font-bold">NOT VERIFIED</span>}
+                                  </h4>
+                                  <div className="space-y-2 text-xs">
+                                    <div className="flex justify-between"><span className="text-gray-500">Bank Name:</span><span className="font-medium text-gray-900 dark:text-white">{item.bank_name || 'N/A'}</span></div>
+                                    <div className="flex justify-between"><span className="text-gray-500">Account No:</span><span className="font-medium text-gray-900 dark:text-white">{item.account_number || 'N/A'}</span></div>
+                                    <div className="flex justify-between"><span className="text-gray-500">IFSC:</span><span className="font-medium text-gray-900 dark:text-white">{item.ifsc_code || 'N/A'}</span></div>
+                                    {item.bank_verified_name && <div className="flex justify-between"><span className="text-gray-500">Verified Name:</span><span className="font-medium text-gray-900 dark:text-white">{item.bank_verified_name}</span></div>}
+                                    {item.bank_utr && <div className="flex justify-between"><span className="text-gray-500">UTR:</span><span className="font-medium text-gray-900 dark:text-white">{item.bank_utr}</span></div>}
+                                    {item.bank_branch && <div className="flex justify-between"><span className="text-gray-500">Branch:</span><span className="font-medium text-gray-900 dark:text-white">{item.bank_branch}</span></div>}
+                                  </div>
+                                </div>
+
+                                {/* GST Verification */}
+                                <div className="bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
+                                  <h4 className="text-sm font-semibold text-gray-900 dark:text-white mb-3 flex items-center gap-2">
+                                    <FileText className="w-4 h-4 text-green-500" /> GST Verification
+                                    {item.gst_verified ? <span className="ml-auto px-2 py-0.5 bg-green-100 text-green-800 rounded-full text-[10px] font-bold">VERIFIED</span> : item.gst_number ? <span className="ml-auto px-2 py-0.5 bg-gray-100 text-gray-600 rounded-full text-[10px] font-bold">NOT VERIFIED</span> : <span className="ml-auto px-2 py-0.5 bg-gray-100 text-gray-500 rounded-full text-[10px]">N/A</span>}
+                                  </h4>
+                                  <div className="space-y-2 text-xs">
+                                    <div className="flex justify-between"><span className="text-gray-500">GST Number:</span><span className="font-medium text-gray-900 dark:text-white">{item.gst_number || 'N/A'}</span></div>
+                                    {item.gst_legal_name && <div className="flex justify-between"><span className="text-gray-500">Legal Name:</span><span className="font-medium text-gray-900 dark:text-white">{item.gst_legal_name}</span></div>}
+                                    {item.gst_trade_name && <div className="flex justify-between"><span className="text-gray-500">Trade Name:</span><span className="font-medium text-gray-900 dark:text-white">{item.gst_trade_name}</span></div>}
+                                    {item.gst_status && <div className="flex justify-between"><span className="text-gray-500">GST Status:</span><span className={`font-medium ${item.gst_status === 'Active' ? 'text-green-600' : 'text-red-600'}`}>{item.gst_status}</span></div>}
+                                    {item.gst_taxpayer_type && <div className="flex justify-between"><span className="text-gray-500">Taxpayer Type:</span><span className="font-medium text-gray-900 dark:text-white">{item.gst_taxpayer_type}</span></div>}
+                                    {item.gst_constitution && <div className="flex justify-between"><span className="text-gray-500">Constitution:</span><span className="font-medium text-gray-900 dark:text-white">{item.gst_constitution}</span></div>}
+                                    {item.gst_address && <div className="flex justify-between"><span className="text-gray-500">GST Address:</span><span className="font-medium text-gray-900 dark:text-white text-right max-w-[180px]">{item.gst_address}</span></div>}
+                                  </div>
+                                </div>
+
+                                {/* CIN Verification */}
+                                <div className="bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
+                                  <h4 className="text-sm font-semibold text-gray-900 dark:text-white mb-3 flex items-center gap-2">
+                                    <Briefcase className="w-4 h-4 text-purple-500" /> CIN Verification
+                                    {item.cin_verified ? <span className="ml-auto px-2 py-0.5 bg-green-100 text-green-800 rounded-full text-[10px] font-bold">VERIFIED</span> : item.cin_number ? <span className="ml-auto px-2 py-0.5 bg-gray-100 text-gray-600 rounded-full text-[10px] font-bold">NOT VERIFIED</span> : <span className="ml-auto px-2 py-0.5 bg-gray-100 text-gray-500 rounded-full text-[10px]">N/A</span>}
+                                  </h4>
+                                  <div className="space-y-2 text-xs">
+                                    <div className="flex justify-between"><span className="text-gray-500">CIN Number:</span><span className="font-medium text-gray-900 dark:text-white">{item.cin_number || 'N/A'}</span></div>
+                                    {item.cin_company_name && <div className="flex justify-between"><span className="text-gray-500">Company Name:</span><span className="font-medium text-gray-900 dark:text-white">{item.cin_company_name}</span></div>}
+                                    {item.cin_status && <div className="flex justify-between"><span className="text-gray-500">CIN Status:</span><span className={`font-medium ${item.cin_status === 'Active' ? 'text-green-600' : 'text-red-600'}`}>{item.cin_status}</span></div>}
+                                    {item.cin_incorporation_date && <div className="flex justify-between"><span className="text-gray-500">Incorporation:</span><span className="font-medium text-gray-900 dark:text-white">{item.cin_incorporation_date}</span></div>}
+                                  </div>
+                                </div>
+
+                                {/* Aadhaar / Digilocker Verification */}
+                                <div className="bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
+                                  <h4 className="text-sm font-semibold text-gray-900 dark:text-white mb-3 flex items-center gap-2">
+                                    <ShieldCheck className="w-4 h-4 text-teal-500" /> Aadhaar (Digilocker)
+                                    {item.aadhaar_verified ? <span className="ml-auto px-2 py-0.5 bg-green-100 text-green-800 rounded-full text-[10px] font-bold">VERIFIED</span> : item.aadhar_number ? <span className="ml-auto px-2 py-0.5 bg-gray-100 text-gray-600 rounded-full text-[10px] font-bold">NOT VERIFIED</span> : <span className="ml-auto px-2 py-0.5 bg-gray-100 text-gray-500 rounded-full text-[10px]">N/A</span>}
+                                  </h4>
+                                  <div className="space-y-2 text-xs">
+                                    <div className="flex justify-between"><span className="text-gray-500">Aadhaar No:</span><span className="font-medium text-gray-900 dark:text-white">{item.aadhar_number ? `XXXX-XXXX-${item.aadhar_number.slice(-4)}` : 'N/A'}</span></div>
+                                    {item.aadhaar_name && <div className="flex justify-between"><span className="text-gray-500">Name:</span><span className="font-medium text-gray-900 dark:text-white">{item.aadhaar_name}</span></div>}
+                                    {item.aadhaar_dob && <div className="flex justify-between"><span className="text-gray-500">DOB:</span><span className="font-medium text-gray-900 dark:text-white">{item.aadhaar_dob}</span></div>}
+                                    {item.aadhaar_gender && <div className="flex justify-between"><span className="text-gray-500">Gender:</span><span className="font-medium text-gray-900 dark:text-white">{item.aadhaar_gender}</span></div>}
+                                    {item.aadhaar_address && <div className="flex justify-between"><span className="text-gray-500">Address:</span><span className="font-medium text-gray-900 dark:text-white text-right max-w-[180px]">{item.aadhaar_address}</span></div>}
+                                    {item.digilocker_verification_id && <div className="flex justify-between"><span className="text-gray-500">Verification ID:</span><span className="font-medium text-gray-900 dark:text-white text-[10px]">{item.digilocker_verification_id}</span></div>}
+                                  </div>
+                                </div>
+
+                                {/* UDHYAM */}
+                                {item.udhyam_number && (
+                                  <div className="bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
+                                    <h4 className="text-sm font-semibold text-gray-900 dark:text-white mb-3 flex items-center gap-2">
+                                      <Shield className="w-4 h-4 text-amber-500" /> UDHYAM Registration
+                                    </h4>
+                                    <div className="space-y-2 text-xs">
+                                      <div className="flex justify-between"><span className="text-gray-500">UDHYAM No:</span><span className="font-medium text-gray-900 dark:text-white">{item.udhyam_number}</span></div>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
                     ))
                   )}
                 </tbody>
@@ -2132,6 +2263,9 @@ function AdminDashboardOverview({
         )}
       </motion.div>
 
+      {/* eKYC Hub Balance & API Testing Card */}
+      <EkycHubCard />
+
       {/* Reports & Analytics */}
       <ReportsTab />
     </div>
@@ -2252,7 +2386,8 @@ function ServicesManagementTab() {
   const fetchAllUsers = async () => {
     setUsersLoading(true)
     try {
-      const baseFields = 'partner_id, name, email, phone, business_name, status, created_at'
+      const kycFields = ', address, city, state, pincode, gst_number, pan_number, aadhar_number, bank_name, account_number, ifsc_code, udhyam_number, commission_rate, pan_verified, pan_registered_name, pan_type, bank_verified, bank_verified_name, bank_utr, bank_branch, bank_city, gst_verified, gst_legal_name, gst_trade_name, gst_status, gst_taxpayer_type, gst_constitution, gst_address, cin_number, cin_verified, cin_company_name, cin_status, cin_incorporation_date, aadhaar_verified, aadhaar_name, aadhaar_dob, aadhaar_gender, aadhaar_address, aadhaar_uid, digilocker_verification_id, ekychub_order_ids, auto_verification_score'
+      const baseFields = 'partner_id, name, email, phone, business_name, status, created_at' + kycFields
       const partnerBaseFields = 'id, name, email, phone, business_name, status, created_at'
       const allFieldsList = SERVICE_FIELDS.join(', ')
       const serviceFields = `${baseFields}, ${allFieldsList}`
@@ -3099,51 +3234,89 @@ function PartnerModal({
     master_distributor_id: '',
     status: 'inactive' as 'active' | 'inactive' | 'suspended' | 'pending_verification',
     commission_rate: '',
-    // Bank account details (mandatory)
     bank_name: '',
     account_number: '',
     ifsc_code: '',
-    bank_document: null as File | null,
-    bank_document_url: '',
-    // New document fields
     aadhar_number: '',
-    aadhar_front_attachment: null as File | null,
-    aadhar_front_url: '',
-    aadhar_back_attachment: null as File | null,
-    aadhar_back_url: '',
     pan_number: '',
-    pan_attachment: null as File | null,
-    pan_attachment_url: '',
     udhyam_applicable: false,
     udhyam_number: '',
-    udhyam_attachment: null as File | null,
-    udhyam_certificate_url: '',
     gst_applicable: false,
-    gst_attachment: null as File | null,
-    gst_certificate_url: '',
+    cin_applicable: false,
+    cin_number: '',
   })
   const [loading, setLoading] = useState(false)
-  const [uploadingDocs, setUploadingDocs] = useState(false)
   const [showFormPassword, setShowFormPassword] = useState(false)
   const [masterDistributors, setMasterDistributors] = useState<any[]>([])
   const [distributors, setDistributors] = useState<any[]>([])
   const [loadingParents, setLoadingParents] = useState(false)
-  const [viewingDocument, setViewingDocument] = useState<{ url: string; type: string; name: string } | null>(null)
-  const [imageZoom, setImageZoom] = useState(1)
-  const [imageRotation, setImageRotation] = useState(0)
+
+  const [panVerified, setPanVerified] = useState(false)
+  const [panRegisteredName, setPanRegisteredName] = useState('')
+  const [panType, setPanType] = useState('')
+  const [verifyingPan, setVerifyingPan] = useState(false)
+  const [panError, setPanError] = useState('')
+
+  const [bankVerified, setBankVerified] = useState(false)
+  const [bankVerifiedName, setBankVerifiedName] = useState('')
+  const [bankUtr, setBankUtr] = useState('')
+  const [verifyingBank, setVerifyingBank] = useState(false)
+  const [bankError, setBankError] = useState('')
+  const [bankNameMismatch, setBankNameMismatch] = useState('')
+
+  const [gstVerified, setGstVerified] = useState(false)
+  const [gstLegalName, setGstLegalName] = useState('')
+  const [gstTradeName, setGstTradeName] = useState('')
+  const [gstGstStatus, setGstGstStatus] = useState('')
+  const [gstTaxpayerType, setGstTaxpayerType] = useState('')
+  const [gstConstitution, setGstConstitution] = useState('')
+  const [gstAddress, setGstAddress] = useState('')
+  const [verifyingGst, setVerifyingGst] = useState(false)
+  const [gstError, setGstError] = useState('')
+
+  const [cinVerified, setCinVerified] = useState(false)
+  const [cinCompanyName, setCinCompanyName] = useState('')
+  const [cinStatus, setCinStatus] = useState('')
+  const [cinIncorporationDate, setCinIncorporationDate] = useState('')
+  const [verifyingCin, setVerifyingCin] = useState(false)
+  const [cinError, setCinError] = useState('')
+
+  const [aadhaarVerified, setAadhaarVerified] = useState(false)
+  const [aadhaarName, setAadhaarName] = useState('')
+  const [aadhaarGender, setAadhaarGender] = useState('')
+  const [aadhaarDob, setAadhaarDob] = useState('')
+  const [aadhaarAddress, setAadhaarAddress] = useState('')
+  const [aadhaarUid, setAadhaarUid] = useState('')
+  const [digilockerLoading, setDigilockerLoading] = useState(false)
+  const [digilockerError, setDigilockerError] = useState('')
+  const [digilockerUrl, setDigilockerUrl] = useState('')
+  const [digilockerVerificationId, setDigilockerVerificationId] = useState('')
+
+  const [ekychubOrderIds, setEkychubOrderIds] = useState<Record<string, string>>({})
+
+  useEffect(() => {
+    if (gstVerified && (gstTradeName || gstLegalName)) {
+      setFormData(prev => ({
+        ...prev,
+        business_name: gstTradeName || gstLegalName,
+        address: gstAddress || prev.address,
+      }))
+    }
+  }, [gstVerified, gstTradeName, gstLegalName, gstAddress])
+
+  useEffect(() => {
+    if (aadhaarVerified && aadhaarAddress && !formData.gst_applicable) {
+      setFormData(prev => ({
+        ...prev,
+        address: aadhaarAddress || prev.address,
+      }))
+    }
+  }, [aadhaarVerified, aadhaarAddress])
 
   // Helper to get auth token for uploads (fallback for cookie issues)
   const getAuthToken = async (): Promise<string | null> => {
     const { data: { session } } = await supabase.auth.getSession()
     return session?.access_token || null
-  }
-
-  // Helper to upload document - apiFetch handles auth token automatically
-  const uploadWithAuth = async (formData: FormData): Promise<Response> => {
-    return apiFetch('/api/admin/upload-document', {
-      method: 'POST',
-      body: formData,
-    })
   }
 
   // Fetch parent entities based on type
@@ -3226,32 +3399,34 @@ function PartnerModal({
         master_distributor_id: item.master_distributor_id || '',
         status: item.status || 'inactive',
         commission_rate: item.commission_rate?.toString() || '',
-        // Bank account details
         bank_name: item.bank_name || '',
         account_number: item.account_number || '',
         ifsc_code: item.ifsc_code || '',
-        bank_document: null,
-        bank_document_url: item.bank_document_url || '',
-        // New document fields
         aadhar_number: item.aadhar_number || '',
-        aadhar_front_attachment: null,
-        aadhar_front_url: item.aadhar_front_url || item.aadhar_attachment_url || '', // Fallback to old field
-        aadhar_back_attachment: null,
-        aadhar_back_url: item.aadhar_back_url || '',
         pan_number: item.pan_number || '',
-        pan_attachment: null,
-        pan_attachment_url: item.pan_attachment_url || '',
-        udhyam_applicable: !!(item.udhyam_number || item.udhyam_certificate_url),
+        udhyam_applicable: !!(item.udhyam_number),
         udhyam_number: item.udhyam_number || '',
-        udhyam_attachment: null,
-        udhyam_certificate_url: item.udhyam_certificate_url || '',
-        gst_applicable: !!(item.gst_number || item.gst_certificate_url),
-        gst_attachment: null,
-        gst_certificate_url: item.gst_certificate_url || '',
+        gst_applicable: !!(item.gst_number),
+        cin_applicable: !!(item.cin_number),
+        cin_number: item.cin_number || '',
       })
-      setCurrentStep(1) // Reset to step 1 for edits (single form)
+      setPanVerified(item.pan_verified || false)
+      setPanRegisteredName(item.pan_registered_name || '')
+      setPanType(item.pan_type || '')
+      setBankVerified(item.bank_verified || false)
+      setBankVerifiedName(item.bank_verified_name || '')
+      setBankUtr(item.bank_utr || '')
+      setGstVerified(item.gst_verified || false)
+      setGstLegalName(item.gst_legal_name || '')
+      setGstTradeName(item.gst_trade_name || '')
+      setGstGstStatus(item.gst_status || '')
+      setGstTaxpayerType(item.gst_taxpayer_type || '')
+      setGstConstitution(item.gst_constitution || '')
+      setGstAddress(item.gst_address || '')
+      setPanError(''); setBankError(''); setGstError('')
+      setEkychubOrderIds(item.ekychub_order_ids || {})
+      setCurrentStep(1)
     } else {
-      // Reset form when creating new
       setFormData({
         name: '',
         email: '',
@@ -3265,32 +3440,26 @@ function PartnerModal({
         gst_number: '',
         distributor_id: '',
         master_distributor_id: '',
-        status: 'pending_verification', // Default to pending_verification for new partners
+        status: 'pending_verification' as 'active' | 'inactive' | 'suspended' | 'pending_verification',
         commission_rate: '',
-        // Bank account details
         bank_name: '',
         account_number: '',
         ifsc_code: '',
-        bank_document: null,
-        bank_document_url: '',
-        // New document fields
         aadhar_number: '',
-        aadhar_front_attachment: null,
-        aadhar_front_url: '',
-        aadhar_back_attachment: null,
-        aadhar_back_url: '',
-        udhyam_applicable: false,
-        gst_applicable: false,
         pan_number: '',
-        pan_attachment: null,
-        pan_attachment_url: '',
+        udhyam_applicable: false,
         udhyam_number: '',
-        udhyam_attachment: null,
-        udhyam_certificate_url: '',
-        gst_attachment: null,
-        gst_certificate_url: '',
+        gst_applicable: false,
+        cin_applicable: false,
+        cin_number: '',
       })
-      setCurrentStep(1) // Start at step 1 for new partners
+      setPanVerified(false); setPanRegisteredName(''); setPanType('')
+      setBankVerified(false); setBankVerifiedName(''); setBankUtr('')
+      setGstVerified(false); setGstLegalName(''); setGstTradeName('')
+      setGstGstStatus(''); setGstTaxpayerType(''); setGstConstitution(''); setGstAddress('')
+      setPanError(''); setBankError(''); setGstError('')
+      setEkychubOrderIds({})
+      setCurrentStep(1)
     }
   }, [item])
 
@@ -3299,33 +3468,225 @@ function PartnerModal({
     return `${prefix}${Date.now().toString().slice(-8)}`
   }
 
-  const getFileType = (url: string): 'image' | 'pdf' | 'unknown' => {
-    const extension = url.split('.').pop()?.toLowerCase()
-    if (['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(extension || '')) {
-      return 'image'
+  const handleVerifyPan = async () => {
+    if (!formData.pan_number || !/^[A-Z]{5}\d{4}[A-Z]$/.test(formData.pan_number.toUpperCase())) {
+      setPanError('Enter valid 10-character PAN')
+      return
     }
-    if (extension === 'pdf') {
-      return 'pdf'
+    setVerifyingPan(true)
+    setPanError('')
+    try {
+      const res = await apiFetch('/api/kyc/verify-pan', {
+        method: 'POST',
+        body: JSON.stringify({ pan: formData.pan_number.toUpperCase() })
+      })
+      const data = await res.json()
+      if (data.success) {
+        setPanVerified(true)
+        setPanRegisteredName(data.data.registered_name || '')
+        setPanType(data.data.type || '')
+        setEkychubOrderIds(prev => ({ ...prev, pan: data.orderid }))
+      } else {
+        setPanError(data.error || 'PAN verification failed')
+        setPanVerified(false)
+      }
+    } catch (err: any) {
+      setPanError(err.message || 'PAN verification failed')
+      setPanVerified(false)
+    } finally {
+      setVerifyingPan(false)
     }
-    return 'unknown'
   }
 
-  const openDocumentViewer = (url: string, name: string) => {
-    const fileType = getFileType(url)
-    setViewingDocument({ url, type: fileType, name })
-    setImageZoom(1)
-    setImageRotation(0)
+  const fuzzyNameMatch = (name1: string, name2: string): boolean => {
+    if (!name1 || !name2) return false
+    const normalize = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim()
+    const n1 = normalize(name1), n2 = normalize(name2)
+    if (n1 === n2) return true
+    if (n1.includes(n2) || n2.includes(n1)) return true
+    const words1 = n1.split(' '), words2 = n2.split(' ')
+    const common = words1.filter(w => w.length > 1 && words2.includes(w))
+    return common.length >= Math.min(2, Math.min(words1.length, words2.length))
   }
 
-  const handleDownload = (url: string, filename: string) => {
-    const link = document.createElement('a')
-    link.href = url
-    link.download = filename
-    link.target = '_blank'
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
+  const handleVerifyBank = async () => {
+    if (!formData.account_number || !formData.ifsc_code) {
+      setBankError('Account number and IFSC code required')
+      return
+    }
+    setVerifyingBank(true)
+    setBankError('')
+    setBankNameMismatch('')
+    try {
+      const res = await apiFetch('/api/kyc/verify-bank', {
+        method: 'POST',
+        body: JSON.stringify({ account_number: formData.account_number, ifsc: formData.ifsc_code.toUpperCase() })
+      })
+      const data = await res.json()
+      if (data.success) {
+        setBankVerified(true)
+        const holderName = data.data.nameAtBank || ''
+        setBankVerifiedName(holderName)
+        setBankUtr(data.data.utr || '')
+        setEkychubOrderIds(prev => ({ ...prev, bank: data.orderid }))
+        if (holderName) {
+          const matchesBusiness = fuzzyNameMatch(holderName, formData.business_name)
+          const matchesAadhaar = fuzzyNameMatch(holderName, aadhaarName)
+          if (!matchesBusiness && !matchesAadhaar) {
+            setBankNameMismatch(`Account holder name "${holderName}" does not match Business Name "${formData.business_name}"${aadhaarName ? ` or Aadhaar Name "${aadhaarName}"` : ''}. Please verify the correct bank account.`)
+            setBankVerified(false)
+          }
+        }
+      } else {
+        setBankError(data.error || 'Bank verification failed')
+        setBankVerified(false)
+      }
+    } catch (err: any) {
+      setBankError(err.message || 'Bank verification failed')
+      setBankVerified(false)
+    } finally {
+      setVerifyingBank(false)
+    }
   }
+
+  const handleVerifyGst = async () => {
+    if (!formData.gst_number || formData.gst_number.length < 15) {
+      setGstError('Enter valid GST number')
+      return
+    }
+    setVerifyingGst(true)
+    setGstError('')
+    try {
+      const res = await apiFetch('/api/kyc/verify-gst', {
+        method: 'POST',
+        body: JSON.stringify({ gst: formData.gst_number.toUpperCase() })
+      })
+      const data = await res.json()
+      if (data.success) {
+        setGstVerified(true)
+        setGstLegalName(data.data.legal_name || '')
+        setGstTradeName(data.data.trade_name || '')
+        setGstGstStatus(data.data.status || '')
+        setGstTaxpayerType(data.data.taxpayer_type || '')
+        setGstConstitution(data.data.constitution || '')
+        setGstAddress(data.data.address || '')
+        setEkychubOrderIds(prev => ({ ...prev, gst: data.orderid }))
+      } else {
+        setGstError(data.error || 'GST verification failed')
+        setGstVerified(false)
+      }
+    } catch (err: any) {
+      setGstError(err.message || 'GST verification failed')
+      setGstVerified(false)
+    } finally {
+      setVerifyingGst(false)
+    }
+  }
+
+  const handleVerifyCin = async () => {
+    if (!formData.cin_number || formData.cin_number.length < 10) {
+      setCinError('Enter valid CIN number')
+      return
+    }
+    setVerifyingCin(true)
+    setCinError('')
+    try {
+      const res = await apiFetch('/api/kyc/verify-cin', {
+        method: 'POST',
+        body: JSON.stringify({ cin: formData.cin_number.toUpperCase() })
+      })
+      const data = await res.json()
+      if (data.success) {
+        setCinVerified(true)
+        setCinCompanyName(data.data.company_name || '')
+        setCinStatus(data.data.cin_status || '')
+        setCinIncorporationDate(data.data.incorporation_date || '')
+        setEkychubOrderIds(prev => ({ ...prev, cin: data.orderid }))
+      } else {
+        setCinError(data.error || 'CIN verification failed')
+        setCinVerified(false)
+      }
+    } catch (err: any) {
+      setCinError(err.message || 'CIN verification failed')
+      setCinVerified(false)
+    } finally {
+      setVerifyingCin(false)
+    }
+  }
+
+  const handleDigilockerAadhaar = async () => {
+    setDigilockerLoading(true)
+    setDigilockerError('')
+    setDigilockerUrl('')
+    try {
+      const res = await apiFetch('/api/kyc/verify-digilocker', {
+        method: 'POST',
+        body: JSON.stringify({ type: 'aadhaar' })
+      })
+      const data = await res.json()
+      if (data.success && data.data.url) {
+        setDigilockerUrl(data.data.url)
+        setDigilockerVerificationId(data.data.verification_id || '')
+        setEkychubOrderIds(prev => ({ ...prev, digilocker_aadhaar: data.orderid }))
+        window.open(data.data.url, '_blank')
+      } else {
+        setDigilockerError(data.error || 'Failed to generate Digilocker URL')
+      }
+    } catch (err: any) {
+      setDigilockerError(err.message || 'Digilocker verification failed')
+    } finally {
+      setDigilockerLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    const handleDigilockerMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'DIGILOCKER_RESULT') {
+        if (event.data.success && event.data.data) {
+          const d = event.data.data
+          setAadhaarVerified(true)
+          setAadhaarName(d.name || '')
+          setAadhaarUid(d.uid || '')
+          setAadhaarDob(d.dob || '')
+          setAadhaarGender(d.gender || '')
+          setAadhaarAddress(d.address || '')
+          if (d.verification_id) setDigilockerVerificationId(d.verification_id)
+          if (d.uid) setFormData(prev => ({ ...prev, aadhar_number: d.uid.replace(/\s/g, '') }))
+        } else if (event.data.error) {
+          setDigilockerError(event.data.error)
+        }
+      }
+    }
+
+    const handleStorageChange = (event: StorageEvent) => {
+      if (event.key === 'digilocker_result' && event.newValue) {
+        try {
+          const result = JSON.parse(event.newValue)
+          if (result.success && result.data) {
+            const d = result.data
+            setAadhaarVerified(true)
+            setAadhaarName(d.name || '')
+            setAadhaarUid(d.uid || '')
+            setAadhaarDob(d.dob || '')
+            setAadhaarGender(d.gender || '')
+            setAadhaarAddress(d.address || '')
+            if (d.verification_id) setDigilockerVerificationId(d.verification_id)
+            if (d.uid) setFormData(prev => ({ ...prev, aadhar_number: d.uid.replace(/\s/g, '') }))
+          } else if (result.error) {
+            setDigilockerError(result.error)
+          }
+          localStorage.removeItem('digilocker_result')
+        } catch (e) {}
+      }
+    }
+
+    window.addEventListener('message', handleDigilockerMessage)
+    window.addEventListener('storage', handleStorageChange)
+    return () => {
+      window.removeEventListener('message', handleDigilockerMessage)
+      window.removeEventListener('storage', handleStorageChange)
+    }
+  }, [])
 
   const handleStep1Next = (e: React.FormEvent) => {
     e.preventDefault()
@@ -3355,44 +3716,32 @@ function PartnerModal({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     
-    // For new partners, validate documents in step 2
     if (!item) {
-      // For new partners, validate documents in step 2
-      // Validate bank account requirements
-      if (!formData.bank_name || !formData.account_number || !formData.ifsc_code || !formData.bank_document) {
-        alert('Bank Name, Account Number, IFSC Code, and Bank Document (passbook/cheque) are mandatory')
+      if (!panVerified) {
+        alert('PAN verification is mandatory')
         return
       }
-      // Validate document requirements
-      if (!formData.aadhar_number || !formData.aadhar_front_attachment || !formData.aadhar_back_attachment) {
-        alert('AADHAR Number, AADHAR Front, and AADHAR Back attachments are mandatory')
+      if (!aadhaarVerified) {
+        alert('Aadhaar verification via Digilocker is mandatory')
         return
       }
-      if (!formData.pan_number || !formData.pan_attachment) {
-        alert('PAN Number and PAN Attachment are mandatory')
+      if (!bankVerified) {
+        alert('Bank account verification is required')
         return
       }
-      // Validate UDHYAM if applicable checkbox is checked
-      if (formData.udhyam_applicable) {
-        if (!formData.udhyam_number || !formData.udhyam_attachment) {
-          alert('UDHYAM Number and Certificate are required when UDHYAM is applicable')
-          return
-        }
+      if (bankNameMismatch) {
+        alert('Bank account holder name does not match. Please use the correct bank account.')
+        return
       }
-      
-      // Validate GST if applicable checkbox is checked
-      if (formData.gst_applicable) {
-        if (!formData.gst_number || !formData.gst_attachment) {
-          alert('GST Number and Certificate are required when GST is applicable')
-          return
-        }
+      if (formData.gst_applicable && !gstVerified) {
+        alert('GST verification is required when GST is applicable')
+        return
       }
     }
     
     // Validate hierarchy requirements (for edits)
     if (item) {
       if (type === 'distributors' && !formData.master_distributor_id) {
-        // For edits, use the existing value from the item if form field is empty
         if (item.master_distributor_id) {
           formData.master_distributor_id = item.master_distributor_id
         } else {
@@ -3401,7 +3750,6 @@ function PartnerModal({
         }
       }
       if (type === 'retailers') {
-        // For edits, fall back to existing item values if form fields were cleared by race condition
         if (!formData.distributor_id && item.distributor_id) {
           formData.distributor_id = item.distributor_id
         }
@@ -3417,7 +3765,6 @@ function PartnerModal({
           alert('Master Distributor is required for a Retailer')
           return
         }
-        // Validate that distributor belongs to selected master distributor (only if both changed)
         const selectedDistributor = distributors.find((d: any) => d.partner_id === formData.distributor_id)
         if (selectedDistributor && selectedDistributor.master_distributor_id !== formData.master_distributor_id) {
           alert('Selected Distributor does not belong to the selected Master Distributor')
@@ -3427,454 +3774,57 @@ function PartnerModal({
     }
 
     setLoading(true)
-    // Check if any documents need to be uploaded
-    const needsUpload = !item || 
-      formData.bank_document || 
-      formData.aadhar_front_attachment || 
-      formData.aadhar_back_attachment || 
-      formData.pan_attachment || 
-      (formData.udhyam_applicable && formData.udhyam_attachment) || 
-      (formData.gst_applicable && formData.gst_attachment)
-    
-    if (needsUpload) {
-      setUploadingDocs(true)
-    }
 
     try {
       const tableName = type === 'retailers' ? 'retailers' : 
                        type === 'distributors' ? 'distributors' : 
                        'master_distributors'
 
-      // Upload documents if new files are provided
-      let bankDocumentUrl = formData.bank_document_url
-      let aadharFrontUrl = formData.aadhar_front_url
-      let aadharBackUrl = formData.aadhar_back_url
-      let panUrl = formData.pan_attachment_url
-      let udhyamUrl = formData.udhyam_certificate_url
-      let gstUrl = formData.gst_certificate_url
-
-      // Upload documents if new files are selected (for both new and existing partners)
-      const partnerId = item ? item.partner_id : generatePartnerId()
-      
-      if (formData.bank_document || formData.aadhar_front_attachment || formData.aadhar_back_attachment || formData.pan_attachment || (formData.udhyam_applicable && formData.udhyam_attachment) || (formData.gst_applicable && formData.gst_attachment)) {
-        setUploadingDocs(true)
-      }
-
-      if (!item) {
-        // Upload new documents for new partners
-        
-        // Upload Bank Document
-        if (formData.bank_document) {
-          const bankFormData = new FormData()
-          bankFormData.append('file', formData.bank_document)
-          bankFormData.append('documentType', 'bank')
-          bankFormData.append('partnerId', partnerId)
-          
-          const bankResponse = await uploadWithAuth(bankFormData)
-          
-          if (!bankResponse.ok) {
-            let errorMessage = 'Failed to upload bank document'
-            try {
-              const contentType = bankResponse.headers.get('content-type')
-              if (contentType && contentType.includes('application/json')) {
-                const error = await bankResponse.json()
-                errorMessage = error.message || error.error || errorMessage
-                if (error.details) {
-                  errorMessage += `\n\nDetails: ${error.details}`
-                }
-              } else {
-                const text = await bankResponse.text()
-                errorMessage = text || errorMessage
-              }
-            } catch (e) {
-              errorMessage = `HTTP ${bankResponse.status}: ${bankResponse.statusText}`
-            }
-            throw new Error(errorMessage)
-          }
-          const bankResult = await bankResponse.json()
-          bankDocumentUrl = bankResult.url
-        }
-        
-        // Upload AADHAR Front
-        if (formData.aadhar_front_attachment) {
-          const aadharFrontFormData = new FormData()
-          aadharFrontFormData.append('file', formData.aadhar_front_attachment)
-          aadharFrontFormData.append('documentType', 'aadhar-front')
-          aadharFrontFormData.append('partnerId', partnerId)
-          
-          const aadharFrontResponse = await uploadWithAuth(aadharFrontFormData)
-          
-          if (!aadharFrontResponse.ok) {
-            let errorMessage = 'Failed to upload AADHAR front document'
-            try {
-              const contentType = aadharFrontResponse.headers.get('content-type')
-              if (contentType && contentType.includes('application/json')) {
-                const error = await aadharFrontResponse.json()
-                errorMessage = error.message || error.error || errorMessage
-                if (error.details) {
-                  errorMessage += `\n\nDetails: ${error.details}`
-                }
-              } else {
-                const text = await aadharFrontResponse.text()
-                errorMessage = text || errorMessage
-              }
-            } catch (e) {
-              errorMessage = `HTTP ${aadharFrontResponse.status}: ${aadharFrontResponse.statusText}`
-            }
-            throw new Error(errorMessage)
-          }
-          const aadharFrontResult = await aadharFrontResponse.json()
-          aadharFrontUrl = aadharFrontResult.url
-        }
-        
-        // Upload AADHAR Back
-        if (formData.aadhar_back_attachment) {
-          const aadharBackFormData = new FormData()
-          aadharBackFormData.append('file', formData.aadhar_back_attachment)
-          aadharBackFormData.append('documentType', 'aadhar-back')
-          aadharBackFormData.append('partnerId', partnerId)
-          
-          const aadharBackResponse = await uploadWithAuth(aadharBackFormData)
-          
-          if (!aadharBackResponse.ok) {
-            let errorMessage = 'Failed to upload AADHAR back document'
-            try {
-              const contentType = aadharBackResponse.headers.get('content-type')
-              if (contentType && contentType.includes('application/json')) {
-                const error = await aadharBackResponse.json()
-                errorMessage = error.message || error.error || errorMessage
-                if (error.details) {
-                  errorMessage += `\n\nDetails: ${error.details}`
-                }
-              } else {
-                const text = await aadharBackResponse.text()
-                errorMessage = text || errorMessage
-              }
-            } catch (e) {
-              errorMessage = `HTTP ${aadharBackResponse.status}: ${aadharBackResponse.statusText}`
-            }
-            throw new Error(errorMessage)
-          }
-          const aadharBackResult = await aadharBackResponse.json()
-          aadharBackUrl = aadharBackResult.url
-        }
-
-        if (formData.pan_attachment) {
-          const panFormData = new FormData()
-          panFormData.append('file', formData.pan_attachment)
-          panFormData.append('documentType', 'pan')
-          panFormData.append('partnerId', partnerId)
-          
-          const panResponse = await uploadWithAuth(panFormData)
-          
-          if (!panResponse.ok) {
-            let errorMessage = 'Failed to upload PAN document'
-            try {
-              const contentType = panResponse.headers.get('content-type')
-              if (contentType && contentType.includes('application/json')) {
-                const error = await panResponse.json()
-                errorMessage = error.message || error.error || errorMessage
-                if (error.details) {
-                  errorMessage += `\n\nDetails: ${error.details}`
-                }
-              } else {
-                const text = await panResponse.text()
-                errorMessage = text || errorMessage
-              }
-            } catch (e) {
-              errorMessage = `HTTP ${panResponse.status}: ${panResponse.statusText}`
-            }
-            throw new Error(errorMessage)
-          }
-          const panResult = await panResponse.json()
-          panUrl = panResult.url
-        }
-
-        if (formData.udhyam_applicable && formData.udhyam_attachment) {
-          const udhyamFormData = new FormData()
-          udhyamFormData.append('file', formData.udhyam_attachment)
-          udhyamFormData.append('documentType', 'udhyam')
-          udhyamFormData.append('partnerId', partnerId)
-          
-          const udhyamResponse = await uploadWithAuth(udhyamFormData)
-          
-          if (!udhyamResponse.ok) {
-            let errorMessage = 'Failed to upload UDHYAM certificate'
-            try {
-              const contentType = udhyamResponse.headers.get('content-type')
-              if (contentType && contentType.includes('application/json')) {
-                const error = await udhyamResponse.json()
-                errorMessage = error.message || error.error || errorMessage
-                if (error.details) {
-                  errorMessage += `\n\nDetails: ${error.details}`
-                }
-              } else {
-                const text = await udhyamResponse.text()
-                errorMessage = text || errorMessage
-              }
-            } catch (e) {
-              errorMessage = `HTTP ${udhyamResponse.status}: ${udhyamResponse.statusText}`
-            }
-            throw new Error(errorMessage)
-          }
-          const udhyamResult = await udhyamResponse.json()
-          udhyamUrl = udhyamResult.url
-        }
-
-        if (formData.gst_applicable && formData.gst_attachment) {
-          const gstFormData = new FormData()
-          gstFormData.append('file', formData.gst_attachment)
-          gstFormData.append('documentType', 'gst')
-          gstFormData.append('partnerId', partnerId)
-          
-          const gstResponse = await uploadWithAuth(gstFormData)
-          
-          if (!gstResponse.ok) {
-            let errorMessage = 'Failed to upload GST certificate'
-            try {
-              const contentType = gstResponse.headers.get('content-type')
-              if (contentType && contentType.includes('application/json')) {
-                const error = await gstResponse.json()
-                errorMessage = error.message || error.error || errorMessage
-                if (error.details) {
-                  errorMessage += `\n\nDetails: ${error.details}`
-                }
-              } else {
-                const text = await gstResponse.text()
-                errorMessage = text || errorMessage
-              }
-            } catch (e) {
-              errorMessage = `HTTP ${gstResponse.status}: ${gstResponse.statusText}`
-            }
-            throw new Error(errorMessage)
-          }
-          const gstResult = await gstResponse.json()
-          gstUrl = gstResult.url
-        }
-      } else {
-        // Upload new documents for existing partners (if new files are selected)
-        const partnerId = item.partner_id
-        
-        // Upload Bank Document (if new file selected)
-        if (formData.bank_document) {
-          const bankFormData = new FormData()
-          bankFormData.append('file', formData.bank_document)
-          bankFormData.append('documentType', 'bank')
-          bankFormData.append('partnerId', partnerId)
-          
-          const bankResponse = await uploadWithAuth(bankFormData)
-          
-          if (!bankResponse.ok) {
-            let errorMessage = 'Failed to upload bank document'
-            try {
-              const contentType = bankResponse.headers.get('content-type')
-              if (contentType && contentType.includes('application/json')) {
-                const error = await bankResponse.json()
-                errorMessage = error.message || error.error || errorMessage
-                if (error.details) {
-                  errorMessage += `\n\nDetails: ${error.details}`
-                }
-              } else {
-                const text = await bankResponse.text()
-                errorMessage = text || errorMessage
-              }
-            } catch (e) {
-              errorMessage = `HTTP ${bankResponse.status}: ${bankResponse.statusText}`
-            }
-            throw new Error(errorMessage)
-          }
-          const bankResult = await bankResponse.json()
-          bankDocumentUrl = bankResult.url
-        }
-        
-        // Upload AADHAR Front (if new file selected)
-        if (formData.aadhar_front_attachment) {
-          const aadharFrontFormData = new FormData()
-          aadharFrontFormData.append('file', formData.aadhar_front_attachment)
-          aadharFrontFormData.append('documentType', 'aadhar-front')
-          aadharFrontFormData.append('partnerId', partnerId)
-          
-          const aadharFrontResponse = await uploadWithAuth(aadharFrontFormData)
-          
-          if (!aadharFrontResponse.ok) {
-            let errorMessage = 'Failed to upload AADHAR front document'
-            try {
-              const contentType = aadharFrontResponse.headers.get('content-type')
-              if (contentType && contentType.includes('application/json')) {
-                const error = await aadharFrontResponse.json()
-                errorMessage = error.message || error.error || errorMessage
-                if (error.details) {
-                  errorMessage += `\n\nDetails: ${error.details}`
-                }
-              } else {
-                const text = await aadharFrontResponse.text()
-                errorMessage = text || errorMessage
-              }
-            } catch (e) {
-              errorMessage = `HTTP ${aadharFrontResponse.status}: ${aadharFrontResponse.statusText}`
-            }
-            throw new Error(errorMessage)
-          }
-          const aadharFrontResult = await aadharFrontResponse.json()
-          aadharFrontUrl = aadharFrontResult.url
-        }
-        
-        // Upload AADHAR Back (if new file selected)
-        if (formData.aadhar_back_attachment) {
-          const aadharBackFormData = new FormData()
-          aadharBackFormData.append('file', formData.aadhar_back_attachment)
-          aadharBackFormData.append('documentType', 'aadhar-back')
-          aadharBackFormData.append('partnerId', partnerId)
-          
-          const aadharBackResponse = await uploadWithAuth(aadharBackFormData)
-          
-          if (!aadharBackResponse.ok) {
-            let errorMessage = 'Failed to upload AADHAR back document'
-            try {
-              const contentType = aadharBackResponse.headers.get('content-type')
-              if (contentType && contentType.includes('application/json')) {
-                const error = await aadharBackResponse.json()
-                errorMessage = error.message || error.error || errorMessage
-                if (error.details) {
-                  errorMessage += `\n\nDetails: ${error.details}`
-                }
-              } else {
-                const text = await aadharBackResponse.text()
-                errorMessage = text || errorMessage
-              }
-            } catch (e) {
-              errorMessage = `HTTP ${aadharBackResponse.status}: ${aadharBackResponse.statusText}`
-            }
-            throw new Error(errorMessage)
-          }
-          const aadharBackResult = await aadharBackResponse.json()
-          aadharBackUrl = aadharBackResult.url
-        }
-        
-        // Upload PAN (if new file selected)
-        if (formData.pan_attachment) {
-          const panFormData = new FormData()
-          panFormData.append('file', formData.pan_attachment)
-          panFormData.append('documentType', 'pan')
-          panFormData.append('partnerId', partnerId)
-          
-          const panResponse = await uploadWithAuth(panFormData)
-          
-          if (!panResponse.ok) {
-            let errorMessage = 'Failed to upload PAN document'
-            try {
-              const contentType = panResponse.headers.get('content-type')
-              if (contentType && contentType.includes('application/json')) {
-                const error = await panResponse.json()
-                errorMessage = error.message || error.error || errorMessage
-                if (error.details) {
-                  errorMessage += `\n\nDetails: ${error.details}`
-                }
-              } else {
-                const text = await panResponse.text()
-                errorMessage = text || errorMessage
-              }
-            } catch (e) {
-              errorMessage = `HTTP ${panResponse.status}: ${panResponse.statusText}`
-            }
-            throw new Error(errorMessage)
-          }
-          const panResult = await panResponse.json()
-          panUrl = panResult.url
-        }
-        
-        // Upload UDHYAM (if new file selected)
-        if (formData.udhyam_applicable && formData.udhyam_attachment) {
-          const udhyamFormData = new FormData()
-          udhyamFormData.append('file', formData.udhyam_attachment)
-          udhyamFormData.append('documentType', 'udhyam')
-          udhyamFormData.append('partnerId', partnerId)
-          
-          const udhyamResponse = await uploadWithAuth(udhyamFormData)
-          
-          if (!udhyamResponse.ok) {
-            let errorMessage = 'Failed to upload UDHYAM certificate'
-            try {
-              const contentType = udhyamResponse.headers.get('content-type')
-              if (contentType && contentType.includes('application/json')) {
-                const error = await udhyamResponse.json()
-                errorMessage = error.message || error.error || errorMessage
-                if (error.details) {
-                  errorMessage += `\n\nDetails: ${error.details}`
-                }
-              } else {
-                const text = await udhyamResponse.text()
-                errorMessage = text || errorMessage
-              }
-            } catch (e) {
-              errorMessage = `HTTP ${udhyamResponse.status}: ${udhyamResponse.statusText}`
-            }
-            throw new Error(errorMessage)
-          }
-          const udhyamResult = await udhyamResponse.json()
-          udhyamUrl = udhyamResult.url
-        }
-        
-        // Upload GST (if new file selected)
-        if (formData.gst_applicable && formData.gst_attachment) {
-          const gstFormData = new FormData()
-          gstFormData.append('file', formData.gst_attachment)
-          gstFormData.append('documentType', 'gst')
-          gstFormData.append('partnerId', partnerId)
-          
-          const gstResponse = await uploadWithAuth(gstFormData)
-          
-          if (!gstResponse.ok) {
-            let errorMessage = 'Failed to upload GST certificate'
-            try {
-              const contentType = gstResponse.headers.get('content-type')
-              if (contentType && contentType.includes('application/json')) {
-                const error = await gstResponse.json()
-                errorMessage = error.message || error.error || errorMessage
-                if (error.details) {
-                  errorMessage += `\n\nDetails: ${error.details}`
-                }
-              } else {
-                const text = await gstResponse.text()
-                errorMessage = text || errorMessage
-              }
-            } catch (e) {
-              errorMessage = `HTTP ${gstResponse.status}: ${gstResponse.statusText}`
-            }
-            throw new Error(errorMessage)
-          }
-          const gstResult = await gstResponse.json()
-          gstUrl = gstResult.url
-        }
-      }
-
       const partnerData: any = {
         name: formData.name,
         email: formData.email,
         phone: formData.phone,
-        business_name: formData.business_name || formData.name, // Use name if business_name not provided (required field)
+        business_name: formData.business_name || formData.name,
         address: formData.address || null,
         city: formData.city || null,
         state: formData.state || null,
         pincode: formData.pincode || null,
         gst_number: formData.gst_number || null,
-        status: !item ? 'pending_verification' : formData.status, // New partners go to pending_verification
+        status: !item ? 'pending_verification' : formData.status,
         commission_rate: formData.commission_rate ? parseFloat(formData.commission_rate) : null,
-        // Bank account details (mandatory)
         bank_name: formData.bank_name || null,
         account_number: formData.account_number || null,
         ifsc_code: formData.ifsc_code || null,
-        bank_document_url: bankDocumentUrl || null,
-        // New document fields
         aadhar_number: formData.aadhar_number || null,
-        aadhar_front_url: aadharFrontUrl || null,
-        aadhar_back_url: aadharBackUrl || null,
         pan_number: formData.pan_number || null,
-        pan_attachment_url: panUrl || null,
         udhyam_number: formData.udhyam_number || null,
-        udhyam_certificate_url: udhyamUrl || null,
-        gst_certificate_url: gstUrl || null,
-        verification_status: !item ? 'pending' : undefined, // Set verification status for new partners
+        pan_verified: panVerified,
+        pan_registered_name: panRegisteredName || null,
+        pan_type: panType || null,
+        bank_verified: bankVerified,
+        bank_verified_name: bankVerifiedName || null,
+        bank_utr: bankUtr || null,
+        gst_verified: gstVerified,
+        gst_legal_name: gstLegalName || null,
+        gst_trade_name: gstTradeName || null,
+        gst_status: gstGstStatus || null,
+        gst_taxpayer_type: gstTaxpayerType || null,
+        gst_constitution: gstConstitution || null,
+        gst_address: gstAddress || null,
+        cin_number: formData.cin_number || null,
+        cin_verified: cinVerified,
+        cin_company_name: cinCompanyName || null,
+        cin_status: cinStatus || null,
+        cin_incorporation_date: cinIncorporationDate || null,
+        aadhaar_verified: aadhaarVerified,
+        aadhaar_name: aadhaarName || null,
+        aadhaar_dob: aadhaarDob || null,
+        aadhaar_gender: aadhaarGender || null,
+        aadhaar_address: aadhaarAddress || null,
+        aadhaar_uid: aadhaarUid || null,
+        digilocker_verification_id: digilockerVerificationId || null,
+        ekychub_order_ids: ekychubOrderIds,
+        verification_status: !item ? 'pending' : undefined,
       }
 
       if (type === 'retailers') {
@@ -3974,7 +3924,6 @@ function PartnerModal({
       alert(errorMessage)
     } finally {
       setLoading(false)
-      setUploadingDocs(false)
     }
   }
 
@@ -3993,7 +3942,7 @@ function PartnerModal({
               </h2>
               {!item && (
                 <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                  Step {currentStep} of 2: {currentStep === 1 ? 'Basic Details' : 'Document Upload'}
+                  Step {currentStep} of 3: {currentStep === 1 ? 'Personal Details' : currentStep === 2 ? 'Business & Address' : 'KYC Verification'}
                 </p>
               )}
             </div>
@@ -4002,9 +3951,17 @@ function PartnerModal({
             </button>
           </div>
           {!item && (
-            <div className="mt-4 flex gap-2">
-              <div className={`flex-1 h-2 rounded ${currentStep >= 1 ? 'bg-yellow-600' : 'bg-gray-200 dark:bg-gray-700'}`}></div>
-              <div className={`flex-1 h-2 rounded ${currentStep >= 2 ? 'bg-yellow-600' : 'bg-gray-200 dark:bg-gray-700'}`}></div>
+            <div className="mt-4">
+              <div className="flex gap-1.5">
+                <div className={`flex-1 h-2 rounded-full transition-colors ${currentStep >= 1 ? 'bg-indigo-600' : 'bg-gray-200 dark:bg-gray-700'}`}></div>
+                <div className={`flex-1 h-2 rounded-full transition-colors ${currentStep >= 2 ? 'bg-indigo-600' : 'bg-gray-200 dark:bg-gray-700'}`}></div>
+                <div className={`flex-1 h-2 rounded-full transition-colors ${currentStep >= 3 ? 'bg-indigo-600' : 'bg-gray-200 dark:bg-gray-700'}`}></div>
+              </div>
+              <div className="flex justify-between mt-1.5">
+                <span className={`text-xs font-medium ${currentStep === 1 ? 'text-indigo-600' : 'text-gray-400'}`}>Personal</span>
+                <span className={`text-xs font-medium ${currentStep === 2 ? 'text-indigo-600' : 'text-gray-400'}`}>Business</span>
+                <span className={`text-xs font-medium ${currentStep === 3 ? 'text-indigo-600' : 'text-gray-400'}`}>KYC</span>
+              </div>
             </div>
           )}
         </div>
@@ -4038,7 +3995,7 @@ function PartnerModal({
                 type="tel"
                 required
                 value={formData.phone}
-                onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                onChange={(e) => setFormData({ ...formData, phone: e.target.value.replace(/\D/g, '').slice(0, 10) })}
                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
               />
             </div>
@@ -4060,15 +4017,6 @@ function PartnerModal({
               </div>
             )}
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Business Name</label>
-              <input
-                type="text"
-                value={formData.business_name}
-                onChange={(e) => setFormData({ ...formData, business_name: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
-              />
-            </div>
-            <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Status *</label>
               <select
                 value={formData.status}
@@ -4079,6 +4027,16 @@ function PartnerModal({
                 <option value="inactive">Inactive</option>
                 <option value="suspended">Suspended</option>
               </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Commission Rate (%)</label>
+              <input
+                type="number"
+                step="0.01"
+                value={formData.commission_rate}
+                onChange={(e) => setFormData({ ...formData, commission_rate: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+              />
             </div>
             {type === 'retailers' && (
               <>
@@ -4094,7 +4052,7 @@ function PartnerModal({
                       setFormData({ 
                         ...formData, 
                         master_distributor_id: e.target.value,
-                        distributor_id: '' // Clear distributor when master changes
+                        distributor_id: ''
                       })
                     }}
                     disabled={loadingParents}
@@ -4173,89 +4131,6 @@ function PartnerModal({
                 )}
               </div>
             )}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Commission Rate (%)</label>
-              <input
-                type="number"
-                step="0.01"
-                value={formData.commission_rate}
-                onChange={(e) => setFormData({ ...formData, commission_rate: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Address</label>
-              <input
-                type="text"
-                value={formData.address}
-                onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">City</label>
-              <input
-                type="text"
-                value={formData.city}
-                onChange={(e) => setFormData({ ...formData, city: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">State</label>
-              <select
-                value={formData.state}
-                onChange={(e) => setFormData({ ...formData, state: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
-              >
-                <option value="">Select State</option>
-                <option value="Andhra Pradesh">Andhra Pradesh</option>
-                <option value="Arunachal Pradesh">Arunachal Pradesh</option>
-                <option value="Assam">Assam</option>
-                <option value="Bihar">Bihar</option>
-                <option value="Chhattisgarh">Chhattisgarh</option>
-                <option value="Goa">Goa</option>
-                <option value="Gujarat">Gujarat</option>
-                <option value="Haryana">Haryana</option>
-                <option value="Himachal Pradesh">Himachal Pradesh</option>
-                <option value="Jharkhand">Jharkhand</option>
-                <option value="Karnataka">Karnataka</option>
-                <option value="Kerala">Kerala</option>
-                <option value="Madhya Pradesh">Madhya Pradesh</option>
-                <option value="Maharashtra">Maharashtra</option>
-                <option value="Manipur">Manipur</option>
-                <option value="Meghalaya">Meghalaya</option>
-                <option value="Mizoram">Mizoram</option>
-                <option value="Nagaland">Nagaland</option>
-                <option value="Odisha">Odisha</option>
-                <option value="Punjab">Punjab</option>
-                <option value="Rajasthan">Rajasthan</option>
-                <option value="Sikkim">Sikkim</option>
-                <option value="Tamil Nadu">Tamil Nadu</option>
-                <option value="Telangana">Telangana</option>
-                <option value="Tripura">Tripura</option>
-                <option value="Uttar Pradesh">Uttar Pradesh</option>
-                <option value="Uttarakhand">Uttarakhand</option>
-                <option value="West Bengal">West Bengal</option>
-                <option value="Andaman and Nicobar Islands">Andaman and Nicobar Islands</option>
-                <option value="Chandigarh">Chandigarh</option>
-                <option value="Dadra and Nagar Haveli and Daman and Diu">Dadra and Nagar Haveli and Daman and Diu</option>
-                <option value="Delhi">Delhi</option>
-                <option value="Jammu and Kashmir">Jammu and Kashmir</option>
-                <option value="Ladakh">Ladakh</option>
-                <option value="Lakshadweep">Lakshadweep</option>
-                <option value="Puducherry">Puducherry</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Pincode</label>
-              <input
-                type="text"
-                value={formData.pincode}
-                onChange={(e) => setFormData({ ...formData, pincode: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
-              />
-            </div>
           </div>
 
           <div className="flex flex-col sm:flex-row justify-end gap-2 sm:gap-3 pt-4 border-t border-gray-200 dark:border-gray-700">
@@ -4270,374 +4145,521 @@ function PartnerModal({
               type="submit"
               className="btn-primary order-1 sm:order-2"
             >
-              Next: Upload Documents
+              Next: Business Details
             </button>
           </div>
         </form>
         ) : !item && currentStep === 2 ? (
-          <form onSubmit={handleSubmit} className="p-4 sm:p-6 space-y-3 sm:space-y-4">
-            <div className="mb-4">
-              <h4 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Bank Account & Document Details</h4>
-              <p className="text-sm text-gray-600 dark:text-gray-400">Please provide bank account details and upload all required documents for verification.</p>
+          <div className="p-4 sm:p-6 space-y-4">
+            <div className="mb-2 p-4 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 rounded-xl border border-blue-100 dark:border-blue-800">
+              <div className="flex items-center gap-2 mb-1">
+                <Building2 className="w-5 h-5 text-blue-600" />
+                <h4 className="text-lg font-semibold text-gray-900 dark:text-white">Business & Address Details</h4>
+              </div>
+              <p className="text-sm text-gray-600 dark:text-gray-400">Verify GST to auto-fill business name, or enter details manually.</p>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
-              {/* Bank Account Details Section */}
-              <div className="md:col-span-2">
-                <h5 className="text-md font-semibold mb-3 text-blue-600 dark:text-blue-400 border-b pb-2">Bank Account Details (Mandatory)</h5>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Bank Name *
-                  <span className="text-xs text-red-500 ml-1">(Mandatory)</span>
-                </label>
+            {/* GST Verification */}
+            <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+              <div className="flex items-center mb-3">
                 <input
-                  type="text"
-                  required
-                  value={formData.bank_name}
-                  onChange={(e) => setFormData({ ...formData, bank_name: e.target.value })}
-                  className="w-full px-3 py-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-                  placeholder="Enter bank name"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Account Number *
-                  <span className="text-xs text-red-500 ml-1">(Mandatory)</span>
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={formData.account_number}
-                  onChange={(e) => setFormData({ ...formData, account_number: e.target.value })}
-                  className="w-full px-3 py-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-                  placeholder="Enter account number"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  IFSC Code *
-                  <span className="text-xs text-red-500 ml-1">(Mandatory)</span>
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={formData.ifsc_code}
-                  onChange={(e) => setFormData({ ...formData, ifsc_code: e.target.value.toUpperCase() })}
-                  className="w-full px-3 py-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-                  placeholder="Enter IFSC code"
-                  maxLength={11}
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Bank Document (Passbook/Cheque) *
-                  <span className="text-xs text-red-500 ml-1">(Mandatory)</span>
-                </label>
-                <input
-                  type="file"
-                  required={!item}
-                  accept="image/*,application/pdf"
+                  type="checkbox"
+                  id="gst_applicable_step2"
+                  checked={formData.gst_applicable}
                   onChange={(e) => {
-                    const file = e.target.files?.[0] || null
-                    setFormData({ ...formData, bank_document: file })
+                    const checked = e.target.checked
+                    setFormData({ ...formData, gst_applicable: checked, gst_number: checked ? formData.gst_number : '' })
+                    if (!checked) { setGstVerified(false); setGstError(''); }
                   }}
-                  className="w-full px-3 py-2 border rounded-lg file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 dark:file:bg-blue-900 dark:file:text-blue-200"
+                  className="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500 dark:bg-gray-700 dark:border-gray-600"
                 />
-                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Upload passbook or cancelled cheque</p>
-                {formData.bank_document_url && !formData.bank_document && (
-                  <div className="flex items-center gap-2 mt-2">
-                    <button
-                      type="button"
-                      onClick={() => openDocumentViewer(formData.bank_document_url, 'Bank Document')}
-                      className="text-xs px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-1"
-                    >
-                      <Eye className="w-3 h-3" />
-                      Preview
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleDownload(formData.bank_document_url, `Bank_${formData.name || 'document'}.${formData.bank_document_url.split('.').pop()}`)}
-                      className="text-xs px-3 py-1.5 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors flex items-center gap-1"
-                    >
-                      <Download className="w-3 h-3" />
-                      Download
-                    </button>
-                  </div>
-                )}
-              </div>
-
-              {/* Document Details Section */}
-              <div className="md:col-span-2 mt-4">
-                <h5 className="text-md font-semibold mb-3 text-blue-600 dark:text-blue-400 border-b pb-2">Identity & Business Documents</h5>
-              </div>
-              {/* AADHAR Number */}
-              <div className="md:col-span-2">
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  AADHAR Number *
-                  <span className="text-xs text-red-500 ml-1">(Mandatory)</span>
+                <label htmlFor="gst_applicable_step2" className="ml-2 text-md font-semibold text-indigo-600 dark:text-indigo-400">
+                  GST Registered
                 </label>
-                <input
-                  type="text"
-                  required
-                  value={formData.aadhar_number}
-                  onChange={(e) => setFormData({ ...formData, aadhar_number: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
-                  placeholder="Enter 12-digit AADHAR number"
-                />
-              </div>
-              {/* AADHAR Front Attachment */}
-              <div className="md:col-span-2">
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  AADHAR Front *
-                  <span className="text-xs text-red-500 ml-1">(Mandatory)</span>
-                </label>
-                <input
-                  type="file"
-                  required={!item}
-                  accept="image/*,application/pdf"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0] || null
-                    setFormData({ ...formData, aadhar_front_attachment: file })
-                  }}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-primary-50 file:text-primary-700 hover:file:bg-primary-100"
-                />
-                {formData.aadhar_front_url && !formData.aadhar_front_attachment && (
-                  <div className="flex items-center gap-2 mt-2">
-                    <button
-                      type="button"
-                      onClick={() => openDocumentViewer(formData.aadhar_front_url, 'AADHAR Front')}
-                      className="text-xs px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-1"
-                    >
-                      <Eye className="w-3 h-3" />
-                      Preview
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleDownload(formData.aadhar_front_url, `AADHAR_Front_${formData.name || 'document'}.${formData.aadhar_front_url.split('.').pop()}`)}
-                      className="text-xs px-3 py-1.5 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors flex items-center gap-1"
-                    >
-                      <Download className="w-3 h-3" />
-                      Download
-                    </button>
-                  </div>
-                )}
-              </div>
-              {/* AADHAR Back Attachment */}
-              <div className="md:col-span-2">
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  AADHAR Back *
-                  <span className="text-xs text-red-500 ml-1">(Mandatory)</span>
-                </label>
-                <input
-                  type="file"
-                  required={!item}
-                  accept="image/*,application/pdf"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0] || null
-                    setFormData({ ...formData, aadhar_back_attachment: file })
-                  }}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-primary-50 file:text-primary-700 hover:file:bg-primary-100"
-                />
-                {formData.aadhar_back_url && !formData.aadhar_back_attachment && (
-                  <div className="flex items-center gap-2 mt-2">
-                    <button
-                      type="button"
-                      onClick={() => openDocumentViewer(formData.aadhar_back_url, 'AADHAR Back')}
-                      className="text-xs px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-1"
-                    >
-                      <Eye className="w-3 h-3" />
-                      Preview
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleDownload(formData.aadhar_back_url, `AADHAR_Back_${formData.name || 'document'}.${formData.aadhar_back_url.split('.').pop()}`)}
-                      className="text-xs px-3 py-1.5 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors flex items-center gap-1"
-                    >
-                      <Download className="w-3 h-3" />
-                      Download
-                    </button>
-                  </div>
-                )}
-              </div>
-
-              {/* PAN Number */}
-              <div className="md:col-span-2">
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  PAN Number *
-                  <span className="text-xs text-red-500 ml-1">(Mandatory)</span>
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={formData.pan_number}
-                  onChange={(e) => setFormData({ ...formData, pan_number: e.target.value.toUpperCase() })}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
-                  placeholder="Enter PAN number (e.g., ABCDE1234F)"
-                  maxLength={10}
-                />
-              </div>
-              {/* PAN Attachment */}
-              <div className="md:col-span-2">
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  PAN Attachment *
-                  <span className="text-xs text-red-500 ml-1">(Mandatory)</span>
-                </label>
-                <input
-                  type="file"
-                  required
-                  accept="image/*,application/pdf"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0] || null
-                    setFormData({ ...formData, pan_attachment: file })
-                  }}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-yellow-50 file:text-yellow-700 hover:file:bg-yellow-100"
-                />
-              </div>
-
-              {/* UDHYAM Section */}
-              <div className="md:col-span-2">
-                <div className="flex items-center mb-2">
-                  <input
-                    type="checkbox"
-                    id="udhyam_applicable"
-                    checked={formData.udhyam_applicable}
-                    onChange={(e) => {
-                      const checked = e.target.checked
-                      setFormData({ 
-                        ...formData, 
-                        udhyam_applicable: checked,
-                        // Clear fields if unchecked
-                        udhyam_number: checked ? formData.udhyam_number : '',
-                        udhyam_attachment: checked ? formData.udhyam_attachment : null
-                      })
-                    }}
-                    className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600"
-                  />
-                  <label htmlFor="udhyam_applicable" className="ml-2 text-sm font-medium text-gray-700 dark:text-gray-300">
-                    UDHYAM Certificate Applicable
-                    {formData.udhyam_applicable && <span className="text-xs text-red-500 ml-1">(Mandatory if checked)</span>}
-                  </label>
-                </div>
-              </div>
-              {formData.udhyam_applicable && (
-                <>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      UDHYAM Number *
-                      <span className="text-xs text-red-500 ml-1">(Required)</span>
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      value={formData.udhyam_number}
-                      onChange={(e) => setFormData({ ...formData, udhyam_number: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
-                      placeholder="Enter UDHYAM registration number"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      UDHYAM Certificate *
-                      <span className="text-xs text-red-500 ml-1">(Required)</span>
-                    </label>
-                    <input
-                      type="file"
-                      required
-                      accept="image/*,application/pdf"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0] || null
-                        setFormData({ ...formData, udhyam_attachment: file })
-                      }}
-                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-yellow-50 file:text-yellow-700 hover:file:bg-yellow-100"
-                    />
-                  </div>
-                </>
-              )}
-
-              {/* GST Section */}
-              <div className="md:col-span-2">
-                <div className="flex items-center mb-2">
-                  <input
-                    type="checkbox"
-                    id="gst_applicable"
-                    checked={formData.gst_applicable}
-                    onChange={(e) => {
-                      const checked = e.target.checked
-                      setFormData({ 
-                        ...formData, 
-                        gst_applicable: checked,
-                        // Clear fields if unchecked
-                        gst_number: checked ? formData.gst_number : '',
-                        gst_attachment: checked ? formData.gst_attachment : null
-                      })
-                    }}
-                    className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600"
-                  />
-                  <label htmlFor="gst_applicable" className="ml-2 text-sm font-medium text-gray-700 dark:text-gray-300">
-                    GST Certificate Applicable
-                    {formData.gst_applicable && <span className="text-xs text-red-500 ml-1">(Mandatory if checked)</span>}
-                  </label>
-                </div>
               </div>
               {formData.gst_applicable && (
                 <>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      GST Number *
-                      <span className="text-xs text-red-500 ml-1">(Required)</span>
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      value={formData.gst_number}
-                      onChange={(e) => setFormData({ ...formData, gst_number: e.target.value.toUpperCase() })}
-                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
-                      placeholder="Enter GST number"
-                    />
+                  <div className="flex gap-3 items-end mb-3">
+                    <div className="flex-1">
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">GST Number</label>
+                      <input
+                        type="text"
+                        value={formData.gst_number}
+                        onChange={(e) => { setFormData({ ...formData, gst_number: e.target.value.toUpperCase() }); setGstVerified(false); setGstError('') }}
+                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-indigo-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+                        placeholder="Enter 15-character GST number"
+                        maxLength={15}
+                        disabled={gstVerified}
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleVerifyGst}
+                      disabled={verifyingGst || gstVerified || !formData.gst_number}
+                      className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 whitespace-nowrap"
+                    >
+                      {verifyingGst ? <Loader2 className="w-4 h-4 animate-spin" /> : gstVerified ? <CheckCircle className="w-4 h-4" /> : <ShieldCheck className="w-4 h-4" />}
+                      {verifyingGst ? 'Verifying...' : gstVerified ? 'Verified' : 'Verify GST'}
+                    </button>
                   </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      GST Certificate *
-                      <span className="text-xs text-red-500 ml-1">(Required)</span>
-                    </label>
-                    <input
-                      type="file"
-                      required
-                      accept="image/*,application/pdf"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0] || null
-                        setFormData({ ...formData, gst_attachment: file })
-                      }}
-                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-yellow-50 file:text-yellow-700 hover:file:bg-yellow-100"
-                    />
-                  </div>
+                  {gstVerified && (
+                    <div className="p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
+                      <div className="flex items-center gap-2 text-green-700 dark:text-green-400">
+                        <CheckCircle className="w-4 h-4" />
+                        <span className="font-medium text-sm">GST Verified</span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-1 mt-1 text-sm text-green-600 dark:text-green-400">
+                        <p>Legal Name: {gstLegalName}</p>
+                        {gstTradeName && <p>Trade Name: {gstTradeName}</p>}
+                        <p>Status: {gstGstStatus}</p>
+                        {gstTaxpayerType && <p>Type: {gstTaxpayerType}</p>}
+                        {gstConstitution && <p>Constitution: {gstConstitution}</p>}
+                        {gstAddress && <p className="col-span-2">Address: {gstAddress}</p>}
+                      </div>
+                    </div>
+                  )}
+                  {gstError && (
+                    <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+                      <div className="flex items-center gap-2 text-red-700 dark:text-red-400">
+                        <AlertCircle className="w-4 h-4" />
+                        <span className="text-sm">{gstError}</span>
+                      </div>
+                    </div>
+                  )}
                 </>
               )}
             </div>
 
-            <div className="flex flex-col sm:flex-row justify-end gap-2 sm:gap-3 pt-4 border-t border-gray-200 dark:border-gray-700">
+            {/* Business Name */}
+            <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Business Name *
+                {gstVerified && <span className="text-xs text-green-600 ml-2">(Auto-filled from GST)</span>}
+              </label>
+              <input
+                type="text"
+                value={formData.business_name}
+                onChange={(e) => setFormData({ ...formData, business_name: e.target.value })}
+                className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 text-gray-900 dark:text-white ${
+                  gstVerified
+                    ? 'border-green-300 dark:border-green-700 bg-green-50 dark:bg-green-900/20'
+                    : 'border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900'
+                }`}
+                placeholder={gstVerified ? '' : 'Enter business / trade name'}
+              />
+            </div>
+
+            {/* Company CIN Verification */}
+            <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+              <div className="flex items-center mb-3">
+                <input
+                  type="checkbox"
+                  id="cin_applicable_step2b"
+                  checked={formData.cin_applicable}
+                  onChange={(e) => {
+                    const checked = e.target.checked
+                    setFormData({ ...formData, cin_applicable: checked, cin_number: checked ? formData.cin_number : '' })
+                    if (!checked) { setCinVerified(false); setCinError('') }
+                  }}
+                  className="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500 dark:bg-gray-700 dark:border-gray-600"
+                />
+                <label htmlFor="cin_applicable_step2b" className="ml-2 text-md font-semibold text-indigo-600 dark:text-indigo-400">
+                  Company CIN Verification
+                </label>
+              </div>
+              {formData.cin_applicable && (
+                <>
+                  <div className="flex gap-3 items-end mb-3">
+                    <div className="flex-1">
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">CIN Number</label>
+                      <input
+                        type="text"
+                        value={formData.cin_number}
+                        onChange={(e) => { setFormData({ ...formData, cin_number: e.target.value.toUpperCase() }); setCinVerified(false); setCinError('') }}
+                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-indigo-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+                        placeholder="U72200MH2009PLC123456"
+                        maxLength={21}
+                        disabled={cinVerified}
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleVerifyCin}
+                      disabled={verifyingCin || cinVerified || !formData.cin_number}
+                      className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 whitespace-nowrap"
+                    >
+                      {verifyingCin ? <Loader2 className="w-4 h-4 animate-spin" /> : cinVerified ? <CheckCircle className="w-4 h-4" /> : <ShieldCheck className="w-4 h-4" />}
+                      {verifyingCin ? 'Verifying...' : cinVerified ? 'Verified' : 'Verify CIN'}
+                    </button>
+                  </div>
+                  {cinVerified && (
+                    <div className="p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
+                      <div className="flex items-center gap-2 text-green-700 dark:text-green-400">
+                        <CheckCircle className="w-4 h-4" />
+                        <span className="font-medium text-sm">CIN Verified</span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-1 mt-1 text-sm text-green-600 dark:text-green-400">
+                        <p>Company: {cinCompanyName}</p>
+                        {cinStatus && <p>Status: {cinStatus}</p>}
+                        {cinIncorporationDate && <p>Incorporated: {cinIncorporationDate}</p>}
+                      </div>
+                    </div>
+                  )}
+                  {cinError && (
+                    <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+                      <div className="flex items-center gap-2 text-red-700 dark:text-red-400">
+                        <AlertCircle className="w-4 h-4" />
+                        <span className="text-sm">{cinError}</span>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+
+            {/* UDHYAM Section */}
+            <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+              <div className="flex items-center mb-3">
+                <input
+                  type="checkbox"
+                  id="udhyam_applicable_step2b"
+                  checked={formData.udhyam_applicable}
+                  onChange={(e) => {
+                    const checked = e.target.checked
+                    setFormData({ ...formData, udhyam_applicable: checked, udhyam_number: checked ? formData.udhyam_number : '' })
+                  }}
+                  className="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500 dark:bg-gray-700 dark:border-gray-600"
+                />
+                <label htmlFor="udhyam_applicable_step2b" className="ml-2 text-md font-semibold text-indigo-600 dark:text-indigo-400">
+                  UDHYAM Registration
+                </label>
+              </div>
+              {formData.udhyam_applicable && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">UDHYAM Number</label>
+                  <input
+                    type="text"
+                    value={formData.udhyam_number}
+                    onChange={(e) => setFormData({ ...formData, udhyam_number: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-indigo-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+                    placeholder="Enter UDHYAM registration number"
+                  />
+                </div>
+              )}
+            </div>
+
+            {/* Aadhaar Verification via Digilocker */}
+            <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+              <h5 className="text-md font-semibold mb-3 text-indigo-600 dark:text-indigo-400 border-b pb-2">Aadhaar Verification</h5>
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Aadhaar Number</label>
+                  <input
+                    type="text"
+                    value={formData.aadhar_number}
+                    onChange={(e) => setFormData({ ...formData, aadhar_number: e.target.value.replace(/\D/g, '').slice(0, 12) })}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-indigo-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+                    placeholder="Enter 12-digit Aadhaar number"
+                    maxLength={12}
+                    disabled={aadhaarVerified}
+                  />
+                </div>
+                {!aadhaarVerified && (
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={handleDigilockerAadhaar}
+                      disabled={digilockerLoading}
+                      className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 whitespace-nowrap"
+                    >
+                      {digilockerLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShieldCheck className="w-4 h-4" />}
+                      {digilockerLoading ? 'Generating...' : 'Verify via Digilocker'}
+                    </button>
+                    <span className="text-xs text-gray-500 dark:text-gray-400">Opens Digilocker for Aadhaar verification</span>
+                  </div>
+                )}
+                {digilockerUrl && !aadhaarVerified && (
+                  <div className="p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+                    <p className="text-sm text-blue-700 dark:text-blue-300 mb-2">Digilocker verification link generated. A new tab should have opened.</p>
+                    <a href={digilockerUrl} target="_blank" rel="noopener noreferrer" className="text-sm text-blue-600 hover:text-blue-800 underline break-all">
+                      Click here if the tab didn&apos;t open
+                    </a>
+                  </div>
+                )}
+                {aadhaarVerified && (
+                  <div className="p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
+                    <div className="flex items-center gap-2 text-green-700 dark:text-green-400">
+                      <CheckCircle className="w-4 h-4" />
+                      <span className="font-medium text-sm">Aadhaar Verified via Digilocker</span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-1 mt-1 text-sm text-green-600 dark:text-green-400">
+                      <p>Name: {aadhaarName}</p>
+                      {aadhaarDob && <p>DOB: {aadhaarDob}</p>}
+                      {aadhaarGender && <p>Gender: {aadhaarGender}</p>}
+                      {aadhaarUid && <p>UID: {aadhaarUid}</p>}
+                      {aadhaarAddress && <p className="col-span-2">Address: {aadhaarAddress}</p>}
+                    </div>
+                  </div>
+                )}
+                {digilockerError && (
+                  <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+                    <div className="flex items-center gap-2 text-red-700 dark:text-red-400">
+                      <AlertCircle className="w-4 h-4" />
+                      <span className="text-sm">{digilockerError}</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Address */}
+            {(() => {
+              const addressFromApi = (gstVerified && gstAddress) || (!formData.gst_applicable && aadhaarVerified && aadhaarAddress)
+              return (
+                <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+                  <h5 className="text-md font-semibold mb-3 text-indigo-600 dark:text-indigo-400 border-b pb-2">
+                    Address
+                    {gstVerified && gstAddress && <span className="text-xs text-green-600 ml-2">(From GST)</span>}
+                    {!formData.gst_applicable && aadhaarVerified && aadhaarAddress && <span className="text-xs text-green-600 ml-2">(From Aadhaar)</span>}
+                  </h5>
+                  {addressFromApi ? (
+                    <div className="p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
+                      <div className="flex items-center gap-2 text-green-700 dark:text-green-400 mb-1">
+                        <CheckCircle className="w-4 h-4" />
+                        <span className="font-medium text-sm">Address from {gstVerified && gstAddress ? 'GST' : 'Aadhaar'} verification</span>
+                      </div>
+                      <p className="text-sm text-gray-800 dark:text-gray-200">{formData.address}</p>
+                    </div>
+                  ) : (
+                    <div className="p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg">
+                      <div className="flex items-center gap-2 text-amber-700 dark:text-amber-400 mb-1">
+                        <AlertCircle className="w-4 h-4" />
+                        <span className="font-medium text-sm">Address will be captured from API</span>
+                      </div>
+                      <p className="text-xs text-amber-600 dark:text-amber-400">Verify GST (above) to auto-fill address, or verify Aadhaar via Digilocker if GST is not applicable.</p>
+                    </div>
+                  )}
+                </div>
+              )
+            })()}
+
+            <div className="flex flex-col sm:flex-row justify-between gap-2 sm:gap-3 pt-4 border-t border-gray-200 dark:border-gray-700">
               <button
                 type="button"
                 onClick={() => setCurrentStep(1)}
-                className="px-4 py-2 text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 order-3 sm:order-1"
+                className="px-4 py-2 text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600"
               >
                 Back
               </button>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="px-4 py-2 text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!formData.business_name) {
+                      alert('Business Name is required. Verify GST to auto-fill or enter manually.')
+                      return
+                    }
+                    if (formData.gst_applicable && !gstVerified) {
+                      alert('Please verify GST number or uncheck GST Registered')
+                      return
+                    }
+                    if (formData.cin_applicable && !cinVerified) {
+                      alert('Please verify CIN number or uncheck Company CIN Verification')
+                      return
+                    }
+                    if (!aadhaarVerified) {
+                      alert('Aadhaar verification via Digilocker is mandatory')
+                      return
+                    }
+                    if (!formData.address) {
+                      alert('Address is required. Verify GST or Aadhaar to capture address.')
+                      return
+                    }
+                    setCurrentStep(3)
+                  }}
+                  className="btn-primary"
+                >
+                  Next: KYC Verification
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : !item && currentStep === 3 ? (
+          <form onSubmit={handleSubmit} className="p-4 sm:p-6 space-y-4">
+            <div className="mb-2 p-4 bg-gradient-to-r from-indigo-50 to-blue-50 dark:from-indigo-900/20 dark:to-blue-900/20 rounded-xl border border-indigo-100 dark:border-indigo-800">
+              <div className="flex items-center gap-2 mb-1">
+                <ShieldCheck className="w-5 h-5 text-indigo-600" />
+                <h4 className="text-lg font-semibold text-gray-900 dark:text-white">KYC Verification</h4>
+              </div>
+              <p className="text-sm text-gray-600 dark:text-gray-400">Verify identity and bank details using eKYC APIs. PAN and Bank verification are mandatory.</p>
+            </div>
+
+            {/* PAN Verification */}
+            <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+              <h5 className="text-md font-semibold mb-3 text-indigo-600 dark:text-indigo-400 border-b pb-2">PAN Verification *</h5>
+              <div className="flex gap-3 items-end">
+                <div className="flex-1">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">PAN Number</label>
+                  <input
+                    type="text"
+                    value={formData.pan_number}
+                    onChange={(e) => { setFormData({ ...formData, pan_number: e.target.value.toUpperCase() }); setPanVerified(false); setPanError('') }}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-indigo-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+                    placeholder="ABCDE1234F"
+                    maxLength={10}
+                    disabled={panVerified}
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={handleVerifyPan}
+                  disabled={verifyingPan || panVerified || !formData.pan_number}
+                  className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 whitespace-nowrap"
+                >
+                  {verifyingPan ? <Loader2 className="w-4 h-4 animate-spin" /> : panVerified ? <CheckCircle className="w-4 h-4" /> : <ShieldCheck className="w-4 h-4" />}
+                  {verifyingPan ? 'Verifying...' : panVerified ? 'Verified' : 'Verify PAN'}
+                </button>
+              </div>
+              {panVerified && (
+                <div className="mt-3 p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
+                  <div className="flex items-center gap-2 text-green-700 dark:text-green-400">
+                    <CheckCircle className="w-4 h-4" />
+                    <span className="font-medium text-sm">PAN Verified</span>
+                  </div>
+                  <p className="text-sm text-green-600 dark:text-green-400 mt-1">Name: {panRegisteredName}</p>
+                  {panType && <p className="text-sm text-green-600 dark:text-green-400">Type: {panType}</p>}
+                </div>
+              )}
+              {panError && (
+                <div className="mt-3 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+                  <div className="flex items-center gap-2 text-red-700 dark:text-red-400">
+                    <AlertCircle className="w-4 h-4" />
+                    <span className="text-sm">{panError}</span>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Bank Account Verification */}
+            <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+              <h5 className="text-md font-semibold mb-3 text-indigo-600 dark:text-indigo-400 border-b pb-2">Bank Account Verification *</h5>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Bank Name</label>
+                  <input
+                    type="text"
+                    value={formData.bank_name}
+                    onChange={(e) => setFormData({ ...formData, bank_name: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-indigo-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+                    placeholder="Enter bank name"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Account Number</label>
+                  <input
+                    type="text"
+                    value={formData.account_number}
+                    onChange={(e) => { setFormData({ ...formData, account_number: e.target.value }); setBankVerified(false); setBankError('') }}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-indigo-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+                    placeholder="Enter account number"
+                    disabled={bankVerified}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">IFSC Code</label>
+                  <input
+                    type="text"
+                    value={formData.ifsc_code}
+                    onChange={(e) => { setFormData({ ...formData, ifsc_code: e.target.value.toUpperCase() }); setBankVerified(false); setBankError('') }}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-indigo-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+                    placeholder="Enter IFSC code"
+                    maxLength={11}
+                    disabled={bankVerified}
+                  />
+                </div>
+                <div className="flex items-end">
+                  <button
+                    type="button"
+                    onClick={handleVerifyBank}
+                    disabled={verifyingBank || bankVerified || !formData.account_number || !formData.ifsc_code}
+                    className="w-full px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  >
+                    {verifyingBank ? <Loader2 className="w-4 h-4 animate-spin" /> : bankVerified ? <CheckCircle className="w-4 h-4" /> : <ShieldCheck className="w-4 h-4" />}
+                    {verifyingBank ? 'Verifying...' : bankVerified ? 'Verified' : 'Verify Bank'}
+                  </button>
+                </div>
+              </div>
+              {bankVerified && (
+                <div className="p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
+                  <div className="flex items-center gap-2 text-green-700 dark:text-green-400">
+                    <CheckCircle className="w-4 h-4" />
+                    <span className="font-medium text-sm">Bank Account Verified</span>
+                  </div>
+                  <p className="text-sm text-green-600 dark:text-green-400 mt-1">Name at Bank: {bankVerifiedName}</p>
+                  {bankUtr && <p className="text-sm text-green-600 dark:text-green-400">UTR: {bankUtr}</p>}
+                </div>
+              )}
+              {bankError && (
+                <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+                  <div className="flex items-center gap-2 text-red-700 dark:text-red-400">
+                    <AlertCircle className="w-4 h-4" />
+                    <span className="text-sm">{bankError}</span>
+                  </div>
+                </div>
+              )}
+              {bankNameMismatch && (
+                <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+                  <div className="flex items-start gap-2 text-red-700 dark:text-red-400">
+                    <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
+                    <span className="text-sm">{bankNameMismatch}</span>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Mandatory verification status */}
+            {(!panVerified || !aadhaarVerified) && (
+              <div className="p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg">
+                <p className="text-sm font-medium text-amber-800 dark:text-amber-300 mb-1">Required verifications:</p>
+                <ul className="text-xs text-amber-700 dark:text-amber-400 space-y-1">
+                  {!panVerified && <li>• PAN verification is mandatory</li>}
+                  {!aadhaarVerified && <li>• Aadhaar verification via Digilocker is mandatory</li>}
+                  {!bankVerified && <li>• Bank account verification is mandatory</li>}
+                </ul>
+              </div>
+            )}
+
+            <div className="flex flex-col sm:flex-row justify-between gap-2 sm:gap-3 pt-4 border-t border-gray-200 dark:border-gray-700">
               <button
                 type="button"
-                onClick={onClose}
-                className="px-4 py-2 text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 order-2 sm:order-2"
+                onClick={() => setCurrentStep(2)}
+                className="px-4 py-2 text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600"
               >
-                Cancel
+                Back
               </button>
-              <button
-                type="submit"
-                disabled={loading || uploadingDocs}
-                className="btn-primary order-1 sm:order-3 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {uploadingDocs ? 'Uploading Documents...' : loading ? 'Creating...' : 'Submit for Verification'}
-              </button>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="px-4 py-2 text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={loading || !panVerified || !aadhaarVerified || !bankVerified || !!bankNameMismatch}
+                  className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {loading ? 'Creating...' : 'Submit for Verification'}
+                </button>
+              </div>
             </div>
           </form>
         ) : (
@@ -4670,7 +4692,7 @@ function PartnerModal({
                   type="tel"
                   required
                   value={formData.phone}
-                  onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                  onChange={(e) => setFormData({ ...formData, phone: e.target.value.replace(/\D/g, '').slice(0, 10) })}
                   className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
                 />
               </div>
@@ -4787,419 +4809,192 @@ function PartnerModal({
                   className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
                 />
               </div>
-              <div>
+              <div className="md:col-span-2">
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Address</label>
-                <input
-                  type="text"
+                <textarea
                   value={formData.address}
-                  onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+                  readOnly
+                  rows={3}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white cursor-not-allowed"
+                  placeholder="Address captured from KYC verification"
                 />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">City</label>
-                <input
-                  type="text"
-                  value={formData.city}
-                  onChange={(e) => setFormData({ ...formData, city: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">State</label>
-                <select
-                  value={formData.state}
-                  onChange={(e) => setFormData({ ...formData, state: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
-                >
-                  <option value="">Select State</option>
-                  <option value="Andhra Pradesh">Andhra Pradesh</option>
-                  <option value="Arunachal Pradesh">Arunachal Pradesh</option>
-                  <option value="Assam">Assam</option>
-                  <option value="Bihar">Bihar</option>
-                  <option value="Chhattisgarh">Chhattisgarh</option>
-                  <option value="Goa">Goa</option>
-                  <option value="Gujarat">Gujarat</option>
-                  <option value="Haryana">Haryana</option>
-                  <option value="Himachal Pradesh">Himachal Pradesh</option>
-                  <option value="Jharkhand">Jharkhand</option>
-                  <option value="Karnataka">Karnataka</option>
-                  <option value="Kerala">Kerala</option>
-                  <option value="Madhya Pradesh">Madhya Pradesh</option>
-                  <option value="Maharashtra">Maharashtra</option>
-                  <option value="Manipur">Manipur</option>
-                  <option value="Meghalaya">Meghalaya</option>
-                  <option value="Mizoram">Mizoram</option>
-                  <option value="Nagaland">Nagaland</option>
-                  <option value="Odisha">Odisha</option>
-                  <option value="Punjab">Punjab</option>
-                  <option value="Rajasthan">Rajasthan</option>
-                  <option value="Sikkim">Sikkim</option>
-                  <option value="Tamil Nadu">Tamil Nadu</option>
-                  <option value="Telangana">Telangana</option>
-                  <option value="Tripura">Tripura</option>
-                  <option value="Uttar Pradesh">Uttar Pradesh</option>
-                  <option value="Uttarakhand">Uttarakhand</option>
-                  <option value="West Bengal">West Bengal</option>
-                  <option value="Andaman and Nicobar Islands">Andaman and Nicobar Islands</option>
-                  <option value="Chandigarh">Chandigarh</option>
-                  <option value="Dadra and Nagar Haveli and Daman and Diu">Dadra and Nagar Haveli and Daman and Diu</option>
-                  <option value="Delhi">Delhi</option>
-                  <option value="Jammu and Kashmir">Jammu and Kashmir</option>
-                  <option value="Ladakh">Ladakh</option>
-                  <option value="Lakshadweep">Lakshadweep</option>
-                  <option value="Puducherry">Puducherry</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Pincode</label>
-                <input
-                  type="text"
-                  value={formData.pincode}
-                  onChange={(e) => setFormData({ ...formData, pincode: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
-                />
+                <p className="text-xs text-gray-500 mt-1">Address is auto-captured from GST/Aadhaar verification and cannot be edited manually.</p>
               </div>
             </div>
 
-            {/* Bank Account Details Section */}
+            {/* Bank & KYC Details Section */}
             <div className="mt-6 pt-6 border-t border-gray-200 dark:border-gray-700">
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Bank Account Details</h3>
+              <div className="flex items-center gap-2 mb-4">
+                <ShieldCheck className="w-5 h-5 text-indigo-600" />
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Bank & KYC Details</h3>
+              </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Bank Name *
-                    <span className="text-xs text-red-500 ml-1">(Mandatory)</span>
-                  </label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Bank Name</label>
                   <input
                     type="text"
-                    required
                     value={formData.bank_name}
                     onChange={(e) => setFormData({ ...formData, bank_name: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-indigo-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
                     placeholder="Enter bank name"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Account Number *
-                    <span className="text-xs text-red-500 ml-1">(Mandatory)</span>
-                  </label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Account Number</label>
                   <input
                     type="text"
-                    required
                     value={formData.account_number}
-                    onChange={(e) => setFormData({ ...formData, account_number: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+                    onChange={(e) => { setFormData({ ...formData, account_number: e.target.value }); setBankVerified(false); setBankError('') }}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-indigo-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
                     placeholder="Enter account number"
+                    disabled={bankVerified}
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    IFSC Code *
-                    <span className="text-xs text-red-500 ml-1">(Mandatory)</span>
-                  </label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">IFSC Code</label>
                   <input
                     type="text"
-                    required
                     value={formData.ifsc_code}
-                    onChange={(e) => setFormData({ ...formData, ifsc_code: e.target.value.toUpperCase() })}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+                    onChange={(e) => { setFormData({ ...formData, ifsc_code: e.target.value.toUpperCase() }); setBankVerified(false); setBankError('') }}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-indigo-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
                     placeholder="Enter IFSC code"
                     maxLength={11}
+                    disabled={bankVerified}
+                  />
+                </div>
+                <div className="flex items-end">
+                  <button
+                    type="button"
+                    onClick={handleVerifyBank}
+                    disabled={verifyingBank || bankVerified || !formData.account_number || !formData.ifsc_code}
+                    className="w-full px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  >
+                    {verifyingBank ? <Loader2 className="w-4 h-4 animate-spin" /> : bankVerified ? <CheckCircle className="w-4 h-4" /> : <ShieldCheck className="w-4 h-4" />}
+                    {verifyingBank ? 'Verifying...' : bankVerified ? 'Verified' : 'Verify Bank'}
+                  </button>
+                </div>
+              </div>
+              {bankVerified && (
+                <div className="mt-3 p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
+                  <div className="flex items-center gap-2 text-green-700 dark:text-green-400">
+                    <CheckCircle className="w-4 h-4" />
+                    <span className="font-medium text-sm">Bank Verified — {bankVerifiedName}</span>
+                  </div>
+                  {bankUtr && <p className="text-sm text-green-600 dark:text-green-400 mt-1">UTR: {bankUtr}</p>}
+                </div>
+              )}
+              {bankError && (
+                <div className="mt-3 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+                  <div className="flex items-center gap-2 text-red-700 dark:text-red-400">
+                    <AlertCircle className="w-4 h-4" />
+                    <span className="text-sm">{bankError}</span>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* KYC Document Details */}
+            <div className="mt-6 pt-6 border-t border-gray-200 dark:border-gray-700">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">KYC Details</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">PAN Number</label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={formData.pan_number}
+                      onChange={(e) => { setFormData({ ...formData, pan_number: e.target.value.toUpperCase() }); setPanVerified(false); setPanError('') }}
+                      className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-indigo-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+                      placeholder="ABCDE1234F"
+                      maxLength={10}
+                      disabled={panVerified}
+                    />
+                    <button
+                      type="button"
+                      onClick={handleVerifyPan}
+                      disabled={verifyingPan || panVerified || !formData.pan_number}
+                      className="px-3 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1 text-sm whitespace-nowrap"
+                    >
+                      {verifyingPan ? <Loader2 className="w-4 h-4 animate-spin" /> : panVerified ? <CheckCircle className="w-4 h-4" /> : <ShieldCheck className="w-4 h-4" />}
+                      {panVerified ? 'Verified' : 'Verify'}
+                    </button>
+                  </div>
+                  {panVerified && <p className="text-xs text-green-600 dark:text-green-400 mt-1">{panRegisteredName} {panType && `(${panType})`}</p>}
+                  {panError && <p className="text-xs text-red-600 dark:text-red-400 mt-1">{panError}</p>}
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Aadhaar Number</label>
+                  <input
+                    type="text"
+                    value={formData.aadhar_number}
+                    onChange={(e) => setFormData({ ...formData, aadhar_number: e.target.value.replace(/\D/g, '') })}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-indigo-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+                    placeholder="Enter 12-digit Aadhaar number"
+                    maxLength={12}
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Bank Document (Passbook/Cheque) *
-                    <span className="text-xs text-red-500 ml-1">(Mandatory)</span>
-                  </label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">UDHYAM Number</label>
                   <input
-                    type="file"
-                    required={!item}
-                    accept="image/*,application/pdf"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0] || null
-                      setFormData({ ...formData, bank_document: file })
-                    }}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 dark:file:bg-blue-900 dark:file:text-blue-200"
+                    type="text"
+                    value={formData.udhyam_number}
+                    onChange={(e) => setFormData({ ...formData, udhyam_number: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-indigo-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+                    placeholder="Enter UDHYAM registration number"
                   />
-                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Upload passbook or cancelled cheque</p>
-                  {formData.bank_document_url && !formData.bank_document && (
-                    <div className="flex items-center gap-2 mt-2">
-                      <button
-                        type="button"
-                        onClick={() => openDocumentViewer(formData.bank_document_url, 'Bank Document')}
-                        className="text-xs px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-1"
-                      >
-                        <Eye className="w-3 h-3" />
-                        Preview
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleDownload(formData.bank_document_url, `Bank_${formData.name || 'document'}.${formData.bank_document_url.split('.').pop()}`)}
-                        className="text-xs px-3 py-1.5 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors flex items-center gap-1"
-                      >
-                        <Download className="w-3 h-3" />
-                        Download
-                      </button>
-                    </div>
-                  )}
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">GST Number</label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={formData.gst_number}
+                      onChange={(e) => { setFormData({ ...formData, gst_number: e.target.value.toUpperCase() }); setGstVerified(false); setGstError('') }}
+                      className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-indigo-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+                      placeholder="Enter GST number"
+                      maxLength={15}
+                      disabled={gstVerified}
+                    />
+                    <button
+                      type="button"
+                      onClick={handleVerifyGst}
+                      disabled={verifyingGst || gstVerified || !formData.gst_number}
+                      className="px-3 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1 text-sm whitespace-nowrap"
+                    >
+                      {verifyingGst ? <Loader2 className="w-4 h-4 animate-spin" /> : gstVerified ? <CheckCircle className="w-4 h-4" /> : <ShieldCheck className="w-4 h-4" />}
+                      {gstVerified ? 'Verified' : 'Verify'}
+                    </button>
+                  </div>
+                  {gstVerified && <p className="text-xs text-green-600 dark:text-green-400 mt-1">{gstLegalName} — {gstGstStatus}</p>}
+                  {gstError && <p className="text-xs text-red-600 dark:text-red-400 mt-1">{gstError}</p>}
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Company CIN</label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={formData.cin_number}
+                      onChange={(e) => { setFormData({ ...formData, cin_number: e.target.value.toUpperCase() }); setCinVerified(false); setCinError('') }}
+                      className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-indigo-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+                      placeholder="Enter CIN number"
+                      maxLength={21}
+                      disabled={cinVerified}
+                    />
+                    <button
+                      type="button"
+                      onClick={handleVerifyCin}
+                      disabled={verifyingCin || cinVerified || !formData.cin_number}
+                      className="px-3 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1 text-sm whitespace-nowrap"
+                    >
+                      {verifyingCin ? <Loader2 className="w-4 h-4 animate-spin" /> : cinVerified ? <CheckCircle className="w-4 h-4" /> : <ShieldCheck className="w-4 h-4" />}
+                      {cinVerified ? 'Verified' : 'Verify'}
+                    </button>
+                  </div>
+                  {cinVerified && <p className="text-xs text-green-600 dark:text-green-400 mt-1">{cinCompanyName} — {cinStatus}</p>}
+                  {cinError && <p className="text-xs text-red-600 dark:text-red-400 mt-1">{cinError}</p>}
                 </div>
               </div>
             </div>
-
-            {/* Document Fields Section */}
-            <div className="mt-6 pt-6 border-t border-gray-200 dark:border-gray-700">
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Document Details</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
-              {/* AADHAR Number */}
-              <div className="md:col-span-2">
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  AADHAR Number *
-                  <span className="text-xs text-red-500 ml-1">(Mandatory)</span>
-                </label>
-                <input
-                  type="text"
-                  required={!item}
-                  value={formData.aadhar_number}
-                  onChange={(e) => setFormData({ ...formData, aadhar_number: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
-                  placeholder="Enter 12-digit AADHAR number"
-                />
-              </div>
-              {/* AADHAR Front Attachment */}
-              <div className="md:col-span-2">
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  AADHAR Front *
-                  <span className="text-xs text-red-500 ml-1">(Mandatory)</span>
-                </label>
-                <input
-                  type="file"
-                  required={!item}
-                  accept="image/*,application/pdf"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0] || null
-                    setFormData({ ...formData, aadhar_front_attachment: file })
-                  }}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-primary-50 file:text-primary-700 hover:file:bg-primary-100"
-                />
-                {formData.aadhar_front_url && !formData.aadhar_front_attachment && (
-                  <div className="flex items-center gap-2 mt-2">
-                    <button
-                      type="button"
-                      onClick={() => openDocumentViewer(formData.aadhar_front_url, 'AADHAR Front')}
-                      className="text-xs px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-1"
-                    >
-                      <Eye className="w-3 h-3" />
-                      Preview
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleDownload(formData.aadhar_front_url, `AADHAR_Front_${formData.name || 'document'}.${formData.aadhar_front_url.split('.').pop()}`)}
-                      className="text-xs px-3 py-1.5 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors flex items-center gap-1"
-                    >
-                      <Download className="w-3 h-3" />
-                      Download
-                    </button>
-                  </div>
-                )}
-              </div>
-              {/* AADHAR Back Attachment */}
-              <div className="md:col-span-2">
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  AADHAR Back *
-                  <span className="text-xs text-red-500 ml-1">(Mandatory)</span>
-                </label>
-                <input
-                  type="file"
-                  required={!item}
-                  accept="image/*,application/pdf"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0] || null
-                    setFormData({ ...formData, aadhar_back_attachment: file })
-                  }}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-primary-50 file:text-primary-700 hover:file:bg-primary-100"
-                />
-                {formData.aadhar_back_url && !formData.aadhar_back_attachment && (
-                  <div className="flex items-center gap-2 mt-2">
-                    <button
-                      type="button"
-                      onClick={() => openDocumentViewer(formData.aadhar_back_url, 'AADHAR Back')}
-                      className="text-xs px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-1"
-                    >
-                      <Eye className="w-3 h-3" />
-                      Preview
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleDownload(formData.aadhar_back_url, `AADHAR_Back_${formData.name || 'document'}.${formData.aadhar_back_url.split('.').pop()}`)}
-                      className="text-xs px-3 py-1.5 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors flex items-center gap-1"
-                    >
-                      <Download className="w-3 h-3" />
-                      Download
-                    </button>
-                  </div>
-                )}
-              </div>
-
-              {/* PAN Number */}
-              <div className="md:col-span-2">
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  PAN Number *
-                  <span className="text-xs text-red-500 ml-1">(Mandatory)</span>
-                </label>
-                <input
-                  type="text"
-                  required={!item}
-                  value={formData.pan_number}
-                  onChange={(e) => setFormData({ ...formData, pan_number: e.target.value.toUpperCase() })}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
-                  placeholder="Enter PAN number (e.g., ABCDE1234F)"
-                  maxLength={10}
-                />
-              </div>
-              {/* PAN Attachment */}
-              <div className="md:col-span-2">
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  PAN Attachment *
-                  <span className="text-xs text-red-500 ml-1">(Mandatory)</span>
-                </label>
-                <input
-                  type="file"
-                  required={!item}
-                  accept="image/*,application/pdf"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0] || null
-                    setFormData({ ...formData, pan_attachment: file })
-                  }}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-primary-50 file:text-primary-700 hover:file:bg-primary-100"
-                />
-                {formData.pan_attachment_url && !formData.pan_attachment && (
-                  <div className="flex items-center gap-2 mt-2">
-                    <button
-                      type="button"
-                      onClick={() => openDocumentViewer(formData.pan_attachment_url, 'PAN Document')}
-                      className="text-xs px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-1"
-                    >
-                      <Eye className="w-3 h-3" />
-                      Preview
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleDownload(formData.pan_attachment_url, `PAN_${formData.name || 'document'}.${formData.pan_attachment_url.split('.').pop()}`)}
-                      className="text-xs px-3 py-1.5 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors flex items-center gap-1"
-                    >
-                      <Download className="w-3 h-3" />
-                      Download
-                    </button>
-                  </div>
-                )}
-              </div>
-
-              {/* UDHYAM Number */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  UDHYAM Number
-                  <span className="text-xs text-gray-500 dark:text-gray-400 ml-1">(Optional, but one of UDHYAM or GST required)</span>
-                </label>
-                <input
-                  type="text"
-                  value={formData.udhyam_number}
-                  onChange={(e) => setFormData({ ...formData, udhyam_number: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
-                  placeholder="Enter UDHYAM registration number"
-                />
-              </div>
-              {/* UDHYAM Certificate */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  UDHYAM Certificate
-                  <span className="text-xs text-gray-500 dark:text-gray-400 ml-1">(Optional)</span>
-                </label>
-                <input
-                  type="file"
-                  accept="image/*,application/pdf"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0] || null
-                    setFormData({ ...formData, udhyam_attachment: file })
-                  }}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-primary-50 file:text-primary-700 hover:file:bg-primary-100"
-                />
-                {formData.udhyam_certificate_url && !formData.udhyam_attachment && (
-                  <div className="flex items-center gap-2 mt-2">
-                    <button
-                      type="button"
-                      onClick={() => openDocumentViewer(formData.udhyam_certificate_url, 'UDHYAM Certificate')}
-                      className="text-xs px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-1"
-                    >
-                      <Eye className="w-3 h-3" />
-                      Preview
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleDownload(formData.udhyam_certificate_url, `UDHYAM_${formData.name || 'document'}.${formData.udhyam_certificate_url.split('.').pop()}`)}
-                      className="text-xs px-3 py-1.5 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors flex items-center gap-1"
-                    >
-                      <Download className="w-3 h-3" />
-                      Download
-                    </button>
-                  </div>
-                )}
-              </div>
-
-              {/* GST Number */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  GST Number
-                  <span className="text-xs text-gray-500 dark:text-gray-400 ml-1">(Optional, but one of UDHYAM or GST required)</span>
-                </label>
-                <input
-                  type="text"
-                  value={formData.gst_number}
-                  onChange={(e) => setFormData({ ...formData, gst_number: e.target.value.toUpperCase() })}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
-                  placeholder="Enter GST number"
-                />
-              </div>
-              {/* GST Certificate */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  GST Certificate
-                  <span className="text-xs text-gray-500 dark:text-gray-400 ml-1">(Optional)</span>
-                </label>
-                <input
-                  type="file"
-                  accept="image/*,application/pdf"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0] || null
-                    setFormData({ ...formData, gst_attachment: file })
-                  }}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-primary-50 file:text-primary-700 hover:file:bg-primary-100"
-                />
-                {formData.gst_certificate_url && !formData.gst_attachment && (
-                  <div className="flex items-center gap-2 mt-2">
-                    <button
-                      type="button"
-                      onClick={() => openDocumentViewer(formData.gst_certificate_url, 'GST Certificate')}
-                      className="text-xs px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-1"
-                    >
-                      <Eye className="w-3 h-3" />
-                      Preview
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleDownload(formData.gst_certificate_url, `GST_${formData.name || 'document'}.${formData.gst_certificate_url.split('.').pop()}`)}
-                      className="text-xs px-3 py-1.5 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors flex items-center gap-1"
-                    >
-                      <Download className="w-3 h-3" />
-                      Download
-                    </button>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
 
           <div className="flex flex-col sm:flex-row justify-end gap-2 sm:gap-3 pt-4 border-t border-gray-200 dark:border-gray-700">
             <button
@@ -5211,124 +5006,15 @@ function PartnerModal({
             </button>
             <button
               type="submit"
-              disabled={loading || uploadingDocs}
+              disabled={loading}
               className="btn-primary order-1 sm:order-2 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {uploadingDocs ? 'Uploading Documents...' : loading ? 'Saving...' : item ? 'Update' : 'Create'}
+              {loading ? 'Saving...' : 'Update'}
             </button>
           </div>
         </form>
         )}
 
-        {/* Document Viewer Modal */}
-        <AnimatePresence>
-          {viewingDocument && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="fixed inset-0 bg-black/90 z-[60] flex items-center justify-center p-4"
-              onClick={() => setViewingDocument(null)}
-            >
-              <motion.div
-                initial={{ scale: 0.9, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                exit={{ scale: 0.9, opacity: 0 }}
-                onClick={(e) => e.stopPropagation()}
-                className="relative bg-white rounded-2xl shadow-2xl max-w-6xl w-full max-h-[95vh] overflow-hidden"
-              >
-                {/* Header */}
-                <div className="flex items-center justify-between p-4 bg-gradient-to-r from-gray-900 to-gray-800 text-white">
-                  <div className="flex items-center gap-3">
-                    {viewingDocument.type === 'image' ? (
-                      <ImageIcon className="w-6 h-6" />
-                    ) : (
-                      <FileText className="w-6 h-6" />
-                    )}
-                    <h3 className="text-lg font-bold">{viewingDocument.name}</h3>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {viewingDocument.type === 'image' && (
-                      <>
-                        <button
-                          onClick={() => setImageZoom(Math.max(0.5, imageZoom - 0.25))}
-                          className="p-2 hover:bg-white/20 rounded-lg transition-colors"
-                          title="Zoom Out"
-                        >
-                          <ZoomOut className="w-5 h-5" />
-                        </button>
-                        <span className="text-sm font-medium min-w-[60px] text-center">{Math.round(imageZoom * 100)}%</span>
-                        <button
-                          onClick={() => setImageZoom(Math.min(3, imageZoom + 0.25))}
-                          className="p-2 hover:bg-white/20 rounded-lg transition-colors"
-                          title="Zoom In"
-                        >
-                          <ZoomIn className="w-5 h-5" />
-                        </button>
-                        <button
-                          onClick={() => setImageRotation((prev) => (prev + 90) % 360)}
-                          className="p-2 hover:bg-white/20 rounded-lg transition-colors"
-                          title="Rotate"
-                        >
-                          <RotateCw className="w-5 h-5" />
-                        </button>
-                      </>
-                    )}
-                    <button
-                      onClick={() => handleDownload(viewingDocument.url, viewingDocument.name)}
-                      className="p-2 hover:bg-white/20 rounded-lg transition-colors"
-                      title="Download"
-                    >
-                      <Download className="w-5 h-5" />
-                    </button>
-                    <button
-                      onClick={() => setViewingDocument(null)}
-                      className="p-2 hover:bg-white/20 rounded-lg transition-colors"
-                    >
-                      <X className="w-5 h-5" />
-                    </button>
-                  </div>
-                </div>
-
-                {/* Document Content */}
-                <div className="relative bg-gray-900 flex items-center justify-center overflow-auto" style={{ height: 'calc(95vh - 80px)' }}>
-                  {viewingDocument.type === 'image' ? (
-                    <motion.div
-                      animate={{ scale: imageZoom, rotate: imageRotation }}
-                      transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-                      className="relative"
-                    >
-                      <img
-                        src={viewingDocument.url}
-                        alt={viewingDocument.name}
-                        className="max-w-full max-h-[85vh] object-contain"
-                        draggable={false}
-                      />
-                    </motion.div>
-                  ) : viewingDocument.type === 'pdf' ? (
-                    <iframe
-                      src={viewingDocument.url}
-                      className="w-full h-full min-h-[600px]"
-                      title={viewingDocument.name}
-                    />
-                  ) : (
-                    <div className="text-center text-white p-12">
-                      <FileText className="w-16 h-16 mx-auto mb-4 opacity-50" />
-                      <p className="text-lg mb-4">Preview not available for this file type</p>
-                      <button
-                        onClick={() => handleDownload(viewingDocument.url, viewingDocument.name)}
-                        className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2 mx-auto"
-                      >
-                        <Download className="w-5 h-5" />
-                        Download to View
-                      </button>
-                    </div>
-                  )}
-                </div>
-              </motion.div>
-            </motion.div>
-          )}
-        </AnimatePresence>
       </motion.div>
     </div>
   )
@@ -7974,6 +7660,7 @@ function CreatePartnerModal({
   onSuccess: () => void
 }) {
   const [loading, setLoading] = useState(false)
+  const [currentStep, setCurrentStep] = useState(1)
   const [showPartnerCreatePassword, setShowPartnerCreatePassword] = useState(false)
   const [formData, setFormData] = useState({
     name: '',
@@ -7988,6 +7675,16 @@ function CreatePartnerModal({
     state: '',
     pincode: '',
     gst_number: '',
+    gst_applicable: false,
+    cin_applicable: false,
+    cin_number: '',
+    udhyam_applicable: false,
+    udhyam_number: '',
+    aadhar_number: '',
+    pan_number: '',
+    bank_name: '',
+    account_number: '',
+    ifsc_code: '',
     primary_color: '#3B82F6',
     secondary_color: '#10B981',
     logo_url: '',
@@ -7995,112 +7692,291 @@ function CreatePartnerModal({
     notes: ''
   })
 
+  // PAN verification
+  const [panVerified, setPanVerified] = useState(false)
+  const [panRegisteredName, setPanRegisteredName] = useState('')
+  const [panType, setPanType] = useState('')
+  const [verifyingPan, setVerifyingPan] = useState(false)
+  const [panError, setPanError] = useState('')
+
+  // Bank verification
+  const [bankVerified, setBankVerified] = useState(false)
+  const [bankVerifiedName, setBankVerifiedName] = useState('')
+  const [bankUtr, setBankUtr] = useState('')
+  const [verifyingBank, setVerifyingBank] = useState(false)
+  const [bankError, setBankError] = useState('')
+  const [bankNameMismatch, setBankNameMismatch] = useState('')
+
+  // GST verification
+  const [gstVerified, setGstVerified] = useState(false)
+  const [gstLegalName, setGstLegalName] = useState('')
+  const [gstTradeName, setGstTradeName] = useState('')
+  const [gstGstStatus, setGstGstStatus] = useState('')
+  const [gstTaxpayerType, setGstTaxpayerType] = useState('')
+  const [gstConstitution, setGstConstitution] = useState('')
+  const [gstAddress, setGstAddress] = useState('')
+  const [verifyingGst, setVerifyingGst] = useState(false)
+  const [gstError, setGstError] = useState('')
+
+  // CIN verification
+  const [cinVerified, setCinVerified] = useState(false)
+  const [cinCompanyName, setCinCompanyName] = useState('')
+  const [cinStatus, setCinStatus] = useState('')
+  const [cinIncorporationDate, setCinIncorporationDate] = useState('')
+  const [verifyingCin, setVerifyingCin] = useState(false)
+  const [cinError, setCinError] = useState('')
+
+  // Aadhaar / Digilocker
+  const [aadhaarVerified, setAadhaarVerified] = useState(false)
+  const [aadhaarName, setAadhaarName] = useState('')
+  const [aadhaarGender, setAadhaarGender] = useState('')
+  const [aadhaarDob, setAadhaarDob] = useState('')
+  const [aadhaarAddress, setAadhaarAddress] = useState('')
+  const [aadhaarUid, setAadhaarUid] = useState('')
+  const [digilockerLoading, setDigilockerLoading] = useState(false)
+  const [digilockerError, setDigilockerError] = useState('')
+  const [digilockerUrl, setDigilockerUrl] = useState('')
+  const [digilockerVerificationId, setDigilockerVerificationId] = useState('')
+
+  const [ekychubOrderIds, setEkychubOrderIds] = useState<Record<string, string>>({})
+
+  const indianStates = ['Andhra Pradesh','Arunachal Pradesh','Assam','Bihar','Chhattisgarh','Goa','Gujarat','Haryana','Himachal Pradesh','Jharkhand','Karnataka','Kerala','Madhya Pradesh','Maharashtra','Manipur','Meghalaya','Mizoram','Nagaland','Odisha','Punjab','Rajasthan','Sikkim','Tamil Nadu','Telangana','Tripura','Uttar Pradesh','Uttarakhand','West Bengal','Andaman and Nicobar Islands','Chandigarh','Dadra and Nagar Haveli and Daman and Diu','Delhi','Jammu and Kashmir','Ladakh','Lakshadweep','Puducherry']
+
+  // Auto-fill from GST
+  useEffect(() => {
+    if (gstVerified && (gstTradeName || gstLegalName)) {
+      setFormData(prev => ({ ...prev, business_name: gstTradeName || gstLegalName, address: gstAddress || prev.address }))
+    }
+  }, [gstVerified, gstTradeName, gstLegalName, gstAddress])
+
+  // Auto-fill from Aadhaar
+  useEffect(() => {
+    if (aadhaarVerified && aadhaarAddress && !formData.gst_applicable) {
+      setFormData(prev => ({ ...prev, address: aadhaarAddress || prev.address }))
+    }
+  }, [aadhaarVerified, aadhaarAddress])
+
+  // Digilocker listener
+  useEffect(() => {
+    const handleDigilockerMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'DIGILOCKER_RESULT') {
+        if (event.data.success && event.data.data) {
+          const d = event.data.data
+          setAadhaarVerified(true); setAadhaarName(d.name || ''); setAadhaarUid(d.uid || '')
+          setAadhaarDob(d.dob || ''); setAadhaarGender(d.gender || ''); setAadhaarAddress(d.address || '')
+          if (d.verification_id) setDigilockerVerificationId(d.verification_id)
+          if (d.uid) setFormData(prev => ({ ...prev, aadhar_number: d.uid.replace(/\s/g, '') }))
+        } else if (event.data.error) { setDigilockerError(event.data.error) }
+      }
+    }
+    const handleStorageChange = (event: StorageEvent) => {
+      if (event.key === 'digilocker_result' && event.newValue) {
+        try {
+          const result = JSON.parse(event.newValue)
+          if (result.success && result.data) {
+            const d = result.data
+            setAadhaarVerified(true); setAadhaarName(d.name || ''); setAadhaarUid(d.uid || '')
+            setAadhaarDob(d.dob || ''); setAadhaarGender(d.gender || ''); setAadhaarAddress(d.address || '')
+            if (d.verification_id) setDigilockerVerificationId(d.verification_id)
+            if (d.uid) setFormData(prev => ({ ...prev, aadhar_number: d.uid.replace(/\s/g, '') }))
+          } else if (result.error) { setDigilockerError(result.error) }
+          localStorage.removeItem('digilocker_result')
+        } catch (e) {}
+      }
+    }
+    window.addEventListener('message', handleDigilockerMessage)
+    window.addEventListener('storage', handleStorageChange)
+    return () => { window.removeEventListener('message', handleDigilockerMessage); window.removeEventListener('storage', handleStorageChange) }
+  }, [])
+
+  const handleVerifyPan = async () => {
+    if (!formData.pan_number || !/^[A-Z]{5}\d{4}[A-Z]$/.test(formData.pan_number.toUpperCase())) { setPanError('Enter valid 10-character PAN'); return }
+    setVerifyingPan(true); setPanError('')
+    try {
+      const res = await apiFetch('/api/kyc/verify-pan', { method: 'POST', body: JSON.stringify({ pan: formData.pan_number.toUpperCase() }) })
+      const data = await res.json()
+      if (data.success) { setPanVerified(true); setPanRegisteredName(data.data.registered_name || ''); setPanType(data.data.type || ''); setEkychubOrderIds(prev => ({ ...prev, pan: data.orderid })) }
+      else { setPanError(data.error || 'PAN verification failed'); setPanVerified(false) }
+    } catch (err: any) { setPanError(err.message || 'PAN verification failed'); setPanVerified(false) }
+    finally { setVerifyingPan(false) }
+  }
+
+  const fuzzyNameMatch = (name1: string, name2: string): boolean => {
+    if (!name1 || !name2) return false
+    const normalize = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim()
+    const n1 = normalize(name1), n2 = normalize(name2)
+    if (n1 === n2) return true
+    if (n1.includes(n2) || n2.includes(n1)) return true
+    const words1 = n1.split(' '), words2 = n2.split(' ')
+    const common = words1.filter(w => w.length > 1 && words2.includes(w))
+    return common.length >= Math.min(2, Math.min(words1.length, words2.length))
+  }
+
+  const handleVerifyBank = async () => {
+    if (!formData.account_number || !formData.ifsc_code) { setBankError('Account number and IFSC code required'); return }
+    setVerifyingBank(true); setBankError(''); setBankNameMismatch('')
+    try {
+      const res = await apiFetch('/api/kyc/verify-bank', { method: 'POST', body: JSON.stringify({ account_number: formData.account_number, ifsc: formData.ifsc_code.toUpperCase() }) })
+      const data = await res.json()
+      if (data.success) {
+        const holderName = data.data.nameAtBank || ''
+        setBankVerified(true); setBankVerifiedName(holderName); setBankUtr(data.data.utr || ''); setEkychubOrderIds(prev => ({ ...prev, bank: data.orderid }))
+        if (holderName) {
+          const matchesBusiness = fuzzyNameMatch(holderName, formData.business_name)
+          const matchesAadhaar = fuzzyNameMatch(holderName, aadhaarName)
+          if (!matchesBusiness && !matchesAadhaar) {
+            setBankNameMismatch(`Account holder name "${holderName}" does not match Business Name "${formData.business_name}"${aadhaarName ? ` or Aadhaar Name "${aadhaarName}"` : ''}. Please verify the correct bank account.`)
+            setBankVerified(false)
+          }
+        }
+      }
+      else { setBankError(data.error || 'Bank verification failed'); setBankVerified(false) }
+    } catch (err: any) { setBankError(err.message || 'Bank verification failed'); setBankVerified(false) }
+    finally { setVerifyingBank(false) }
+  }
+
+  const handleVerifyGst = async () => {
+    if (!formData.gst_number || formData.gst_number.length < 15) { setGstError('Enter valid GST number'); return }
+    setVerifyingGst(true); setGstError('')
+    try {
+      const res = await apiFetch('/api/kyc/verify-gst', { method: 'POST', body: JSON.stringify({ gst: formData.gst_number.toUpperCase() }) })
+      const data = await res.json()
+      if (data.success) { setGstVerified(true); setGstLegalName(data.data.legal_name || ''); setGstTradeName(data.data.trade_name || ''); setGstGstStatus(data.data.status || ''); setGstTaxpayerType(data.data.taxpayer_type || ''); setGstConstitution(data.data.constitution || ''); setGstAddress(data.data.address || ''); setEkychubOrderIds(prev => ({ ...prev, gst: data.orderid })) }
+      else { setGstError(data.error || 'GST verification failed'); setGstVerified(false) }
+    } catch (err: any) { setGstError(err.message || 'GST verification failed'); setGstVerified(false) }
+    finally { setVerifyingGst(false) }
+  }
+
+  const handleVerifyCin = async () => {
+    if (!formData.cin_number || formData.cin_number.length < 10) { setCinError('Enter valid CIN number'); return }
+    setVerifyingCin(true); setCinError('')
+    try {
+      const res = await apiFetch('/api/kyc/verify-cin', { method: 'POST', body: JSON.stringify({ cin: formData.cin_number.toUpperCase() }) })
+      const data = await res.json()
+      if (data.success) { setCinVerified(true); setCinCompanyName(data.data.company_name || ''); setCinStatus(data.data.cin_status || ''); setCinIncorporationDate(data.data.incorporation_date || ''); setEkychubOrderIds(prev => ({ ...prev, cin: data.orderid })) }
+      else { setCinError(data.error || 'CIN verification failed'); setCinVerified(false) }
+    } catch (err: any) { setCinError(err.message || 'CIN verification failed'); setCinVerified(false) }
+    finally { setVerifyingCin(false) }
+  }
+
+  const handleDigilockerAadhaar = async () => {
+    setDigilockerLoading(true); setDigilockerError(''); setDigilockerUrl('')
+    try {
+      const res = await apiFetch('/api/kyc/verify-digilocker', { method: 'POST', body: JSON.stringify({ type: 'aadhaar' }) })
+      const data = await res.json()
+      if (data.success && data.data.url) { setDigilockerUrl(data.data.url); setDigilockerVerificationId(data.data.verification_id || ''); setEkychubOrderIds(prev => ({ ...prev, digilocker_aadhaar: data.orderid })); window.open(data.data.url, '_blank') }
+      else { setDigilockerError(data.error || 'Failed to generate Digilocker URL') }
+    } catch (err: any) { setDigilockerError(err.message || 'Digilocker verification failed') }
+    finally { setDigilockerLoading(false) }
+  }
+
+  function calculateVerificationScore() {
+    let score = 0
+    if (panVerified) score += 30
+    if (bankVerified) score += 30
+    if (gstVerified) score += 20
+    if (aadhaarVerified) score += 10
+    if (cinVerified) score += 10
+    return score
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (!panVerified) { alert('PAN verification is mandatory'); return }
+    if (!aadhaarVerified) { alert('Aadhaar verification via Digilocker is mandatory'); return }
+    if (!bankVerified) { alert('Bank account verification is required'); return }
+    if (bankNameMismatch) { alert('Bank account holder name does not match. Please use the correct bank account.'); return }
     setLoading(true)
-
     try {
-      // Validate email and password if password is provided
-      if (formData.password && formData.password.length < 8) {
-        alert('Password must be at least 8 characters long')
-        setLoading(false)
-        return
-      }
+      if (formData.password && formData.password.length < 8) { alert('Password must be at least 8 characters long'); setLoading(false); return }
+      if (!formData.contact_email) { alert('Email is required'); setLoading(false); return }
 
-      if (!formData.contact_email) {
-        alert('Email is required')
-        setLoading(false)
-        return
-      }
-
-      // Map form fields to database columns
-      // contact_email -> email, contact_phone -> phone
       const partnerData: any = {
         name: formData.name,
-        email: formData.contact_email, // Map contact_email to email
-        phone: formData.contact_phone, // Map contact_phone to phone
-        business_name: formData.business_name || formData.name, // Use name if business_name not provided (required field)
+        email: formData.contact_email,
+        phone: formData.contact_phone,
+        business_name: formData.business_name || formData.name,
         address: formData.address || null,
         city: formData.city || null,
         state: formData.state || null,
         pincode: formData.pincode || null,
-        gst_number: formData.gst_number || null, // Optional - GST Number
+        gst_number: formData.gst_number || null,
+        pan_number: formData.pan_number || null,
+        aadhar_number: formData.aadhar_number || null,
+        bank_name: formData.bank_name || null,
+        account_number: formData.account_number || null,
+        ifsc_code: formData.ifsc_code || null,
+        udhyam_number: formData.udhyam_number || null,
+        cin_number: formData.cin_number || null,
         status: formData.status,
+        pan_verified: panVerified,
+        pan_registered_name: panRegisteredName || null,
+        pan_type: panType || null,
+        bank_verified: bankVerified,
+        bank_verified_name: bankVerifiedName || null,
+        bank_utr: bankUtr || null,
+        gst_verified: gstVerified,
+        gst_legal_name: gstLegalName || null,
+        gst_trade_name: gstTradeName || null,
+        gst_status: gstGstStatus || null,
+        gst_taxpayer_type: gstTaxpayerType || null,
+        gst_constitution: gstConstitution || null,
+        gst_address: gstAddress || null,
+        cin_verified: cinVerified,
+        cin_company_name: cinCompanyName || null,
+        cin_status: cinStatus || null,
+        cin_incorporation_date: cinIncorporationDate || null,
+        aadhaar_verified: aadhaarVerified,
+        aadhaar_name: aadhaarName || null,
+        aadhaar_dob: aadhaarDob || null,
+        aadhaar_gender: aadhaarGender || null,
+        aadhaar_address: aadhaarAddress || null,
+        aadhaar_uid: aadhaarUid || null,
+        digilocker_verification_id: digilockerVerificationId || null,
+        ekychub_order_ids: ekychubOrderIds,
+        auto_verification_score: calculateVerificationScore(),
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       }
 
-      // Store optional branding fields in metadata JSONB column
       const metadata: any = {}
       if (formData.subdomain) metadata.subdomain = formData.subdomain
-      if (formData.logo_url) metadata.logo_url = formData.logo_url // Optional - Logo URL
+      if (formData.logo_url) metadata.logo_url = formData.logo_url
       if (formData.primary_color) metadata.primary_color = formData.primary_color
       if (formData.secondary_color) metadata.secondary_color = formData.secondary_color
       if (formData.partner_type) metadata.partner_type = formData.partner_type
       if (formData.notes) metadata.notes = formData.notes
+      if (Object.keys(metadata).length > 0) partnerData.metadata = metadata
 
-      if (Object.keys(metadata).length > 0) {
-        partnerData.metadata = metadata
-      }
-
-      // If password is provided, create auth user first
       if (formData.password) {
-        // Get auth token for API call
         const { data: { session } } = await supabase.auth.getSession()
         const authHeaders: HeadersInit = {}
-        if (session?.access_token) {
-          authHeaders['Authorization'] = `Bearer ${session.access_token}`
-        }
+        if (session?.access_token) authHeaders['Authorization'] = `Bearer ${session.access_token}`
 
-        // Create partner record first
-        const { data: createdPartner, error: partnerError } = await supabase
-          .from('partners')
-          .insert([partnerData])
-          .select()
-          .single()
-
+        const { data: createdPartner, error: partnerError } = await supabase.from('partners').insert([partnerData]).select().single()
         if (partnerError) throw partnerError
 
-        // Create auth user using the create-user API
         const response = await apiFetch('/api/admin/create-user', {
-          method: 'POST',
-          headers: authHeaders,
-          body: JSON.stringify({
-            email: formData.contact_email,
-            password: formData.password,
-            role: 'partner',
-            tableName: 'partners',
-            userData: {
-              id: createdPartner.id,
-              ...partnerData
-            },
-          }),
+          method: 'POST', headers: authHeaders,
+          body: JSON.stringify({ email: formData.contact_email, password: formData.password, role: 'partner', tableName: 'partners', userData: { id: createdPartner.id, ...partnerData } }),
         })
-
         if (!response.ok) {
-          // If auth user creation fails, delete the partner record
           await supabase.from('partners').delete().eq('id', createdPartner.id)
           const errorData = await response.json()
           throw new Error(errorData.error || 'Failed to create authentication user')
         }
       } else {
-        // No password provided, just create partner record
-        const { data, error } = await supabase
-          .from('partners')
-          .insert([partnerData])
-          .select()
-
+        const { error } = await supabase.from('partners').insert([partnerData]).select()
         if (error) throw error
       }
-
       onSuccess()
     } catch (error: any) {
       console.error('Error creating partner:', error)
       alert(error.message || 'Failed to create partner')
-    } finally {
-      setLoading(false)
-    }
+    } finally { setLoading(false) }
   }
+
+  const addressFromApi = (gstVerified && gstAddress) || (aadhaarVerified && aadhaarAddress)
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
@@ -8108,381 +7984,333 @@ function CreatePartnerModal({
         initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
         exit={{ opacity: 0, scale: 0.95 }}
-        className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto"
+        className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-2xl w-full max-h-[95vh] sm:max-h-[90vh] overflow-y-auto overflow-x-hidden"
       >
-        <div className="sticky top-0 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-4 flex items-center justify-between">
-          <h2 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
-            <Building2 className="w-6 h-6 text-primary-600" />
-            Create New Partner
-          </h2>
-          <button
-            onClick={onClose}
-            className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
-          >
-            <X className="w-5 h-5 text-gray-500" />
-          </button>
+        <div className="sticky top-0 z-10 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-4 sm:px-6 py-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-lg sm:text-xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                <Building2 className="w-5 h-5 text-primary-600" />
+                Create New Partner
+              </h2>
+              <p className="text-sm text-gray-500 mt-1">
+                Step {currentStep} of 3: {currentStep === 1 ? 'Partner & Personal Details' : currentStep === 2 ? 'Business & Address' : 'KYC Verification'}
+              </p>
+            </div>
+            <button onClick={onClose} className="p-1 text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
+          </div>
+          <div className="mt-3">
+            <div className="flex gap-1.5">
+              <div className={`flex-1 h-2 rounded-full transition-colors ${currentStep >= 1 ? 'bg-primary-600' : 'bg-gray-200'}`}></div>
+              <div className={`flex-1 h-2 rounded-full transition-colors ${currentStep >= 2 ? 'bg-primary-600' : 'bg-gray-200'}`}></div>
+              <div className={`flex-1 h-2 rounded-full transition-colors ${currentStep >= 3 ? 'bg-primary-600' : 'bg-gray-200'}`}></div>
+            </div>
+            <div className="flex justify-between mt-1.5">
+              <span className={`text-xs font-medium ${currentStep === 1 ? 'text-primary-600' : 'text-gray-400'}`}>Personal</span>
+              <span className={`text-xs font-medium ${currentStep === 2 ? 'text-primary-600' : 'text-gray-400'}`}>Business</span>
+              <span className={`text-xs font-medium ${currentStep === 3 ? 'text-primary-600' : 'text-gray-400'}`}>KYC</span>
+            </div>
+          </div>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-6">
-          {/* Partner Type Selection */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Partner Type <span className="text-red-500">*</span>
-            </label>
-            <div className="grid grid-cols-2 gap-4">
-              <button
-                type="button"
-                onClick={() => setFormData({ ...formData, partner_type: 'B2B' })}
-                className={`p-4 rounded-lg border-2 transition-all ${
-                  formData.partner_type === 'B2B'
-                    ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20'
-                    : 'border-gray-200 dark:border-gray-700 hover:border-gray-300'
-                }`}
-              >
-                <div className="flex items-center gap-3">
-                  <Building2 className={`w-6 h-6 ${
-                    formData.partner_type === 'B2B' ? 'text-primary-600' : 'text-gray-400'
-                  }`} />
-                  <div className="text-left">
-                    <p className={`font-semibold ${
-                      formData.partner_type === 'B2B' ? 'text-primary-600' : 'text-gray-600 dark:text-gray-400'
-                    }`}>
-                      B2B (Business to Business)
-                    </p>
-                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                      For business partnerships
-                    </p>
+        {/* Step 1: Partner & Personal Details */}
+        {currentStep === 1 && (
+          <div className="p-4 sm:p-6 space-y-4">
+            {/* Partner Type */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Partner Type *</label>
+              <div className="grid grid-cols-2 gap-3">
+                <button type="button" onClick={() => setFormData({ ...formData, partner_type: 'B2B' })} className={`p-3 rounded-lg border-2 transition-all ${formData.partner_type === 'B2B' ? 'border-primary-500 bg-primary-50' : 'border-gray-200 hover:border-gray-300'}`}>
+                  <div className="flex items-center gap-2">
+                    <Building2 className={`w-5 h-5 ${formData.partner_type === 'B2B' ? 'text-primary-600' : 'text-gray-400'}`} />
+                    <div className="text-left">
+                      <p className={`text-sm font-semibold ${formData.partner_type === 'B2B' ? 'text-primary-600' : 'text-gray-600'}`}>B2B</p>
+                      <p className="text-[10px] text-gray-500">Business to Business</p>
+                    </div>
                   </div>
-                </div>
-              </button>
-              <button
-                type="button"
-                onClick={() => setFormData({ ...formData, partner_type: 'B2C' })}
-                className={`p-4 rounded-lg border-2 transition-all ${
-                  formData.partner_type === 'B2C'
-                    ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20'
-                    : 'border-gray-200 dark:border-gray-700 hover:border-gray-300'
-                }`}
-              >
-                <div className="flex items-center gap-3">
-                  <Users className={`w-6 h-6 ${
-                    formData.partner_type === 'B2C' ? 'text-primary-600' : 'text-gray-400'
-                  }`} />
-                  <div className="text-left">
-                    <p className={`font-semibold ${
-                      formData.partner_type === 'B2C' ? 'text-primary-600' : 'text-gray-600 dark:text-gray-400'
-                    }`}>
-                      B2C (Business to Consumer)
-                    </p>
-                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                      For consumer-facing services
-                    </p>
+                </button>
+                <button type="button" onClick={() => setFormData({ ...formData, partner_type: 'B2C' })} className={`p-3 rounded-lg border-2 transition-all ${formData.partner_type === 'B2C' ? 'border-primary-500 bg-primary-50' : 'border-gray-200 hover:border-gray-300'}`}>
+                  <div className="flex items-center gap-2">
+                    <Users className={`w-5 h-5 ${formData.partner_type === 'B2C' ? 'text-primary-600' : 'text-gray-400'}`} />
+                    <div className="text-left">
+                      <p className={`text-sm font-semibold ${formData.partner_type === 'B2C' ? 'text-primary-600' : 'text-gray-600'}`}>B2C</p>
+                      <p className="text-[10px] text-gray-500">Business to Consumer</p>
+                    </div>
                   </div>
+                </button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Partner Name *</label>
+                <input type="text" required value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white text-gray-900" placeholder="Partner name" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Subdomain *</label>
+                <div className="flex items-center">
+                  <input type="text" required value={formData.subdomain} onChange={(e) => setFormData({ ...formData, subdomain: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '') })} className="flex-1 min-w-0 px-3 py-2 border border-gray-300 rounded-l-lg focus:ring-2 focus:ring-primary-500 bg-white text-gray-900 text-sm" placeholder="subdomain" />
+                  <span className="px-2 py-2 bg-gray-100 border border-l-0 border-gray-300 rounded-r-lg text-xs text-gray-500 whitespace-nowrap">.sameday.in</span>
                 </div>
-              </button>
-            </div>
-          </div>
-
-          {/* Basic Information */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Partner Name <span className="text-red-500">*</span>
-              </label>
-              <input
-                type="text"
-                required
-                value={formData.name}
-                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
-                placeholder="Enter partner name"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Business Name
-              </label>
-              <input
-                type="text"
-                value={formData.business_name}
-                onChange={(e) => setFormData({ ...formData, business_name: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
-                placeholder="Enter business name"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Subdomain <span className="text-red-500">*</span>
-              </label>
-              <div className="flex items-center gap-2">
-                <input
-                  type="text"
-                  required
-                  value={formData.subdomain}
-                  onChange={(e) => setFormData({ ...formData, subdomain: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '') })}
-                  className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
-                  placeholder="subdomain"
-                />
-                <span className="text-sm text-gray-500 dark:text-gray-400">.samedaysolution.in</span>
               </div>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Status <span className="text-red-500">*</span>
-              </label>
-              <select
-                required
-                value={formData.status}
-                onChange={(e) => setFormData({ ...formData, status: e.target.value as any })}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
-              >
-                <option value="pending">Pending</option>
-                <option value="active">Active</option>
-                <option value="suspended">Suspended</option>
-              </select>
-            </div>
-          </div>
-
-          {/* Contact Information */}
-          <div>
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Contact Information</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Email <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="email"
-                  required
-                  value={formData.contact_email}
-                  onChange={(e) => setFormData({ ...formData, contact_email: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
-                  placeholder="contact@partner.com"
-                />
+                <label className="block text-sm font-medium text-gray-700 mb-1">Email *</label>
+                <input type="email" required value={formData.contact_email} onChange={(e) => setFormData({ ...formData, contact_email: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white text-gray-900" placeholder="contact@partner.com" />
               </div>
-
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Phone <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="tel"
-                  required
-                  value={formData.contact_phone}
-                  onChange={(e) => setFormData({ ...formData, contact_phone: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
-                  placeholder="+91 9876543210"
-                />
+                <label className="block text-sm font-medium text-gray-700 mb-1">Phone *</label>
+                <input type="tel" required value={formData.contact_phone} onChange={(e) => setFormData({ ...formData, contact_phone: e.target.value.replace(/\D/g, '').slice(0, 10) })} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white text-gray-900" placeholder="9876543210" />
               </div>
-
-              <div className="md:col-span-2">
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Password (for login)
-                </label>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Password (for login)</label>
                 <div className="relative">
-                  <input
-                    type={showPartnerCreatePassword ? 'text' : 'password'}
-                    value={formData.password}
-                    onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                    className="w-full px-3 py-2 pr-10 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
-                    placeholder="Leave empty to create without login access"
-                  />
-                  <button type="button" onClick={() => setShowPartnerCreatePassword(!showPartnerCreatePassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200">
-                    {showPartnerCreatePassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                  <input type={showPartnerCreatePassword ? 'text' : 'password'} value={formData.password} onChange={(e) => setFormData({ ...formData, password: e.target.value })} className="w-full px-3 py-2 pr-10 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white text-gray-900" placeholder="Min 8 characters" />
+                  <button type="button" onClick={() => setShowPartnerCreatePassword(!showPartnerCreatePassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500">
+                    {showPartnerCreatePassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
                 </div>
-                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                  Minimum 8 characters. Partner can login with email and password if provided.
-                </p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Status *</label>
+                <select required value={formData.status} onChange={(e) => setFormData({ ...formData, status: e.target.value as any })} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white text-gray-900">
+                  <option value="pending">Pending</option>
+                  <option value="active">Active</option>
+                  <option value="suspended">Suspended</option>
+                </select>
               </div>
             </div>
-          </div>
 
-          {/* Address Information */}
-          <div>
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Address Information</h3>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Address
-                </label>
-                <textarea
-                  value={formData.address}
-                  onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                  rows={2}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
-                  placeholder="Enter full address"
-                />
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {/* Branding */}
+            <div className="border-t border-gray-200 pt-4">
+              <h4 className="text-sm font-semibold text-gray-700 mb-3">Branding</h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    City
-                  </label>
-                  <input
-                    type="text"
-                    value={formData.city}
-                    onChange={(e) => setFormData({ ...formData, city: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
-                    placeholder="City"
-                  />
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Primary Color</label>
+                  <div className="flex items-center gap-2">
+                    <input type="color" value={formData.primary_color} onChange={(e) => setFormData({ ...formData, primary_color: e.target.value })} className="w-10 h-8 border rounded cursor-pointer" />
+                    <input type="text" value={formData.primary_color} onChange={(e) => setFormData({ ...formData, primary_color: e.target.value })} className="flex-1 px-3 py-1.5 border border-gray-300 rounded-lg text-sm bg-white text-gray-900" />
+                  </div>
                 </div>
-
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    State
-                  </label>
-                  <input
-                    type="text"
-                    value={formData.state}
-                    onChange={(e) => setFormData({ ...formData, state: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
-                    placeholder="State"
-                  />
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Secondary Color</label>
+                  <div className="flex items-center gap-2">
+                    <input type="color" value={formData.secondary_color} onChange={(e) => setFormData({ ...formData, secondary_color: e.target.value })} className="w-10 h-8 border rounded cursor-pointer" />
+                    <input type="text" value={formData.secondary_color} onChange={(e) => setFormData({ ...formData, secondary_color: e.target.value })} className="flex-1 px-3 py-1.5 border border-gray-300 rounded-lg text-sm bg-white text-gray-900" />
+                  </div>
                 </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    Pincode
-                  </label>
-                  <input
-                    type="text"
-                    value={formData.pincode}
-                    onChange={(e) => setFormData({ ...formData, pincode: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
-                    placeholder="123456"
-                  />
+                <div className="md:col-span-2">
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Logo URL</label>
+                  <input type="url" value={formData.logo_url} onChange={(e) => setFormData({ ...formData, logo_url: e.target.value })} className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm bg-white text-gray-900" placeholder="https://example.com/logo.png" />
                 </div>
               </div>
             </div>
-          </div>
 
-          {/* Business Details */}
-          <div>
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Business Details</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  GST Number
-                </label>
-                <input
-                  type="text"
-                  value={formData.gst_number}
-                  onChange={(e) => setFormData({ ...formData, gst_number: e.target.value.toUpperCase() })}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
-                  placeholder="29ABCDE1234F1Z5"
-                />
-              </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Notes</label>
+              <textarea value={formData.notes} onChange={(e) => setFormData({ ...formData, notes: e.target.value })} rows={2} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white text-gray-900" placeholder="Additional notes..." />
+            </div>
+
+            <div className="flex justify-end pt-2">
+              <button type="button" onClick={() => {
+                if (!formData.name || !formData.contact_email || !formData.contact_phone || !formData.subdomain) { alert('Please fill all required fields'); return }
+                setCurrentStep(2)
+              }} className="px-6 py-2.5 bg-primary-600 text-white rounded-lg hover:bg-primary-700 font-medium text-sm">
+                Next: Business Details →
+              </button>
             </div>
           </div>
+        )}
 
-          {/* Branding */}
-          <div>
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Branding</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Primary Color
-                </label>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="color"
-                    value={formData.primary_color}
-                    onChange={(e) => setFormData({ ...formData, primary_color: e.target.value })}
-                    className="w-16 h-10 border border-gray-300 dark:border-gray-700 rounded-lg cursor-pointer"
-                  />
-                  <input
-                    type="text"
-                    value={formData.primary_color}
-                    onChange={(e) => setFormData({ ...formData, primary_color: e.target.value })}
-                    className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
-                    placeholder="#3B82F6"
-                  />
+        {/* Step 2: Business & Address */}
+        {currentStep === 2 && (
+          <div className="p-4 sm:p-6 space-y-4">
+            {/* GST Verification */}
+            <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+              <label className="flex items-center gap-2 cursor-pointer mb-3">
+                <input type="checkbox" checked={formData.gst_applicable} onChange={(e) => { setFormData({ ...formData, gst_applicable: e.target.checked, gst_number: e.target.checked ? formData.gst_number : '' }); if (!e.target.checked) { setGstVerified(false); setGstError('') } }} className="rounded border-gray-300 text-primary-600" />
+                <span className="text-sm font-medium text-gray-700">GST Registered</span>
+              </label>
+              {formData.gst_applicable && (
+                <div className="space-y-2">
+                  <div className="flex gap-2">
+                    <input type="text" value={formData.gst_number} onChange={(e) => setFormData({ ...formData, gst_number: e.target.value.toUpperCase() })} className="flex-1 px-3 py-2 border border-gray-300 rounded-lg bg-white text-gray-900 text-sm" placeholder="29ABCDE1234F1Z5" maxLength={15} />
+                    <button type="button" onClick={handleVerifyGst} disabled={verifyingGst || gstVerified} className={`px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-1 ${gstVerified ? 'bg-green-100 text-green-700' : 'bg-blue-600 text-white hover:bg-blue-700'} disabled:opacity-50`}>
+                      {verifyingGst ? <Loader2 className="w-4 h-4 animate-spin" /> : gstVerified ? <CheckCircle className="w-4 h-4" /> : <ShieldCheck className="w-4 h-4" />}
+                      {gstVerified ? 'Verified' : 'Verify'}
+                    </button>
+                  </div>
+                  {gstError && <p className="text-xs text-red-600">{gstError}</p>}
+                  {gstVerified && <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-xs space-y-1">
+                    <p><span className="text-gray-500">Legal Name:</span> <span className="font-medium text-green-800">{gstLegalName}</span></p>
+                    {gstTradeName && <p><span className="text-gray-500">Trade Name:</span> <span className="font-medium text-green-800">{gstTradeName}</span></p>}
+                    <p><span className="text-gray-500">Status:</span> <span className="font-medium text-green-800">{gstGstStatus}</span></p>
+                  </div>}
                 </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Secondary Color
-                </label>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="color"
-                    value={formData.secondary_color}
-                    onChange={(e) => setFormData({ ...formData, secondary_color: e.target.value })}
-                    className="w-16 h-10 border border-gray-300 dark:border-gray-700 rounded-lg cursor-pointer"
-                  />
-                  <input
-                    type="text"
-                    value={formData.secondary_color}
-                    onChange={(e) => setFormData({ ...formData, secondary_color: e.target.value })}
-                    className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
-                    placeholder="#10B981"
-                  />
-                </div>
-              </div>
-
-              <div className="md:col-span-2">
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Logo URL
-                </label>
-                <input
-                  type="url"
-                  value={formData.logo_url}
-                  onChange={(e) => setFormData({ ...formData, logo_url: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
-                  placeholder="https://example.com/logo.png"
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Notes */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Notes
-            </label>
-            <textarea
-              value={formData.notes}
-              onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-              rows={3}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
-              placeholder="Additional notes about this partner..."
-            />
-          </div>
-
-          {/* Form Actions */}
-          <div className="flex flex-col sm:flex-row justify-end gap-3 pt-4 border-t border-gray-200 dark:border-gray-700">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={loading}
-              className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
-            >
-              {loading ? (
-                <>
-                  <RefreshCw className="w-4 h-4 animate-spin" />
-                  Creating...
-                </>
-              ) : (
-                <>
-                  <Plus className="w-4 h-4" />
-                  Create Partner
-                </>
               )}
-            </button>
+            </div>
+
+            {/* Business Name */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Business Name *{gstVerified && <span className="text-green-600 text-xs ml-2">(from GST)</span>}</label>
+              <input type="text" value={formData.business_name} onChange={(e) => setFormData({ ...formData, business_name: e.target.value })} readOnly={gstVerified} className={`w-full px-3 py-2 border rounded-lg text-sm ${gstVerified ? 'bg-green-50 border-green-300 text-green-800' : 'bg-white border-gray-300 text-gray-900'}`} placeholder="Business name" />
+            </div>
+
+            {/* CIN Verification */}
+            <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+              <label className="flex items-center gap-2 cursor-pointer mb-3">
+                <input type="checkbox" checked={formData.cin_applicable} onChange={(e) => { setFormData({ ...formData, cin_applicable: e.target.checked, cin_number: e.target.checked ? formData.cin_number : '' }); if (!e.target.checked) { setCinVerified(false); setCinError('') } }} className="rounded border-gray-300 text-primary-600" />
+                <span className="text-sm font-medium text-gray-700">Company CIN Verification</span>
+              </label>
+              {formData.cin_applicable && (
+                <div className="space-y-2">
+                  <div className="flex gap-2">
+                    <input type="text" value={formData.cin_number} onChange={(e) => setFormData({ ...formData, cin_number: e.target.value.toUpperCase() })} className="flex-1 px-3 py-2 border border-gray-300 rounded-lg bg-white text-gray-900 text-sm" placeholder="U12345MH2020PLC123456" />
+                    <button type="button" onClick={handleVerifyCin} disabled={verifyingCin || cinVerified} className={`px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-1 ${cinVerified ? 'bg-green-100 text-green-700' : 'bg-blue-600 text-white hover:bg-blue-700'} disabled:opacity-50`}>
+                      {verifyingCin ? <Loader2 className="w-4 h-4 animate-spin" /> : cinVerified ? <CheckCircle className="w-4 h-4" /> : <ShieldCheck className="w-4 h-4" />}
+                      {cinVerified ? 'Verified' : 'Verify'}
+                    </button>
+                  </div>
+                  {cinError && <p className="text-xs text-red-600">{cinError}</p>}
+                  {cinVerified && <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-xs space-y-1">
+                    <p><span className="text-gray-500">Company:</span> <span className="font-medium text-green-800">{cinCompanyName}</span></p>
+                    <p><span className="text-gray-500">Status:</span> <span className="font-medium text-green-800">{cinStatus}</span></p>
+                    {cinIncorporationDate && <p><span className="text-gray-500">Incorporation:</span> <span className="font-medium text-green-800">{cinIncorporationDate}</span></p>}
+                  </div>}
+                </div>
+              )}
+            </div>
+
+            {/* UDHYAM */}
+            <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+              <label className="flex items-center gap-2 cursor-pointer mb-3">
+                <input type="checkbox" checked={formData.udhyam_applicable} onChange={(e) => setFormData({ ...formData, udhyam_applicable: e.target.checked, udhyam_number: e.target.checked ? formData.udhyam_number : '' })} className="rounded border-gray-300 text-primary-600" />
+                <span className="text-sm font-medium text-gray-700">UDHYAM Registration</span>
+              </label>
+              {formData.udhyam_applicable && (
+                <input type="text" value={formData.udhyam_number} onChange={(e) => setFormData({ ...formData, udhyam_number: e.target.value.toUpperCase() })} className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white text-gray-900 text-sm" placeholder="UDYAM-XX-00-0000000" />
+              )}
+            </div>
+
+            {/* Aadhaar via Digilocker */}
+            <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+              <h4 className="text-sm font-medium text-gray-700 mb-3 flex items-center gap-2"><ShieldCheck className="w-4 h-4 text-blue-600" /> Aadhaar Verification (Digilocker)</h4>
+              <div className="space-y-2">
+                <div className="flex gap-2">
+                  <input type="text" value={formData.aadhar_number} onChange={(e) => setFormData({ ...formData, aadhar_number: e.target.value.replace(/\D/g, '').slice(0, 12) })} readOnly={aadhaarVerified} className={`flex-1 px-3 py-2 border rounded-lg text-sm ${aadhaarVerified ? 'bg-green-50 border-green-300 text-green-800' : 'bg-white border-gray-300 text-gray-900'}`} placeholder="12-digit Aadhaar number" maxLength={12} />
+                  <button type="button" onClick={handleDigilockerAadhaar} disabled={digilockerLoading || aadhaarVerified} className={`px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-1 ${aadhaarVerified ? 'bg-green-100 text-green-700' : 'bg-blue-600 text-white hover:bg-blue-700'} disabled:opacity-50`}>
+                    {digilockerLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : aadhaarVerified ? <CheckCircle className="w-4 h-4" /> : <ShieldCheck className="w-4 h-4" />}
+                    {aadhaarVerified ? 'Verified' : 'Verify via Digilocker'}
+                  </button>
+                </div>
+                {digilockerError && <p className="text-xs text-red-600">{digilockerError}</p>}
+                {digilockerUrl && !aadhaarVerified && <p className="text-xs text-blue-600">Digilocker window opened. Complete verification there and come back.</p>}
+                {aadhaarVerified && <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-xs space-y-1">
+                  <p><span className="text-gray-500">Name:</span> <span className="font-medium text-green-800">{aadhaarName}</span></p>
+                  {aadhaarDob && <p><span className="text-gray-500">DOB:</span> <span className="font-medium text-green-800">{aadhaarDob}</span></p>}
+                  {aadhaarGender && <p><span className="text-gray-500">Gender:</span> <span className="font-medium text-green-800">{aadhaarGender}</span></p>}
+                </div>}
+              </div>
+            </div>
+
+            {/* Address */}
+            <div>
+              <h4 className="text-sm font-semibold text-gray-700 mb-2">Address</h4>
+              {addressFromApi ? (
+                <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+                  <div className="flex items-center gap-2 mb-1">
+                    <CheckCircle className="w-4 h-4 text-green-600" />
+                    <span className="text-xs font-medium text-green-700">Address from {gstVerified && gstAddress ? 'GST' : 'Aadhaar'} Verification</span>
+                  </div>
+                  <p className="text-sm text-green-800">{formData.address}</p>
+                </div>
+              ) : (
+                <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+                  <div className="flex items-center gap-2 mb-1">
+                    <AlertCircle className="w-4 h-4 text-amber-600" />
+                    <span className="text-xs font-medium text-amber-700">Address will be captured from API</span>
+                  </div>
+                  <p className="text-[11px] text-amber-600">Verify GST to auto-fill address, or verify Aadhaar via Digilocker if GST is not applicable.</p>
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-between pt-2">
+              <button type="button" onClick={() => setCurrentStep(1)} className="px-4 py-2 text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 text-sm">← Back</button>
+              <button type="button" onClick={() => {
+                if (!formData.business_name) { alert('Business Name is required'); return }
+                if (formData.gst_applicable && !gstVerified) { alert('Please verify GST number'); return }
+                if (formData.cin_applicable && !cinVerified) { alert('Please verify CIN number'); return }
+                if (!aadhaarVerified) { alert('Aadhaar verification via Digilocker is mandatory'); return }
+                if (!formData.address) { alert('Address is required. Verify GST or Aadhaar to capture address.'); return }
+                setCurrentStep(3)
+              }} className="px-6 py-2.5 bg-primary-600 text-white rounded-lg hover:bg-primary-700 font-medium text-sm">
+                Next: KYC Verification →
+              </button>
+            </div>
           </div>
-        </form>
+        )}
+
+        {/* Step 3: KYC Verification */}
+        {currentStep === 3 && (
+          <form onSubmit={handleSubmit} className="p-4 sm:p-6 space-y-4">
+            {/* PAN Verification */}
+            <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+              <h4 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2"><CreditCard className="w-4 h-4 text-orange-500" /> PAN Verification *</h4>
+              <div className="flex gap-2">
+                <input type="text" value={formData.pan_number} onChange={(e) => setFormData({ ...formData, pan_number: e.target.value.toUpperCase() })} readOnly={panVerified} className={`flex-1 px-3 py-2 border rounded-lg text-sm ${panVerified ? 'bg-green-50 border-green-300 text-green-800' : 'bg-white border-gray-300 text-gray-900'}`} placeholder="ABCDE1234F" maxLength={10} />
+                <button type="button" onClick={handleVerifyPan} disabled={verifyingPan || panVerified} className={`px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-1 ${panVerified ? 'bg-green-100 text-green-700' : 'bg-blue-600 text-white hover:bg-blue-700'} disabled:opacity-50`}>
+                  {verifyingPan ? <Loader2 className="w-4 h-4 animate-spin" /> : panVerified ? <CheckCircle className="w-4 h-4" /> : <ShieldCheck className="w-4 h-4" />}
+                  {panVerified ? 'Verified' : 'Verify'}
+                </button>
+              </div>
+              {panError && <p className="text-xs text-red-600 mt-1">{panError}</p>}
+              {panVerified && <div className="bg-green-50 border border-green-200 rounded-lg p-3 mt-2 text-xs space-y-1">
+                <p><span className="text-gray-500">Name:</span> <span className="font-medium text-green-800">{panRegisteredName}</span></p>
+                <p><span className="text-gray-500">Type:</span> <span className="font-medium text-green-800">{panType}</span></p>
+              </div>}
+            </div>
+
+            {/* Bank Verification */}
+            <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+              <h4 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2"><Building2 className="w-4 h-4 text-blue-500" /> Bank Account Verification *</h4>
+              <div className="space-y-3">
+                <input type="text" value={formData.bank_name} onChange={(e) => setFormData({ ...formData, bank_name: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white text-gray-900 text-sm" placeholder="Bank Name" />
+                <div className="grid grid-cols-2 gap-3">
+                  <input type="text" value={formData.account_number} onChange={(e) => setFormData({ ...formData, account_number: e.target.value })} readOnly={bankVerified} className={`px-3 py-2 border rounded-lg text-sm ${bankVerified ? 'bg-green-50 border-green-300' : 'bg-white border-gray-300'}`} placeholder="Account Number" />
+                  <input type="text" value={formData.ifsc_code} onChange={(e) => setFormData({ ...formData, ifsc_code: e.target.value.toUpperCase() })} readOnly={bankVerified} className={`px-3 py-2 border rounded-lg text-sm ${bankVerified ? 'bg-green-50 border-green-300' : 'bg-white border-gray-300'}`} placeholder="IFSC Code" />
+                </div>
+                <button type="button" onClick={handleVerifyBank} disabled={verifyingBank || bankVerified} className={`w-full px-4 py-2 rounded-lg text-sm font-medium flex items-center justify-center gap-1 ${bankVerified ? 'bg-green-100 text-green-700' : 'bg-blue-600 text-white hover:bg-blue-700'} disabled:opacity-50`}>
+                  {verifyingBank ? <Loader2 className="w-4 h-4 animate-spin" /> : bankVerified ? <CheckCircle className="w-4 h-4" /> : <ShieldCheck className="w-4 h-4" />}
+                  {bankVerified ? 'Bank Account Verified' : 'Verify Bank Account'}
+                </button>
+                {bankError && <p className="text-xs text-red-600">{bankError}</p>}
+                {bankNameMismatch && <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-xs"><p className="text-red-700">{bankNameMismatch}</p></div>}
+                {bankVerified && <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-xs space-y-1">
+                  <p><span className="text-gray-500">Account Holder:</span> <span className="font-medium text-green-800">{bankVerifiedName}</span></p>
+                  {bankUtr && <p><span className="text-gray-500">UTR:</span> <span className="font-medium text-green-800">{bankUtr}</span></p>}
+                </div>}
+              </div>
+            </div>
+
+            {(!panVerified || !aadhaarVerified) && (
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                <p className="text-sm font-medium text-amber-800 mb-1">Required verifications:</p>
+                <ul className="text-xs text-amber-700 space-y-1">
+                  {!panVerified && <li>• PAN verification is mandatory</li>}
+                  {!aadhaarVerified && <li>• Aadhaar verification via Digilocker is mandatory</li>}
+                  {!bankVerified && <li>• Bank account verification is mandatory</li>}
+                </ul>
+              </div>
+            )}
+
+            <div className="flex justify-between pt-2">
+              <button type="button" onClick={() => setCurrentStep(2)} className="px-4 py-2 text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 text-sm">← Back</button>
+              <button type="submit" disabled={loading || !panVerified || !aadhaarVerified || !bankVerified || !!bankNameMismatch} className="px-6 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 font-medium text-sm flex items-center gap-2">
+                {loading ? <><Loader2 className="w-4 h-4 animate-spin" /> Creating...</> : <><Plus className="w-4 h-4" /> Create Partner</>}
+              </button>
+            </div>
+          </form>
+        )}
       </motion.div>
     </div>
   )
@@ -8749,7 +8577,7 @@ function EditPartnerModal({
                   type="tel"
                   required
                   value={formData.contact_phone}
-                  onChange={(e) => setFormData({ ...formData, contact_phone: e.target.value })}
+                  onChange={(e) => setFormData({ ...formData, contact_phone: e.target.value.replace(/\D/g, '').slice(0, 10) })}
                   className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
                   placeholder="+91 9876543210"
                 />
@@ -8767,11 +8595,12 @@ function EditPartnerModal({
                 </label>
                 <textarea
                   value={formData.address}
-                  onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+                  readOnly
                   rows={2}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
-                  placeholder="Enter full address"
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white cursor-not-allowed"
+                  placeholder="Address captured from KYC verification"
                 />
+                <p className="text-xs text-gray-500 mt-1">Address is auto-captured from GST/Aadhaar verification and cannot be edited manually.</p>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -8782,8 +8611,8 @@ function EditPartnerModal({
                   <input
                     type="text"
                     value={formData.city}
-                    onChange={(e) => setFormData({ ...formData, city: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+                    readOnly
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white cursor-not-allowed"
                     placeholder="City"
                   />
                 </div>
@@ -8795,8 +8624,8 @@ function EditPartnerModal({
                   <input
                     type="text"
                     value={formData.state}
-                    onChange={(e) => setFormData({ ...formData, state: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+                    readOnly
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white cursor-not-allowed"
                     placeholder="State"
                   />
                 </div>
@@ -8808,8 +8637,8 @@ function EditPartnerModal({
                   <input
                     type="text"
                     value={formData.pincode}
-                    onChange={(e) => setFormData({ ...formData, pincode: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+                    readOnly
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white cursor-not-allowed"
                     placeholder="123456"
                   />
                 </div>
@@ -9697,6 +9526,494 @@ function IPWhitelistModal({
         </div>
       </motion.div>
     </motion.div>
+  )
+}
+
+// eKYC Hub Balance Card & API Testing Panel
+function EkycHubCard() {
+  const [balance, setBalance] = useState<{ balance: number; raw_balance: string } | null>(null)
+  const [balanceLoading, setBalanceLoading] = useState(false)
+  const [balanceError, setBalanceError] = useState('')
+  const [lastChecked, setLastChecked] = useState<string | null>(null)
+
+  // API Testing state
+  const [testTab, setTestTab] = useState<'pan' | 'bank' | 'gst' | 'upi' | 'pan360' | 'dl' | 'passport' | 'voter' | 'cin' | 'digilocker'>('pan')
+  const [testLoading, setTestLoading] = useState(false)
+  const [testResult, setTestResult] = useState<any>(null)
+  const [testError, setTestError] = useState('')
+  const [showTesting, setShowTesting] = useState(false)
+
+  // Test form inputs
+  const [testPan, setTestPan] = useState('')
+  const [testAccountNo, setTestAccountNo] = useState('')
+  const [testIfsc, setTestIfsc] = useState('')
+  const [testGst, setTestGst] = useState('')
+  const [testUpi, setTestUpi] = useState('')
+  const [testDlNumber, setTestDlNumber] = useState('')
+  const [testDlDob, setTestDlDob] = useState('')
+  const [testPassportNumber, setTestPassportNumber] = useState('')
+  const [testPassportDob, setTestPassportDob] = useState('')
+  const [testVoterEpic, setTestVoterEpic] = useState('')
+  const [testCin, setTestCin] = useState('')
+  const [testDigilockerType, setTestDigilockerType] = useState<'aadhaar' | 'pan'>('aadhaar')
+  const [testDigilockerRedirectUrl, setTestDigilockerRedirectUrl] = useState('')
+
+  const fetchBalance = async () => {
+    setBalanceLoading(true)
+    setBalanceError('')
+    try {
+      const res = await apiFetch('/api/admin/ekychub-balance')
+      const data = await res.json()
+      if (data.success) {
+        setBalance({ balance: data.balance, raw_balance: data.raw_balance })
+        setLastChecked(new Date().toISOString())
+      } else {
+        setBalanceError(data.error || 'Failed to fetch balance')
+      }
+    } catch (err: any) {
+      setBalanceError(err.message || 'Failed to fetch balance')
+    } finally {
+      setBalanceLoading(false)
+    }
+  }
+
+  useEffect(() => { fetchBalance() }, [])
+
+  const runTest = async () => {
+    setTestLoading(true)
+    setTestResult(null)
+    setTestError('')
+    try {
+      let endpoint = ''
+      let body: any = {}
+      switch (testTab) {
+        case 'pan':
+          endpoint = '/api/kyc/verify-pan'
+          body = { pan: testPan.toUpperCase() }
+          break
+        case 'pan360':
+          endpoint = '/api/kyc/verify-pan360'
+          body = { pan: testPan.toUpperCase() }
+          break
+        case 'bank':
+          endpoint = '/api/kyc/verify-bank'
+          body = { account_number: testAccountNo, ifsc: testIfsc.toUpperCase() }
+          break
+        case 'gst':
+          endpoint = '/api/kyc/verify-gst'
+          body = { gst: testGst.toUpperCase() }
+          break
+        case 'upi':
+          endpoint = '/api/kyc/verify-upi'
+          body = { upi: testUpi }
+          break
+        case 'dl':
+          endpoint = '/api/kyc/verify-dl'
+          body = { dl_number: testDlNumber.toUpperCase(), dob: testDlDob }
+          break
+        case 'passport':
+          endpoint = '/api/kyc/verify-passport'
+          body = { file_number: testPassportNumber.toUpperCase(), dob: testPassportDob }
+          break
+        case 'voter':
+          endpoint = '/api/kyc/verify-voter'
+          body = { epic_number: testVoterEpic.toUpperCase() }
+          break
+        case 'cin':
+          endpoint = '/api/kyc/verify-cin'
+          body = { cin: testCin.toUpperCase() }
+          break
+        case 'digilocker':
+          endpoint = '/api/kyc/verify-digilocker'
+          body = { type: testDigilockerType, redirect_url: testDigilockerRedirectUrl || undefined }
+          break
+      }
+      const res = await apiFetch(endpoint, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      })
+      const data = await res.json()
+      if (data.success) {
+        setTestResult(data.data)
+      } else {
+        setTestError(data.error || 'Verification failed')
+      }
+    } catch (err: any) {
+      setTestError(err.message || 'API call failed')
+    } finally {
+      setTestLoading(false)
+    }
+  }
+
+  return (
+    <>
+      {/* eKYC Hub Balance & API Testing Card */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.4 }}
+        className="bg-white rounded-2xl p-6 shadow-lg border border-gray-200"
+      >
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center gap-3">
+            <div className="p-3 bg-gradient-to-br from-emerald-500 to-teal-600 rounded-xl shadow-lg">
+              <ShieldCheck className="w-6 h-6 text-white" />
+            </div>
+            <div>
+              <h3 className="text-lg font-bold text-gray-900">eKYC Hub</h3>
+              <p className="text-sm text-gray-500">KYC Verification API Provider</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowTesting(!showTesting)}
+              className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-medium transition-all"
+            >
+              <Zap className="w-4 h-4" />
+              {showTesting ? 'Hide Tests' : 'Test APIs'}
+            </button>
+            <button
+              onClick={fetchBalance}
+              disabled={balanceLoading}
+              className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-sm font-medium transition-all disabled:opacity-50"
+            >
+              <RefreshCw className={`w-4 h-4 ${balanceLoading ? 'animate-spin' : ''}`} />
+              Refresh
+            </button>
+          </div>
+        </div>
+
+        {/* Balance Display */}
+        {balance ? (
+          <div className="rounded-xl p-5 bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200 mb-4">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-emerald-600 rounded-lg">
+                  <Wallet className="w-5 h-5 text-white" />
+                </div>
+                <div>
+                  <p className="font-semibold text-gray-900">eKYC Hub Wallet</p>
+                  <p className="text-xs text-gray-500">PAN, Bank, GST, Aadhaar Verification</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-green-100 text-green-700">
+                <CheckCircle2 className="w-4 h-4" />
+                <span className="text-sm font-medium">Active</span>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 gap-4">
+              <div className="text-center p-4 bg-white rounded-lg border border-emerald-200 shadow-sm">
+                <p className="text-xs text-gray-500 mb-1">Available Balance</p>
+                <p className="text-3xl font-bold text-emerald-600">₹{balance.balance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</p>
+              </div>
+            </div>
+            {lastChecked && (
+              <p className="text-xs text-gray-400 mt-4 text-right">
+                Last updated: {new Date(lastChecked).toLocaleString('en-IN')}
+              </p>
+            )}
+          </div>
+        ) : (
+          <div className="text-center py-6 mb-4">
+            {balanceLoading ? (
+              <div className="flex flex-col items-center gap-3">
+                <RefreshCw className="w-8 h-8 text-emerald-500 animate-spin" />
+                <p className="text-gray-500">Fetching eKYC Hub balance...</p>
+              </div>
+            ) : balanceError ? (
+              <div className="flex flex-col items-center gap-3">
+                <AlertTriangle className="w-8 h-8 text-amber-500" />
+                <p className="text-gray-600">{balanceError}</p>
+                <button onClick={fetchBalance} className="mt-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-medium transition-all">
+                  Try Again
+                </button>
+              </div>
+            ) : null}
+          </div>
+        )}
+
+        {/* API Testing Panel */}
+        <AnimatePresence>
+          {showTesting && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              className="overflow-hidden"
+            >
+              <div className="rounded-xl border border-gray-200 bg-gray-50 p-5">
+                <h4 className="text-md font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                  <Zap className="w-4 h-4 text-amber-500" />
+                  API Testing Console
+                </h4>
+
+                {/* Tab Selector */}
+                <div className="flex flex-wrap gap-2 mb-4">
+                  {[
+                    { id: 'pan' as const, label: 'PAN Verify' },
+                    { id: 'pan360' as const, label: 'PAN 360' },
+                    { id: 'bank' as const, label: 'Bank Verify' },
+                    { id: 'gst' as const, label: 'GST Verify' },
+                    { id: 'upi' as const, label: 'UPI Verify' },
+                    { id: 'dl' as const, label: 'Driving License' },
+                    { id: 'passport' as const, label: 'Passport' },
+                    { id: 'voter' as const, label: 'Voter Card' },
+                    { id: 'cin' as const, label: 'Company CIN' },
+                    { id: 'digilocker' as const, label: 'Digilocker' },
+                  ].map(tab => (
+                    <button
+                      key={tab.id}
+                      onClick={() => { setTestTab(tab.id); setTestResult(null); setTestError(''); }}
+                      className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
+                        testTab === tab.id
+                          ? 'bg-emerald-600 text-white shadow-md'
+                          : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-100'
+                      }`}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Test Inputs */}
+                <div className="space-y-3 mb-4">
+                  {(testTab === 'pan' || testTab === 'pan360') && (
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">PAN Number</label>
+                      <input
+                        type="text"
+                        value={testPan}
+                        onChange={(e) => setTestPan(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10))}
+                        placeholder="ABCDE1234F"
+                        className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 font-mono focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                      />
+                    </div>
+                  )}
+                  {testTab === 'bank' && (
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">Account Number</label>
+                        <input
+                          type="text"
+                          value={testAccountNo}
+                          onChange={(e) => setTestAccountNo(e.target.value.replace(/\D/g, '').slice(0, 18))}
+                          placeholder="39470006171"
+                          className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 font-mono focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">IFSC Code</label>
+                        <input
+                          type="text"
+                          value={testIfsc}
+                          onChange={(e) => setTestIfsc(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 11))}
+                          placeholder="SBIN0001266"
+                          className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 font-mono focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                        />
+                      </div>
+                    </div>
+                  )}
+                  {testTab === 'gst' && (
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">GST Number</label>
+                      <input
+                        type="text"
+                        value={testGst}
+                        onChange={(e) => setTestGst(e.target.value.toUpperCase().slice(0, 15))}
+                        placeholder="22AAAAA0000A1Z5"
+                        className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 font-mono focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                      />
+                    </div>
+                  )}
+                  {testTab === 'upi' && (
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">UPI ID (VPA)</label>
+                      <input
+                        type="text"
+                        value={testUpi}
+                        onChange={(e) => setTestUpi(e.target.value)}
+                        placeholder="name@upi"
+                        className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 font-mono focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                      />
+                    </div>
+                  )}
+                  {testTab === 'dl' && (
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">Driving License Number</label>
+                        <input
+                          type="text"
+                          value={testDlNumber}
+                          onChange={(e) => setTestDlNumber(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 16))}
+                          placeholder="DL1420110012345"
+                          className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 font-mono focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">Date of Birth</label>
+                        <input
+                          type="date"
+                          value={testDlDob}
+                          onChange={(e) => setTestDlDob(e.target.value)}
+                          className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                        />
+                      </div>
+                    </div>
+                  )}
+                  {testTab === 'passport' && (
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">Passport File Number</label>
+                        <input
+                          type="text"
+                          value={testPassportNumber}
+                          onChange={(e) => setTestPassportNumber(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 15))}
+                          placeholder="AB1234567890123"
+                          className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 font-mono focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">Date of Birth</label>
+                        <input
+                          type="date"
+                          value={testPassportDob}
+                          onChange={(e) => setTestPassportDob(e.target.value)}
+                          className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                        />
+                      </div>
+                    </div>
+                  )}
+                  {testTab === 'voter' && (
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">EPIC (Voter ID) Number</label>
+                      <input
+                        type="text"
+                        value={testVoterEpic}
+                        onChange={(e) => setTestVoterEpic(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10))}
+                        placeholder="ABC1234567"
+                        className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 font-mono focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                      />
+                    </div>
+                  )}
+                  {testTab === 'cin' && (
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Company CIN Number</label>
+                      <input
+                        type="text"
+                        value={testCin}
+                        onChange={(e) => setTestCin(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 21))}
+                        placeholder="U72200MH2009PLC123456"
+                        className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 font-mono focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                      />
+                    </div>
+                  )}
+                  {testTab === 'digilocker' && (
+                    <div className="space-y-3">
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">Document Type</label>
+                        <div className="flex gap-3">
+                          <button
+                            onClick={() => setTestDigilockerType('aadhaar')}
+                            className={`flex-1 px-4 py-2.5 rounded-lg text-sm font-medium transition-all border ${
+                              testDigilockerType === 'aadhaar'
+                                ? 'bg-emerald-600 text-white border-emerald-600 shadow-md'
+                                : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                            }`}
+                          >
+                            Aadhaar via Digilocker
+                          </button>
+                          <button
+                            onClick={() => setTestDigilockerType('pan')}
+                            className={`flex-1 px-4 py-2.5 rounded-lg text-sm font-medium transition-all border ${
+                              testDigilockerType === 'pan'
+                                ? 'bg-emerald-600 text-white border-emerald-600 shadow-md'
+                                : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                            }`}
+                          >
+                            PAN via Digilocker
+                          </button>
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">Redirect URL (public URL required by eKYC Hub)</label>
+                        <input
+                          type="text"
+                          value={testDigilockerRedirectUrl}
+                          onChange={(e) => setTestDigilockerRedirectUrl(e.target.value)}
+                          placeholder="https://yourdomain.com/api/kyc/digilocker-callback"
+                          className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 font-mono text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                        />
+                        <p className="text-xs text-amber-600 mt-1">Digilocker requires a publicly accessible callback URL. Localhost URLs will be rejected by eKYC Hub.</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Run Test Button */}
+                <button
+                  onClick={runTest}
+                  disabled={testLoading}
+                  className="w-full px-4 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-lg text-sm font-semibold transition-all disabled:opacity-50 flex items-center justify-center gap-2 shadow-md"
+                >
+                  {testLoading ? (
+                    <><Loader2 className="w-4 h-4 animate-spin" /> Verifying...</>
+                  ) : (
+                    <><ShieldCheck className="w-4 h-4" /> Run Verification</>
+                  )}
+                </button>
+
+                {/* Test Results */}
+                {testResult && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="mt-4 rounded-lg border border-green-300 bg-green-50 p-4"
+                  >
+                    <div className="flex items-center gap-2 mb-3">
+                      <CheckCircle2 className="w-5 h-5 text-green-600" />
+                      <span className="text-sm font-semibold text-green-700">
+                        {testTab === 'digilocker' ? 'Digilocker URL Generated' : 'Verification Successful'}
+                      </span>
+                    </div>
+                    {testTab === 'digilocker' && testResult.url && (
+                      <div className="mb-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                        <p className="text-xs text-blue-700 mb-2 font-medium">Redirect the user to this URL to complete Digilocker verification:</p>
+                        <a href={testResult.url} target="_blank" rel="noopener noreferrer" className="text-sm text-blue-600 hover:text-blue-800 underline break-all font-mono">{testResult.url}</a>
+                      </div>
+                    )}
+                    <div className="space-y-2">
+                      {Object.entries(testResult).map(([key, value]) => {
+                        if (value === null || value === undefined || key === 'director_details') return null
+                        const displayValue = Array.isArray(value) ? value.join(', ') : String(value)
+                        return (
+                          <div key={key} className="flex justify-between items-start text-sm border-b border-green-200 pb-1.5">
+                            <span className="text-gray-600 font-medium capitalize">{key.replace(/_/g, ' ')}</span>
+                            <span className="text-gray-900 text-right max-w-[60%] break-all font-mono text-xs">{displayValue}</span>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </motion.div>
+                )}
+
+                {testError && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="mt-4 rounded-lg border border-red-300 bg-red-50 p-4"
+                  >
+                    <div className="flex items-center gap-2">
+                      <XCircle className="w-5 h-5 text-red-600" />
+                      <span className="text-sm text-red-700">{testError}</span>
+                    </div>
+                  </motion.div>
+                )}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </motion.div>
+    </>
   )
 }
 

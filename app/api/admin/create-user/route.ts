@@ -343,17 +343,14 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Validate mandatory bank account fields for all partner types
-    // Only validate if fields are provided (to handle cases where migration hasn't been run)
+    // Validate bank account fields — account_number and ifsc_code required if any bank field present
     if (tableName === 'retailers' || tableName === 'distributors' || tableName === 'master_distributors') {
-      // Check if any bank field is provided - if so, all must be provided
-      const hasAnyBankField = userData.bank_name || userData.account_number || userData.ifsc_code || userData.bank_document_url
+      const hasAnyBankField = userData.bank_name || userData.account_number || userData.ifsc_code
       if (hasAnyBankField) {
-        if (!userData.bank_name || !userData.account_number || !userData.ifsc_code || !userData.bank_document_url) {
-          // Rollback: delete auth user
+        if (!userData.account_number || !userData.ifsc_code) {
           await supabase.auth.admin.deleteUser(authData.user.id)
           return NextResponse.json(
-            { error: 'Bank Name, Account Number, IFSC Code, and Bank Document (passbook/cheque) are all mandatory when providing bank account details' },
+            { error: 'Account Number and IFSC Code are mandatory when providing bank account details' },
             { status: 400 }
           )
         }

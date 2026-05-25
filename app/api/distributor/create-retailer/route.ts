@@ -5,6 +5,14 @@ import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger
 
 export const dynamic = 'force-dynamic'
 
+function calculateVerificationScore(userData: any): number {
+  let score = 0
+  if (userData.pan_verified) score += 40
+  if (userData.bank_verified) score += 40
+  if (userData.gst_verified) score += 20
+  return score
+}
+
 // Lazy initialization to avoid build-time errors
 let supabase: SupabaseClient | null = null
 
@@ -100,18 +108,25 @@ export async function POST(request: NextRequest) {
     // Generate partner ID
     const partnerId = `RET${Date.now().toString().slice(-8)}`
 
-    // Validate mandatory bank account fields
-    if (!userData.bank_name || !userData.account_number || !userData.ifsc_code || !userData.bank_document_url) {
-      // Rollback: delete auth user
+    // Validate mandatory fields (bank details verified via API, no document upload needed)
+    if (!userData.account_number || !userData.ifsc_code) {
       await supabase.auth.admin.deleteUser(authData.user.id)
       return NextResponse.json(
-        { error: 'Bank Name, Account Number, IFSC Code, and Bank Document (passbook/cheque) are mandatory' },
+        { error: 'Account Number and IFSC Code are mandatory' },
         { status: 400 }
       )
     }
 
-    // Prepare retailer data
-    const retailerData = {
+    if (!userData.pan_number) {
+      await supabase.auth.admin.deleteUser(authData.user.id)
+      return NextResponse.json(
+        { error: 'PAN Number is mandatory' },
+        { status: 400 }
+      )
+    }
+
+    // Prepare retailer data with eKYC Hub verified fields
+    const retailerData: Record<string, any> = {
       partner_id: partnerId,
       name: userData.name,
       email: email,
@@ -122,16 +137,16 @@ export async function POST(request: NextRequest) {
       state: userData.state || null,
       pincode: userData.pincode || null,
       gst_number: userData.gst_number || null,
-      distributor_id: distributor.partner_id, // Automatically set to logged-in distributor
-      master_distributor_id: distributor.master_distributor_id, // Automatically set from distributor
-      status: 'pending_verification', // Pending verification after document upload
+      distributor_id: distributor.partner_id,
+      master_distributor_id: distributor.master_distributor_id,
+      status: 'pending_verification',
       commission_rate: userData.commission_rate ? parseFloat(userData.commission_rate) : null,
-      // Bank account details (mandatory)
-      bank_name: userData.bank_name,
+      // Bank account details
+      bank_name: userData.bank_name || null,
       account_number: userData.account_number,
       ifsc_code: userData.ifsc_code,
-      bank_document_url: userData.bank_document_url,
-      // Document fields
+      bank_document_url: userData.bank_document_url || null,
+      // Identity fields
       aadhar_number: userData.aadhar_number || null,
       aadhar_front_url: userData.aadhar_front_url || null,
       aadhar_back_url: userData.aadhar_back_url || null,
@@ -141,6 +156,39 @@ export async function POST(request: NextRequest) {
       udhyam_certificate_url: userData.udhyam_certificate_url || null,
       gst_certificate_url: userData.gst_certificate_url || null,
       verification_status: 'pending',
+      // eKYC Hub verified fields
+      pan_verified: userData.pan_verified || false,
+      pan_registered_name: userData.pan_registered_name || null,
+      pan_type: userData.pan_type || null,
+      pan_verified_at: userData.pan_verified ? new Date().toISOString() : null,
+      bank_verified: userData.bank_verified || false,
+      bank_verified_name: userData.bank_verified_name || null,
+      bank_utr: userData.bank_utr || null,
+      bank_branch: userData.bank_branch || null,
+      bank_city: userData.bank_city || null,
+      bank_verified_at: userData.bank_verified ? new Date().toISOString() : null,
+      gst_verified: userData.gst_verified || false,
+      gst_legal_name: userData.gst_legal_name || null,
+      gst_trade_name: userData.gst_trade_name || null,
+      gst_status: userData.gst_status || null,
+      gst_taxpayer_type: userData.gst_taxpayer_type || null,
+      gst_constitution: userData.gst_constitution || null,
+      gst_address: userData.gst_address || null,
+      gst_verified_at: userData.gst_verified ? new Date().toISOString() : null,
+      cin_number: userData.cin_number || null,
+      cin_verified: userData.cin_verified || false,
+      cin_company_name: userData.cin_company_name || null,
+      cin_status: userData.cin_status || null,
+      cin_incorporation_date: userData.cin_incorporation_date || null,
+      aadhaar_verified: userData.aadhaar_verified || false,
+      aadhaar_name: userData.aadhaar_name || null,
+      aadhaar_dob: userData.aadhaar_dob || null,
+      aadhaar_gender: userData.aadhaar_gender || null,
+      aadhaar_address: userData.aadhaar_address || null,
+      aadhaar_uid: userData.aadhaar_uid || null,
+      digilocker_verification_id: userData.digilocker_verification_id || null,
+      ekychub_order_ids: userData.ekychub_order_ids || {},
+      auto_verification_score: calculateVerificationScore(userData),
     }
 
     // Insert retailer

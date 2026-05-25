@@ -14,8 +14,7 @@ export default function Footer() {
                 alt="Same Day Solution Pvt. Ltd."
                 width={44}
                 height={44}
-                className="object-contain"
-                style={{ width: '44px', height: 'auto' }}
+                className="object-contain w-[44px] h-auto"
                 unoptimized
                 priority
               />

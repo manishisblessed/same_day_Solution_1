@@ -41,7 +41,7 @@ export interface Retailer {
   bank_document_url?: string
   // Document fields
   aadhar_number?: string
-  aadhar_attachment_url?: string // Legacy - kept for backward compatibility
+  aadhar_attachment_url?: string
   aadhar_front_url?: string
   aadhar_back_url?: string
   pan_number?: string
@@ -50,6 +50,27 @@ export interface Retailer {
   udhyam_certificate_url?: string
   gst_certificate_url?: string
   verification_status?: string
+  // eKYC Hub verified fields
+  pan_verified?: boolean
+  pan_registered_name?: string
+  pan_type?: string
+  pan_verified_at?: string
+  bank_verified?: boolean
+  bank_verified_name?: string
+  bank_utr?: string
+  bank_branch?: string
+  bank_city?: string
+  bank_verified_at?: string
+  gst_verified?: boolean
+  gst_legal_name?: string
+  gst_trade_name?: string
+  gst_status?: string
+  gst_taxpayer_type?: string
+  gst_constitution?: string
+  gst_address?: string
+  gst_verified_at?: string
+  ekychub_order_ids?: Record<string, string>
+  auto_verification_score?: number
   created_at: string
   updated_at: string
 }
@@ -90,7 +111,7 @@ export interface Distributor {
   bank_document_url?: string
   // Document fields
   aadhar_number?: string
-  aadhar_attachment_url?: string // Legacy - kept for backward compatibility
+  aadhar_attachment_url?: string
   aadhar_front_url?: string
   aadhar_back_url?: string
   pan_number?: string
@@ -99,6 +120,27 @@ export interface Distributor {
   udhyam_certificate_url?: string
   gst_certificate_url?: string
   verification_status?: string
+  // eKYC Hub verified fields
+  pan_verified?: boolean
+  pan_registered_name?: string
+  pan_type?: string
+  pan_verified_at?: string
+  bank_verified?: boolean
+  bank_verified_name?: string
+  bank_utr?: string
+  bank_branch?: string
+  bank_city?: string
+  bank_verified_at?: string
+  gst_verified?: boolean
+  gst_legal_name?: string
+  gst_trade_name?: string
+  gst_status?: string
+  gst_taxpayer_type?: string
+  gst_constitution?: string
+  gst_address?: string
+  gst_verified_at?: string
+  ekychub_order_ids?: Record<string, string>
+  auto_verification_score?: number
   created_at: string
   updated_at: string
 }
@@ -138,7 +180,7 @@ export interface MasterDistributor {
   bank_document_url?: string
   // Document fields
   aadhar_number?: string
-  aadhar_attachment_url?: string // Legacy - kept for backward compatibility
+  aadhar_attachment_url?: string
   aadhar_front_url?: string
   aadhar_back_url?: string
   pan_number?: string
@@ -147,6 +189,27 @@ export interface MasterDistributor {
   udhyam_certificate_url?: string
   gst_certificate_url?: string
   verification_status?: string
+  // eKYC Hub verified fields
+  pan_verified?: boolean
+  pan_registered_name?: string
+  pan_type?: string
+  pan_verified_at?: string
+  bank_verified?: boolean
+  bank_verified_name?: string
+  bank_utr?: string
+  bank_branch?: string
+  bank_city?: string
+  bank_verified_at?: string
+  gst_verified?: boolean
+  gst_legal_name?: string
+  gst_trade_name?: string
+  gst_status?: string
+  gst_taxpayer_type?: string
+  gst_constitution?: string
+  gst_address?: string
+  gst_verified_at?: string
+  ekychub_order_ids?: Record<string, string>
+  auto_verification_score?: number
   created_at: string
   updated_at: string
 }

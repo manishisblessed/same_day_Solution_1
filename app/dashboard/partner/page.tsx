@@ -179,13 +179,17 @@ function PartnerDashboardContent() {
         .reduce((sum, tx) => sum + (parseFloat(tx.amount || 0) / 100 || 0), 0) // Amount is in paise, convert to rupees
       const totalRevenue = ledgerRevenue + posRevenue
       
-      // commission_ledger has user_id (text), not partner_id — avoid invalid columns (400 from PostgREST)
       const { data: commissionData } = await supabase
         .from('commission_ledger')
-        .select('commission_amount')
-        .eq('user_id', String(user.partner_id))
-      
-      const commissionEarned = commissionData?.reduce((sum, entry) => sum + (entry.commission_amount || 0), 0) || 0
+        .select('dt_amount, md_amount, rt_amount, dt_user_id, md_user_id, rt_user_id')
+        .or(`dt_user_id.eq.${user.partner_id},md_user_id.eq.${user.partner_id},rt_user_id.eq.${user.partner_id}`)
+
+      const commissionEarned = commissionData?.reduce((sum, entry) => {
+        if (entry.dt_user_id === user.partner_id) return sum + (entry.dt_amount || 0)
+        if (entry.md_user_id === user.partner_id) return sum + (entry.md_amount || 0)
+        if (entry.rt_user_id === user.partner_id) return sum + (entry.rt_amount || 0)
+        return sum
+      }, 0) || 0
 
       setStats({
         totalTransactions,

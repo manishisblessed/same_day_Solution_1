@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import {
   User, Phone, Mail, CreditCard, Building2, MapPin,
   Fingerprint, CheckCircle, XCircle, AlertCircle, Loader2,
-  ArrowRight, Eye, EyeOff, Calendar, Info
+  ArrowRight, Eye, EyeOff, Calendar, Info, ShieldCheck
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { apiFetchJson } from '@/lib/api-client';
@@ -64,6 +64,131 @@ export default function AEPSMerchantSetup({ onComplete, existingMerchant }: Merc
     bankIfsc: '',
   });
 
+  // eKYC Hub verification state
+  const [panVerified, setPanVerified] = useState(false)
+  const [panRegisteredName, setPanRegisteredName] = useState('')
+  const [panType, setPanType] = useState('')
+  const [verifyingPan, setVerifyingPan] = useState(false)
+  const [panError, setPanError] = useState('')
+
+  const [bankVerified, setBankVerified] = useState(false)
+  const [bankVerifiedName, setBankVerifiedName] = useState('')
+  const [verifyingBank, setVerifyingBank] = useState(false)
+  const [bankError, setBankError] = useState('')
+  const [bankNameMismatch, setBankNameMismatch] = useState('')
+
+  const [aadhaarVerified, setAadhaarVerified] = useState(false)
+  const [digilockerLoading, setDigilockerLoading] = useState(false)
+  const [digilockerError, setDigilockerError] = useState('')
+  const [digilockerUrl, setDigilockerUrl] = useState('')
+
+  const handleDigilockerAadhaar = async () => {
+    setDigilockerLoading(true)
+    setDigilockerError('')
+    setDigilockerUrl('')
+    try {
+      const data = await apiFetchJson<any>('/api/kyc/verify-digilocker', {
+        method: 'POST',
+        body: JSON.stringify({ type: 'aadhaar' }),
+      })
+      if (data.success && data.data.url) {
+        setDigilockerUrl(data.data.url)
+        window.open(data.data.url, '_blank')
+      } else {
+        setDigilockerError(data.error || 'Failed to generate Digilocker URL')
+      }
+    } catch (err: any) {
+      setDigilockerError(err.message || 'Digilocker verification failed')
+    } finally {
+      setDigilockerLoading(false)
+    }
+  }
+
+  const handleVerifyPan = async () => {
+    if (!/^[A-Z]{5}\d{4}[A-Z]$/.test(formData.pan)) {
+      setPanError('Enter valid PAN (e.g., ABCDE1234F)')
+      return
+    }
+    setVerifyingPan(true)
+    setPanError('')
+    try {
+      const data = await apiFetchJson<any>('/api/kyc/verify-pan360', {
+        method: 'POST',
+        body: JSON.stringify({ pan: formData.pan }),
+      })
+      if (data.success) {
+        setPanVerified(true)
+        setPanRegisteredName(data.data.registered_name || '')
+        setPanType(data.data.type || '')
+        if (data.data.registered_name && !formData.name) {
+          setFormData(prev => ({ ...prev, name: data.data.registered_name }))
+        }
+      } else {
+        setPanError(data.error || 'PAN verification failed')
+        setPanVerified(false)
+      }
+    } catch (err: any) {
+      setPanError(err.message || 'PAN verification failed')
+      setPanVerified(false)
+    } finally {
+      setVerifyingPan(false)
+    }
+  }
+
+  const fuzzyNameMatch = (name1: string, name2: string): boolean => {
+    if (!name1 || !name2) return false
+    const normalize = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim()
+    const n1 = normalize(name1), n2 = normalize(name2)
+    if (n1 === n2) return true
+    if (n1.includes(n2) || n2.includes(n1)) return true
+    const words1 = n1.split(' '), words2 = n2.split(' ')
+    const common = words1.filter(w => w.length > 1 && words2.includes(w))
+    return common.length >= Math.min(2, Math.min(words1.length, words2.length))
+  }
+
+  const handleVerifyBank = async () => {
+    if (!/^\d{9,18}$/.test(formData.bankAccountNo)) {
+      setBankError('Enter valid account number (9-18 digits)')
+      return
+    }
+    if (!/^[A-Z]{4}0[A-Z0-9]{6}$/.test(formData.bankIfsc)) {
+      setBankError('Enter valid IFSC code')
+      return
+    }
+    setVerifyingBank(true)
+    setBankError('')
+    setBankNameMismatch('')
+    try {
+      const data = await apiFetchJson<any>('/api/kyc/verify-bank', {
+        method: 'POST',
+        body: JSON.stringify({
+          account_number: formData.bankAccountNo,
+          ifsc: formData.bankIfsc,
+        }),
+      })
+      if (data.success) {
+        const holderName = data.data.nameAtBank || ''
+        setBankVerified(true)
+        setBankVerifiedName(holderName)
+        if (holderName && formData.name) {
+          const matchesName = fuzzyNameMatch(holderName, formData.name)
+          if (!matchesName) {
+            setBankNameMismatch(`Account holder name "${holderName}" does not match Name "${formData.name}". Please verify the correct bank account.`)
+            setBankVerified(false)
+          }
+        }
+      } else {
+        setBankError(data.error || 'Bank verification failed')
+        setBankVerified(false)
+      }
+    } catch (err: any) {
+      setBankError(err.message || 'Bank verification failed')
+      setBankVerified(false)
+    } finally {
+      setVerifyingBank(false)
+    }
+  }
+
   useEffect(() => {
     // Try to get user's location
     if ('geolocation' in navigator) {
@@ -86,6 +211,51 @@ export default function AEPSMerchantSetup({ onComplete, existingMerchant }: Merc
       );
     }
   }, []);
+
+  useEffect(() => {
+    const handleDigilockerMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'DIGILOCKER_RESULT') {
+        if (event.data.success && event.data.data) {
+          const d = event.data.data
+          setAadhaarVerified(true)
+          setDigilockerUrl('')
+          if (d.name) setFormData(prev => ({ ...prev, name: d.name }))
+          if (d.dob) setFormData(prev => ({ ...prev, dateOfBirth: d.dob }))
+          if (d.gender) setFormData(prev => ({ ...prev, gender: d.gender === 'F' ? 'F' : 'M' }))
+          if (d.uid) setFormData(prev => ({ ...prev, aadhaar: d.uid.replace(/\s/g, '') }))
+          if (d.address) setFormData(prev => ({ ...prev, address: d.address }))
+        } else if (event.data.error) {
+          setDigilockerError(event.data.error)
+        }
+      }
+    }
+    const handleStorageChange = (event: StorageEvent) => {
+      if (event.key === 'digilocker_result' && event.newValue) {
+        try {
+          const result = JSON.parse(event.newValue)
+          if (result.success && result.data) {
+            const d = result.data
+            setAadhaarVerified(true)
+            setDigilockerUrl('')
+            if (d.name) setFormData(prev => ({ ...prev, name: d.name }))
+            if (d.dob) setFormData(prev => ({ ...prev, dateOfBirth: d.dob }))
+            if (d.gender) setFormData(prev => ({ ...prev, gender: d.gender === 'F' ? 'F' : 'M' }))
+            if (d.uid) setFormData(prev => ({ ...prev, aadhaar: d.uid.replace(/\s/g, '') }))
+            if (d.address) setFormData(prev => ({ ...prev, address: d.address }))
+          } else if (result.error) {
+            setDigilockerError(result.error)
+          }
+          localStorage.removeItem('digilocker_result')
+        } catch (e) {}
+      }
+    }
+    window.addEventListener('message', handleDigilockerMessage)
+    window.addEventListener('storage', handleStorageChange)
+    return () => {
+      window.removeEventListener('message', handleDigilockerMessage)
+      window.removeEventListener('storage', handleStorageChange)
+    }
+  }, [])
 
   const updateField = (field: keyof FormData, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }));
@@ -137,6 +307,14 @@ export default function AEPSMerchantSetup({ onComplete, existingMerchant }: Merc
           setError('Enter a valid 12-digit Aadhaar number');
           return false;
         }
+        if (!panVerified) {
+          setError('PAN verification is mandatory. Please verify your PAN.');
+          return false;
+        }
+        if (!aadhaarVerified) {
+          setError('Aadhaar verification via Digilocker is mandatory. Please verify your Aadhaar.');
+          return false;
+        }
         return true;
 
       case 'address':
@@ -161,6 +339,14 @@ export default function AEPSMerchantSetup({ onComplete, existingMerchant }: Merc
         }
         if (!/^[A-Z]{4}0[A-Z0-9]{6}$/.test(formData.bankIfsc)) {
           setError('Enter a valid IFSC code (e.g., HDFC0001234)');
+          return false;
+        }
+        if (!bankVerified) {
+          setError('Bank account verification is mandatory. Please verify your bank account.');
+          return false;
+        }
+        if (bankNameMismatch) {
+          setError('Bank account holder name does not match. Please use the correct bank account.');
           return false;
         }
         return true;
@@ -301,64 +487,155 @@ export default function AEPSMerchantSetup({ onComplete, existingMerchant }: Merc
         />
       </div>
 
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1.5">
-            <CreditCard className="w-4 h-4 inline mr-1" />
-            PAN Number
-          </label>
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1.5">
+          <CreditCard className="w-4 h-4 inline mr-1" />
+          PAN Number
+        </label>
+        <div className="flex gap-2">
           <input
             type="text"
             value={formData.pan}
-            onChange={(e) => updateField('pan', formatPAN(e.target.value))}
+            onChange={(e) => { updateField('pan', formatPAN(e.target.value)); setPanVerified(false); setPanError(''); }}
             placeholder="ABCDE1234F"
-            className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 font-mono uppercase"
+            readOnly={panVerified}
+            className={`flex-1 px-4 py-3 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 font-mono uppercase ${panVerified ? 'border-green-400 bg-green-50 cursor-not-allowed' : 'border-gray-300'}`}
           />
-          <p className="text-xs text-gray-500 mt-1">Must be an individual PAN</p>
+          <button
+            type="button"
+            onClick={handleVerifyPan}
+            disabled={verifyingPan || formData.pan.length !== 10}
+            className="px-4 py-3 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1 text-sm font-medium whitespace-nowrap"
+          >
+            {verifyingPan ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShieldCheck className="w-4 h-4" />}
+            Verify
+          </button>
+        </div>
+        {panVerified && (
+          <div className="mt-2 p-2 bg-green-50 border border-green-200 rounded-lg flex items-center gap-2">
+            <CheckCircle className="w-4 h-4 text-green-600 shrink-0" />
+            <span className="text-sm text-green-700 font-medium">{panRegisteredName}</span>
+            <span className="text-xs text-green-600">({panType})</span>
+          </div>
+        )}
+        {panError && (
+          <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2">
+            <XCircle className="w-4 h-4 text-red-600 shrink-0" />
+            <span className="text-sm text-red-700">{panError}</span>
+          </div>
+        )}
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1.5">
+          <Fingerprint className="w-4 h-4 inline mr-1" />
+          Aadhaar Number
+        </label>
+        <div className="relative">
+          <input
+            type={showAadhaar ? 'text' : 'password'}
+            value={formData.aadhaar}
+            onChange={(e) => updateField('aadhaar', formatAadhaar(e.target.value))}
+            placeholder="XXXX XXXX XXXX"
+            maxLength={14}
+            readOnly={aadhaarVerified}
+            className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 pr-10 font-mono ${aadhaarVerified ? 'border-green-400 bg-green-50 cursor-not-allowed' : 'border-gray-300'}`}
+          />
+          <button
+            type="button"
+            onClick={() => setShowAadhaar(!showAadhaar)}
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+          >
+            {showAadhaar ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+          </button>
         </div>
 
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1.5">
-            <Fingerprint className="w-4 h-4 inline mr-1" />
-            Aadhaar Number
-          </label>
-          <div className="relative">
-            <input
-              type={showAadhaar ? 'text' : 'password'}
-              value={formData.aadhaar}
-              onChange={(e) => updateField('aadhaar', formatAadhaar(e.target.value))}
-              placeholder="XXXX XXXX XXXX"
-              maxLength={14}
-              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 pr-10 font-mono"
-            />
-            <button
-              type="button"
-              onClick={() => setShowAadhaar(!showAadhaar)}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-            >
-              {showAadhaar ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-            </button>
+        {!aadhaarVerified && (
+          <button
+            type="button"
+            onClick={handleDigilockerAadhaar}
+            disabled={digilockerLoading}
+            className="mt-2 w-full px-4 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm font-medium"
+          >
+            {digilockerLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShieldCheck className="w-4 h-4" />}
+            Verify via Digilocker
+          </button>
+        )}
+
+        {digilockerUrl && !aadhaarVerified && (
+          <div className="mt-2 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+            <p className="text-sm text-blue-800">
+              A Digilocker window has been opened. Complete verification there.{' '}
+              <a href={digilockerUrl} target="_blank" rel="noopener noreferrer" className="underline font-medium">
+                Click here
+              </a>{' '}
+              if the window didn&apos;t open.
+            </p>
           </div>
-        </div>
+        )}
+
+        {aadhaarVerified && (
+          <div className="mt-2 p-2 bg-green-50 border border-green-200 rounded-lg flex items-center gap-2">
+            <CheckCircle className="w-4 h-4 text-green-600 shrink-0" />
+            <span className="text-sm text-green-700 font-medium">Aadhaar Verified via Digilocker</span>
+          </div>
+        )}
+
+        {digilockerError && (
+          <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2">
+            <XCircle className="w-4 h-4 text-red-600 shrink-0" />
+            <span className="text-sm text-red-700">{digilockerError}</span>
+          </div>
+        )}
       </div>
+
+      {(!panVerified || !aadhaarVerified) && (
+        <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
+          <p className="text-sm font-medium text-amber-800 mb-1">Required verifications:</p>
+          <ul className="text-xs text-amber-700 space-y-1">
+            {!panVerified && <li>• PAN verification is mandatory</li>}
+            {!aadhaarVerified && <li>• Aadhaar verification via Digilocker is mandatory</li>}
+          </ul>
+        </div>
+      )}
     </div>
   );
 
   const renderAddress = () => (
     <div className="space-y-5">
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1.5">
-          <MapPin className="w-4 h-4 inline mr-1" />
-          Full Address
-        </label>
-        <textarea
-          value={formData.address}
-          onChange={(e) => updateField('address', e.target.value)}
-          placeholder="Enter your full address"
-          rows={3}
-          className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-        />
-      </div>
+      {aadhaarVerified && formData.address ? (
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1.5">
+            <MapPin className="w-4 h-4 inline mr-1" />
+            Full Address
+          </label>
+          <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
+            <div className="flex items-start gap-2">
+              <CheckCircle className="w-4 h-4 text-green-600 shrink-0 mt-0.5" />
+              <div>
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-green-100 text-green-700 text-xs font-semibold rounded-full mb-1">
+                  <ShieldCheck className="w-3 h-3" /> Address from Aadhaar verification
+                </span>
+                <p className="text-sm text-green-800 mt-1">{formData.address}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1.5">
+            <MapPin className="w-4 h-4 inline mr-1" />
+            Full Address
+          </label>
+          <textarea
+            value={formData.address}
+            onChange={(e) => updateField('address', e.target.value)}
+            placeholder="Enter your full address"
+            rows={3}
+            className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+          />
+        </div>
+      )}
 
       <div className="grid grid-cols-2 gap-4">
         <div>
@@ -414,9 +691,9 @@ export default function AEPSMerchantSetup({ onComplete, existingMerchant }: Merc
         <input
           type="text"
           value={formData.bankAccountNo}
-          onChange={(e) => updateField('bankAccountNo', e.target.value.replace(/\D/g, '').slice(0, 18))}
+          onChange={(e) => { updateField('bankAccountNo', e.target.value.replace(/\D/g, '').slice(0, 18)); setBankVerified(false); setBankError(''); }}
           placeholder="Enter account number"
-          className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 font-mono"
+          className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 font-mono ${bankVerified ? 'border-green-400 bg-green-50' : 'border-gray-300'}`}
         />
       </div>
 
@@ -425,11 +702,43 @@ export default function AEPSMerchantSetup({ onComplete, existingMerchant }: Merc
         <input
           type="text"
           value={formData.bankIfsc}
-          onChange={(e) => updateField('bankIfsc', formatIFSC(e.target.value))}
+          onChange={(e) => { updateField('bankIfsc', formatIFSC(e.target.value)); setBankVerified(false); setBankError(''); }}
           placeholder="HDFC0001234"
-          className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 font-mono uppercase"
+          className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 font-mono uppercase ${bankVerified ? 'border-green-400 bg-green-50' : 'border-gray-300'}`}
         />
-        <p className="text-xs text-gray-500 mt-1">11 character code (e.g., HDFC0001234)</p>
+      </div>
+
+      <div>
+        <button
+          type="button"
+          onClick={handleVerifyBank}
+          disabled={verifyingBank || !formData.bankAccountNo || !formData.bankIfsc}
+          className="w-full px-4 py-3 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm font-medium"
+        >
+          {verifyingBank ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShieldCheck className="w-4 h-4" />}
+          Verify Bank Account
+        </button>
+        {bankVerified && (
+          <div className="mt-2 p-3 bg-green-50 border border-green-200 rounded-lg flex items-center gap-2">
+            <CheckCircle className="w-4 h-4 text-green-600 shrink-0" />
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-green-100 text-green-700 text-xs font-semibold rounded-full">
+              <ShieldCheck className="w-3 h-3" /> Verified
+            </span>
+            <span className="text-sm text-green-700 font-medium">Account Holder: {bankVerifiedName}</span>
+          </div>
+        )}
+        {bankError && (
+          <div className="mt-2 p-3 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2">
+            <XCircle className="w-4 h-4 text-red-600 shrink-0" />
+            <span className="text-sm text-red-700">{bankError}</span>
+          </div>
+        )}
+        {bankNameMismatch && (
+          <div className="mt-2 p-3 bg-red-50 border border-red-200 rounded-lg flex items-start gap-2">
+            <XCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+            <span className="text-sm text-red-700">{bankNameMismatch}</span>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -495,7 +804,7 @@ export default function AEPSMerchantSetup({ onComplete, existingMerchant }: Merc
           <div>
             <p className="text-gray-500">Bank Account</p>
             <p className="font-medium text-gray-900 font-mono">
-              {'*'.repeat(formData.bankAccountNo.length - 4)}{formData.bankAccountNo.slice(-4)}
+              {'*'.repeat(Math.max(0, formData.bankAccountNo.length - 4))}{formData.bankAccountNo.slice(-4)}
             </p>
           </div>
           <div>
@@ -503,6 +812,33 @@ export default function AEPSMerchantSetup({ onComplete, existingMerchant }: Merc
             <p className="font-medium text-gray-900 font-mono">{formData.bankIfsc}</p>
           </div>
         </div>
+
+        {(panVerified || bankVerified || aadhaarVerified) && (
+          <>
+            <hr className="border-gray-200" />
+            <div className="space-y-2">
+              <h5 className="text-sm font-semibold text-gray-700">eKYC Verification Status</h5>
+              {aadhaarVerified && (
+                <div className="flex items-center gap-2 text-sm">
+                  <CheckCircle className="w-4 h-4 text-green-600" />
+                  <span className="text-green-700">Aadhaar Verified via Digilocker</span>
+                </div>
+              )}
+              {panVerified && (
+                <div className="flex items-center gap-2 text-sm">
+                  <CheckCircle className="w-4 h-4 text-green-600" />
+                  <span className="text-green-700">PAN Verified: {panRegisteredName} ({panType})</span>
+                </div>
+              )}
+              {bankVerified && (
+                <div className="flex items-center gap-2 text-sm">
+                  <CheckCircle className="w-4 h-4 text-green-600" />
+                  <span className="text-green-700">Bank Verified: {bankVerifiedName}</span>
+                </div>
+              )}
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
