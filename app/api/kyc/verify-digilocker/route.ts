@@ -29,8 +29,10 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const baseCallbackUrl = redirect_url || `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/kyc/digilocker-callback`
-    const callbackUrl = baseCallbackUrl
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.APP_URL || 'https://www.samedaysolution.in'
+    const callbackUrl = redirect_url || `${appUrl}/api/kyc/digilocker-callback`
+
+    console.log('[KYC Digilocker] Using callback URL:', callbackUrl)
 
     const orderid = generateOrderId('DIGI')
     const result = await createDigilockerURL(type, callbackUrl, orderid)
