@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
 import { getLegalDocument } from '@/lib/legal/server'
+import { renderMarkdownToHtml } from '@/lib/legal/renderMarkdown'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -20,7 +21,7 @@ async function requireAdmin(request: NextRequest) {
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { docId: string } }
+  context: any
 ) {
   try {
     const auth = await requireAdmin(request)
@@ -28,7 +29,11 @@ export async function GET(
       return addCorsHeaders(request, NextResponse.json({ error: auth.error }, { status: auth.status }))
     }
 
-    const doc = await getLegalDocument(params.docId)
+    const resolvedParams = typeof context.params?.then === 'function' 
+      ? await context.params 
+      : context.params
+    const docId = resolvedParams?.docId || request.nextUrl.pathname.split('/').pop()
+    const doc = await getLegalDocument(docId)
     if (!doc) {
       return addCorsHeaders(request, NextResponse.json({ error: 'Document not found' }, { status: 404 }))
     }
@@ -49,6 +54,8 @@ export async function GET(
       )
     }
 
+    const html = renderMarkdownToHtml(doc.content)
+
     return addCorsHeaders(
       request,
       NextResponse.json({
@@ -65,6 +72,7 @@ export async function GET(
           version: doc.version,
           effectiveDate: doc.effectiveDate,
           content: doc.content,
+          html,
         },
       })
     )

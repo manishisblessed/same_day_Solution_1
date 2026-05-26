@@ -5,7 +5,6 @@ import { useAuth } from '@/contexts/AuthContext'
 import { useRouter } from 'next/navigation'
 import AdminSidebar from '@/components/AdminSidebar'
 import { apiFetch } from '@/lib/api-client'
-import { renderMarkdownToHtml } from '@/lib/legal/renderMarkdown'
 import type { LegalDocumentMeta, LegalManifestCompany, PartnerRole } from '@/lib/legal/types'
 import {
   ArrowLeft,
@@ -44,6 +43,7 @@ interface DocumentResponse {
     version: string
     effectiveDate: string
     content: string
+    html: string
   }
 }
 
@@ -63,7 +63,7 @@ export default function AdminAgreementsPage() {
   const [error, setError] = useState<string | null>(null)
   const [meta, setMeta] = useState<AgreementsListResponse | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [selectedContent, setSelectedContent] = useState<string>('')
+  const [selectedHtml, setSelectedHtml] = useState<string>('')
 
   useEffect(() => {
     if (!authLoading && (!user || user.role !== 'admin')) {
@@ -73,7 +73,7 @@ export default function AdminAgreementsPage() {
 
   const loadDocument = useCallback(async (docId: string) => {
     setLoadingDoc(true)
-    setError(null)
+    setSelectedHtml('')
     try {
       const response = await apiFetch(`/api/admin/legal-agreements/${docId}`)
       const data: DocumentResponse = await response.json()
@@ -81,9 +81,10 @@ export default function AdminAgreementsPage() {
         throw new Error((data as { error?: string }).error || 'Failed to load document')
       }
       setSelectedId(docId)
-      setSelectedContent(data.document.content)
+      setSelectedHtml(data.document.html || '')
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load document')
+      const message = err instanceof Error ? err.message : 'Failed to load document'
+      setError(message === 'Failed to fetch' ? 'Unable to reach API. Try refreshing.' : message)
     } finally {
       setLoadingDoc(false)
     }
@@ -91,36 +92,52 @@ export default function AdminAgreementsPage() {
 
   useEffect(() => {
     if (authLoading || !user || user.role !== 'admin') return
+    let cancelled = false
 
-    const fetchList = async () => {
+    const init = async () => {
       setLoading(true)
       setError(null)
       try {
         const response = await apiFetch('/api/admin/legal-agreements')
         const data: AgreementsListResponse = await response.json()
+        if (cancelled) return
         if (!response.ok || !data.success) {
           throw new Error((data as { error?: string }).error || 'Failed to load agreements')
         }
         setMeta(data)
+        setLoading(false)
+
         if (data.documents.length > 0) {
-          await loadDocument(data.documents[0].id)
+          const firstDocId = data.documents[0].id
+          setLoadingDoc(true)
+          const docResponse = await apiFetch(`/api/admin/legal-agreements/${firstDocId}`)
+          const docData: DocumentResponse = await docResponse.json()
+          if (cancelled) return
+          if (docResponse.ok && docData.success) {
+            setSelectedId(firstDocId)
+            setSelectedHtml(docData.document.html || '')
+          }
+          setLoadingDoc(false)
         }
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load agreements')
-      } finally {
+        if (cancelled) return
+        const message = err instanceof Error ? err.message : 'Failed to load agreements'
+        setError(message === 'Failed to fetch' ? 'Unable to reach API. Try refreshing.' : message)
         setLoading(false)
+        setLoadingDoc(false)
       }
     }
 
-    fetchList()
-  }, [authLoading, user, loadDocument])
+    init()
+    return () => { cancelled = true }
+  }, [authLoading, user])
 
   const selectedDoc = useMemo(
     () => meta?.documents.find((doc) => doc.id === selectedId) ?? null,
     [meta, selectedId]
   )
 
-  const renderedHtml = useMemo(() => renderMarkdownToHtml(selectedContent), [selectedContent])
+  const renderedHtml = selectedHtml
 
   const downloadDocument = async (docId: string) => {
     try {

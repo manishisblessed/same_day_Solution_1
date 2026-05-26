@@ -151,7 +151,7 @@ function SidebarContent({
       </div>
 
       {/* Navigation - Compact */}
-      <nav className="flex-1 p-2 space-y-1 overflow-y-auto">
+      <nav className="flex-1 p-2 pb-8 space-y-1 overflow-y-auto">
         {sidebarItems.map((item) => {
           const active = isActive(item.href)
           const Icon = item.icon

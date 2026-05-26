@@ -43,12 +43,8 @@ export function getBBPSBackendUrl(): string {
   if (typeof window !== 'undefined') {
     const hostname = window.location.hostname
     
-    // Local development — use EC2 when configured (Chagans/Sparkup need whitelisted IP)
+    // Local development — use relative URLs so Next.js rewrites proxy to EC2 (avoids CORS)
     if (hostname === 'localhost' || hostname === '127.0.0.1') {
-      const localBackend = process.env.NEXT_PUBLIC_BBPS_BACKEND_URL
-      if (localBackend && localBackend.trim() !== '') {
-        return localBackend.endsWith('/') ? localBackend.slice(0, -1) : localBackend
-      }
       return ''
     }
     
@@ -74,18 +70,23 @@ export function getBBPSBackendUrl(): string {
   return 'https://api.samedaysolution.in'
 }
 
+/** Filesystem-backed routes — always served by the same Next.js origin (not EC2 proxy) */
+const SAME_ORIGIN_API_PREFIXES = ['/api/admin/legal-agreements']
+
 /**
  * Check if a path is a route that needs EC2 backend
- * ALL API routes go to EC2 because:
+ * Most /api/ routes go to EC2 because:
  * - Sparkup APIs need whitelisted IP (BBPS/Payout)
  * - Admin APIs need SUPABASE_SERVICE_ROLE_KEY
  * - User management needs Supabase admin access
  * - Payout bank list needs EC2 credentials
  */
 function isEC2Route(path: string): boolean {
-  // Route ALL /api/ calls to EC2 for consistency
-  // EC2 has all environment variables and whitelisted IP
-  return path.startsWith('/api/')
+  const normalizedPath = (path.startsWith('/') ? path : `/${path}`).split('?')[0]
+  if (SAME_ORIGIN_API_PREFIXES.some((prefix) => normalizedPath.startsWith(prefix))) {
+    return false
+  }
+  return normalizedPath.startsWith('/api/')
 }
 
 /**
