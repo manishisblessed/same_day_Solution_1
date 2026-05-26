@@ -73,7 +73,7 @@
           "options": { "raw": { "language": "json" } }
         },
         "url": "{{baseUrl}}/bbps/getWalletBalance",
-        "description": "Merchant BBPS wallet balance (used on admin dashboard). Requires whitelisted IP."
+        "description": "Merchant BBPS wallet balance (admin dashboard). Requires whitelisted IP. If you get 'Cannot POST /bbps/getWalletBalance', ask Chagans support for the correct wallet balance endpoint and set BBPS_CHAGANS_WALLET_PATH on EC2."
       },
       "response": []
     },

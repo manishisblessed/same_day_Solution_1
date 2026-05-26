@@ -20,12 +20,46 @@ export interface ChagansRequestResult<T = unknown> {
   data?: T
   error?: string
   raw?: string
+  routeNotFound?: boolean
 }
 
-export async function chagansPost<T = unknown>(
+function normalizeChagansError(text: string, status: number): {
+  message: string
+  routeNotFound: boolean
+} {
+  const trimmed = text.trim()
+  const cannotPost = trimmed.match(/Cannot POST \/([^\s<]+)/i)
+  const cannotGet = trimmed.match(/Cannot GET \/([^\s<]+)/i)
+  if (cannotPost || cannotGet) {
+    const route = cannotPost?.[1] || cannotGet?.[1] || 'unknown'
+    return {
+      message: `Chagans API route not found: /${route}`,
+      routeNotFound: true,
+    }
+  }
+  if (trimmed.startsWith('<!DOCTYPE') || trimmed.startsWith('<html')) {
+    return {
+      message:
+        status === 404
+          ? 'Chagans API route not found'
+          : `Chagans returned HTML error (HTTP ${status})`,
+      routeNotFound: status === 404,
+    }
+  }
+  return { message: trimmed.slice(0, 300) || `HTTP ${status}`, routeNotFound: false }
+}
+
+export async function chagansRequest<T = unknown>(
   path: string,
-  body: Record<string, unknown> = {}
+  options: {
+    method?: 'GET' | 'POST'
+    body?: Record<string, unknown>
+    apiType?: string
+  } = {}
 ): Promise<ChagansRequestResult<T>> {
+  const method = options.method || 'POST'
+  const body = options.body || {}
+  const apiType = options.apiType || 'bbps'
   if (isMockMode()) {
     return { ok: false, status: 503, error: 'Chagans API not called in BBPS mock mode' }
   }
@@ -44,15 +78,15 @@ export async function chagansPost<T = unknown>(
 
   try {
     const res = await fetch(url, {
-      method: 'POST',
+      method,
       headers: {
         'Content-Type': 'application/json',
         'client-id': getChagansClientId(),
         'client-secret': getChagansClientSecret(),
         authorization: `Bearer ${getChagansAuthToken()}`,
-        apiType: 'bbps',
+        apiType,
       },
-      body: JSON.stringify(body),
+      ...(method === 'GET' ? {} : { body: JSON.stringify(body) }),
       signal: controller.signal,
     })
 
@@ -61,11 +95,13 @@ export async function chagansPost<T = unknown>(
     try {
       parsed = text ? JSON.parse(text) : {}
     } catch {
+      const normalized = normalizeChagansError(text, res.status)
       return {
         ok: false,
         status: res.status,
-        error: text?.slice(0, 300) || 'Non-JSON response',
+        error: normalized.message,
         raw: text,
+        routeNotFound: normalized.routeNotFound,
       }
     }
 
@@ -89,4 +125,11 @@ export async function chagansPost<T = unknown>(
   } finally {
     clearTimeout(timer)
   }
+}
+
+export async function chagansPost<T = unknown>(
+  path: string,
+  body: Record<string, unknown> = {}
+): Promise<ChagansRequestResult<T>> {
+  return chagansRequest<T>(path, { method: 'POST', body })
 }

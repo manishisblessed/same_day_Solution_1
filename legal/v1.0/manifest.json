@@ -1,0 +1,103 @@
+{
+  "version": "1.0",
+  "effectiveDate": "2026-05-27",
+  "company": {
+    "legalName": "SAMEDAY SOLUTIONS PRIVATE LIMITED",
+    "registeredOffice": "TF-11B, 3rd Floor, Eros Metro Mall, Dwarka Sector-14, New Delhi – 110078, India",
+    "cin": "[CIN]",
+    "pan": "[Company PAN]",
+    "gstin": "[Company GSTIN]",
+    "email": "[Company Email]",
+    "website": "[Website]",
+    "grievanceOfficer": {
+      "name": "[Grievance Officer Name]",
+      "email": "[grievance@company.com]",
+      "phone": "[Helpline Number]"
+    }
+  },
+  "governingLaw": "Laws of India",
+  "jurisdiction": "New Delhi, India",
+  "arbitrationSeat": "New Delhi, India",
+  "documents": [
+    {
+      "id": "doc-1",
+      "fileName": "doc-1-channel-partner-onboarding-form.md",
+      "title": "Channel Partner Onboarding Form",
+      "shortTitle": "Onboarding Form",
+      "description": "KYC application, banking, service selection, declarations, and execution for all channel partner roles.",
+      "roles": ["retailer", "distributor", "master_distributor", "partner"],
+      "requiredForOnboarding": true,
+      "order": 1
+    },
+    {
+      "id": "doc-2",
+      "fileName": "doc-2-master-service-agreement.md",
+      "title": "Channel Partner Master Service Agreement",
+      "shortTitle": "Master Service Agreement",
+      "description": "Primary legal contract governing POS, AEPS, DMT, BBPS, wallet, QR, settlement, API services, liability, and dispute resolution.",
+      "roles": ["retailer", "distributor", "master_distributor", "partner"],
+      "requiredForOnboarding": true,
+      "order": 2
+    },
+    {
+      "id": "annexure-a",
+      "fileName": "annexure-a-prohibited-activities-compliance-policy.md",
+      "title": "Annexure A – Prohibited Activities & Compliance Policy",
+      "shortTitle": "Compliance Policy",
+      "description": "Prohibited transactions, AML monitoring, investigation rights, penalties, blacklisting, and immediate suspension events.",
+      "roles": ["retailer", "distributor", "master_distributor", "partner"],
+      "requiredForOnboarding": true,
+      "order": 3
+    },
+    {
+      "id": "annexure-b",
+      "fileName": "annexure-b-role-service-schedule.md",
+      "title": "Annexure B – Role & Service Schedule",
+      "shortTitle": "Role Schedule",
+      "description": "Role-specific obligations for Retailer, Distributor, Master Distributor, and API Partner including downline liability.",
+      "roles": ["retailer", "distributor", "master_distributor", "partner"],
+      "requiredForOnboarding": true,
+      "order": 4
+    },
+    {
+      "id": "annexure-c",
+      "fileName": "annexure-c-fee-settlement-schedule.md",
+      "title": "Annexure C – Fee, MDR, Commission & Settlement Schedule",
+      "shortTitle": "Fee & Settlement Schedule",
+      "description": "Commercial terms including MDR, commissions, instant settlement fees, cut-off times, and settlement cycles.",
+      "roles": ["retailer", "distributor", "master_distributor", "partner"],
+      "requiredForOnboarding": true,
+      "order": 5
+    },
+    {
+      "id": "annexure-d",
+      "fileName": "annexure-d-pos-device-handover.md",
+      "title": "Annexure D – POS / Device Handover & Return Record",
+      "shortTitle": "Device Handover",
+      "description": "Device custody acknowledgement, return obligations, and ₹16,000 + GST recovery terms.",
+      "roles": ["retailer", "distributor", "master_distributor"],
+      "requiredForOnboarding": false,
+      "order": 6
+    },
+    {
+      "id": "annexure-e",
+      "fileName": "annexure-e-privacy-notice-data-consent.md",
+      "title": "Annexure E – Privacy Notice & Data Consent (DPDP Act 2023)",
+      "shortTitle": "Privacy Notice",
+      "description": "Personal data processing purposes, retention, sharing, partner obligations, and data subject grievance routing.",
+      "roles": ["retailer", "distributor", "master_distributor", "partner"],
+      "requiredForOnboarding": true,
+      "order": 7
+    },
+    {
+      "id": "annexure-f",
+      "fileName": "annexure-f-api-partner-terms.md",
+      "title": "Annexure F – API Partner Terms",
+      "shortTitle": "API Partner Terms",
+      "description": "API security, webhooks, rate limits, reconciliation, suspension, and integration liability for B2B/API partners.",
+      "roles": ["partner"],
+      "requiredForOnboarding": false,
+      "order": 8
+    }
+  ]
+}

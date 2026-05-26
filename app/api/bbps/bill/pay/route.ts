@@ -209,39 +209,49 @@ export async function POST(request: NextRequest) {
     }
 
     // ========================================
-    // STEP 1: Check upstream BBPS provider balance (Sparkup wallet; skipped for Chagans)
+    // STEP 1: Check upstream BBPS provider balance
+    // Chagans: skip when wallet balance route is not deployed yet (pay still works)
     // ========================================
     console.log('Checking BBPS upstream provider balance...')
     const bbpsProviderBalance = await getBBPSWalletBalance()
     
     if (!bbpsProviderBalance.success) {
-      console.error('Failed to check BBPS provider balance:', bbpsProviderBalance.error)
-      const response = NextResponse.json(
-        { 
-          error: 'BBPS service temporarily unavailable. Please try again later.',
-          error_code: 'BBPS_PROVIDER_UNAVAILABLE',
-        },
-        { status: 503 }
+      const skipForMissingChagansRoute =
+        getBBPSProvider() === 'chagans' && bbpsProviderBalance.routeNotFound
+
+      if (skipForMissingChagansRoute) {
+        console.warn(
+          'Chagans wallet balance API unavailable; skipping provider pre-check:',
+          bbpsProviderBalance.error
+        )
+      } else {
+        console.error('Failed to check BBPS provider balance:', bbpsProviderBalance.error)
+        const response = NextResponse.json(
+          { 
+            error: 'BBPS service temporarily unavailable. Please try again later.',
+            error_code: 'BBPS_PROVIDER_UNAVAILABLE',
+          },
+          { status: 503 }
+        )
+        return addCorsHeaders(request, response)
+      }
+    } else {
+      const availableProviderBalance = (bbpsProviderBalance.balance || 0) - (bbpsProviderBalance.lien || 0)
+      console.log(
+        `BBPS provider balance: ₹${bbpsProviderBalance.balance}, Lien: ₹${bbpsProviderBalance.lien}, Available: ₹${availableProviderBalance}`
       )
-      return addCorsHeaders(request, response)
-    }
-    
-    const availableProviderBalance = (bbpsProviderBalance.balance || 0) - (bbpsProviderBalance.lien || 0)
-    console.log(
-      `BBPS provider balance: ₹${bbpsProviderBalance.balance}, Lien: ₹${bbpsProviderBalance.lien}, Available: ₹${availableProviderBalance}`
-    )
-    
-    // Check if provider has enough balance for the bill amount (no charges - charges stay with us)
-    if (availableProviderBalance < billAmountInRupees) {
-      console.error(`BBPS Provider balance insufficient: Available ₹${availableProviderBalance}, Required ₹${billAmountInRupees}`)
-      const response = NextResponse.json(
-        { 
-          error: 'BBPS service temporarily unavailable due to low provider balance. Please contact admin.',
-          error_code: 'BBPS_PROVIDER_LOW_BALANCE',
-        },
-        { status: 503 }
-      )
-      return addCorsHeaders(request, response)
+      
+      if (availableProviderBalance < billAmountInRupees) {
+        console.error(`BBPS Provider balance insufficient: Available ₹${availableProviderBalance}, Required ₹${billAmountInRupees}`)
+        const response = NextResponse.json(
+          { 
+            error: 'BBPS service temporarily unavailable due to low provider balance. Please contact admin.',
+            error_code: 'BBPS_PROVIDER_LOW_BALANCE',
+          },
+          { status: 503 }
+        )
+        return addCorsHeaders(request, response)
+      }
     }
 
     // ========================================

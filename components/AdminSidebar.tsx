@@ -8,7 +8,7 @@ import {
   BarChart3, Settings,
   Activity, X, Menu, CreditCard, Receipt, CheckCircle2,
   Building2, FileBarChart, Layers, Key, Timer, History, Repeat, ScrollText, Wallet,
-  Fingerprint, Server, TrendingUp
+  Fingerprint, Server, TrendingUp, Scale
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 
@@ -42,6 +42,7 @@ const sidebarItems: SidebarItem[] = [
   { id: 'performance', label: 'Performance', icon: Activity, href: '/admin?tab=performance' },
   { id: 'subscriptions', label: 'Subscriptions', icon: Repeat, href: '/admin?tab=subscriptions' },
   { id: 'portal-management', label: 'Portal Management', icon: Server, href: '/admin?tab=portal-management' },
+  { id: 'legal-agreements', label: 'Legal Agreements', icon: Scale, href: '/admin/agreements' },
   { id: 'settings', label: 'Settings', icon: Settings, href: '/admin/settings' },
 ]
 
