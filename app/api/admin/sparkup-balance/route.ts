@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
 import { getBBPSWalletBalance } from '@/services/bbps'
+import { getBBPSProvider } from '@/services/bbps/config'
 import { getPayoutBalance } from '@/services/payout'
 
 export const runtime = 'nodejs'
@@ -61,9 +62,13 @@ export async function GET(request: NextRequest) {
 
     const totalAvailable = bbpsAvailable + payoutAvailable
 
+    const bbpsProvider = getBBPSProvider()
+    const providerLabel = bbpsProvider === 'chagans' ? 'Chagans Technologies' : 'SparkUpTech'
+
     const response = NextResponse.json({
       success: true,
-      provider: 'SparkUpTech',
+      provider: providerLabel,
+      bbps_provider: bbpsProvider,
       last_checked: new Date().toISOString(),
       
       // BBPS Wallet (for bill payments)

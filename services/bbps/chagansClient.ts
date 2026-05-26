@@ -70,12 +70,14 @@ export async function chagansPost<T = unknown>(
     }
 
     if (!res.ok || parsed.success === false) {
+      const errField = parsed.error
       const msg =
         parsed.message ||
-        parsed.error ||
+        (typeof errField === 'object' && errField?.message ? String(errField.message) : null) ||
+        (typeof errField === 'string' ? errField : null) ||
         (Array.isArray(parsed.details) ? parsed.details.map((d: any) => d.message).join('; ') : null) ||
         `HTTP ${res.status}`
-      return { ok: false, status: res.status, error: String(msg), data: parsed }
+      return { ok: false, status: res.status, error: msg, data: parsed }
     }
 
     return { ok: true, status: res.status, data: parsed as T }

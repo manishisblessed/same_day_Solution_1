@@ -174,10 +174,33 @@ export async function fetchBill(
       throw new Error(cg.error || 'Failed to fetch bill from Chagans')
     }
 
-    const br = (cg.data.data?.billerResponse || {}) as Record<string, any>
+    const topLevel = cg.data as Record<string, any>
+    const nested = (topLevel.data || {}) as Record<string, any>
+    const br = (nested.billerResponse || topLevel.billerResponse || {}) as Record<string, any>
+
+    console.log('[Chagans fetchBill] Response structure:', {
+      topLevelKeys: Object.keys(topLevel),
+      nestedKeys: Object.keys(nested),
+      brKeys: Object.keys(br),
+      topLevelPaymentMode: topLevel.paymentMode,
+      nestedPaymentMode: nested.paymentMode,
+      brCustomerName: br.customerName,
+    })
+
     const rupeesStr = br.billAmount ?? br.amount ?? br.bill_amount ?? '0'
     const rupees = parseFloat(String(rupeesStr).replace(/[,\s₹]/g, '')) || 0
     const billAmountPaise = Math.round(rupees * 100)
+
+    const rawName =
+      br.customerName || br.customer_name || br.consumerName ||
+      nested.customerName || topLevel.customerName || undefined
+    const consumerName = rawName && !['NA', 'na', 'N/A'].includes(String(rawName).trim())
+      ? String(rawName).trim()
+      : undefined
+
+    // paymentMode can be at multiple levels in Chagans response
+    const chagansPaymentMode =
+      nested.paymentMode || topLevel.paymentMode || br.paymentMode || undefined
 
     const billDetails: BBPSBillDetails = {
       biller_id: billerId,
@@ -186,13 +209,14 @@ export async function fetchBill(
       due_date: br.dueDate || br.due_date,
       bill_date: br.billDate || br.bill_date,
       bill_number: br.billNumber || br.bill_number,
-      consumer_name: br.customerName || br.customer_name || br.consumerName,
+      consumer_name: consumerName,
       reqId: enquiryId,
       additional_info: {
-        ...cg.data.data,
+        ...nested,
         reqId: enquiryId,
         enquiryId,
-        chagansPaymentMode: cg.data.data?.paymentMode,
+        chagansPaymentMode,
+        paymentMode: chagansPaymentMode,
         billerResponse: br,
         responseCode: '000',
       },

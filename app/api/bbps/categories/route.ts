@@ -2,9 +2,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getBBPSCategories } from '@/lib/bbps/categories'
 import { getBBPSProvider } from '@/services/bbps/config'
 import { getChagansCategoryDisplayNames } from '@/services/bbps/chagansCategories'
+import { BBPS_CATEGORY_GROUPS } from '@/lib/bbps/category-groups'
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
 
-// Mark this route as dynamic (though it could be static, keeping it dynamic for consistency)
 export const dynamic = 'force-dynamic'
 
 export async function OPTIONS(request: NextRequest) {
@@ -35,9 +35,17 @@ export async function GET(request: NextRequest) {
       categories = getBBPSCategories()
     }
 
+    const groups = BBPS_CATEGORY_GROUPS.map((g) => ({
+      id: g.id,
+      label: g.label,
+      description: g.description,
+      categories: g.categories,
+    }))
+
     const response = NextResponse.json({
       success: true,
       categories,
+      groups,
       count: categories.length,
       source,
     })

@@ -12,6 +12,7 @@ import { paiseToRupees, formatPaiseAsRupees } from '@/lib/bbps/currency'
 import { apiFetch, apiFetchJson } from '@/lib/api-client'
 import { supabase } from '@/lib/supabase/client'
 import { useAuth } from '@/contexts/AuthContext'
+import { isPrepaidCategoryName } from '@/lib/bbps/category-groups'
 
 interface BBPSBiller {
   biller_id: string
@@ -24,7 +25,7 @@ interface BBPSBiller {
   amount_exactness?: 'EXACT' | 'INEXACT' | 'ANY'
   support_bill_fetch?: boolean
   support_partial_payment?: boolean
-  paymentMode?: string // Payment mode (e.g., "Cash") - fixed "Cash" for now
+  paymentMode?: string
   metadata?: {
     billerInputParams?: {
       paramInfo?: Array<{
@@ -122,22 +123,7 @@ interface ReceiptData {
   isPrepaid: boolean
 }
 
-// Categories that are prepaid (don't require bill fetch - direct recharge)
-const PREPAID_CATEGORIES = [
-  'Mobile Prepaid',
-  'DTH',
-  'Fastag',
-  'NCMC Recharge',
-  'Prepaid meter',
-]
-
-// Helper to check if a category is prepaid
-const isPrepaidCategory = (category: string): boolean => {
-  return PREPAID_CATEGORIES.some(pc => 
-    category.toLowerCase().includes(pc.toLowerCase()) ||
-    pc.toLowerCase().includes(category.toLowerCase())
-  )
-}
+const isPrepaidCategory = isPrepaidCategoryName
 
 // Helper to sanitize error messages (remove HTML from nginx/server errors)
 const sanitizeErrorMessage = (message: string | undefined | null): string => {
@@ -207,6 +193,8 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
   const [showTpinValue, setShowTpinValue] = useState(false)
   const [panNumber, setPanNumber] = useState('')
   const [panError, setPanError] = useState<string | null>(null)
+  const [upiId, setUpiId] = useState('')
+  const [upiError, setUpiError] = useState<string | null>(null)
   
   // Prepaid recharge states
   const [prepaidAmount, setPrepaidAmount] = useState<string>('')
@@ -228,6 +216,18 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
       fetchBBPSLimit()
     }
   }, [user?.partner_id])
+
+  // Derive payment mode from bill fetch response (Cash or UPI)
+  const getEffectivePaymentMode = (): string => {
+    return (
+      billDetails?.additional_info?.chagansPaymentMode ||
+      billDetails?.additional_info?.paymentMode ||
+      selectedBiller?.paymentMode ||
+      'Cash'
+    )
+  }
+
+  const isUPIPayment = getEffectivePaymentMode().toUpperCase() === 'UPI'
 
   // Fetch BBPS limit tier for the retailer
   const fetchBBPSLimit = async () => {
@@ -606,8 +606,11 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
   // Go back to amount selection
   const goBackToAmount = () => {
     setPaymentStep('amount')
+    setPaymentResult(null)
     setTpin('')
     setTpinError(null)
+    setPanError(null)
+    setUpiError(null)
   }
 
   // Go back to bill details
@@ -946,14 +949,24 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
 
     // PAN validation for amounts above ₹49,999
     const preCheckAmount = getSelectedAmount()
-    if (preCheckAmount > 49999) {
+    if (preCheckAmount >= 50000) {
       const panRegex = /^[A-Z]{5}[0-9]{4}[A-Z]$/
       if (!panNumber || !panRegex.test(panNumber.trim().toUpperCase())) {
-        setPanError('Valid PAN number is required for payments above ₹49,999')
+        setPanError('PAN is required for payments of ₹50,000 or above')
         return
       }
     }
     setPanError(null)
+
+    // UPI ID validation when payment mode is UPI
+    if (isUPIPayment) {
+      const vpa = upiId.trim()
+      if (!vpa || !vpa.includes('@')) {
+        setUpiError('Valid UPI ID is required (e.g. name@upi)')
+        return
+      }
+    }
+    setUpiError(null)
 
     try {
       setPaying(true)
@@ -1006,11 +1019,8 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
           bill_number: billDetails.bill_number,
           // CRITICAL: Pass reqId from fetchBill to correlate with BBPS provider
           reqId: billDetails.reqId || billDetails.additional_info?.reqId,
-          payment_mode:
-            billDetails.additional_info?.chagansPaymentMode ||
-            billDetails.additional_info?.paymentMode ||
-            selectedBiller.paymentMode ||
-            'Cash',
+          payment_mode: getEffectivePaymentMode(),
+          ...(isUPIPayment && upiId.trim() ? { upi_id: upiId.trim() } : {}),
           additional_info: {
             ...billDetails.additional_info,
             inputParams: inputParamFields.length > 0 
@@ -1051,7 +1061,7 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
           amountPaid: selectedAmount,
           charges: paymentCharges,
           totalDeducted: selectedAmount + paymentCharges,
-          paymentMode: selectedBiller.paymentMode || 'Cash',
+          paymentMode: getEffectivePaymentMode(),
           walletBalanceAfter: data.wallet_balance ?? 0,
           dateTime: new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }),
           isPrepaid: false,
@@ -1072,9 +1082,11 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
       const errorMsg = error.message || 'Payment failed'
       if (errorMsg.includes('504') || errorMsg.includes('Gateway Time') || errorMsg.includes('timeout')) {
         setError('Payment request timed out. This does NOT mean the payment failed - it may still be processing. Please check your transaction history in 2-3 minutes to verify the payment status. Do NOT retry the payment.')
-      } else if (errorMsg.includes('PAN number is required') || errorMsg.includes('pan_required')) {
+      } else if (errorMsg.includes('PAN') || errorMsg.includes('pan_required')) {
         setPanError('Valid PAN number is required for payments above ₹49,999')
-        setError('Please enter a valid PAN number to proceed.')
+        setPaymentResult({ success: false, error_message: errorMsg } as PaymentResult)
+        setPaying(false)
+        return
       } else if (errorMsg.includes('Invalid T-PIN') || errorMsg.includes('T-PIN')) {
         setTpinError('Incorrect T-PIN. Please check and try again.')
         setError('Incorrect T-PIN. Please check and try again.')
@@ -1591,34 +1603,67 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
 
           {/* Payment Result (only shown for failed payments — successful ones use the receipt modal) */}
           <AnimatePresence>
-            {paymentResult && !paymentResult.success && (
-              <motion.div
-                initial={{ opacity: 0, y: -10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -10 }}
-                className="rounded-lg p-4 border bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800"
-              >
-                <div className="flex items-start gap-3">
-                  <XCircle className="w-5 h-5 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" />
-                  <div className="flex-1">
-                    <p className="text-sm font-medium text-red-800 dark:text-red-200">
-                      Payment Failed
-                    </p>
-                    {paymentResult.error_message && (
-                      <p className="text-sm text-red-700 dark:text-red-300 mt-1">{sanitizeErrorMessage(paymentResult.error_message)}</p>
-                    )}
-                    <div className="mt-3 flex gap-2">
-                      <button
-                        onClick={resetForm}
-                        className="px-3 py-1.5 text-xs bg-gray-600 text-white rounded hover:bg-gray-700"
-                      >
-                        Try Again
-                      </button>
+            {paymentResult && !paymentResult.success && (() => {
+              const msg = sanitizeErrorMessage(paymentResult.error_message)
+              const isPanIssue = /pan/i.test(msg)
+              const isUpiIssue = /upi/i.test(msg)
+              const isValidationIssue = isPanIssue || isUpiIssue || /insufficient balance/i.test(msg) || /enquiryId/i.test(msg)
+
+              return isValidationIssue ? (
+                <motion.div
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  className="rounded-lg p-4 border bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800"
+                >
+                  <div className="flex items-start gap-3">
+                    <AlertCircle className="w-5 h-5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
+                    <div className="flex-1">
+                      <p className="text-sm font-medium text-amber-800 dark:text-amber-200">
+                        {isPanIssue ? 'PAN Number Required' : isUpiIssue ? 'UPI ID Required' : 'Action Required'}
+                      </p>
+                      <p className="text-sm text-amber-700 dark:text-amber-300 mt-1">{msg}</p>
+                      <div className="mt-3 flex gap-2">
+                        {/enquiryId/i.test(msg) ? (
+                          <button onClick={resetForm} className="px-3 py-1.5 text-xs bg-amber-600 text-white rounded hover:bg-amber-700">
+                            Fetch Bill Again
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => { setPaymentResult(null); setPaymentStep('confirm') }}
+                            className="px-3 py-1.5 text-xs bg-amber-600 text-white rounded hover:bg-amber-700"
+                          >
+                            {isPanIssue ? 'Enter PAN' : isUpiIssue ? 'Enter UPI ID' : 'Try Again'}
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </div>
-                </div>
-              </motion.div>
-            )}
+                </motion.div>
+              ) : (
+                <motion.div
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  className="rounded-lg p-4 border bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800"
+                >
+                  <div className="flex items-start gap-3">
+                    <XCircle className="w-5 h-5 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" />
+                    <div className="flex-1">
+                      <p className="text-sm font-medium text-red-800 dark:text-red-200">Payment Failed</p>
+                      {paymentResult.error_message && (
+                        <p className="text-sm text-red-700 dark:text-red-300 mt-1">{msg}</p>
+                      )}
+                      <div className="mt-3 flex gap-2">
+                        <button onClick={resetForm} className="px-3 py-1.5 text-xs bg-gray-600 text-white rounded hover:bg-gray-700">
+                          Try Again
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </motion.div>
+              )
+            })()}
           </AnimatePresence>
 
           {/* Transaction Status */}
@@ -1992,7 +2037,7 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
                 <div className="mb-4">
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                     PAN Number
-                    <span className="text-xs text-red-500 ml-1">* Required for payments above ₹49,999</span>
+                    <span className="text-xs text-red-500 ml-1">* Required for ₹50,000+</span>
                   </label>
                   <input
                     type="text"
@@ -2011,7 +2056,7 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
                     <p className="text-xs text-red-500 mt-1">{panError}</p>
                   )}
                   <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                    PAN is mandatory for transactions exceeding ₹49,999 as per RBI guidelines
+                    PAN is mandatory for transactions of ₹50,000 or above as per RBI guidelines
                   </p>
                 </div>
               )}
@@ -2095,7 +2140,7 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
               <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden mb-4">
                 <table className="w-full">
                   <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                    {billDetails.consumer_name && (
+                    {billDetails.consumer_name && !['NA', 'na', 'N/A'].includes(billDetails.consumer_name.trim()) && (
                       <tr>
                         <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-700/50">Customer Name</td>
                         <td className="px-4 py-3 text-sm font-medium text-gray-900 dark:text-white">{billDetails.consumer_name}</td>
@@ -2128,7 +2173,7 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
                     <tr>
                       <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-700/50">Payment Mode</td>
                       <td className="px-4 py-3 text-sm font-medium text-green-700 dark:text-green-400">
-                        {selectedBiller?.paymentMode || 'Cash'}
+                        {getEffectivePaymentMode()}
                       </td>
                     </tr>
                     {/* Minimum Amount Due - from additional info */}
@@ -2347,7 +2392,7 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
               <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden mb-4">
                 <table className="w-full">
                   <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                    {billDetails.consumer_name && (
+                    {billDetails.consumer_name && !['NA', 'na', 'N/A'].includes(billDetails.consumer_name.trim()) && (
                       <tr>
                         <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-700/50">Customer Name</td>
                         <td className="px-4 py-3 text-sm font-medium text-gray-900 dark:text-white">{billDetails.consumer_name}</td>
@@ -2380,7 +2425,7 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
                     <tr>
                       <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-700/50">Payment Mode</td>
                       <td className="px-4 py-3 text-sm font-medium text-green-700 dark:text-green-400">
-                        {selectedBiller?.paymentMode || 'Cash'}
+                        {getEffectivePaymentMode()}
                       </td>
                     </tr>
                   </tbody>
@@ -2450,11 +2495,11 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
               </div>
 
               {/* PAN Number Input — required for payments above ₹49,999 */}
-              {getSelectedAmount() > 49999 && (
+              {getSelectedAmount() >= 50000 && (
                 <div className="mb-4">
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                     PAN Number
-                    <span className="text-xs text-red-500 ml-1">* Required for payments above ₹49,999</span>
+                    <span className="text-xs text-red-500 ml-1">* Required for ₹50,000+</span>
                   </label>
                   <input
                     type="text"
@@ -2473,7 +2518,35 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
                     <p className="text-sm text-red-600 dark:text-red-400 mt-1">{panError}</p>
                   )}
                   <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                    PAN is mandatory for transactions exceeding ₹49,999 as per RBI guidelines
+                    PAN is mandatory for transactions of ₹50,000 or above as per RBI guidelines
+                  </p>
+                </div>
+              )}
+
+              {/* UPI ID Input — shown when payment mode is UPI */}
+              {isUPIPayment && (
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    UPI ID (VPA)
+                    <span className="text-xs text-red-500 ml-1">* Required for UPI payment</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={upiId}
+                    onChange={(e) => {
+                      setUpiId(e.target.value.toLowerCase().trim())
+                      setUpiError(null)
+                    }}
+                    placeholder="e.g. name@upi, 9876543210@ybl"
+                    className={`w-full px-4 py-3 border rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
+                      upiError ? 'border-red-500' : 'border-gray-300 dark:border-gray-600'
+                    }`}
+                  />
+                  {upiError && (
+                    <p className="text-sm text-red-600 dark:text-red-400 mt-1">{upiError}</p>
+                  )}
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                    Enter the UPI VPA linked to the customer's bank account
                   </p>
                 </div>
               )}
@@ -2492,7 +2565,7 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
 
               <button
                 onClick={payBill}
-                disabled={paying || (tpin.length > 0 && tpin.length < 4) || (getSelectedAmount() > 49999 && panNumber.length !== 10)}
+                disabled={paying || (tpin.length > 0 && tpin.length < 4) || (getSelectedAmount() >= 50000 && panNumber.length !== 10) || (isUPIPayment && (!upiId.trim() || !upiId.includes('@')))}
                 className="w-full px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center gap-2 font-semibold"
               >
                 {paying ? (
@@ -2503,7 +2576,7 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
                 ) : (
                   <>
                     <Wallet className="w-5 h-5" />
-                    Confirm
+                    Pay via {getEffectivePaymentMode()}
                   </>
                 )}
               </button>

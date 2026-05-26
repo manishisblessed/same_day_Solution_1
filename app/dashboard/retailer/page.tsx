@@ -17,6 +17,7 @@ import {
 import TransactionsTable from '@/components/TransactionsTable'
 import BBPSTransactionsTable from '@/components/BBPSTransactionsTable'
 import BBPSPayment from '@/components/BBPSPayment'
+import { BBPS_CATEGORY_GROUPS } from '@/lib/bbps/category-groups'
 import PayoutTransfer from '@/components/PayoutTransfer'
 import LedgerTab from '@/components/LedgerTab'
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
@@ -844,33 +845,9 @@ function DashboardTab({ user, stats, chartData, recentTransactions }: { user: an
 
 // BBPS Tab Component with Sub-tabs
 function BBPSTab() {
-  const [bbpsSubTab, setBbpsSubTab] = useState<'recharge' | 'utilities' | 'creditcard' | 'others'>('recharge')
+  const [activeGroupId, setActiveGroupId] = useState(BBPS_CATEGORY_GROUPS[0].id)
 
-  // Category groupings - ALL 28 categories covered
-  const RECHARGE_CATEGORIES = [
-    'Mobile Prepaid', 'DTH', 'Fastag', 'NCMC Recharge', 'Broadband Postpaid', 
-    'Landline Postpaid', 'Mobile Postpaid', 'Cable TV'
-  ]
-  
-  const UTILITY_CATEGORIES = [
-    'Electricity', 'Gas', 'Water', 'LPG Gas', 'Municipal Services', 'Municipal Taxes', 
-    'Housing Society', 'Rental', 'Prepaid meter'
-  ]
-  
-  const CREDITCARD_CATEGORIES = ['Credit Card']
-  
-  // Other services - Insurance, Loans, Education, Health, etc.
-  const OTHER_CATEGORIES = [
-    'Insurance', 'Loan Repayment', 'Education Fees', 'Hospital', 'Hospital and Pathology',
-    'Clubs and Associations', 'Subscription', 'Recurring Deposit', 'NPS', 'Donation'
-  ]
-
-  const subTabs = [
-    { id: 'recharge' as const, label: 'Recharge & Postpaid', description: 'Mobile, DTH, Fastag, Cable TV', color: 'from-blue-500 to-blue-600' },
-    { id: 'utilities' as const, label: 'Utility Bills', description: 'Electricity, Gas, Water, LPG', color: 'from-green-500 to-green-600' },
-    { id: 'creditcard' as const, label: 'Credit Card', description: 'Credit Card Bill Payment', color: 'from-purple-500 to-purple-600' },
-    { id: 'others' as const, label: 'Other Services', description: 'Insurance, Loan, Education, Health', color: 'from-orange-500 to-orange-600' },
-  ]
+  const activeGroup = BBPS_CATEGORY_GROUPS.find((g) => g.id === activeGroupId) || BBPS_CATEGORY_GROUPS[0]
 
   return (
     <motion.div
@@ -878,42 +855,30 @@ function BBPSTab() {
       animate={{ opacity: 1, y: 0 }}
       className="space-y-4"
     >
-      {/* Sub-tab Navigation */}
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow-md border border-gray-200 dark:border-gray-700 p-2">
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-          {subTabs.map((tab) => (
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+          {BBPS_CATEGORY_GROUPS.map((group) => (
             <button
-              key={tab.id}
-              onClick={() => setBbpsSubTab(tab.id)}
+              key={group.id}
+              onClick={() => setActiveGroupId(group.id)}
               className={`p-3 rounded-lg text-left transition-all ${
-                bbpsSubTab === tab.id
-                  ? `bg-gradient-to-r ${tab.color} text-white shadow-md`
+                activeGroupId === group.id
+                  ? `bg-gradient-to-r ${group.color} text-white shadow-md`
                   : 'bg-gray-50 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-600'
               }`}
             >
-              <div className="font-semibold text-sm">{tab.label}</div>
-              <div className={`text-xs mt-0.5 ${bbpsSubTab === tab.id ? 'text-white/80' : 'text-gray-500 dark:text-gray-400'}`}>
-                {tab.description}
+              <div className="font-semibold text-sm">{group.label}</div>
+              <div className={`text-xs mt-0.5 ${activeGroupId === group.id ? 'text-white/80' : 'text-gray-500 dark:text-gray-400'}`}>
+                {group.description}
               </div>
             </button>
           ))}
         </div>
       </div>
 
-      {/* BBPS Payment Component with Category Filter */}
       <BBPSPayment 
-        categoryFilter={
-          bbpsSubTab === 'recharge' ? RECHARGE_CATEGORIES :
-          bbpsSubTab === 'utilities' ? UTILITY_CATEGORIES :
-          bbpsSubTab === 'creditcard' ? CREDITCARD_CATEGORIES :
-          OTHER_CATEGORIES
-        }
-        title={
-          bbpsSubTab === 'recharge' ? 'Recharge & Postpaid Services' :
-          bbpsSubTab === 'utilities' ? 'Utility Bill Payments' :
-          bbpsSubTab === 'creditcard' ? 'Credit Card Bill Payment' :
-          'Other Services'
-        }
+        categoryFilter={activeGroup.categories}
+        title={activeGroup.label}
       />
     </motion.div>
   )

@@ -43,9 +43,13 @@ export function getBBPSBackendUrl(): string {
   if (typeof window !== 'undefined') {
     const hostname = window.location.hostname
     
-    // Local development - use local Next.js API routes
+    // Local development — use EC2 when configured (Chagans/Sparkup need whitelisted IP)
     if (hostname === 'localhost' || hostname === '127.0.0.1') {
-      return '' // Use relative URLs in development
+      const localBackend = process.env.NEXT_PUBLIC_BBPS_BACKEND_URL
+      if (localBackend && localBackend.trim() !== '') {
+        return localBackend.endsWith('/') ? localBackend.slice(0, -1) : localBackend
+      }
+      return ''
     }
     
     // Production: Always use EC2 backend

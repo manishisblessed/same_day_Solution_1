@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserFromRequest } from '@/lib/auth-server-request'
 import { getBBPSWalletBalance } from '@/services/bbps'
+import { getBBPSProvider } from '@/services/bbps/config'
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
 
 export const runtime = 'nodejs'
@@ -76,7 +77,7 @@ export async function GET(request: NextRequest) {
       lien: balanceResult.lien,
       available_balance: availableBalance,
       bbps_available: availableBalance > 1000,
-      provider: 'SparkUpTech',
+      provider: getBBPSProvider() === 'chagans' ? 'Chagans Technologies' : 'SparkUpTech',
       last_checked: new Date().toISOString(),
     })
     return addCorsHeaders(request, response)

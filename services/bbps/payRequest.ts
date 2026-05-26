@@ -178,6 +178,18 @@ async function payRequestChagans(params: PayRequestParams): Promise<BBPSPaymentR
     }
   }
 
+  // PAN mandatory for amounts ≥ ₹50,000 (Chagans enforces this)
+  const panValue = (customerPan || '').trim().toUpperCase()
+  const PAN_REGEX = /^[A-Z]{5}[0-9]{4}[A-Z]$/
+  if (amount >= 50000 && (!panValue || !PAN_REGEX.test(panValue))) {
+    return {
+      success: false,
+      error_message: 'PAN is required for payments of ₹50,000 or above. Please enter a valid PAN (e.g. ABCDE1234F).',
+      agent_transaction_id: agentTransactionId,
+      reqId: enquiryId,
+    }
+  }
+
   const mode = (paymentMode || 'Cash').toUpperCase()
   const isUPI = mode === 'UPI'
 
@@ -192,7 +204,7 @@ async function payRequestChagans(params: PayRequestParams): Promise<BBPSPaymentR
     amount: String(Math.round(amount)),
     externalRef: String(agentTransactionId).replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 64),
     merchantId,
-    customerPan: (customerPan || '').trim().toUpperCase(),
+    ...(panValue ? { customerPan: panValue } : {}),
     customerName: (customerName || billerName || 'Customer').trim().slice(0, 120),
     customerMobile: mobile,
     customerEmail: (customerEmail || '').trim() || 'customer@local.invalid',

@@ -112,13 +112,25 @@ export async function POST(request: NextRequest) {
       return addCorsHeaders(request, response)
     }
 
-    // PAN number is required for payments above ₹49,999
+    // PAN required for payments ≥ ₹50,000 (amount from UI is in paise)
     const billAmountForPanCheck = parseFloat(amount)
-    const PAN_THRESHOLD_PAISE = 49999 * 100 // ₹49,999 in paise
-    if (!isNaN(billAmountForPanCheck) && billAmountForPanCheck > PAN_THRESHOLD_PAISE) {
+    const PAN_THRESHOLD_PAISE = 50000 * 100 // ₹50,000 in paise
+    if (!isNaN(billAmountForPanCheck) && billAmountForPanCheck >= PAN_THRESHOLD_PAISE) {
       if (!pan_number || typeof pan_number !== 'string' || !/^[A-Z]{5}[0-9]{4}[A-Z]$/.test(pan_number.trim().toUpperCase())) {
         const response = NextResponse.json(
-          { error: 'Valid PAN number is required for payments above ₹49,999', pan_required: true },
+          { error: 'PAN is required for payments of ₹50,000 or above. Please enter a valid PAN (e.g. ABCDE1234F).', pan_required: true },
+          { status: 400 }
+        )
+        return addCorsHeaders(request, response)
+      }
+    }
+
+    // UPI ID required when payment mode is UPI
+    const effectiveMode = (payment_mode || 'Cash').toString().toUpperCase()
+    if (effectiveMode === 'UPI') {
+      if (!upi_id || typeof upi_id !== 'string' || !upi_id.includes('@')) {
+        const response = NextResponse.json(
+          { error: 'Valid UPI ID (VPA) is required for UPI payments', upi_required: true },
           { status: 400 }
         )
         return addCorsHeaders(request, response)
