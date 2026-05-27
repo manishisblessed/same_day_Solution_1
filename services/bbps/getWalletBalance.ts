@@ -63,15 +63,7 @@ export async function getBBPSWalletBalance(): Promise<{
   }
 
   if (getBBPSProvider() === 'chagans') {
-    const cg = await getChagansWalletBalance()
-    if (cg.routeNotFound || !cg.success) {
-      // Chagans doesn't expose a wallet balance endpoint yet.
-      // Return a passthrough so the pay route doesn't block.
-      // The actual Chagans payBill API will reject if balance is insufficient.
-      console.log('[BBPS] Chagans wallet balance unavailable, allowing payment to proceed (Chagans will enforce balance)')
-      return { success: true, balance: 1_000_000_000_000, lien: 0 }
-    }
-    return cg
+    return getChagansWalletBalance()
   }
 
   try {

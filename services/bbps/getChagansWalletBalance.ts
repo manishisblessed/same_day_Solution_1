@@ -18,6 +18,12 @@ export const CHAGANS_WALLET_PATH_CANDIDATES = [
   'bbps/wallet/getBalance',
   'bbps/fetchWalletBalance',
   'bbps/getPartnerWalletBalance',
+  'partner/getProfile',
+  'partner/getBalance',
+  'partner/dashboard',
+  'merchant/getProfile',
+  'merchant/getBalance',
+  'merchant/walletBalance',
 ] as const
 
 let cachedWalletPath: { path: string; method: 'POST' | 'GET' } | null = null
@@ -40,10 +46,13 @@ function extractChagansBalance(payload: Record<string, unknown>): {
     parseAmount(data.available)
 
   const total =
+    parseAmount(data.mainBalance) ??
+    parseAmount(data.main_balance) ??
     parseAmount(data.balance) ??
     parseAmount(data.walletBalance) ??
     parseAmount(data.wallet_balance) ??
-    parseAmount(data.totalBalance)
+    parseAmount(data.totalBalance) ??
+    parseAmount(data.total)
 
   const lien =
     parseAmount(data.lien) ??
@@ -61,6 +70,12 @@ function extractChagansBalance(payload: Record<string, unknown>): {
   }
 
   return null
+}
+
+const MAX_REASONABLE_BALANCE = 100_000_000 // ₹10 crore — reject mis-parsed API fields
+
+function isReasonableBalance(amount: number): boolean {
+  return Number.isFinite(amount) && amount >= 0 && amount <= MAX_REASONABLE_BALANCE
 }
 
 function walletPathCandidates(): string[] {
@@ -98,6 +113,13 @@ function parseWalletResponse(
     return {
       success: false,
       error: 'Chagans wallet response did not include a balance amount',
+    }
+  }
+
+  if (!isReasonableBalance(parsed.balance)) {
+    return {
+      success: false,
+      error: 'Chagans wallet response contained an invalid balance amount',
     }
   }
 

@@ -1708,7 +1708,15 @@ function AdminDashboardOverview({
   
   // Sparkup Balance State
   const [sparkupBalance, setSparkupBalance] = useState<{
-    bbps: { balance: number; lien: number; available_balance: number; success: boolean; error?: string }
+    bbps: {
+      balance: number | null
+      lien: number | null
+      available_balance: number | null
+      success: boolean
+      error?: string
+      setup_hint?: string
+      route_not_found?: boolean
+    }
     payout: { balance: number; lien: number; available_balance: number; success: boolean; error?: string }
     summary: { total_available: number; all_services_healthy: boolean }
     last_checked: string
@@ -2120,7 +2128,9 @@ function AdminDashboardOverview({
               )}
             </div>
 
-            {sparkupBalance.bbps.success ? (
+            {sparkupBalance.bbps.success &&
+            sparkupBalance.bbps.balance != null &&
+            sparkupBalance.bbps.available_balance != null ? (
               <div className="grid grid-cols-3 gap-4">
                 <div className="text-center p-3 bg-indigo-800/50 rounded-lg">
                   <p className="text-xs text-indigo-300 mb-1">Total Balance</p>
@@ -2128,7 +2138,7 @@ function AdminDashboardOverview({
                 </div>
                 <div className="text-center p-3 bg-indigo-800/50 rounded-lg">
                   <p className="text-xs text-indigo-300 mb-1">Lien Amount</p>
-                  <p className="text-xl font-bold text-orange-400">₹{sparkupBalance.bbps.lien.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</p>
+                  <p className="text-xl font-bold text-orange-400">₹{(sparkupBalance.bbps.lien ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</p>
                 </div>
                 <div className="text-center p-3 bg-green-900/30 rounded-lg border border-green-500/30">
                   <p className="text-xs text-green-300 mb-1">Available</p>
@@ -2136,7 +2146,12 @@ function AdminDashboardOverview({
                 </div>
               </div>
             ) : (
-              <p className="text-sm text-red-400">{sparkupBalance.bbps.error || 'Failed to fetch balance'}</p>
+              <div className="space-y-2">
+                <p className="text-sm text-red-400">{sparkupBalance.bbps.error || 'Unable to fetch Chagans wallet balance from API'}</p>
+                {sparkupBalance.bbps.setup_hint && (
+                  <p className="text-xs text-indigo-300">{sparkupBalance.bbps.setup_hint}</p>
+                )}
+              </div>
             )}
 
             {sparkupBalance.last_checked && (

@@ -798,7 +798,7 @@ export async function POST(request: NextRequest) {
     let customerMobileNumber: string | undefined
     const mobileParamNames = ['Mobile Number', 'Registered Mobile Number', 'MobileNo', 'Mobile No', 'Customer Mobile']
     for (const param of inputParams) {
-      if (mobileParamNames.some(name => param.paramName.toLowerCase().includes(name.toLowerCase().replace(' ', '')))) {
+      if (mobileParamNames.some(name => param.paramName.toLowerCase().replace(/\s/g, '').includes(name.toLowerCase().replace(/\s/g, '')))) {
         customerMobileNumber = param.paramValue
         break
       }

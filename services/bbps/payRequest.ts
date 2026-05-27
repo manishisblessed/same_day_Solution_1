@@ -193,10 +193,23 @@ async function payRequestChagans(params: PayRequestParams): Promise<BBPSPaymentR
   const mode = (paymentMode || 'Cash').toUpperCase()
   const isUPI = mode === 'UPI'
 
-  const mobile =
-    (customerMobile || customerMobileNumber || consumerNumber || '')
-      .replace(/\D/g, '')
-      .slice(-10) || '0000000000'
+  // Extract mobile: prefer explicit fields, then scan inputParams for a mobile field
+  let rawMobile = (customerMobile || customerMobileNumber || '').replace(/\D/g, '').slice(-10)
+  if (!rawMobile || !/^[6-9]\d{9}$/.test(rawMobile)) {
+    // Fallback: scan inputParams for a field containing "mobile"
+    const mobileParam = (params.inputParams || []).find(
+      p => /mobile/i.test(p.paramName) && /^[6-9]\d{9}$/.test(String(p.paramValue).replace(/\D/g, '').slice(-10))
+    )
+    if (mobileParam) {
+      rawMobile = String(mobileParam.paramValue).replace(/\D/g, '').slice(-10)
+    }
+  }
+  // Last resort: use consumerNumber only if it looks like a mobile
+  if (!rawMobile || !/^[6-9]\d{9}$/.test(rawMobile)) {
+    const cleaned = (consumerNumber || '').replace(/\D/g, '').slice(-10)
+    rawMobile = /^[6-9]\d{9}$/.test(cleaned) ? cleaned : '0000000000'
+  }
+  const mobile = rawMobile
 
   // Use real email — Chagans may validate this field
   const email = (customerEmail || '').trim()

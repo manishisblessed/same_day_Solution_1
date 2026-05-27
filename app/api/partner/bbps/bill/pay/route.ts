@@ -138,17 +138,22 @@ export async function POST(request: NextRequest) {
     // Check upstream BBPS provider balance
     const providerBalance = await getBBPSWalletBalance()
     if (!providerBalance.success) {
-      return NextResponse.json(
-        { success: false, error: { code: 'SERVICE_UNAVAILABLE', message: 'BBPS service temporarily unavailable' } },
-        { status: 503 }
-      )
-    }
-    const availableProviderBalance = (providerBalance.balance || 0) - (providerBalance.lien || 0)
-    if (availableProviderBalance < billAmountInRupees) {
-      return NextResponse.json(
-        { success: false, error: { code: 'SERVICE_UNAVAILABLE', message: 'BBPS provider balance insufficient. Contact admin.' } },
-        { status: 503 }
-      )
+      const skipForMissingChagansRoute =
+        getBBPSProvider() === 'chagans' && providerBalance.routeNotFound
+      if (!skipForMissingChagansRoute) {
+        return NextResponse.json(
+          { success: false, error: { code: 'SERVICE_UNAVAILABLE', message: 'BBPS service temporarily unavailable' } },
+          { status: 503 }
+        )
+      }
+    } else {
+      const availableProviderBalance = (providerBalance.balance || 0) - (providerBalance.lien || 0)
+      if (availableProviderBalance < billAmountInRupees) {
+        return NextResponse.json(
+          { success: false, error: { code: 'SERVICE_UNAVAILABLE', message: 'BBPS provider balance insufficient. Contact admin.' } },
+          { status: 503 }
+        )
+      }
     }
 
     // Check retailer wallet

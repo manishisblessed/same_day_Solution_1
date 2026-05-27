@@ -74,11 +74,18 @@ export async function GET(request: NextRequest) {
       // BBPS Wallet (for bill payments)
       bbps: {
         success: bbpsResult.success,
-        balance: bbpsResult.balance || 0,
-        lien: bbpsResult.lien || 0,
-        available_balance: bbpsAvailable,
+        balance: bbpsResult.balance ?? null,
+        lien: bbpsResult.lien ?? null,
+        available_balance: bbpsResult.success ? bbpsAvailable : null,
         error: bbpsResult.error || null,
-        service_name: 'BBPS (Bill Payments)'
+        route_not_found: bbpsResult.routeNotFound || false,
+        service_name: 'BBPS (Bill Payments)',
+        ...(bbpsProvider === 'chagans' && !bbpsResult.success
+          ? {
+              setup_hint:
+                'Fetch balance from Chagans POST /bbps/getWalletBalance (whitelisted server IP). Set BBPS_CHAGANS_WALLET_PATH if Chagans gave a different path.',
+            }
+          : {}),
       },
       
       // Payout Wallet (for DMT/transfers)
