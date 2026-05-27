@@ -53,18 +53,9 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // For Chagans BBPS, enquiry_id is required
+    // For Chagans BBPS, enquiry_id is preferred but fetchBill will auto-refresh if missing
     if (getBBPSProvider() === 'chagans' && !enquiry_id) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: {
-            code: 'BAD_REQUEST',
-            message: 'enquiry_id is required for Chagans BBPS. Get it from getBillerFields response.',
-          },
-        },
-        { status: 400 }
-      )
+      console.log('[Partner BBPS Bill Fetch] No enquiry_id — fetchBill will auto-refresh from getBillerField')
     }
 
     let inputParams: Array<{ paramName: string; paramValue: string | number }> | undefined

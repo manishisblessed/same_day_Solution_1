@@ -116,16 +116,9 @@ export async function POST(request: NextRequest) {
       return addCorsHeaders(request, response)
     }
 
-    // For Chagans BBPS, enquiry_id is required (from getBillerFields response)
+    // For Chagans BBPS, enquiry_id is preferred but fetchBill will auto-refresh if missing
     if (getBBPSProvider() === 'chagans' && !enquiry_id) {
-      const response = NextResponse.json(
-        {
-          error: 'enquiry_id is required for Chagans BBPS',
-          message: 'Get enquiry_id from getBillerFields response before fetching bill',
-        },
-        { status: 400 }
-      )
-      return addCorsHeaders(request, response)
+      console.log('[BBPS Bill Fetch] No enquiry_id provided for Chagans — fetchBill will auto-refresh from getBillerField')
     }
 
     // Support both input_params (array format) and additional_params (object format)

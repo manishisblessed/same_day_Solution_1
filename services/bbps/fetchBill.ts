@@ -11,6 +11,7 @@ import { generateReqId, logBBPSApiCall, logBBPSApiError } from './helpers'
 import { getBBPSProvider, isMockMode } from './config'
 import { BBPSBillDetails } from './types'
 import { getMockBillDetails } from './mocks/fetchBill'
+import { fetchBillerInfo } from './fetchBillerInfo'
 
 /**
  * Request parameters for fetchBill
@@ -138,7 +139,28 @@ export async function fetchBill(
   }
 
   if (getBBPSProvider() === 'chagans') {
-    const enquiryId = providedEnquiryId?.trim()
+    // Always refresh enquiryId from getBillerField to prevent stale session issues.
+    // Chagans enquiryId has a TTL (~30 min) but refreshing guarantees a tight
+    // getBillerField → fetchBill → payBill sequence matching Postman's flow.
+    let enquiryId = providedEnquiryId?.trim() || ''
+    try {
+      console.log('[Chagans fetchBill] Refreshing enquiryId from getBillerField for biller:', billerId)
+      const freshInfo = await fetchBillerInfo({ billerId })
+      if (freshInfo.enquiryId) {
+        console.log('[Chagans fetchBill] Fresh enquiryId obtained:', freshInfo.enquiryId, '(old:', enquiryId || 'none', ')')
+        enquiryId = freshInfo.enquiryId
+      } else {
+        console.warn('[Chagans fetchBill] getBillerField did not return enquiryId, using provided:', enquiryId)
+      }
+    } catch (refreshErr: any) {
+      console.warn('[Chagans fetchBill] Failed to refresh enquiryId:', refreshErr.message)
+      if (!enquiryId) {
+        throw new Error(
+          'Chagans BBPS requires enquiryId from biller fields (/bbps/getBillerField). Could not obtain a fresh session.'
+        )
+      }
+    }
+
     if (!enquiryId) {
       throw new Error(
         'Chagans BBPS requires enquiryId from biller fields (/bbps/getBillerField). Call biller-info first or pass enquiry_id in fetch request.'
@@ -154,6 +176,8 @@ export async function fetchBill(
     for (const p of requestInputParams) {
       parameters[p.paramName] = String(p.paramValue ?? '')
     }
+
+    console.log('[Chagans fetchBill] Request:', { billerId, enquiryId, parameters })
 
     const cg = await chagansPost<{
       success: boolean
@@ -171,6 +195,7 @@ export async function fetchBill(
 
     if (!cg.ok || !cg.data?.success) {
       logBBPSApiError('fetchBill(chagans)', reqId, cg.error || 'fetchBill failed', billerId)
+      console.error('[Chagans fetchBill] FULL error response:', JSON.stringify(cg.data || cg.error, null, 2))
       throw new Error(cg.error || 'Failed to fetch bill from Chagans')
     }
 

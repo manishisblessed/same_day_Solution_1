@@ -198,6 +198,12 @@ async function payRequestChagans(params: PayRequestParams): Promise<BBPSPaymentR
       .replace(/\D/g, '')
       .slice(-10) || '0000000000'
 
+  // Use real email — Chagans may validate this field
+  const email = (customerEmail || '').trim()
+  const effectiveEmail = email && email.includes('@') && !email.endsWith('.invalid')
+    ? email
+    : `retailer_${mobile}@samedaysolution.in`
+
   const body: Record<string, unknown> = {
     billerId,
     enquiryId,
@@ -207,7 +213,7 @@ async function payRequestChagans(params: PayRequestParams): Promise<BBPSPaymentR
     ...(panValue ? { customerPan: panValue } : {}),
     customerName: (customerName || billerName || 'Customer').trim().slice(0, 120),
     customerMobile: mobile,
-    customerEmail: (customerEmail || '').trim() || 'customer@local.invalid',
+    customerEmail: effectiveEmail,
   }
 
   if (isUPI) {
@@ -223,16 +229,23 @@ async function payRequestChagans(params: PayRequestParams): Promise<BBPSPaymentR
     body.upiId = vpa
   }
 
-  const cg = await chagansPost<{ success: boolean; message?: string; data?: { transactionId?: string; status?: string } }>(
+  console.log('[Chagans payBill] REQUEST:', JSON.stringify(body, null, 2))
+
+  const cg = await chagansPost<{ success: boolean; message?: string; code?: number; data?: { transactionId?: string; status?: string; [key: string]: any } }>(
     'bbps/payBill',
     body
   )
 
+  console.log('[Chagans payBill] RESPONSE:', JSON.stringify({ ok: cg.ok, status: cg.status, error: cg.error, data: cg.data }, null, 2))
+
   if (!cg.ok) {
     logBBPSApiError('payRequest(chagans)', enquiryId || '', cg.error || 'pay failed', billerId)
+    // Include any extra detail Chagans returned in the error response
+    const extraDetail = (cg.data as any)?.data?.reason || (cg.data as any)?.data?.message || ''
+    const fullError = extraDetail ? `${cg.error} — ${extraDetail}` : (cg.error || 'Payment processing failed')
     return {
       success: false,
-      error_message: sanitizeErrorMessage(cg.error),
+      error_message: sanitizeErrorMessage(fullError),
       agent_transaction_id: agentTransactionId,
       reqId: enquiryId,
     }
@@ -241,13 +254,25 @@ async function payRequestChagans(params: PayRequestParams): Promise<BBPSPaymentR
   const payload = cg.data as any
   const ok = payload?.success === true
   const d = payload?.data || {}
+
+  if (!ok) {
+    const reason = d.reason || d.message || payload?.message || 'Payment rejected by provider'
+    console.error('[Chagans payBill] Payment not successful despite HTTP OK:', { payload })
+    return {
+      success: false,
+      error_message: sanitizeErrorMessage(reason),
+      agent_transaction_id: agentTransactionId,
+      status: d.status || 'failed',
+      reqId: enquiryId,
+    }
+  }
+
   return {
-    success: ok,
-    transaction_id: d.transactionId || d.txnRefId,
+    success: true,
+    transaction_id: d.transactionId || d.txnRefId || d.txnReferenceId,
     agent_transaction_id: agentTransactionId,
-    status: d.status || (ok ? 'success' : 'failed'),
-    payment_status: payload?.message || d.status,
-    error_message: ok ? undefined : sanitizeErrorMessage(payload?.message || cg.error),
+    status: d.status || 'success',
+    payment_status: payload?.message || d.status || 'success',
     reqId: enquiryId,
   }
 }
