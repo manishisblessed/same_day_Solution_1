@@ -10,6 +10,7 @@ const path = require('path');
 require('dotenv').config({ path: path.resolve(__dirname, '../.env.local') });
 
 const { createClient } = require('@supabase/supabase-js');
+const ws = require('ws');
 
 // Configuration
 const POLL_INTERVAL = 60000; // 1 minute
@@ -24,7 +25,9 @@ if (!supabaseUrl || !supabaseKey) {
   process.exit(1);
 }
 
-const supabase = createClient(supabaseUrl, supabaseKey);
+const supabase = createClient(supabaseUrl, supabaseKey, {
+  realtime: { transport: ws },
+});
 
 console.log('[AEPS Worker] Starting...');
 console.log('[AEPS Worker] Poll interval:', POLL_INTERVAL / 1000, 'seconds');
