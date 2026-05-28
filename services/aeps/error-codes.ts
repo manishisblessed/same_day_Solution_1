@@ -196,10 +196,17 @@ export function formatErrorForReceipt(providerMessage: string, providerCode?: st
   const code = providerCode?.toString() || parseNPCICode(providerMessage) || 'UNKNOWN';
   const info = getErrorInfo(code);
 
+  // When code is unknown but provider sent a meaningful message, use it directly
+  const isUnknown = info.code === 'UNKNOWN';
+  const cleaned = cleanProviderMessage(providerMessage);
+  const displayMessage = isUnknown && cleaned && cleaned !== 'Transaction failed'
+    ? cleaned
+    : info.customerFacing;
+
   return {
     errorCode: info.code,
-    errorMessage: info.customerFacing,
+    errorMessage: displayMessage,
     action: info.action,
-    retryable: info.retryable,
+    retryable: isUnknown ? true : info.retryable,
   };
 }

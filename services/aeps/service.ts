@@ -4,6 +4,7 @@
 
 import { getAEPSClient, AEPSAPIError } from './client';
 import { validateAadhaar, validateMobile, validateAmount } from '@/lib/validation';
+import { parseNPCICode } from './error-codes';
 import type {
   AEPSTransactionType,
   AEPSPaymentResponse,
@@ -62,6 +63,23 @@ interface TransactionResult {
     miniStatement?: MiniStatementEntry[];
   };
   error?: string;
+  npciCode?: string;
+}
+
+function normalizeMiniStatementEntry(raw: any): MiniStatementEntry | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const date = raw.date || raw.txnDate || raw.transaction_date || '';
+  const narration = raw.narration || raw.description || raw.remarks || raw.particulars || '';
+  const rawType = raw.txnType || raw.transactionType || raw.type || '';
+  const txnType: 'Dr' | 'Cr' = rawType === 'Cr' || rawType === 'CREDIT' || rawType === 'credit' || rawType === 'C' ? 'Cr' : 'Dr';
+  const amount = String(raw.amount || raw.txnAmount || '0');
+  if (!date && !narration) return null;
+  return { date, narration, txnType, amount };
+}
+
+function normalizeMiniStatement(raw: unknown): MiniStatementEntry[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.map(normalizeMiniStatementEntry).filter((e): e is MiniStatementEntry => e !== null);
 }
 
 class AEPSService {
@@ -276,17 +294,20 @@ class AEPSService {
           accountNumber: response.data.accountNumber,
           amount: response.data.amount,
           balance: response.data.bankAccountBalance || undefined,
-          miniStatement: (response.data.miniStatement || []).slice(0, 10),
+          miniStatement: normalizeMiniStatement(response.data.miniStatement).slice(0, 10),
         },
       };
     }
 
+    const rawMessage = response.message || 'Transaction failed';
+    const npciCode = parseNPCICode(rawMessage) || (response.data as any)?.responseCode || response.code?.toString();
     return {
       success: false,
       orderId: response.data?.orderId,
       status: response.data?.status || 'failed',
-      message: response.message || 'Transaction failed',
-      error: response.code?.toString() || 'FAILED',
+      message: rawMessage,
+      error: npciCode || 'FAILED',
+      npciCode: npciCode || undefined,
     };
   }
 

@@ -1172,6 +1172,7 @@ const TransactionPanel = ({
         onSessionExpired();
         return;
       }
+      const errMsg = error instanceof Error ? error.message : 'Transaction failed';
       const errorResult: TransactionResult = {
         success: false,
         receipt: {
@@ -1183,8 +1184,8 @@ const TransactionPanel = ({
           retailer: { id: '' },
           status: 'FAILED',
           error: {
-            errorCode: 'UNKNOWN',
-            errorMessage: error instanceof Error ? error.message : 'Transaction failed',
+            errorCode: 'ERROR',
+            errorMessage: errMsg,
             action: 'retry',
             retryable: true,
           },
@@ -1206,9 +1207,10 @@ const TransactionPanel = ({
 
   const handleRetry = () => {
     setResult(null);
-    setShow2FA(true);
+    setShow2FA(false);
     setTwoFAStatus('idle');
     setTwoFAMessage('');
+    setErrors({});
   };
 
   const handlePrint = () => {
@@ -1221,11 +1223,11 @@ const TransactionPanel = ({
       : transactionType === 'cash_deposit' ? 'Deposit'
       : transactionType === 'balance_inquiry' ? 'Balance Enquiry'
       : 'Mini Statement';
+    const displayUtr = r.utr && r.utr !== '00' && r.utr !== '0' && r.utr.trim() !== '' ? r.utr : null;
     const text = [
       'SAME DAY SOLUTION PVT LTD',
       `Transaction Receipt`,
-      `Txn ID: ${r.txnId}`,
-      r.rrn ? `RRN: ${r.rrn}` : '',
+      displayUtr ? `UTR: ${displayUtr}` : '',
       `Date: ${new Date(r.timestamp).toLocaleString('en-IN')}`,
       `Type: ${typeLabel}`,
       r.transaction.amount ? `Amount: ₹${r.transaction.amount}` : '',
@@ -1298,21 +1300,9 @@ const TransactionPanel = ({
             {/* Transaction Meta */}
             <div className="bg-blue-50 rounded-xl p-4 mb-5">
               <div className="space-y-2.5 text-sm">
-                {r.txnId && (
+                {r.utr && r.utr !== '00' && r.utr !== '0' && r.utr.trim() !== '' && (
                   <div className="flex justify-between items-center">
-                    <span className="text-blue-800 font-medium">Txn ID</span>
-                    <span className="font-mono text-xs text-gray-700 bg-white px-2 py-0.5 rounded">{r.txnId.slice(0, 18)}...</span>
-                  </div>
-                )}
-                {r.rrn && (
-                  <div className="flex justify-between items-center">
-                    <span className="text-blue-800 font-medium">RRN</span>
-                    <span className="font-mono text-gray-700">{r.rrn}</span>
-                  </div>
-                )}
-                {r.utr && (
-                  <div className="flex justify-between items-center">
-                    <span className="text-blue-800 font-medium">UTR</span>
+                    <span className="text-blue-800 font-medium">UTR Number</span>
                     <span className="font-mono text-gray-700">{r.utr}</span>
                   </div>
                 )}
@@ -1394,6 +1384,18 @@ const TransactionPanel = ({
               </div>
             )}
 
+            {/* Empty mini statement info */}
+            {transactionType === 'mini_statement' && isSuccess && !showMiniStmt && (
+              <div className="mb-5">
+                <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm">
+                  <div className="flex items-start gap-2">
+                    <AlertCircle className="w-4 h-4 text-amber-500 mt-0.5 shrink-0" />
+                    <p className="text-amber-700">No recent transactions found for this account.</p>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Error details for failed */}
             {isFailed && r.error && (
               <div className="mb-5">
@@ -1401,7 +1403,7 @@ const TransactionPanel = ({
                   <div className="flex items-start gap-2">
                     <XCircle className="w-4 h-4 text-red-500 mt-0.5 shrink-0" />
                     <div>
-                      <p className="font-semibold text-red-800">Error {r.error.errorCode}</p>
+                      <p className="font-semibold text-red-800">Reason</p>
                       <p className="text-red-600 mt-0.5">{r.error.errorMessage}</p>
                     </div>
                   </div>
@@ -1445,7 +1447,7 @@ const TransactionPanel = ({
               </button>
             )}
 
-            {isFailed && r.error?.retryable && (
+            {isFailed && (
               <button
                 onClick={handleRetry}
                 className="flex-1 min-w-[120px] py-3 bg-white border-2 border-orange-200 text-orange-700 font-semibold rounded-xl hover:bg-orange-50 transition-all flex items-center justify-center gap-2 shadow-sm"
@@ -1806,7 +1808,7 @@ export default function AEPSUnifiedFlow({ user }: { user: AEPSUser }) {
         }
 
         // Check if 2FA session is still valid (24h window, same device)
-        if (loginStatus.data.loginStatus && loginStatus.data.wadh) {
+        if (loginStatus.data.loginStatus) {
           setBanks(loginStatus.data.bankList || []);
           setCurrentStep('transaction');
         } else {

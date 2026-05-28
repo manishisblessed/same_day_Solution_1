@@ -236,7 +236,8 @@ export async function POST(request: NextRequest) {
     }));
 
     // Even if Chagans says logged in, our 24hr session / device check overrides
-    const effectiveLoginStatus = twoFAValid && (result.data?.loginStatus || false);
+    // Trust our 24h session — don't require Chagans loginStatus to be true
+    const effectiveLoginStatus = twoFAValid;
 
     return NextResponse.json({
       success: result.success,

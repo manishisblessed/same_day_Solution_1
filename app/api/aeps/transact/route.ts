@@ -25,6 +25,12 @@ function isSessionValid(lastLoginAt: string | null, sessionHours: number): boole
   return (now - loginTime) < sessionHours * 60 * 60 * 1000;
 }
 
+function isValidUtr(utr?: string | null): boolean {
+  if (!utr) return false;
+  const t = utr.trim();
+  return t !== '' && t !== '00' && t !== '0';
+}
+
 /**
  * Process AEPS transaction (unified endpoint)
  * POST /api/aeps/transact
@@ -187,8 +193,39 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // No internal wallet checks — the Chagans provider manages the merchant's
-    // AEPS float/wallet and validates balance on their side.
+    // AEPS wallet balance check for financial transactions (deposit & withdrawal)
+    if (isFinancial) {
+      const { data: aepsWalletBalance } = await supabase.rpc('get_wallet_balance_v2', {
+        p_user_id: user.partner_id,
+        p_wallet_type: 'aeps'
+      });
+
+      const walletBal = aepsWalletBalance || 0;
+      if (walletBal < txnAmount) {
+        return NextResponse.json({
+          success: false,
+          receipt: {
+            txnId: '',
+            timestamp: new Date().toISOString(),
+            type: transactionType,
+            customer: {
+              aadhaarMasked: aepsService.maskAadhaar(customerAadhaar),
+              bankName: bankName || null,
+            },
+            transaction: { amount: txnAmount },
+            retailer: { id: user.partner_id },
+            status: 'FAILED',
+            error: {
+              errorCode: 'INSUFFICIENT_AEPS_BALANCE',
+              errorMessage: 'Insufficient AEPS Wallet Balance',
+              action: 'none',
+              retryable: false,
+            },
+          },
+          isMockMode: aepsService.isMockMode(),
+        });
+      }
+    }
 
     const idempotencyKey = generateIdempotencyKey(`AEPS_${user.partner_id}`);
 
@@ -249,6 +286,37 @@ export async function POST(request: NextRequest) {
         })
         .eq('id', aepsTransaction.id);
 
+      // Debit AEPS wallet for financial transactions
+      if (isFinancial && txnAmount > 0) {
+        try {
+          const { data: walletLedgerId, error: walletError } = await supabase.rpc('add_ledger_entry', {
+            p_user_id: user.partner_id,
+            p_user_role: user.role,
+            p_wallet_type: 'aeps',
+            p_fund_category: 'aeps',
+            p_service_type: 'aeps',
+            p_tx_type: 'AEPS_DEBIT',
+            p_credit: 0,
+            p_debit: txnAmount,
+            p_reference_id: result.orderId || aepsTransaction.id,
+            p_transaction_id: aepsTransaction.id,
+            p_status: 'completed',
+            p_remarks: `AEPS ${transactionType} - ₹${txnAmount}`,
+          });
+
+          if (!walletError && walletLedgerId) {
+            await supabase
+              .from('aeps_transactions')
+              .update({ wallet_debited: true, wallet_debit_id: walletLedgerId })
+              .eq('id', aepsTransaction.id);
+          } else {
+            console.error('[AEPS Transact] Wallet debit failed:', walletError);
+          }
+        } catch (walletErr) {
+          console.error('[AEPS Transact] Wallet debit error:', walletErr);
+        }
+      }
+
       // Commission distribution (only on successful financial txns + mini_statement)
       let commissionResult = null;
       const commissionEnabled = process.env.AEPS_COMMISSION_ENABLED === 'true';
@@ -303,7 +371,7 @@ export async function POST(request: NextRequest) {
         receipt: {
           txnId: aepsTransaction.id,
           orderId: result.orderId || null,
-          utr: result.utr || null,
+          utr: isValidUtr(result.utr) ? result.utr : (result.orderId || null),
           rrn: (result as any).rrn || null,
           stan: (result as any).stan || null,
           timestamp: new Date().toISOString(),
@@ -336,7 +404,7 @@ export async function POST(request: NextRequest) {
       // Format error using NPCI code mapping
       const errorInfo = formatErrorForReceipt(
         result.message || result.error || 'Transaction failed',
-        (result as any).code
+        (result as any).npciCode || result.error
       );
 
       await supabase
