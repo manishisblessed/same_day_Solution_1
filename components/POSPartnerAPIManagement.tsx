@@ -30,6 +30,8 @@ interface Partner {
   status: string
   ip_whitelist: string[] | null
   webhook_url: string | null
+  bbps_enabled?: boolean
+  settlement_enabled?: boolean
   created_at: string
   api_keys: PartnerKey[]
   export_limit: number
@@ -47,10 +49,6 @@ function parseKeyPermissions(raw: string[] | string | null | undefined): string[
     }
   }
   return []
-}
-
-function keyHasPayoutAccess(perms: string[]): boolean {
-  return perms.includes('all') || perms.includes('payout')
 }
 
 export default function POSPartnerAPIManagement() {
@@ -253,21 +251,20 @@ export default function POSPartnerAPIManagement() {
     }
   }
 
-  /** Grants `payout` on the key (keeps existing read/export/bbps). Resolves 403 from Payout Partner API. */
-  const handleEnablePayoutPermission = async (key: PartnerKey) => {
-    const current = parseKeyPermissions(key.permissions)
-    if (keyHasPayoutAccess(current)) {
-      showSuccess('This key already has payout access')
-      return
-    }
-    const next = Array.from(new Set([...current, 'read', 'export', 'payout']))
+  /** Enable/disable BBPS or Settlement at partner level; syncs active API key permissions. */
+  const handleTogglePartnerService = async (
+    partner: Partner,
+    service: 'bbps' | 'settlement',
+    enabled: boolean
+  ) => {
+    const label = service === 'bbps' ? 'BBPS Bill Payment' : 'Settlement / Payout'
     const result = await doAction({
-      action: 'update_key_permissions',
-      key_id: key.id,
-      permissions: next,
+      action: 'update_partner_services',
+      partner_id: partner.id,
+      ...(service === 'bbps' ? { bbps_enabled: enabled } : { settlement_enabled: enabled }),
     })
     if (result) {
-      showSuccess('Payout permission enabled for this API key')
+      showSuccess(`${label} ${enabled ? 'enabled' : 'disabled'} for ${partner.name}`)
       fetchPartners()
     }
   }
@@ -559,6 +556,67 @@ export default function POSPartnerAPIManagement() {
                         </button>
                       </div>
 
+                      {/* Partner API Services */}
+                      <div className="p-4 bg-indigo-50 dark:bg-indigo-900/20 rounded-lg border border-indigo-200 dark:border-indigo-800">
+                        <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1 flex items-center gap-2">
+                          <Settings className="w-4 h-4 text-indigo-600" />
+                          Partner API Services
+                        </h4>
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
+                          When disabled, the partner cannot use BBPS bill pay or settlement/payout APIs (even with a valid API key).
+                        </p>
+                        <div className="space-y-3">
+                          <div className="flex items-center justify-between gap-4 p-3 bg-white dark:bg-gray-800 rounded-lg border border-indigo-100 dark:border-indigo-900/50">
+                            <div>
+                              <p className="text-sm font-medium text-gray-900 dark:text-white">BBPS Bill Payment</p>
+                              <p className="text-xs text-gray-500 dark:text-gray-400">
+                                Pay utility bills via Partner BBPS API (Chagans)
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              role="switch"
+                              aria-checked={!!partner.bbps_enabled}
+                              disabled={actionLoading}
+                              onClick={() => handleTogglePartnerService(partner, 'bbps', !partner.bbps_enabled)}
+                              className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 disabled:opacity-50 ${
+                                partner.bbps_enabled ? 'bg-indigo-600' : 'bg-gray-300 dark:bg-gray-600'
+                              }`}
+                            >
+                              <span
+                                className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ${
+                                  partner.bbps_enabled ? 'translate-x-5' : 'translate-x-0'
+                                }`}
+                              />
+                            </button>
+                          </div>
+                          <div className="flex items-center justify-between gap-4 p-3 bg-white dark:bg-gray-800 rounded-lg border border-indigo-100 dark:border-indigo-900/50">
+                            <div>
+                              <p className="text-sm font-medium text-gray-900 dark:text-white">Settlement / Payout</p>
+                              <p className="text-xs text-gray-500 dark:text-gray-400">
+                                Bank transfers via Payout Partner API (debits partner wallet)
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              role="switch"
+                              aria-checked={!!partner.settlement_enabled}
+                              disabled={actionLoading}
+                              onClick={() => handleTogglePartnerService(partner, 'settlement', !partner.settlement_enabled)}
+                              className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 disabled:opacity-50 ${
+                                partner.settlement_enabled ? 'bg-emerald-600' : 'bg-gray-300 dark:bg-gray-600'
+                              }`}
+                            >
+                              <span
+                                className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ${
+                                  partner.settlement_enabled ? 'translate-x-5' : 'translate-x-0'
+                                }`}
+                              />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+
                       {/* API Keys Section */}
                       <div>
                         <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3 flex items-center gap-2">
@@ -630,17 +688,6 @@ export default function POSPartnerAPIManagement() {
                                   </div>
                                   {key.is_active && (
                                     <div className="flex items-center gap-1 shrink-0">
-                                      {!keyHasPayoutAccess(keyPerms) && (
-                                        <button
-                                          type="button"
-                                          onClick={() => handleEnablePayoutPermission(key)}
-                                          disabled={actionLoading}
-                                          className="px-2.5 py-1.5 text-xs font-medium rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50 transition-colors"
-                                          title="Adds payout permission for Payout Partner API (settlements)"
-                                        >
-                                          Enable payout
-                                        </button>
-                                      )}
                                       <button
                                         onClick={() => handleRevokeKey(key.id)}
                                         className="p-2 text-red-600 hover:bg-red-100 dark:hover:bg-red-900/30 rounded-lg transition-colors"

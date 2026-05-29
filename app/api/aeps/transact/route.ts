@@ -4,6 +4,8 @@ import { getCurrentUserWithFallback } from '@/lib/auth-server';
 import { getAEPSService } from '@/services/aeps';
 import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger';
 import { distributeCommission, mapTransactionTypeToServiceType } from '@/services/aeps/commission';
+import { calculateAEPSCommission } from '@/lib/pricing/aeps-pricing';
+import { settleAEPSCommission } from '@/services/aeps/settle-commission';
 import { formatErrorForReceipt, cleanProviderMessage } from '@/services/aeps/error-codes';
 import type { AEPSTransactionType } from '@/types/aeps.types';
 
@@ -318,8 +320,10 @@ export async function POST(request: NextRequest) {
       }
 
       // Commission distribution (only on successful financial txns + mini_statement)
-      let commissionResult = null;
+      let commissionResult: any = null;
+      let rtCommissionForReceipt: number | null = null;
       const commissionEnabled = process.env.AEPS_COMMISSION_ENABLED === 'true';
+      const useSchemeEngine = process.env.AEPS_SCHEME_ENABLED === 'true';
       const eligibleForCommission = (isFinancial || transactionType === 'mini_statement') && commissionEnabled;
 
       if (eligibleForCommission) {
@@ -330,21 +334,87 @@ export async function POST(request: NextRequest) {
           .eq('user_id', user.partner_id)
           .maybeSingle();
 
-        const serviceType = mapTransactionTypeToServiceType(transactionType);
-        commissionResult = await distributeCommission({
-          transactionId: aepsTransaction.id,
-          serviceType,
-          amount: txnAmount || 0,
-          rtUserId: user.partner_id,
-          dtUserId: retailerInfo?.distributor_id || undefined,
-          mdUserId: retailerInfo?.master_distributor_id || undefined,
-        });
+        const dtUserId = retailerInfo?.distributor_id || undefined;
+        const mdUserId = retailerInfo?.master_distributor_id || undefined;
 
-        if (commissionResult.success && commissionResult.commissionId) {
-          await supabase
-            .from('aeps_transactions')
-            .update({ commission_id: commissionResult.commissionId })
-            .eq('id', aepsTransaction.id);
+        if (useSchemeEngine) {
+          // NEW: scheme-aware commission engine
+          const breakdown = await calculateAEPSCommission({
+            userId: user.partner_id,
+            userRole: user.role,
+            transactionType,
+            amount: txnAmount || 0,
+            distributorId: dtUserId,
+            mdId: mdUserId,
+          });
+
+          if (breakdown && (breakdown.retailer_net > 0 || breakdown.distributor_net > 0 || breakdown.md_net > 0)) {
+            const settle = await settleAEPSCommission({
+              transactionId: aepsTransaction.id,
+              transactionType,
+              amount: txnAmount || 0,
+              rtUserId: user.partner_id,
+              dtUserId,
+              mdUserId,
+              breakdown,
+            });
+            commissionResult = settle;
+            rtCommissionForReceipt = breakdown.retailer_net;
+
+            if (settle.success && settle.commissionId) {
+              await supabase
+                .from('aeps_transactions')
+                .update({ commission_id: settle.commissionId })
+                .eq('id', aepsTransaction.id);
+            }
+          } else {
+            console.warn('[AEPS Transact] Scheme engine returned no commission; skipping (no legacy fallback while AEPS_SCHEME_ENABLED=true)');
+          }
+          // Shadow compare: run legacy engine (read-only) to log comparison
+          try {
+            const legacySvcType = mapTransactionTypeToServiceType(transactionType);
+            const { calculateCommission: calcLegacy, getDistributionConfig: getDistConf, computeDistribution: compDist } = await import('@/services/aeps/commission');
+            const legTotal = await calcLegacy(legacySvcType, txnAmount || 0);
+            const legConf = await getDistConf(legacySvcType);
+            const legBreak = legConf ? compDist(legTotal, legConf) : null;
+            console.log(`[AEPS Shadow] scheme active | txn=${aepsTransaction.id} type=${transactionType} amt=${txnAmount} | scheme RT=${breakdown?.retailer_net ?? 0} DT=${breakdown?.distributor_net ?? 0} MD=${breakdown?.md_net ?? 0} | legacy RT=${legBreak?.rtAmount ?? 0} DT=${legBreak?.dtAmount ?? 0} MD=${legBreak?.mdAmount ?? 0}`);
+          } catch (shadowErr) {
+            console.warn('[AEPS Shadow] comparison failed:', shadowErr);
+          }
+        } else {
+          // LEGACY: percentage-split engine (service_slabs + commission_distribution)
+          const serviceType = mapTransactionTypeToServiceType(transactionType);
+          commissionResult = await distributeCommission({
+            transactionId: aepsTransaction.id,
+            serviceType,
+            amount: txnAmount || 0,
+            rtUserId: user.partner_id,
+            dtUserId,
+            mdUserId,
+          });
+          rtCommissionForReceipt = commissionResult?.breakdown?.rtAmount ?? null;
+
+          if (commissionResult.success && commissionResult.commissionId) {
+            await supabase
+              .from('aeps_transactions')
+              .update({ commission_id: commissionResult.commissionId })
+              .eq('id', aepsTransaction.id);
+          }
+
+          // Shadow compare: run scheme engine (read-only) to log comparison
+          try {
+            const schemeBreakdown = await calculateAEPSCommission({
+              userId: user.partner_id,
+              userRole: user.role,
+              transactionType,
+              amount: txnAmount || 0,
+              distributorId: dtUserId,
+              mdId: mdUserId,
+            });
+            console.log(`[AEPS Shadow] legacy active | txn=${aepsTransaction.id} type=${transactionType} amt=${txnAmount} | legacy RT=${commissionResult?.breakdown?.rtAmount ?? 0} DT=${commissionResult?.breakdown?.dtAmount ?? 0} MD=${commissionResult?.breakdown?.mdAmount ?? 0} | scheme RT=${schemeBreakdown?.retailer_net ?? 0} DT=${schemeBreakdown?.distributor_net ?? 0} MD=${schemeBreakdown?.md_net ?? 0}`);
+          } catch (shadowErr) {
+            console.warn('[AEPS Shadow] comparison failed:', shadowErr);
+          }
         }
       }
 
@@ -383,7 +453,7 @@ export async function POST(request: NextRequest) {
           },
           transaction: {
             amount: isFinancial ? txnAmount : null,
-            commission: commissionResult?.breakdown?.rtAmount || null,
+            commission: rtCommissionForReceipt,
           },
           bank: {
             availableBalance: result.data?.balance || null,

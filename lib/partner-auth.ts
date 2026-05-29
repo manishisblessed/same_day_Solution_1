@@ -3,12 +3,16 @@ import { createClient } from '@supabase/supabase-js'
 import crypto from 'crypto'
 import { extractClientIpFromHeaders, isIpWhitelisted } from './ip-utils'
 
+export type PartnerApiScope = 'bbps' | 'payout'
+
 export interface PartnerAuthResult {
   partner: {
     id: string
     name: string
     keyId: string
     permissions: string[]
+    bbps_enabled: boolean
+    settlement_enabled: boolean
   }
 }
 
@@ -16,6 +20,46 @@ export interface PartnerAuthError {
   code: string
   message: string
   status: number
+}
+
+/** Parse permissions from DB (json array or string). */
+export function parsePartnerKeyPermissions(raw: unknown): string[] {
+  if (raw == null) return ['read']
+  if (Array.isArray(raw)) return raw.map((p) => String(p).toLowerCase())
+  if (typeof raw === 'string') {
+    try {
+      const j = JSON.parse(raw)
+      return Array.isArray(j) ? j.map((p: unknown) => String(p).toLowerCase()) : ['read']
+    } catch {
+      return ['read']
+    }
+  }
+  return ['read']
+}
+
+/** Key permission + partner-level service flag (admin POS Partner API tab). */
+export function partnerCanUseApi(
+  partner: PartnerAuthResult['partner'],
+  scope: PartnerApiScope
+): { allowed: boolean; message: string } {
+  const perms = partner.permissions
+  const permName = scope === 'payout' ? 'payout' : 'bbps'
+  if (!perms.includes('all') && !perms.includes(permName)) {
+    return { allowed: false, message: `Missing required permission: ${permName}` }
+  }
+  if (scope === 'bbps' && !partner.bbps_enabled) {
+    return {
+      allowed: false,
+      message: 'BBPS Bill Payment is not enabled for this partner account. Contact admin.',
+    }
+  }
+  if (scope === 'payout' && !partner.settlement_enabled) {
+    return {
+      allowed: false,
+      message: 'Settlement / Payout is not enabled for this partner account. Contact admin.',
+    }
+  }
+  return { allowed: true, message: '' }
 }
 
 /**
@@ -47,13 +91,11 @@ function verifyHmacSignature(
 
 /**
  * Partner HMAC Authentication
- * 
+ *
  * Required headers:
  *   x-api-key      - Partner public API key
  *   x-signature    - HMAC-SHA256(api_secret, JSON.stringify(body) + timestamp)
  *   x-timestamp    - Unix timestamp (ms) when request was signed
- * 
- * Returns partner info if authenticated, throws error if not
  */
 export async function authenticatePartner(
   request: NextRequest
@@ -71,7 +113,6 @@ export async function authenticatePartner(
 
   const supabase = createClient(supabaseUrl, supabaseServiceKey)
 
-  // 1. Extract headers
   const apiKey = request.headers.get('x-api-key')
   const signature = request.headers.get('x-signature')
   const timestamp = request.headers.get('x-timestamp')
@@ -84,7 +125,6 @@ export async function authenticatePartner(
     } as PartnerAuthError
   }
 
-  // 2. Validate timestamp freshness (prevent replay attacks)
   const requestTime = parseInt(timestamp, 10)
   if (isNaN(requestTime)) {
     throw {
@@ -95,7 +135,7 @@ export async function authenticatePartner(
   }
 
   const now = Date.now()
-  const tolerance = 5 * 60 * 1000 // 5 minutes
+  const tolerance = 5 * 60 * 1000
   if (Math.abs(now - requestTime) > tolerance) {
     throw {
       code: 'UNAUTHORIZED',
@@ -104,7 +144,6 @@ export async function authenticatePartner(
     } as PartnerAuthError
   }
 
-  // 3. Look up API key and partner
   const { data: keyRecord, error: keyError } = await supabase
     .from('partner_api_keys')
     .select(`
@@ -117,7 +156,9 @@ export async function authenticatePartner(
         id,
         name,
         status,
-        ip_whitelist
+        ip_whitelist,
+        bbps_enabled,
+        settlement_enabled
       )
     `)
     .eq('api_key', apiKey)
@@ -132,7 +173,6 @@ export async function authenticatePartner(
     } as PartnerAuthError
   }
 
-  // Get partner info (could be array or object depending on Supabase version)
   const partnerData = (keyRecord as any).partners
   const partner = Array.isArray(partnerData) ? partnerData[0] : partnerData
 
@@ -144,7 +184,6 @@ export async function authenticatePartner(
     } as PartnerAuthError
   }
 
-  // 4. Check partner status
   if (partner.status !== 'active') {
     throw {
       code: 'UNAUTHORIZED',
@@ -153,7 +192,6 @@ export async function authenticatePartner(
     } as PartnerAuthError
   }
 
-  // 5. Check key expiry
   if (keyRecord.expires_at && new Date(keyRecord.expires_at) < new Date()) {
     throw {
       code: 'UNAUTHORIZED',
@@ -162,7 +200,6 @@ export async function authenticatePartner(
     } as PartnerAuthError
   }
 
-  // 6. Check IP whitelist (MANDATORY — no whitelist = blocked)
   const ipWhitelist = partner.ip_whitelist || []
   if (!ipWhitelist || ipWhitelist.length === 0) {
     throw {
@@ -172,19 +209,9 @@ export async function authenticatePartner(
     } as PartnerAuthError
   }
 
-  // Extract client IP from headers (supports CloudFront, ALB, nginx, Cloudflare)
   const clientIp = extractClientIpFromHeaders(request.headers)
-  
+
   if (!clientIp) {
-    console.error('[Partner Auth] Could not extract client IP', {
-      partnerId: partner.id,
-      headers: {
-        'cloudfront-viewer-address': request.headers.get('cloudfront-viewer-address'),
-        'x-forwarded-for': request.headers.get('x-forwarded-for'),
-        'x-real-ip': request.headers.get('x-real-ip'),
-        'true-client-ip': request.headers.get('true-client-ip'),
-      },
-    })
     throw {
       code: 'UNAUTHORIZED',
       message: 'Could not determine client IP address. Ensure your request is routed through a proxy that sets x-forwarded-for.',
@@ -192,14 +219,7 @@ export async function authenticatePartner(
     } as PartnerAuthError
   }
 
-  // Check IP whitelist (supports exact IPs and CIDR notation)
   if (!isIpWhitelisted(clientIp, ipWhitelist)) {
-    console.warn('[Partner Auth] IP not whitelisted', {
-      partnerId: partner.id,
-      partnerName: partner.name,
-      clientIp,
-      whitelist: ipWhitelist,
-    })
     throw {
       code: 'UNAUTHORIZED',
       message: `IP address not authorized. Your IP: ${clientIp}. Contact admin to whitelist this IP.`,
@@ -207,30 +227,21 @@ export async function authenticatePartner(
     } as PartnerAuthError
   }
 
-  // 7. Verify HMAC signature
-  // For GET requests, body is empty string
-  // For POST/PUT requests, we need to read the body
   let bodyStr = ''
   if (request.method === 'GET' || request.method === 'DELETE') {
     bodyStr = ''
   } else {
     try {
-      // Clone request to read body without consuming it
       const clonedRequest = request.clone()
       const body = await clonedRequest.json().catch(() => null)
       bodyStr = body ? JSON.stringify(body) : ''
     } catch {
-      // If body parsing fails, use empty string
       bodyStr = ''
     }
   }
 
   const signaturePayload = bodyStr + timestamp
-  const isValid = verifyHmacSignature(
-    keyRecord.api_secret,
-    signaturePayload,
-    signature
-  )
+  const isValid = verifyHmacSignature(keyRecord.api_secret, signaturePayload, signature)
 
   if (!isValid) {
     throw {
@@ -240,14 +251,12 @@ export async function authenticatePartner(
     } as PartnerAuthError
   }
 
-  // 8. Update last_used_at (fire-and-forget)
   Promise.resolve(
     supabase
       .from('partner_api_keys')
       .update({ last_used_at: new Date().toISOString() })
       .eq('id', keyRecord.id)
   ).catch((err) => {
-    // Silently fail - don't block the request
     console.error('Failed to update last_used_at:', err)
   })
 
@@ -256,8 +265,9 @@ export async function authenticatePartner(
       id: partner.id,
       name: partner.name,
       keyId: keyRecord.id,
-      permissions: (keyRecord.permissions as string[]) || ['read'],
+      permissions: parsePartnerKeyPermissions(keyRecord.permissions),
+      bbps_enabled: partner.bbps_enabled === true,
+      settlement_enabled: partner.settlement_enabled === true,
     },
   }
 }
-

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { authenticatePartner, PartnerAuthError } from '@/lib/partner-auth'
+import { authenticatePartner, PartnerAuthError, partnerCanUseApi } from '@/lib/partner-auth'
 import { complaintTracking } from '@/services/bbps'
 
 export const runtime = 'nodejs'
@@ -20,9 +20,10 @@ export async function POST(request: NextRequest) {
     }
 
     const { partner } = authResult
-    if (!partner.permissions.includes('bbps') && !partner.permissions.includes('all')) {
+    const bbpsAccess = partnerCanUseApi(partner, 'bbps')
+    if (!bbpsAccess.allowed) {
       return NextResponse.json(
-        { success: false, error: { code: 'FORBIDDEN', message: 'Missing required permission: bbps' } },
+        { success: false, error: { code: 'FORBIDDEN', message: bbpsAccess.message } },
         { status: 403 }
       )
     }

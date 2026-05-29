@@ -7,7 +7,7 @@ import AdminSidebar from '@/components/AdminSidebar'
 import { 
   Plus, Edit2, Trash2, ChevronDown, ChevronUp, Search, Filter,
   Layers, CreditCard, Banknote, TrendingUp, Users, Link2,
-  Save, X, AlertCircle, CheckCircle, Globe, Star, Settings, Eye
+  Save, X, AlertCircle, CheckCircle, Globe, Star, Settings, Eye, DollarSign
 } from 'lucide-react'
 
 // ============================================================================
@@ -31,6 +31,8 @@ interface Scheme {
   bbps_commissions?: any[]
   payout_charges?: any[]
   mdr_rates?: any[]
+  aeps_commissions?: any[]
+  aeps_settlement_charges?: any[]
   mappings?: any[]
   mapping_count?: number
   // Creator details (resolved from partner tables)
@@ -72,7 +74,7 @@ function SchemeManagementPageContent() {
   
   // Config modals
   const [showConfigModal, setShowConfigModal] = useState(false)
-  const [configType, setConfigType] = useState<'bbps' | 'payout' | 'mdr'>('bbps')
+  const [configType, setConfigType] = useState<'bbps' | 'payout' | 'mdr' | 'aeps' | 'aeps_settlement'>('bbps')
   const [configSchemeId, setConfigSchemeId] = useState<string>('')
   
   // Mapping modal
@@ -198,10 +200,12 @@ function SchemeManagementPageContent() {
     }
     
     // Load full scheme details
-    const [bbps, payout, mdr, mappings] = await Promise.all([
+    const [bbps, payout, mdr, aeps, aepsSettle, mappings] = await Promise.all([
       supabase.from('scheme_bbps_commissions').select('*').eq('scheme_id', schemeId).eq('status', 'active').order('min_amount'),
       supabase.from('scheme_payout_charges').select('*').eq('scheme_id', schemeId).eq('status', 'active').order('transfer_mode'),
       supabase.from('scheme_mdr_rates').select('*').eq('scheme_id', schemeId).eq('status', 'active').order('mode'),
+      supabase.from('scheme_aeps_commissions').select('*').eq('scheme_id', schemeId).eq('status', 'active').order('transaction_type').order('min_amount'),
+      supabase.from('scheme_aeps_settlement_charges').select('*').eq('scheme_id', schemeId).eq('status', 'active').order('min_amount'),
       supabase.from('scheme_mappings').select('*').eq('scheme_id', schemeId).eq('status', 'active'),
     ])
 
@@ -226,6 +230,8 @@ function SchemeManagementPageContent() {
       bbps_commissions: bbps.data || [],
       payout_charges: payout.data || [],
       mdr_rates: mdr.data || [],
+      aeps_commissions: aeps.data || [],
+      aeps_settlement_charges: aepsSettle.data || [],
       mappings: enrichedMappings,
     } : s))
     
@@ -362,14 +368,63 @@ function SchemeManagementPageContent() {
     md_mdr_t0: 0,
   })
 
-  const openConfigModal = (schemeId: string, type: 'bbps' | 'payout' | 'mdr') => {
+  const [aepsForm, setAepsForm] = useState({
+    transaction_type: 'cash_withdrawal' as string,
+    min_amount: 0,
+    max_amount: 999999999,
+    base_commission: 0,
+    base_commission_type: 'percentage' as 'flat' | 'percentage',
+    company_earning: 0,
+    company_earning_type: 'flat' as 'flat' | 'percentage',
+    md_commission: 0,
+    md_commission_type: 'flat' as 'flat' | 'percentage',
+    distributor_commission: 0,
+    distributor_commission_type: 'flat' as 'flat' | 'percentage',
+    retailer_commission: 0,
+    retailer_commission_type: 'flat' as 'flat' | 'percentage',
+    tds_percentage: 5,
+  })
+
+  const [aepsSettleForm, setAepsSettleForm] = useState({
+    min_amount: 0,
+    max_amount: 999999999,
+    retailer_charge: 0,
+    retailer_charge_type: 'flat' as 'flat' | 'percentage',
+    distributor_commission: 0,
+    distributor_commission_type: 'flat' as 'flat' | 'percentage',
+    md_commission: 0,
+    md_commission_type: 'flat' as 'flat' | 'percentage',
+    company_charge: 0,
+    company_charge_type: 'flat' as 'flat' | 'percentage',
+  })
+
+  const openConfigModal = (schemeId: string, type: 'bbps' | 'payout' | 'mdr' | 'aeps' | 'aeps_settlement') => {
     setConfigSchemeId(schemeId)
     setConfigType(type)
     // Reset forms
     setBbpsForm({ category: '', min_amount: 0, max_amount: 999999999, retailer_charge: 0, retailer_charge_type: 'flat', retailer_commission: 0, retailer_commission_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat', company_charge: 0, company_charge_type: 'flat' })
     setPayoutForm({ transfer_mode: 'IMPS', min_amount: 0, max_amount: 999999999, retailer_charge: 0, retailer_charge_type: 'flat', retailer_commission: 0, retailer_commission_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat', company_charge: 0, company_charge_type: 'flat' })
     setMdrForm({ mode: 'CARD', card_type: '', brand_type: '', card_classification: '', retailer_mdr_t1: 0, retailer_mdr_t0: 0, distributor_mdr_t1: 0, distributor_mdr_t0: 0, md_mdr_t1: 0, md_mdr_t0: 0 })
+    setAepsForm({ transaction_type: 'cash_withdrawal', min_amount: 0, max_amount: 999999999, base_commission: 0, base_commission_type: 'percentage', company_earning: 0, company_earning_type: 'flat', md_commission: 0, md_commission_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', retailer_commission: 0, retailer_commission_type: 'flat', tds_percentage: 5 })
+    setAepsSettleForm({ min_amount: 0, max_amount: 999999999, retailer_charge: 0, retailer_charge_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat', company_charge: 0, company_charge_type: 'flat' })
     setShowConfigModal(true)
+  }
+
+  // Resolve a flat/percentage value against a representative amount for preview/validation
+  const aepsResolve = (value: number, type: string, amount: number) =>
+    type === 'percentage' ? Math.round((amount * value) / 100 * 100) / 100 : value
+
+  const aepsPreview = () => {
+    const amt = (aepsForm.max_amount && aepsForm.max_amount < 999999999)
+      ? aepsForm.max_amount
+      : (aepsForm.min_amount > 0 ? aepsForm.min_amount : 1000)
+    const base = aepsResolve(aepsForm.base_commission, aepsForm.base_commission_type, amt)
+    const company = aepsResolve(aepsForm.company_earning, aepsForm.company_earning_type, amt)
+    const md = aepsResolve(aepsForm.md_commission, aepsForm.md_commission_type, amt)
+    const dt = aepsResolve(aepsForm.distributor_commission, aepsForm.distributor_commission_type, amt)
+    const rt = aepsResolve(aepsForm.retailer_commission, aepsForm.retailer_commission_type, amt)
+    const distributed = Math.round((company + md + dt + rt) * 100) / 100
+    return { amt, base, company, md, dt, rt, distributed, valid: distributed <= base + 0.01 }
   }
 
   const handleSaveConfig = async () => {
@@ -425,6 +480,47 @@ function SchemeManagementPageContent() {
           distributor_mdr_t0: mdrForm.distributor_mdr_t0,
           md_mdr_t1: mdrForm.md_mdr_t1,
           md_mdr_t0: mdrForm.md_mdr_t0,
+          status: 'active',
+        })
+        if (error) throw error
+      } else if (configType === 'aeps') {
+        const preview = aepsPreview()
+        if (!preview.valid) {
+          setError(`Distribution (₹${preview.distributed}) exceeds partner pool (₹${preview.base}) at ₹${preview.amt}. Reduce role commissions.`)
+          return
+        }
+        const { error } = await supabase.from('scheme_aeps_commissions').insert({
+          scheme_id: configSchemeId,
+          transaction_type: aepsForm.transaction_type,
+          min_amount: aepsForm.min_amount,
+          max_amount: aepsForm.max_amount,
+          base_commission: aepsForm.base_commission,
+          base_commission_type: aepsForm.base_commission_type,
+          company_earning: aepsForm.company_earning,
+          company_earning_type: aepsForm.company_earning_type,
+          md_commission: aepsForm.md_commission,
+          md_commission_type: aepsForm.md_commission_type,
+          distributor_commission: aepsForm.distributor_commission,
+          distributor_commission_type: aepsForm.distributor_commission_type,
+          retailer_commission: aepsForm.retailer_commission,
+          retailer_commission_type: aepsForm.retailer_commission_type,
+          tds_percentage: aepsForm.tds_percentage,
+          status: 'active',
+        })
+        if (error) throw error
+      } else if (configType === 'aeps_settlement') {
+        const { error } = await supabase.from('scheme_aeps_settlement_charges').insert({
+          scheme_id: configSchemeId,
+          min_amount: aepsSettleForm.min_amount,
+          max_amount: aepsSettleForm.max_amount,
+          retailer_charge: aepsSettleForm.retailer_charge,
+          retailer_charge_type: aepsSettleForm.retailer_charge_type,
+          distributor_commission: aepsSettleForm.distributor_commission,
+          distributor_commission_type: aepsSettleForm.distributor_commission_type,
+          md_commission: aepsSettleForm.md_commission,
+          md_commission_type: aepsSettleForm.md_commission_type,
+          company_charge: aepsSettleForm.company_charge,
+          company_charge_type: aepsSettleForm.company_charge_type,
           status: 'active',
         })
         if (error) throw error
@@ -714,6 +810,14 @@ function SchemeManagementPageContent() {
                       className="p-1.5 rounded-lg hover:bg-orange-50 dark:hover:bg-orange-900/20 text-orange-600" title="Add MDR Config">
                       <TrendingUp className="w-4 h-4" />
                     </button>
+                    <button onClick={(e) => { e.stopPropagation(); openConfigModal(scheme.id, 'aeps') }}
+                      className="p-1.5 rounded-lg hover:bg-teal-50 dark:hover:bg-teal-900/20 text-teal-600" title="Add AEPS Commission Config">
+                      <Banknote className="w-4 h-4" />
+                    </button>
+                    <button onClick={(e) => { e.stopPropagation(); openConfigModal(scheme.id, 'aeps_settlement') }}
+                      className="p-1.5 rounded-lg hover:bg-purple-50 dark:hover:bg-purple-900/20 text-purple-600" title="Add AEPS Settlement Charge">
+                      <DollarSign className="w-4 h-4" />
+                    </button>
                     <button onClick={(e) => { e.stopPropagation(); openMappingModal(scheme.id) }}
                       className="p-1.5 rounded-lg hover:bg-purple-50 dark:hover:bg-purple-900/20 text-purple-600" title="Map to User">
                       <Link2 className="w-4 h-4" />
@@ -926,6 +1030,100 @@ function SchemeManagementPageContent() {
                       )}
                     </div>
 
+                    {/* AEPS Commissions */}
+                    <div>
+                      <h4 className="font-semibold text-sm text-teal-700 dark:text-teal-400 mb-2 flex items-center gap-1">
+                        <Banknote className="w-4 h-4" /> AEPS Commissions ({scheme.aeps_commissions?.length || 0})
+                      </h4>
+                      {scheme.aeps_commissions && scheme.aeps_commissions.length > 0 ? (
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-xs">
+                            <thead>
+                              <tr className="bg-teal-50 dark:bg-teal-900/20">
+                                <th className="px-2 py-1.5 text-left">Txn Type</th>
+                                <th className="px-2 py-1.5 text-right">Range</th>
+                                <th className="px-2 py-1.5 text-right">Pool</th>
+                                <th className="px-2 py-1.5 text-right">Company</th>
+                                <th className="px-2 py-1.5 text-right">MD</th>
+                                <th className="px-2 py-1.5 text-right">DT</th>
+                                <th className="px-2 py-1.5 text-right">RT</th>
+                                <th className="px-2 py-1.5 text-right">TDS</th>
+                                <th className="px-2 py-1.5"></th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {scheme.aeps_commissions.map((c: any) => {
+                                const fmt = (v: number, t: string) => t === 'percentage' ? `${v}%` : `₹${v}`
+                                return (
+                                  <tr key={c.id} className="border-b border-gray-100 dark:border-gray-700">
+                                    <td className="px-2 py-1.5 font-medium">{c.transaction_type}</td>
+                                    <td className="px-2 py-1.5 text-right">₹{c.min_amount}–{c.max_amount >= 999999999 ? '∞' : c.max_amount}</td>
+                                    <td className="px-2 py-1.5 text-right">{fmt(c.base_commission, c.base_commission_type)}</td>
+                                    <td className="px-2 py-1.5 text-right">{fmt(c.company_earning, c.company_earning_type)}</td>
+                                    <td className="px-2 py-1.5 text-right">{fmt(c.md_commission, c.md_commission_type)}</td>
+                                    <td className="px-2 py-1.5 text-right">{fmt(c.distributor_commission, c.distributor_commission_type)}</td>
+                                    <td className="px-2 py-1.5 text-right">{fmt(c.retailer_commission, c.retailer_commission_type)}</td>
+                                    <td className="px-2 py-1.5 text-right">{c.tds_percentage}%</td>
+                                    <td className="px-2 py-1.5 text-right">
+                                      <button onClick={() => handleDeleteConfig('scheme_aeps_commissions', c.id)} className="text-red-400 hover:text-red-600">
+                                        <Trash2 className="w-3 h-3" />
+                                      </button>
+                                    </td>
+                                  </tr>
+                                )
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      ) : (
+                        <p className="text-xs text-gray-400 italic">No AEPS commissions configured</p>
+                      )}
+                    </div>
+
+                    {/* AEPS Settlement Charges */}
+                    <div>
+                      <h4 className="font-semibold text-sm text-purple-700 dark:text-purple-400 mb-2 flex items-center gap-1">
+                        <DollarSign className="w-4 h-4" /> AEPS Settlement Charges ({scheme.aeps_settlement_charges?.length || 0})
+                      </h4>
+                      {scheme.aeps_settlement_charges && scheme.aeps_settlement_charges.length > 0 ? (
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-xs">
+                            <thead>
+                              <tr className="bg-purple-50 dark:bg-purple-900/20">
+                                <th className="px-2 py-1.5 text-left">Amount Range</th>
+                                <th className="px-2 py-1.5 text-right">Retailer Charge</th>
+                                <th className="px-2 py-1.5 text-right">DT Margin</th>
+                                <th className="px-2 py-1.5 text-right">MD Margin</th>
+                                <th className="px-2 py-1.5 text-right">Company</th>
+                                <th className="px-2 py-1.5"></th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {scheme.aeps_settlement_charges.map((c: any) => {
+                                const fmt = (v: number, t: string) => t === 'percentage' ? `${v}%` : `₹${v}`
+                                return (
+                                  <tr key={c.id} className="border-b border-gray-100 dark:border-gray-700">
+                                    <td className="px-2 py-1.5">₹{c.min_amount.toLocaleString('en-IN')} – {c.max_amount >= 999999999 ? '∞' : `₹${c.max_amount.toLocaleString('en-IN')}`}</td>
+                                    <td className="px-2 py-1.5 text-right font-medium">{fmt(c.retailer_charge, c.retailer_charge_type)}</td>
+                                    <td className="px-2 py-1.5 text-right">{fmt(c.distributor_commission, c.distributor_commission_type)}</td>
+                                    <td className="px-2 py-1.5 text-right">{fmt(c.md_commission, c.md_commission_type)}</td>
+                                    <td className="px-2 py-1.5 text-right">{fmt(c.company_charge, c.company_charge_type)}</td>
+                                    <td className="px-2 py-1.5 text-right">
+                                      <button onClick={() => handleDeleteConfig('scheme_aeps_settlement_charges', c.id)} className="text-red-400 hover:text-red-600">
+                                        <Trash2 className="w-3 h-3" />
+                                      </button>
+                                    </td>
+                                  </tr>
+                                )
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      ) : (
+                        <p className="text-xs text-gray-400 italic">No AEPS settlement charges configured</p>
+                      )}
+                    </div>
+
                     {/* Mappings */}
                     <div>
                       <h4 className="font-semibold text-sm text-purple-700 dark:text-purple-400 mb-2 flex items-center gap-1">
@@ -999,6 +1197,8 @@ function SchemeManagementPageContent() {
                       <option value="bbps">BBPS Only</option>
                       <option value="payout">Payout Only</option>
                       <option value="mdr">MDR Only</option>
+                      <option value="aeps">AEPS Commission Only</option>
+                      <option value="aeps_settlement">AEPS Settlement Only</option>
                     </select>
                   </div>
                 </div>
@@ -1028,6 +1228,8 @@ function SchemeManagementPageContent() {
                 {configType === 'bbps' && <><CreditCard className="w-5 h-5 text-blue-600" /> Add BBPS Commission</>}
                 {configType === 'payout' && <><Banknote className="w-5 h-5 text-green-600" /> Add Payout Charge</>}
                 {configType === 'mdr' && <><TrendingUp className="w-5 h-5 text-orange-600" /> Add MDR Rate</>}
+                {configType === 'aeps' && <><Banknote className="w-5 h-5 text-teal-600" /> Add AEPS Commission</>}
+                {configType === 'aeps_settlement' && <><DollarSign className="w-5 h-5 text-purple-600" /> Add AEPS Settlement Charge</>}
               </h2>
 
               {/* BBPS Form */}
@@ -1281,6 +1483,119 @@ function SchemeManagementPageContent() {
                 </div>
               )}
 
+              {/* AEPS Form */}
+              {configType === 'aeps' && (
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Transaction Type</label>
+                    <select value={aepsForm.transaction_type} onChange={(e) => setAepsForm({ ...aepsForm, transaction_type: e.target.value })}
+                      className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700">
+                      <option value="cash_withdrawal">Cash Withdrawal</option>
+                      <option value="cash_deposit">Cash Deposit</option>
+                      <option value="balance_inquiry">Balance Enquiry</option>
+                      <option value="mini_statement">Mini Statement</option>
+                      <option value="aadhaar_to_aadhaar">Aadhaar to Aadhaar</option>
+                    </select>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Min Amount (₹)</label>
+                      <input type="number" value={aepsForm.min_amount} onChange={(e) => setAepsForm({ ...aepsForm, min_amount: parseFloat(e.target.value) || 0 })}
+                        className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Max Amount (₹)</label>
+                      <input type="number" value={aepsForm.max_amount} onChange={(e) => setAepsForm({ ...aepsForm, max_amount: parseFloat(e.target.value) || 999999999 })}
+                        className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
+                    </div>
+                  </div>
+                  <p className="text-xs text-gray-500">Pool = what the API Partner pays the company. Company profit is taken first; remainder cascades MD → DT → RT.</p>
+                  {[
+                    { label: 'Partner Pool (base)', key: 'base_commission', typeKey: 'base_commission_type' },
+                    { label: 'Company Earning', key: 'company_earning', typeKey: 'company_earning_type' },
+                    { label: 'MD Commission', key: 'md_commission', typeKey: 'md_commission_type' },
+                    { label: 'Distributor Commission', key: 'distributor_commission', typeKey: 'distributor_commission_type' },
+                    { label: 'Retailer Commission', key: 'retailer_commission', typeKey: 'retailer_commission_type' },
+                  ].map(({ label, key, typeKey }) => (
+                    <div key={key} className="grid grid-cols-3 gap-2 items-end">
+                      <div className="col-span-2">
+                        <label className="block text-xs font-medium mb-1">{label}</label>
+                        <input type="number" step="0.0001" value={(aepsForm as any)[key]}
+                          onChange={(e) => setAepsForm({ ...aepsForm, [key]: parseFloat(e.target.value) || 0 })}
+                          className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
+                      </div>
+                      <div>
+                        <select value={(aepsForm as any)[typeKey]}
+                          onChange={(e) => setAepsForm({ ...aepsForm, [typeKey]: e.target.value })}
+                          className="w-full px-2 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700">
+                          <option value="flat">₹ Flat</option>
+                          <option value="percentage">% Pct</option>
+                        </select>
+                      </div>
+                    </div>
+                  ))}
+                  <div>
+                    <label className="block text-xs font-medium mb-1">TDS (%)</label>
+                    <input type="number" step="0.01" value={aepsForm.tds_percentage}
+                      onChange={(e) => setAepsForm({ ...aepsForm, tds_percentage: parseFloat(e.target.value) || 0 })}
+                      className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
+                  </div>
+                  {/* Waterfall preview */}
+                  {(() => {
+                    const p = aepsPreview()
+                    return (
+                      <div className={`p-3 rounded-lg text-sm border ${p.valid ? 'bg-teal-50 border-teal-200 text-teal-800 dark:bg-teal-900/20 dark:border-teal-800 dark:text-teal-300' : 'bg-red-50 border-red-200 text-red-700 dark:bg-red-900/20 dark:border-red-800 dark:text-red-300'}`}>
+                        <div className="font-medium mb-1">Preview at ₹{p.amt}</div>
+                        <div>Partner pays ₹{p.base} → Company ₹{p.company} · MD ₹{p.md} · DT ₹{p.dt} · RT ₹{p.rt}</div>
+                        <div className="mt-1">Distributed ₹{p.distributed} / Pool ₹{p.base} {p.valid ? '✓ valid' : '✗ exceeds pool'}</div>
+                      </div>
+                    )
+                  })()}
+                </div>
+              )}
+
+              {/* AEPS Settlement Form */}
+              {configType === 'aeps_settlement' && (
+                <div className="space-y-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Min Amount (₹)</label>
+                      <input type="number" value={aepsSettleForm.min_amount} onChange={(e) => setAepsSettleForm({ ...aepsSettleForm, min_amount: parseFloat(e.target.value) || 0 })}
+                        className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Max Amount (₹)</label>
+                      <input type="number" value={aepsSettleForm.max_amount} onChange={(e) => setAepsSettleForm({ ...aepsSettleForm, max_amount: parseFloat(e.target.value) || 999999999 })}
+                        className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
+                    </div>
+                  </div>
+                  <p className="text-xs text-gray-500">Retailer charge is deducted from AEPS wallet on settlement. Margins are distributed to DT/MD/Company.</p>
+                  {[
+                    { label: 'Retailer Charge (deducted)', key: 'retailer_charge', typeKey: 'retailer_charge_type' },
+                    { label: 'Distributor Margin', key: 'distributor_commission', typeKey: 'distributor_commission_type' },
+                    { label: 'MD Margin', key: 'md_commission', typeKey: 'md_commission_type' },
+                    { label: 'Company Earning', key: 'company_charge', typeKey: 'company_charge_type' },
+                  ].map(({ label, key, typeKey }) => (
+                    <div key={key} className="grid grid-cols-3 gap-2 items-end">
+                      <div className="col-span-2">
+                        <label className="block text-xs font-medium mb-1">{label}</label>
+                        <input type="number" step="0.01" value={(aepsSettleForm as any)[key]}
+                          onChange={(e) => setAepsSettleForm({ ...aepsSettleForm, [key]: parseFloat(e.target.value) || 0 })}
+                          className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
+                      </div>
+                      <div>
+                        <select value={(aepsSettleForm as any)[typeKey]}
+                          onChange={(e) => setAepsSettleForm({ ...aepsSettleForm, [typeKey]: e.target.value })}
+                          className="w-full px-2 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700">
+                          <option value="flat">₹ Flat</option>
+                          <option value="percentage">% Pct</option>
+                        </select>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
               <div className="flex justify-end gap-2 mt-5">
                 <button onClick={() => setShowConfigModal(false)} className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg">Cancel</button>
                 <button onClick={handleSaveConfig} className="px-4 py-2 text-sm bg-primary-600 text-white rounded-lg hover:bg-primary-700">
@@ -1331,6 +1646,8 @@ function SchemeManagementPageContent() {
                     <option value="bbps">BBPS Only</option>
                     <option value="payout">Payout Only</option>
                     <option value="mdr">MDR Only</option>
+                    <option value="aeps">AEPS Commission Only</option>
+                    <option value="aeps_settlement">AEPS Settlement Only</option>
                   </select>
                 </div>
               </div>

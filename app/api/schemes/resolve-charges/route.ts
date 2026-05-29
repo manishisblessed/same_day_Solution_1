@@ -638,6 +638,151 @@ export async function GET(request: NextRequest) {
       })
     }
 
+    if (serviceType === 'aeps') {
+      const transactionType = searchParams.get('transaction_type') || 'cash_withdrawal'
+      let commission: any = null
+
+      try {
+        const { data: calcResult, error: calcError } = await supabase.rpc('calculate_aeps_commission_from_scheme', {
+          p_scheme_id: resolved.scheme_id,
+          p_amount: amount,
+          p_transaction_type: transactionType,
+        })
+
+        if (calcError) {
+          console.error(`[resolve-charges] AEPS commission RPC error:`, calcError.message, calcError.code, calcError.hint)
+        } else if (calcResult && calcResult.length > 0) {
+          const r = calcResult[0]
+          const tdsPct = parseFloat(r.tds_percentage) || 0
+          const rt = parseFloat(r.retailer_commission) || 0
+          const dt = parseFloat(r.distributor_commission) || 0
+          const md = parseFloat(r.md_commission) || 0
+          const tdsFactor = 1 - tdsPct / 100
+          commission = {
+            base_commission: parseFloat(r.base_commission) || 0,
+            company_earning: parseFloat(r.company_earning) || 0,
+            md_commission: md,
+            distributor_commission: dt,
+            retailer_commission: rt,
+            tds_percentage: tdsPct,
+            retailer_net: Math.round(rt * tdsFactor * 100) / 100,
+            distributor_net: Math.round(dt * tdsFactor * 100) / 100,
+            md_net: Math.round(md * tdsFactor * 100) / 100,
+          }
+          console.log(`[resolve-charges] AEPS commission via RPC: pool ₹${commission.base_commission}, RT ₹${commission.retailer_commission}`)
+        }
+      } catch (err: any) {
+        console.error(`[resolve-charges] AEPS commission RPC exception:`, err.message)
+      }
+
+      let allSlabs: any[] = []
+      if (clientMode === 'admin') {
+        try {
+          const { data: slabData } = await supabase
+            .from('scheme_aeps_commissions')
+            .select('*')
+            .eq('scheme_id', resolved.scheme_id)
+            .eq('status', 'active')
+            .order('transaction_type')
+            .order('min_amount')
+          allSlabs = slabData || []
+        } catch (slabErr: any) {
+          console.error(`[resolve-charges] AEPS slab fetch error:`, slabErr.message)
+        }
+      }
+
+      return NextResponse.json({
+        resolved: true,
+        scheme: {
+          id: resolved.scheme_id,
+          name: resolved.scheme_name,
+          type: resolved.scheme_type,
+          resolved_via: resolved.resolved_via,
+        },
+        commission,
+        slabs: allSlabs,
+        _debug: { resolution_method: resolutionMethod, client_mode: clientMode },
+      })
+    }
+
+    if (serviceType === 'aeps_settlement') {
+      let charges: any = null
+
+      try {
+        const { data: chargeResult, error: chargeError } = await supabase.rpc('calculate_aeps_settlement_charge_from_scheme', {
+          p_scheme_id: resolved.scheme_id,
+          p_amount: amount,
+        })
+
+        if (chargeError) {
+          console.error(`[resolve-charges] AEPS settlement charge RPC error:`, chargeError.message)
+        } else if (chargeResult && chargeResult.length > 0) {
+          charges = {
+            retailer_charge: parseFloat(chargeResult[0].retailer_charge) || 0,
+            distributor_commission: parseFloat(chargeResult[0].distributor_commission) || 0,
+            md_commission: parseFloat(chargeResult[0].md_commission) || 0,
+            company_charge: parseFloat(chargeResult[0].company_charge) || 0,
+          }
+        }
+      } catch (err: any) {
+        console.error(`[resolve-charges] AEPS settlement charge exception:`, err.message)
+      }
+
+      // Fallback: direct query
+      if (!charges && clientMode === 'admin') {
+        try {
+          const { data: slabs } = await supabase
+            .from('scheme_aeps_settlement_charges')
+            .select('*')
+            .eq('scheme_id', resolved.scheme_id)
+            .eq('status', 'active')
+            .lte('min_amount', amount)
+            .gte('max_amount', amount)
+            .order('min_amount', { ascending: false })
+            .limit(1)
+
+          if (slabs && slabs.length > 0) {
+            const s = slabs[0]
+            const calc = (v: number, t: string) => t === 'percentage' ? Math.round(amount * v / 100 * 100) / 100 : v
+            charges = {
+              retailer_charge: calc(parseFloat(s.retailer_charge) || 0, s.retailer_charge_type),
+              distributor_commission: calc(parseFloat(s.distributor_commission) || 0, s.distributor_commission_type),
+              md_commission: calc(parseFloat(s.md_commission) || 0, s.md_commission_type),
+              company_charge: calc(parseFloat(s.company_charge) || 0, s.company_charge_type),
+            }
+          }
+        } catch (e: any) {
+          console.error(`[resolve-charges] AEPS settlement direct query error:`, e.message)
+        }
+      }
+
+      let allSlabs: any[] = []
+      if (clientMode === 'admin') {
+        try {
+          const { data: slabData } = await supabase
+            .from('scheme_aeps_settlement_charges')
+            .select('*')
+            .eq('scheme_id', resolved.scheme_id)
+            .eq('status', 'active')
+            .order('min_amount')
+          allSlabs = slabData || []
+        } catch (e: any) {}
+      }
+
+      return NextResponse.json({
+        resolved: true,
+        scheme: {
+          id: resolved.scheme_id,
+          name: resolved.scheme_name,
+          type: resolved.scheme_type,
+          resolved_via: resolved.resolved_via,
+        },
+        charges,
+        slabs: allSlabs,
+        _debug: { resolution_method: resolutionMethod, client_mode: clientMode },
+      })
+    }
+
     return NextResponse.json({ error: 'Invalid service_type' }, { status: 400 })
 
   } catch (err: any) {

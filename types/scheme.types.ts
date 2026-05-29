@@ -9,7 +9,8 @@
 
 export type SchemeType = 'global' | 'golden' | 'custom';
 export type SchemeStatus = 'active' | 'inactive' | 'draft';
-export type ServiceScope = 'all' | 'bbps' | 'payout' | 'mdr' | 'settlement';
+export type ServiceScope = 'all' | 'bbps' | 'payout' | 'mdr' | 'settlement' | 'aeps' | 'aeps_settlement';
+export type AEPSTransactionType = 'cash_withdrawal' | 'cash_deposit' | 'balance_inquiry' | 'mini_statement' | 'aadhaar_to_aadhaar';
 export type ChargeType = 'flat' | 'percentage';
 export type TransferMode = 'IMPS' | 'NEFT' | 'RTGS';
 export type PaymentMode = 'CARD' | 'UPI';
@@ -40,6 +41,8 @@ export interface Scheme {
   bbps_commissions?: SchemeBBPSCommission[];
   payout_charges?: SchemePayoutCharge[];
   mdr_rates?: SchemeMDRRate[];
+  aeps_commissions?: SchemeAEPSCommission[];
+  aeps_settlement_charges?: SchemeAEPSSettlementCharge[];
   mappings?: SchemeMapping[];
   mapping_count?: number;
 }
@@ -125,6 +128,71 @@ export interface SchemeMDRRate {
   md_mdr_t1: number;
   md_mdr_t0: number;
   
+  status: string;
+  created_at: string;
+  updated_at: string;
+}
+
+// ============================================================================
+// AEPS COMMISSION
+// ============================================================================
+
+export interface SchemeAEPSCommission {
+  id: string;
+  scheme_id: string;
+  transaction_type: AEPSTransactionType;
+  min_amount: number;
+  max_amount: number;
+
+  // Partner -> Company pool
+  base_commission: number;
+  base_commission_type: ChargeType;
+
+  // Company profit (taken first off pool)
+  company_earning: number;
+  company_earning_type: ChargeType;
+
+  // MD margin -> primary wallet
+  md_commission: number;
+  md_commission_type: ChargeType;
+
+  // DT margin -> primary wallet
+  distributor_commission: number;
+  distributor_commission_type: ChargeType;
+
+  // RT earning -> AEPS wallet
+  retailer_commission: number;
+  retailer_commission_type: ChargeType;
+
+  tds_percentage: number;
+
+  status: string;
+  created_at: string;
+  updated_at: string;
+}
+
+// ============================================================================
+// AEPS SETTLEMENT CHARGE
+// ============================================================================
+
+export interface SchemeAEPSSettlementCharge {
+  id: string;
+  scheme_id: string;
+  min_amount: number;
+  max_amount: number;
+
+  retailer_charge: number;
+  retailer_charge_type: ChargeType;
+
+  distributor_commission: number;
+  distributor_commission_type: ChargeType;
+
+  md_commission: number;
+  md_commission_type: ChargeType;
+
+  company_charge: number;
+  company_charge_type: ChargeType;
+
   status: string;
   created_at: string;
   updated_at: string;
@@ -252,5 +320,59 @@ export interface CreateSchemeMappingInput {
   priority?: number;
   effective_from?: string;
   effective_to?: string;
+}
+
+export interface CreateAEPSSettlementChargeInput {
+  scheme_id: string;
+  min_amount?: number;
+  max_amount?: number;
+  retailer_charge: number;
+  retailer_charge_type: ChargeType;
+  distributor_commission?: number;
+  distributor_commission_type?: ChargeType;
+  md_commission?: number;
+  md_commission_type?: ChargeType;
+  company_charge?: number;
+  company_charge_type?: ChargeType;
+}
+
+export interface CreateAEPSCommissionInput {
+  scheme_id: string;
+  transaction_type: AEPSTransactionType;
+  min_amount?: number;
+  max_amount?: number;
+  base_commission: number;
+  base_commission_type?: ChargeType;
+  company_earning?: number;
+  company_earning_type?: ChargeType;
+  md_commission?: number;
+  md_commission_type?: ChargeType;
+  distributor_commission?: number;
+  distributor_commission_type?: ChargeType;
+  retailer_commission?: number;
+  retailer_commission_type?: ChargeType;
+  tds_percentage?: number;
+}
+
+// ============================================================================
+// AEPS COMMISSION BREAKDOWN (resolved per transaction)
+// ============================================================================
+
+export interface AEPSCommissionBreakdown {
+  base_commission: number;       // partner -> company pool
+  company_earning: number;       // company profit
+  md_commission: number;         // MD margin (gross, before TDS)
+  distributor_commission: number;// DT margin (gross, before TDS)
+  retailer_commission: number;   // RT earning (gross, before TDS)
+  tds_percentage: number;
+  // Net amounts after TDS (what is actually credited)
+  md_net: number;
+  distributor_net: number;
+  retailer_net: number;
+  tds_total: number;
+  scheme_id: string;
+  scheme_name: string;
+  scheme_type: SchemeType;
+  resolved_via: string;
 }
 

@@ -12,7 +12,7 @@ import {
   ShoppingCart, CreditCard, ArrowUpRight, Menu,
   RefreshCw, Settings, X, Check, AlertCircle, Eye, Receipt, Wallet, Download,
   Send, Banknote, Lock, EyeOff, Shield, Key, Percent, Smartphone, Globe, Info,
-  Network, Link2, Building2, Phone, Mail, Calendar
+  Network, Link2, Building2, Phone, Mail, Calendar, Fingerprint
 } from 'lucide-react'
 import TransactionsTable from '@/components/TransactionsTable'
 import BBPSTransactionsTable from '@/components/BBPSTransactionsTable'
@@ -66,6 +66,7 @@ function RetailerDashboardContent() {
     totalRevenue: 0,
     commissionEarned: 0,
     walletBalance: 0,
+    aepsWalletBalance: 0,
   })
   const [recentTransactions, setRecentTransactions] = useState<any[]>([])
   const [chartData, setChartData] = useState<any[]>([])
@@ -144,16 +145,15 @@ function RetailerDashboardContent() {
         // Continue with default values instead of blocking
       }
 
-      // Fetch wallet balance (non-blocking with timeout - don't fail if function doesn't exist yet)
+      // Fetch wallet balances (non-blocking with timeout - don't fail if function doesn't exist yet)
       let walletBalance = 0
+      let aepsWalletBalance = 0
       if (user.partner_id) {
-        try {
-          // Add timeout to prevent hanging (reduced to 3 seconds for faster loading)
-          const walletTimeout = new Promise((resolve) => 
-            setTimeout(() => resolve({ data: null, error: { message: 'Timeout' } }), 3000)
-          )
+        const walletTimeout = new Promise((resolve) => 
+          setTimeout(() => resolve({ data: null, error: { message: 'Timeout' } }), 3000)
+        )
 
-          // Try new function first with timeout
+        try {
           const balanceResult = await Promise.race([
             supabase.rpc('get_wallet_balance_v2', {
               p_user_id: user.partner_id,
@@ -165,7 +165,6 @@ function RetailerDashboardContent() {
           if (balanceResult?.data !== null && balanceResult?.data !== undefined && !balanceResult?.error) {
             walletBalance = balanceResult.data || 0
           } else if (user.role === 'retailer') {
-            // Fallback to old function for retailers (backward compatibility) with timeout
             try {
               const oldBalanceResult = await Promise.race([
                 supabase.rpc('get_wallet_balance', {
@@ -177,16 +176,10 @@ function RetailerDashboardContent() {
             } catch {
               walletBalance = 0
             }
-          } else {
-            walletBalance = 0
           }
-        } catch (error) {
-          // If new function doesn't exist, try old function for retailers with timeout
+        } catch {
           if (user.role === 'retailer') {
             try {
-              const walletTimeout = new Promise((resolve) => 
-                setTimeout(() => resolve({ data: null, error: { message: 'Timeout' } }), 3000)
-              )
               const oldBalanceResult = await Promise.race([
                 supabase.rpc('get_wallet_balance', {
                   p_retailer_id: user.partner_id
@@ -197,9 +190,20 @@ function RetailerDashboardContent() {
             } catch {
               walletBalance = 0
             }
-          } else {
-            walletBalance = 0
           }
+        }
+
+        try {
+          const aepsBalanceResult = await Promise.race([
+            supabase.rpc('get_wallet_balance_v2', {
+              p_user_id: user.partner_id,
+              p_wallet_type: 'aeps'
+            }),
+            walletTimeout
+          ]) as any
+          aepsWalletBalance = aepsBalanceResult?.data || 0
+        } catch {
+          aepsWalletBalance = 0
         }
       }
 
@@ -257,6 +261,7 @@ function RetailerDashboardContent() {
         totalRevenue,
         commissionEarned,
         walletBalance,
+        aepsWalletBalance,
       })
 
       // Combine recent transactions from both ledger and POS
@@ -354,6 +359,7 @@ function RetailerDashboardContent() {
         totalRevenue: 0,
         commissionEarned: 0,
         walletBalance: 0,
+        aepsWalletBalance: 0,
       })
       setRecentTransactions([])
       setChartData([])
@@ -494,7 +500,16 @@ function RetailerDashboardContent() {
           )}
 
           {/* Tab Content */}
-          {activeTab === 'dashboard' && <DashboardTab user={user} stats={stats} chartData={chartData} recentTransactions={recentTransactions} />}
+          {activeTab === 'dashboard' && (
+            <DashboardTab
+              user={user}
+              stats={stats}
+              chartData={chartData}
+              recentTransactions={recentTransactions}
+              onTabChange={setActiveTab}
+              router={router}
+            />
+          )}
           {activeTab === 'wallet' && <WalletTab user={user} />}
           {activeTab === 'services' && <ServicesTab />}
           {activeTab === 'aeps' && <AEPSDashboard />}
@@ -705,7 +720,14 @@ function DistributorConnectionCard({ user }: { user: any }) {
 }
 
 // Dashboard Tab Component
-function DashboardTab({ user, stats, chartData, recentTransactions }: { user: any, stats: any, chartData: any[], recentTransactions: any[] }) {
+function DashboardTab({ user, stats, chartData, recentTransactions, onTabChange, router }: {
+  user: any
+  stats: any
+  chartData: any[]
+  recentTransactions: any[]
+  onTabChange: (tab: TabType) => void
+  router: ReturnType<typeof useRouter>
+}) {
   return (
     <>
       {/* Stats Cards */}
@@ -742,6 +764,21 @@ function DashboardTab({ user, stats, chartData, recentTransactions }: { user: an
           icon={Wallet}
           gradient="from-purple-500 to-purple-600"
           delay={0.4}
+          onClick={() => {
+            onTabChange('wallet')
+            router.push('/dashboard/retailer?tab=wallet', { scroll: false })
+          }}
+        />
+        <StatCard
+          label="AEPS Wallet Balance"
+          value={`₹${stats.aepsWalletBalance.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+          icon={Fingerprint}
+          gradient="from-teal-500 to-teal-600"
+          delay={0.5}
+          onClick={() => {
+            onTabChange('aeps')
+            router.push('/dashboard/retailer?tab=aeps', { scroll: false })
+          }}
         />
       </motion.div>
 
@@ -1176,6 +1213,18 @@ function WalletTab({ user }: { user: any }) {
     ifsc: '',
     account_name: ''
   })
+  // AEPS Settlement & Transfer states
+  const [showAepsSettlement, setShowAepsSettlement] = useState(false)
+  const [aepsSettlementAmount, setAepsSettlementAmount] = useState('')
+  const [aepsSettlementProcessing, setAepsSettlementProcessing] = useState(false)
+  const [aepsBankDetails, setAepsBankDetails] = useState({ account_number: '', ifsc: '', account_name: '' })
+  const [aepsSettleCharge, setAepsSettleCharge] = useState<number | null>(null)
+  const [aepsSettleChargeLoading, setAepsSettleChargeLoading] = useState(false)
+  const [aepsSettleConfirmed, setAepsSettleConfirmed] = useState(false)
+  const [showAepsTransfer, setShowAepsTransfer] = useState(false)
+  const [aepsTransferAmount, setAepsTransferAmount] = useState('')
+  const [aepsTransferProcessing, setAepsTransferProcessing] = useState(false)
+  const [aepsTransferConfirmed, setAepsTransferConfirmed] = useState(false)
 
   useEffect(() => {
     fetchWalletData()
@@ -1295,6 +1344,112 @@ function WalletTab({ user }: { user: any }) {
     }
   }
 
+  const fetchAepsSettleCharge = async (amt: number) => {
+    if (amt <= 0 || !user?.partner_id) { setAepsSettleCharge(null); return }
+    setAepsSettleChargeLoading(true)
+    try {
+      const res = await apiFetchJson<{ resolved: boolean; charges?: { retailer_charge: number } }>(`/api/schemes/resolve-charges?service_type=aeps_settlement&amount=${amt}&user_id=${user.partner_id}`)
+      setAepsSettleCharge(res.resolved && res.charges ? res.charges.retailer_charge : 0)
+    } catch {
+      setAepsSettleCharge(0)
+    } finally {
+      setAepsSettleChargeLoading(false)
+    }
+  }
+
+  const handleAepsSettlement = async () => {
+    if (!aepsSettlementAmount || parseFloat(aepsSettlementAmount) <= 0) {
+      alert('Please enter a valid amount')
+      return
+    }
+    if (!aepsBankDetails.account_number || !aepsBankDetails.ifsc || !aepsBankDetails.account_name) {
+      alert('Please fill all bank details')
+      return
+    }
+    const amt = parseFloat(aepsSettlementAmount)
+    const charge = aepsSettleCharge ?? 0
+    const total = amt + charge
+    if (total > (aepsBalance || 0)) {
+      alert(`Insufficient AEPS balance. Need ₹${total.toLocaleString('en-IN')} (₹${amt.toLocaleString('en-IN')} + ₹${charge.toLocaleString('en-IN')} charge) but only ₹${(aepsBalance || 0).toLocaleString('en-IN')} available.`)
+      return
+    }
+    if (!aepsSettleConfirmed) {
+      setAepsSettleConfirmed(true)
+      return
+    }
+    setAepsSettlementProcessing(true)
+    try {
+      const data = await apiFetchJson<{ success: boolean; error?: string; charge?: number; message?: string }>('/api/aeps/settlement', {
+        method: 'POST',
+        body: JSON.stringify({
+          amount: amt,
+          bank_account_number: aepsBankDetails.account_number,
+          bank_ifsc: aepsBankDetails.ifsc,
+          bank_account_name: aepsBankDetails.account_name,
+        })
+      })
+      if (data.success) {
+        alert(data.message || 'AEPS settlement processed successfully!')
+        setShowAepsSettlement(false)
+        setAepsSettlementAmount('')
+        setAepsBankDetails({ account_number: '', ifsc: '', account_name: '' })
+        setAepsSettleCharge(null)
+        setAepsSettleConfirmed(false)
+        fetchWalletData()
+      } else {
+        alert(data.error || 'AEPS settlement failed')
+        setAepsSettleConfirmed(false)
+      }
+    } catch (error: any) {
+      alert(error.message || 'Failed to process AEPS settlement')
+      setAepsSettleConfirmed(false)
+    } finally {
+      setAepsSettlementProcessing(false)
+    }
+  }
+
+  const handleAepsTransfer = async () => {
+    if (!aepsTransferAmount || parseFloat(aepsTransferAmount) <= 0) {
+      alert('Please enter a valid amount')
+      return
+    }
+    const amt = parseFloat(aepsTransferAmount)
+    if (amt > (aepsBalance || 0)) {
+      alert('Amount exceeds AEPS wallet balance')
+      return
+    }
+    if (!aepsTransferConfirmed) {
+      setAepsTransferConfirmed(true)
+      return
+    }
+    setAepsTransferProcessing(true)
+    try {
+      const data = await apiFetchJson<{ success: boolean; error?: string; message?: string }>('/api/wallet/transfer', {
+        method: 'POST',
+        body: JSON.stringify({
+          amount: amt,
+          source_wallet: 'aeps',
+          target_wallet: 'primary',
+        })
+      })
+      if (data.success) {
+        alert(data.message || 'Transfer successful!')
+        setShowAepsTransfer(false)
+        setAepsTransferAmount('')
+        setAepsTransferConfirmed(false)
+        fetchWalletData()
+      } else {
+        alert(data.error || 'Transfer failed')
+        setAepsTransferConfirmed(false)
+      }
+    } catch (error: any) {
+      alert(error.message || 'Failed to transfer funds')
+      setAepsTransferConfirmed(false)
+    } finally {
+      setAepsTransferProcessing(false)
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -1334,7 +1489,7 @@ function WalletTab({ user }: { user: any }) {
           animate={{ opacity: 1, y: 0 }}
           className="bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl shadow-lg p-6 text-white"
         >
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between mb-4">
             <div>
               <p className="text-purple-100 text-sm font-medium mb-1">AEPS Wallet</p>
               <p className="text-3xl font-bold">
@@ -1342,6 +1497,20 @@ function WalletTab({ user }: { user: any }) {
               </p>
             </div>
             <Wallet className="w-12 h-12 text-purple-200" />
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setShowAepsSettlement(true)}
+              className="flex-1 bg-white/20 hover:bg-white/30 text-white font-medium py-2 px-3 rounded-lg transition-colors text-sm flex items-center justify-center gap-1"
+            >
+              <Banknote className="w-4 h-4" /> Settle to Bank
+            </button>
+            <button
+              onClick={() => setShowAepsTransfer(true)}
+              className="flex-1 bg-white/20 hover:bg-white/30 text-white font-medium py-2 px-3 rounded-lg transition-colors text-sm flex items-center justify-center gap-1"
+            >
+              <Send className="w-4 h-4" /> To Primary
+            </button>
           </div>
         </motion.div>
       </div>
@@ -1444,6 +1613,167 @@ function WalletTab({ user }: { user: any }) {
                   onClick={() => setShowSettlement(false)}
                   className="flex-1 bg-gray-200 text-gray-700 py-2 px-4 rounded-lg hover:bg-gray-300"
                 >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
+      {/* AEPS Settlement Modal */}
+      {showAepsSettlement && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-md w-full p-6"
+          >
+            <h3 className="text-xl font-bold mb-1">AEPS Settlement to Bank</h3>
+            <p className="text-sm text-gray-500 mb-4">Transfer AEPS wallet balance to your bank account</p>
+            <div className="mb-3 p-3 bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-lg">
+              <p className="text-sm text-purple-700 dark:text-purple-300">
+                Available AEPS Balance: <span className="font-bold">₹{aepsBalance?.toLocaleString('en-IN', { minimumFractionDigits: 2 }) || '0.00'}</span>
+              </p>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium mb-1">Amount (₹)</label>
+                <input type="number" value={aepsSettlementAmount}
+                  onChange={(e) => {
+                    setAepsSettlementAmount(e.target.value)
+                    setAepsSettleConfirmed(false)
+                    const v = parseFloat(e.target.value)
+                    if (v > 0) fetchAepsSettleCharge(v)
+                    else setAepsSettleCharge(null)
+                  }}
+                  className="w-full px-4 py-2 border rounded-lg" placeholder="Enter amount to receive in bank" min="1" />
+              </div>
+
+              {/* Charge breakdown preview */}
+              {aepsSettlementAmount && parseFloat(aepsSettlementAmount) > 0 && (
+                <div className="p-3 bg-gray-50 dark:bg-gray-700/50 border border-gray-200 dark:border-gray-600 rounded-lg text-sm space-y-1.5">
+                  {aepsSettleChargeLoading ? (
+                    <p className="text-gray-500 text-center">Calculating charge...</p>
+                  ) : (
+                    <>
+                      <div className="flex justify-between">
+                        <span className="text-gray-600 dark:text-gray-400">You will receive in bank</span>
+                        <span className="font-semibold text-green-700 dark:text-green-400">₹{parseFloat(aepsSettlementAmount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-600 dark:text-gray-400">Settlement charge</span>
+                        <span className="font-medium text-orange-600 dark:text-orange-400">₹{(aepsSettleCharge ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                      </div>
+                      <div className="border-t border-gray-200 dark:border-gray-600 pt-1.5 flex justify-between">
+                        <span className="font-semibold text-gray-900 dark:text-white">Total deducted from AEPS Wallet</span>
+                        <span className="font-bold text-gray-900 dark:text-white">₹{(parseFloat(aepsSettlementAmount) + (aepsSettleCharge ?? 0)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+
+              <div>
+                <label className="block text-sm font-medium mb-1">Bank Account Number</label>
+                <input type="text" value={aepsBankDetails.account_number}
+                  onChange={(e) => { setAepsBankDetails({ ...aepsBankDetails, account_number: e.target.value }); setAepsSettleConfirmed(false) }}
+                  className="w-full px-4 py-2 border rounded-lg" placeholder="Enter account number" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">IFSC Code</label>
+                <input type="text" value={aepsBankDetails.ifsc}
+                  onChange={(e) => { setAepsBankDetails({ ...aepsBankDetails, ifsc: e.target.value.toUpperCase() }); setAepsSettleConfirmed(false) }}
+                  className="w-full px-4 py-2 border rounded-lg" placeholder="Enter IFSC code" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Account Holder Name</label>
+                <input type="text" value={aepsBankDetails.account_name}
+                  onChange={(e) => { setAepsBankDetails({ ...aepsBankDetails, account_name: e.target.value }); setAepsSettleConfirmed(false) }}
+                  className="w-full px-4 py-2 border rounded-lg" placeholder="Enter account holder name" />
+              </div>
+
+              {/* Confirmation banner */}
+              {aepsSettleConfirmed && (
+                <div className="p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-300 dark:border-yellow-700 rounded-lg">
+                  <p className="text-sm font-semibold text-yellow-800 dark:text-yellow-300 mb-1">⚠ Please confirm</p>
+                  <p className="text-xs text-yellow-700 dark:text-yellow-400">
+                    ₹{parseFloat(aepsSettlementAmount).toLocaleString('en-IN')} will be sent to A/C {aepsBankDetails.account_number} ({aepsBankDetails.account_name}).
+                    ₹{(parseFloat(aepsSettlementAmount) + (aepsSettleCharge ?? 0)).toLocaleString('en-IN')} will be deducted from your AEPS wallet (includes ₹{(aepsSettleCharge ?? 0).toLocaleString('en-IN')} charge).
+                  </p>
+                </div>
+              )}
+
+              <div className="flex gap-3">
+                <button onClick={handleAepsSettlement} disabled={aepsSettlementProcessing || aepsSettleChargeLoading}
+                  className={`flex-1 text-white py-2 px-4 rounded-lg disabled:opacity-50 ${aepsSettleConfirmed ? 'bg-green-600 hover:bg-green-700' : 'bg-purple-600 hover:bg-purple-700'}`}>
+                  {aepsSettlementProcessing ? 'Processing...' : aepsSettleConfirmed ? 'Confirm & Settle' : 'Settle to Bank'}
+                </button>
+                <button onClick={() => { setShowAepsSettlement(false); setAepsSettleConfirmed(false); setAepsSettleCharge(null) }}
+                  className="flex-1 bg-gray-200 text-gray-700 py-2 px-4 rounded-lg hover:bg-gray-300">
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
+      {/* AEPS → Primary Transfer Modal */}
+      {showAepsTransfer && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-md w-full p-6"
+          >
+            <h3 className="text-xl font-bold mb-1">Transfer to Primary Wallet</h3>
+            <p className="text-sm text-gray-500 mb-4">Move AEPS wallet balance to Primary wallet for other services</p>
+            <div className="mb-3 p-3 bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-lg">
+              <p className="text-sm text-purple-700 dark:text-purple-300">
+                Available AEPS Balance: <span className="font-bold">₹{aepsBalance?.toLocaleString('en-IN', { minimumFractionDigits: 2 }) || '0.00'}</span>
+              </p>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium mb-1">Amount (₹)</label>
+                <input type="number" value={aepsTransferAmount}
+                  onChange={(e) => { setAepsTransferAmount(e.target.value); setAepsTransferConfirmed(false) }}
+                  className="w-full px-4 py-2 border rounded-lg" placeholder="Enter amount" min="1" />
+              </div>
+
+              {/* Transfer preview */}
+              {aepsTransferAmount && parseFloat(aepsTransferAmount) > 0 && (
+                <div className="p-3 bg-gray-50 dark:bg-gray-700/50 border border-gray-200 dark:border-gray-600 rounded-lg text-sm space-y-1.5">
+                  <div className="flex justify-between">
+                    <span className="text-gray-600 dark:text-gray-400">Deducted from AEPS Wallet</span>
+                    <span className="font-medium text-red-600 dark:text-red-400">- ₹{parseFloat(aepsTransferAmount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600 dark:text-gray-400">Credited to Primary Wallet</span>
+                    <span className="font-semibold text-green-700 dark:text-green-400">+ ₹{parseFloat(aepsTransferAmount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                  </div>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 pt-1">No charges apply. Transfer is instant.</p>
+                </div>
+              )}
+
+              {/* Confirmation banner */}
+              {aepsTransferConfirmed && (
+                <div className="p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-300 dark:border-yellow-700 rounded-lg">
+                  <p className="text-sm font-semibold text-yellow-800 dark:text-yellow-300 mb-1">⚠ Please confirm</p>
+                  <p className="text-xs text-yellow-700 dark:text-yellow-400">
+                    ₹{parseFloat(aepsTransferAmount).toLocaleString('en-IN')} will be moved from AEPS Wallet to Primary Wallet. This action cannot be undone.
+                  </p>
+                </div>
+              )}
+
+              <div className="flex gap-3">
+                <button onClick={handleAepsTransfer} disabled={aepsTransferProcessing}
+                  className={`flex-1 text-white py-2 px-4 rounded-lg disabled:opacity-50 ${aepsTransferConfirmed ? 'bg-green-600 hover:bg-green-700' : 'bg-blue-600 hover:bg-blue-700'}`}>
+                  {aepsTransferProcessing ? 'Transferring...' : aepsTransferConfirmed ? 'Confirm Transfer' : 'Transfer to Primary'}
+                </button>
+                <button onClick={() => { setShowAepsTransfer(false); setAepsTransferConfirmed(false) }}
+                  className="flex-1 bg-gray-200 text-gray-700 py-2 px-4 rounded-lg hover:bg-gray-300">
                   Cancel
                 </button>
               </div>
@@ -1686,19 +2016,21 @@ function ReportsTab({ chartData, stats }: { chartData: any[], stats: any }) {
 }
 
 // Stat Card Component
-function StatCard({ label, value, icon: Icon, gradient, delay }: { 
+function StatCard({ label, value, icon: Icon, gradient, delay, onClick }: { 
   label: string
   value: string | number
   icon: any
   gradient: string
   delay: number
+  onClick?: () => void
 }) {
   return (
     <motion.div
       initial={{ opacity: 0, scale: 0.9 }}
       animate={{ opacity: 1, scale: 1 }}
       transition={{ delay }}
-      className={`relative overflow-hidden rounded-lg bg-gradient-to-br ${gradient} text-white p-4 shadow-md hover:shadow-lg transition-shadow`}
+      onClick={onClick}
+      className={`relative overflow-hidden rounded-lg bg-gradient-to-br ${gradient} text-white p-4 shadow-md hover:shadow-lg transition-shadow${onClick ? ' cursor-pointer' : ''}`}
     >
       <div className="relative z-10 flex items-center justify-between">
         <div>

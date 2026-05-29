@@ -20,6 +20,10 @@ import type {
   CreatePayoutChargeInput,
   CreateMDRRateInput,
   CreateSchemeMappingInput,
+  CreateAEPSCommissionInput,
+  CreateAEPSSettlementChargeInput,
+  SchemeAEPSCommission,
+  SchemeAEPSSettlementCharge,
   ServiceScope,
 } from '@/types/scheme.types';
 
@@ -68,10 +72,12 @@ export async function getSchemeById(id: string): Promise<{ data: Scheme | null; 
   if (error || !scheme) return { data: null, error: error?.message || 'Scheme not found' };
 
   // Fetch related configs in parallel
-  const [bbps, payout, mdr, mappings] = await Promise.all([
+  const [bbps, payout, mdr, aeps, aepsSettle, mappings] = await Promise.all([
     supabase.from('scheme_bbps_commissions').select('*').eq('scheme_id', id).order('min_amount'),
     supabase.from('scheme_payout_charges').select('*').eq('scheme_id', id).order('transfer_mode'),
     supabase.from('scheme_mdr_rates').select('*').eq('scheme_id', id).order('mode'),
+    supabase.from('scheme_aeps_commissions').select('*').eq('scheme_id', id).order('transaction_type').order('min_amount'),
+    supabase.from('scheme_aeps_settlement_charges').select('*').eq('scheme_id', id).order('min_amount'),
     supabase.from('scheme_mappings').select('*').eq('scheme_id', id).eq('status', 'active'),
   ]);
 
@@ -81,6 +87,8 @@ export async function getSchemeById(id: string): Promise<{ data: Scheme | null; 
       bbps_commissions: bbps.data || [],
       payout_charges: payout.data || [],
       mdr_rates: mdr.data || [],
+      aeps_commissions: aeps.data || [],
+      aeps_settlement_charges: aepsSettle.data || [],
       mappings: mappings.data || [],
       mapping_count: mappings.data?.length || 0,
     },
@@ -273,6 +281,103 @@ export async function deleteMDRRate(id: string): Promise<{ success: boolean }> {
 }
 
 // ============================================================================
+// AEPS COMMISSION CRUD
+// ============================================================================
+
+export async function getAEPSCommissions(schemeId: string): Promise<SchemeAEPSCommission[]> {
+  const supabase = getSupabase();
+  const { data } = await supabase
+    .from('scheme_aeps_commissions')
+    .select('*')
+    .eq('scheme_id', schemeId)
+    .order('transaction_type')
+    .order('min_amount');
+  return data || [];
+}
+
+/**
+ * Resolve a flat/percentage value against a representative amount.
+ * For percentage, value is % of amount. For flat, value is absolute.
+ */
+function resolveValue(value: number, type: string, amount: number): number {
+  if (type === 'percentage') return Math.round((amount * value) / 100 * 100) / 100;
+  return value;
+}
+
+/**
+ * Cascade guardrail: company + MD + DT + RT must not exceed the partner pool
+ * (base_commission). Validated at the slab's representative amount (max_amount,
+ * falling back to a nominal ₹1000 when the range is open-ended).
+ *
+ * Returns an error string if invalid, otherwise null.
+ */
+export function validateAEPSCascade(input: CreateAEPSCommissionInput): string | null {
+  const repAmount = (input.max_amount && input.max_amount < 999999999)
+    ? input.max_amount
+    : (input.min_amount && input.min_amount > 0 ? input.min_amount : 1000);
+
+  const base = resolveValue(input.base_commission, input.base_commission_type || 'percentage', repAmount);
+  const company = resolveValue(input.company_earning || 0, input.company_earning_type || 'flat', repAmount);
+  const md = resolveValue(input.md_commission || 0, input.md_commission_type || 'flat', repAmount);
+  const dt = resolveValue(input.distributor_commission || 0, input.distributor_commission_type || 'flat', repAmount);
+  const rt = resolveValue(input.retailer_commission || 0, input.retailer_commission_type || 'flat', repAmount);
+
+  const distributed = Math.round((company + md + dt + rt) * 100) / 100;
+  const pool = Math.round(base * 100) / 100;
+
+  // Allow a tiny rounding tolerance
+  if (distributed > pool + 0.01) {
+    return `Distribution (Company ₹${company} + MD ₹${md} + DT ₹${dt} + RT ₹${rt} = ₹${distributed}) exceeds partner pool ₹${pool} at ₹${repAmount}.`;
+  }
+
+  if ((input.tds_percentage || 0) < 0 || (input.tds_percentage || 0) > 100) {
+    return 'TDS percentage must be between 0 and 100.';
+  }
+
+  return null;
+}
+
+export async function upsertAEPSCommission(
+  input: CreateAEPSCommissionInput
+): Promise<{ data: SchemeAEPSCommission | null; error: string | null }> {
+  const validationError = validateAEPSCascade(input);
+  if (validationError) {
+    return { data: null, error: validationError };
+  }
+
+  const supabase = getSupabase();
+  const { data, error } = await supabase
+    .from('scheme_aeps_commissions')
+    .upsert({
+      scheme_id: input.scheme_id,
+      transaction_type: input.transaction_type,
+      min_amount: input.min_amount ?? 0,
+      max_amount: input.max_amount ?? 999999999,
+      base_commission: input.base_commission,
+      base_commission_type: input.base_commission_type || 'percentage',
+      company_earning: input.company_earning || 0,
+      company_earning_type: input.company_earning_type || 'flat',
+      md_commission: input.md_commission || 0,
+      md_commission_type: input.md_commission_type || 'flat',
+      distributor_commission: input.distributor_commission || 0,
+      distributor_commission_type: input.distributor_commission_type || 'flat',
+      retailer_commission: input.retailer_commission || 0,
+      retailer_commission_type: input.retailer_commission_type || 'flat',
+      tds_percentage: input.tds_percentage || 0,
+      status: 'active',
+    }, { onConflict: 'scheme_id,transaction_type,min_amount,max_amount' })
+    .select()
+    .single();
+  return { data: data || null, error: error?.message || null };
+}
+
+export async function deleteAEPSCommission(id: string): Promise<{ success: boolean }> {
+  const supabase = getSupabase();
+  const { error } = await supabase.from('scheme_aeps_commissions').delete().eq('id', id);
+  return { success: !error };
+}
+
+// ============================================================================
 // SCHEME MAPPING CRUD
 // ============================================================================
 
@@ -338,6 +443,51 @@ export async function createSchemeMapping(
 export async function deleteSchemeMapping(id: string): Promise<{ success: boolean }> {
   const supabase = getSupabase();
   const { error } = await supabase.from('scheme_mappings').update({ status: 'inactive' }).eq('id', id);
+  return { success: !error };
+}
+
+// ============================================================================
+// AEPS SETTLEMENT CHARGE CRUD
+// ============================================================================
+
+export async function getAEPSSettlementCharges(schemeId: string): Promise<SchemeAEPSSettlementCharge[]> {
+  const supabase = getSupabase();
+  const { data } = await supabase
+    .from('scheme_aeps_settlement_charges')
+    .select('*')
+    .eq('scheme_id', schemeId)
+    .order('min_amount');
+  return data || [];
+}
+
+export async function upsertAEPSSettlementCharge(
+  input: CreateAEPSSettlementChargeInput
+): Promise<{ data: SchemeAEPSSettlementCharge | null; error: string | null }> {
+  const supabase = getSupabase();
+  const { data, error } = await supabase
+    .from('scheme_aeps_settlement_charges')
+    .upsert({
+      scheme_id: input.scheme_id,
+      min_amount: input.min_amount ?? 0,
+      max_amount: input.max_amount ?? 999999999,
+      retailer_charge: input.retailer_charge,
+      retailer_charge_type: input.retailer_charge_type,
+      distributor_commission: input.distributor_commission || 0,
+      distributor_commission_type: input.distributor_commission_type || 'flat',
+      md_commission: input.md_commission || 0,
+      md_commission_type: input.md_commission_type || 'flat',
+      company_charge: input.company_charge || 0,
+      company_charge_type: input.company_charge_type || 'flat',
+      status: 'active',
+    }, { onConflict: 'scheme_id,min_amount,max_amount' })
+    .select()
+    .single();
+  return { data: data || null, error: error?.message || null };
+}
+
+export async function deleteAEPSSettlementCharge(id: string): Promise<{ success: boolean }> {
+  const supabase = getSupabase();
+  const { error } = await supabase.from('scheme_aeps_settlement_charges').delete().eq('id', id);
   return { success: !error };
 }
 
@@ -453,6 +603,44 @@ export async function calculatePayoutCharge(
     distributor_commission: parseFloat(row.distributor_commission) || 0,
     md_commission: parseFloat(row.md_commission) || 0,
     company_earning: parseFloat(row.company_earning) || 0,
+    scheme_id: resolved.scheme_id,
+    scheme_name: resolved.scheme_name,
+    scheme_type: resolved.scheme_type,
+    resolved_via: resolved.resolved_via,
+  };
+}
+
+/**
+ * Calculate AEPS settlement charge breakdown for a given amount
+ */
+export async function calculateAEPSSettlementCharge(
+  userId: string,
+  userRole: string,
+  amount: number,
+  distributorId?: string,
+  mdId?: string
+): Promise<ChargeBreakdown | null> {
+  const resolved = await resolveSchemeForUser(userId, userRole, 'aeps_settlement', distributorId, mdId);
+  if (!resolved) return null;
+
+  const supabase = getSupabase();
+  const { data: chargeData, error: chargeErr } = await supabase.rpc('calculate_aeps_settlement_charge_from_scheme', {
+    p_scheme_id: resolved.scheme_id,
+    p_amount: amount,
+  });
+
+  if (chargeErr || !chargeData || chargeData.length === 0) {
+    console.error('[SchemeService] AEPS settlement charge calculation failed:', chargeErr);
+    return null;
+  }
+
+  const chargeRow = chargeData[0];
+  return {
+    retailer_charge: parseFloat(chargeRow.retailer_charge) || 0,
+    retailer_commission: 0,
+    distributor_commission: parseFloat(chargeRow.distributor_commission) || 0,
+    md_commission: parseFloat(chargeRow.md_commission) || 0,
+    company_earning: parseFloat(chargeRow.company_charge) || 0,
     scheme_id: resolved.scheme_id,
     scheme_name: resolved.scheme_name,
     scheme_type: resolved.scheme_type,

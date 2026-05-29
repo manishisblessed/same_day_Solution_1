@@ -9,6 +9,7 @@ ADD COLUMN IF NOT EXISTS aeps_enabled BOOLEAN DEFAULT false,
 ADD COLUMN IF NOT EXISTS aadhaar_pay_enabled BOOLEAN DEFAULT false,
 ADD COLUMN IF NOT EXISTS dmt_enabled BOOLEAN DEFAULT false,
 ADD COLUMN IF NOT EXISTS bbps_enabled BOOLEAN DEFAULT false,
+ADD COLUMN IF NOT EXISTS settlement_enabled BOOLEAN DEFAULT false,
 ADD COLUMN IF NOT EXISTS recharge_enabled BOOLEAN DEFAULT false,
 ADD COLUMN IF NOT EXISTS travel_enabled BOOLEAN DEFAULT false,
 ADD COLUMN IF NOT EXISTS cash_management_enabled BOOLEAN DEFAULT false,
@@ -22,6 +23,7 @@ COMMENT ON COLUMN partners.aeps_enabled IS 'Enable AEPS service for this partner
 COMMENT ON COLUMN partners.aadhaar_pay_enabled IS 'Enable Aadhaar Pay service for this partner';
 COMMENT ON COLUMN partners.dmt_enabled IS 'Enable DMT (Direct Money Transfer) service for this partner';
 COMMENT ON COLUMN partners.bbps_enabled IS 'Enable BBPS (Bharat Bill Payment System) service for this partner';
+COMMENT ON COLUMN partners.settlement_enabled IS 'Enable Settlement / Payout Partner API for this partner';
 COMMENT ON COLUMN partners.recharge_enabled IS 'Enable Mobile/DTH Recharge service for this partner';
 COMMENT ON COLUMN partners.travel_enabled IS 'Enable Travel Booking service for this partner';
 COMMENT ON COLUMN partners.cash_management_enabled IS 'Enable Cash Management service for this partner';

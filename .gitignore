@@ -143,3 +143,14 @@ src/test/
 *.test.js
 *.test.ts
 *.test.ts
+
+# Postman collections and API JSON (may contain credentials, tokens, or PII)
+/API_Json/
+/postman/
+*postman*.json
+*Postman*.json
+POSTMAN-*.md
+BBPS_API_POSTMAN*.md
+BBPS_CREDIT_CARD_PAYMENT_GUIDE.md
+BBPS_API_FETCH_BILLERS_UPDATE.md
+SparkUpTech-Payout-API.postman_collection.json

@@ -245,6 +245,7 @@ export interface Partner {
   aadhaar_pay_enabled?: boolean
   dmt_enabled?: boolean
   bbps_enabled?: boolean
+  settlement_enabled?: boolean
   recharge_enabled?: boolean
   travel_enabled?: boolean
   cash_management_enabled?: boolean

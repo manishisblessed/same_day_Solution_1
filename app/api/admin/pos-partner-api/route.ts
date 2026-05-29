@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { createClient } from '@supabase/supabase-js'
 import crypto from 'crypto'
+import { parsePartnerKeyPermissions } from '@/lib/partner-auth'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -117,6 +118,39 @@ const VALID_KEY_PERMISSIONS = ['read', 'export', 'bbps', 'payout', 'all'] as con
 const VALID_KEY_PERMISSIONS_SET: Record<string, true> = Object.fromEntries(
   VALID_KEY_PERMISSIONS.map((p) => [p, true])
 ) as any
+
+function syncActiveKeyPermissions(
+  supabase: any,
+  partnerId: string,
+  opts: { bbps?: boolean; settlement?: boolean }
+) {
+  return (async () => {
+    const { data: keys } = await supabase
+      .from('partner_api_keys')
+      .select('id, permissions')
+      .eq('partner_id', partnerId)
+      .eq('is_active', true)
+
+    for (const key of (keys || []) as Array<{ id: string; permissions: any }>) {
+      let perms = parsePartnerKeyPermissions(key.permissions)
+      if (perms.includes('all')) continue
+
+      if (opts.bbps === true && !perms.includes('bbps')) perms.push('bbps')
+      if (opts.bbps === false) perms = perms.filter((p) => p !== 'bbps')
+
+      if (opts.settlement === true && !perms.includes('payout')) perms.push('payout')
+      if (opts.settlement === false) perms = perms.filter((p) => p !== 'payout')
+
+      if (!perms.includes('read')) perms.unshift('read')
+      perms = Array.from(new Set(perms))
+
+      await supabase
+        .from('partner_api_keys')
+        .update({ permissions: perms, updated_at: new Date().toISOString() })
+        .eq('id', key.id)
+    }
+  })()
+}
 
 /**
  * POST /api/admin/pos-partner-api
@@ -268,6 +302,41 @@ export async function POST(request: NextRequest) {
           success: true,
           message: 'API key permissions updated',
           data: { key_id, api_key: existing.api_key, permissions: normalized },
+        })
+      }
+
+      // ─── UPDATE PARTNER SERVICES (BBPS / Settlement) ─────
+      case 'update_partner_services': {
+        if (isPartner) {
+          return NextResponse.json({ error: 'Only administrators can change partner services' }, { status: 403 })
+        }
+        const { partner_id, bbps_enabled, settlement_enabled } = body
+        if (!partner_id) {
+          return NextResponse.json({ error: 'partner_id is required' }, { status: 400 })
+        }
+        if (bbps_enabled === undefined && settlement_enabled === undefined) {
+          return NextResponse.json(
+            { error: 'bbps_enabled or settlement_enabled is required' },
+            { status: 400 }
+          )
+        }
+
+        const updates: Record<string, unknown> = { updated_at: new Date().toISOString() }
+        if (typeof bbps_enabled === 'boolean') updates.bbps_enabled = bbps_enabled
+        if (typeof settlement_enabled === 'boolean') updates.settlement_enabled = settlement_enabled
+
+        const { error: svcErr } = await supabase.from('partners').update(updates).eq('id', partner_id)
+        if (svcErr) throw svcErr
+
+        await syncActiveKeyPermissions(supabase, partner_id, {
+          bbps: typeof bbps_enabled === 'boolean' ? bbps_enabled : undefined,
+          settlement: typeof settlement_enabled === 'boolean' ? settlement_enabled : undefined,
+        })
+
+        return NextResponse.json({
+          success: true,
+          message: 'Partner API services updated',
+          data: { partner_id, bbps_enabled, settlement_enabled },
         })
       }
 

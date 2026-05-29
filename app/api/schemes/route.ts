@@ -86,7 +86,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Validate service_scope
-    if (body.service_scope && !['all', 'bbps', 'payout', 'mdr', 'settlement'].includes(body.service_scope)) {
+    if (body.service_scope && !['all', 'bbps', 'payout', 'mdr', 'settlement', 'aeps', 'aeps_settlement'].includes(body.service_scope)) {
       return NextResponse.json({ error: 'Invalid service_scope' }, { status: 400 });
     }
 

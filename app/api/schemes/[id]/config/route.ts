@@ -12,9 +12,13 @@ import {
   upsertBBPSCommission,
   upsertPayoutCharge,
   upsertMDRRate,
+  upsertAEPSCommission,
+  upsertAEPSSettlementCharge,
   deleteBBPSCommission,
   deletePayoutCharge,
   deleteMDRRate,
+  deleteAEPSCommission,
+  deleteAEPSSettlementCharge,
 } from '@/lib/scheme/scheme.service';
 
 export const runtime = 'nodejs';
@@ -42,6 +46,12 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
         break;
       case 'mdr':
         result = await upsertMDRRate(configData);
+        break;
+      case 'aeps':
+        result = await upsertAEPSCommission(configData);
+        break;
+      case 'aeps_settlement':
+        result = await upsertAEPSSettlementCharge(configData);
         break;
       default:
         return NextResponse.json({ error: `Invalid config_type: ${config_type}` }, { status: 400 });
@@ -84,6 +94,12 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
         break;
       case 'mdr':
         result = await deleteMDRRate(configId);
+        break;
+      case 'aeps':
+        result = await deleteAEPSCommission(configId);
+        break;
+      case 'aeps_settlement':
+        result = await deleteAEPSSettlementCharge(configId);
         break;
       default:
         return NextResponse.json({ error: `Invalid config_type: ${configType}` }, { status: 400 });

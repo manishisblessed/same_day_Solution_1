@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { authenticatePartner, PartnerAuthError } from '@/lib/partner-auth'
+import { authenticatePartner, PartnerAuthError, partnerCanUseApi } from '@/lib/partner-auth'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -34,9 +34,10 @@ export async function GET(request: NextRequest) {
     }
 
     const { partner } = authResult
-    if (!partner.permissions.includes('payout') && !partner.permissions.includes('all')) {
+    const payoutAccess = partnerCanUseApi(partner, 'payout')
+    if (!payoutAccess.allowed) {
       return NextResponse.json(
-        { success: false, error: { code: 'FORBIDDEN', message: 'Missing required permission: payout' } },
+        { success: false, error: { code: 'FORBIDDEN', message: payoutAccess.message } },
         { status: 403 }
       )
     }
