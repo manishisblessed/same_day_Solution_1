@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useRouter } from 'next/navigation'
 import AdminSidebar from '@/components/AdminSidebar'
@@ -8,11 +8,11 @@ import { apiFetch } from '@/lib/api-client'
 import type { LegalDocumentMeta, LegalManifestCompany, PartnerRole } from '@/lib/legal/types'
 import {
   ArrowLeft,
+  ChevronDown,
   Download,
   FileText,
   Loader2,
   Menu,
-  Package,
   Printer,
   Shield,
 } from 'lucide-react'
@@ -64,6 +64,9 @@ export default function AdminAgreementsPage() {
   const [meta, setMeta] = useState<AgreementsListResponse | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [selectedHtml, setSelectedHtml] = useState<string>('')
+  const [docMenuOpen, setDocMenuOpen] = useState(false)
+  const [downloading, setDownloading] = useState<string | null>(null)
+  const contentRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (!authLoading && (!user || user.role !== 'admin')) {
@@ -139,36 +142,81 @@ export default function AdminAgreementsPage() {
 
   const renderedHtml = selectedHtml
 
+  useEffect(() => {
+    const close = (e: MouseEvent) => {
+    if (!(e.target as HTMLElement).closest('.download-dropdown')) {
+      setDocMenuOpen(false)
+    }
+    }
+    document.addEventListener('mousedown', close)
+    return () => document.removeEventListener('mousedown', close)
+  }, [])
+
+  const triggerDownload = (blob: Blob, filename: string) => {
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
   const downloadDocument = async (docId: string) => {
     try {
       const response = await apiFetch(`/api/admin/legal-agreements/${docId}?download=1`)
       if (!response.ok) throw new Error('Download failed')
       const blob = await response.blob()
       const doc = meta?.documents.find((item) => item.id === docId)
-      const url = URL.createObjectURL(blob)
-      const anchor = document.createElement('a')
-      anchor.href = url
-      anchor.download = doc?.fileName || `${docId}.md`
-      anchor.click()
-      URL.revokeObjectURL(url)
+      triggerDownload(blob, doc?.fileName || `${docId}.md`)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Download failed')
     }
   }
 
-  const downloadFullPack = async () => {
-    try {
-      const response = await apiFetch('/api/admin/legal-agreements/download-pack')
-      if (!response.ok) throw new Error('Pack download failed')
-      const blob = await response.blob()
-      const url = URL.createObjectURL(blob)
-      const anchor = document.createElement('a')
-      anchor.href = url
-      anchor.download = `sameday-solutions-legal-pack-v${meta?.manifestVersion || '1.0'}.md`
-      anchor.click()
-      URL.revokeObjectURL(url)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Pack download failed')
+  const wrapHtmlForWord = (html: string) =>
+    `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"><style>body{font-family:Calibri,sans-serif;font-size:11pt;line-height:1.6;color:#222}h1{font-size:18pt;font-weight:bold}h2{font-size:14pt;font-weight:bold}h3{font-size:12pt;font-weight:bold}table{border-collapse:collapse;width:100%}td,th{border:1px solid #999;padding:4pt 8pt}th{background:#f0f0f0}ol,ul{padding-left:1.5em}@page{size:A4;margin:2cm}</style></head><body>${html}</body></html>`
+
+  const downloadCurrentAs = async (format: 'pdf' | 'doc' | 'md') => {
+    setDocMenuOpen(false)
+    if (!selectedId) return
+
+    if (format === 'md') {
+      downloadDocument(selectedId)
+      return
+    }
+
+    const baseName = selectedDoc?.fileName?.replace('.md', '') || 'document'
+
+    if (format === 'doc') {
+      const html = contentRef.current?.innerHTML
+      if (!html) return
+      const blob = new Blob(['\ufeff', wrapHtmlForWord(html)], { type: 'application/msword' })
+      triggerDownload(blob, `${baseName}.doc`)
+      return
+    }
+
+    if (format === 'pdf') {
+      setDownloading('current-pdf')
+      try {
+        const mod = await import('html2pdf.js' as any)
+        const html2pdf = mod.default || mod
+        const el = contentRef.current
+        if (!el) throw new Error('Content not rendered')
+        await html2pdf()
+          .set({
+            margin: [10, 10, 10, 10],
+            filename: `${baseName}.pdf`,
+            html2canvas: { scale: 2, useCORS: true, logging: false },
+            jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+            pagebreak: { mode: ['avoid-all', 'css', 'legacy'] },
+          })
+          .from(el)
+          .save()
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'PDF generation failed')
+      } finally {
+        setDownloading(null)
+      }
     }
   }
 
@@ -217,25 +265,46 @@ export default function AdminAgreementsPage() {
             </div>
 
             <div className="flex flex-wrap gap-2">
-              <button
-                onClick={downloadFullPack}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary-600 text-white hover:bg-primary-700 transition-colors"
-              >
-                <Package className="w-4 h-4" />
-                Download Full Pack
-              </button>
               {selectedId && (
                 <>
-                  <button
-                    onClick={() => downloadDocument(selectedId)}
-                    className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800"
-                  >
-                    <Download className="w-4 h-4" />
-                    Download Current
-                  </button>
+                  {/* Current doc dropdown */}
+                  <div className="relative download-dropdown">
+                    <button
+                      onClick={() => setDocMenuOpen((v) => !v)}
+                      disabled={!!downloading}
+                      className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-60 transition-colors"
+                    >
+                      {downloading === 'current-pdf' ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Download className="w-4 h-4" />
+                      )}
+                      Download
+                      <ChevronDown className={`w-3.5 h-3.5 transition-transform ${docMenuOpen ? 'rotate-180' : ''}`} />
+                    </button>
+                    {docMenuOpen && (
+                      <div className="absolute right-0 mt-1 w-56 bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 py-1.5 z-30 animate-in fade-in slide-in-from-top-1 duration-150">
+                        <p className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400">Choose format</p>
+                        <button onClick={() => downloadCurrentAs('pdf')} className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2.5 transition-colors">
+                          <FileText className="w-4 h-4 text-red-500" />
+                          <span>PDF Document <span className="text-gray-400">(.pdf)</span></span>
+                        </button>
+                        <button onClick={() => downloadCurrentAs('doc')} className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2.5 transition-colors">
+                          <FileText className="w-4 h-4 text-blue-500" />
+                          <span>Word Document <span className="text-gray-400">(.doc)</span></span>
+                        </button>
+                        <div className="border-t border-gray-100 dark:border-gray-700 my-1" />
+                        <button onClick={() => downloadCurrentAs('md')} className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2.5 transition-colors">
+                          <Download className="w-4 h-4 text-gray-400" />
+                          <span>Markdown <span className="text-gray-400">(.md)</span></span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
                   <button
                     onClick={handlePrint}
-                    className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800"
+                    className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
                   >
                     <Printer className="w-4 h-4" />
                     Print
@@ -321,6 +390,7 @@ export default function AdminAgreementsPage() {
                 </div>
               )}
               <div
+                ref={contentRef}
                 className="px-6 py-6 max-w-none legal-document-content print:px-8 print:py-8"
                 dangerouslySetInnerHTML={{ __html: renderedHtml }}
               />

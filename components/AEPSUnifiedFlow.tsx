@@ -1817,8 +1817,19 @@ export default function AEPSUnifiedFlow({ user }: { user: AEPSUser }) {
           } else if (loginStatus.data.deviceChanged) {
             setNotification({ message: 'New device detected. Please re-authenticate for this device.', type: 'info' });
           }
-          const banksData = await apiFetchJson(`/api/aeps/banks?merchantId=${user.partner_id}`);
-          setBanks(banksData.data || banksData.banks || []);
+          // Use bankList from loginStatus if available; otherwise fetch separately (with delay to avoid 429)
+          const initialBanks = loginStatus.data.bankList || [];
+          if (initialBanks.length > 0) {
+            setBanks(initialBanks);
+          } else {
+            try {
+              await new Promise(r => setTimeout(r, 1500));
+              const banksData = await apiFetchJson(`/api/aeps/banks?merchantId=${user.partner_id}`);
+              setBanks(banksData.data || banksData.banks || []);
+            } catch {
+              console.error('[AEPS] Failed to fetch banks on init');
+            }
+          }
           setCurrentStep('biometric_login');
         }
       } else if (loginStatus.data?.kycStatus === 'pending') {
@@ -1890,13 +1901,16 @@ export default function AEPSUnifiedFlow({ user }: { user: AEPSUser }) {
     setError(null);
     setNotification({ message: 'AEPS login successful! You can now perform transactions.', type: 'success' });
 
-    if (banks.length === 0) {
-      try {
-        const banksData = await apiFetchJson(`/api/aeps/banks?merchantId=${user.partner_id}`);
-        setBanks(banksData.data || banksData.banks || []);
-      } catch {
-        console.error('[AEPS] Failed to fetch banks after login');
+    // Always re-fetch banks after login — session is now active so Chagans returns the full list
+    try {
+      await new Promise(r => setTimeout(r, 1500));
+      const banksData = await apiFetchJson(`/api/aeps/banks?merchantId=${user.partner_id}`);
+      const freshBanks = banksData.data || banksData.banks || [];
+      if (freshBanks.length > 0) {
+        setBanks(freshBanks);
       }
+    } catch {
+      console.error('[AEPS] Failed to fetch banks after login');
     }
 
     setCurrentStep('transaction');

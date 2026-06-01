@@ -1217,7 +1217,6 @@ function WalletTab({ user }: { user: any }) {
   const [showAepsSettlement, setShowAepsSettlement] = useState(false)
   const [aepsSettlementAmount, setAepsSettlementAmount] = useState('')
   const [aepsSettlementProcessing, setAepsSettlementProcessing] = useState(false)
-  const [aepsBankDetails, setAepsBankDetails] = useState({ account_number: '', ifsc: '', account_name: '' })
   const [aepsSettleCharge, setAepsSettleCharge] = useState<number | null>(null)
   const [aepsSettleChargeLoading, setAepsSettleChargeLoading] = useState(false)
   const [aepsSettleConfirmed, setAepsSettleConfirmed] = useState(false)
@@ -1225,10 +1224,18 @@ function WalletTab({ user }: { user: any }) {
   const [aepsTransferAmount, setAepsTransferAmount] = useState('')
   const [aepsTransferProcessing, setAepsTransferProcessing] = useState(false)
   const [aepsTransferConfirmed, setAepsTransferConfirmed] = useState(false)
+  // AEPS Settlement Accounts
+  const [aepsSettleAccounts, setAepsSettleAccounts] = useState<any[]>([])
+  const [selectedSettleAccountId, setSelectedSettleAccountId] = useState<string>('')
+  const [showAddSettleAccount, setShowAddSettleAccount] = useState(false)
+  const [newSettleAccount, setNewSettleAccount] = useState({ account_number: '', ifsc_code: '', bank_name: '' })
+  const [addingSettleAccount, setAddingSettleAccount] = useState(false)
+  const [settleAccountsLoading, setSettleAccountsLoading] = useState(false)
 
   useEffect(() => {
     fetchWalletData()
     fetchSettlementLimit()
+    fetchAepsSettleAccounts()
   }, [user])
 
   // Fetch settlement limit tier for the retailer
@@ -1246,6 +1253,65 @@ function WalletTab({ user }: { user: any }) {
       }
     } catch (err) {
       console.error('Error fetching settlement limit:', err)
+    }
+  }
+
+  const fetchAepsSettleAccounts = async () => {
+    if (!user?.partner_id) return
+    setSettleAccountsLoading(true)
+    try {
+      const res = await apiFetchJson<{ success: boolean; accounts: any[] }>('/api/aeps/settlement-account')
+      setAepsSettleAccounts(res.accounts || [])
+      const approved = (res.accounts || []).filter((a: any) => a.admin_status === 'approved')
+      if (approved.length > 0 && !selectedSettleAccountId) {
+        const def = approved.find((a: any) => a.is_default) || approved[0]
+        setSelectedSettleAccountId(def.id)
+      }
+    } catch {
+      setAepsSettleAccounts([])
+    } finally {
+      setSettleAccountsLoading(false)
+    }
+  }
+
+  const handleAddSettleAccount = async () => {
+    if (!newSettleAccount.account_number || !newSettleAccount.ifsc_code) {
+      alert('Account number and IFSC code are required')
+      return
+    }
+    setAddingSettleAccount(true)
+    try {
+      const res = await apiFetchJson<{ success: boolean; error?: string; message?: string }>('/api/aeps/settlement-account', {
+        method: 'POST',
+        body: JSON.stringify(newSettleAccount),
+      })
+      if (res.success) {
+        alert(res.message || 'Account added and submitted for admin approval!')
+        setShowAddSettleAccount(false)
+        setNewSettleAccount({ account_number: '', ifsc_code: '', bank_name: '' })
+        fetchAepsSettleAccounts()
+      } else {
+        alert(res.error || 'Failed to add account')
+      }
+    } catch (err: any) {
+      alert(err.message || 'Failed to add settlement account')
+    } finally {
+      setAddingSettleAccount(false)
+    }
+  }
+
+  const handleDeleteSettleAccount = async (id: string) => {
+    if (!confirm('Delete this settlement account?')) return
+    try {
+      const res = await apiFetchJson<{ success: boolean; error?: string }>(`/api/aeps/settlement-account?id=${id}`, { method: 'DELETE' })
+      if (res.success) {
+        fetchAepsSettleAccounts()
+        if (selectedSettleAccountId === id) setSelectedSettleAccountId('')
+      } else {
+        alert(res.error || 'Failed to delete')
+      }
+    } catch (err: any) {
+      alert(err.message || 'Failed to delete')
     }
   }
 
@@ -1362,8 +1428,8 @@ function WalletTab({ user }: { user: any }) {
       alert('Please enter a valid amount')
       return
     }
-    if (!aepsBankDetails.account_number || !aepsBankDetails.ifsc || !aepsBankDetails.account_name) {
-      alert('Please fill all bank details')
+    if (!selectedSettleAccountId) {
+      alert('Please select an approved settlement account')
       return
     }
     const amt = parseFloat(aepsSettlementAmount)
@@ -1383,16 +1449,13 @@ function WalletTab({ user }: { user: any }) {
         method: 'POST',
         body: JSON.stringify({
           amount: amt,
-          bank_account_number: aepsBankDetails.account_number,
-          bank_ifsc: aepsBankDetails.ifsc,
-          bank_account_name: aepsBankDetails.account_name,
+          settlement_account_id: selectedSettleAccountId,
         })
       })
       if (data.success) {
         alert(data.message || 'AEPS settlement processed successfully!')
         setShowAepsSettlement(false)
         setAepsSettlementAmount('')
-        setAepsBankDetails({ account_number: '', ifsc: '', account_name: '' })
         setAepsSettleCharge(null)
         setAepsSettleConfirmed(false)
         fetchWalletData()
@@ -1621,6 +1684,104 @@ function WalletTab({ user }: { user: any }) {
         </div>
       )}
 
+      {/* AEPS Settlement Accounts Management */}
+      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}
+        className="bg-white dark:bg-gray-800 rounded-xl shadow p-5">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-bold flex items-center gap-2"><Shield className="w-5 h-5 text-purple-600" /> AEPS Settlement Accounts</h3>
+          <button onClick={() => setShowAddSettleAccount(true)}
+            className="bg-purple-600 text-white text-sm px-4 py-2 rounded-lg hover:bg-purple-700 transition-colors flex items-center gap-1">
+            + Add Account
+          </button>
+        </div>
+
+        {settleAccountsLoading ? (
+          <p className="text-sm text-gray-500 text-center py-4">Loading accounts...</p>
+        ) : aepsSettleAccounts.length === 0 ? (
+          <div className="text-center py-6 text-gray-500">
+            <Building2 className="w-10 h-10 mx-auto mb-2 text-gray-300" />
+            <p className="text-sm">No settlement accounts added yet.</p>
+            <p className="text-xs mt-1">Add a bank account to start AEPS settlements.</p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {aepsSettleAccounts.map((acct: any) => (
+              <div key={acct.id} className={`border rounded-lg p-3 flex items-center justify-between ${
+                acct.admin_status === 'approved' ? 'border-green-300 bg-green-50 dark:bg-green-900/10 dark:border-green-800' :
+                acct.admin_status === 'rejected' ? 'border-red-300 bg-red-50 dark:bg-red-900/10 dark:border-red-800' :
+                'border-yellow-300 bg-yellow-50 dark:bg-yellow-900/10 dark:border-yellow-800'
+              }`}>
+                <div className="min-w-0 flex-1">
+                  <p className="font-medium text-sm truncate">{acct.account_holder_name}</p>
+                  <p className="text-xs text-gray-500">A/C: ***{acct.account_number?.slice(-4)} | {acct.ifsc_code} | {acct.bank_name || ''}</p>
+                  {acct.verified_account_name && acct.verified_account_name !== acct.account_holder_name && (
+                    <p className="text-xs text-blue-600">Verified as: {acct.verified_account_name}</p>
+                  )}
+                </div>
+                <div className="flex items-center gap-2 ml-3 shrink-0">
+                  <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                    acct.admin_status === 'approved' ? 'bg-green-200 text-green-800' :
+                    acct.admin_status === 'rejected' ? 'bg-red-200 text-red-800' :
+                    'bg-yellow-200 text-yellow-800'
+                  }`}>
+                    {acct.admin_status === 'pending_approval' ? 'Pending Approval' : acct.admin_status === 'approved' ? 'Approved' : 'Rejected'}
+                  </span>
+                  <button onClick={() => handleDeleteSettleAccount(acct.id)}
+                    className="text-gray-400 hover:text-red-500 p-1" title="Delete">
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </motion.div>
+
+      {/* Add Settlement Account Modal */}
+      {showAddSettleAccount && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
+            className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-md w-full p-6">
+            <h3 className="text-xl font-bold mb-1">Add Settlement Account</h3>
+            <p className="text-sm text-gray-500 mb-4">Account will be verified via penny-drop and then sent for admin approval</p>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium mb-1">Bank Account Number</label>
+                <input type="text" value={newSettleAccount.account_number}
+                  onChange={(e) => setNewSettleAccount({ ...newSettleAccount, account_number: e.target.value })}
+                  className="w-full px-4 py-2 border rounded-lg" placeholder="Enter 9-18 digit account number" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">IFSC Code</label>
+                <input type="text" value={newSettleAccount.ifsc_code}
+                  onChange={(e) => setNewSettleAccount({ ...newSettleAccount, ifsc_code: e.target.value.toUpperCase() })}
+                  className="w-full px-4 py-2 border rounded-lg" placeholder="e.g. SBIN0001234" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Bank Name (optional)</label>
+                <input type="text" value={newSettleAccount.bank_name}
+                  onChange={(e) => setNewSettleAccount({ ...newSettleAccount, bank_name: e.target.value })}
+                  className="w-full px-4 py-2 border rounded-lg" placeholder="e.g. State Bank of India" />
+              </div>
+              <div className="p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+                <p className="text-xs text-blue-700 dark:text-blue-300">
+                  <Info className="w-3.5 h-3.5 inline mr-1" />
+                  Your account will be verified instantly via penny-drop. After verification, admin will review and approve it. Only approved accounts can be used for AEPS settlement.
+                </p>
+              </div>
+              <div className="flex gap-3">
+                <button onClick={handleAddSettleAccount} disabled={addingSettleAccount}
+                  className="flex-1 bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 disabled:opacity-50">
+                  {addingSettleAccount ? 'Verifying & Submitting...' : 'Verify & Submit'}
+                </button>
+                <button onClick={() => setShowAddSettleAccount(false)}
+                  className="flex-1 bg-gray-200 text-gray-700 py-2 px-4 rounded-lg hover:bg-gray-300">Cancel</button>
+              </div>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
       {/* AEPS Settlement Modal */}
       {showAepsSettlement && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
@@ -1630,7 +1791,7 @@ function WalletTab({ user }: { user: any }) {
             className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-md w-full p-6"
           >
             <h3 className="text-xl font-bold mb-1">AEPS Settlement to Bank</h3>
-            <p className="text-sm text-gray-500 mb-4">Transfer AEPS wallet balance to your bank account</p>
+            <p className="text-sm text-gray-500 mb-4">Transfer AEPS wallet balance to your approved bank account</p>
             <div className="mb-3 p-3 bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-lg">
               <p className="text-sm text-purple-700 dark:text-purple-300">
                 Available AEPS Balance: <span className="font-bold">₹{aepsBalance?.toLocaleString('en-IN', { minimumFractionDigits: 2 }) || '0.00'}</span>
@@ -1674,38 +1835,47 @@ function WalletTab({ user }: { user: any }) {
                 </div>
               )}
 
+              {/* Approved Account Selector */}
               <div>
-                <label className="block text-sm font-medium mb-1">Bank Account Number</label>
-                <input type="text" value={aepsBankDetails.account_number}
-                  onChange={(e) => { setAepsBankDetails({ ...aepsBankDetails, account_number: e.target.value }); setAepsSettleConfirmed(false) }}
-                  className="w-full px-4 py-2 border rounded-lg" placeholder="Enter account number" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">IFSC Code</label>
-                <input type="text" value={aepsBankDetails.ifsc}
-                  onChange={(e) => { setAepsBankDetails({ ...aepsBankDetails, ifsc: e.target.value.toUpperCase() }); setAepsSettleConfirmed(false) }}
-                  className="w-full px-4 py-2 border rounded-lg" placeholder="Enter IFSC code" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Account Holder Name</label>
-                <input type="text" value={aepsBankDetails.account_name}
-                  onChange={(e) => { setAepsBankDetails({ ...aepsBankDetails, account_name: e.target.value }); setAepsSettleConfirmed(false) }}
-                  className="w-full px-4 py-2 border rounded-lg" placeholder="Enter account holder name" />
+                <label className="block text-sm font-medium mb-1">Settlement Account</label>
+                {(() => {
+                  const approved = aepsSettleAccounts.filter((a: any) => a.admin_status === 'approved')
+                  if (approved.length === 0) {
+                    return (
+                      <div className="p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-300 dark:border-yellow-700 rounded-lg">
+                        <p className="text-sm text-yellow-800 dark:text-yellow-300">No approved settlement accounts.</p>
+                        <p className="text-xs text-yellow-700 dark:text-yellow-400 mt-1">Add a bank account from the Settlement Accounts section below and wait for admin approval.</p>
+                      </div>
+                    )
+                  }
+                  return (
+                    <select value={selectedSettleAccountId}
+                      onChange={(e) => { setSelectedSettleAccountId(e.target.value); setAepsSettleConfirmed(false) }}
+                      className="w-full px-4 py-2 border rounded-lg bg-white dark:bg-gray-700">
+                      <option value="">-- Select Account --</option>
+                      {approved.map((a: any) => (
+                        <option key={a.id} value={a.id}>
+                          {a.account_holder_name} — ***{a.account_number?.slice(-4)} ({a.ifsc_code})
+                        </option>
+                      ))}
+                    </select>
+                  )
+                })()}
               </div>
 
               {/* Confirmation banner */}
-              {aepsSettleConfirmed && (
+              {aepsSettleConfirmed && selectedSettleAccountId && (
                 <div className="p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-300 dark:border-yellow-700 rounded-lg">
-                  <p className="text-sm font-semibold text-yellow-800 dark:text-yellow-300 mb-1">⚠ Please confirm</p>
+                  <p className="text-sm font-semibold text-yellow-800 dark:text-yellow-300 mb-1">Please confirm</p>
                   <p className="text-xs text-yellow-700 dark:text-yellow-400">
-                    ₹{parseFloat(aepsSettlementAmount).toLocaleString('en-IN')} will be sent to A/C {aepsBankDetails.account_number} ({aepsBankDetails.account_name}).
+                    ₹{parseFloat(aepsSettlementAmount).toLocaleString('en-IN')} will be sent to the selected account.
                     ₹{(parseFloat(aepsSettlementAmount) + (aepsSettleCharge ?? 0)).toLocaleString('en-IN')} will be deducted from your AEPS wallet (includes ₹{(aepsSettleCharge ?? 0).toLocaleString('en-IN')} charge).
                   </p>
                 </div>
               )}
 
               <div className="flex gap-3">
-                <button onClick={handleAepsSettlement} disabled={aepsSettlementProcessing || aepsSettleChargeLoading}
+                <button onClick={handleAepsSettlement} disabled={aepsSettlementProcessing || aepsSettleChargeLoading || !selectedSettleAccountId}
                   className={`flex-1 text-white py-2 px-4 rounded-lg disabled:opacity-50 ${aepsSettleConfirmed ? 'bg-green-600 hover:bg-green-700' : 'bg-purple-600 hover:bg-purple-700'}`}>
                   {aepsSettlementProcessing ? 'Processing...' : aepsSettleConfirmed ? 'Confirm & Settle' : 'Settle to Bank'}
                 </button>

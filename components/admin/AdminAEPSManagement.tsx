@@ -71,7 +71,23 @@ interface AEPSStats {
   activeMerchants: number
 }
 
-type TabType = 'overview' | 'transactions' | 'merchants' | 'reconciliation' | 'settings'
+type TabType = 'overview' | 'transactions' | 'merchants' | 'settlement-accounts' | 'reconciliation' | 'settings'
+
+interface SettlementAccountEntry {
+  id: string
+  user_id: string
+  user_role: string
+  account_number: string
+  ifsc_code: string
+  account_holder_name: string
+  bank_name?: string
+  verification_status: string
+  verified_account_name?: string
+  admin_status: string
+  admin_remarks?: string
+  created_at: string
+  user_info?: { name?: string; business_name?: string; mobile?: string; email?: string; role?: string }
+}
 
 export function AdminAEPSManagement() {
   const { user, loading: authLoading } = useAuth()
@@ -86,6 +102,10 @@ export function AdminAEPSManagement() {
   const [selectedTransaction, setSelectedTransaction] = useState<AEPSTransaction | null>(null)
   const [cleanupLoading, setCleanupLoading] = useState(false)
   const [cleanupPreview, setCleanupPreview] = useState<any>(null)
+  // Settlement accounts
+  const [settleAccounts, setSettleAccounts] = useState<SettlementAccountEntry[]>([])
+  const [settleAcctFilter, setSettleAcctFilter] = useState<string>('pending_approval')
+  const [settleAcctProcessing, setSettleAcctProcessing] = useState<string | null>(null)
 
   // Fetch stats
   const fetchStats = useCallback(async () => {
@@ -129,6 +149,39 @@ export function AdminAEPSManagement() {
     }
   }, [])
 
+  const fetchSettleAccounts = useCallback(async () => {
+    try {
+      const response = await apiFetch(`/api/admin/aeps/settlement-accounts?status=${settleAcctFilter}`)
+      if (!response.ok) throw new Error('Failed to fetch settlement accounts')
+      const data = await response.json()
+      setSettleAccounts(data.accounts || [])
+    } catch (err) {
+      console.error('Error fetching settlement accounts:', err)
+    }
+  }, [settleAcctFilter])
+
+  const handleSettleAccountAction = async (accountId: string, action: 'approve' | 'reject') => {
+    const remarks = action === 'reject' ? prompt('Rejection reason (optional):') : null
+    setSettleAcctProcessing(accountId)
+    try {
+      const response = await apiFetch('/api/admin/aeps/settlement-accounts/approve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ account_id: accountId, action, remarks: remarks || undefined }),
+      })
+      if (!response.ok) {
+        const data = await response.json()
+        throw new Error(data.error || `Failed to ${action}`)
+      }
+      alert(`Account ${action}d successfully`)
+      fetchSettleAccounts()
+    } catch (err: any) {
+      alert(`Error: ${err.message}`)
+    } finally {
+      setSettleAcctProcessing(null)
+    }
+  }
+
   // Load data based on active tab
   useEffect(() => {
     const loadData = async () => {
@@ -140,13 +193,15 @@ export function AdminAEPSManagement() {
           await fetchTransactions()
         } else if (activeTab === 'merchants') {
           await fetchMerchants()
+        } else if (activeTab === 'settlement-accounts') {
+          await fetchSettleAccounts()
         }
       } finally {
         setLoading(false)
       }
     }
     loadData()
-  }, [activeTab, fetchStats, fetchTransactions, fetchMerchants])
+  }, [activeTab, fetchStats, fetchTransactions, fetchMerchants, fetchSettleAccounts])
 
   // Handle reversal
   const handleReversal = async (txn: AEPSTransaction) => {
@@ -319,6 +374,7 @@ export function AdminAEPSManagement() {
             { id: 'overview', label: 'Overview', icon: Activity },
             { id: 'transactions', label: 'Transactions', icon: DollarSign },
             { id: 'merchants', label: 'Merchants', icon: Building2 },
+            { id: 'settlement-accounts', label: 'Settlement Accounts', icon: CheckCircle },
             { id: 'reconciliation', label: 'Reconciliation', icon: RotateCcw },
             { id: 'settings', label: 'Settings', icon: Filter },
           ].map(tab => (
@@ -581,6 +637,116 @@ export function AdminAEPSManagement() {
                   </tbody>
                 </table>
               </div>
+            </div>
+          )}
+
+          {/* Settlement Accounts Tab */}
+          {activeTab === 'settlement-accounts' && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <h2 className="text-lg font-semibold">AEPS Settlement Account Approvals</h2>
+                <div className="flex items-center gap-2">
+                  <select value={settleAcctFilter}
+                    onChange={(e) => setSettleAcctFilter(e.target.value)}
+                    className="px-3 py-1.5 border rounded-lg text-sm">
+                    <option value="pending_approval">Pending Approval</option>
+                    <option value="approved">Approved</option>
+                    <option value="rejected">Rejected</option>
+                    <option value="all">All</option>
+                  </select>
+                  <button onClick={fetchSettleAccounts}
+                    className="flex items-center gap-1 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700">
+                    <RefreshCw className="w-3.5 h-3.5" /> Refresh
+                  </button>
+                </div>
+              </div>
+
+              {settleAccounts.length === 0 ? (
+                <div className="text-center py-12 text-gray-500">
+                  <CheckCircle className="w-12 h-12 mx-auto mb-3 text-gray-300" />
+                  <p>No settlement accounts with status: {settleAcctFilter.replace('_', ' ')}</p>
+                </div>
+              ) : (
+                <div className="bg-white rounded-lg border overflow-hidden">
+                  <table className="w-full text-sm">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="text-left px-4 py-3 font-medium text-gray-600">User</th>
+                        <th className="text-left px-4 py-3 font-medium text-gray-600">Bank Account</th>
+                        <th className="text-left px-4 py-3 font-medium text-gray-600">Verification</th>
+                        <th className="text-left px-4 py-3 font-medium text-gray-600">Status</th>
+                        <th className="text-left px-4 py-3 font-medium text-gray-600">Submitted</th>
+                        <th className="text-right px-4 py-3 font-medium text-gray-600">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {settleAccounts.map((acct) => (
+                        <tr key={acct.id} className="hover:bg-gray-50">
+                          <td className="px-4 py-3">
+                            <p className="font-medium">{acct.user_info?.business_name || acct.user_info?.name || acct.user_id}</p>
+                            <p className="text-xs text-gray-500">{acct.user_info?.mobile || ''} {acct.user_info?.email ? `· ${acct.user_info.email}` : ''}</p>
+                            <p className="text-xs text-gray-400 capitalize">{acct.user_role?.replace('_', ' ')}</p>
+                          </td>
+                          <td className="px-4 py-3">
+                            <p className="font-mono text-sm">{acct.account_number}</p>
+                            <p className="text-xs text-gray-500">{acct.ifsc_code} · {acct.bank_name || ''}</p>
+                            <p className="text-xs font-medium">{acct.account_holder_name}</p>
+                          </td>
+                          <td className="px-4 py-3">
+                            <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                              acct.verification_status === 'verified' ? 'bg-green-100 text-green-800' :
+                              acct.verification_status === 'failed' ? 'bg-red-100 text-red-800' :
+                              'bg-yellow-100 text-yellow-800'
+                            }`}>
+                              {acct.verification_status}
+                            </span>
+                            {acct.verified_account_name && (
+                              <p className="text-xs text-blue-600 mt-1">Bank name: {acct.verified_account_name}</p>
+                            )}
+                          </td>
+                          <td className="px-4 py-3">
+                            <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                              acct.admin_status === 'approved' ? 'bg-green-100 text-green-800' :
+                              acct.admin_status === 'rejected' ? 'bg-red-100 text-red-800' :
+                              'bg-yellow-100 text-yellow-800'
+                            }`}>
+                              {acct.admin_status.replace('_', ' ').toUpperCase()}
+                            </span>
+                            {acct.admin_remarks && (
+                              <p className="text-xs text-gray-500 mt-1">{acct.admin_remarks}</p>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-xs text-gray-500">{formatDate(acct.created_at)}</td>
+                          <td className="px-4 py-3 text-right">
+                            {acct.admin_status === 'pending_approval' && (
+                              <div className="flex items-center justify-end gap-2">
+                                <button
+                                  onClick={() => handleSettleAccountAction(acct.id, 'approve')}
+                                  disabled={settleAcctProcessing === acct.id}
+                                  className="px-3 py-1.5 bg-green-600 text-white rounded text-xs font-medium hover:bg-green-700 disabled:opacity-50">
+                                  {settleAcctProcessing === acct.id ? '...' : 'Approve'}
+                                </button>
+                                <button
+                                  onClick={() => handleSettleAccountAction(acct.id, 'reject')}
+                                  disabled={settleAcctProcessing === acct.id}
+                                  className="px-3 py-1.5 bg-red-600 text-white rounded text-xs font-medium hover:bg-red-700 disabled:opacity-50">
+                                  Reject
+                                </button>
+                              </div>
+                            )}
+                            {acct.admin_status === 'approved' && (
+                              <span className="text-green-600 text-xs">Active</span>
+                            )}
+                            {acct.admin_status === 'rejected' && (
+                              <span className="text-red-500 text-xs">Rejected</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           )}
 

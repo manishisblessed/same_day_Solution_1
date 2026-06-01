@@ -195,8 +195,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // AEPS wallet balance check for financial transactions (deposit & withdrawal)
-    if (isFinancial) {
+    // AEPS wallet balance check — only for deposit/aadhaar_to_aadhaar (retailer pays out)
+    // Cash withdrawal credits the wallet, so no pre-funding check is needed.
+    const needsWalletDebit = isFinancial && transactionType !== 'cash_withdrawal';
+    if (needsWalletDebit) {
       const { data: aepsWalletBalance } = await supabase.rpc('get_wallet_balance_v2', {
         p_user_id: user.partner_id,
         p_wallet_type: 'aeps'
@@ -288,8 +290,11 @@ export async function POST(request: NextRequest) {
         })
         .eq('id', aepsTransaction.id);
 
-      // Debit AEPS wallet for financial transactions
+      // Update AEPS wallet for financial transactions
+      // Withdrawal: credit retailer wallet (bank debits customer, retailer receives funds)
+      // Deposit/A2A: debit retailer wallet (retailer pays out to customer's bank)
       if (isFinancial && txnAmount > 0) {
+        const isWithdrawal = transactionType === 'cash_withdrawal';
         try {
           const { data: walletLedgerId, error: walletError } = await supabase.rpc('add_ledger_entry', {
             p_user_id: user.partner_id,
@@ -297,9 +302,9 @@ export async function POST(request: NextRequest) {
             p_wallet_type: 'aeps',
             p_fund_category: 'aeps',
             p_service_type: 'aeps',
-            p_tx_type: 'AEPS_DEBIT',
-            p_credit: 0,
-            p_debit: txnAmount,
+            p_tx_type: isWithdrawal ? 'AEPS_CREDIT' : 'AEPS_DEBIT',
+            p_credit: isWithdrawal ? txnAmount : 0,
+            p_debit: isWithdrawal ? 0 : txnAmount,
             p_reference_id: result.orderId || aepsTransaction.id,
             p_transaction_id: aepsTransaction.id,
             p_status: 'completed',
@@ -309,13 +314,13 @@ export async function POST(request: NextRequest) {
           if (!walletError && walletLedgerId) {
             await supabase
               .from('aeps_transactions')
-              .update({ wallet_debited: true, wallet_debit_id: walletLedgerId })
+              .update({ wallet_debited: !isWithdrawal, wallet_debit_id: walletLedgerId })
               .eq('id', aepsTransaction.id);
           } else {
-            console.error('[AEPS Transact] Wallet debit failed:', walletError);
+            console.error(`[AEPS Transact] Wallet ${isWithdrawal ? 'credit' : 'debit'} failed:`, walletError);
           }
         } catch (walletErr) {
-          console.error('[AEPS Transact] Wallet debit error:', walletErr);
+          console.error(`[AEPS Transact] Wallet ${isWithdrawal ? 'credit' : 'debit'} error:`, walletErr);
         }
       }
 

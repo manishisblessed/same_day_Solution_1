@@ -50,11 +50,11 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { amount, bank_account_number, bank_ifsc, bank_account_name } = body;
+    const { amount, settlement_account_id } = body;
 
-    if (!amount || !bank_account_number || !bank_ifsc || !bank_account_name) {
+    if (!amount || !settlement_account_id) {
       return NextResponse.json(
-        { error: 'amount, bank_account_number, bank_ifsc, and bank_account_name are required' },
+        { error: 'amount and settlement_account_id are required' },
         { status: 400 }
       );
     }
@@ -63,6 +63,33 @@ export async function POST(request: NextRequest) {
     if (isNaN(amountDecimal) || amountDecimal <= 0) {
       return NextResponse.json({ error: 'Invalid amount' }, { status: 400 });
     }
+
+    // Step 6: Only allow settlement to admin-approved accounts
+    const { data: settleAccount, error: acctErr } = await supabase
+      .from('aeps_settlement_accounts')
+      .select('*')
+      .eq('id', settlement_account_id)
+      .eq('user_id', user.partner_id)
+      .single();
+
+    if (acctErr || !settleAccount) {
+      return NextResponse.json({ error: 'Settlement account not found' }, { status: 404 });
+    }
+
+    if (settleAccount.admin_status !== 'approved') {
+      return NextResponse.json({
+        error: `Settlement account is ${settleAccount.admin_status}. Only admin-approved accounts can be used.`,
+        admin_status: settleAccount.admin_status,
+      }, { status: 403 });
+    }
+
+    if (settleAccount.verification_status !== 'verified') {
+      return NextResponse.json({ error: 'Settlement account is not verified' }, { status: 403 });
+    }
+
+    const bank_account_number = settleAccount.account_number;
+    const bank_ifsc = settleAccount.ifsc_code;
+    const bank_account_name = settleAccount.account_holder_name;
 
     // Check for existing pending AEPS settlement
     const { data: existingSettlement } = await supabase
