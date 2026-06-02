@@ -65,6 +65,7 @@ interface AEPSStats {
   successCount: number
   failedCount: number
   pendingCount: number
+  reversedCount: number
   totalVolume: number
   successRate: number
   merchantCount: number
@@ -100,65 +101,121 @@ export function AdminAEPSManagement() {
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [dateRange, setDateRange] = useState({ from: '', to: '' })
   const [selectedTransaction, setSelectedTransaction] = useState<AEPSTransaction | null>(null)
+  const [error, setError] = useState<string | null>(null)
   const [cleanupLoading, setCleanupLoading] = useState(false)
   const [cleanupPreview, setCleanupPreview] = useState<any>(null)
   // Settlement accounts
   const [settleAccounts, setSettleAccounts] = useState<SettlementAccountEntry[]>([])
-  const [settleAcctFilter, setSettleAcctFilter] = useState<string>('pending_approval')
+  const [settleAcctFilter, setSettleAcctFilter] = useState<string>('all')
   const [settleAcctProcessing, setSettleAcctProcessing] = useState<string | null>(null)
+  // Reconciliation
+  const [reconTransactions, setReconTransactions] = useState<AEPSTransaction[]>([])
+  const [reconCounts, setReconCounts] = useState({ under_reconciliation: 0, pending: 0, reversed: 0, total: 0 })
+  const [reconFilter, setReconFilter] = useState<string>('under_reconciliation')
+  const [reconProcessing, setReconProcessing] = useState<string | null>(null)
+  const [reconRemarks, setReconRemarks] = useState<string>('')
 
   // Fetch stats
   const fetchStats = useCallback(async () => {
     try {
+      setError(null)
       const response = await apiFetch('/api/admin/aeps/stats')
       if (!response.ok) throw new Error('Failed to fetch stats')
       const data = await response.json()
       setStats(data)
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error fetching AEPS stats:', err)
+      setError(err.message || 'Failed to fetch stats')
     }
   }, [])
 
   // Fetch transactions
   const fetchTransactions = useCallback(async () => {
     try {
+      setError(null)
       const params = new URLSearchParams()
       params.set('limit', '100')
       if (statusFilter !== 'all') params.set('status', statusFilter)
-      if (dateRange.from) params.set('from', dateRange.from)
-      if (dateRange.to) params.set('to', dateRange.to)
+      if (dateRange.from) params.set('date_from', dateRange.from)
+      if (dateRange.to) params.set('date_to', dateRange.to)
 
       const response = await apiFetch(`/api/admin/aeps/transactions?${params.toString()}`)
       if (!response.ok) throw new Error('Failed to fetch transactions')
       const data = await response.json()
       setTransactions(data.transactions || [])
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error fetching transactions:', err)
+      setError(err.message || 'Failed to fetch transactions')
     }
   }, [statusFilter, dateRange])
 
   // Fetch merchants
   const fetchMerchants = useCallback(async () => {
     try {
+      setError(null)
       const response = await apiFetch('/api/admin/aeps/merchants?limit=100')
       if (!response.ok) throw new Error('Failed to fetch merchants')
       const data = await response.json()
       setMerchants(data.merchants || [])
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error fetching merchants:', err)
+      setError(err.message || 'Failed to fetch merchants')
     }
   }, [])
 
   const fetchSettleAccounts = useCallback(async () => {
     try {
+      setError(null)
       const response = await apiFetch(`/api/admin/aeps/settlement-accounts?status=${settleAcctFilter}`)
       if (!response.ok) throw new Error('Failed to fetch settlement accounts')
       const data = await response.json()
       setSettleAccounts(data.accounts || [])
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error fetching settlement accounts:', err)
+      setError(err.message || 'Failed to fetch settlement accounts')
     }
   }, [settleAcctFilter])
+
+  // Fetch reconciliation data
+  const fetchReconciliation = useCallback(async () => {
+    try {
+      setError(null)
+      const response = await apiFetch(`/api/admin/aeps/reconciliation?status=${reconFilter}&limit=100`)
+      if (!response.ok) throw new Error('Failed to fetch reconciliation data')
+      const data = await response.json()
+      setReconTransactions(data.transactions || [])
+      setReconCounts(data.counts || { under_reconciliation: 0, pending: 0, reversed: 0, total: 0 })
+    } catch (err: any) {
+      console.error('Error fetching reconciliation:', err)
+      setError(err.message || 'Failed to fetch reconciliation data')
+    }
+  }, [reconFilter])
+
+  // Reconciliation actions
+  const handleReconAction = async (txnId: string, action: string, actionLabel: string) => {
+    const remarks = reconRemarks.trim()
+    if (action === 'force_refund' && !confirm(`Are you sure you want to force refund this transaction? This will credit the user's AEPS wallet.`)) {
+      return
+    }
+
+    setReconProcessing(txnId)
+    try {
+      const response = await apiFetch('/api/admin/aeps/reconciliation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ transaction_id: txnId, action, remarks: remarks || undefined }),
+      })
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.error || `Failed to ${actionLabel}`)
+      alert(data.message || `${actionLabel} successful`)
+      setReconRemarks('')
+      fetchReconciliation()
+    } catch (err: any) {
+      alert(`Error: ${err.message}`)
+    } finally {
+      setReconProcessing(null)
+    }
+  }
 
   const handleSettleAccountAction = async (accountId: string, action: 'approve' | 'reject') => {
     const remarks = action === 'reject' ? prompt('Rejection reason (optional):') : null
@@ -189,8 +246,10 @@ export function AdminAEPSManagement() {
       try {
         if (activeTab === 'overview') {
           await fetchStats()
-        } else if (activeTab === 'transactions' || activeTab === 'reconciliation') {
+        } else if (activeTab === 'transactions') {
           await fetchTransactions()
+        } else if (activeTab === 'reconciliation') {
+          await fetchReconciliation()
         } else if (activeTab === 'merchants') {
           await fetchMerchants()
         } else if (activeTab === 'settlement-accounts') {
@@ -201,7 +260,7 @@ export function AdminAEPSManagement() {
       }
     }
     loadData()
-  }, [activeTab, fetchStats, fetchTransactions, fetchMerchants, fetchSettleAccounts])
+  }, [activeTab, fetchStats, fetchTransactions, fetchMerchants, fetchSettleAccounts, fetchReconciliation])
 
   // Handle reversal
   const handleReversal = async (txn: AEPSTransaction) => {
@@ -210,7 +269,7 @@ export function AdminAEPSManagement() {
     }
 
     try {
-      const response = await fetch('/api/admin/reversal/aeps', {
+      const response = await apiFetch('/api/admin/reversal/aeps', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -356,9 +415,11 @@ export function AdminAEPSManagement() {
         </div>
         <button
           onClick={() => {
-            fetchStats()
-            fetchTransactions()
-            fetchMerchants()
+            if (activeTab === 'overview') fetchStats()
+            else if (activeTab === 'transactions') fetchTransactions()
+            else if (activeTab === 'merchants') fetchMerchants()
+            else if (activeTab === 'reconciliation') fetchReconciliation()
+            else if (activeTab === 'settlement-accounts') fetchSettleAccounts()
           }}
           className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
         >
@@ -393,6 +454,17 @@ export function AdminAEPSManagement() {
           ))}
         </nav>
       </div>
+
+      {/* Error Banner */}
+      {error && (
+        <div className="flex items-center gap-3 p-4 bg-red-50 border border-red-200 rounded-lg">
+          <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0" />
+          <p className="text-sm text-red-800">{error}</p>
+          <button onClick={() => setError(null)} className="ml-auto text-red-600 hover:text-red-800">
+            <XCircle className="w-4 h-4" />
+          </button>
+        </div>
+      )}
 
       {/* Tab Content */}
       {loading ? (
@@ -484,7 +556,7 @@ export function AdminAEPSManagement() {
                     <AlertCircle className="w-6 h-6 text-gray-600" />
                     <div>
                       <p className="text-sm text-gray-500">Reversed</p>
-                      <p className="text-xl font-bold text-gray-600">0</p>
+                      <p className="text-xl font-bold text-gray-600">{stats.reversedCount ?? 0}</p>
                     </div>
                   </div>
                 </div>
@@ -493,7 +565,7 @@ export function AdminAEPSManagement() {
           )}
 
           {/* Transactions Tab */}
-          {(activeTab === 'transactions' || activeTab === 'reconciliation') && (
+          {activeTab === 'transactions' && (
             <div className="space-y-4">
               {/* Filters */}
               <div className="flex flex-wrap gap-4 items-center bg-white p-4 rounded-lg border">
@@ -552,7 +624,6 @@ export function AdminAEPSManagement() {
                           t.order_id?.toLowerCase().includes(searchTerm.toLowerCase()) ||
                           t.user_id?.toLowerCase().includes(searchTerm.toLowerCase())
                         )
-                        .filter(t => activeTab !== 'reconciliation' || t.status === 'under_reconciliation')
                         .map(txn => (
                           <tr key={txn.id} className="hover:bg-gray-50">
                             <td className="px-4 py-3">
@@ -568,7 +639,7 @@ export function AdminAEPSManagement() {
                               {getStatusBadge(txn.status)}
                             </td>
                             <td className="px-4 py-3">
-                              <span className="text-sm text-gray-600">{txn.user_id.slice(0, 12)}...</span>
+                              <span className="text-sm text-gray-600">{txn.user_id}</span>
                             </td>
                             <td className="px-4 py-3 text-sm text-gray-500">
                               {formatDate(txn.created_at)}
@@ -597,6 +668,176 @@ export function AdminAEPSManagement() {
                         ))}
                     </tbody>
                   </table>
+                  {transactions.length === 0 && (
+                    <div className="text-center py-12 text-gray-500">
+                      <Activity className="w-12 h-12 mx-auto mb-3 text-gray-300" />
+                      <p>No transactions found</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Reconciliation Tab */}
+          {activeTab === 'reconciliation' && (
+            <div className="space-y-4">
+              {/* Status Summary Cards */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="bg-orange-50 border border-orange-200 rounded-lg p-4 flex items-center gap-3">
+                  <Clock className="w-8 h-8 text-orange-600" />
+                  <div>
+                    <p className="text-sm text-orange-700">Under Reconciliation</p>
+                    <p className="text-2xl font-bold text-orange-900">{reconCounts.under_reconciliation}</p>
+                  </div>
+                </div>
+                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 flex items-center gap-3">
+                  <Clock className="w-8 h-8 text-yellow-600" />
+                  <div>
+                    <p className="text-sm text-yellow-700">Stuck Pending</p>
+                    <p className="text-2xl font-bold text-yellow-900">{reconCounts.pending}</p>
+                  </div>
+                </div>
+                <div className="bg-purple-50 border border-purple-200 rounded-lg p-4 flex items-center gap-3">
+                  <RotateCcw className="w-8 h-8 text-purple-600" />
+                  <div>
+                    <p className="text-sm text-purple-700">Reversed</p>
+                    <p className="text-2xl font-bold text-purple-900">{reconCounts.reversed}</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Filters */}
+              <div className="flex items-center gap-3 bg-white p-4 rounded-lg border">
+                <select
+                  value={reconFilter}
+                  onChange={(e) => setReconFilter(e.target.value)}
+                  className="px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="under_reconciliation">Under Reconciliation</option>
+                  <option value="pending">Stuck Pending</option>
+                  <option value="reversed">Reversed</option>
+                  <option value="all">All Flagged</option>
+                </select>
+                <button
+                  onClick={fetchReconciliation}
+                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                >
+                  <RefreshCw className="w-4 h-4" />
+                  Refresh
+                </button>
+                <div className="flex-1" />
+                <input
+                  type="text"
+                  placeholder="Remarks for action..."
+                  value={reconRemarks}
+                  onChange={(e) => setReconRemarks(e.target.value)}
+                  className="px-4 py-2 border rounded-lg w-64 focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              {/* Reconciliation Table */}
+              <div className="bg-white rounded-lg border overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Order ID</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Amount</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">User</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Error</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Created</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200">
+                      {reconTransactions.map(txn => (
+                        <tr key={txn.id} className="hover:bg-gray-50">
+                          <td className="px-4 py-3">
+                            <span className="font-mono text-sm">{txn.order_id || txn.id.slice(0, 8)}</span>
+                          </td>
+                          <td className="px-4 py-3">
+                            <span className="capitalize text-sm">{txn.transaction_type.replace('_', ' ')}</span>
+                          </td>
+                          <td className="px-4 py-3 font-medium">
+                            {txn.amount ? formatCurrency(txn.amount) : '-'}
+                          </td>
+                          <td className="px-4 py-3">
+                            {getStatusBadge(txn.status)}
+                          </td>
+                          <td className="px-4 py-3">
+                            <span className="text-sm text-gray-600">{txn.user_id}</span>
+                          </td>
+                          <td className="px-4 py-3">
+                            <span className="text-xs text-red-600 max-w-[200px] truncate block">
+                              {txn.error_message || '-'}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-500">
+                            {formatDate(txn.created_at)}
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="flex flex-wrap gap-1">
+                              <button
+                                onClick={() => setSelectedTransaction(txn)}
+                                className="p-1 hover:bg-gray-100 rounded"
+                                title="View Details"
+                              >
+                                <Eye className="w-4 h-4 text-gray-600" />
+                              </button>
+                              {txn.status === 'under_reconciliation' && (
+                                <>
+                                  <button
+                                    onClick={() => handleReconAction(txn.id, 'retry_check', 'Retry Check')}
+                                    disabled={reconProcessing === txn.id}
+                                    className="px-2 py-1 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200 disabled:opacity-50"
+                                    title="Check status with payment provider"
+                                  >
+                                    {reconProcessing === txn.id ? '...' : 'Retry'}
+                                  </button>
+                                  <button
+                                    onClick={() => handleReconAction(txn.id, 'mark_success', 'Mark Success')}
+                                    disabled={reconProcessing === txn.id}
+                                    className="px-2 py-1 text-xs bg-green-100 text-green-700 rounded hover:bg-green-200 disabled:opacity-50"
+                                    title="Mark as successful"
+                                  >
+                                    Success
+                                  </button>
+                                  <button
+                                    onClick={() => handleReconAction(txn.id, 'mark_failed', 'Mark Failed')}
+                                    disabled={reconProcessing === txn.id}
+                                    className="px-2 py-1 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200 disabled:opacity-50"
+                                    title="Mark as failed + auto-refund if applicable"
+                                  >
+                                    Failed
+                                  </button>
+                                </>
+                              )}
+                              {(txn.status === 'under_reconciliation' || txn.status === 'failed') && txn.is_financial && txn.amount && (
+                                <button
+                                  onClick={() => handleReconAction(txn.id, 'force_refund', 'Force Refund')}
+                                  disabled={reconProcessing === txn.id}
+                                  className="px-2 py-1 text-xs bg-purple-100 text-purple-700 rounded hover:bg-purple-200 disabled:opacity-50"
+                                  title="Force refund to user wallet"
+                                >
+                                  Refund
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {reconTransactions.length === 0 && (
+                    <div className="text-center py-12 text-gray-500">
+                      <CheckCircle className="w-12 h-12 mx-auto mb-3 text-green-300" />
+                      <p>No transactions need reconciliation</p>
+                      <p className="text-sm mt-1">All transactions are settled</p>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -769,15 +1010,15 @@ export function AdminAEPSManagement() {
                       </span>
                     </div>
                     <p className="text-sm text-gray-500">
-                      Set AEPS_USE_MOCK environment variable to switch modes
+                      Set NEXT_PUBLIC_AEPS_USE_MOCK and AEPS_USE_MOCK environment variables to switch modes
                     </p>
                   </div>
 
                   <div className="space-y-2">
                     <label className="block text-sm font-medium text-gray-700">Worker Status</label>
                     <div className="flex items-center gap-2">
-                      <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
-                      <span className="text-sm text-gray-600">Running (aeps-worker)</span>
+                      <span className="w-2 h-2 bg-gray-400 rounded-full"></span>
+                      <span className="text-sm text-gray-600">aeps-worker (check PM2 on server)</span>
                     </div>
                   </div>
                 </div>
@@ -801,81 +1042,6 @@ export function AdminAEPSManagement() {
                 </div>
               </div>
 
-              {/* Data Cleanup Section */}
-              <div className="bg-white rounded-lg border border-red-200 p-6 space-y-4">
-                <div className="flex items-start gap-3">
-                  <AlertCircle className="w-5 h-5 text-red-600 mt-0.5" />
-                  <div className="flex-1">
-                    <h3 className="text-lg font-semibold text-red-900">Danger Zone</h3>
-                    <p className="text-sm text-red-700 mt-1">
-                      Clean up test/dummy AEPS data. This action is permanent and cannot be undone.
-                    </p>
-                  </div>
-                </div>
-
-                {!cleanupPreview ? (
-                  <button
-                    onClick={handleCleanupPreview}
-                    disabled={cleanupLoading}
-                    className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 disabled:opacity-50"
-                  >
-                    {cleanupLoading ? (
-                      <RefreshCw className="w-4 h-4 animate-spin" />
-                    ) : (
-                      <Eye className="w-4 h-4" />
-                    )}
-                    Preview Data Cleanup
-                  </button>
-                ) : (
-                  <div className="space-y-4">
-                    <div className="bg-red-50 rounded-lg p-4 space-y-3">
-                      <h4 className="font-medium text-red-900">Data to be deleted:</h4>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <p className="text-sm text-red-700">Transactions</p>
-                          <p className="text-2xl font-bold text-red-900">{cleanupPreview.transactions.total}</p>
-                          <div className="text-xs text-red-600 mt-1">
-                            Success: {cleanupPreview.transactions.byStatus.success} | 
-                            Failed: {cleanupPreview.transactions.byStatus.failed} | 
-                            Pending: {cleanupPreview.transactions.byStatus.pending}
-                          </div>
-                        </div>
-                        <div>
-                          <p className="text-sm text-red-700">Merchants</p>
-                          <p className="text-2xl font-bold text-red-900">{cleanupPreview.merchants.total}</p>
-                        </div>
-                      </div>
-                      {cleanupPreview.transactions.oldestDate && (
-                        <p className="text-xs text-red-600">
-                          Date range: {new Date(cleanupPreview.transactions.oldestDate).toLocaleDateString()} to{' '}
-                          {new Date(cleanupPreview.transactions.newestDate).toLocaleDateString()}
-                        </p>
-                      )}
-                    </div>
-
-                    <div className="flex gap-3">
-                      <button
-                        onClick={handleCleanup}
-                        disabled={cleanupLoading}
-                        className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50"
-                      >
-                        {cleanupLoading ? (
-                          <RefreshCw className="w-4 h-4 animate-spin" />
-                        ) : (
-                          <Trash2 className="w-4 h-4" />
-                        )}
-                        Delete All AEPS Data
-                      </button>
-                      <button
-                        onClick={() => setCleanupPreview(null)}
-                        className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200"
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
             </div>
           )}
         </>

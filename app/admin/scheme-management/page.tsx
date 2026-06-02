@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, Suspense } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
 import { supabase } from '@/lib/supabase/client'
+import { getAssignableRoles } from '@/lib/role-hierarchy'
 import AdminSidebar from '@/components/AdminSidebar'
 import { 
   Plus, Edit2, Trash2, ChevronDown, ChevronUp, Search, Filter,
@@ -326,7 +327,7 @@ function SchemeManagementPageContent() {
   const [bbpsForm, setBbpsForm] = useState({
     category: '',
     min_amount: 0,
-    max_amount: 999999999,
+    max_amount: 100000,
     retailer_charge: 0,
     retailer_charge_type: 'flat' as 'flat' | 'percentage',
     retailer_commission: 0,
@@ -342,7 +343,7 @@ function SchemeManagementPageContent() {
   const [payoutForm, setPayoutForm] = useState({
     transfer_mode: 'IMPS' as 'IMPS' | 'NEFT',
     min_amount: 0,
-    max_amount: 999999999,
+    max_amount: 100000,
     retailer_charge: 0,
     retailer_charge_type: 'flat' as 'flat' | 'percentage',
     retailer_commission: 0,
@@ -371,7 +372,7 @@ function SchemeManagementPageContent() {
   const [aepsForm, setAepsForm] = useState({
     transaction_type: 'cash_withdrawal' as string,
     min_amount: 0,
-    max_amount: 999999999,
+    max_amount: 100000,
     base_commission: 0,
     base_commission_type: 'percentage' as 'flat' | 'percentage',
     company_earning: 0,
@@ -387,7 +388,7 @@ function SchemeManagementPageContent() {
 
   const [aepsSettleForm, setAepsSettleForm] = useState({
     min_amount: 0,
-    max_amount: 999999999,
+    max_amount: 100000,
     retailer_charge: 0,
     retailer_charge_type: 'flat' as 'flat' | 'percentage',
     distributor_commission: 0,
@@ -402,11 +403,11 @@ function SchemeManagementPageContent() {
     setConfigSchemeId(schemeId)
     setConfigType(type)
     // Reset forms
-    setBbpsForm({ category: '', min_amount: 0, max_amount: 999999999, retailer_charge: 0, retailer_charge_type: 'flat', retailer_commission: 0, retailer_commission_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat', company_charge: 0, company_charge_type: 'flat' })
-    setPayoutForm({ transfer_mode: 'IMPS', min_amount: 0, max_amount: 999999999, retailer_charge: 0, retailer_charge_type: 'flat', retailer_commission: 0, retailer_commission_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat', company_charge: 0, company_charge_type: 'flat' })
+    setBbpsForm({ category: '', min_amount: 0, max_amount: 100000, retailer_charge: 0, retailer_charge_type: 'flat', retailer_commission: 0, retailer_commission_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat', company_charge: 0, company_charge_type: 'flat' })
+    setPayoutForm({ transfer_mode: 'IMPS', min_amount: 0, max_amount: 100000, retailer_charge: 0, retailer_charge_type: 'flat', retailer_commission: 0, retailer_commission_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat', company_charge: 0, company_charge_type: 'flat' })
     setMdrForm({ mode: 'CARD', card_type: '', brand_type: '', card_classification: '', retailer_mdr_t1: 0, retailer_mdr_t0: 0, distributor_mdr_t1: 0, distributor_mdr_t0: 0, md_mdr_t1: 0, md_mdr_t0: 0 })
-    setAepsForm({ transaction_type: 'cash_withdrawal', min_amount: 0, max_amount: 999999999, base_commission: 0, base_commission_type: 'percentage', company_earning: 0, company_earning_type: 'flat', md_commission: 0, md_commission_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', retailer_commission: 0, retailer_commission_type: 'flat', tds_percentage: 5 })
-    setAepsSettleForm({ min_amount: 0, max_amount: 999999999, retailer_charge: 0, retailer_charge_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat', company_charge: 0, company_charge_type: 'flat' })
+    setAepsForm({ transaction_type: 'cash_withdrawal', min_amount: 0, max_amount: 100000, base_commission: 0, base_commission_type: 'percentage', company_earning: 0, company_earning_type: 'flat', md_commission: 0, md_commission_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', retailer_commission: 0, retailer_commission_type: 'flat', tds_percentage: 5 })
+    setAepsSettleForm({ min_amount: 0, max_amount: 100000, retailer_charge: 0, retailer_charge_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat', company_charge: 0, company_charge_type: 'flat' })
     setShowConfigModal(true)
   }
 
@@ -415,7 +416,7 @@ function SchemeManagementPageContent() {
     type === 'percentage' ? Math.round((amount * value) / 100 * 100) / 100 : value
 
   const aepsPreview = () => {
-    const amt = (aepsForm.max_amount && aepsForm.max_amount < 999999999)
+    const amt = (aepsForm.max_amount && aepsForm.max_amount < 100000)
       ? aepsForm.max_amount
       : (aepsForm.min_amount > 0 ? aepsForm.min_amount : 1000)
     const base = aepsResolve(aepsForm.base_commission, aepsForm.base_commission_type, amt)
@@ -554,13 +555,14 @@ function SchemeManagementPageContent() {
 
   const [mappingForm, setMappingForm] = useState({
     entity_id: '',
-    entity_role: 'retailer' as string,
+    entity_role: 'master_distributor' as string,
     service_type: 'all' as string,
   })
 
   const openMappingModal = (schemeId: string) => {
+    const roles = getAssignableRoles(user?.role)
     setMappingSchemeId(schemeId)
-    setMappingForm({ entity_id: '', entity_role: 'retailer', service_type: 'all' })
+    setMappingForm({ entity_id: '', entity_role: roles[0]?.value || 'master_distributor', service_type: 'all' })
     setShowMappingModal(true)
   }
 
@@ -1057,7 +1059,7 @@ function SchemeManagementPageContent() {
                                 return (
                                   <tr key={c.id} className="border-b border-gray-100 dark:border-gray-700">
                                     <td className="px-2 py-1.5 font-medium">{c.transaction_type}</td>
-                                    <td className="px-2 py-1.5 text-right">₹{c.min_amount}–{c.max_amount >= 999999999 ? '∞' : c.max_amount}</td>
+                                    <td className="px-2 py-1.5 text-right">₹{c.min_amount}–{c.max_amount >= 100000 ? '∞' : c.max_amount}</td>
                                     <td className="px-2 py-1.5 text-right">{fmt(c.base_commission, c.base_commission_type)}</td>
                                     <td className="px-2 py-1.5 text-right">{fmt(c.company_earning, c.company_earning_type)}</td>
                                     <td className="px-2 py-1.5 text-right">{fmt(c.md_commission, c.md_commission_type)}</td>
@@ -1103,7 +1105,7 @@ function SchemeManagementPageContent() {
                                 const fmt = (v: number, t: string) => t === 'percentage' ? `${v}%` : `₹${v}`
                                 return (
                                   <tr key={c.id} className="border-b border-gray-100 dark:border-gray-700">
-                                    <td className="px-2 py-1.5">₹{c.min_amount.toLocaleString('en-IN')} – {c.max_amount >= 999999999 ? '∞' : `₹${c.max_amount.toLocaleString('en-IN')}`}</td>
+                                    <td className="px-2 py-1.5">₹{c.min_amount.toLocaleString('en-IN')} – {c.max_amount >= 100000 ? '∞' : `₹${c.max_amount.toLocaleString('en-IN')}`}</td>
                                     <td className="px-2 py-1.5 text-right font-medium">{fmt(c.retailer_charge, c.retailer_charge_type)}</td>
                                     <td className="px-2 py-1.5 text-right">{fmt(c.distributor_commission, c.distributor_commission_type)}</td>
                                     <td className="px-2 py-1.5 text-right">{fmt(c.md_commission, c.md_commission_type)}</td>
@@ -1222,19 +1224,22 @@ function SchemeManagementPageContent() {
         {/* CONFIG MODAL (BBPS / Payout / MDR) */}
         {/* ================================================================ */}
         {showConfigModal && (
-          <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 overflow-y-auto">
-            <div className="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-lg p-6 my-8">
-              <h2 className="text-lg font-bold mb-4 flex items-center gap-2">
-                {configType === 'bbps' && <><CreditCard className="w-5 h-5 text-blue-600" /> Add BBPS Commission</>}
-                {configType === 'payout' && <><Banknote className="w-5 h-5 text-green-600" /> Add Payout Charge</>}
-                {configType === 'mdr' && <><TrendingUp className="w-5 h-5 text-orange-600" /> Add MDR Rate</>}
-                {configType === 'aeps' && <><Banknote className="w-5 h-5 text-teal-600" /> Add AEPS Commission</>}
-                {configType === 'aeps_settlement' && <><DollarSign className="w-5 h-5 text-purple-600" /> Add AEPS Settlement Charge</>}
-              </h2>
+          <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+            <div className="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-lg max-h-[90vh] flex flex-col my-4">
+              <div className="px-6 pt-5 pb-4 border-b border-gray-200 dark:border-gray-700 shrink-0">
+                <h2 className="text-lg font-bold flex items-center gap-2">
+                  {configType === 'bbps' && <><CreditCard className="w-5 h-5 text-blue-600" /> Add BBPS Commission</>}
+                  {configType === 'payout' && <><Banknote className="w-5 h-5 text-green-600" /> Add Payout Charge</>}
+                  {configType === 'mdr' && <><TrendingUp className="w-5 h-5 text-orange-600" /> Add MDR Rate</>}
+                  {configType === 'aeps' && <><Banknote className="w-5 h-5 text-teal-600" /> Add AEPS Commission</>}
+                  {configType === 'aeps_settlement' && <><DollarSign className="w-5 h-5 text-purple-600" /> Add AEPS Settlement Charge</>}
+                </h2>
+              </div>
 
+              <div className="overflow-y-auto flex-1 min-h-0 px-6 py-4">
               {/* BBPS Form */}
               {configType === 'bbps' && (
-                <div className="space-y-3">
+                <div className="space-y-2">
                   <div>
                     <label className="block text-sm font-medium mb-1">Category (leave empty for all)</label>
                     <select value={bbpsForm.category} onChange={(e) => setBbpsForm({ ...bbpsForm, category: e.target.value })}
@@ -1262,11 +1267,11 @@ function SchemeManagementPageContent() {
                     </div>
                     <div>
                       <label className="block text-sm font-medium mb-1">Max Amount (₹)</label>
-                      <input type="number" value={bbpsForm.max_amount} onChange={(e) => setBbpsForm({ ...bbpsForm, max_amount: parseFloat(e.target.value) || 999999999 })}
+                      <input type="number" value={bbpsForm.max_amount} onChange={(e) => setBbpsForm({ ...bbpsForm, max_amount: parseFloat(e.target.value) || 100000 })}
                         className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
                     </div>
                   </div>
-                  {/* Commission fields */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {[
                     { label: 'Retailer Charge', key: 'retailer_charge', typeKey: 'retailer_charge_type' },
                     { label: 'Retailer Commission', key: 'retailer_commission', typeKey: 'retailer_commission_type' },
@@ -1279,24 +1284,25 @@ function SchemeManagementPageContent() {
                         <label className="block text-xs font-medium mb-1">{label}</label>
                         <input type="number" step="0.01" value={(bbpsForm as any)[key]}
                           onChange={(e) => setBbpsForm({ ...bbpsForm, [key]: parseFloat(e.target.value) || 0 })}
-                          className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
+                          className="w-full px-3 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
                       </div>
                       <div>
                         <select value={(bbpsForm as any)[typeKey]}
                           onChange={(e) => setBbpsForm({ ...bbpsForm, [typeKey]: e.target.value })}
-                          className="w-full px-2 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700">
+                          className="w-full px-2 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700">
                           <option value="flat">₹ Flat</option>
                           <option value="percentage">% Pct</option>
                         </select>
                       </div>
                     </div>
                   ))}
+                  </div>
                 </div>
               )}
 
               {/* Payout Form */}
               {configType === 'payout' && (
-                <div className="space-y-3">
+                <div className="space-y-2">
                   <div>
                     <label className="block text-sm font-medium mb-1">Transfer Mode</label>
                     <select value={payoutForm.transfer_mode} onChange={(e) => setPayoutForm({ ...payoutForm, transfer_mode: e.target.value as any })}
@@ -1313,10 +1319,11 @@ function SchemeManagementPageContent() {
                     </div>
                     <div>
                       <label className="block text-sm font-medium mb-1">Max Amount (₹)</label>
-                      <input type="number" value={payoutForm.max_amount} onChange={(e) => setPayoutForm({ ...payoutForm, max_amount: parseFloat(e.target.value) || 999999999 })}
+                      <input type="number" value={payoutForm.max_amount} onChange={(e) => setPayoutForm({ ...payoutForm, max_amount: parseFloat(e.target.value) || 100000 })}
                         className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
                     </div>
                   </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {[
                     { label: 'Retailer Charge', key: 'retailer_charge', typeKey: 'retailer_charge_type' },
                     { label: 'Retailer Commission', key: 'retailer_commission', typeKey: 'retailer_commission_type' },
@@ -1329,24 +1336,25 @@ function SchemeManagementPageContent() {
                         <label className="block text-xs font-medium mb-1">{label}</label>
                         <input type="number" step="0.01" value={(payoutForm as any)[key]}
                           onChange={(e) => setPayoutForm({ ...payoutForm, [key]: parseFloat(e.target.value) || 0 })}
-                          className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
+                          className="w-full px-3 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
                       </div>
                       <div>
                         <select value={(payoutForm as any)[typeKey]}
                           onChange={(e) => setPayoutForm({ ...payoutForm, [typeKey]: e.target.value })}
-                          className="w-full px-2 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700">
+                          className="w-full px-2 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700">
                           <option value="flat">₹ Flat</option>
                           <option value="percentage">% Pct</option>
                         </select>
                       </div>
                     </div>
                   ))}
+                  </div>
                 </div>
               )}
 
               {/* MDR Form */}
               {configType === 'mdr' && (
-                <div className="space-y-3">
+                <div className="space-y-2">
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                     <div>
                       <label className="block text-sm font-medium mb-1">Mode</label>
@@ -1485,7 +1493,7 @@ function SchemeManagementPageContent() {
 
               {/* AEPS Form */}
               {configType === 'aeps' && (
-                <div className="space-y-3">
+                <div className="space-y-2">
                   <div>
                     <label className="block text-sm font-medium mb-1">Transaction Type</label>
                     <select value={aepsForm.transaction_type} onChange={(e) => setAepsForm({ ...aepsForm, transaction_type: e.target.value })}
@@ -1505,11 +1513,12 @@ function SchemeManagementPageContent() {
                     </div>
                     <div>
                       <label className="block text-sm font-medium mb-1">Max Amount (₹)</label>
-                      <input type="number" value={aepsForm.max_amount} onChange={(e) => setAepsForm({ ...aepsForm, max_amount: parseFloat(e.target.value) || 999999999 })}
+                      <input type="number" value={aepsForm.max_amount} onChange={(e) => setAepsForm({ ...aepsForm, max_amount: parseFloat(e.target.value) || 100000 })}
                         className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
                     </div>
                   </div>
                   <p className="text-xs text-gray-500">Pool = what the API Partner pays the company. Company profit is taken first; remainder cascades MD → DT → RT.</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {[
                     { label: 'Partner Pool (base)', key: 'base_commission', typeKey: 'base_commission_type' },
                     { label: 'Company Earning', key: 'company_earning', typeKey: 'company_earning_type' },
@@ -1522,18 +1531,19 @@ function SchemeManagementPageContent() {
                         <label className="block text-xs font-medium mb-1">{label}</label>
                         <input type="number" step="0.0001" value={(aepsForm as any)[key]}
                           onChange={(e) => setAepsForm({ ...aepsForm, [key]: parseFloat(e.target.value) || 0 })}
-                          className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
+                          className="w-full px-3 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
                       </div>
                       <div>
                         <select value={(aepsForm as any)[typeKey]}
                           onChange={(e) => setAepsForm({ ...aepsForm, [typeKey]: e.target.value })}
-                          className="w-full px-2 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700">
+                          className="w-full px-2 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700">
                           <option value="flat">₹ Flat</option>
                           <option value="percentage">% Pct</option>
                         </select>
                       </div>
                     </div>
                   ))}
+                  </div>
                   <div>
                     <label className="block text-xs font-medium mb-1">TDS (%)</label>
                     <input type="number" step="0.01" value={aepsForm.tds_percentage}
@@ -1556,7 +1566,7 @@ function SchemeManagementPageContent() {
 
               {/* AEPS Settlement Form */}
               {configType === 'aeps_settlement' && (
-                <div className="space-y-3">
+                <div className="space-y-2">
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="block text-sm font-medium mb-1">Min Amount (₹)</label>
@@ -1565,11 +1575,12 @@ function SchemeManagementPageContent() {
                     </div>
                     <div>
                       <label className="block text-sm font-medium mb-1">Max Amount (₹)</label>
-                      <input type="number" value={aepsSettleForm.max_amount} onChange={(e) => setAepsSettleForm({ ...aepsSettleForm, max_amount: parseFloat(e.target.value) || 999999999 })}
+                      <input type="number" value={aepsSettleForm.max_amount} onChange={(e) => setAepsSettleForm({ ...aepsSettleForm, max_amount: parseFloat(e.target.value) || 100000 })}
                         className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
                     </div>
                   </div>
                   <p className="text-xs text-gray-500">Retailer charge is deducted from AEPS wallet on settlement. Margins are distributed to DT/MD/Company.</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {[
                     { label: 'Retailer Charge (deducted)', key: 'retailer_charge', typeKey: 'retailer_charge_type' },
                     { label: 'Distributor Margin', key: 'distributor_commission', typeKey: 'distributor_commission_type' },
@@ -1581,22 +1592,24 @@ function SchemeManagementPageContent() {
                         <label className="block text-xs font-medium mb-1">{label}</label>
                         <input type="number" step="0.01" value={(aepsSettleForm as any)[key]}
                           onChange={(e) => setAepsSettleForm({ ...aepsSettleForm, [key]: parseFloat(e.target.value) || 0 })}
-                          className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
+                          className="w-full px-3 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
                       </div>
                       <div>
                         <select value={(aepsSettleForm as any)[typeKey]}
                           onChange={(e) => setAepsSettleForm({ ...aepsSettleForm, [typeKey]: e.target.value })}
-                          className="w-full px-2 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700">
+                          className="w-full px-2 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700">
                           <option value="flat">₹ Flat</option>
                           <option value="percentage">% Pct</option>
                         </select>
                       </div>
                     </div>
                   ))}
+                  </div>
                 </div>
               )}
+              </div>
 
-              <div className="flex justify-end gap-2 mt-5">
+              <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700 shrink-0 flex justify-end gap-2">
                 <button onClick={() => setShowConfigModal(false)} className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg">Cancel</button>
                 <button onClick={handleSaveConfig} className="px-4 py-2 text-sm bg-primary-600 text-white rounded-lg hover:bg-primary-700">
                   Save Configuration
@@ -1620,10 +1633,9 @@ function SchemeManagementPageContent() {
                   <label className="block text-sm font-medium mb-1">User Role</label>
                   <select value={mappingForm.entity_role} onChange={(e) => setMappingForm({ ...mappingForm, entity_role: e.target.value, entity_id: '' })}
                     className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700">
-                    <option value="retailer">Retailer</option>
-                    <option value="distributor">Distributor</option>
-                    <option value="master_distributor">Master Distributor</option>
-                    <option value="partner">Partner</option>
+                    {getAssignableRoles(user?.role).map(role => (
+                      <option key={role.value} value={role.value}>{role.label}</option>
+                    ))}
                   </select>
                 </div>
                 <div>

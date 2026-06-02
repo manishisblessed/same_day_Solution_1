@@ -2524,7 +2524,7 @@ function SchemeManagementTab({ user }: { user: any }) {
   const [bbpsForm, setBbpsForm] = useState({
     category: '',
     min_amount: 0,
-    max_amount: 999999999,
+    max_amount: 100000,
     retailer_charge: 0,
     retailer_charge_type: 'flat' as 'flat' | 'percentage',
     retailer_commission: 0,
@@ -2538,7 +2538,7 @@ function SchemeManagementTab({ user }: { user: any }) {
   const [payoutForm, setPayoutForm] = useState({
     transfer_mode: 'IMPS' as 'IMPS' | 'NEFT',
     min_amount: 0,
-    max_amount: 999999999,
+    max_amount: 100000,
     retailer_charge: 0,
     retailer_charge_type: 'flat' as 'flat' | 'percentage',
     retailer_commission: 0,
@@ -2565,7 +2565,7 @@ function SchemeManagementTab({ user }: { user: any }) {
   const [aepsForm, setAepsForm] = useState({
     transaction_type: 'cash_withdrawal' as string,
     min_amount: 0,
-    max_amount: 999999999,
+    max_amount: 100000,
     base_commission: 0,
     base_commission_type: 'percentage' as 'flat' | 'percentage',
     company_earning: 0,
@@ -2581,7 +2581,7 @@ function SchemeManagementTab({ user }: { user: any }) {
 
   const [aepsSettleForm, setAepsSettleForm] = useState({
     min_amount: 0,
-    max_amount: 999999999,
+    max_amount: 100000,
     retailer_charge: 0,
     retailer_charge_type: 'flat' as 'flat' | 'percentage',
     distributor_commission: 0,
@@ -2596,7 +2596,7 @@ function SchemeManagementTab({ user }: { user: any }) {
     type === 'percentage' ? Math.round((amount * value) / 100 * 100) / 100 : value
 
   const aepsPreview = () => {
-    const amt = (aepsForm.max_amount && aepsForm.max_amount < 999999999)
+    const amt = (aepsForm.max_amount && aepsForm.max_amount < 100000)
       ? aepsForm.max_amount
       : (aepsForm.min_amount > 0 ? aepsForm.min_amount : 1000)
     const base = aepsResolve(aepsForm.base_commission, aepsForm.base_commission_type, amt)
@@ -2612,17 +2612,39 @@ function SchemeManagementTab({ user }: { user: any }) {
     if (!user?.partner_id) return
     setLoading(true)
     try {
-      let query = supabase
+      // 1. Fetch schemes created by this MD
+      const { data: ownSchemes, error: ownErr } = await supabase
         .from('schemes')
         .select('*')
         .eq('created_by_id', user.partner_id)
         .eq('created_by_role', 'master_distributor')
         .order('created_at', { ascending: false })
-      
-      const { data, error } = await query
-      if (error) throw error
-      
-      let filtered = data || []
+      if (ownErr) throw ownErr
+
+      // 2. Fetch schemes assigned to this MD (by admin)
+      const { data: assignedMappings } = await supabase
+        .from('scheme_mappings')
+        .select('scheme_id')
+        .eq('entity_id', user.partner_id)
+        .eq('entity_role', 'master_distributor')
+        .eq('status', 'active')
+
+      const ownIds = new Set((ownSchemes || []).map(s => s.id))
+      const assignedIds = (assignedMappings || [])
+        .map(m => m.scheme_id)
+        .filter(id => !ownIds.has(id))
+
+      let assignedSchemes: any[] = []
+      if (assignedIds.length > 0) {
+        const { data } = await supabase
+          .from('schemes')
+          .select('*')
+          .in('id', assignedIds)
+          .eq('status', 'active')
+        assignedSchemes = (data || []).map(s => ({ ...s, _assigned: true }))
+      }
+
+      let filtered = [...(ownSchemes || []), ...assignedSchemes]
       if (searchQuery) {
         filtered = filtered.filter(s => 
           s.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -2687,10 +2709,11 @@ function SchemeManagementTab({ user }: { user: any }) {
       return
     }
     
-    const [bbps, payout, mdr, aepsSettle, mappings] = await Promise.all([
+    const [bbps, payout, mdr, aepsComm, aepsSettle, mappings] = await Promise.all([
       supabase.from('scheme_bbps_commissions').select('*').eq('scheme_id', schemeId).eq('status', 'active').order('min_amount'),
       supabase.from('scheme_payout_charges').select('*').eq('scheme_id', schemeId).eq('status', 'active').order('transfer_mode'),
       supabase.from('scheme_mdr_rates').select('*').eq('scheme_id', schemeId).eq('status', 'active').order('mode'),
+      supabase.from('scheme_aeps_commissions').select('*').eq('scheme_id', schemeId).eq('status', 'active').order('transaction_type,min_amount'),
       supabase.from('scheme_aeps_settlement_charges').select('*').eq('scheme_id', schemeId).eq('status', 'active').order('min_amount'),
       supabase.from('scheme_mappings').select('*').eq('scheme_id', schemeId).eq('status', 'active'),
     ])
@@ -2714,6 +2737,7 @@ function SchemeManagementTab({ user }: { user: any }) {
       bbps_commissions: bbps.data || [],
       payout_charges: payout.data || [],
       mdr_rates: mdr.data || [],
+      aeps_commissions: aepsComm.data || [],
       aeps_settlement_charges: aepsSettle.data || [],
       mappings: enrichedMappings,
     } : s))
@@ -2770,11 +2794,11 @@ function SchemeManagementTab({ user }: { user: any }) {
     setConfigSchemeId(schemeId)
     setConfigType(type)
     // Reset forms
-    setBbpsForm({ category: '', min_amount: 0, max_amount: 999999999, retailer_charge: 0, retailer_charge_type: 'flat', retailer_commission: 0, retailer_commission_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat' })
-    setPayoutForm({ transfer_mode: 'IMPS', min_amount: 0, max_amount: 999999999, retailer_charge: 0, retailer_charge_type: 'flat', retailer_commission: 0, retailer_commission_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat' })
+    setBbpsForm({ category: '', min_amount: 0, max_amount: 100000, retailer_charge: 0, retailer_charge_type: 'flat', retailer_commission: 0, retailer_commission_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat' })
+    setPayoutForm({ transfer_mode: 'IMPS', min_amount: 0, max_amount: 100000, retailer_charge: 0, retailer_charge_type: 'flat', retailer_commission: 0, retailer_commission_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat' })
     setMdrForm({ mode: 'CARD', card_type: '', brand_type: '', card_classification: '', retailer_mdr_t1: 0, retailer_mdr_t0: 0, distributor_mdr_t1: 0, distributor_mdr_t0: 0, md_mdr_t1: 0, md_mdr_t0: 0 })
-    setAepsForm({ transaction_type: 'cash_withdrawal', min_amount: 0, max_amount: 999999999, base_commission: 0, base_commission_type: 'percentage', company_earning: 0, company_earning_type: 'flat', md_commission: 0, md_commission_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', retailer_commission: 0, retailer_commission_type: 'flat', tds_percentage: 5 })
-    setAepsSettleForm({ min_amount: 0, max_amount: 999999999, retailer_charge: 0, retailer_charge_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat', company_charge: 0, company_charge_type: 'flat' })
+    setAepsForm({ transaction_type: 'cash_withdrawal', min_amount: 0, max_amount: 100000, base_commission: 0, base_commission_type: 'percentage', company_earning: 0, company_earning_type: 'flat', md_commission: 0, md_commission_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', retailer_commission: 0, retailer_commission_type: 'flat', tds_percentage: 5 })
+    setAepsSettleForm({ min_amount: 0, max_amount: 100000, retailer_charge: 0, retailer_charge_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat', company_charge: 0, company_charge_type: 'flat' })
     setShowConfigModal(true)
   }
 
@@ -3010,13 +3034,21 @@ function SchemeManagementTab({ user }: { user: any }) {
                 <div className="flex items-center gap-3 flex-1">
                   <Settings className="w-5 h-5 text-yellow-600" />
                   <div className="flex-1 min-w-0">
-                    <h3 className="font-semibold text-gray-900 dark:text-white">{scheme.name}</h3>
+                    <div className="flex items-center gap-2">
+                      <h3 className="font-semibold text-gray-900 dark:text-white">{scheme.name}</h3>
+                      {(scheme as any)._assigned && (
+                        <span className="px-2 py-0.5 text-[10px] font-semibold uppercase rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
+                          Assigned by Admin
+                        </span>
+                      )}
+                    </div>
                     <p className="text-xs text-gray-500 mt-0.5">
-                      {scheme.service_scope} • {scheme.mapping_count || 0} mappings
+                      {scheme.scheme_type} • {scheme.service_scope} • {scheme.mapping_count || 0} mappings
                     </p>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
+                  {!(scheme as any)._assigned && (<>
                   <button onClick={(e) => { e.stopPropagation(); openConfigModal(scheme.id, 'bbps') }}
                     className="p-1.5 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20 text-blue-600" title="Add BBPS Commission">
                     <CreditCard className="w-4 h-4" />
@@ -3037,6 +3069,7 @@ function SchemeManagementTab({ user }: { user: any }) {
                     className="p-1.5 rounded-lg hover:bg-purple-50 dark:hover:bg-purple-900/20 text-purple-600" title="Add AEPS Settlement Charge">
                     <DollarSign className="w-4 h-4" />
                   </button>
+                  </>)}
                   <button onClick={(e) => { e.stopPropagation(); openMappingModal(scheme.id) }}
                     className="p-1.5 rounded-lg hover:bg-purple-50 dark:hover:bg-purple-900/20 text-purple-600" title="Map to Distributor">
                     <Link2 className="w-4 h-4" />
@@ -3045,8 +3078,15 @@ function SchemeManagementTab({ user }: { user: any }) {
                 </div>
               </div>
 
-              {expandedSchemeId === scheme.id && (
+              {expandedSchemeId === scheme.id && (() => {
+                const isAssigned = !!(scheme as any)._assigned
+                return (
                 <div className="border-t border-gray-200 dark:border-gray-800 p-4 space-y-4 bg-gray-50 dark:bg-gray-800/30">
+                  {isAssigned && (
+                    <p className="text-xs text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 px-3 py-2 rounded-lg">
+                      This scheme was assigned to you by admin. You can view and assign it to your distributors but cannot modify its configuration.
+                    </p>
+                  )}
                   {scheme.description && (
                     <p className="text-sm text-gray-600 dark:text-gray-400 italic">{scheme.description}</p>
                   )}
@@ -3081,11 +3121,11 @@ function SchemeManagementTab({ user }: { user: any }) {
                                 <td className="px-2 py-1.5 text-right">{c.distributor_commission}{c.distributor_commission_type === 'percentage' ? '%' : '₹'}</td>
                                 <td className="px-2 py-1.5 text-right">{c.md_commission}{c.md_commission_type === 'percentage' ? '%' : '₹'}</td>
                                 <td className="px-2 py-1.5 text-right">{c.company_charge}{c.company_charge_type === 'percentage' ? '%' : '₹'}</td>
-                                <td className="px-2 py-1.5 text-right">
+                                {!isAssigned && <td className="px-2 py-1.5 text-right">
                                   <button onClick={() => handleDeleteConfig('scheme_bbps_commissions', c.id)} className="text-red-400 hover:text-red-600">
                                     <Trash2 className="w-3 h-3" />
                                   </button>
-                                </td>
+                                </td>}
                               </tr>
                             ))}
                           </tbody>
@@ -3126,11 +3166,11 @@ function SchemeManagementTab({ user }: { user: any }) {
                                 <td className="px-2 py-1.5 text-right">{c.distributor_commission}{c.distributor_commission_type === 'percentage' ? '%' : '₹'}</td>
                                 <td className="px-2 py-1.5 text-right">{c.md_commission}{c.md_commission_type === 'percentage' ? '%' : '₹'}</td>
                                 <td className="px-2 py-1.5 text-right">{c.company_charge}{c.company_charge_type === 'percentage' ? '%' : '₹'}</td>
-                                <td className="px-2 py-1.5 text-right">
+                                {!isAssigned && <td className="px-2 py-1.5 text-right">
                                   <button onClick={() => handleDeleteConfig('scheme_payout_charges', c.id)} className="text-red-400 hover:text-red-600">
                                     <Trash2 className="w-3 h-3" />
                                   </button>
-                                </td>
+                                </td>}
                               </tr>
                             ))}
                           </tbody>
@@ -3175,11 +3215,11 @@ function SchemeManagementTab({ user }: { user: any }) {
                                 <td className="px-2 py-1.5 text-right">{c.distributor_mdr_t0}%</td>
                                 <td className="px-2 py-1.5 text-right">{c.md_mdr_t1}%</td>
                                 <td className="px-2 py-1.5 text-right">{c.md_mdr_t0}%</td>
-                                <td className="px-2 py-1.5 text-right">
+                                {!isAssigned && <td className="px-2 py-1.5 text-right">
                                   <button onClick={() => handleDeleteConfig('scheme_mdr_rates', c.id)} className="text-red-400 hover:text-red-600">
                                     <Trash2 className="w-3 h-3" />
                                   </button>
-                                </td>
+                                </td>}
                               </tr>
                             ))}
                           </tbody>
@@ -3190,6 +3230,56 @@ function SchemeManagementTab({ user }: { user: any }) {
                     )}
                   </div>
                   
+                  {/* AEPS Commissions */}
+                  <div>
+                    <h4 className="font-semibold text-sm text-teal-700 dark:text-teal-400 mb-2 flex items-center gap-1">
+                      <Banknote className="w-4 h-4" /> AEPS Commissions ({scheme.aeps_commissions?.length || 0})
+                    </h4>
+                    {scheme.aeps_commissions && scheme.aeps_commissions.length > 0 ? (
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-xs">
+                          <thead>
+                            <tr className="bg-teal-50 dark:bg-teal-900/20">
+                              <th className="px-2 py-1.5 text-left">Txn Type</th>
+                              <th className="px-2 py-1.5 text-left">Range</th>
+                              <th className="px-2 py-1.5 text-right">Pool</th>
+                              <th className="px-2 py-1.5 text-right">Company</th>
+                              <th className="px-2 py-1.5 text-right">MD</th>
+                              <th className="px-2 py-1.5 text-right">DT</th>
+                              <th className="px-2 py-1.5 text-right">RT</th>
+                              <th className="px-2 py-1.5 text-right">TDS</th>
+                              <th className="px-2 py-1.5"></th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {scheme.aeps_commissions.map((c: any) => {
+                              const fmt = (v: number, t: string) => t === 'percentage' ? `${v}%` : `₹${v}`
+                              return (
+                                <tr key={c.id} className="border-b border-gray-100 dark:border-gray-700">
+                                  <td className="px-2 py-1.5">{c.transaction_type}</td>
+                                  <td className="px-2 py-1.5">₹{c.min_amount?.toLocaleString('en-IN')}-{c.max_amount >= 100000 ? '∞' : c.max_amount?.toLocaleString('en-IN')}</td>
+                                  <td className="px-2 py-1.5 text-right">{fmt(c.base_commission, c.base_commission_type)}</td>
+                                  <td className="px-2 py-1.5 text-right">{fmt(c.company_earning, c.company_earning_type)}</td>
+                                  <td className="px-2 py-1.5 text-right">{fmt(c.md_commission, c.md_commission_type)}</td>
+                                  <td className="px-2 py-1.5 text-right">{fmt(c.distributor_commission, c.distributor_commission_type)}</td>
+                                  <td className="px-2 py-1.5 text-right">{fmt(c.retailer_commission, c.retailer_commission_type)}</td>
+                                  <td className="px-2 py-1.5 text-right">{c.tds_percentage}%</td>
+                                  <td className="px-2 py-1.5 text-right">
+                                    {!isAssigned && <button onClick={() => handleDeleteConfig('scheme_aeps_commissions', c.id)} className="text-red-400 hover:text-red-600">
+                                      <Trash2 className="w-3 h-3" />
+                                    </button>}
+                                  </td>
+                                </tr>
+                              )
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : (
+                      <p className="text-xs text-gray-400 italic">No AEPS commissions configured</p>
+                    )}
+                  </div>
+
                   {/* AEPS Settlement Charges */}
                   <div>
                     <h4 className="font-semibold text-sm text-purple-700 dark:text-purple-400 mb-2 flex items-center gap-1">
@@ -3213,15 +3303,15 @@ function SchemeManagementTab({ user }: { user: any }) {
                               const fmt = (v: number, t: string) => t === 'percentage' ? `${v}%` : `₹${v}`
                               return (
                                 <tr key={c.id} className="border-b border-gray-100 dark:border-gray-700">
-                                  <td className="px-2 py-1.5">₹{c.min_amount?.toLocaleString('en-IN')} – {c.max_amount >= 999999999 ? '∞' : `₹${c.max_amount?.toLocaleString('en-IN')}`}</td>
+                                  <td className="px-2 py-1.5">₹{c.min_amount?.toLocaleString('en-IN')} – {c.max_amount >= 100000 ? '∞' : `₹${c.max_amount?.toLocaleString('en-IN')}`}</td>
                                   <td className="px-2 py-1.5 text-right font-medium">{fmt(c.retailer_charge, c.retailer_charge_type)}</td>
                                   <td className="px-2 py-1.5 text-right">{fmt(c.distributor_commission, c.distributor_commission_type)}</td>
                                   <td className="px-2 py-1.5 text-right">{fmt(c.md_commission, c.md_commission_type)}</td>
                                   <td className="px-2 py-1.5 text-right">{fmt(c.company_charge, c.company_charge_type)}</td>
                                   <td className="px-2 py-1.5 text-right">
-                                    <button onClick={() => handleDeleteConfig('scheme_aeps_settlement_charges', c.id)} className="text-red-400 hover:text-red-600">
+                                    {!isAssigned && <button onClick={() => handleDeleteConfig('scheme_aeps_settlement_charges', c.id)} className="text-red-400 hover:text-red-600">
                                       <Trash2 className="w-3 h-3" />
-                                    </button>
+                                    </button>}
                                   </td>
                                 </tr>
                               )
@@ -3254,7 +3344,8 @@ function SchemeManagementTab({ user }: { user: any }) {
                     )}
                   </div>
                 </div>
-              )}
+                )
+              })()}
             </div>
           ))}
         </div>
@@ -3326,19 +3417,22 @@ function SchemeManagementTab({ user }: { user: any }) {
 
       {/* Configuration Modal (BBPS / Payout / MDR) */}
       {showConfigModal && configType && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-lg p-6 my-8">
-            <h2 className="text-lg font-bold mb-4 flex items-center gap-2">
-              {configType === 'bbps' && <><CreditCard className="w-5 h-5 text-blue-600" /> Add BBPS Commission</>}
-              {configType === 'payout' && <><Banknote className="w-5 h-5 text-green-600" /> Add Payout Charge</>}
-              {configType === 'mdr' && <><TrendingUp className="w-5 h-5 text-orange-600" /> Add MDR Rate</>}
-              {configType === 'aeps' && <><Banknote className="w-5 h-5 text-teal-600" /> Add AEPS Commission</>}
-              {configType === 'aeps_settlement' && <><DollarSign className="w-5 h-5 text-purple-600" /> Add AEPS Settlement Charge</>}
-            </h2>
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-lg max-h-[90vh] flex flex-col my-4">
+            <div className="px-6 pt-5 pb-4 border-b border-gray-200 dark:border-gray-700 shrink-0">
+              <h2 className="text-lg font-bold flex items-center gap-2">
+                {configType === 'bbps' && <><CreditCard className="w-5 h-5 text-blue-600" /> Add BBPS Commission</>}
+                {configType === 'payout' && <><Banknote className="w-5 h-5 text-green-600" /> Add Payout Charge</>}
+                {configType === 'mdr' && <><TrendingUp className="w-5 h-5 text-orange-600" /> Add MDR Rate</>}
+                {configType === 'aeps' && <><Banknote className="w-5 h-5 text-teal-600" /> Add AEPS Commission</>}
+                {configType === 'aeps_settlement' && <><DollarSign className="w-5 h-5 text-purple-600" /> Add AEPS Settlement Charge</>}
+              </h2>
+            </div>
 
+            <div className="overflow-y-auto flex-1 min-h-0 px-6 py-4">
             {/* BBPS Form */}
             {configType === 'bbps' && (
-              <div className="space-y-3">
+              <div className="space-y-2">
                 <div>
                   <label className="block text-sm font-medium mb-1">Category (leave empty for all)</label>
                   <select value={bbpsForm.category} onChange={(e) => setBbpsForm({ ...bbpsForm, category: e.target.value })}
@@ -3366,10 +3460,11 @@ function SchemeManagementTab({ user }: { user: any }) {
                   </div>
                   <div>
                     <label className="block text-sm font-medium mb-1">Max Amount (₹)</label>
-                    <input type="number" value={bbpsForm.max_amount} onChange={(e) => setBbpsForm({ ...bbpsForm, max_amount: parseFloat(e.target.value) || 999999999 })}
+                    <input type="number" value={bbpsForm.max_amount} onChange={(e) => setBbpsForm({ ...bbpsForm, max_amount: parseFloat(e.target.value) || 100000 })}
                       className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
                   </div>
                 </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 {[
                   { label: 'Retailer Charge', key: 'retailer_charge', typeKey: 'retailer_charge_type' },
                   { label: 'Retailer Commission', key: 'retailer_commission', typeKey: 'retailer_commission_type' },
@@ -3382,24 +3477,25 @@ function SchemeManagementTab({ user }: { user: any }) {
                       <label className="block text-xs font-medium mb-1">{label}</label>
                       <input type="number" step="0.01" value={(bbpsForm as any)[key]}
                         onChange={(e) => setBbpsForm({ ...bbpsForm, [key]: parseFloat(e.target.value) || 0 })}
-                        className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
+                        className="w-full px-3 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
                     </div>
                     <div>
                       <select value={(bbpsForm as any)[typeKey]}
                         onChange={(e) => setBbpsForm({ ...bbpsForm, [typeKey]: e.target.value })}
-                        className="w-full px-2 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700">
+                        className="w-full px-2 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700">
                         <option value="flat">₹ Flat</option>
                         <option value="percentage">% Pct</option>
                       </select>
                     </div>
                   </div>
                 ))}
+                </div>
               </div>
             )}
 
             {/* Payout Form */}
             {configType === 'payout' && (
-              <div className="space-y-3">
+              <div className="space-y-2">
                 <div>
                   <label className="block text-sm font-medium mb-1">Transfer Mode</label>
                   <select value={payoutForm.transfer_mode} onChange={(e) => setPayoutForm({ ...payoutForm, transfer_mode: e.target.value as any })}
@@ -3416,10 +3512,11 @@ function SchemeManagementTab({ user }: { user: any }) {
                   </div>
                   <div>
                     <label className="block text-sm font-medium mb-1">Max Amount (₹)</label>
-                    <input type="number" value={payoutForm.max_amount} onChange={(e) => setPayoutForm({ ...payoutForm, max_amount: parseFloat(e.target.value) || 999999999 })}
+                    <input type="number" value={payoutForm.max_amount} onChange={(e) => setPayoutForm({ ...payoutForm, max_amount: parseFloat(e.target.value) || 100000 })}
                       className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
                   </div>
                 </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 {[
                   { label: 'Retailer Charge', key: 'retailer_charge', typeKey: 'retailer_charge_type' },
                   { label: 'Retailer Commission', key: 'retailer_commission', typeKey: 'retailer_commission_type' },
@@ -3432,24 +3529,25 @@ function SchemeManagementTab({ user }: { user: any }) {
                       <label className="block text-xs font-medium mb-1">{label}</label>
                       <input type="number" step="0.01" value={(payoutForm as any)[key]}
                         onChange={(e) => setPayoutForm({ ...payoutForm, [key]: parseFloat(e.target.value) || 0 })}
-                        className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
+                        className="w-full px-3 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
                     </div>
                     <div>
                       <select value={(payoutForm as any)[typeKey]}
                         onChange={(e) => setPayoutForm({ ...payoutForm, [typeKey]: e.target.value })}
-                        className="w-full px-2 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700">
+                        className="w-full px-2 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700">
                         <option value="flat">₹ Flat</option>
                         <option value="percentage">% Pct</option>
                       </select>
                     </div>
                   </div>
                 ))}
+                </div>
               </div>
             )}
 
             {/* MDR Form */}
             {configType === 'mdr' && (
-              <div className="space-y-3">
+              <div className="space-y-2">
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                   <div>
                     <label className="block text-sm font-medium mb-1">Mode</label>
@@ -3588,7 +3686,7 @@ function SchemeManagementTab({ user }: { user: any }) {
 
             {/* AEPS Form */}
             {configType === 'aeps' && (
-              <div className="space-y-3">
+              <div className="space-y-2">
                 <div>
                   <label className="block text-sm font-medium mb-1">Transaction Type</label>
                   <select value={aepsForm.transaction_type} onChange={(e) => setAepsForm({ ...aepsForm, transaction_type: e.target.value })}
@@ -3608,11 +3706,12 @@ function SchemeManagementTab({ user }: { user: any }) {
                   </div>
                   <div>
                     <label className="block text-sm font-medium mb-1">Max Amount (₹)</label>
-                    <input type="number" value={aepsForm.max_amount} onChange={(e) => setAepsForm({ ...aepsForm, max_amount: parseFloat(e.target.value) || 999999999 })}
+                    <input type="number" value={aepsForm.max_amount} onChange={(e) => setAepsForm({ ...aepsForm, max_amount: parseFloat(e.target.value) || 100000 })}
                       className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
                   </div>
                 </div>
                 <p className="text-xs text-gray-500">Pool = what you receive from above. Company profit first; remainder cascades to DT → RT. You keep MD margin.</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 {[
                   { label: 'Partner Pool (base)', key: 'base_commission', typeKey: 'base_commission_type' },
                   { label: 'Company Earning', key: 'company_earning', typeKey: 'company_earning_type' },
@@ -3625,18 +3724,19 @@ function SchemeManagementTab({ user }: { user: any }) {
                       <label className="block text-xs font-medium mb-1">{label}</label>
                       <input type="number" step="0.0001" value={(aepsForm as any)[key]}
                         onChange={(e) => setAepsForm({ ...aepsForm, [key]: parseFloat(e.target.value) || 0 })}
-                        className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
+                        className="w-full px-3 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
                     </div>
                     <div>
                       <select value={(aepsForm as any)[typeKey]}
                         onChange={(e) => setAepsForm({ ...aepsForm, [typeKey]: e.target.value })}
-                        className="w-full px-2 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700">
+                        className="w-full px-2 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700">
                         <option value="flat">₹ Flat</option>
                         <option value="percentage">% Pct</option>
                       </select>
                     </div>
                   </div>
                 ))}
+                </div>
                 <div>
                   <label className="block text-xs font-medium mb-1">TDS (%)</label>
                   <input type="number" step="0.01" value={aepsForm.tds_percentage}
@@ -3657,7 +3757,7 @@ function SchemeManagementTab({ user }: { user: any }) {
             )}
 
             {configType === 'aeps_settlement' && (
-              <div className="space-y-3">
+              <div className="space-y-2">
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="block text-sm font-medium mb-1">Min Amount (₹)</label>
@@ -3666,11 +3766,12 @@ function SchemeManagementTab({ user }: { user: any }) {
                   </div>
                   <div>
                     <label className="block text-sm font-medium mb-1">Max Amount (₹)</label>
-                    <input type="number" value={aepsSettleForm.max_amount} onChange={(e) => setAepsSettleForm({ ...aepsSettleForm, max_amount: parseFloat(e.target.value) || 999999999 })}
+                    <input type="number" value={aepsSettleForm.max_amount} onChange={(e) => setAepsSettleForm({ ...aepsSettleForm, max_amount: parseFloat(e.target.value) || 100000 })}
                       className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
                   </div>
                 </div>
                 <p className="text-xs text-gray-500">Retailer charge is deducted from AEPS wallet on settlement. Margins are distributed to DT/MD/Company.</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 {[
                   { label: 'Retailer Charge (deducted)', key: 'retailer_charge', typeKey: 'retailer_charge_type' },
                   { label: 'Distributor Margin', key: 'distributor_commission', typeKey: 'distributor_commission_type' },
@@ -3682,22 +3783,24 @@ function SchemeManagementTab({ user }: { user: any }) {
                       <label className="block text-xs font-medium mb-1">{label}</label>
                       <input type="number" step="0.01" value={(aepsSettleForm as any)[key]}
                         onChange={(e) => setAepsSettleForm({ ...aepsSettleForm, [key]: parseFloat(e.target.value) || 0 })}
-                        className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
+                        className="w-full px-3 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
                     </div>
                     <div>
                       <select value={(aepsSettleForm as any)[typeKey]}
                         onChange={(e) => setAepsSettleForm({ ...aepsSettleForm, [typeKey]: e.target.value })}
-                        className="w-full px-2 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700">
+                        className="w-full px-2 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700">
                         <option value="flat">₹ Flat</option>
                         <option value="percentage">% Pct</option>
                       </select>
                     </div>
                   </div>
                 ))}
+                </div>
               </div>
             )}
+            </div>
 
-            <div className="flex justify-end gap-2 mt-5">
+            <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700 shrink-0 flex justify-end gap-2">
               <button onClick={() => setShowConfigModal(false)} className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg">Cancel</button>
               <button onClick={handleSaveConfig} className="px-4 py-2 text-sm bg-yellow-600 text-white rounded-lg hover:bg-yellow-700">
                 Save Configuration

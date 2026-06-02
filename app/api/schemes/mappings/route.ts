@@ -115,6 +115,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Only admin can assign schemes to partners' }, { status: 403 });
     }
 
+    // Admin can only assign to master_distributor or partner (downstream assigns through hierarchy)
+    if (user.role === 'admin' && !['master_distributor', 'partner'].includes(body.entity_role)) {
+      return NextResponse.json({ error: 'Admin can only assign schemes to Master Distributors or Partners. Distributors/Retailers must be assigned by their upstream hierarchy.' }, { status: 403 });
+    }
+
     // Ownership verification: ensure the assigner has authority over the target entity
     if (user.role === 'distributor') {
       // Distributor can only map schemes to their own retailers
@@ -128,31 +133,13 @@ export async function POST(request: NextRequest) {
     }
 
     if (user.role === 'master_distributor') {
-      // MD can map to distributors under them or retailers under their distributors
-      if (body.entity_role === 'distributor') {
-        const isOwned = await verifyMDOwnsDistributor(user.partner_id, body.entity_id);
-        if (!isOwned) {
-          return NextResponse.json({ error: 'Access denied: this distributor does not belong to you' }, { status: 403 });
-        }
-      } else if (body.entity_role === 'retailer') {
-        // Check if retailer belongs to one of the MD's distributors
-        const supabase = getSupabase();
-        const { data: retailerData } = await supabase
-          .from('retailers')
-          .select('distributor_id')
-          .eq('partner_id', body.entity_id)
-          .maybeSingle();
-
-        if (!retailerData?.distributor_id) {
-          return NextResponse.json({ error: 'Retailer not found' }, { status: 404 });
-        }
-
-        const isOwned = await verifyMDOwnsDistributor(user.partner_id, retailerData.distributor_id);
-        if (!isOwned) {
-          return NextResponse.json({ error: 'Access denied: this retailer does not belong to your network' }, { status: 403 });
-        }
-      } else if (body.entity_role === 'master_distributor') {
-        return NextResponse.json({ error: 'MDs cannot assign schemes to other MDs' }, { status: 403 });
+      // MD can only assign to distributors under them
+      if (body.entity_role !== 'distributor') {
+        return NextResponse.json({ error: 'Master Distributors can only assign schemes to Distributors' }, { status: 403 });
+      }
+      const isOwned = await verifyMDOwnsDistributor(user.partner_id, body.entity_id);
+      if (!isOwned) {
+        return NextResponse.json({ error: 'Access denied: this distributor does not belong to you' }, { status: 403 });
       }
     }
 
@@ -169,9 +156,21 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: 'Scheme not found' }, { status: 404 });
       }
 
-      // Non-admin can only map schemes they created or global/golden schemes
+      // Non-admin can map schemes they created, global/golden schemes,
+      // or schemes that have been assigned to them (received from upstream)
       if (schemeData.scheme_type === 'custom' && schemeData.created_by_id !== user.partner_id) {
-        return NextResponse.json({ error: 'Access denied: you can only map schemes you created or global schemes' }, { status: 403 });
+        const { data: assignedToMe } = await supabase
+          .from('scheme_mappings')
+          .select('id')
+          .eq('scheme_id', body.scheme_id)
+          .eq('entity_id', user.partner_id)
+          .eq('status', 'active')
+          .limit(1)
+          .maybeSingle();
+
+        if (!assignedToMe) {
+          return NextResponse.json({ error: 'Access denied: you can only map schemes you created, were assigned to you, or global schemes' }, { status: 403 });
+        }
       }
     }
 

@@ -212,9 +212,8 @@ export async function fetchBill(
       brCustomerName: br.customerName,
     })
 
-    const rupeesStr = br.billAmount ?? br.amount ?? br.bill_amount ?? '0'
-    const rupees = parseFloat(String(rupeesStr).replace(/[,\s₹]/g, '')) || 0
-    const billAmountPaise = Math.round(rupees * 100)
+    const amountStr = br.billAmount ?? br.amount ?? br.bill_amount ?? '0'
+    const billAmountPaise = Math.round(parseFloat(String(amountStr).replace(/[,\s₹]/g, '')) || 0)
 
     const rawName =
       br.customerName || br.customer_name || br.consumerName ||

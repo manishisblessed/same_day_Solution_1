@@ -58,32 +58,41 @@ export async function GET(request: NextRequest) {
     // Calculate statistics
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const thisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
     
     // Filter today's transactions
     const todayTransactions = transactions?.filter(t => new Date(t.created_at) >= today) || [];
     
-    // Calculate success rate
-    const totalTxns = transactions?.length || 0;
-    const successTxns = transactions?.filter(t => t.status === 'success').length || 0;
-    const successRateCalc = totalTxns > 0 ? (successTxns / totalTxns) * 100 : 0;
-    
-    // Calculate today's volume
+    // Today's stats (consistent time period for overview cards)
+    const todaySuccess = todayTransactions.filter(t => t.status === 'success').length;
+    const todayFailed = todayTransactions.filter(t => t.status === 'failed').length;
+    const todayPending = todayTransactions.filter(t => t.status === 'pending').length;
+    const todayReversed = todayTransactions.filter(t => t.status === 'reversed').length;
+    const todaySuccessRate = todayTransactions.length > 0 
+      ? (todaySuccess / todayTransactions.length) * 100 : 0;
     const todayVolume = todayTransactions
       .filter(t => t.is_financial && t.status === 'success')
       .reduce((sum, t) => sum + (t.amount || 0), 0);
     
+    // All-time stats for breakdown
+    const allTimeSuccess = transactions?.filter(t => t.status === 'success').length || 0;
+    const allTimeFailed = transactions?.filter(t => t.status === 'failed').length || 0;
+    const allTimePending = transactions?.filter(t => t.status === 'pending').length || 0;
+    const allTimeReversed = transactions?.filter(t => t.status === 'reversed').length || 0;
+    const allTimeTotal = transactions?.length || 0;
+    const allTimeSuccessRate = allTimeTotal > 0 
+      ? (allTimeSuccess / allTimeTotal) * 100 : 0;
+
     // Count active merchants (validated)
     const activeMerchants = merchants?.filter(m => m.kyc_status === 'validated').length || 0;
     
-    // Match frontend interface exactly
     const stats = {
       totalTransactions: todayTransactions.length,
-      successCount: transactions?.filter(t => t.status === 'success').length || 0,
-      failedCount: transactions?.filter(t => t.status === 'failed').length || 0,
-      pendingCount: transactions?.filter(t => t.status === 'pending').length || 0,
+      successCount: allTimeSuccess,
+      failedCount: allTimeFailed,
+      pendingCount: allTimePending,
+      reversedCount: allTimeReversed,
       totalVolume: todayVolume,
-      successRate: parseFloat(successRateCalc.toFixed(2)),
+      successRate: parseFloat(allTimeSuccessRate.toFixed(2)),
       merchantCount: merchants?.length || 0,
       activeMerchants: activeMerchants,
     };

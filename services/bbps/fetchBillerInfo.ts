@@ -40,19 +40,29 @@ interface BBPSBillerInfoResponse {
   }>
 }
 
-/**
- * Fetch biller information
- * 
- * @param params - Biller ID
- * @returns Detailed biller information
- * 
- * @example
- * ```typescript
- * const billerInfo = await fetchBillerInfo({
- *   billerId: 'AEML00000NATD1'
- * })
- * ```
- */
+// Server-side cache: paramInfo rarely changes; avoids repeated round-trips to Chagans/SparkUp
+const FIELD_CACHE_TTL_MS = 10 * 60 * 1000 // 10 minutes
+const billerFieldCache = new Map<string, { data: BBPSBillerInfo; ts: number }>()
+
+function getCachedFields(billerId: string): BBPSBillerInfo | null {
+  const entry = billerFieldCache.get(billerId)
+  if (!entry) return null
+  if (Date.now() - entry.ts > FIELD_CACHE_TTL_MS) {
+    billerFieldCache.delete(billerId)
+    return null
+  }
+  return entry.data
+}
+
+function setCachedFields(billerId: string, data: BBPSBillerInfo) {
+  billerFieldCache.set(billerId, { data, ts: Date.now() })
+  // Cap cache size at 500 billers
+  if (billerFieldCache.size > 500) {
+    const oldest = billerFieldCache.keys().next().value
+    if (oldest) billerFieldCache.delete(oldest)
+  }
+}
+
 export async function fetchBillerInfo(
   params: FetchBillerInfoParams
 ): Promise<BBPSBillerInfo> {
@@ -68,6 +78,13 @@ export async function fetchBillerInfo(
   if (isMockMode()) {
     logBBPSApiCall('fetchBillerInfo', reqId, billerId, 'MOCK')
     return getMockBillerInfo(billerId)
+  }
+
+  // Return cached field definitions (enquiryId will be refreshed by fetchBill anyway)
+  const cached = getCachedFields(billerId)
+  if (cached) {
+    logBBPSApiCall('fetchBillerInfo', reqId, billerId, 'CACHE')
+    return cached
   }
 
   if (getBBPSProvider() === 'chagans') {
@@ -122,6 +139,7 @@ export async function fetchBillerInfo(
     }
 
     logBBPSApiCall('fetchBillerInfo(chagans)', reqId, billerId, 200)
+    setCachedFields(billerId, billerInfo)
     return billerInfo
   }
 
@@ -188,6 +206,7 @@ export async function fetchBillerInfo(
       apiResponse.status
     )
 
+    setCachedFields(billerId, billerInfo)
     return billerInfo
   } catch (error: any) {
     logBBPSApiError('fetchBillerInfo', reqId, error, billerId)

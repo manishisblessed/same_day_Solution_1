@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { 
   Search, Loader2, CheckCircle, XCircle, Wallet, Receipt, 
   AlertCircle, RefreshCw, FileText, Clock, MessageSquare, History,
@@ -208,6 +208,10 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
 
   // Ref for auto-scrolling to consumer details form
   const consumerDetailsRef = useRef<HTMLDivElement>(null)
+  const billerInfoCacheRef = useRef<Map<string, NonNullable<BBPSBiller['metadata']>>>(new Map())
+  const billerInfoInflightRef = useRef<Map<string, Promise<void>>>(new Map())
+  const selectedBillerIdRef = useRef<string | null>(null)
+  const [loadingBillerInfo, setLoadingBillerInfo] = useState(false)
 
   // Fetch wallet balance and BBPS limit when user is available
   useEffect(() => {
@@ -287,7 +291,107 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
     }
   }, [searchQuery, billers])
 
+  const getParamInfoFromBiller = useCallback((biller: BBPSBiller | null) => {
+    if (!biller) return []
+    const cached = billerInfoCacheRef.current.get(biller.biller_id)
+    return (
+      biller.metadata?.billerInputParams?.paramInfo ||
+      biller.metadata?.paramInfo ||
+      cached?.billerInputParams?.paramInfo ||
+      cached?.paramInfo ||
+      []
+    )
+  }, [])
+
+  const applyBillerInfoEnrichment = useCallback((biller: BBPSBiller, enrichment: NonNullable<BBPSBiller['metadata']>) => {
+    billerInfoCacheRef.current.set(biller.biller_id, {
+      ...billerInfoCacheRef.current.get(biller.biller_id),
+      ...enrichment,
+    })
+    const updated: BBPSBiller = {
+      ...biller,
+      metadata: { ...biller.metadata, ...enrichment },
+    }
+    setSelectedBiller((prev) => (prev?.biller_id === biller.biller_id ? updated : prev))
+    setBillers((prev) => prev.map((b) => (b.biller_id === biller.biller_id ? updated : b)))
+    return updated
+  }, [])
+
+  const fetchBillerInfoDetails = useCallback(
+    async (biller: BBPSBiller, opts?: { silent?: boolean }) => {
+      if (!user?.partner_id) return
+
+      const cached = billerInfoCacheRef.current.get(biller.biller_id)
+      const hasCachedParams = !!(cached?.billerInputParams?.paramInfo?.length || cached?.paramInfo?.length)
+      const hasBillerParams = getParamInfoFromBiller(biller).length > 0
+      const isSelected = selectedBillerIdRef.current === biller.biller_id
+
+      if (hasCachedParams && !hasBillerParams) {
+        applyBillerInfoEnrichment(biller, cached!)
+        return
+      }
+      if (hasCachedParams) return
+
+      // Deduplicate concurrent requests for the same biller
+      const existing = billerInfoInflightRef.current.get(biller.biller_id)
+      if (existing) {
+        if (isSelected && !opts?.silent) setLoadingBillerInfo(true)
+        await existing
+        if (isSelected && selectedBillerIdRef.current === biller.biller_id) {
+          const fresh = billerInfoCacheRef.current.get(biller.biller_id)
+          if (fresh) applyBillerInfoEnrichment(biller, fresh)
+          setLoadingBillerInfo(false)
+        }
+        return
+      }
+
+      if (isSelected && !opts?.silent && !hasBillerParams && !hasCachedParams) {
+        setLoadingBillerInfo(true)
+      }
+
+      const task = (async () => {
+        try {
+          const data = await apiFetchJson<{
+            success?: boolean
+            biller_info?: {
+              billerInputParams?: { paramInfo?: InputParam[] }
+              enquiryId?: string
+            }
+          }>('/api/bbps/biller-info', {
+            method: 'POST',
+            body: JSON.stringify({
+              biller_id: biller.biller_id,
+              user_id: user!.partner_id,
+            }),
+          })
+
+          if (!data.success || !data.biller_info) return
+
+          applyBillerInfoEnrichment(biller, {
+            billerInputParams: data.biller_info.billerInputParams,
+            enquiryId: data.biller_info.enquiryId,
+          })
+        } catch (e) {
+          console.warn('[BBPS] biller-info enrichment skipped:', e)
+        } finally {
+          billerInfoInflightRef.current.delete(biller.biller_id)
+          if (isSelected && selectedBillerIdRef.current === biller.biller_id) {
+            setLoadingBillerInfo(false)
+          }
+        }
+      })()
+
+      billerInfoInflightRef.current.set(biller.biller_id, task)
+      await task
+    },
+    [user?.partner_id, getParamInfoFromBiller, applyBillerInfoEnrichment]
+  )
+
   // Extract input parameters when biller is selected
+  useEffect(() => {
+    selectedBillerIdRef.current = selectedBiller?.biller_id ?? null
+  }, [selectedBiller?.biller_id])
+
   useEffect(() => {
     if (selectedBiller) {
       // Get input parameters from metadata - check multiple possible locations
@@ -345,50 +449,15 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
   useEffect(() => {
     if (!selectedBiller || !user?.partner_id) return
 
-    const paramInfoLen =
-      selectedBiller.metadata?.billerInputParams?.paramInfo?.length ||
-      selectedBiller.metadata?.paramInfo?.length ||
-      0
-    if (paramInfoLen > 0) return
-
-    let cancelled = false
-    ;(async () => {
-      try {
-        const data = await apiFetchJson<{
-          success?: boolean
-          biller_info?: {
-            billerInputParams?: { paramInfo?: InputParam[] }
-            enquiryId?: string
-          }
-        }>('/api/bbps/biller-info', {
-          method: 'POST',
-          body: JSON.stringify({
-            biller_id: selectedBiller.biller_id,
-            user_id: user.partner_id,
-          }),
-        })
-        if (cancelled || !data.success || !data.biller_info) return
-
-        const info = data.biller_info
-        const updated: BBPSBiller = {
-          ...selectedBiller,
-          metadata: {
-            ...selectedBiller.metadata,
-            billerInputParams: info.billerInputParams,
-            enquiryId: info.enquiryId,
-          },
-        }
-        setSelectedBiller(updated)
-        setBillers((prev) => prev.map((b) => (b.biller_id === updated.biller_id ? updated : b)))
-      } catch (e) {
-        console.warn('[BBPS] biller-info enrichment skipped:', e)
-      }
-    })()
-
-    return () => {
-      cancelled = true
+    const paramInfoLen = getParamInfoFromBiller(selectedBiller).length
+    if (paramInfoLen > 0) {
+      // Still refresh enquiryId in background for Chagans session
+      fetchBillerInfoDetails(selectedBiller, { silent: true })
+      return
     }
-  }, [selectedBiller?.biller_id, user?.partner_id])
+
+    fetchBillerInfoDetails(selectedBiller)
+  }, [selectedBiller?.biller_id, user?.partner_id, fetchBillerInfoDetails, getParamInfoFromBiller])
 
   const fetchWalletBalance = async () => {
     if (!user?.partner_id) {
@@ -732,6 +801,28 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
         
         setBillers(billersList)
         setFilteredBillers(billersList)
+
+        // Background-prefetch biller field info for all billers without paramInfo
+        if (user?.partner_id) {
+          const needsEnrich = billersList.filter(
+            (b) =>
+              !billerInfoCacheRef.current.has(b.biller_id) &&
+              !b.metadata?.billerInputParams?.paramInfo?.length &&
+              !b.metadata?.paramInfo?.length
+          )
+          if (needsEnrich.length > 0) {
+            const BATCH = 6
+            ;(async () => {
+              for (let i = 0; i < needsEnrich.length; i += BATCH) {
+                await Promise.allSettled(
+                  needsEnrich.slice(i, i + BATCH).map((b) =>
+                    fetchBillerInfoDetails(b, { silent: true })
+                  )
+                )
+              }
+            })()
+          }
+        }
         
         if (billersList.length === 0) {
           setError(`No billers found for category: ${category}`)
@@ -1812,8 +1903,18 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
                 {filteredBillers.map((biller) => (
                   <button
                     key={biller.biller_id}
+                    onMouseEnter={() => {
+                      if (!billerInfoCacheRef.current.has(biller.biller_id)) {
+                        fetchBillerInfoDetails(biller, { silent: true })
+                      }
+                    }}
                     onClick={() => {
-                      setSelectedBiller(biller)
+                      const cached = billerInfoCacheRef.current.get(biller.biller_id)
+                      setSelectedBiller(
+                        cached
+                          ? { ...biller, metadata: { ...biller.metadata, ...cached } }
+                          : biller
+                      )
                       setBillDetails(null)
                       setPaymentResult(null)
                       setError(null)
@@ -1857,7 +1958,22 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
             >
               <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Enter Consumer Details</h3>
               <div className="space-y-4">
-                {inputParamFields.length > 0 ? (
+                {loadingBillerInfo && inputParamFields.length === 0 ? (
+                  <div className="space-y-4" aria-busy="true" aria-label="Loading biller fields">
+                    <div className="animate-pulse space-y-2">
+                      <div className="h-4 w-48 bg-gray-200 dark:bg-gray-600 rounded" />
+                      <div className="h-10 w-full bg-gray-100 dark:bg-gray-700 rounded-lg" />
+                    </div>
+                    <div className="animate-pulse space-y-2">
+                      <div className="h-4 w-40 bg-gray-200 dark:bg-gray-600 rounded" />
+                      <div className="h-10 w-full bg-gray-100 dark:bg-gray-700 rounded-lg" />
+                    </div>
+                    <div className="flex items-center justify-center py-2 text-sm text-gray-500 dark:text-gray-400">
+                      <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                      Loading biller fields...
+                    </div>
+                  </div>
+                ) : inputParamFields.length > 0 ? (
                   // Dynamic input fields based on biller parameters
                   inputParamFields.map((field, index) => (
                     <div key={index}>
@@ -1934,6 +2050,7 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
                   <button
                     onClick={proceedToPrepaidConfirmation}
                     disabled={
+                      loadingBillerInfo ||
                       loadingCharges ||
                       !prepaidAmount ||
                       parseFloat(prepaidAmount) < 10 ||
@@ -1959,6 +2076,7 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
                   <button
                     onClick={fetchBill}
                     disabled={
+                      loadingBillerInfo ||
                       loadingBill || 
                       (inputParamFields.length > 0 
                         ? inputParamFields.some(field => field.isOptional !== 'true' && !inputParams[field.paramName]?.trim())

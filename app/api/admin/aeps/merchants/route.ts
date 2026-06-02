@@ -44,14 +44,7 @@ export async function GET(request: NextRequest) {
     // Build query
     let query = supabase
       .from('aeps_merchants')
-      .select(`
-        *,
-        users:user_id (
-          partner_id,
-          email,
-          role
-        )
-      `, { count: 'exact' });
+      .select('*', { count: 'exact' });
 
     // Apply filters
     if (kycStatus) {

@@ -2254,7 +2254,9 @@ function MDRSchemesTab({ user }: { user: any }) {
             effective_to,
             bbps_commissions:scheme_bbps_commissions (*),
             payout_charges:scheme_payout_charges (*),
-            mdr_rates:scheme_mdr_rates (*)
+            mdr_rates:scheme_mdr_rates (*),
+            aeps_commissions:scheme_aeps_commissions (*),
+            aeps_settlement_charges:scheme_aeps_settlement_charges (*)
           )
         `)
         .eq('entity_id', user.partner_id)
@@ -2796,6 +2798,151 @@ function MDRSchemesTab({ user }: { user: any }) {
                       <td className="px-4 py-3 text-xs text-gray-500 dark:text-gray-400">
                         {charge.effective_date ? new Date(charge.effective_date).toLocaleDateString('en-IN') : '—'}
                       </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </motion.div>
+        )
+      })()}
+
+      {/* AEPS Commissions Section */}
+      {(() => {
+        const allAepsComm: any[] = []
+        const allSchemes = [...customSchemes, ...globalSchemes]
+        allSchemes.forEach((scheme: any) => {
+          if (scheme.aeps_commissions && Array.isArray(scheme.aeps_commissions) && scheme.aeps_commissions.length > 0) {
+            scheme.aeps_commissions.forEach((comm: any) => {
+              if (comm && comm.status === 'active') {
+                allAepsComm.push({
+                  ...comm,
+                  scheme_name: scheme.name,
+                  scheme_type: scheme.scheme_type,
+                })
+              }
+            })
+          }
+        })
+
+        if (allAepsComm.length === 0) return null
+
+        allAepsComm.sort((a, b) => {
+          if (a.transaction_type !== b.transaction_type) return a.transaction_type < b.transaction_type ? -1 : 1
+          return (a.min_amount || 0) - (b.min_amount || 0)
+        })
+
+        return (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.32 }}
+            className="bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 p-6"
+          >
+            <div className="flex items-center gap-2 mb-4">
+              <Fingerprint className="w-5 h-5 text-teal-600 dark:text-teal-400" />
+              <h3 className="text-lg font-bold text-gray-900 dark:text-white">AEPS Commissions</h3>
+              <span className="text-xs bg-teal-100 text-teal-700 dark:bg-teal-900 dark:text-teal-300 px-2 py-0.5 rounded-full">From Scheme</span>
+            </div>
+            <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">Commission rates for AEPS cash withdrawal &amp; deposit transactions</p>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-gray-50 dark:bg-gray-700">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Txn Type</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Amount Range</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Your Commission</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">TDS</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Scheme</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                  {allAepsComm.map((c, index) => (
+                    <tr key={c.id || index} className="hover:bg-gray-50 dark:hover:bg-gray-700">
+                      <td className="px-4 py-3 text-sm">
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
+                          c.transaction_type?.includes('withdrawal')
+                            ? 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200'
+                            : 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                        }`}>
+                          {c.transaction_type?.replace('_', ' ')}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-700 dark:text-gray-300">
+                        ₹{Number(c.min_amount).toLocaleString('en-IN')} – {c.max_amount >= 100000 ? '∞' : `₹${Number(c.max_amount).toLocaleString('en-IN')}`}
+                      </td>
+                      <td className="px-4 py-3 text-sm font-semibold text-green-600 dark:text-green-400">
+                        {c.retailer_commission_type === 'percentage' 
+                          ? `${c.retailer_commission}%` 
+                          : `₹${Number(c.retailer_commission).toLocaleString('en-IN')}`}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">{c.tds_percentage}%</td>
+                      <td className="px-4 py-3 text-xs text-gray-500 dark:text-gray-400">{c.scheme_name}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </motion.div>
+        )
+      })()}
+
+      {/* AEPS Settlement Charges Section */}
+      {(() => {
+        const allAepsSettle: any[] = []
+        const allSchemes = [...customSchemes, ...globalSchemes]
+        allSchemes.forEach((scheme: any) => {
+          if (scheme.aeps_settlement_charges && Array.isArray(scheme.aeps_settlement_charges) && scheme.aeps_settlement_charges.length > 0) {
+            scheme.aeps_settlement_charges.forEach((charge: any) => {
+              if (charge && charge.status === 'active') {
+                allAepsSettle.push({
+                  ...charge,
+                  scheme_name: scheme.name,
+                  scheme_type: scheme.scheme_type,
+                })
+              }
+            })
+          }
+        })
+
+        if (allAepsSettle.length === 0) return null
+
+        allAepsSettle.sort((a, b) => (a.min_amount || 0) - (b.min_amount || 0))
+
+        return (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.34 }}
+            className="bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 p-6"
+          >
+            <div className="flex items-center gap-2 mb-4">
+              <DollarSign className="w-5 h-5 text-purple-600 dark:text-purple-400" />
+              <h3 className="text-lg font-bold text-gray-900 dark:text-white">AEPS Settlement Charges</h3>
+              <span className="text-xs bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300 px-2 py-0.5 rounded-full">From Scheme</span>
+            </div>
+            <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">Charges for settling AEPS wallet balance to your bank account</p>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-gray-50 dark:bg-gray-700">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Amount Range</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Your Charge</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Scheme</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                  {allAepsSettle.map((c, index) => (
+                    <tr key={c.id || index} className="hover:bg-gray-50 dark:hover:bg-gray-700">
+                      <td className="px-4 py-3 text-sm text-gray-700 dark:text-gray-300">
+                        ₹{Number(c.min_amount).toLocaleString('en-IN')} – {c.max_amount >= 100000 ? '∞' : `₹${Number(c.max_amount).toLocaleString('en-IN')}`}
+                      </td>
+                      <td className="px-4 py-3 text-sm font-semibold text-red-600 dark:text-red-400">
+                        {c.retailer_charge_type === 'percentage' 
+                          ? `${c.retailer_charge}%` 
+                          : `₹${Number(c.retailer_charge).toLocaleString('en-IN')}`}
+                      </td>
+                      <td className="px-4 py-3 text-xs text-gray-500 dark:text-gray-400">{c.scheme_name}</td>
                     </tr>
                   ))}
                 </tbody>

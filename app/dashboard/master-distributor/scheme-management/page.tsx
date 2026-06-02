@@ -59,22 +59,43 @@ export default function MasterDistributorSchemeManagementPage() {
     priority: 100,
   })
 
-  // Fetch schemes created by this MD
+  // Fetch schemes created by this MD + schemes assigned to this MD
   const fetchSchemes = useCallback(async () => {
     if (!user?.partner_id) return
     setLoading(true)
     try {
-      let query = supabase
+      const { data: ownSchemes, error: ownErr } = await supabase
         .from('schemes')
         .select('*')
         .eq('created_by_id', user.partner_id)
         .eq('created_by_role', 'master_distributor')
         .order('created_at', { ascending: false })
-      
-      const { data, error } = await query
-      if (error) throw error
-      
-      let filtered = data || []
+      if (ownErr) throw ownErr
+
+      // Fetch schemes assigned to this MD (by admin)
+      const { data: assignedMappings } = await supabase
+        .from('scheme_mappings')
+        .select('scheme_id')
+        .eq('entity_id', user.partner_id)
+        .eq('entity_role', 'master_distributor')
+        .eq('status', 'active')
+
+      const ownIds = new Set((ownSchemes || []).map(s => s.id))
+      const assignedIds = (assignedMappings || [])
+        .map(m => m.scheme_id)
+        .filter(id => !ownIds.has(id))
+
+      let assignedSchemes: any[] = []
+      if (assignedIds.length > 0) {
+        const { data } = await supabase
+          .from('schemes')
+          .select('*')
+          .in('id', assignedIds)
+          .eq('status', 'active')
+        assignedSchemes = (data || []).map(s => ({ ...s, _assigned: true }))
+      }
+
+      let filtered = [...(ownSchemes || []), ...assignedSchemes]
       if (searchQuery) {
         filtered = filtered.filter(s => 
           s.name.toLowerCase().includes(searchQuery.toLowerCase()) ||

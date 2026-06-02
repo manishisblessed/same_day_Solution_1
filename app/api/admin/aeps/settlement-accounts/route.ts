@@ -38,7 +38,10 @@ export async function GET(request: NextRequest) {
 
     if (error) {
       console.error('[Admin AEPS Settle Accounts] Query error:', error)
-      return NextResponse.json({ success: true, accounts: [] })
+      return NextResponse.json(
+        { error: 'Failed to fetch settlement accounts', details: error.message },
+        { status: 500 }
+      )
     }
 
     // Enrich with user details
