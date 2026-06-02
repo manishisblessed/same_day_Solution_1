@@ -31,5 +31,6 @@ ALTER TABLE wallet_ledger ADD CONSTRAINT wallet_ledger_transaction_type_check
     'REVERSAL',
     'SUBSCRIPTION_DEBIT',
     'POS_RENTAL_COMMISSION',
-    'SUBSCRIPTION_REVENUE'
+    'SUBSCRIPTION_REVENUE',
+    'AEPS_SETTLEMENT'
   ));
