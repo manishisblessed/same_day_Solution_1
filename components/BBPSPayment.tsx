@@ -187,6 +187,7 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
   const [amountType, setAmountType] = useState<'full' | 'minimum' | 'custom'>('full')
   const [customAmountError, setCustomAmountError] = useState<string | null>(null)
   const [paymentCharges, setPaymentCharges] = useState<number>(0)
+  const [paymentSchemeName, setPaymentSchemeName] = useState<string | null>(null)
   const [loadingCharges, setLoadingCharges] = useState(false)
   const [tpin, setTpin] = useState('')
   const [tpinError, setTpinError] = useState<string | null>(null)
@@ -200,6 +201,7 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
   const [prepaidAmount, setPrepaidAmount] = useState<string>('')
   const [showPrepaidConfirm, setShowPrepaidConfirm] = useState(false)
   const [prepaidCharges, setPrepaidCharges] = useState<number>(0)
+  const [prepaidSchemeName, setPrepaidSchemeName] = useState<string | null>(null)
   const [bbpsLimitTier, setBbpsLimitTier] = useState<number>(49999)
 
   // Receipt modal state
@@ -501,7 +503,7 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
   }
 
   // Calculate BBPS charges for a given amount using scheme engine
-  const fetchBBPSCharges = async (amountInRupees: number): Promise<number> => {
+  const fetchBBPSCharges = async (amountInRupees: number): Promise<{ charge: number; schemeName: string | null }> => {
     try {
       setLoadingCharges(true)
       
@@ -516,7 +518,7 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
               const schemeData = await res.json()
               if (schemeData.resolved && schemeData.charges) {
                 console.log(`[BBPS] Scheme "${schemeData.scheme?.name}" charge: ₹${schemeData.charges.retailer_charge}`)
-                return schemeData.charges.retailer_charge
+                return { charge: schemeData.charges.retailer_charge, schemeName: schemeData.scheme?.name || null }
               }
             } else {
               console.warn(`[BBPS] Scheme charge API returned non-JSON response (${contentType})`)
@@ -536,19 +538,19 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
       })
       
       if (!error && chargeData !== null) {
-        return chargeData
+        return { charge: chargeData, schemeName: null }
       }
       
       // Fallback: Calculate charge locally based on common BBPS slabs
-      if (amountInRupees <= 500) return 5
-      if (amountInRupees <= 1000) return 10
-      if (amountInRupees <= 2000) return 15
-      if (amountInRupees <= 5000) return 20
-      if (amountInRupees <= 10000) return 25
-      return 30 // Default for amounts > 10000
+      if (amountInRupees <= 500) return { charge: 5, schemeName: null }
+      if (amountInRupees <= 1000) return { charge: 10, schemeName: null }
+      if (amountInRupees <= 2000) return { charge: 15, schemeName: null }
+      if (amountInRupees <= 5000) return { charge: 20, schemeName: null }
+      if (amountInRupees <= 10000) return { charge: 25, schemeName: null }
+      return { charge: 30, schemeName: null } // Default for amounts > 10000
     } catch (error) {
       console.error('Error fetching BBPS charges:', error)
-      return 20 // Default fallback charge
+      return { charge: 20, schemeName: null } // Default fallback charge
     } finally {
       setLoadingCharges(false)
     }
@@ -657,8 +659,9 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
     }
     
     // Fetch charges for the selected amount
-    const charges = await fetchBBPSCharges(selectedAmount)
+    const { charge: charges, schemeName } = await fetchBBPSCharges(selectedAmount)
     setPaymentCharges(charges)
+    setPaymentSchemeName(schemeName)
     
     // Check wallet balance
     const totalDeduction = selectedAmount + charges
@@ -1450,8 +1453,9 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
     }
 
     // Fetch charges
-    const charges = await fetchBBPSCharges(amount)
+    const { charge: charges, schemeName } = await fetchBBPSCharges(amount)
     setPrepaidCharges(charges)
+    setPrepaidSchemeName(schemeName)
 
     // Check wallet balance
     const totalDeduction = amount + charges
@@ -2137,7 +2141,14 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
                       <td className="px-4 py-3 text-sm font-medium text-gray-900 dark:text-white">₹{parseFloat(prepaidAmount).toFixed(2)}</td>
                     </tr>
                     <tr>
-                      <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-700/50">Service Charges</td>
+                      <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-700/50">
+                        Service Charges
+                        {prepaidSchemeName && (
+                          <span className="ml-1.5 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400">
+                            {prepaidSchemeName}
+                          </span>
+                        )}
+                      </td>
                       <td className="px-4 py-3 text-sm font-medium text-orange-600 dark:text-orange-400">₹{prepaidCharges.toFixed(2)}</td>
                     </tr>
                     <tr className="bg-blue-50 dark:bg-blue-900/20">
@@ -2565,8 +2576,15 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
                       </td>
                     </tr>
                     <tr>
-                      <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-700/50">Charges</td>
-                      <td className="px-4 py-3 text-sm font-medium text-gray-900 dark:text-white">
+                      <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-700/50">
+                        Charges
+                        {paymentSchemeName && (
+                          <span className="ml-1.5 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400">
+                            {paymentSchemeName}
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-sm font-medium text-orange-600 dark:text-orange-400">
                         ₹{paymentCharges.toFixed(2)}
                       </td>
                     </tr>

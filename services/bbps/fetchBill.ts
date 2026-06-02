@@ -145,7 +145,7 @@ export async function fetchBill(
     let enquiryId = providedEnquiryId?.trim() || ''
     try {
       console.log('[Chagans fetchBill] Refreshing enquiryId from getBillerField for biller:', billerId)
-      const freshInfo = await fetchBillerInfo({ billerId })
+      const freshInfo = await fetchBillerInfo({ billerId, skipCache: true })
       if (freshInfo.enquiryId) {
         console.log('[Chagans fetchBill] Fresh enquiryId obtained:', freshInfo.enquiryId, '(old:', enquiryId || 'none', ')')
         enquiryId = freshInfo.enquiryId

@@ -1208,6 +1208,9 @@ function WalletTab({ user }: { user: any }) {
   const [settlementAmount, setSettlementAmount] = useState('')
   const [settlementLimitTier, setSettlementLimitTier] = useState<number>(100000)
   const [settlementAmountError, setSettlementAmountError] = useState<string | null>(null)
+  const [settlementCharge, setSettlementCharge] = useState<number | null>(null)
+  const [settlementChargeLoading, setSettlementChargeLoading] = useState(false)
+  const [settlementSchemeName, setSettlementSchemeName] = useState<string | null>(null)
   const [bankDetails, setBankDetails] = useState({
     account_number: '',
     ifsc: '',
@@ -1219,6 +1222,7 @@ function WalletTab({ user }: { user: any }) {
   const [aepsSettlementProcessing, setAepsSettlementProcessing] = useState(false)
   const [aepsSettleCharge, setAepsSettleCharge] = useState<number | null>(null)
   const [aepsSettleChargeLoading, setAepsSettleChargeLoading] = useState(false)
+  const [aepsSettleSchemeName, setAepsSettleSchemeName] = useState<string | null>(null)
   const [aepsSettleConfirmed, setAepsSettleConfirmed] = useState(false)
   const [showAepsTransfer, setShowAepsTransfer] = useState(false)
   const [aepsTransferAmount, setAepsTransferAmount] = useState('')
@@ -1363,6 +1367,21 @@ function WalletTab({ user }: { user: any }) {
     }
   }
 
+  const fetchSettlementCharge = async (amt: number) => {
+    if (amt <= 0 || !user?.partner_id) { setSettlementCharge(null); setSettlementSchemeName(null); return }
+    setSettlementChargeLoading(true)
+    try {
+      const res = await apiFetchJson<{ resolved: boolean; charges?: { retailer_charge: number }; scheme?: { name: string } }>(`/api/schemes/resolve-charges?service_type=payout&amount=${amt}&transfer_mode=IMPS&user_id=${user.partner_id}`)
+      setSettlementCharge(res.resolved && res.charges ? res.charges.retailer_charge : 0)
+      setSettlementSchemeName(res.resolved && res.scheme ? res.scheme.name : null)
+    } catch {
+      setSettlementCharge(0)
+      setSettlementSchemeName(null)
+    } finally {
+      setSettlementChargeLoading(false)
+    }
+  }
+
   const handleSettlement = async () => {
     if (!settlementAmount || parseFloat(settlementAmount) <= 0) {
       alert('Please enter a valid settlement amount')
@@ -1399,6 +1418,8 @@ function WalletTab({ user }: { user: any }) {
         alert('Settlement request created successfully!')
         setShowSettlement(false)
         setSettlementAmount('')
+        setSettlementCharge(null)
+        setSettlementSchemeName(null)
         setBankDetails({ account_number: '', ifsc: '', account_name: '' })
         fetchWalletData()
       } else {
@@ -1411,13 +1432,15 @@ function WalletTab({ user }: { user: any }) {
   }
 
   const fetchAepsSettleCharge = async (amt: number) => {
-    if (amt <= 0 || !user?.partner_id) { setAepsSettleCharge(null); return }
+    if (amt <= 0 || !user?.partner_id) { setAepsSettleCharge(null); setAepsSettleSchemeName(null); return }
     setAepsSettleChargeLoading(true)
     try {
-      const res = await apiFetchJson<{ resolved: boolean; charges?: { retailer_charge: number } }>(`/api/schemes/resolve-charges?service_type=aeps_settlement&amount=${amt}&user_id=${user.partner_id}`)
+      const res = await apiFetchJson<{ resolved: boolean; charges?: { retailer_charge: number }; scheme?: { name: string } }>(`/api/schemes/resolve-charges?service_type=aeps_settlement&amount=${amt}&user_id=${user.partner_id}`)
       setAepsSettleCharge(res.resolved && res.charges ? res.charges.retailer_charge : 0)
+      setAepsSettleSchemeName(res.resolved && res.scheme ? res.scheme.name : null)
     } catch {
       setAepsSettleCharge(0)
+      setAepsSettleSchemeName(null)
     } finally {
       setAepsSettleChargeLoading(false)
     }
@@ -1598,6 +1621,13 @@ function WalletTab({ user }: { user: any }) {
                     if (value === '' || /^\d*\.?\d*$/.test(value)) {
                       setSettlementAmount(value)
                       setSettlementAmountError(null)
+                      const numVal = parseFloat(value)
+                      if (!isNaN(numVal) && numVal > 0) {
+                        fetchSettlementCharge(numVal)
+                      } else {
+                        setSettlementCharge(null)
+                        setSettlementSchemeName(null)
+                      }
                     }
                   }}
                   onBlur={() => {
@@ -1635,6 +1665,44 @@ function WalletTab({ user }: { user: any }) {
                   )}
                 </div>
               </div>
+
+              {/* Charge breakdown */}
+              {settlementAmount && parseFloat(settlementAmount) > 0 && (
+                <div className="p-3 bg-gray-50 dark:bg-gray-700/50 border border-gray-200 dark:border-gray-600 rounded-lg text-sm space-y-1.5">
+                  {settlementChargeLoading ? (
+                    <p className="text-gray-500 text-center">Calculating charge...</p>
+                  ) : (
+                    <>
+                      {settlementSchemeName && (
+                        <div className="flex items-center gap-1.5 mb-1 text-xs text-purple-600 dark:text-purple-400">
+                          <span className="inline-block w-1.5 h-1.5 bg-purple-500 rounded-full"></span>
+                          Scheme: {settlementSchemeName}
+                        </div>
+                      )}
+                      <div className="flex justify-between">
+                        <span className="text-gray-600 dark:text-gray-400">Transfer Amount</span>
+                        <span className="font-semibold text-gray-900 dark:text-white">₹{parseFloat(settlementAmount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                      </div>
+                      {(settlementCharge ?? 0) > 0 && (
+                        <div className="flex justify-between">
+                          <span className="text-gray-600 dark:text-gray-400">
+                            Settlement charge
+                            {settlementSchemeName && (
+                              <span className="ml-1 text-[10px] text-purple-600 dark:text-purple-400">(from scheme)</span>
+                            )}
+                          </span>
+                          <span className="font-medium text-orange-600 dark:text-orange-400">₹{(settlementCharge ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                        </div>
+                      )}
+                      <div className="border-t border-gray-200 dark:border-gray-600 pt-1.5 flex justify-between">
+                        <span className="font-semibold text-gray-900 dark:text-white">Total deduction</span>
+                        <span className="font-bold text-gray-900 dark:text-white">₹{(parseFloat(settlementAmount) + (settlementCharge ?? 0)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+
               <div>
                 <label className="block text-sm font-medium mb-1">Bank Account Number</label>
                 <input
@@ -1818,12 +1886,23 @@ function WalletTab({ user }: { user: any }) {
                     <p className="text-gray-500 text-center">Calculating charge...</p>
                   ) : (
                     <>
+                      {aepsSettleSchemeName && (
+                        <div className="flex items-center gap-1.5 mb-1 text-xs text-purple-600 dark:text-purple-400">
+                          <span className="inline-block w-1.5 h-1.5 bg-purple-500 rounded-full"></span>
+                          Scheme: {aepsSettleSchemeName}
+                        </div>
+                      )}
                       <div className="flex justify-between">
                         <span className="text-gray-600 dark:text-gray-400">You will receive in bank</span>
                         <span className="font-semibold text-green-700 dark:text-green-400">₹{parseFloat(aepsSettlementAmount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-gray-600 dark:text-gray-400">Settlement charge</span>
+                        <span className="text-gray-600 dark:text-gray-400">
+                          Settlement charge
+                          {aepsSettleSchemeName && (
+                            <span className="ml-1 text-[10px] text-purple-600 dark:text-purple-400">(from scheme)</span>
+                          )}
+                        </span>
                         <span className="font-medium text-orange-600 dark:text-orange-400">₹{(aepsSettleCharge ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
                       </div>
                       <div className="border-t border-gray-200 dark:border-gray-600 pt-1.5 flex justify-between">
@@ -1879,7 +1958,7 @@ function WalletTab({ user }: { user: any }) {
                   className={`flex-1 text-white py-2 px-4 rounded-lg disabled:opacity-50 ${aepsSettleConfirmed ? 'bg-green-600 hover:bg-green-700' : 'bg-purple-600 hover:bg-purple-700'}`}>
                   {aepsSettlementProcessing ? 'Processing...' : aepsSettleConfirmed ? 'Confirm & Settle' : 'Settle to Bank'}
                 </button>
-                <button onClick={() => { setShowAepsSettlement(false); setAepsSettleConfirmed(false); setAepsSettleCharge(null) }}
+                <button onClick={() => { setShowAepsSettlement(false); setAepsSettleConfirmed(false); setAepsSettleCharge(null); setAepsSettleSchemeName(null) }}
                   className="flex-1 bg-gray-200 text-gray-700 py-2 px-4 rounded-lg hover:bg-gray-300">
                   Cancel
                 </button>

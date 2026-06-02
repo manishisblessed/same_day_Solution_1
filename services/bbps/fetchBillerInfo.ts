@@ -17,6 +17,8 @@ import { getMockBillerInfo } from './mocks/fetchBillerInfo'
  */
 export interface FetchBillerInfoParams {
   billerId: string
+  /** Bypass server-side cache (e.g. to get a fresh enquiryId for Chagans) */
+  skipCache?: boolean
 }
 
 /**
@@ -66,7 +68,7 @@ function setCachedFields(billerId: string, data: BBPSBillerInfo) {
 export async function fetchBillerInfo(
   params: FetchBillerInfoParams
 ): Promise<BBPSBillerInfo> {
-  const { billerId } = params
+  const { billerId, skipCache } = params
   const reqId = generateReqId()
 
   // Validate input
@@ -80,11 +82,12 @@ export async function fetchBillerInfo(
     return getMockBillerInfo(billerId)
   }
 
-  // Return cached field definitions (enquiryId will be refreshed by fetchBill anyway)
-  const cached = getCachedFields(billerId)
-  if (cached) {
-    logBBPSApiCall('fetchBillerInfo', reqId, billerId, 'CACHE')
-    return cached
+  if (!skipCache) {
+    const cached = getCachedFields(billerId)
+    if (cached) {
+      logBBPSApiCall('fetchBillerInfo', reqId, billerId, 'CACHE')
+      return cached
+    }
   }
 
   if (getBBPSProvider() === 'chagans') {

@@ -3,6 +3,7 @@ import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { createClient, SupabaseClient } from '@supabase/supabase-js'
 import { addCorsHeaders } from '@/lib/cors'
 import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger'
+import { calculatePayoutCharge } from '@/lib/scheme/scheme.service'
 
 // Generate idempotency key using crypto
 function generateIdempotencyKey(prefix: string): string {
@@ -11,24 +12,22 @@ function generateIdempotencyKey(prefix: string): string {
   return `${prefix}_${timestamp}_${random}`
 }
 
-export const runtime = 'nodejs' // Force Node.js runtime (Supabase not compatible with Edge Runtime)
+export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-// FIX: Calculate settlement charge based on amount slabs
-// Query: min_amount <= amount <= max_amount
-async function calculateSettlementCharge(supabase: SupabaseClient, amount: number): Promise<number> {
+// Legacy fallback: settlement_charge_slabs table
+async function calculateLegacySettlementCharge(supabase: SupabaseClient, amount: number): Promise<number> {
   const { data: slabs, error } = await supabase
     .from('settlement_charge_slabs')
     .select('charge')
     .eq('is_active', true)
-    .lte('min_amount', amount) // FIX: min_amount <= amount
-    .gte('max_amount', amount) // FIX: max_amount >= amount
+    .lte('min_amount', amount)
+    .gte('max_amount', amount)
     .order('charge', { ascending: true })
     .limit(1)
     .single()
 
   if (error || !slabs) {
-    // Default charge if no slab found - use slab-based defaults
     if (amount <= 49999) return 20
     if (amount <= 99999) return 30
     if (amount <= 149999) return 50
@@ -36,6 +35,78 @@ async function calculateSettlementCharge(supabase: SupabaseClient, amount: numbe
   }
 
   return parseFloat(slabs.charge.toString())
+}
+
+interface SettlementChargeResult {
+  charge: number
+  scheme_id: string | null
+  scheme_name: string | null
+  resolved_via: string | null
+  commission_split: {
+    distributor_commission: number
+    md_commission: number
+    company_earning: number
+  } | null
+}
+
+async function calculateSettlementCharge(
+  supabase: SupabaseClient,
+  userId: string,
+  userRole: string,
+  amount: number
+): Promise<SettlementChargeResult> {
+  // Try scheme engine first
+  try {
+    let distributorId: string | undefined
+    let mdId: string | undefined
+
+    if (userRole === 'retailer') {
+      const { data: retailer } = await supabase
+        .from('retailers')
+        .select('distributor_id, master_distributor_id')
+        .eq('partner_id', userId)
+        .maybeSingle()
+      distributorId = retailer?.distributor_id || undefined
+      mdId = retailer?.master_distributor_id || undefined
+    } else if (userRole === 'distributor') {
+      const { data: dist } = await supabase
+        .from('distributors')
+        .select('master_distributor_id')
+        .eq('partner_id', userId)
+        .maybeSingle()
+      mdId = dist?.master_distributor_id || undefined
+    }
+
+    const breakdown = await calculatePayoutCharge(userId, userRole, amount, 'IMPS', distributorId, mdId)
+
+    if (breakdown && breakdown.retailer_charge > 0) {
+      console.log(`[Settlement] Scheme charge: ₹${breakdown.retailer_charge} from "${breakdown.scheme_name}" via ${breakdown.resolved_via}`)
+      return {
+        charge: breakdown.retailer_charge,
+        scheme_id: breakdown.scheme_id,
+        scheme_name: breakdown.scheme_name,
+        resolved_via: breakdown.resolved_via,
+        commission_split: {
+          distributor_commission: breakdown.distributor_commission,
+          md_commission: breakdown.md_commission,
+          company_earning: breakdown.company_earning,
+        },
+      }
+    }
+  } catch (err) {
+    console.warn('[Settlement] Scheme engine failed, falling back to legacy:', err)
+  }
+
+  // Fallback to legacy settlement_charge_slabs
+  const legacyCharge = await calculateLegacySettlementCharge(supabase, amount)
+  console.log(`[Settlement] Legacy charge: ₹${legacyCharge}`)
+  return {
+    charge: legacyCharge,
+    scheme_id: null,
+    scheme_name: null,
+    resolved_via: 'legacy_slabs',
+    commission_split: null,
+  }
 }
 
 // Check settlement limits
@@ -191,8 +262,9 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Calculate charge
-    const charge = await calculateSettlementCharge(supabase, amountDecimal)
+    // Calculate charge via scheme engine (with legacy fallback)
+    const chargeResult = await calculateSettlementCharge(supabase, user.partner_id, user.role, amountDecimal)
+    const charge = chargeResult.charge
     const netAmount = amountDecimal - charge
 
     // Check if sufficient balance (including charge)
@@ -259,7 +331,15 @@ export async function POST(request: NextRequest) {
         bank_ifsc: bank_ifsc,
         bank_account_name: bank_account_name,
         status: 'pending',
-        idempotency_key: idempotencyKey
+        idempotency_key: idempotencyKey,
+        ...(chargeResult.scheme_id ? {
+          scheme_id: chargeResult.scheme_id,
+          charge_breakdown: {
+            scheme_name: chargeResult.scheme_name,
+            resolved_via: chargeResult.resolved_via,
+            ...chargeResult.commission_split,
+          },
+        } : {}),
       })
       .select()
       .single()
