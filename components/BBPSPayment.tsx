@@ -511,46 +511,50 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
       if (user?.partner_id) {
         try {
           const category = selectedCategory || selectedBiller?.category || ''
+          console.log(`[BBPS] Fetching scheme charges: amount=₹${amountInRupees}, category="${category}", user=${user.partner_id}`)
           const res = await fetch(`/api/schemes/resolve-charges?service_type=bbps&amount=${amountInRupees}&category=${encodeURIComponent(category)}&user_id=${user.partner_id}`)
           if (res.ok) {
             const contentType = res.headers.get('content-type') || ''
             if (contentType.includes('application/json')) {
               const schemeData = await res.json()
+              console.log(`[BBPS] Scheme API response:`, JSON.stringify(schemeData))
               if (schemeData.resolved && schemeData.charges) {
-                console.log(`[BBPS] Scheme "${schemeData.scheme?.name}" charge: ₹${schemeData.charges.retailer_charge}`)
-                return { charge: schemeData.charges.retailer_charge, schemeName: schemeData.scheme?.name || null }
+                const charge = schemeData.charges.retailer_charge
+                console.log(`[BBPS] ✅ Using scheme "${schemeData.scheme?.name}" charge: ₹${charge}`)
+                return { charge, schemeName: schemeData.scheme?.name || null }
               }
+              console.warn(`[BBPS] Scheme resolved=${schemeData.resolved} but charges=${JSON.stringify(schemeData.charges)} — falling back`)
             } else {
               console.warn(`[BBPS] Scheme charge API returned non-JSON response (${contentType})`)
             }
           } else {
-            console.warn(`[BBPS] Scheme charge API returned ${res.status}, falling back to legacy`)
+            const errText = await res.text().catch(() => '')
+            console.warn(`[BBPS] Scheme charge API returned ${res.status}: ${errText}`)
           }
         } catch (schemeErr) {
-          console.warn('[BBPS] Scheme charge resolution failed, using legacy:', schemeErr)
+          console.warn('[BBPS] Scheme charge resolution failed:', schemeErr)
         }
+      } else {
+        console.warn('[BBPS] No partner_id available, skipping scheme resolution')
       }
       
-      // Fallback: Try legacy Supabase RPC
+      // Fallback: Try legacy Supabase RPC (should NOT be used if scheme is configured)
+      console.warn('[BBPS] ⚠️ Falling back to legacy calculate_transaction_charge RPC — scheme charges were not resolved')
       const { data: chargeData, error } = await supabase.rpc('calculate_transaction_charge', {
         p_amount: amountInRupees,
         p_transaction_type: 'bbps'
       })
       
       if (!error && chargeData !== null) {
+        console.warn(`[BBPS] Legacy RPC returned charge: ₹${chargeData} (this may not match your scheme)`)
         return { charge: chargeData, schemeName: null }
       }
       
-      // Fallback: Calculate charge locally based on common BBPS slabs
-      if (amountInRupees <= 500) return { charge: 5, schemeName: null }
-      if (amountInRupees <= 1000) return { charge: 10, schemeName: null }
-      if (amountInRupees <= 2000) return { charge: 15, schemeName: null }
-      if (amountInRupees <= 5000) return { charge: 20, schemeName: null }
-      if (amountInRupees <= 10000) return { charge: 25, schemeName: null }
-      return { charge: 30, schemeName: null } // Default for amounts > 10000
+      console.error('[BBPS] Both scheme API and legacy RPC failed, using ₹0 as fallback')
+      return { charge: 0, schemeName: null }
     } catch (error) {
       console.error('Error fetching BBPS charges:', error)
-      return { charge: 20, schemeName: null } // Default fallback charge
+      return { charge: 0, schemeName: null }
     } finally {
       setLoadingCharges(false)
     }
