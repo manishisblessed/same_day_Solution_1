@@ -64,7 +64,10 @@ export async function getBankIdFromBankList(
       bankListOptions.neftOnly = true
     }
     
-    // Search by IFSC or bank name
+    // IFSC prefix = first 4 chars (identifies the bank, e.g. "ICIC" for ICICI)
+    const ifscPrefix = normalizedIfsc.substring(0, 4)
+    
+    // Search by full IFSC first, then prefix, then bank name
     if (normalizedIfsc) {
       bankListOptions.searchQuery = normalizedIfsc
     } else if (bankName) {
@@ -73,24 +76,38 @@ export async function getBankIdFromBankList(
     
     let bankListResult = await getBankList(bankListOptions)
     
-    // If IMPS/NEFT filter hides the branch row, retry once with same IFSC search but no mode filter
+    // If full IFSC search returned nothing, retry with IFSC prefix (bank code)
+    // SparkUp bankList typically stores parent-level IFSCs, not branch-level
+    if (
+      (!bankListResult.success || !bankListResult.banks || bankListResult.banks.length === 0) &&
+      normalizedIfsc
+    ) {
+      console.log('[Payout] Full IFSC search empty, retrying with prefix:', { ifscPrefix, transferMode })
+      bankListResult = await getBankList({
+        searchQuery: ifscPrefix,
+        ...(transferMode === 'IMPS' ? { impsOnly: true } : {}),
+        ...(transferMode === 'NEFT' ? { neftOnly: true } : {}),
+      })
+    }
+    
+    // If mode filter hides the bank, retry prefix search without mode filter
     if (
       (!bankListResult.success || !bankListResult.banks || bankListResult.banks.length === 0) &&
       (transferMode === 'IMPS' || transferMode === 'NEFT') &&
       normalizedIfsc
     ) {
-      console.warn('[Payout] bankList empty with mode filter, retrying without IMPS/NEFT filter:', {
-        ifsc: normalizedIfsc,
+      console.warn('[Payout] bankList empty with mode filter, retrying prefix without filter:', {
+        ifscPrefix,
         transferMode,
       })
       bankListResult = await getBankList({
-        searchQuery: normalizedIfsc,
+        searchQuery: ifscPrefix,
         useCache: true,
       })
     }
 
     if (!bankListResult.success || !bankListResult.banks || bankListResult.banks.length === 0) {
-      console.warn('[Payout] Bank not found in bankList:', { ifsc: normalizedIfsc, bankName })
+      console.warn('[Payout] Bank not found in bankList:', { ifsc: normalizedIfsc, ifscPrefix, bankName })
       return null
     }
     
@@ -99,7 +116,14 @@ export async function getBankIdFromBankList(
       b.ifsc && b.ifsc.toUpperCase() === normalizedIfsc
     )
     
-    // If no exact IFSC match, try to match by bank name
+    // Match by IFSC prefix (first 4 chars identify the bank)
+    if (!matchedBank) {
+      matchedBank = bankListResult.banks.find(b => 
+        b.ifsc && b.ifsc.substring(0, 4).toUpperCase() === ifscPrefix
+      )
+    }
+    
+    // If no IFSC match, try to match by bank name
     if (!matchedBank && bankName) {
       const normalizedBankName = bankName.trim().toUpperCase()
       matchedBank = bankListResult.banks.find(b => 

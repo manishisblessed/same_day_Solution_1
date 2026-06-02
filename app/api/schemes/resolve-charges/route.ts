@@ -545,8 +545,9 @@ export async function GET(request: NextRequest) {
 
     if (serviceType === 'bbps') {
       let charges: any = null
+      let chargeMethod = 'none'
       
-      // Try RPC
+      // Try RPC first
       try {
         const { data: chargeResult, error: chargeError } = await supabase.rpc('calculate_bbps_charge_from_scheme', {
           p_scheme_id: resolved.scheme_id,
@@ -564,23 +565,30 @@ export async function GET(request: NextRequest) {
             md_commission: parseFloat(chargeResult[0].md_commission) || 0,
             company_earning: parseFloat(chargeResult[0].company_earning) || 0,
           }
+          chargeMethod = 'rpc'
           console.log(`[resolve-charges] BBPS charge via RPC: ₹${charges.retailer_charge}`)
+        } else {
+          console.warn(`[resolve-charges] BBPS charge RPC returned empty for scheme=${resolved.scheme_id}, amount=${amount}, category=${category}`)
         }
       } catch (err: any) {
         console.error(`[resolve-charges] BBPS charge RPC exception:`, err.message)
       }
 
-      // Fallback: Direct query (admin only)
-      if ((!charges || charges.retailer_charge === 0) && clientMode === 'admin') {
+      // Fallback: Direct table query (always try, not just admin mode)
+      if (!charges || charges.retailer_charge === 0) {
+        console.log(`[resolve-charges] BBPS: RPC failed/empty, trying direct query (client=${clientMode})`)
         const directCharges = await calculateBBPSChargeDirectQuery(supabase, resolved.scheme_id, amount, category || null)
         if (directCharges) {
           charges = directCharges
+          chargeMethod = 'direct_query'
           console.log(`[resolve-charges] BBPS charge via direct query: ₹${charges.retailer_charge}`)
+        } else {
+          console.error(`[resolve-charges] BBPS direct query also returned null for scheme=${resolved.scheme_id}, amount=${amount}, category=${category}`)
         }
       }
 
       const elapsed = Date.now() - reqStart
-      console.log(`[resolve-charges] << BBPS response: scheme="${resolved.scheme_name}", charge=₹${charges?.retailer_charge ?? 'null'} [${elapsed}ms]`)
+      console.log(`[resolve-charges] << BBPS response: scheme="${resolved.scheme_name}", charge=₹${charges?.retailer_charge ?? 'null'}, method=${chargeMethod} [${elapsed}ms]`)
 
       return NextResponse.json({
         resolved: true,
@@ -591,7 +599,7 @@ export async function GET(request: NextRequest) {
           resolved_via: resolved.resolved_via,
         },
         charges: charges,
-        _debug: { resolution_method: resolutionMethod, client_mode: clientMode },
+        _debug: { resolution_method: resolutionMethod, charge_method: chargeMethod, client_mode: clientMode },
       })
     }
 

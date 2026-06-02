@@ -472,14 +472,9 @@ export async function POST(request: NextRequest) {
       }
     }
     
-    // Final fallback to legacy RPC if no scheme resolved at all
     if (!resolvedSchemeId) {
-      console.warn(`[BBPS Pay] No scheme resolved (RPC + direct query failed), using legacy charge`)
-      const { data: chargeData } = await (supabase as any).rpc('calculate_transaction_charge', {
-        p_amount: billAmountInRupees,
-        p_transaction_type: 'bbps'
-      })
-      bbpsCharge = chargeData || 20
+      console.error(`[BBPS Pay] No scheme resolved for user=${user.partner_id} — charge will be ₹0`)
+      bbpsCharge = 0
     }
     
     // Total amount needed (bill + charge)

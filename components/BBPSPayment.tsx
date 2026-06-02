@@ -502,58 +502,46 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
     }
   }
 
-  // Calculate BBPS charges for a given amount using scheme engine
+  // Calculate BBPS charges using scheme engine ONLY (no legacy fallbacks)
   const fetchBBPSCharges = async (amountInRupees: number): Promise<{ charge: number; schemeName: string | null }> => {
     try {
       setLoadingCharges(true)
       
-      // Try scheme-based charge resolution first
-      if (user?.partner_id) {
-        try {
-          const category = selectedCategory || selectedBiller?.category || ''
-          console.log(`[BBPS] Fetching scheme charges: amount=₹${amountInRupees}, category="${category}", user=${user.partner_id}`)
-          const res = await fetch(`/api/schemes/resolve-charges?service_type=bbps&amount=${amountInRupees}&category=${encodeURIComponent(category)}&user_id=${user.partner_id}`)
-          if (res.ok) {
-            const contentType = res.headers.get('content-type') || ''
-            if (contentType.includes('application/json')) {
-              const schemeData = await res.json()
-              console.log(`[BBPS] Scheme API response:`, JSON.stringify(schemeData))
-              if (schemeData.resolved && schemeData.charges) {
-                const charge = schemeData.charges.retailer_charge
-                console.log(`[BBPS] ✅ Using scheme "${schemeData.scheme?.name}" charge: ₹${charge}`)
-                return { charge, schemeName: schemeData.scheme?.name || null }
-              }
-              console.warn(`[BBPS] Scheme resolved=${schemeData.resolved} but charges=${JSON.stringify(schemeData.charges)} — falling back`)
-            } else {
-              console.warn(`[BBPS] Scheme charge API returned non-JSON response (${contentType})`)
-            }
-          } else {
-            const errText = await res.text().catch(() => '')
-            console.warn(`[BBPS] Scheme charge API returned ${res.status}: ${errText}`)
-          }
-        } catch (schemeErr) {
-          console.warn('[BBPS] Scheme charge resolution failed:', schemeErr)
-        }
-      } else {
-        console.warn('[BBPS] No partner_id available, skipping scheme resolution')
+      if (!user?.partner_id) {
+        console.error('[BBPS] No partner_id available, cannot resolve charges')
+        return { charge: 0, schemeName: null }
       }
+
+      const category = selectedCategory || selectedBiller?.category || ''
+      console.log(`[BBPS] Fetching scheme charges: amount=₹${amountInRupees}, category="${category}", user=${user.partner_id}`)
       
-      // Fallback: Try legacy Supabase RPC (should NOT be used if scheme is configured)
-      console.warn('[BBPS] ⚠️ Falling back to legacy calculate_transaction_charge RPC — scheme charges were not resolved')
-      const { data: chargeData, error } = await supabase.rpc('calculate_transaction_charge', {
-        p_amount: amountInRupees,
-        p_transaction_type: 'bbps'
-      })
+      const res = await fetch(`/api/schemes/resolve-charges?service_type=bbps&amount=${amountInRupees}&category=${encodeURIComponent(category)}&user_id=${user.partner_id}`)
       
-      if (!error && chargeData !== null) {
-        console.warn(`[BBPS] Legacy RPC returned charge: ₹${chargeData} (this may not match your scheme)`)
-        return { charge: chargeData, schemeName: null }
+      if (!res.ok) {
+        const errText = await res.text().catch(() => '')
+        console.error(`[BBPS] Scheme API error ${res.status}: ${errText}`)
+        return { charge: 0, schemeName: null }
       }
-      
-      console.error('[BBPS] Both scheme API and legacy RPC failed, using ₹0 as fallback')
+
+      const contentType = res.headers.get('content-type') || ''
+      if (!contentType.includes('application/json')) {
+        console.error(`[BBPS] Scheme API returned non-JSON (${contentType})`)
+        return { charge: 0, schemeName: null }
+      }
+
+      const schemeData = await res.json()
+      console.log(`[BBPS] Scheme API response:`, JSON.stringify(schemeData))
+
+      if (schemeData.resolved && schemeData.charges && schemeData.charges.retailer_charge != null) {
+        const charge = schemeData.charges.retailer_charge
+        console.log(`[BBPS] ✅ Using scheme "${schemeData.scheme?.name}" charge: ₹${charge}`)
+        return { charge, schemeName: schemeData.scheme?.name || null }
+      }
+
+      console.error(`[BBPS] Scheme resolution incomplete: resolved=${schemeData.resolved}, charges=${JSON.stringify(schemeData.charges)}`)
       return { charge: 0, schemeName: null }
     } catch (error) {
-      console.error('Error fetching BBPS charges:', error)
+      console.error('[BBPS] Error fetching charges:', error)
       return { charge: 0, schemeName: null }
     } finally {
       setLoadingCharges(false)
