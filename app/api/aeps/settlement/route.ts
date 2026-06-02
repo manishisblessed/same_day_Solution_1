@@ -64,6 +64,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid amount' }, { status: 400 });
     }
 
+    if (amountDecimal < 1001) {
+      return NextResponse.json({
+        error: 'Minimum AEPS settlement amount is ₹1,001. Please enter a higher amount.',
+        min_amount: 1001,
+      }, { status: 400 });
+    }
+
     // Step 6: Only allow settlement to admin-approved accounts
     const { data: settleAccount, error: acctErr } = await supabase
       .from('aeps_settlement_accounts')
@@ -245,7 +252,7 @@ export async function POST(request: NextRequest) {
       ifscCode: bank_ifsc,
       accountHolderName: bank_account_name,
       amount: amountDecimal,
-      transferMode: 'NEFT',
+      transferMode: 'IMPS',
       beneficiaryMobile: senderMobile,
       senderName,
       senderMobile,

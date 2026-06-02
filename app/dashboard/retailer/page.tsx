@@ -1451,6 +1451,10 @@ function WalletTab({ user }: { user: any }) {
       alert('Please enter a valid amount')
       return
     }
+    if (parseFloat(aepsSettlementAmount) < 1001) {
+      alert('Minimum settlement amount is ₹1,001')
+      return
+    }
     if (!selectedSettleAccountId) {
       alert('Please select an approved settlement account')
       return
@@ -1876,7 +1880,8 @@ function WalletTab({ user }: { user: any }) {
                     if (v > 0) fetchAepsSettleCharge(v)
                     else setAepsSettleCharge(null)
                   }}
-                  className="w-full px-4 py-2 border rounded-lg" placeholder="Enter amount to receive in bank" min="1" />
+                  className="w-full px-4 py-2 border rounded-lg" placeholder="Min ₹1,001" min="1001" />
+                <p className="text-xs text-gray-500 mt-1">Minimum settlement amount: ₹1,001</p>
               </div>
 
               {/* Charge breakdown preview */}
