@@ -205,7 +205,7 @@ export async function POST(request: NextRequest) {
       p_wallet_type: 'aeps',
       p_fund_category: 'settlement',
       p_service_type: 'aeps',
-      p_tx_type: 'SETTLEMENT',
+      p_tx_type: 'AEPS_SETTLEMENT',
       p_credit: 0,
       p_debit: totalDebit,
       p_reference_id: idempotencyKey,

@@ -17,6 +17,7 @@ ALTER TABLE wallet_ledger ADD CONSTRAINT wallet_ledger_transaction_type_check
     'BBPS_REFUND',
     'AEPS_CREDIT',
     'AEPS_DEBIT',
+    'AEPS_SETTLEMENT',
     'FUND_TRANSFER',
     'SETTLEMENT',
     'ADMIN_CREDIT',
@@ -26,11 +27,12 @@ ALTER TABLE wallet_ledger ADD CONSTRAINT wallet_ledger_transaction_type_check
     'DEPOSIT',
     'WITHDRAWAL',
     'TRANSFER',
+    'TRANSFER_IN',
+    'TRANSFER_OUT',
     'FEE',
     'CHARGE',
     'REVERSAL',
     'SUBSCRIPTION_DEBIT',
     'POS_RENTAL_COMMISSION',
-    'SUBSCRIPTION_REVENUE',
-    'AEPS_SETTLEMENT'
+    'SUBSCRIPTION_REVENUE'
   ));
