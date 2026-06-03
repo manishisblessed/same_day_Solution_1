@@ -3034,6 +3034,7 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
     distributor_mdr_t0: 0,
     md_mdr_t1: 0,
     md_mdr_t0: 0,
+    partner_mdr: 0,
   })
 
   const [aepsForm, setAepsForm] = useState({
@@ -3268,7 +3269,7 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
     // Reset forms
     setBbpsForm({ category: '', min_amount: 0, max_amount: 100000, retailer_charge: 0, retailer_charge_type: 'flat', retailer_commission: 0, retailer_commission_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat' })
     setPayoutForm({ transfer_mode: 'IMPS', min_amount: 0, max_amount: 100000, retailer_charge: 0, retailer_charge_type: 'flat', retailer_commission: 0, retailer_commission_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat' })
-    setMdrForm({ mode: 'CARD', card_type: '', brand_type: '', card_classification: '', retailer_mdr_t1: 0, retailer_mdr_t0: 0, distributor_mdr_t1: 0, distributor_mdr_t0: 0, md_mdr_t1: 0, md_mdr_t0: 0 })
+    setMdrForm({ mode: 'CARD', card_type: '', brand_type: '', card_classification: '', retailer_mdr_t1: 0, retailer_mdr_t0: 0, distributor_mdr_t1: 0, distributor_mdr_t0: 0, md_mdr_t1: 0, md_mdr_t0: 0, partner_mdr: 0 })
     setAepsForm({ transaction_type: 'cash_withdrawal', min_amount: 0, max_amount: 100000, base_commission: 0, base_commission_type: 'percentage', company_earning: 0, company_earning_type: 'flat', md_commission: 0, md_commission_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', retailer_commission: 0, retailer_commission_type: 'flat', tds_percentage: 5 })
     setAepsSettleForm({ min_amount: 0, max_amount: 100000, retailer_charge: 0, retailer_charge_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat', company_charge: 0, company_charge_type: 'flat' })
     setShowConfigModal(true)
@@ -3315,20 +3316,34 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
         })
         if (error) throw error
       } else if (configType === 'mdr') {
-        const { error } = await supabase.from('scheme_mdr_rates').insert({
+        const configScheme = schemes.find(s => s.id === configSchemeId)
+        const isPartnerPlan = configScheme?.is_partner_plan || false
+        const insertData: any = {
           scheme_id: configSchemeId,
           mode: mdrForm.mode,
           card_type: mdrForm.card_type || null,
           brand_type: mdrForm.brand_type || null,
           card_classification: mdrForm.card_classification || null,
-          retailer_mdr_t1: mdrForm.retailer_mdr_t1,
-          retailer_mdr_t0: mdrForm.retailer_mdr_t0,
-          distributor_mdr_t1: mdrForm.distributor_mdr_t1,
-          distributor_mdr_t0: mdrForm.distributor_mdr_t0,
-          md_mdr_t1: mdrForm.md_mdr_t1,
-          md_mdr_t0: mdrForm.md_mdr_t0,
           status: 'active',
-        })
+        }
+        if (isPartnerPlan) {
+          insertData.partner_mdr = mdrForm.partner_mdr
+          insertData.retailer_mdr_t1 = 0
+          insertData.retailer_mdr_t0 = 0
+          insertData.distributor_mdr_t1 = 0
+          insertData.distributor_mdr_t0 = 0
+          insertData.md_mdr_t1 = 0
+          insertData.md_mdr_t0 = 0
+        } else {
+          insertData.retailer_mdr_t1 = mdrForm.retailer_mdr_t1
+          insertData.retailer_mdr_t0 = mdrForm.retailer_mdr_t0
+          insertData.distributor_mdr_t1 = mdrForm.distributor_mdr_t1
+          insertData.distributor_mdr_t0 = mdrForm.distributor_mdr_t0
+          insertData.md_mdr_t1 = mdrForm.md_mdr_t1
+          insertData.md_mdr_t0 = mdrForm.md_mdr_t0
+          insertData.partner_mdr = null
+        }
+        const { error } = await supabase.from('scheme_mdr_rates').insert(insertData)
         if (error) throw error
       } else if (configType === 'aeps') {
         const preview = aepsPreview()
@@ -3508,6 +3523,11 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <h3 className="font-semibold text-gray-900 dark:text-white">{scheme.name}</h3>
+                      {scheme.is_partner_plan && (
+                        <span className="px-2 py-0.5 text-[10px] font-semibold uppercase rounded-full bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400">
+                          Partner Plan
+                        </span>
+                      )}
                       {scheme._assigned && (
                         <span className="px-2 py-0.5 text-[10px] font-semibold uppercase rounded-full bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400">
                           Assigned by MD
@@ -3662,12 +3682,18 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
                               <th className="px-2 py-1.5 text-left">Mode</th>
                               <th className="px-2 py-1.5 text-left">Card Type</th>
                               <th className="px-2 py-1.5 text-left">Brand</th>
-                              <th className="px-2 py-1.5 text-right">Ret T+1</th>
-                              <th className="px-2 py-1.5 text-right">Ret T+0</th>
-                              <th className="px-2 py-1.5 text-right">Dist T+1</th>
-                              <th className="px-2 py-1.5 text-right">Dist T+0</th>
-                              <th className="px-2 py-1.5 text-right">MD T+1</th>
-                              <th className="px-2 py-1.5 text-right">MD T+0</th>
+                              {scheme.is_partner_plan ? (
+                                <th className="px-2 py-1.5 text-right">MDR %</th>
+                              ) : (
+                                <>
+                                  <th className="px-2 py-1.5 text-right">Ret T+1</th>
+                                  <th className="px-2 py-1.5 text-right">Ret T+0</th>
+                                  <th className="px-2 py-1.5 text-right">Dist T+1</th>
+                                  <th className="px-2 py-1.5 text-right">Dist T+0</th>
+                                  <th className="px-2 py-1.5 text-right">MD T+1</th>
+                                  <th className="px-2 py-1.5 text-right">MD T+0</th>
+                                </>
+                              )}
                               <th className="px-2 py-1.5"></th>
                             </tr>
                           </thead>
@@ -3677,12 +3703,18 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
                                 <td className="px-2 py-1.5">{c.mode}</td>
                                 <td className="px-2 py-1.5">{c.card_type || '-'}</td>
                                 <td className="px-2 py-1.5">{c.brand_type || '-'}</td>
-                                <td className="px-2 py-1.5 text-right">{c.retailer_mdr_t1}%</td>
-                                <td className="px-2 py-1.5 text-right">{c.retailer_mdr_t0}%</td>
-                                <td className="px-2 py-1.5 text-right">{c.distributor_mdr_t1}%</td>
-                                <td className="px-2 py-1.5 text-right">{c.distributor_mdr_t0}%</td>
-                                <td className="px-2 py-1.5 text-right">{c.md_mdr_t1}%</td>
-                                <td className="px-2 py-1.5 text-right">{c.md_mdr_t0}%</td>
+                                {scheme.is_partner_plan ? (
+                                  <td className="px-2 py-1.5 text-right">{c.partner_mdr ?? 0}%</td>
+                                ) : (
+                                  <>
+                                    <td className="px-2 py-1.5 text-right">{c.retailer_mdr_t1}%</td>
+                                    <td className="px-2 py-1.5 text-right">{c.retailer_mdr_t0}%</td>
+                                    <td className="px-2 py-1.5 text-right">{c.distributor_mdr_t1}%</td>
+                                    <td className="px-2 py-1.5 text-right">{c.distributor_mdr_t0}%</td>
+                                    <td className="px-2 py-1.5 text-right">{c.md_mdr_t1}%</td>
+                                    <td className="px-2 py-1.5 text-right">{c.md_mdr_t0}%</td>
+                                  </>
+                                )}
                                 {!isAssigned && <td className="px-2 py-1.5 text-right">
                                   <button onClick={() => handleDeleteConfig('scheme_mdr_rates', c.id)} className="text-red-400 hover:text-red-600">
                                     <Trash2 className="w-3 h-3" />
@@ -4108,54 +4140,77 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
                     </select>
                   </div>
                 </div>
-                <p className="text-xs text-gray-500">T+0 MDR = T+1 MDR + 1% (auto calculated if left as 0)</p>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-medium mb-1">Retailer MDR T+1 (%)</label>
-                    <input type="number" step="0.01" value={mdrForm.retailer_mdr_t1}
-                      onChange={(e) => {
-                        const t1 = parseFloat(e.target.value) || 0
-                        setMdrForm({ ...mdrForm, retailer_mdr_t1: t1, retailer_mdr_t0: mdrForm.retailer_mdr_t0 === 0 ? t1 + 1 : mdrForm.retailer_mdr_t0 })
-                      }}
-                      className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium mb-1">Retailer MDR T+0 (%)</label>
-                    <input type="number" step="0.01" value={mdrForm.retailer_mdr_t0}
-                      onChange={(e) => setMdrForm({ ...mdrForm, retailer_mdr_t0: parseFloat(e.target.value) || 0 })}
-                      className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium mb-1">Distributor MDR T+1 (%)</label>
-                    <input type="number" step="0.01" value={mdrForm.distributor_mdr_t1}
-                      onChange={(e) => {
-                        const t1 = parseFloat(e.target.value) || 0
-                        setMdrForm({ ...mdrForm, distributor_mdr_t1: t1, distributor_mdr_t0: mdrForm.distributor_mdr_t0 === 0 ? t1 + 1 : mdrForm.distributor_mdr_t0 })
-                      }}
-                      className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium mb-1">Distributor MDR T+0 (%)</label>
-                    <input type="number" step="0.01" value={mdrForm.distributor_mdr_t0}
-                      onChange={(e) => setMdrForm({ ...mdrForm, distributor_mdr_t0: parseFloat(e.target.value) || 0 })}
-                      className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium mb-1">MD MDR T+1 (%)</label>
-                    <input type="number" step="0.01" value={mdrForm.md_mdr_t1}
-                      onChange={(e) => {
-                        const t1 = parseFloat(e.target.value) || 0
-                        setMdrForm({ ...mdrForm, md_mdr_t1: t1, md_mdr_t0: mdrForm.md_mdr_t0 === 0 ? t1 + 1 : mdrForm.md_mdr_t0 })
-                      }}
-                      className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium mb-1">MD MDR T+0 (%)</label>
-                    <input type="number" step="0.01" value={mdrForm.md_mdr_t0}
-                      onChange={(e) => setMdrForm({ ...mdrForm, md_mdr_t0: parseFloat(e.target.value) || 0 })}
-                      className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
-                  </div>
-                </div>
+                {(() => {
+                  const configScheme = schemes.find(s => s.id === configSchemeId)
+                  const isPartnerPlan = configScheme?.is_partner_plan || false
+                  if (isPartnerPlan) {
+                    return (
+                      <div>
+                        <p className="text-xs text-gray-500 mb-2">Partner Plan — single MDR rate applies to the entire transaction.</p>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-xs font-medium mb-1">Partner MDR (%)</label>
+                            <input type="number" step="0.01" value={mdrForm.partner_mdr}
+                              onChange={(e) => setMdrForm({ ...mdrForm, partner_mdr: parseFloat(e.target.value) || 0 })}
+                              className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  }
+                  return (
+                    <>
+                      <p className="text-xs text-gray-500">T+0 MDR = T+1 MDR + 1% (auto calculated if left as 0)</p>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-xs font-medium mb-1">Retailer MDR T+1 (%)</label>
+                          <input type="number" step="0.01" value={mdrForm.retailer_mdr_t1}
+                            onChange={(e) => {
+                              const t1 = parseFloat(e.target.value) || 0
+                              setMdrForm({ ...mdrForm, retailer_mdr_t1: t1, retailer_mdr_t0: mdrForm.retailer_mdr_t0 === 0 ? t1 + 1 : mdrForm.retailer_mdr_t0 })
+                            }}
+                            className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium mb-1">Retailer MDR T+0 (%)</label>
+                          <input type="number" step="0.01" value={mdrForm.retailer_mdr_t0}
+                            onChange={(e) => setMdrForm({ ...mdrForm, retailer_mdr_t0: parseFloat(e.target.value) || 0 })}
+                            className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium mb-1">Distributor MDR T+1 (%)</label>
+                          <input type="number" step="0.01" value={mdrForm.distributor_mdr_t1}
+                            onChange={(e) => {
+                              const t1 = parseFloat(e.target.value) || 0
+                              setMdrForm({ ...mdrForm, distributor_mdr_t1: t1, distributor_mdr_t0: mdrForm.distributor_mdr_t0 === 0 ? t1 + 1 : mdrForm.distributor_mdr_t0 })
+                            }}
+                            className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium mb-1">Distributor MDR T+0 (%)</label>
+                          <input type="number" step="0.01" value={mdrForm.distributor_mdr_t0}
+                            onChange={(e) => setMdrForm({ ...mdrForm, distributor_mdr_t0: parseFloat(e.target.value) || 0 })}
+                            className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium mb-1">MD MDR T+1 (%)</label>
+                          <input type="number" step="0.01" value={mdrForm.md_mdr_t1}
+                            onChange={(e) => {
+                              const t1 = parseFloat(e.target.value) || 0
+                              setMdrForm({ ...mdrForm, md_mdr_t1: t1, md_mdr_t0: mdrForm.md_mdr_t0 === 0 ? t1 + 1 : mdrForm.md_mdr_t0 })
+                            }}
+                            className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium mb-1">MD MDR T+0 (%)</label>
+                          <input type="number" step="0.01" value={mdrForm.md_mdr_t0}
+                            onChange={(e) => setMdrForm({ ...mdrForm, md_mdr_t0: parseFloat(e.target.value) || 0 })}
+                            className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
+                        </div>
+                      </div>
+                    </>
+                  )
+                })()}
               </div>
             )}
 

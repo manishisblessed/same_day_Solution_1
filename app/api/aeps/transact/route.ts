@@ -312,9 +312,12 @@ export async function POST(request: NextRequest) {
           });
 
           if (!walletError && walletLedgerId) {
+            const walletUpdate: Record<string, any> = isWithdrawal
+              ? { wallet_credited: true, wallet_credit_id: walletLedgerId }
+              : { wallet_debited: true, wallet_debit_id: walletLedgerId };
             await supabase
               .from('aeps_transactions')
-              .update({ wallet_debited: !isWithdrawal, wallet_debit_id: walletLedgerId })
+              .update(walletUpdate)
               .eq('id', aepsTransaction.id);
           } else {
             console.error(`[AEPS Transact] Wallet ${isWithdrawal ? 'credit' : 'debit'} failed:`, walletError);
@@ -327,6 +330,9 @@ export async function POST(request: NextRequest) {
       // Commission distribution (only on successful financial txns + mini_statement)
       let commissionResult: any = null;
       let rtCommissionForReceipt: number | null = null;
+      let rtCommissionGross: number | null = null;
+      let rtTdsPercentage: number | null = null;
+      let rtTdsAmount: number | null = null;
       const commissionEnabled = process.env.AEPS_COMMISSION_ENABLED !== 'false'; // Default: enabled
       const eligibleForCommission = (isFinancial || transactionType === 'mini_statement') && commissionEnabled;
 
@@ -365,6 +371,11 @@ export async function POST(request: NextRequest) {
             });
             commissionResult = settle;
             rtCommissionForReceipt = breakdown.retailer_net;
+            rtCommissionGross = breakdown.retailer_commission;
+            rtTdsPercentage = breakdown.tds_percentage;
+            rtTdsAmount = breakdown.retailer_commission > 0
+              ? Math.round((breakdown.retailer_commission - breakdown.retailer_net) * 100) / 100
+              : 0;
             schemeHandled = true;
 
             if (settle.success && settle.commissionId) {
@@ -440,6 +451,9 @@ export async function POST(request: NextRequest) {
           transaction: {
             amount: isFinancial ? txnAmount : null,
             commission: rtCommissionForReceipt,
+            commissionGross: rtCommissionGross,
+            tdsPercentage: rtTdsPercentage,
+            tdsAmount: rtTdsAmount,
           },
           bank: {
             availableBalance: result.data?.balance || null,

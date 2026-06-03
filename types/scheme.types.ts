@@ -33,6 +33,7 @@ export interface Scheme {
   effective_from: string;
   effective_to: string | null;
   priority: number;
+  is_partner_plan: boolean;
   metadata: Record<string, any> | null;
   created_at: string;
   updated_at: string;
@@ -127,6 +128,7 @@ export interface SchemeMDRRate {
   distributor_mdr_t0: number;
   md_mdr_t1: number;
   md_mdr_t0: number;
+  partner_mdr: number | null;
   
   status: string;
   created_at: string;
@@ -310,6 +312,7 @@ export interface CreateMDRRateInput {
   distributor_mdr_t0: number;
   md_mdr_t1?: number;
   md_mdr_t0?: number;
+  partner_mdr?: number | null;
 }
 
 export interface CreateSchemeMappingInput {

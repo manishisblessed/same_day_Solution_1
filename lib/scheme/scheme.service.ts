@@ -267,6 +267,7 @@ export async function upsertMDRRate(
       distributor_mdr_t0: input.distributor_mdr_t0,
       md_mdr_t1: input.md_mdr_t1 || 0,
       md_mdr_t0: input.md_mdr_t0 || 0,
+      partner_mdr: input.partner_mdr ?? null,
       status: 'active',
     })
     .select()

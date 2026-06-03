@@ -29,6 +29,7 @@ const sidebarItems: SidebarItem[] = [
   { id: 'payout', label: 'Settlement', icon: Banknote, href: '/dashboard/retailer?tab=payout' },
   { id: 'transactions', label: 'Transactions', icon: CreditCard, href: '/dashboard/retailer?tab=transactions' },
   { id: 'ledger', label: 'Ledger', icon: BookOpen, href: '/dashboard/retailer?tab=ledger' },
+  { id: 'aeps-ledger', label: 'AEPS Ledger', icon: BookOpen, href: '/dashboard/retailer?tab=aeps-ledger' },
   { id: 'pos-machines', label: 'My POS Machines', icon: CreditCard, href: '/dashboard/retailer?tab=pos-machines' },
   { id: 'subscriptions', label: 'Subscriptions', icon: Repeat, href: '/dashboard/retailer?tab=subscriptions' },
   { id: 'mdr-schemes', label: 'MDR Schemes', icon: Percent, href: '/dashboard/retailer?tab=mdr-schemes' },
@@ -40,6 +41,7 @@ const sidebarItems: SidebarItem[] = [
 const SERVICE_TAB_MAP: Record<string, string[]> = {
   services:       [], // special: visible when ANY service is enabled
   aeps:           ['aeps'],
+  'aeps-ledger':  ['aeps'],
   bbps:           ['bbps'],
   payout:         ['banking_payments', 'dmt'],
   transactions:   ['mini_atm_pos'],

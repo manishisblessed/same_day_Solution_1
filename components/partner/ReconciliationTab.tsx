@@ -21,6 +21,13 @@ interface ComparisonRow {
   status: 'matched' | 'mismatch'
 }
 
+interface MdrSummary {
+  totalMdrAmount: number
+  totalNetPayAmount: number
+  totalGrossAmount: number
+  transactionCount: number
+}
+
 interface ReconciliationData {
   settlements: any[]
   transactions: { date: string; totalCredit: number; totalDebit: number; transactionCount: number }[]
@@ -33,6 +40,7 @@ interface ReconciliationData {
     netDifference: number
     matchRate: number
   }
+  mdrSummary?: MdrSummary
 }
 
 export default function ReconciliationTab() {
@@ -79,6 +87,21 @@ export default function ReconciliationTab() {
         r.difference.toFixed(2),
         r.status,
       ])
+
+      // Add MDR summary section
+      if (data.mdrSummary && data.mdrSummary.transactionCount > 0) {
+        rows.push([])
+        rows.push(['--- MDR Summary ---', '', '', '', ''])
+        rows.push(['Gross Amount', data.mdrSummary.totalGrossAmount.toFixed(2), '', '', ''])
+        rows.push(['Total MDR Deducted', data.mdrSummary.totalMdrAmount.toFixed(2), '', '', ''])
+        rows.push(['Net Pay Amount', data.mdrSummary.totalNetPayAmount.toFixed(2), '', '', ''])
+        rows.push(['POS Transactions', data.mdrSummary.transactionCount.toString(), '', '', ''])
+        const effectiveRate = data.mdrSummary.totalGrossAmount > 0
+          ? ((data.mdrSummary.totalMdrAmount / data.mdrSummary.totalGrossAmount) * 100).toFixed(2)
+          : '0.00'
+        rows.push(['Effective MDR Rate', `${effectiveRate}%`, '', '', ''])
+      }
+
       const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n')
       const blob = new Blob([csv], { type: 'text/csv' })
       const url = window.URL.createObjectURL(blob)
@@ -207,6 +230,42 @@ export default function ReconciliationTab() {
               <p className="text-xs text-gray-500 mt-1">{mismatchCount} mismatches found</p>
             </div>
           </div>
+
+          {/* MDR Summary Cards */}
+          {data.mdrSummary && data.mdrSummary.transactionCount > 0 && (
+            <div>
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-3 flex items-center gap-2">
+                <FileSpreadsheet className="w-4 h-4 text-orange-600" />
+                MDR &amp; Net Pay Summary
+              </h3>
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                <div className="bg-white dark:bg-gray-800 rounded-xl border border-orange-200 dark:border-orange-800 p-4">
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Gross Transaction Amount</p>
+                  <p className="text-xl font-bold text-gray-900 dark:text-white">{formatCurrency(data.mdrSummary.totalGrossAmount)}</p>
+                  <p className="text-xs text-gray-500 mt-1">{data.mdrSummary.transactionCount} POS transactions</p>
+                </div>
+                <div className="bg-white dark:bg-gray-800 rounded-xl border border-red-200 dark:border-red-800 p-4">
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Total MDR Deducted</p>
+                  <p className="text-xl font-bold text-red-600">{formatCurrency(data.mdrSummary.totalMdrAmount)}</p>
+                  <p className="text-xs text-gray-500 mt-1">MDR fee charged</p>
+                </div>
+                <div className="bg-white dark:bg-gray-800 rounded-xl border border-green-200 dark:border-green-800 p-4">
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Net Pay Amount</p>
+                  <p className="text-xl font-bold text-green-600">{formatCurrency(data.mdrSummary.totalNetPayAmount)}</p>
+                  <p className="text-xs text-gray-500 mt-1">Amount after MDR</p>
+                </div>
+                <div className="bg-white dark:bg-gray-800 rounded-xl border border-purple-200 dark:border-purple-800 p-4">
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Effective MDR Rate</p>
+                  <p className="text-xl font-bold text-purple-600">
+                    {data.mdrSummary.totalGrossAmount > 0
+                      ? ((data.mdrSummary.totalMdrAmount / data.mdrSummary.totalGrossAmount) * 100).toFixed(2)
+                      : '0.00'}%
+                  </p>
+                  <p className="text-xs text-gray-500 mt-1">Weighted average</p>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Comparison Chart */}
           {data.comparison.length > 0 && (

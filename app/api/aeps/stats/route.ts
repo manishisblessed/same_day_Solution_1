@@ -80,13 +80,13 @@ export async function GET(request: NextRequest) {
       .filter(t => t.status === 'success' && t.amount)
       .reduce((sum, t) => sum + (t.amount || 0), 0);
 
-    // Get commission earned (simplified - in production, calculate from ledger)
+    // Get commission earned from wallet_ledger (COMMISSION_CREDIT entries in aeps wallet)
     const { data: commissionData } = await supabase
       .from('wallet_ledger')
       .select('credit')
-      .eq('user_id', user.partner_id)
+      .eq('retailer_id', user.partner_id)
       .eq('wallet_type', 'aeps')
-      .eq('tx_type', 'AEPS_COMMISSION')
+      .eq('transaction_type', 'COMMISSION_CREDIT')
       .gte('created_at', startOfMonth.toISOString());
 
     const commission = (commissionData || []).reduce((sum, c) => sum + (c.credit || 0), 0);

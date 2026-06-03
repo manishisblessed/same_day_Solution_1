@@ -13,6 +13,13 @@ const supabase = createClient(
 const SETTLEMENT_TYPES = ['settlement', 'pos_settlement', 'withdrawal']
 const TRANSACTION_TYPES = ['credit', 'debit', 'bbps', 'aeps', 'pos', 'commission']
 
+interface MdrSummary {
+  totalMdrAmount: number
+  totalNetPayAmount: number
+  totalGrossAmount: number
+  transactionCount: number
+}
+
 function formatGroupKey(dateStr: string, groupBy: string): string {
   if (groupBy === 'monthly') return dateStr.slice(0, 7)
   return dateStr.slice(0, 10)
@@ -41,7 +48,7 @@ export async function GET(request: NextRequest) {
     const startISO = new Date(startDate).toISOString()
     const endISO = new Date(endDate + 'T23:59:59.999Z').toISOString()
 
-    const [settlementRes, transactionRes] = await Promise.all([
+    const [settlementRes, transactionRes, posTransactionsRes] = await Promise.all([
       supabase
         .from('partner_wallet_ledger')
         .select('id, partner_id, transaction_type, status, created_at, credit, debit, closing_balance, description, reference_id')
@@ -59,6 +66,14 @@ export async function GET(request: NextRequest) {
         .gte('created_at', startISO)
         .lte('created_at', endISO)
         .order('created_at', { ascending: true }),
+
+      supabase
+        .from('razorpay_pos_transactions')
+        .select('id, amount, partner_mdr_rate, partner_mdr_amount, partner_net_amount, created_at')
+        .eq('partner_id', partnerId)
+        .gte('created_at', startISO)
+        .lte('created_at', endISO)
+        .order('created_at', { ascending: true }),
     ])
 
     if (settlementRes.error) {
@@ -72,6 +87,24 @@ export async function GET(request: NextRequest) {
 
     const settlements = settlementRes.data || []
     const transactionRows = transactionRes.data || []
+    const posTransactions = posTransactionsRes.data || []
+
+    // MDR Summary from POS transactions
+    const mdrSummary: MdrSummary = {
+      totalMdrAmount: 0,
+      totalNetPayAmount: 0,
+      totalGrossAmount: 0,
+      transactionCount: 0,
+    }
+    for (const txn of posTransactions) {
+      mdrSummary.totalGrossAmount += txn.amount || 0
+      mdrSummary.totalMdrAmount += txn.partner_mdr_amount || 0
+      mdrSummary.totalNetPayAmount += txn.partner_net_amount || 0
+      mdrSummary.transactionCount += 1
+    }
+    mdrSummary.totalMdrAmount = Math.round(mdrSummary.totalMdrAmount * 100) / 100
+    mdrSummary.totalNetPayAmount = Math.round(mdrSummary.totalNetPayAmount * 100) / 100
+    mdrSummary.totalGrossAmount = Math.round(mdrSummary.totalGrossAmount * 100) / 100
 
     const txnGroupMap = new Map<string, { totalCredit: number; totalDebit: number; transactionCount: number }>()
     for (const row of transactionRows) {
@@ -132,6 +165,7 @@ export async function GET(request: NextRequest) {
       transactions,
       comparison,
       summary,
+      mdrSummary,
     })
   } catch (e: any) {
     console.error('[reconciliation] GET', e)

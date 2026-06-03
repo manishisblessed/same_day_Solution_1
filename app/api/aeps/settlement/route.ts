@@ -391,6 +391,11 @@ export async function POST(request: NextRequest) {
       // Payout failed — refund AEPS wallet
       const failureReason = transferResult.error || 'Payout API failed';
 
+      // Mark the original debit ledger entry as failed
+      if (ledgerId) {
+        await supabase.from('wallet_ledger').update({ status: 'failed' }).eq('id', ledgerId);
+      }
+
       const { error: refundErr } = await supabase.rpc('add_ledger_entry', {
         p_user_id: user.partner_id,
         p_user_role: user.role,
@@ -420,7 +425,7 @@ export async function POST(request: NextRequest) {
         details: failureReason,
         wallet_refunded: !refundErr,
         settlement_id: settlement.id,
-      }, { status: 500 });
+      }, { status: 502 });
     }
   } catch (error: any) {
     console.error('[AEPS Settlement] Error:', error);

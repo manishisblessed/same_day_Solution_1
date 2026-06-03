@@ -76,18 +76,22 @@ export async function POST(request: NextRequest) {
       brand_type,
       partner_mdr_t0,
       partner_mdr_t1,
+      partner_mdr,
       status = 'active',
     } = body
 
-    if (!partner_id || !mode || partner_mdr_t0 === undefined || partner_mdr_t1 === undefined) {
+    // Support both unified partner_mdr and legacy t0/t1
+    const resolvedT0 = partner_mdr !== undefined ? partner_mdr : partner_mdr_t0
+    const resolvedT1 = partner_mdr !== undefined ? partner_mdr : partner_mdr_t1
+
+    if (!partner_id || !mode || resolvedT0 === undefined || resolvedT1 === undefined) {
       return NextResponse.json(
-        { error: 'Missing required fields: partner_id, mode, partner_mdr_t0, partner_mdr_t1' },
+        { error: 'Missing required fields: partner_id, mode, and MDR rate (partner_mdr or partner_mdr_t0/t1)' },
         { status: 400 }
       )
     }
 
-    // Validate MDR rates
-    if (partner_mdr_t0 < 0 || partner_mdr_t0 > 100 || partner_mdr_t1 < 0 || partner_mdr_t1 > 100) {
+    if (resolvedT0 < 0 || resolvedT0 > 100 || resolvedT1 < 0 || resolvedT1 > 100) {
       return NextResponse.json(
         { error: 'MDR rates must be between 0 and 100' },
         { status: 400 }
@@ -113,7 +117,6 @@ export async function POST(request: NextRequest) {
         .eq('id', existing.id)
     }
 
-    // Insert new scheme
     const { data, error } = await supabase
       .from('partner_schemes')
       .insert({
@@ -121,8 +124,8 @@ export async function POST(request: NextRequest) {
         mode,
         card_type: card_type || null,
         brand_type: brand_type || null,
-        partner_mdr_t0,
-        partner_mdr_t1,
+        partner_mdr_t0: resolvedT0,
+        partner_mdr_t1: resolvedT1,
         status,
         effective_date: new Date().toISOString(),
       })

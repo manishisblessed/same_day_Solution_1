@@ -42,8 +42,10 @@ import PosBridgePanel from '@/components/PosBridgePanel'
 import ServiceTransactionReport from '@/components/ServiceTransactionReport'
 import PartnerSubscriptionsTab from '@/components/PartnerSubscriptionsTab'
 import AEPSDashboard from '@/components/AEPSDashboard'
+import AEPSWalletLedger from '@/components/AEPSWalletLedger'
+import AEPSTransactionHistory from '@/components/AEPSTransactionHistory'
 
-type TabType = 'dashboard' | 'wallet' | 'services' | 'aeps' | 'bbps' | 'payout' | 'transactions' | 'ledger' | 'mdr-schemes' | 'reports' | 'settings' | 'pos-machines' | 'subscriptions'
+type TabType = 'dashboard' | 'wallet' | 'services' | 'aeps' | 'bbps' | 'payout' | 'transactions' | 'ledger' | 'aeps-ledger' | 'mdr-schemes' | 'reports' | 'settings' | 'pos-machines' | 'subscriptions'
 
 function RetailerDashboardContent() {
   const { user, loading: authLoading } = useAuth()
@@ -53,7 +55,7 @@ function RetailerDashboardContent() {
   
   const getInitialTab = (): TabType => {
     const tab = searchParams?.get('tab')
-    if (tab && ['dashboard', 'wallet', 'services', 'aeps', 'bbps', 'payout', 'transactions', 'ledger', 'mdr-schemes', 'reports', 'settings', 'pos-machines', 'subscriptions'].includes(tab)) {
+    if (tab && ['dashboard', 'wallet', 'services', 'aeps', 'bbps', 'payout', 'transactions', 'ledger', 'aeps-ledger', 'mdr-schemes', 'reports', 'settings', 'pos-machines', 'subscriptions'].includes(tab)) {
       return tab as TabType
     }
     return 'dashboard'
@@ -105,7 +107,7 @@ function RetailerDashboardContent() {
 
   useEffect(() => {
     const tab = searchParams?.get('tab')
-    if (tab && ['dashboard', 'wallet', 'services', 'aeps', 'bbps', 'payout', 'transactions', 'ledger', 'mdr-schemes', 'reports', 'settings', 'pos-machines', 'subscriptions'].includes(tab)) {
+    if (tab && ['dashboard', 'wallet', 'services', 'aeps', 'bbps', 'payout', 'transactions', 'ledger', 'aeps-ledger', 'mdr-schemes', 'reports', 'settings', 'pos-machines', 'subscriptions'].includes(tab)) {
       if (tab !== activeTab) {
         setActiveTab(tab as TabType)
       }
@@ -375,11 +377,48 @@ function RetailerDashboardContent() {
         setLoading(false)
       })
     } else if (!authLoading) {
-      // If auth is done but user is not a retailer or doesn't exist, stop loading
-      // (will redirect via the other useEffect if user doesn't exist or wrong role)
       setLoading(false)
     }
   }, [user, authLoading, fetchDashboardData])
+
+  // Re-fetch wallet balances when returning to dashboard tab
+  useEffect(() => {
+    if (activeTab === 'dashboard' && user?.partner_id) {
+      const refreshBalances = async () => {
+        const walletTimeout = new Promise((resolve) =>
+          setTimeout(() => resolve({ data: null, error: { message: 'Timeout' } }), 3000)
+        )
+        try {
+          const [primaryRes, aepsRes] = await Promise.all([
+            Promise.race([
+              supabase.rpc('get_wallet_balance_v2', { p_user_id: user.partner_id, p_wallet_type: 'primary' }),
+              walletTimeout,
+            ]),
+            Promise.race([
+              supabase.rpc('get_wallet_balance_v2', { p_user_id: user.partner_id, p_wallet_type: 'aeps' }),
+              walletTimeout,
+            ]),
+          ]) as any[]
+          setStats(prev => ({
+            ...prev,
+            walletBalance: primaryRes?.data ?? prev.walletBalance,
+            aepsWalletBalance: aepsRes?.data ?? prev.aepsWalletBalance,
+          }))
+        } catch { /* non-blocking */ }
+
+        // Also refresh AEPS commission
+        try {
+          const { data: aepsCommData } = await supabase
+            .from('commission_ledger')
+            .select('rt_amount')
+            .eq('rt_user_id', user.partner_id)
+          const totalCommission = aepsCommData?.reduce((sum: number, e: any) => sum + (e.rt_amount || 0), 0) || 0
+          setStats(prev => ({ ...prev, commissionEarned: totalCommission }))
+        } catch { /* non-blocking */ }
+      }
+      refreshBalances()
+    }
+  }, [activeTab, user?.partner_id])
 
   // Safety timeout to prevent infinite loading
   useEffect(() => {
@@ -522,6 +561,12 @@ function RetailerDashboardContent() {
             </>
           )}
           {activeTab === 'ledger' && <LedgerTab user={user} />}
+          {activeTab === 'aeps-ledger' && (
+            <div className="space-y-6">
+              <AEPSWalletLedger user={user} />
+              <AEPSTransactionHistory limit={25} showFilters={true} />
+            </div>
+          )}
           {activeTab === 'mdr-schemes' && <MDRSchemesTab user={user} />}
           {activeTab === 'pos-machines' && <POSMachinesTab user={user} accentColor="blue" />}
           {activeTab === 'subscriptions' && <PartnerSubscriptionsTab />}
@@ -1914,6 +1959,11 @@ function WalletTab({ user }: { user: any }) {
                         <span className="font-semibold text-gray-900 dark:text-white">Total deducted from AEPS Wallet</span>
                         <span className="font-bold text-gray-900 dark:text-white">₹{(parseFloat(aepsSettlementAmount) + (aepsSettleCharge ?? 0)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
                       </div>
+                      {(aepsSettleCharge ?? 0) > 0 && (
+                        <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-1">
+                          Settlement charges are applied per your scheme tier. Check MDR Schemes tab for full rate card.
+                        </p>
+                      )}
                     </>
                   )}
                 </div>

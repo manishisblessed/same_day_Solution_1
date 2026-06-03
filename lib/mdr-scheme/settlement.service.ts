@@ -136,7 +136,12 @@ export async function calculateMDR(
         }
 
         if (mdrRate) {
-          if (input.settlement_type === 'T0') {
+          const partnerMdr = mdrRate.partner_mdr != null ? parseFloat(mdrRate.partner_mdr) : null;
+          if (partnerMdr != null) {
+            retailer_mdr = partnerMdr;
+            distributor_mdr = partnerMdr;
+            console.log(`[MDR] Partner Plan MDR: ${partnerMdr}% (unified rate)`);
+          } else if (input.settlement_type === 'T0') {
             retailer_mdr = parseFloat(mdrRate.retailer_mdr_t0) || 0;
             distributor_mdr = parseFloat(mdrRate.distributor_mdr_t0) || 0;
           } else {
@@ -616,6 +621,44 @@ export async function calculatePartnerMDR(
     }
 
     if (schemeRecord.error || !schemeRecord.data) {
+      // Fallback: check scheme_mdr_rates via scheme management (partner plan with partner_mdr)
+      try {
+        const { data: schemeResult } = await supabase.rpc('resolve_scheme_for_user', {
+          p_user_id: partnerId,
+          p_user_role: 'partner',
+          p_service_type: 'mdr',
+          p_distributor_id: null,
+          p_md_id: null,
+        });
+        if (schemeResult && schemeResult.length > 0) {
+          const resolved = schemeResult[0];
+          const { data: mdrRates } = await supabase
+            .from('scheme_mdr_rates')
+            .select('*')
+            .eq('scheme_id', resolved.scheme_id)
+            .eq('status', 'active')
+            .eq('mode', normalizedMode)
+            .not('partner_mdr', 'is', null)
+            .limit(1);
+          if (mdrRates && mdrRates.length > 0) {
+            const rate = mdrRates[0];
+            const resolvedMdr = parseFloat(rate.partner_mdr);
+            const partnerFee = Number(((amount * resolvedMdr) / 100).toFixed(4));
+            console.log(`[Partner MDR] Resolved from scheme_mdr_rates partner_mdr: ${resolvedMdr}%`);
+            return {
+              success: true,
+              partner_mdr: resolvedMdr,
+              partner_fee: partnerFee,
+              partner_settlement_amount: Number((amount - partnerFee).toFixed(2)),
+              company_earning: Number(partnerFee.toFixed(4)),
+              scheme_id: resolved.scheme_id,
+            };
+          }
+        }
+      } catch (fallbackErr) {
+        console.warn('[Partner MDR] Scheme management fallback failed:', fallbackErr);
+      }
+
       console.warn(
         `[Partner MDR] No scheme found for partner=${partnerId}, mode=${normalizedMode}`
       );

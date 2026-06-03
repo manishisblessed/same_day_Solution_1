@@ -479,32 +479,50 @@ async function fetchAEPSTransactions(
     return { data: [], count: 0 }
   }
 
-  const normalized: NormalizedTransaction[] = (data || []).map((tx: any) => ({
-    id: tx.id,
-    service_type: 'AEPS',
-    transaction_id: tx.id,
-    tid: null,
-    amount: tx.amount || 0,
-    status: tx.status || 'pending',
-    commission: tx.commission_amount || 0,
-    mdr: 0,
-    mdr_rate: 0,
-    settlement_type: '-',
-    scheme_name: '-',
-    scheme_id: null,
-    retailer_id: tx.user_id,
-    retailer_name: null,
-    distributor_id: null,
-    distributor_name: null,
-    master_distributor_id: null,
-    md_name: null,
-    payment_mode: 'AEPS',
-    card_type: null,
-    device_serial: null,
-    description: tx.transaction_type ? `AEPS - ${tx.transaction_type}` : 'AEPS Transaction',
-    created_at: tx.created_at,
-    raw: tx,
-  }))
+  // Enrich AEPS transactions with commission from commission_ledger
+  const txnIds = (data || []).filter((tx: any) => tx.commission_id).map((tx: any) => tx.commission_id)
+  const commissionMap = new Map<string, { rt_amount: number; tds_amount: number; scheme_name: string }>()
+  if (txnIds.length > 0) {
+    const { data: commissions } = await supabase
+      .from('commission_ledger')
+      .select('id, rt_amount, tds_amount, service_type')
+      .in('id', txnIds)
+    commissions?.forEach((c: any) => commissionMap.set(c.id, {
+      rt_amount: c.rt_amount || 0,
+      tds_amount: c.tds_amount || 0,
+      scheme_name: c.service_type || '-',
+    }))
+  }
+
+  const normalized: NormalizedTransaction[] = (data || []).map((tx: any) => {
+    const comm = tx.commission_id ? commissionMap.get(tx.commission_id) : null
+    return {
+      id: tx.id,
+      service_type: 'AEPS',
+      transaction_id: tx.id,
+      tid: null,
+      amount: tx.amount || 0,
+      status: tx.status || 'pending',
+      commission: comm?.rt_amount || 0,
+      mdr: comm?.tds_amount || 0,
+      mdr_rate: 0,
+      settlement_type: '-',
+      scheme_name: comm?.scheme_name || '-',
+      scheme_id: null,
+      retailer_id: tx.user_id,
+      retailer_name: null,
+      distributor_id: null,
+      distributor_name: null,
+      master_distributor_id: null,
+      md_name: null,
+      payment_mode: 'AEPS',
+      card_type: null,
+      device_serial: null,
+      description: tx.transaction_type ? `AEPS - ${tx.transaction_type}` : 'AEPS Transaction',
+      created_at: tx.created_at,
+      raw: tx,
+    }
+  })
 
   return { data: normalized, count: count || 0 }
 }
