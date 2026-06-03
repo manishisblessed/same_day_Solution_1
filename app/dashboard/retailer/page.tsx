@@ -1905,16 +1905,16 @@ function WalletTab({ user }: { user: any }) {
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-md w-full p-6"
+            className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-md w-full p-6 max-h-[90vh] flex flex-col"
           >
             <h3 className="text-xl font-bold mb-1">AEPS Settlement to Bank</h3>
             <p className="text-sm text-gray-500 mb-4">Transfer AEPS wallet balance to your approved bank account</p>
-            <div className="mb-3 p-3 bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-lg">
+            <div className="mb-3 p-3 bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-lg flex-shrink-0">
               <p className="text-sm text-purple-700 dark:text-purple-300">
                 Available AEPS Balance: <span className="font-bold">₹{aepsBalance?.toLocaleString('en-IN', { minimumFractionDigits: 2 }) || '0.00'}</span>
               </p>
             </div>
-            <div className="space-y-4">
+            <div className="space-y-4 overflow-y-auto flex-1 min-h-0">
               <div>
                 <label className="block text-sm font-medium mb-1">Amount (₹)</label>
                 <input type="number" value={aepsSettlementAmount}
@@ -2008,16 +2008,16 @@ function WalletTab({ user }: { user: any }) {
                 </div>
               )}
 
-              <div className="flex gap-3">
-                <button onClick={handleAepsSettlement} disabled={aepsSettlementProcessing || aepsSettleChargeLoading || !selectedSettleAccountId}
-                  className={`flex-1 text-white py-2 px-4 rounded-lg disabled:opacity-50 ${aepsSettleConfirmed ? 'bg-green-600 hover:bg-green-700' : 'bg-purple-600 hover:bg-purple-700'}`}>
-                  {aepsSettlementProcessing ? 'Processing...' : aepsSettleConfirmed ? 'Confirm & Settle' : 'Settle to Bank'}
-                </button>
-                <button onClick={() => { setShowAepsSettlement(false); setAepsSettleConfirmed(false); setAepsSettleCharge(null); setAepsSettleSchemeName(null) }}
-                  className="flex-1 bg-gray-200 text-gray-700 py-2 px-4 rounded-lg hover:bg-gray-300">
-                  Cancel
-                </button>
-              </div>
+            </div>
+            <div className="flex gap-3 pt-4 flex-shrink-0">
+              <button onClick={handleAepsSettlement} disabled={aepsSettlementProcessing || aepsSettleChargeLoading || !selectedSettleAccountId}
+                className={`flex-1 text-white py-2 px-4 rounded-lg disabled:opacity-50 ${aepsSettleConfirmed ? 'bg-green-600 hover:bg-green-700' : 'bg-purple-600 hover:bg-purple-700'}`}>
+                {aepsSettlementProcessing ? 'Processing...' : aepsSettleConfirmed ? 'Confirm & Settle' : 'Settle to Bank'}
+              </button>
+              <button onClick={() => { setShowAepsSettlement(false); setAepsSettleConfirmed(false); setAepsSettleCharge(null); setAepsSettleSchemeName(null) }}
+                className="flex-1 bg-gray-200 text-gray-700 py-2 px-4 rounded-lg hover:bg-gray-300">
+                Cancel
+              </button>
             </div>
           </motion.div>
         </div>

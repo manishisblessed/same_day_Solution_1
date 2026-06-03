@@ -116,18 +116,21 @@ function SchemeManagementPageContent() {
       if (schemeIds.length > 0) {
         const { data: mappings } = await supabase
           .from('scheme_mappings')
-          .select('scheme_id')
+          .select('scheme_id, entity_role')
           .in('scheme_id', schemeIds)
           .eq('status', 'active')
         
         const mappingCounts: Record<string, number> = {}
+        const partnerSchemeIds = new Set<string>()
         mappings?.forEach(m => {
           mappingCounts[m.scheme_id] = (mappingCounts[m.scheme_id] || 0) + 1
+          if (m.entity_role === 'partner') partnerSchemeIds.add(m.scheme_id)
         })
         
         filtered = filtered.map(s => ({
           ...s,
           mapping_count: mappingCounts[s.id] || 0,
+          is_partner_plan: s.is_partner_plan || partnerSchemeIds.has(s.id),
         }))
       }
 
@@ -215,15 +218,17 @@ function SchemeManagementPageContent() {
     let enrichedMappings = mappings.data || []
     if (enrichedMappings.length > 0) {
       const entityIds = enrichedMappings.map((m: any) => m.entity_id)
-      const [retNames, distNames, mdNames] = await Promise.all([
+      const [retNames, distNames, mdNames, partnerNames] = await Promise.all([
         supabase.from('retailers').select('partner_id, name, business_name').in('partner_id', entityIds),
         supabase.from('distributors').select('partner_id, name, business_name').in('partner_id', entityIds),
         supabase.from('master_distributors').select('partner_id, name, business_name').in('partner_id', entityIds),
+        supabase.from('partners').select('id, name, business_name').in('id', entityIds),
       ])
       const nameMap: Record<string, string> = {}
       retNames.data?.forEach((r: any) => { nameMap[r.partner_id] = r.business_name || r.name })
       distNames.data?.forEach((d: any) => { nameMap[d.partner_id] = d.business_name || d.name })
       mdNames.data?.forEach((md: any) => { nameMap[md.partner_id] = md.business_name || md.name })
+      partnerNames.data?.forEach((p: any) => { nameMap[p.id] = p.business_name || p.name })
       enrichedMappings = enrichedMappings.map((m: any) => ({ ...m, entity_name: nameMap[m.entity_id] || null }))
     }
     
@@ -235,6 +240,8 @@ function SchemeManagementPageContent() {
       aeps_commissions: aeps.data || [],
       aeps_settlement_charges: aepsSettle.data || [],
       mappings: enrichedMappings,
+      // Auto-detect partner plan from mappings (if any mapping is entity_role='partner')
+      is_partner_plan: s.is_partner_plan || enrichedMappings.some((m: any) => m.entity_role === 'partner'),
     } : s))
     
     setExpandedSchemeId(schemeId)
@@ -486,9 +493,9 @@ function SchemeManagementPageContent() {
           status: 'active',
         }
         if (isPartnerPlan) {
-          insertData.partner_mdr = mdrForm.partner_mdr
-          insertData.retailer_mdr_t1 = 0
-          insertData.retailer_mdr_t0 = 0
+          insertData.partner_mdr = mdrForm.retailer_mdr_t1
+          insertData.retailer_mdr_t1 = mdrForm.retailer_mdr_t1
+          insertData.retailer_mdr_t0 = mdrForm.retailer_mdr_t0
           insertData.distributor_mdr_t1 = 0
           insertData.distributor_mdr_t0 = 0
           insertData.md_mdr_t1 = 0
@@ -607,6 +614,12 @@ function SchemeManagementPageContent() {
         priority: 100,
       })
       if (error) throw error
+
+      // Auto-set is_partner_plan when mapping to a partner entity
+      if (mappingForm.entity_role === 'partner') {
+        await supabase.from('schemes').update({ is_partner_plan: true }).eq('id', mappingSchemeId)
+      }
+
       setSuccess('Scheme mapped successfully')
       setShowMappingModal(false)
       fetchSchemes()
@@ -1025,7 +1038,10 @@ function SchemeManagementPageContent() {
                                 <th className="px-2 py-1.5 text-left">Card Type</th>
                                 <th className="px-2 py-1.5 text-left">Brand Type</th>
                                 {scheme.is_partner_plan ? (
-                                  <th className="px-2 py-1.5 text-right">MDR %</th>
+                                  <>
+                                    <th className="px-2 py-1.5 text-right">MDR T+1</th>
+                                    <th className="px-2 py-1.5 text-right">MDR T+0</th>
+                                  </>
                                 ) : (
                                   <>
                                     <th className="px-2 py-1.5 text-right">RT T+1</th>
@@ -1046,7 +1062,10 @@ function SchemeManagementPageContent() {
                                   <td className="px-2 py-1.5">{r.card_type || '-'}</td>
                                   <td className="px-2 py-1.5">{r.brand_type || '-'}</td>
                                   {scheme.is_partner_plan ? (
-                                    <td className="px-2 py-1.5 text-right font-semibold text-orange-700 dark:text-orange-400">{r.partner_mdr ?? 0}%</td>
+                                    <>
+                                      <td className="px-2 py-1.5 text-right font-semibold text-orange-700 dark:text-orange-400">{r.partner_mdr ?? r.retailer_mdr_t1 ?? 0}%</td>
+                                      <td className="px-2 py-1.5 text-right font-semibold text-orange-700 dark:text-orange-400">{r.retailer_mdr_t0 ?? 0}%</td>
+                                    </>
                                   ) : (
                                     <>
                                       <td className="px-2 py-1.5 text-right">{r.retailer_mdr_t1}%</td>
@@ -1501,16 +1520,28 @@ function SchemeManagementPageContent() {
                         <div className="space-y-2">
                           <div className="flex items-center gap-2 px-3 py-2 bg-orange-50 dark:bg-orange-900/20 rounded-lg border border-orange-200 dark:border-orange-800">
                             <TrendingUp className="w-4 h-4 text-orange-600" />
-                            <span className="text-xs font-medium text-orange-700 dark:text-orange-400">Partner Plan — Single MDR rate applies to all settlement types</span>
+                            <span className="text-xs font-medium text-orange-700 dark:text-orange-400">Partner Plan — Only MDR T+1 and T+0 rates (no RT/DT/MD breakdown)</span>
                           </div>
-                          <div>
-                            <label className="block text-sm font-medium mb-1">Partner MDR (%)</label>
-                            <input type="number" step="0.01" value={mdrForm.partner_mdr}
-                              onChange={(e) => setMdrForm({ ...mdrForm, partner_mdr: parseFloat(e.target.value) || 0 })}
-                              className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700"
-                              placeholder="e.g. 1.25" />
-                            <p className="text-xs text-gray-500 mt-1">This single MDR rate will be used for reconciliation and Net Pay calculation</p>
+                          <div className="grid grid-cols-2 gap-3">
+                            <div>
+                              <label className="block text-sm font-medium mb-1">MDR T+1 (%)</label>
+                              <input type="number" step="0.01" value={mdrForm.retailer_mdr_t1}
+                                onChange={(e) => {
+                                  const t1 = parseFloat(e.target.value) || 0
+                                  setMdrForm({ ...mdrForm, retailer_mdr_t1: t1, partner_mdr: t1, retailer_mdr_t0: mdrForm.retailer_mdr_t0 === 0 ? t1 + 1 : mdrForm.retailer_mdr_t0 })
+                                }}
+                                className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700"
+                                placeholder="e.g. 1.25" />
+                            </div>
+                            <div>
+                              <label className="block text-sm font-medium mb-1">MDR T+0 (%)</label>
+                              <input type="number" step="0.01" value={mdrForm.retailer_mdr_t0}
+                                onChange={(e) => setMdrForm({ ...mdrForm, retailer_mdr_t0: parseFloat(e.target.value) || 0 })}
+                                className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700"
+                                placeholder="e.g. 2.25" />
+                            </div>
                           </div>
+                          <p className="text-xs text-gray-500">T+0 rate auto-fills as T+1 + 1% if left at 0. Used for reconciliation and Net Pay calculation.</p>
                         </div>
                       )
                     }
