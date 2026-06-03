@@ -116,7 +116,23 @@ export async function getBankIdFromBankList(
       b.ifsc && b.ifsc.toUpperCase() === normalizedIfsc
     )
     
-    // Match by IFSC prefix (first 4 chars identify the bank)
+    // Match by bank code (e.g., IFSC prefix "ICIC" → code "ICIC" = ICICI Bank)
+    // This correctly identifies the parent bank vs subsidiary banks sharing the prefix
+    if (!matchedBank) {
+      matchedBank = bankListResult.banks.find(b => 
+        b.code && b.code.toUpperCase() === ifscPrefix
+      )
+    }
+
+    // Match by bank name containing the IFSC prefix (e.g., "ICICI" in "ICICI Bank")
+    if (!matchedBank) {
+      const prefixLower = ifscPrefix.toLowerCase()
+      matchedBank = bankListResult.banks.find(b => 
+        b.bankName && b.bankName.toLowerCase().includes(prefixLower)
+      )
+    }
+    
+    // Match by IFSC prefix (first 4 chars) - less reliable, may match subsidiary banks
     if (!matchedBank) {
       matchedBank = bankListResult.banks.find(b => 
         b.ifsc && b.ifsc.substring(0, 4).toUpperCase() === ifscPrefix

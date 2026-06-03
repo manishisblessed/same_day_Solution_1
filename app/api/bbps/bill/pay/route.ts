@@ -931,6 +931,34 @@ export async function POST(request: NextRequest) {
           } else {
             console.log(`[BBPS Pay] ⚠️ MD commission skipped: amount=₹${commissionSplit.md_commission}, mdId=${mdId}`)
           }
+          // Credit company revenue wallet (charge minus all commissions distributed)
+          const companyEarning = bbpsCharge - commissionSplit.retailer_commission - commissionSplit.distributor_commission - commissionSplit.md_commission
+          if (companyEarning > 0) {
+            const revenueUserId = process.env.SUBSCRIPTION_REVENUE_USER_ID
+            const revenueUserRole = process.env.SUBSCRIPTION_REVENUE_USER_ROLE || 'master_distributor'
+            if (revenueUserId) {
+              const { error: companyErr } = await supabase.rpc('add_ledger_entry', {
+                p_user_id: revenueUserId,
+                p_user_role: revenueUserRole,
+                p_wallet_type: 'primary',
+                p_fund_category: 'revenue',
+                p_service_type: 'bbps',
+                p_tx_type: 'COMPANY_REVENUE',
+                p_credit: companyEarning,
+                p_debit: 0,
+                p_reference_id: txRef,
+                p_transaction_id: bbpsTransaction.id,
+                p_status: 'completed',
+                p_remarks: `Company revenue from BBPS charge ₹${bbpsCharge} on ₹${billAmountInRupees} bill (RT:${user.partner_id})`,
+              })
+              if (companyErr) console.error(`[BBPS Pay] ❌ Company revenue credit error:`, companyErr)
+              else console.log(`[BBPS Pay] ✅ Company revenue credited: ₹${companyEarning}`)
+            } else {
+              console.warn(`[BBPS Pay] ⚠️ SUBSCRIPTION_REVENUE_USER_ID not set — company revenue ₹${companyEarning} not credited`)
+            }
+          } else {
+            console.log(`[BBPS Pay] ⚠️ Company earning is ₹${companyEarning} (<=0), skipping`)
+          }
         } catch (commErr: any) {
           console.error('[BBPS Pay] ❌ Commission distribution error (non-fatal):', commErr.message, commErr.stack)
         }

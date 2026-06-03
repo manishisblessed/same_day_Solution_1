@@ -337,6 +337,32 @@ export async function POST(request: NextRequest) {
             p_remarks: `AEPS settlement MD margin: ₹${chargeBreakdown.md_commission}`,
           });
         }
+        // Credit company revenue wallet (charge minus all commissions distributed)
+        const companyEarning = charge - (chargeBreakdown.distributor_commission || 0) - (chargeBreakdown.md_commission || 0);
+        if (companyEarning > 0) {
+          const revenueUserId = process.env.SUBSCRIPTION_REVENUE_USER_ID;
+          const revenueUserRole = process.env.SUBSCRIPTION_REVENUE_USER_ROLE || 'master_distributor';
+          if (revenueUserId) {
+            const { error: companyErr } = await supabase.rpc('add_ledger_entry', {
+              p_user_id: revenueUserId,
+              p_user_role: revenueUserRole,
+              p_wallet_type: 'primary',
+              p_fund_category: 'revenue',
+              p_service_type: 'aeps',
+              p_tx_type: 'COMPANY_REVENUE',
+              p_credit: companyEarning,
+              p_debit: 0,
+              p_reference_id: `AEPS_SETTLE_REVENUE_${settlement.id}`,
+              p_transaction_id: settlement.id,
+              p_status: 'completed',
+              p_remarks: `Company revenue from AEPS settlement charge ₹${charge} on ₹${amountDecimal} (${user.partner_id})`,
+            });
+            if (companyErr) console.error(`[AEPS Settlement] ❌ Company revenue credit error:`, companyErr);
+            else console.log(`[AEPS Settlement] ✅ Company revenue credited: ₹${companyEarning}`);
+          } else {
+            console.warn(`[AEPS Settlement] ⚠️ SUBSCRIPTION_REVENUE_USER_ID not set — company revenue ₹${companyEarning} not credited`);
+          }
+        }
       }
 
       const ctx = getRequestContext(request);
