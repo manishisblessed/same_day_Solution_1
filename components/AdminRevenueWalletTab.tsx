@@ -333,6 +333,8 @@ export default function AdminRevenueWalletTab() {
               <option value="SUBSCRIPTION_REVENUE">Subscription Revenue</option>
               <option value="POS_RENTAL_COMMISSION">POS Rental Commission</option>
               <option value="COMMISSION_CREDIT">Commission Credit</option>
+              <option value="COMPANY_REVENUE">Platform Revenue</option>
+              <option value="TDS_DEDUCTION">TDS Deduction</option>
               <option value="SETTLEMENT_FEE">Settlement Fee</option>
             </select>
           </div>

@@ -52,6 +52,8 @@ const TX_TYPE_CONFIG: Record<string, { label: string; icon: any; color: string }
   'COMMISSION_CREDIT': { label: 'Commission Earned', icon: TrendingUp, color: 'text-emerald-600 dark:text-emerald-400' },
   'TDS_DEDUCTION': { label: 'TDS Deducted', icon: Shield, color: 'text-amber-600 dark:text-amber-400' },
   'AEPS_SETTLEMENT': { label: 'Settlement to Bank', icon: Banknote, color: 'text-orange-600 dark:text-orange-400' },
+  'AEPS_SETTLE_MARGIN': { label: 'Settlement Margin', icon: TrendingUp, color: 'text-indigo-600 dark:text-indigo-400' },
+  'AEPS_SETTLE_CHARGE': { label: 'Settlement Charge', icon: ArrowUpCircle, color: 'text-red-600 dark:text-red-400' },
   'REFUND': { label: 'Refund', icon: ArrowDownCircle, color: 'text-blue-600 dark:text-blue-400' },
   'WALLET_PUSH': { label: 'Admin Credit', icon: ArrowDownCircle, color: 'text-green-600 dark:text-green-400' },
   'WALLET_PULL': { label: 'Admin Debit', icon: ArrowUpCircle, color: 'text-red-600 dark:text-red-400' },
