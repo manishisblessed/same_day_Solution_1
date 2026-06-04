@@ -14,18 +14,22 @@ import {
 } from 'lucide-react'
 import { motion } from 'framer-motion'
 import { apiFetch } from '@/lib/api-client'
+import { useToast } from '@/components/Toast'
 
 type TabType = 'wallet' | 'commission' | 'mdr' | 'limits' | 'services' | 'reversals' | 'disputes' | 'reports' | 'slabs'
 
 export default function AdminCapabilities() {
   const { user, loading: authLoading } = useAuth()
   const router = useRouter()
+  const { showToast } = useToast()
   const [activeTab, setActiveTab] = useState<TabType>('wallet')
   const [loading, setLoading] = useState(false)
   const [users, setUsers] = useState<any[]>([])
   const [selectedUser, setSelectedUser] = useState<any>(null)
   const [showModal, setShowModal] = useState(false)
   const [modalData, setModalData] = useState<any>({})
+  const [actionLoading, setActionLoading] = useState(false)
+  const [downloading, setDownloading] = useState(false)
 
   useEffect(() => {
     if (!authLoading && (!user || user.role !== 'admin')) {
@@ -57,12 +61,14 @@ export default function AdminCapabilities() {
       setUsers(allUsers)
     } catch (error) {
       console.error('Error fetching users:', error)
+      showToast('Failed to fetch users', 'error')
     } finally {
       setLoading(false)
     }
   }
 
   const handleAction = async (action: string, data: any) => {
+    setActionLoading(true)
     try {
       let endpoint = ''
       let body: any = {}
@@ -165,21 +171,24 @@ export default function AdminCapabilities() {
 
       const result = await response.json()
       if (result.success) {
-        alert(result.message || 'Action completed successfully!')
+        showToast(result.message || 'Action completed successfully!', 'success')
         setShowModal(false)
         setSelectedUser(null)
         setModalData({})
         fetchUsers()
       } else {
-        alert(result.error || 'Action failed')
+        showToast(result.error || 'Action failed', 'error')
       }
     } catch (error) {
       console.error('Action error:', error)
-      alert('Failed to perform action')
+      showToast('Failed to perform action', 'error')
+    } finally {
+      setActionLoading(false)
     }
   }
 
   const downloadReport = async (type: string, format: string = 'csv') => {
+    setDownloading(true)
     try {
       const startDate = modalData.start_date || ''
       const endDate = modalData.end_date || ''
@@ -202,16 +211,19 @@ export default function AdminCapabilities() {
         } else {
           const data = await response.json()
           console.log('Report data:', data)
-          alert('Report generated. Check console for data.')
+          showToast('Report generated. Check console for data.', 'info')
         }
+        showToast('Report downloaded successfully', 'success')
         setShowModal(false)
         setModalData({})
       } else {
-        alert('Failed to generate report')
+        showToast('Failed to generate report', 'error')
       }
     } catch (error) {
       console.error('Report error:', error)
-      alert('Failed to generate report')
+      showToast('Failed to generate report', 'error')
+    } finally {
+      setDownloading(false)
     }
   }
 
@@ -447,41 +459,45 @@ export default function AdminCapabilities() {
               <div className="grid grid-cols-2 gap-4">
                 <button
                   onClick={() => downloadReport('transactions', 'csv')}
-                  className="p-4 border rounded-lg hover:bg-gray-50 flex items-center gap-3"
+                  disabled={downloading}
+                  className="p-4 border rounded-lg hover:bg-gray-50 flex items-center gap-3 disabled:opacity-50"
                 >
-                  <Download className="w-5 h-5" />
+                  {downloading ? <RefreshCw className="w-5 h-5 animate-spin" /> : <Download className="w-5 h-5" />}
                   <div>
-                    <p className="font-medium">Transactions Report</p>
+                    <p className="font-medium">{downloading ? 'Downloading...' : 'Transactions Report'}</p>
                     <p className="text-sm text-gray-500">CSV format</p>
                   </div>
                 </button>
                 <button
                   onClick={() => downloadReport('ledger', 'csv')}
-                  className="p-4 border rounded-lg hover:bg-gray-50 flex items-center gap-3"
+                  disabled={downloading}
+                  className="p-4 border rounded-lg hover:bg-gray-50 flex items-center gap-3 disabled:opacity-50"
                 >
-                  <Download className="w-5 h-5" />
+                  {downloading ? <RefreshCw className="w-5 h-5 animate-spin" /> : <Download className="w-5 h-5" />}
                   <div>
-                    <p className="font-medium">Ledger Report</p>
+                    <p className="font-medium">{downloading ? 'Downloading...' : 'Ledger Report'}</p>
                     <p className="text-sm text-gray-500">CSV format</p>
                   </div>
                 </button>
                 <button
                   onClick={() => downloadReport('commission', 'csv')}
-                  className="p-4 border rounded-lg hover:bg-gray-50 flex items-center gap-3"
+                  disabled={downloading}
+                  className="p-4 border rounded-lg hover:bg-gray-50 flex items-center gap-3 disabled:opacity-50"
                 >
-                  <Download className="w-5 h-5" />
+                  {downloading ? <RefreshCw className="w-5 h-5 animate-spin" /> : <Download className="w-5 h-5" />}
                   <div>
-                    <p className="font-medium">Commission Report</p>
+                    <p className="font-medium">{downloading ? 'Downloading...' : 'Commission Report'}</p>
                     <p className="text-sm text-gray-500">CSV format</p>
                   </div>
                 </button>
                 <button
                   onClick={() => downloadReport('audit', 'csv')}
-                  className="p-4 border rounded-lg hover:bg-gray-50 flex items-center gap-3"
+                  disabled={downloading}
+                  className="p-4 border rounded-lg hover:bg-gray-50 flex items-center gap-3 disabled:opacity-50"
                 >
-                  <Download className="w-5 h-5" />
+                  {downloading ? <RefreshCw className="w-5 h-5 animate-spin" /> : <Download className="w-5 h-5" />}
                   <div>
-                    <p className="font-medium">Audit Log Report</p>
+                    <p className="font-medium">{downloading ? 'Downloading...' : 'Audit Log Report'}</p>
                     <p className="text-sm text-gray-500">CSV format</p>
                   </div>
                 </button>
@@ -558,9 +574,10 @@ export default function AdminCapabilities() {
                   </div>
                   <button
                     onClick={() => handleAction('commission_push', modalData)}
-                    className="w-full bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700"
+                    disabled={actionLoading}
+                    className="w-full bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 disabled:opacity-50"
                   >
-                    Push Commission
+                    {actionLoading ? 'Processing...' : 'Push Commission'}
                   </button>
                 </div>
               )}
@@ -588,9 +605,10 @@ export default function AdminCapabilities() {
                   </div>
                   <button
                     onClick={() => handleAction('commission_pull', modalData)}
-                    className="w-full bg-red-600 text-white py-2 px-4 rounded-lg hover:bg-red-700"
+                    disabled={actionLoading}
+                    className="w-full bg-red-600 text-white py-2 px-4 rounded-lg hover:bg-red-700 disabled:opacity-50"
                   >
-                    Pull Commission
+                    {actionLoading ? 'Processing...' : 'Pull Commission'}
                   </button>
                 </div>
               )}
@@ -624,9 +642,10 @@ export default function AdminCapabilities() {
                   </div>
                   <button
                     onClick={() => handleAction('mdr_adjust', modalData)}
-                    className="w-full bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700"
+                    disabled={actionLoading}
+                    className="w-full bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 disabled:opacity-50"
                   >
-                    Adjust MDR
+                    {actionLoading ? 'Processing...' : 'Adjust MDR'}
                   </button>
                 </div>
               )}
@@ -657,9 +676,10 @@ export default function AdminCapabilities() {
                   </div>
                   <button
                     onClick={() => handleAction('toggle_service', modalData)}
-                    className="w-full bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700"
+                    disabled={actionLoading}
+                    className="w-full bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 disabled:opacity-50"
                   >
-                    Update Service
+                    {actionLoading ? 'Processing...' : 'Update Service'}
                   </button>
                 </div>
               )}
@@ -701,9 +721,10 @@ export default function AdminCapabilities() {
                   </div>
                   <button
                     onClick={() => handleAction('limit_override', modalData)}
-                    className="w-full bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700"
+                    disabled={actionLoading}
+                    className="w-full bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 disabled:opacity-50"
                   >
-                    Override Limits
+                    {actionLoading ? 'Processing...' : 'Override Limits'}
                   </button>
                 </div>
               )}
@@ -742,9 +763,10 @@ export default function AdminCapabilities() {
                   </div>
                   <button
                     onClick={() => handleAction('bbps_reversal', modalData)}
-                    className="w-full bg-red-600 text-white py-2 px-4 rounded-lg hover:bg-red-700"
+                    disabled={actionLoading}
+                    className="w-full bg-red-600 text-white py-2 px-4 rounded-lg hover:bg-red-700 disabled:opacity-50"
                   >
-                    Reverse BBPS Transaction
+                    {actionLoading ? 'Processing...' : 'Reverse BBPS Transaction'}
                   </button>
                 </div>
               )}
@@ -791,9 +813,10 @@ export default function AdminCapabilities() {
                   </div>
                   <button
                     onClick={() => handleAction('aeps_reversal', modalData)}
-                    className="w-full bg-red-600 text-white py-2 px-4 rounded-lg hover:bg-red-700"
+                    disabled={actionLoading}
+                    className="w-full bg-red-600 text-white py-2 px-4 rounded-lg hover:bg-red-700 disabled:opacity-50"
                   >
-                    Reverse AEPS Transaction
+                    {actionLoading ? 'Processing...' : 'Reverse AEPS Transaction'}
                   </button>
                 </div>
               )}
@@ -831,9 +854,10 @@ export default function AdminCapabilities() {
                   </div>
                   <button
                     onClick={() => handleAction('settlement_reversal', modalData)}
-                    className="w-full bg-red-600 text-white py-2 px-4 rounded-lg hover:bg-red-700"
+                    disabled={actionLoading}
+                    className="w-full bg-red-600 text-white py-2 px-4 rounded-lg hover:bg-red-700 disabled:opacity-50"
                   >
-                    Reverse Settlement
+                    {actionLoading ? 'Processing...' : 'Reverse Settlement'}
                   </button>
                 </div>
               )}
@@ -883,9 +907,10 @@ export default function AdminCapabilities() {
                   </div>
                   <button
                     onClick={() => handleAction('dispute_handle', modalData)}
-                    className="w-full bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700"
+                    disabled={actionLoading}
+                    className="w-full bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 disabled:opacity-50"
                   >
-                    Handle Dispute
+                    {actionLoading ? 'Processing...' : 'Handle Dispute'}
                   </button>
                 </div>
               )}
@@ -915,9 +940,10 @@ export default function AdminCapabilities() {
                   </div>
                   <button
                     onClick={() => handleAction('settlement_slab_toggle', modalData)}
-                    className="w-full bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700"
+                    disabled={actionLoading}
+                    className="w-full bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 disabled:opacity-50"
                   >
-                    Update Slab
+                    {actionLoading ? 'Processing...' : 'Update Slab'}
                   </button>
                 </div>
               )}

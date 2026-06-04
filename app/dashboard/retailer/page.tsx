@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useMemo, useCallback, Suspense, lazy, useRef } from 'react'
+import { useToast } from '@/components/Toast'
 import { useAuth } from '@/contexts/AuthContext'
 import { useGeolocation } from '@/hooks/useGeolocation'
 import { useRouter, useSearchParams } from 'next/navigation'
@@ -49,9 +50,11 @@ type TabType = 'dashboard' | 'wallet' | 'services' | 'aeps' | 'bbps' | 'payout' 
 
 function RetailerDashboardContent() {
   const { user, loading: authLoading } = useAuth()
+  const { showToast } = useToast()
   const router = useRouter()
   const searchParams = useSearchParams()
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
   
   const getInitialTab = (): TabType => {
     const tab = searchParams?.get('tab')
@@ -404,9 +407,10 @@ function RetailerDashboardContent() {
             walletBalance: primaryRes?.data ?? prev.walletBalance,
             aepsWalletBalance: aepsRes?.data ?? prev.aepsWalletBalance,
           }))
-        } catch { /* non-blocking */ }
+        } catch {
+          showToast('Failed to refresh wallet balances', 'error')
+        }
 
-        // Also refresh AEPS commission
         try {
           const { data: aepsCommData } = await supabase
             .from('commission_ledger')
@@ -477,11 +481,19 @@ function RetailerDashboardContent() {
               </div>
               <div className="flex items-center gap-2 flex-shrink-0">
                 <button
-                  onClick={fetchDashboardData}
-                  className="p-2 rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                  onClick={async () => {
+                    setRefreshing(true)
+                    try {
+                      await fetchDashboardData()
+                    } finally {
+                      setRefreshing(false)
+                    }
+                  }}
+                  disabled={refreshing}
+                  className="p-2 rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors disabled:opacity-50"
                   title="Refresh"
                 >
-                  <RefreshCw className="w-4 h-4 text-gray-600 dark:text-gray-300" />
+                  <RefreshCw className={`w-4 h-4 text-gray-600 dark:text-gray-300 ${refreshing ? 'animate-spin' : ''}`} />
                 </button>
               </div>
             </div>
@@ -580,6 +592,7 @@ function RetailerDashboardContent() {
 
 // Distributor Connection Card Component
 function DistributorConnectionCard({ user }: { user: any }) {
+  const { showToast } = useToast()
   const [distributorInfo, setDistributorInfo] = useState<any>(null)
   const [schemesCount, setSchemesCount] = useState(0)
   const [activeSchemeNames, setActiveSchemeNames] = useState<string[]>([])
@@ -638,6 +651,7 @@ function DistributorConnectionCard({ user }: { user: any }) {
       )
     } catch (error) {
       console.error('Error fetching distributor info:', error)
+      showToast('Failed to load distributor info', 'error')
     } finally {
       setLoading(false)
     }
@@ -969,6 +983,7 @@ function BBPSTab() {
 // Services Tab Component
 function ServicesTab() {
   const { user } = useAuth()
+  const { showToast } = useToast()
   const [services, setServices] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -1061,7 +1076,7 @@ function ServicesTab() {
       setServices(mergedServices)
     } catch (error) {
       console.error('Error fetching service data:', error)
-      // Set empty services on error
+      showToast('Failed to load service data', 'error')
       setServices([])
     } finally {
       setLoading(false)
@@ -1245,6 +1260,7 @@ function TransactionsTab({ transactions }: { transactions: any[] }) {
 // Reports Tab Component
 // Wallet Tab Component
 function WalletTab({ user }: { user: any }) {
+  const { showToast } = useToast()
   const [walletBalance, setWalletBalance] = useState<number | null>(null)
   const [aepsBalance, setAepsBalance] = useState<number | null>(null)
   const [loading, setLoading] = useState(true)
@@ -1256,12 +1272,12 @@ function WalletTab({ user }: { user: any }) {
   const [settlementCharge, setSettlementCharge] = useState<number | null>(null)
   const [settlementChargeLoading, setSettlementChargeLoading] = useState(false)
   const [settlementSchemeName, setSettlementSchemeName] = useState<string | null>(null)
+  const [settlementProcessing, setSettlementProcessing] = useState(false)
   const [bankDetails, setBankDetails] = useState({
     account_number: '',
     ifsc: '',
     account_name: ''
   })
-  // AEPS Settlement & Transfer states
   const [showAepsSettlement, setShowAepsSettlement] = useState(false)
   const [aepsSettlementAmount, setAepsSettlementAmount] = useState('')
   const [aepsSettlementProcessing, setAepsSettlementProcessing] = useState(false)
@@ -1273,19 +1289,28 @@ function WalletTab({ user }: { user: any }) {
   const [aepsTransferAmount, setAepsTransferAmount] = useState('')
   const [aepsTransferProcessing, setAepsTransferProcessing] = useState(false)
   const [aepsTransferConfirmed, setAepsTransferConfirmed] = useState(false)
-  // AEPS Settlement Accounts
   const [aepsSettleAccounts, setAepsSettleAccounts] = useState<any[]>([])
   const [selectedSettleAccountId, setSelectedSettleAccountId] = useState<string>('')
   const [showAddSettleAccount, setShowAddSettleAccount] = useState(false)
   const [newSettleAccount, setNewSettleAccount] = useState({ account_number: '', ifsc_code: '', bank_name: '' })
   const [addingSettleAccount, setAddingSettleAccount] = useState(false)
   const [settleAccountsLoading, setSettleAccountsLoading] = useState(false)
+  const [deletingAccountId, setDeletingAccountId] = useState<string | null>(null)
 
   useEffect(() => {
     fetchWalletData()
     fetchSettlementLimit()
     fetchAepsSettleAccounts()
   }, [user])
+
+  useEffect(() => {
+    if (showAepsSettlement) {
+      const amt = parseFloat(aepsSettlementAmount)
+      if (amt > 0) {
+        fetchAepsSettleCharge(amt)
+      }
+    }
+  }, [showAepsSettlement])
 
   // Fetch settlement limit tier for the retailer
   const fetchSettlementLimit = async () => {
@@ -1302,6 +1327,7 @@ function WalletTab({ user }: { user: any }) {
       }
     } catch (err) {
       console.error('Error fetching settlement limit:', err)
+      showToast('Failed to load settlement limit', 'error')
     }
   }
 
@@ -1317,6 +1343,7 @@ function WalletTab({ user }: { user: any }) {
         setSelectedSettleAccountId(def.id)
       }
     } catch {
+      showToast('Failed to load settlement accounts', 'error')
       setAepsSettleAccounts([])
     } finally {
       setSettleAccountsLoading(false)
@@ -1325,7 +1352,7 @@ function WalletTab({ user }: { user: any }) {
 
   const handleAddSettleAccount = async () => {
     if (!newSettleAccount.account_number || !newSettleAccount.ifsc_code) {
-      alert('Account number and IFSC code are required')
+      showToast('Account number and IFSC code are required', 'error')
       return
     }
     setAddingSettleAccount(true)
@@ -1335,15 +1362,15 @@ function WalletTab({ user }: { user: any }) {
         body: JSON.stringify(newSettleAccount),
       })
       if (res.success) {
-        alert(res.message || 'Account added and submitted for admin approval!')
+        showToast(res.message || 'Account added and submitted for admin approval!', 'success')
         setShowAddSettleAccount(false)
         setNewSettleAccount({ account_number: '', ifsc_code: '', bank_name: '' })
         fetchAepsSettleAccounts()
       } else {
-        alert(res.error || 'Failed to add account')
+        showToast(res.error || 'Failed to add account', 'error')
       }
     } catch (err: any) {
-      alert(err.message || 'Failed to add settlement account')
+      showToast(err.message || 'Failed to add settlement account', 'error')
     } finally {
       setAddingSettleAccount(false)
     }
@@ -1351,16 +1378,20 @@ function WalletTab({ user }: { user: any }) {
 
   const handleDeleteSettleAccount = async (id: string) => {
     if (!confirm('Delete this settlement account?')) return
+    setDeletingAccountId(id)
     try {
       const res = await apiFetchJson<{ success: boolean; error?: string }>(`/api/aeps/settlement-account?id=${id}`, { method: 'DELETE' })
       if (res.success) {
+        showToast('Settlement account deleted', 'success')
         fetchAepsSettleAccounts()
         if (selectedSettleAccountId === id) setSelectedSettleAccountId('')
       } else {
-        alert(res.error || 'Failed to delete')
+        showToast(res.error || 'Failed to delete', 'error')
       }
     } catch (err: any) {
-      alert(err.message || 'Failed to delete')
+      showToast(err.message || 'Failed to delete', 'error')
+    } finally {
+      setDeletingAccountId(null)
     }
   }
 
@@ -1407,6 +1438,7 @@ function WalletTab({ user }: { user: any }) {
       setLedgerEntries(ledger || [])
     } catch (error) {
       console.error('Error fetching wallet data:', error)
+      showToast('Failed to load wallet data', 'error')
     } finally {
       setLoading(false)
     }
@@ -1420,6 +1452,7 @@ function WalletTab({ user }: { user: any }) {
       setSettlementCharge(res.resolved && res.charges ? res.charges.retailer_charge : 0)
       setSettlementSchemeName(res.resolved && res.scheme ? res.scheme.name : null)
     } catch {
+      showToast('Could not fetch settlement charge', 'warning')
       setSettlementCharge(0)
       setSettlementSchemeName(null)
     } finally {
@@ -1429,24 +1462,24 @@ function WalletTab({ user }: { user: any }) {
 
   const handleSettlement = async () => {
     if (!settlementAmount || parseFloat(settlementAmount) <= 0) {
-      alert('Please enter a valid settlement amount')
+      showToast('Please enter a valid settlement amount', 'error')
       return
     }
 
     const amount = parseFloat(settlementAmount)
     
-    // Check settlement limit tier
     if (amount > settlementLimitTier) {
-      alert(`Amount exceeds your settlement limit of ₹${settlementLimitTier.toLocaleString('en-IN')}. Please contact admin to increase your limit.`)
+      showToast(`Amount exceeds your settlement limit of ₹${settlementLimitTier.toLocaleString('en-IN')}`, 'error')
       setSettlementAmountError(`Amount exceeds your settlement limit of ₹${settlementLimitTier.toLocaleString('en-IN')}`)
       return
     }
 
     if (!bankDetails.account_number || !bankDetails.ifsc || !bankDetails.account_name) {
-      alert('Please fill all bank details')
+      showToast('Please fill all bank details', 'error')
       return
     }
 
+    setSettlementProcessing(true)
     try {
       const data = await apiFetchJson<{ success: boolean; error?: string }>('/api/settlement/create', {
         method: 'POST',
@@ -1460,7 +1493,7 @@ function WalletTab({ user }: { user: any }) {
       })
 
       if (data.success) {
-        alert('Settlement request created successfully!')
+        showToast('Settlement request created successfully!', 'success')
         setShowSettlement(false)
         setSettlementAmount('')
         setSettlementCharge(null)
@@ -1468,11 +1501,13 @@ function WalletTab({ user }: { user: any }) {
         setBankDetails({ account_number: '', ifsc: '', account_name: '' })
         fetchWalletData()
       } else {
-        alert(data.error || 'Settlement failed')
+        showToast(data.error || 'Settlement failed', 'error')
       }
     } catch (error: any) {
       console.error('Settlement error:', error)
-      alert(error.message || 'Failed to create settlement request')
+      showToast(error.message || 'Failed to create settlement request', 'error')
+    } finally {
+      setSettlementProcessing(false)
     }
   }
 
@@ -1484,6 +1519,7 @@ function WalletTab({ user }: { user: any }) {
       setAepsSettleCharge(res.resolved && res.charges ? res.charges.retailer_charge : 0)
       setAepsSettleSchemeName(res.resolved && res.scheme ? res.scheme.name : null)
     } catch {
+      showToast('Could not fetch AEPS settlement charge', 'warning')
       setAepsSettleCharge(0)
       setAepsSettleSchemeName(null)
     } finally {
@@ -1493,22 +1529,22 @@ function WalletTab({ user }: { user: any }) {
 
   const handleAepsSettlement = async () => {
     if (!aepsSettlementAmount || parseFloat(aepsSettlementAmount) <= 0) {
-      alert('Please enter a valid amount')
+      showToast('Please enter a valid amount', 'error')
       return
     }
     if (parseFloat(aepsSettlementAmount) < 1001) {
-      alert('Minimum settlement amount is ₹1,001')
+      showToast('Minimum settlement amount is ₹1,001', 'error')
       return
     }
     if (!selectedSettleAccountId) {
-      alert('Please select an approved settlement account')
+      showToast('Please select an approved settlement account', 'error')
       return
     }
     const amt = parseFloat(aepsSettlementAmount)
     const charge = aepsSettleCharge ?? 0
     const total = amt + charge
     if (total > (aepsBalance || 0)) {
-      alert(`Insufficient AEPS balance. Need ₹${total.toLocaleString('en-IN')} (₹${amt.toLocaleString('en-IN')} + ₹${charge.toLocaleString('en-IN')} charge) but only ₹${(aepsBalance || 0).toLocaleString('en-IN')} available.`)
+      showToast(`Insufficient AEPS balance. Need ₹${total.toLocaleString('en-IN')} but only ₹${(aepsBalance || 0).toLocaleString('en-IN')} available.`, 'error')
       return
     }
     if (!aepsSettleConfirmed) {
@@ -1525,18 +1561,18 @@ function WalletTab({ user }: { user: any }) {
         })
       })
       if (data.success) {
-        alert(data.message || 'AEPS settlement processed successfully!')
+        showToast(data.message || 'AEPS settlement processed successfully!', 'success')
         setShowAepsSettlement(false)
         setAepsSettlementAmount('')
         setAepsSettleCharge(null)
         setAepsSettleConfirmed(false)
         fetchWalletData()
       } else {
-        alert(data.error || 'AEPS settlement failed')
+        showToast(data.error || 'AEPS settlement failed', 'error')
         setAepsSettleConfirmed(false)
       }
     } catch (error: any) {
-      alert(error.message || 'Failed to process AEPS settlement')
+      showToast(error.message || 'Failed to process AEPS settlement', 'error')
       setAepsSettleConfirmed(false)
     } finally {
       setAepsSettlementProcessing(false)
@@ -1545,12 +1581,12 @@ function WalletTab({ user }: { user: any }) {
 
   const handleAepsTransfer = async () => {
     if (!aepsTransferAmount || parseFloat(aepsTransferAmount) <= 0) {
-      alert('Please enter a valid amount')
+      showToast('Please enter a valid amount', 'error')
       return
     }
     const amt = parseFloat(aepsTransferAmount)
     if (amt > (aepsBalance || 0)) {
-      alert('Amount exceeds AEPS wallet balance')
+      showToast('Amount exceeds AEPS wallet balance', 'error')
       return
     }
     if (!aepsTransferConfirmed) {
@@ -1568,17 +1604,17 @@ function WalletTab({ user }: { user: any }) {
         })
       })
       if (data.success) {
-        alert(data.message || 'Transfer successful!')
+        showToast(data.message || 'Transfer successful!', 'success')
         setShowAepsTransfer(false)
         setAepsTransferAmount('')
         setAepsTransferConfirmed(false)
         fetchWalletData()
       } else {
-        alert(data.error || 'Transfer failed')
+        showToast(data.error || 'Transfer failed', 'error')
         setAepsTransferConfirmed(false)
       }
     } catch (error: any) {
-      alert(error.message || 'Failed to transfer funds')
+      showToast(error.message || 'Failed to transfer funds', 'error')
       setAepsTransferConfirmed(false)
     } finally {
       setAepsTransferProcessing(false)
@@ -1785,13 +1821,15 @@ function WalletTab({ user }: { user: any }) {
               <div className="flex gap-3">
                 <button
                   onClick={handleSettlement}
-                  className="flex-1 bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700"
+                  disabled={settlementProcessing}
+                  className="flex-1 bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  Submit
+                  {settlementProcessing ? 'Processing...' : 'Submit'}
                 </button>
                 <button
                   onClick={() => setShowSettlement(false)}
-                  className="flex-1 bg-gray-200 text-gray-700 py-2 px-4 rounded-lg hover:bg-gray-300"
+                  disabled={settlementProcessing}
+                  className="flex-1 bg-gray-200 text-gray-700 py-2 px-4 rounded-lg hover:bg-gray-300 disabled:opacity-50"
                 >
                   Cancel
                 </button>
@@ -1844,8 +1882,9 @@ function WalletTab({ user }: { user: any }) {
                     {acct.admin_status === 'pending_approval' ? 'Pending Approval' : acct.admin_status === 'approved' ? 'Approved' : 'Rejected'}
                   </span>
                   <button onClick={() => handleDeleteSettleAccount(acct.id)}
-                    className="text-gray-400 hover:text-red-500 p-1" title="Delete">
-                    <X className="w-4 h-4" />
+                    disabled={deletingAccountId === acct.id}
+                    className="text-gray-400 hover:text-red-500 p-1 disabled:opacity-50 disabled:cursor-not-allowed" title="Delete">
+                    {deletingAccountId === acct.id ? <RefreshCw className="w-4 h-4 animate-spin" /> : <X className="w-4 h-4" />}
                   </button>
                 </div>
               </div>

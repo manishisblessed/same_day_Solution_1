@@ -1840,7 +1840,18 @@ export default function AEPSUnifiedFlow({ user }: { user: AEPSUser }) {
 
         // Check if 2FA session is still valid (24h window, same device)
         if (loginStatus.data.loginStatus) {
-          setBanks(loginStatus.data.bankList || []);
+          const loginBanks = loginStatus.data.bankList || [];
+          if (loginBanks.length > 0) {
+            setBanks(loginBanks);
+          } else {
+            try {
+              await new Promise(r => setTimeout(r, 1500));
+              const banksData = await apiFetchJson(`/api/aeps/banks?merchantId=${user.partner_id}`);
+              setBanks(banksData.data || banksData.banks || []);
+            } catch {
+              console.error('[AEPS] Failed to fetch banks after login-status (empty list fallback)');
+            }
+          }
           setCurrentStep('transaction');
         } else {
           if (loginStatus.data.sessionExpired) {

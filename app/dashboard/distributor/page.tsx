@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, Suspense, memo } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
+import { useToast } from '@/components/Toast'
 import { useRouter, useSearchParams, usePathname } from 'next/navigation'
 import { supabase } from '@/lib/supabase/client'
 import DistributorSidebar from '@/components/DistributorSidebar'
@@ -33,6 +34,7 @@ type ChangePasswordFormProps = {
 
 function DistributorDashboardContent() {
   const { user, logout, loading: authLoading } = useAuth()
+  const { showToast } = useToast()
   const router = useRouter()
   const searchParams = useSearchParams()
   const pathname = usePathname()
@@ -47,6 +49,7 @@ function DistributorDashboardContent() {
   
   const [activeTab, setActiveTab] = useState<TabType>(getInitialTab())
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
   const [stats, setStats] = useState({
     totalRetailers: 0,
     activeRetailers: 0,
@@ -185,8 +188,10 @@ function DistributorDashboardContent() {
       ])
     } catch (error) {
       console.error('Error fetching dashboard data:', error)
+      showToast('Failed to load dashboard data', 'error')
     } finally {
       setLoading(false)
+      setRefreshing(false)
     }
   }, [user])
 
@@ -282,11 +287,12 @@ function DistributorDashboardContent() {
               </div>
               <div className="flex items-center gap-2 flex-shrink-0">
                 <button
-                  onClick={fetchDashboardData}
-                  className="p-2 rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                  onClick={() => { setRefreshing(true); fetchDashboardData() }}
+                  disabled={refreshing}
+                  className="p-2 rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors disabled:opacity-50"
                   title="Refresh"
                 >
-                  <RefreshCw className="w-4 h-4 text-gray-600 dark:text-gray-300" />
+                  <RefreshCw className={`w-4 h-4 text-gray-600 dark:text-gray-300 ${refreshing ? 'animate-spin' : ''}`} />
                 </button>
               </div>
             </div>
@@ -297,7 +303,7 @@ function DistributorDashboardContent() {
           {activeTab === 'services' && <ServicesTab />}
           {activeTab === 'retailers' && <NetworkTab retailers={retailers} user={user} onRefresh={fetchDashboardData} />}
           {activeTab === 'wallet' && <WalletTab user={user} />}
-          {activeTab === 'commission' && <CommissionTab commissionData={commissionData} stats={stats} />}
+          {activeTab === 'commission' && <CommissionTab commissionData={commissionData} stats={stats} onRefresh={fetchDashboardData} />}
           {activeTab === 'mdr-schemes' && <MDRSchemesTab user={user} retailers={retailers} onRefresh={fetchDashboardData} />}
           {activeTab === 'analytics' && <AnalyticsTab categoryData={categoryData} />}
           {activeTab === 'reports' && <ReportsTab user={user} />}
@@ -508,6 +514,7 @@ const DashboardTab = memo(function DashboardTab({ stats, chartData, pieData, onT
 
 // Services Tab
 function ServicesTab() {
+  const { showToast } = useToast()
   const [services, setServices] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -584,6 +591,7 @@ function ServicesTab() {
       setServices(servicesList)
     } catch (error) {
       console.error('Error fetching services data:', error)
+      showToast('Failed to load services data', 'error')
       setServices([])
     } finally {
       setLoading(false)
@@ -649,6 +657,7 @@ function ServicesTab() {
 
 // Wallet Tab
 function WalletTab({ user }: { user: any }) {
+  const { showToast } = useToast()
   const [walletBalance, setWalletBalance] = useState<number | null>(null)
   const [aepsBalance, setAepsBalance] = useState<number | null>(null)
   const [loading, setLoading] = useState(true)
@@ -698,6 +707,7 @@ function WalletTab({ user }: { user: any }) {
       setLedgerEntries(ledger || [])
     } catch (error) {
       console.error('Error fetching wallet data:', error)
+      showToast('Failed to load wallet data', 'error')
     } finally {
       setLoading(false)
     }
@@ -813,12 +823,14 @@ function WalletTab({ user }: { user: any }) {
 
 // Network Tab - View and manage retailers
 function NetworkTab({ retailers, user, onRefresh }: { retailers: any[], user: any, onRefresh: () => void }) {
+  const { showToast } = useToast()
   const [searchTerm, setSearchTerm] = useState('')
   const [showFundTransfer, setShowFundTransfer] = useState(false)
   const [showAddRetailer, setShowAddRetailer] = useState(false)
   const [showRetailerDetail, setShowRetailerDetail] = useState(false)
   const [selectedUser, setSelectedUser] = useState<any>(null)
   const [detailRetailer, setDetailRetailer] = useState<any>(null)
+  const [transferring, setTransferring] = useState(false)
   const [transferData, setTransferData] = useState({
     amount: '',
     fund_category: 'cash' as 'cash' | 'online',
@@ -833,16 +845,17 @@ function NetworkTab({ retailers, user, onRefresh }: { retailers: any[], user: an
 
   const handleFundTransfer = async (action: 'push' | 'pull') => {
     if (!selectedUser || !transferData.amount) {
-      alert('Please fill all fields')
+      showToast('Please fill all fields', 'error')
       return
     }
 
     const amount = parseFloat(transferData.amount)
     if (isNaN(amount) || amount <= 0) {
-      alert('Please enter a valid amount')
+      showToast('Please enter a valid amount', 'error')
       return
     }
 
+    setTransferring(true)
     try {
       const response = await apiFetch('/api/distributor/wallet/transfer', {
         method: 'POST',
@@ -857,17 +870,19 @@ function NetworkTab({ retailers, user, onRefresh }: { retailers: any[], user: an
 
       const data = await response.json()
       if (data.success) {
-        alert(`Fund ${action} successful!`)
+        showToast(`Fund ${action} successful!`, 'success')
         setShowFundTransfer(false)
         setSelectedUser(null)
         setTransferData({ amount: '', fund_category: 'cash', remarks: '' })
         onRefresh()
       } else {
-        alert(data.error || 'Transfer failed')
+        showToast(data.error || 'Transfer failed', 'error')
       }
     } catch (error) {
       console.error('Transfer error:', error)
-      alert('Failed to transfer funds')
+      showToast('Failed to transfer funds', 'error')
+    } finally {
+      setTransferring(false)
     }
   }
 
@@ -1019,22 +1034,25 @@ function NetworkTab({ retailers, user, onRefresh }: { retailers: any[], user: an
               <div className="flex gap-3">
                 <button
                   onClick={() => handleFundTransfer('push')}
-                  className="flex-1 bg-green-600 text-white py-2 px-4 rounded-lg hover:bg-green-700"
+                  disabled={transferring}
+                  className="flex-1 bg-green-600 text-white py-2 px-4 rounded-lg hover:bg-green-700 disabled:opacity-50"
                 >
-                  Push Funds
+                  {transferring ? 'Processing...' : 'Push Funds'}
                 </button>
                 <button
                   onClick={() => handleFundTransfer('pull')}
-                  className="flex-1 bg-red-600 text-white py-2 px-4 rounded-lg hover:bg-red-700"
+                  disabled={transferring}
+                  className="flex-1 bg-red-600 text-white py-2 px-4 rounded-lg hover:bg-red-700 disabled:opacity-50"
                 >
-                  Pull Funds
+                  {transferring ? 'Processing...' : 'Pull Funds'}
                 </button>
                 <button
                   onClick={() => {
                     setShowFundTransfer(false)
                     setSelectedUser(null)
                   }}
-                  className="flex-1 bg-gray-200 text-gray-700 py-2 px-4 rounded-lg hover:bg-gray-300"
+                  disabled={transferring}
+                  className="flex-1 bg-gray-200 text-gray-700 py-2 px-4 rounded-lg hover:bg-gray-300 disabled:opacity-50"
                 >
                   Cancel
                 </button>
@@ -1170,6 +1188,7 @@ function DetailField({ label, value }: { label: string; value: React.ReactNode }
 
 // Add Retailer Modal Component
 function AddRetailerModal({ onClose, onSuccess }: { onClose: () => void, onSuccess: () => void }) {
+  const { showToast } = useToast()
   const [currentStep, setCurrentStep] = useState(1)
   const [formData, setFormData] = useState({
     name: '',
@@ -1291,7 +1310,7 @@ function AddRetailerModal({ onClose, onSuccess }: { onClose: () => void, onSucce
   const handleStep1Next = (e: React.FormEvent) => {
     e.preventDefault()
     if (!formData.name || !formData.email || !formData.phone || !formData.password) {
-      alert('Please fill all required fields')
+      showToast('Please fill all required fields', 'error')
       return
     }
     setCurrentStep(2)
@@ -1300,23 +1319,23 @@ function AddRetailerModal({ onClose, onSuccess }: { onClose: () => void, onSucce
   const handleStep2Next = (e: React.FormEvent) => {
     e.preventDefault()
     if (!formData.business_name) {
-      alert('Business Name is required')
+      showToast('Business Name is required', 'error')
       return
     }
     if (formData.gst_applicable && !gstVerified) {
-      alert('Please verify GST before proceeding')
+      showToast('Please verify GST before proceeding', 'error')
       return
     }
     if (formData.cin_applicable && !cinVerified) {
-      alert('Please verify CIN before proceeding')
+      showToast('Please verify CIN before proceeding', 'error')
       return
     }
     if (!aadhaarVerified) {
-      alert('Aadhaar verification via Digilocker is mandatory')
+      showToast('Aadhaar verification via Digilocker is mandatory', 'error')
       return
     }
     if (!formData.address) {
-      alert('Address is required. Verify GST or Aadhaar to capture address.')
+      showToast('Address is required. Verify GST or Aadhaar to capture address.', 'error')
       return
     }
     setCurrentStep(3)
@@ -1493,19 +1512,19 @@ function AddRetailerModal({ onClose, onSuccess }: { onClose: () => void, onSucce
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!panVerified) {
-      alert('PAN verification is mandatory')
+      showToast('PAN verification is mandatory', 'error')
       return
     }
     if (!aadhaarVerified) {
-      alert('Aadhaar verification via Digilocker is mandatory')
+      showToast('Aadhaar verification via Digilocker is mandatory', 'error')
       return
     }
     if (!bankVerified) {
-      alert('Bank account verification is required')
+      showToast('Bank account verification is required', 'error')
       return
     }
     if (bankNameMismatch) {
-      alert('Bank account holder name does not match. Please use the correct bank account.')
+      showToast('Bank account holder name does not match. Please use the correct bank account.', 'error')
       return
     }
     setLoading(true)
@@ -1568,14 +1587,14 @@ function AddRetailerModal({ onClose, onSuccess }: { onClose: () => void, onSucce
       })
       const data = await response.json()
       if (data.success) {
-        alert('Retailer created successfully! Status: Pending Verification. Admin will review and approve.')
+        showToast('Retailer created successfully! Status: Pending Verification.', 'success')
         onSuccess()
       } else {
-        alert(data.error || 'Failed to create retailer')
+        showToast(data.error || 'Failed to create retailer', 'error')
       }
     } catch (error: any) {
       console.error('Error creating retailer:', error)
-      alert(error.message || 'Failed to create retailer')
+      showToast(error.message || 'Failed to create retailer', 'error')
     } finally {
       setLoading(false)
     }
@@ -2118,9 +2137,11 @@ function AddRetailerModal({ onClose, onSuccess }: { onClose: () => void, onSucce
 }
 
 // Commission Tab
-function CommissionTab({ commissionData, stats }: { commissionData: any[], stats: any }) {
+function CommissionTab({ commissionData, stats, onRefresh }: { commissionData: any[], stats: any, onRefresh: () => void }) {
+  const { showToast } = useToast()
   const [showAdjustment, setShowAdjustment] = useState(false)
   const [selectedCommission, setSelectedCommission] = useState<any>(null)
+  const [adjusting, setAdjusting] = useState(false)
   const [adjustmentData, setAdjustmentData] = useState({
     adjustment_amount: '',
     adjustment_type: 'add' as 'add' | 'deduct',
@@ -2129,18 +2150,18 @@ function CommissionTab({ commissionData, stats }: { commissionData: any[], stats
 
   const handleAdjustment = async () => {
     if (!selectedCommission || !adjustmentData.adjustment_amount) {
-      alert('Please fill all fields')
+      showToast('Please fill all fields', 'error')
       return
     }
 
     const amount = parseFloat(adjustmentData.adjustment_amount)
     if (isNaN(amount) || amount <= 0) {
-      alert('Please enter a valid amount')
+      showToast('Please enter a valid amount', 'error')
       return
     }
 
+    setAdjusting(true)
     try {
-      // Get retailer_id from transaction
       const { data: transaction } = await supabase
         .from('razorpay_transactions')
         .select('retailer_id')
@@ -2148,7 +2169,8 @@ function CommissionTab({ commissionData, stats }: { commissionData: any[], stats
         .single()
 
       if (!transaction) {
-        alert('Transaction not found')
+        showToast('Transaction not found', 'error')
+        setAdjusting(false)
         return
       }
 
@@ -2165,17 +2187,19 @@ function CommissionTab({ commissionData, stats }: { commissionData: any[], stats
 
       const data = await response.json()
       if (data.success) {
-        alert(`Commission ${adjustmentData.adjustment_type === 'add' ? 'added' : 'deducted'} successfully!`)
+        showToast(`Commission ${adjustmentData.adjustment_type === 'add' ? 'added' : 'deducted'} successfully!`, 'success')
         setShowAdjustment(false)
         setSelectedCommission(null)
         setAdjustmentData({ adjustment_amount: '', adjustment_type: 'add', remarks: '' })
-        window.location.reload() // Refresh to show updated commission
+        onRefresh()
       } else {
-        alert(data.error || 'Adjustment failed')
+        showToast(data.error || 'Adjustment failed', 'error')
       }
     } catch (error) {
       console.error('Adjustment error:', error)
-      alert('Failed to adjust commission')
+      showToast('Failed to adjust commission', 'error')
+    } finally {
+      setAdjusting(false)
     }
   }
 
@@ -2299,9 +2323,10 @@ function CommissionTab({ commissionData, stats }: { commissionData: any[], stats
               <div className="flex gap-3">
                 <button
                   onClick={handleAdjustment}
-                  className="flex-1 bg-orange-600 text-white py-2 px-4 rounded-lg hover:bg-orange-700"
+                  disabled={adjusting}
+                  className="flex-1 bg-orange-600 text-white py-2 px-4 rounded-lg hover:bg-orange-700 disabled:opacity-50"
                 >
-                  {adjustmentData.adjustment_type === 'add' ? 'Add' : 'Deduct'} Commission
+                  {adjusting ? 'Processing...' : `${adjustmentData.adjustment_type === 'add' ? 'Add' : 'Deduct'} Commission`}
                 </button>
                 <button
                   onClick={() => {
@@ -2309,7 +2334,8 @@ function CommissionTab({ commissionData, stats }: { commissionData: any[], stats
                     setSelectedCommission(null)
                     setAdjustmentData({ adjustment_amount: '', adjustment_type: 'add', remarks: '' })
                   }}
-                  className="flex-1 bg-gray-200 text-gray-700 py-2 px-4 rounded-lg hover:bg-gray-300"
+                  disabled={adjusting}
+                  className="flex-1 bg-gray-200 text-gray-700 py-2 px-4 rounded-lg hover:bg-gray-300 disabled:opacity-50"
                 >
                   Cancel
                 </button>
@@ -2416,16 +2442,19 @@ function AnalyticsTab({ categoryData }: { categoryData: any[] }) {
 
 // Reports Tab
 function ReportsTab({ user }: { user: any }) {
+  const { showToast } = useToast()
   const [reportType, setReportType] = useState<'ledger' | 'transactions' | 'commission'>('ledger')
   const [dateRange, setDateRange] = useState({ start: '', end: '' })
   const [format, setFormat] = useState<'csv' | 'pdf' | 'zip'>('csv')
+  const [downloading, setDownloading] = useState(false)
 
   const handleDownload = async () => {
     if (!dateRange.start || !dateRange.end) {
-      alert('Please select date range')
+      showToast('Please select date range', 'error')
       return
     }
 
+    setDownloading(true)
     try {
       const response = await apiFetch(`/api/reports/${reportType}?start=${dateRange.start}&end=${dateRange.end}&format=${format}`, {
         method: 'GET',
@@ -2441,13 +2470,15 @@ function ReportsTab({ user }: { user: any }) {
         a.click()
         window.URL.revokeObjectURL(url)
         document.body.removeChild(a)
-        alert('Report downloaded successfully!')
+        showToast('Report downloaded successfully!', 'success')
       } else {
-        alert('Failed to download report')
+        showToast('Failed to download report', 'error')
       }
     } catch (error) {
       console.error('Download error:', error)
-      alert('Failed to download report')
+      showToast('Failed to download report', 'error')
+    } finally {
+      setDownloading(false)
     }
   }
 
@@ -2505,10 +2536,11 @@ function ReportsTab({ user }: { user: any }) {
           </div>
           <button
             onClick={handleDownload}
-            className="w-full bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 flex items-center justify-center gap-2"
+            disabled={downloading}
+            className="w-full bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 flex items-center justify-center gap-2 disabled:opacity-50"
           >
             <Download className="w-5 h-5" />
-            Download Report
+            {downloading ? 'Downloading...' : 'Download Report'}
           </button>
         </div>
       </div>
@@ -2518,12 +2550,14 @@ function ReportsTab({ user }: { user: any }) {
 
 // MDR Schemes Tab
 function MDRSchemesTab({ user, retailers, onRefresh }: { user: any, retailers: any[], onRefresh: () => void }) {
+  const { showToast } = useToast()
   const [schemes, setSchemes] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
   const [showModal, setShowModal] = useState(false)
   const [editingScheme, setEditingScheme] = useState<any>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedRetailer, setSelectedRetailer] = useState('')
+  const [deletingId, setDeletingId] = useState<string | null>(null)
 
   const [formData, setFormData] = useState({
     retailer_id: '',
@@ -2571,13 +2605,12 @@ function MDRSchemesTab({ user, retailers, onRefresh }: { user: any, retailers: a
       const distributor_mdr_t1 = parseFloat(formData.distributor_mdr_t1)
       const distributor_mdr_t0 = parseFloat(formData.distributor_mdr_t0)
 
-      // Validate
       if (retailer_mdr_t1 < distributor_mdr_t1) {
-        alert('Retailer MDR T+1 must be >= Distributor MDR T+1')
+        showToast('Retailer MDR T+1 must be >= Distributor MDR T+1', 'error')
         return
       }
       if (retailer_mdr_t0 < distributor_mdr_t0) {
-        alert('Retailer MDR T+0 must be >= Distributor MDR T+0')
+        showToast('Retailer MDR T+0 must be >= Distributor MDR T+0', 'error')
         return
       }
 
@@ -2613,9 +2646,10 @@ function MDRSchemesTab({ user, retailers, onRefresh }: { user: any, retailers: a
       resetForm()
       fetchSchemes()
       onRefresh()
+      showToast(editingScheme ? 'Scheme updated successfully' : 'Scheme created successfully', 'success')
     } catch (error: any) {
       console.error('Error saving scheme:', error)
-      alert(error.message || 'Failed to save scheme')
+      showToast(error.message || 'Failed to save scheme', 'error')
     } finally {
       setLoading(false)
     }
@@ -2653,6 +2687,7 @@ function MDRSchemesTab({ user, retailers, onRefresh }: { user: any, retailers: a
 
   const handleDelete = async (id: string) => {
     if (!confirm('Are you sure you want to delete this scheme?')) return
+    setDeletingId(id)
     try {
       const { error } = await supabase
         .from('retailer_schemes')
@@ -2660,8 +2695,11 @@ function MDRSchemesTab({ user, retailers, onRefresh }: { user: any, retailers: a
         .eq('id', id)
       if (error) throw error
       fetchSchemes()
+      showToast('Scheme deleted successfully', 'success')
     } catch (error: any) {
-      alert(error.message || 'Failed to delete scheme')
+      showToast(error.message || 'Failed to delete scheme', 'error')
+    } finally {
+      setDeletingId(null)
     }
   }
 
@@ -2779,7 +2817,7 @@ function MDRSchemesTab({ user, retailers, onRefresh }: { user: any, retailers: a
                         <button onClick={() => handleEdit(scheme)} className="p-1 text-blue-600 hover:text-blue-800">
                           <Edit className="w-4 h-4" />
                         </button>
-                        <button onClick={() => handleDelete(scheme.id)} className="p-1 text-red-600 hover:text-red-800">
+                        <button onClick={() => handleDelete(scheme.id)} disabled={deletingId === scheme.id} className="p-1 text-red-600 hover:text-red-800 disabled:opacity-50">
                           <Trash2 className="w-4 h-4" />
                         </button>
                       </div>
@@ -2973,6 +3011,7 @@ function MDRSchemesTab({ user, retailers, onRefresh }: { user: any, retailers: a
 
 // Scheme Management Tab
 function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retailers: any[], onRefresh: () => void }) {
+  const { showToast } = useToast()
   const [schemes, setSchemes] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -2980,9 +3019,15 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
   const [searchQuery, setSearchQuery] = useState('')
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [expandedSchemeId, setExpandedSchemeId] = useState<string | null>(null)
+  const [expandingSchemeId, setExpandingSchemeId] = useState<string | null>(null)
   const [editingScheme, setEditingScheme] = useState<any>(null)
   const [showMappingModal, setShowMappingModal] = useState(false)
   const [mappingSchemeId, setMappingSchemeId] = useState<string>('')
+  const [mappingInProgress, setMappingInProgress] = useState<string | null>(null)
+  const [unmappingId, setUnmappingId] = useState<string | null>(null)
+  const [savingScheme, setSavingScheme] = useState(false)
+  const [savingConfig, setSavingConfig] = useState(false)
+  const [deletingConfigId, setDeletingConfigId] = useState<string | null>(null)
   const [showConfigModal, setShowConfigModal] = useState(false)
   const [configSchemeId, setConfigSchemeId] = useState<string>('')
   const [configType, setConfigType] = useState<'bbps' | 'payout' | 'mdr' | 'aeps' | 'aeps_settlement' | null>(null)
@@ -3167,6 +3212,8 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
       return
     }
     
+    setExpandingSchemeId(schemeId)
+    try {
     const [bbps, payout, mdr, aepsComm, aepsSettle, mappings] = await Promise.all([
       supabase.from('scheme_bbps_commissions').select('*').eq('scheme_id', schemeId).eq('status', 'active').order('min_amount'),
       supabase.from('scheme_payout_charges').select('*').eq('scheme_id', schemeId).eq('status', 'active').order('transfer_mode'),
@@ -3176,7 +3223,6 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
       supabase.from('scheme_mappings').select('*').eq('scheme_id', schemeId).eq('status', 'active'),
     ])
 
-    // Resolve entity names for mappings
     let enrichedMappings = mappings.data || []
     if (enrichedMappings.length > 0) {
       const entityIds = enrichedMappings.map((m: any) => m.entity_id)
@@ -3197,6 +3243,9 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
     } : s))
     
     setExpandedSchemeId(schemeId)
+    } finally {
+      setExpandingSchemeId(null)
+    }
   }
 
   const openCreateModal = () => {
@@ -3207,6 +3256,7 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
 
   const handleSaveScheme = async () => {
     if (!user?.partner_id) return
+    setSavingScheme(true)
     try {
       if (editingScheme) {
         const { error } = await supabase.from('schemes').update({
@@ -3216,6 +3266,7 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
         }).eq('id', editingScheme.id)
         if (error) throw error
         setSuccess('Scheme updated successfully')
+        showToast('Scheme updated successfully', 'success')
       } else {
         const { error } = await supabase.from('schemes').insert({
           name: schemeForm.name,
@@ -3229,13 +3280,17 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
         })
         if (error) throw error
         setSuccess('Scheme created successfully')
+        showToast('Scheme created successfully', 'success')
       }
       setShowCreateModal(false)
       fetchSchemes()
       setTimeout(() => setSuccess(''), 3000)
     } catch (err: any) {
       setError(err.message)
+      showToast(err.message || 'Failed to save scheme', 'error')
       setTimeout(() => setError(''), 3000)
+    } finally {
+      setSavingScheme(false)
     }
   }
 
@@ -3246,11 +3301,13 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
 
   const handleUnmapRetailer = async (schemeId: string, mappingId: string) => {
     if (!confirm('Remove this retailer from the scheme? They will no longer use this scheme for charges.')) return
+    setUnmappingId(mappingId)
     try {
       const res = await apiFetch(`/api/schemes/mappings?id=${encodeURIComponent(mappingId)}`, { method: 'DELETE' })
       const result = await res.json()
       if (!res.ok) throw new Error(result.error || 'Failed to remove mapping')
       setSuccess('Retailer removed from scheme')
+      showToast('Retailer removed from scheme', 'success')
       setSchemes(prev => prev.map(s => s.id === schemeId ? {
         ...s,
         mappings: (s.mappings || []).filter((m: any) => m.id !== mappingId),
@@ -3259,7 +3316,10 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
       setTimeout(() => setSuccess(''), 3000)
     } catch (err: any) {
       setError(err.message)
+      showToast(err.message || 'Failed to remove retailer', 'error')
       setTimeout(() => setError(''), 3000)
+    } finally {
+      setUnmappingId(null)
     }
   }
 
@@ -3276,6 +3336,7 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
   }
 
   const handleSaveConfig = async () => {
+    setSavingConfig(true)
     try {
       if (configType === 'bbps') {
         const { error } = await supabase.from('scheme_bbps_commissions').insert({
@@ -3388,8 +3449,8 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
         if (error) throw error
       }
       setSuccess(`${configType?.toUpperCase()} configuration added successfully`)
+      showToast(`${configType?.toUpperCase()} configuration added`, 'success')
       setShowConfigModal(false)
-      // Refresh expanded scheme
       if (expandedSchemeId === configSchemeId) {
         toggleExpand(configSchemeId)
       } else {
@@ -3398,21 +3459,29 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
       setTimeout(() => setSuccess(''), 3000)
     } catch (err: any) {
       setError(err.message)
+      showToast(err.message || 'Failed to save configuration', 'error')
       setTimeout(() => setError(''), 3000)
+    } finally {
+      setSavingConfig(false)
     }
   }
 
   const handleDeleteConfig = async (table: string, id: string) => {
     if (!confirm('Delete this configuration?')) return
+    setDeletingConfigId(id)
     try {
       const { error } = await supabase.from(table).delete().eq('id', id)
       if (error) throw error
       setSuccess('Configuration deleted')
+      showToast('Configuration deleted', 'success')
       if (expandedSchemeId) toggleExpand(expandedSchemeId)
       setTimeout(() => setSuccess(''), 3000)
     } catch (err: any) {
       setError(err.message)
+      showToast(err.message || 'Failed to delete configuration', 'error')
       setTimeout(() => setError(''), 3000)
+    } finally {
+      setDeletingConfigId(null)
     }
   }
 
@@ -3439,6 +3508,7 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
   }
 
   const handleMapScheme = async (retailerId: string) => {
+    setMappingInProgress(retailerId)
     try {
       const response = await apiFetch('/api/schemes/mappings', {
         method: 'POST',
@@ -3456,12 +3526,16 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
         throw new Error(result.error || 'Failed to map scheme')
       }
       setSuccess('Scheme mapped successfully')
+      showToast('Scheme mapped successfully', 'success')
       setShowMappingModal(false)
       fetchSchemes()
       setTimeout(() => setSuccess(''), 3000)
     } catch (err: any) {
       setError(err.message)
+      showToast(err.message || 'Failed to map scheme', 'error')
       setTimeout(() => setError(''), 3000)
+    } finally {
+      setMappingInProgress(null)
     }
   }
 
@@ -3566,7 +3640,7 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
                     className="p-1.5 rounded-lg hover:bg-purple-50 dark:hover:bg-purple-900/20 text-purple-600" title="Map to Retailer">
                     <Link2 className="w-4 h-4" />
                   </button>
-                  {expandedSchemeId === scheme.id ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}
+                  {expandingSchemeId === scheme.id ? <Loader2 className="w-4 h-4 text-gray-400 animate-spin" /> : expandedSchemeId === scheme.id ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}
                 </div>
               </div>
 
@@ -3612,7 +3686,7 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
                                 <td className="px-2 py-1.5 text-right">{c.distributor_commission}{c.distributor_commission_type === 'percentage' ? '%' : '₹'}</td>
                                 <td className="px-2 py-1.5 text-right">{c.md_commission}{c.md_commission_type === 'percentage' ? '%' : '₹'}</td>
                                 {!isAssigned && <td className="px-2 py-1.5 text-right">
-                                  <button onClick={() => handleDeleteConfig('scheme_bbps_commissions', c.id)} className="text-red-400 hover:text-red-600">
+                                  <button onClick={() => handleDeleteConfig('scheme_bbps_commissions', c.id)} disabled={deletingConfigId === c.id} className="text-red-400 hover:text-red-600 disabled:opacity-50">
                                     <Trash2 className="w-3 h-3" />
                                   </button>
                                 </td>}
@@ -3655,7 +3729,7 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
                                 <td className="px-2 py-1.5 text-right">{c.distributor_commission}{c.distributor_commission_type === 'percentage' ? '%' : '₹'}</td>
                                 <td className="px-2 py-1.5 text-right">{c.md_commission}{c.md_commission_type === 'percentage' ? '%' : '₹'}</td>
                                 {!isAssigned && <td className="px-2 py-1.5 text-right">
-                                  <button onClick={() => handleDeleteConfig('scheme_payout_charges', c.id)} className="text-red-400 hover:text-red-600">
+                                  <button onClick={() => handleDeleteConfig('scheme_payout_charges', c.id)} disabled={deletingConfigId === c.id} className="text-red-400 hover:text-red-600 disabled:opacity-50">
                                     <Trash2 className="w-3 h-3" />
                                   </button>
                                 </td>}
@@ -3716,7 +3790,7 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
                                   </>
                                 )}
                                 {!isAssigned && <td className="px-2 py-1.5 text-right">
-                                  <button onClick={() => handleDeleteConfig('scheme_mdr_rates', c.id)} className="text-red-400 hover:text-red-600">
+                                  <button onClick={() => handleDeleteConfig('scheme_mdr_rates', c.id)} disabled={deletingConfigId === c.id} className="text-red-400 hover:text-red-600 disabled:opacity-50">
                                     <Trash2 className="w-3 h-3" />
                                   </button>
                                 </td>}
@@ -3765,7 +3839,7 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
                                   <td className="px-2 py-1.5 text-right">{fmt(c.retailer_commission, c.retailer_commission_type)}</td>
                                   <td className="px-2 py-1.5 text-right">{c.tds_percentage}%</td>
                                   <td className="px-2 py-1.5 text-right">
-                                    {!isAssigned && <button onClick={() => handleDeleteConfig('scheme_aeps_commissions', c.id)} className="text-red-400 hover:text-red-600">
+                                    {!isAssigned && <button onClick={() => handleDeleteConfig('scheme_aeps_commissions', c.id)} disabled={deletingConfigId === c.id} className="text-red-400 hover:text-red-600 disabled:opacity-50">
                                       <Trash2 className="w-3 h-3" />
                                     </button>}
                                   </td>
@@ -3809,7 +3883,7 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
                                   <td className="px-2 py-1.5 text-right">{fmt(c.md_commission, c.md_commission_type)}</td>
                                   <td className="px-2 py-1.5 text-right">{fmt(c.company_charge, c.company_charge_type)}</td>
                                   <td className="px-2 py-1.5 text-right">
-                                    {!isAssigned && <button onClick={() => handleDeleteConfig('scheme_aeps_settlement_charges', c.id)} className="text-red-400 hover:text-red-600">
+                                    {!isAssigned && <button onClick={() => handleDeleteConfig('scheme_aeps_settlement_charges', c.id)} disabled={deletingConfigId === c.id} className="text-red-400 hover:text-red-600 disabled:opacity-50">
                                       <Trash2 className="w-3 h-3" />
                                     </button>}
                                   </td>
@@ -3839,11 +3913,12 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
                             <button
                               type="button"
                               onClick={() => handleUnmapRetailer(scheme.id, m.id)}
-                              className="ml-auto flex items-center gap-1 px-2 py-1 rounded text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20"
+                              disabled={unmappingId === m.id}
+                              className="ml-auto flex items-center gap-1 px-2 py-1 rounded text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20 disabled:opacity-50"
                               title="Remove scheme from this retailer"
                             >
                               <Trash2 className="w-3 h-3" />
-                              <span>Remove</span>
+                              <span>{unmappingId === m.id ? 'Removing...' : 'Remove'}</span>
                             </button>
                           </div>
                         ))}
@@ -3890,8 +3965,8 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
             </div>
             <div className="flex gap-3 mt-6">
               <button onClick={() => setShowCreateModal(false)} className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg">Cancel</button>
-              <button onClick={handleSaveScheme} className="px-4 py-2 text-sm bg-purple-600 text-white rounded-lg hover:bg-purple-700">
-                {editingScheme ? 'Update' : 'Create'}
+              <button onClick={handleSaveScheme} disabled={savingScheme} className="px-4 py-2 text-sm bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50">
+                {savingScheme ? 'Saving...' : editingScheme ? 'Update' : 'Create'}
               </button>
             </div>
           </div>
@@ -3911,10 +3986,12 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
                   <button
                     key={ret.partner_id}
                     onClick={() => handleMapScheme(ret.partner_id)}
-                    className="w-full text-left p-3 border rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition"
+                    disabled={mappingInProgress !== null}
+                    className="w-full text-left p-3 border rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition disabled:opacity-50"
                   >
                     <div className="font-medium">{ret.name}</div>
                     <div className="text-xs text-gray-500">{ret.partner_id}</div>
+                    {mappingInProgress === ret.partner_id && <div className="text-xs text-purple-600 mt-1">Mapping...</div>}
                   </button>
                 ))
               )}
@@ -4332,8 +4409,8 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
 
             <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700 shrink-0 flex justify-end gap-2">
               <button onClick={() => setShowConfigModal(false)} className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg">Cancel</button>
-              <button onClick={handleSaveConfig} className="px-4 py-2 text-sm bg-purple-600 text-white rounded-lg hover:bg-purple-700">
-                Save Configuration
+              <button onClick={handleSaveConfig} disabled={savingConfig} className="px-4 py-2 text-sm bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50">
+                {savingConfig ? 'Saving...' : 'Save Configuration'}
               </button>
             </div>
           </div>
@@ -4346,6 +4423,7 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
 // Settings Tab
 function SettingsTab() {
   const { user } = useAuth()
+  const { showToast } = useToast()
   const [activeSection, setActiveSection] = useState<'profile' | 'account' | 'notifications' | 'security' | 'preferences'>('profile')
   const [loading, setLoading] = useState(false)
   const [success, setSuccess] = useState('')
@@ -4408,6 +4486,7 @@ function SettingsTab() {
       }
     } catch (err: any) {
       console.error('Error fetching user data:', err)
+      showToast('Failed to load profile data', 'error')
     }
   }
 

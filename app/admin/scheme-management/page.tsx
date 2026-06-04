@@ -8,8 +8,9 @@ import AdminSidebar from '@/components/AdminSidebar'
 import { 
   Plus, Edit2, Trash2, ChevronDown, ChevronUp, Search, Filter,
   Layers, CreditCard, Banknote, TrendingUp, Users, Link2,
-  Save, X, AlertCircle, CheckCircle, Globe, Star, Settings, Eye, DollarSign
+  Save, X, AlertCircle, CheckCircle, Globe, Star, Settings, Eye, DollarSign, Loader2
 } from 'lucide-react'
+import { useToast } from '@/components/Toast'
 
 // ============================================================================
 // TYPES
@@ -57,12 +58,22 @@ export default function SchemeManagementPage() {
 
 function SchemeManagementPageContent() {
   const { user } = useAuth()
+  const { showToast } = useToast()
   const [sidebarOpen, setSidebarOpen] = useState(false)
 
   const [schemes, setSchemes] = useState<Scheme[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
+
+  const [savingScheme, setSavingScheme] = useState(false)
+  const [deletingScheme, setDeletingScheme] = useState(false)
+  const [togglingStatusId, setTogglingStatusId] = useState<string | null>(null)
+  const [expandingSchemeId, setExpandingSchemeId] = useState<string | null>(null)
+  const [savingConfig, setSavingConfig] = useState(false)
+  const [deletingConfigId, setDeletingConfigId] = useState<string | null>(null)
+  const [savingMapping, setSavingMapping] = useState(false)
+  const [deletingMappingId, setDeletingMappingId] = useState<string | null>(null)
   
   // Filters
   const [filterType, setFilterType] = useState<string>('')
@@ -177,17 +188,21 @@ function SchemeManagementPageContent() {
   }, [filterType, filterStatus, searchQuery])
 
   const fetchUsers = useCallback(async () => {
-    const [r, d, md, p] = await Promise.all([
-      supabase.from('retailers').select('partner_id, name, email, status').eq('status', 'active'),
-      supabase.from('distributors').select('partner_id, name, email, status').eq('status', 'active'),
-      supabase.from('master_distributors').select('partner_id, name, email, status').eq('status', 'active'),
-      supabase.from('partners').select('id, name, email, status, business_name').eq('status', 'active'),
-    ])
-    setRetailers(r.data || [])
-    setDistributors(d.data || [])
-    setMasterDistributors(md.data || [])
-    setPartners((p.data || []).map((partner: any) => ({ ...partner, partner_id: partner.id })))
-  }, [])
+    try {
+      const [r, d, md, p] = await Promise.all([
+        supabase.from('retailers').select('partner_id, name, email, status').eq('status', 'active'),
+        supabase.from('distributors').select('partner_id, name, email, status').eq('status', 'active'),
+        supabase.from('master_distributors').select('partner_id, name, email, status').eq('status', 'active'),
+        supabase.from('partners').select('id, name, email, status, business_name').eq('status', 'active'),
+      ])
+      setRetailers(r.data || [])
+      setDistributors(d.data || [])
+      setMasterDistributors(md.data || [])
+      setPartners((p.data || []).map((partner: any) => ({ ...partner, partner_id: partner.id })))
+    } catch (err: any) {
+      showToast('Failed to fetch users for mapping', 'error')
+    }
+  }, [showToast])
 
   useEffect(() => {
     fetchSchemes()
@@ -204,7 +219,8 @@ function SchemeManagementPageContent() {
       return
     }
     
-    // Load full scheme details
+    setExpandingSchemeId(schemeId)
+    try {
     const [bbps, payout, mdr, aeps, aepsSettle, mappings] = await Promise.all([
       supabase.from('scheme_bbps_commissions').select('*').eq('scheme_id', schemeId).eq('status', 'active').order('min_amount'),
       supabase.from('scheme_payout_charges').select('*').eq('scheme_id', schemeId).eq('status', 'active').order('transfer_mode'),
@@ -245,6 +261,11 @@ function SchemeManagementPageContent() {
     } : s))
     
     setExpandedSchemeId(schemeId)
+    } catch (err: any) {
+      showToast('Failed to load scheme details', 'error')
+    } finally {
+      setExpandingSchemeId(null)
+    }
   }
 
   // ============================================================================
@@ -280,6 +301,7 @@ function SchemeManagementPageContent() {
   }
 
   const handleSaveScheme = async () => {
+    setSavingScheme(true)
     try {
       if (editingScheme) {
         const { error } = await supabase.from('schemes').update({
@@ -292,6 +314,7 @@ function SchemeManagementPageContent() {
         }).eq('id', editingScheme.id)
         if (error) throw error
         setSuccess('Scheme updated successfully')
+        showToast('Scheme updated successfully', 'success')
       } else {
         const { error } = await supabase.from('schemes').insert({
           name: schemeForm.name,
@@ -306,30 +329,51 @@ function SchemeManagementPageContent() {
         })
         if (error) throw error
         setSuccess('Scheme created successfully')
+        showToast('Scheme created successfully', 'success')
       }
       setShowCreateModal(false)
       fetchSchemes()
     } catch (err: any) {
       setError(err.message)
+      showToast(err.message, 'error')
+    } finally {
+      setSavingScheme(false)
     }
   }
 
   const handleDeleteScheme = async (id: string) => {
     if (!confirm('Delete this scheme? All associated configs and mappings will be removed.')) return
+    setDeletingScheme(true)
     try {
       const { error } = await supabase.from('schemes').delete().eq('id', id)
       if (error) throw error
       setSuccess('Scheme deleted')
+      showToast('Scheme deleted', 'success')
       fetchSchemes()
     } catch (err: any) {
       setError(err.message)
+      showToast(err.message, 'error')
+    } finally {
+      setDeletingScheme(false)
     }
   }
 
   const handleToggleStatus = async (scheme: Scheme) => {
     const newStatus = scheme.status === 'active' ? 'inactive' : 'active'
-    const { error } = await supabase.from('schemes').update({ status: newStatus }).eq('id', scheme.id)
-    if (!error) fetchSchemes()
+    setTogglingStatusId(scheme.id)
+    try {
+      const { error } = await supabase.from('schemes').update({ status: newStatus }).eq('id', scheme.id)
+      if (error) {
+        showToast(`Failed to toggle status: ${error.message}`, 'error')
+      } else {
+        showToast(`Scheme ${newStatus === 'active' ? 'activated' : 'deactivated'}`, 'success')
+        fetchSchemes()
+      }
+    } catch (err: any) {
+      showToast('Failed to toggle status', 'error')
+    } finally {
+      setTogglingStatusId(null)
+    }
   }
 
   // ============================================================================
@@ -442,6 +486,7 @@ function SchemeManagementPageContent() {
   }
 
   const handleSaveConfig = async () => {
+    setSavingConfig(true)
     try {
       if (configType === 'bbps') {
         const { error } = await supabase.from('scheme_bbps_commissions').insert({
@@ -515,6 +560,8 @@ function SchemeManagementPageContent() {
         const preview = aepsPreview()
         if (!preview.valid) {
           setError(`Distribution (₹${preview.distributed}) exceeds partner pool (₹${preview.base}) at ₹${preview.amt}. Reduce role commissions.`)
+          showToast('Distribution exceeds partner pool', 'error')
+          setSavingConfig(false)
           return
         }
         const { error } = await supabase.from('scheme_aeps_commissions').insert({
@@ -554,25 +601,33 @@ function SchemeManagementPageContent() {
         if (error) throw error
       }
       setSuccess(`${configType.toUpperCase()} config added successfully`)
+      showToast(`${configType.toUpperCase()} config added`, 'success')
       setShowConfigModal(false)
-      // Refresh expanded scheme
       if (expandedSchemeId === configSchemeId) {
         toggleExpand(configSchemeId)
       }
     } catch (err: any) {
       setError(err.message)
+      showToast(err.message, 'error')
+    } finally {
+      setSavingConfig(false)
     }
   }
 
   const handleDeleteConfig = async (table: string, id: string) => {
     if (!confirm('Delete this configuration?')) return
+    setDeletingConfigId(id)
     try {
       const { error } = await supabase.from(table).delete().eq('id', id)
       if (error) throw error
       setSuccess('Config deleted')
+      showToast('Config deleted', 'success')
       if (expandedSchemeId) toggleExpand(expandedSchemeId)
     } catch (err: any) {
       setError(err.message)
+      showToast(err.message, 'error')
+    } finally {
+      setDeletingConfigId(null)
     }
   }
 
@@ -594,6 +649,7 @@ function SchemeManagementPageContent() {
   }
 
   const handleSaveMapping = async () => {
+    setSavingMapping(true)
     try {
       // Deactivate existing active mapping for this entity
       await supabase
@@ -621,24 +677,33 @@ function SchemeManagementPageContent() {
       }
 
       setSuccess('Scheme mapped successfully')
+      showToast('Scheme assigned successfully', 'success')
       setShowMappingModal(false)
       fetchSchemes()
       if (expandedSchemeId) toggleExpand(expandedSchemeId)
     } catch (err: any) {
       setError(err.message)
+      showToast(err.message, 'error')
+    } finally {
+      setSavingMapping(false)
     }
   }
 
   const handleDeleteMapping = async (id: string) => {
     if (!confirm('Remove this mapping?')) return
+    setDeletingMappingId(id)
     try {
       const { error } = await supabase.from('scheme_mappings').update({ status: 'inactive' }).eq('id', id)
       if (error) throw error
       setSuccess('Mapping removed')
+      showToast('Mapping removed', 'success')
       if (expandedSchemeId) toggleExpand(expandedSchemeId)
       fetchSchemes()
     } catch (err: any) {
       setError(err.message)
+      showToast(err.message, 'error')
+    } finally {
+      setDeletingMappingId(null)
     }
   }
 
@@ -867,14 +932,18 @@ function SchemeManagementPageContent() {
                       <Edit2 className="w-4 h-4" />
                     </button>
                     <button onClick={(e) => { e.stopPropagation(); handleToggleStatus(scheme) }}
-                      className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600" title="Toggle Status">
-                      <Eye className="w-4 h-4" />
+                      disabled={togglingStatusId === scheme.id}
+                      className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 disabled:opacity-50" title="Toggle Status">
+                      {togglingStatusId === scheme.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Eye className="w-4 h-4" />}
                     </button>
                     <button onClick={(e) => { e.stopPropagation(); handleDeleteScheme(scheme.id) }}
-                      className="p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 text-red-500" title="Delete">
+                      disabled={deletingScheme}
+                      className="p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 text-red-500 disabled:opacity-50" title="Delete">
                       <Trash2 className="w-4 h-4" />
                     </button>
-                    {expandedSchemeId === scheme.id ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}
+                    {expandingSchemeId === scheme.id ? (
+                      <Loader2 className="w-4 h-4 text-gray-400 animate-spin" />
+                    ) : expandedSchemeId === scheme.id ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}
                   </div>
                 </div>
 
@@ -962,8 +1031,8 @@ function SchemeManagementPageContent() {
                                   <td className="px-2 py-1.5 text-right">{c.md_commission}{c.md_commission_type === 'percentage' ? '%' : '₹'}</td>
                                   <td className="px-2 py-1.5 text-right">{c.company_charge}{c.company_charge_type === 'percentage' ? '%' : '₹'}</td>
                                   <td className="px-2 py-1.5 text-right">
-                                    <button onClick={() => handleDeleteConfig('scheme_bbps_commissions', c.id)} className="text-red-400 hover:text-red-600">
-                                      <Trash2 className="w-3 h-3" />
+                                    <button onClick={() => handleDeleteConfig('scheme_bbps_commissions', c.id)} disabled={deletingConfigId === c.id} className="text-red-400 hover:text-red-600 disabled:opacity-50">
+                                      {deletingConfigId === c.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
                                     </button>
                                   </td>
                                 </tr>
@@ -1007,8 +1076,8 @@ function SchemeManagementPageContent() {
                                   <td className="px-2 py-1.5 text-right">{c.md_commission}{c.md_commission_type === 'percentage' ? '%' : '₹'}</td>
                                   <td className="px-2 py-1.5 text-right">{c.company_charge}{c.company_charge_type === 'percentage' ? '%' : '₹'}</td>
                                   <td className="px-2 py-1.5 text-right">
-                                    <button onClick={() => handleDeleteConfig('scheme_payout_charges', c.id)} className="text-red-400 hover:text-red-600">
-                                      <Trash2 className="w-3 h-3" />
+                                    <button onClick={() => handleDeleteConfig('scheme_payout_charges', c.id)} disabled={deletingConfigId === c.id} className="text-red-400 hover:text-red-600 disabled:opacity-50">
+                                      {deletingConfigId === c.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
                                     </button>
                                   </td>
                                 </tr>
@@ -1077,8 +1146,8 @@ function SchemeManagementPageContent() {
                                     </>
                                   )}
                                   <td className="px-2 py-1.5 text-right">
-                                    <button onClick={() => handleDeleteConfig('scheme_mdr_rates', r.id)} className="text-red-400 hover:text-red-600">
-                                      <Trash2 className="w-3 h-3" />
+                                    <button onClick={() => handleDeleteConfig('scheme_mdr_rates', r.id)} disabled={deletingConfigId === r.id} className="text-red-400 hover:text-red-600 disabled:opacity-50">
+                                      {deletingConfigId === r.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
                                     </button>
                                   </td>
                                 </tr>
@@ -1126,8 +1195,8 @@ function SchemeManagementPageContent() {
                                     <td className="px-2 py-1.5 text-right">{fmt(c.retailer_commission, c.retailer_commission_type)}</td>
                                     <td className="px-2 py-1.5 text-right">{c.tds_percentage}%</td>
                                     <td className="px-2 py-1.5 text-right">
-                                      <button onClick={() => handleDeleteConfig('scheme_aeps_commissions', c.id)} className="text-red-400 hover:text-red-600">
-                                        <Trash2 className="w-3 h-3" />
+                                      <button onClick={() => handleDeleteConfig('scheme_aeps_commissions', c.id)} disabled={deletingConfigId === c.id} className="text-red-400 hover:text-red-600 disabled:opacity-50">
+                                        {deletingConfigId === c.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
                                       </button>
                                     </td>
                                   </tr>
@@ -1170,8 +1239,8 @@ function SchemeManagementPageContent() {
                                     <td className="px-2 py-1.5 text-right">{fmt(c.md_commission, c.md_commission_type)}</td>
                                     <td className="px-2 py-1.5 text-right">{fmt(c.company_charge, c.company_charge_type)}</td>
                                     <td className="px-2 py-1.5 text-right">
-                                      <button onClick={() => handleDeleteConfig('scheme_aeps_settlement_charges', c.id)} className="text-red-400 hover:text-red-600">
-                                        <Trash2 className="w-3 h-3" />
+                                      <button onClick={() => handleDeleteConfig('scheme_aeps_settlement_charges', c.id)} disabled={deletingConfigId === c.id} className="text-red-400 hover:text-red-600 disabled:opacity-50">
+                                        {deletingConfigId === c.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
                                       </button>
                                     </td>
                                   </tr>
@@ -1204,8 +1273,8 @@ function SchemeManagementPageContent() {
                               )}
                               <span className="text-gray-500 dark:text-gray-400">({m.entity_id})</span>
                               {m.service_type && <span className="text-purple-600">• {m.service_type}</span>}
-                              <button onClick={() => handleDeleteMapping(m.id)} className="text-red-400 hover:text-red-600 ml-1">
-                                <X className="w-3 h-3" />
+                              <button onClick={() => handleDeleteMapping(m.id)} disabled={deletingMappingId === m.id} className="text-red-400 hover:text-red-600 ml-1 disabled:opacity-50">
+                                {deletingMappingId === m.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <X className="w-3 h-3" />}
                               </button>
                             </div>
                           ))}
@@ -1283,9 +1352,9 @@ function SchemeManagementPageContent() {
                 </div>
               </div>
               <div className="flex justify-end gap-2 mt-4">
-                <button onClick={() => setShowCreateModal(false)} className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg">Cancel</button>
-                <button onClick={handleSaveScheme} className="px-4 py-2 text-sm bg-primary-600 text-white rounded-lg hover:bg-primary-700">
-                  {editingScheme ? 'Update' : 'Create'}
+                <button onClick={() => setShowCreateModal(false)} disabled={savingScheme} className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg">Cancel</button>
+                <button onClick={handleSaveScheme} disabled={savingScheme} className="px-4 py-2 text-sm bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50">
+                  {savingScheme ? 'Saving...' : editingScheme ? 'Update' : 'Create'}
                 </button>
               </div>
             </div>
@@ -1720,9 +1789,9 @@ function SchemeManagementPageContent() {
               </div>
 
               <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700 shrink-0 flex justify-end gap-2">
-                <button onClick={() => setShowConfigModal(false)} className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg">Cancel</button>
-                <button onClick={handleSaveConfig} className="px-4 py-2 text-sm bg-primary-600 text-white rounded-lg hover:bg-primary-700">
-                  Save Configuration
+                <button onClick={() => setShowConfigModal(false)} disabled={savingConfig} className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg">Cancel</button>
+                <button onClick={handleSaveConfig} disabled={savingConfig} className="px-4 py-2 text-sm bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50">
+                  {savingConfig ? 'Saving...' : 'Save Configuration'}
                 </button>
               </div>
             </div>
@@ -1774,10 +1843,10 @@ function SchemeManagementPageContent() {
                 </div>
               </div>
               <div className="flex justify-end gap-2 mt-4">
-                <button onClick={() => setShowMappingModal(false)} className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg">Cancel</button>
-                <button onClick={handleSaveMapping} disabled={!mappingForm.entity_id}
+                <button onClick={() => setShowMappingModal(false)} disabled={savingMapping} className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg">Cancel</button>
+                <button onClick={handleSaveMapping} disabled={!mappingForm.entity_id || savingMapping}
                   className="px-4 py-2 text-sm bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50">
-                  Assign Scheme
+                  {savingMapping ? 'Assigning...' : 'Assign Scheme'}
                 </button>
               </div>
             </div>

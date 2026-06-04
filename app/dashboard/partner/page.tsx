@@ -43,6 +43,7 @@ import APIDashboardTab from '@/components/partner/APIDashboardTab'
 import BusinessAnalyticsTab from '@/components/partner/BusinessAnalyticsTab'
 import ReconciliationTab from '@/components/partner/ReconciliationTab'
 import { Crown, Sparkles, BarChart3, Zap, Scale, Server } from 'lucide-react'
+import { useToast } from '@/components/Toast'
 
 type TabType = 'dashboard' | 'wallet' | 'services' | 'bbps' | 'payout' | 'transactions' | 'ledger' | 'mdr-schemes' | 'reports' | 'settings' | 'pos-machines' | 'subscriptions' | 'api-management' | 'analytics' | 'api-dashboard' | 'reconciliation'
 
@@ -51,6 +52,8 @@ function PartnerDashboardContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
+  const { showToast } = useToast()
   
   const getInitialTab = (): TabType => {
     const tab = searchParams?.get('tab')
@@ -288,7 +291,7 @@ function PartnerDashboardContent() {
       })))
     } catch (error) {
       console.error('Error fetching dashboard data:', error)
-      // Set default values to prevent dashboard from being stuck
+      showToast('Failed to load dashboard data', 'error')
       setStats({
         totalTransactions: 0,
         totalRevenue: 0,
@@ -299,6 +302,7 @@ function PartnerDashboardContent() {
       setChartData([])
     } finally {
       setLoading(false)
+      setRefreshing(false)
     }
   }, [user])
 
@@ -375,11 +379,12 @@ function PartnerDashboardContent() {
               </div>
               <div className="flex items-center gap-2 flex-shrink-0">
                 <button
-                  onClick={fetchDashboardData}
-                  className="p-2 rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                  onClick={() => { setRefreshing(true); fetchDashboardData() }}
+                  disabled={refreshing}
+                  className="p-2 rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors disabled:opacity-50"
                   title="Refresh"
                 >
-                  <RefreshCw className="w-4 h-4 text-gray-600 dark:text-gray-300" />
+                  <RefreshCw className={`w-4 h-4 text-gray-600 dark:text-gray-300 ${refreshing ? 'animate-spin' : ''}`} />
                 </button>
               </div>
             </div>
@@ -767,6 +772,7 @@ function BBPSTab({ readOnly = false }: { readOnly?: boolean }) {
 // API Integrations Tab Component (formerly Services)
 function APIIntegrationsTab() {
   const { user } = useAuth()
+  const { showToast } = useToast()
   const [services, setServices] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -859,7 +865,7 @@ function APIIntegrationsTab() {
       setServices(mergedServices)
     } catch (error) {
       console.error('Error fetching service data:', error)
-      // Set empty services on error
+      showToast('Failed to load services', 'error')
       setServices([])
     } finally {
       setLoading(false)
@@ -1050,6 +1056,8 @@ function WalletTab({ user }: { user: any }) {
   const [ledgerEntries, setLedgerEntries] = useState<any[]>([])
   const [showSettlement, setShowSettlement] = useState(false)
   const [settlementAmount, setSettlementAmount] = useState('')
+  const [settlementProcessing, setSettlementProcessing] = useState(false)
+  const { showToast } = useToast()
   const [bankDetails, setBankDetails] = useState({
     account_number: '',
     ifsc: '',
@@ -1120,15 +1128,16 @@ function WalletTab({ user }: { user: any }) {
 
   const handleSettlement = async () => {
     if (!settlementAmount || parseFloat(settlementAmount) <= 0) {
-      alert('Please enter a valid settlement amount')
+      showToast('Please enter a valid settlement amount', 'warning')
       return
     }
 
     if (!bankDetails.account_number || !bankDetails.ifsc || !bankDetails.account_name) {
-      alert('Please fill all bank details')
+      showToast('Please fill all bank details', 'warning')
       return
     }
 
+    setSettlementProcessing(true)
     try {
       const data = await apiFetchJson<{ success: boolean; error?: string }>('/api/settlement/create', {
         method: 'POST',
@@ -1142,17 +1151,19 @@ function WalletTab({ user }: { user: any }) {
       })
 
       if (data.success) {
-        alert('Settlement request created successfully!')
+        showToast('Settlement request created successfully!', 'success')
         setShowSettlement(false)
         setSettlementAmount('')
         setBankDetails({ account_number: '', ifsc: '', account_name: '' })
         fetchWalletData()
       } else {
-        alert(data.error || 'Settlement failed')
+        showToast(data.error || 'Settlement failed', 'error')
       }
     } catch (error: any) {
       console.error('Settlement error:', error)
-      alert(error.message || 'Failed to create settlement request')
+      showToast(error.message || 'Failed to create settlement request', 'error')
+    } finally {
+      setSettlementProcessing(false)
     }
   }
 
@@ -1263,9 +1274,10 @@ function WalletTab({ user }: { user: any }) {
               <div className="flex gap-3">
                 <button
                   onClick={handleSettlement}
-                  className="flex-1 bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700"
+                  disabled={settlementProcessing}
+                  className="flex-1 bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  Submit
+                  {settlementProcessing ? 'Processing...' : 'Submit'}
                 </button>
                 <button
                   onClick={() => setShowSettlement(false)}
@@ -1348,6 +1360,7 @@ function WalletTab({ user }: { user: any }) {
 
 function ReportsTab({ chartData, stats }: { chartData: any[], stats: any }) {
   const { user } = useAuth()
+  const { showToast } = useToast()
   const [reportType, setReportType] = useState<'ledger' | 'transactions' | 'commission'>('ledger')
   const [serviceFilter, setServiceFilter] = useState('all')
   const [dateRange, setDateRange] = useState({ start: '', end: '' })
@@ -1405,7 +1418,7 @@ function ReportsTab({ chartData, stats }: { chartData: any[], stats: any }) {
 
   const handleDownload = async () => {
     if (!dateRange.start || !dateRange.end) {
-      alert('Please select date range')
+      showToast('Please select date range', 'warning')
       return
     }
 
@@ -1439,7 +1452,7 @@ function ReportsTab({ chartData, stats }: { chartData: any[], stats: any }) {
         a.click()
         window.URL.revokeObjectURL(url)
         document.body.removeChild(a)
-        alert('Report downloaded successfully!')
+        showToast('Report downloaded successfully!', 'success')
       } else {
         const response = await apiFetch(
           `/api/reports/${reportType}?start=${dateRange.start}&end=${dateRange.end}&format=${format}${serviceParam}`
@@ -1471,15 +1484,15 @@ function ReportsTab({ chartData, stats }: { chartData: any[], stats: any }) {
             window.URL.revokeObjectURL(url)
             document.body.removeChild(a)
           }
-          alert('Report downloaded successfully!')
+          showToast('Report downloaded successfully!', 'success')
         } else {
-          const error = await response.json()
-          alert(error.error || 'Failed to download report')
+          const errorData = await response.json()
+          showToast(errorData.error || 'Failed to download report', 'error')
         }
       }
     } catch (error) {
       console.error('Download error:', error)
-      alert('Failed to download report')
+      showToast('Failed to download report', 'error')
     } finally {
       setDownloading(false)
     }
@@ -1495,7 +1508,13 @@ function ReportsTab({ chartData, stats }: { chartData: any[], stats: any }) {
       <ServiceTransactionReport userRole="retailer" userName={user?.name || user?.email} />
 
       {/* Success vs Failure Breakdown */}
-      {statusBreakdown && (
+      {breakdownLoading && (
+        <div className="flex items-center justify-center py-6">
+          <RefreshCw className="w-5 h-5 animate-spin text-purple-500 mr-2" />
+          <span className="text-sm text-gray-500">Loading breakdown...</span>
+        </div>
+      )}
+      {!breakdownLoading && statusBreakdown && (
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -1669,6 +1688,7 @@ function StatCard({ label, value, icon: Icon, gradient, delay }: {
 // Settings Tab Component with TPIN Management
 // MDR Schemes Tab Component
 function MDRSchemesTab({ user }: { user: any }) {
+  const { showToast } = useToast()
   const [loading, setLoading] = useState(false)
   const [customSchemes, setCustomSchemes] = useState<any[]>([])
   const [globalSchemes, setGlobalSchemes] = useState<any[]>([])
@@ -1789,6 +1809,7 @@ function MDRSchemesTab({ user }: { user: any }) {
       setApplicableSchemes(uniqueApplicable)
     } catch (error) {
       console.error('Error fetching schemes:', error)
+      showToast('Failed to load schemes', 'error')
     } finally {
       setLoading(false)
     }
@@ -2292,6 +2313,7 @@ function MDRSchemesTab({ user }: { user: any }) {
 }
 
 function SettingsTab({ user }: { user: any }) {
+  const { showToast } = useToast()
   const [tpinStatus, setTpinStatus] = useState<{
     tpin_enabled: boolean
     is_locked: boolean
@@ -2326,6 +2348,7 @@ function SettingsTab({ user }: { user: any }) {
       }
     } catch (error) {
       console.error('Error fetching TPIN status:', error)
+      showToast('Failed to load TPIN status', 'error')
     } finally {
       setLoading(false)
     }
@@ -2633,6 +2656,7 @@ function APIManagementTab({ user }: { user: any }) {
 
 // Partner Ledger Tab - Full wallet transaction history
 function PartnerLedgerTab({ user }: { user: any }) {
+  const { showToast } = useToast()
   const [ledgerEntries, setLedgerEntries] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [page, setPage] = useState(1)
@@ -2671,6 +2695,7 @@ function PartnerLedgerTab({ user }: { user: any }) {
       setTotalPages(Math.ceil((count || 0) / pageSize))
     } catch (error) {
       console.error('Error fetching ledger:', error)
+      showToast('Failed to load ledger data', 'error')
       setLedgerEntries([])
     } finally {
       setLoading(false)

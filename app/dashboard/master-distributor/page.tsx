@@ -23,6 +23,7 @@ import { apiFetch } from '@/lib/api-client'
 import POSMachinesTab from '@/components/POSMachinesTab'
 import MasterDistributorSubscriptionsTab from '@/components/MasterDistributorSubscriptionsTab'
 import ServiceTransactionReport from '@/components/ServiceTransactionReport'
+import { useToast } from '@/components/Toast'
 
 type TabType = 'dashboard' | 'services' | 'distributors' | 'retailers' | 'wallet' | 'network' | 'commission' | 'analytics' | 'reports' | 'settings' | 'scheme-management' | 'pos-machines' | 'subscriptions'
 
@@ -37,6 +38,8 @@ function MasterDistributorDashboardContent() {
   const searchParams = useSearchParams()
   const pathname = usePathname()
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
+  const { showToast } = useToast()
   
   const getInitialTab = (): TabType => {
     const tab = searchParams?.get('tab')
@@ -266,8 +269,10 @@ function MasterDistributorDashboardContent() {
       setRevenueData(last6Months)
     } catch (error) {
       console.error('Error fetching dashboard data:', error)
+      showToast('Failed to load dashboard data', 'error')
     } finally {
       setLoading(false)
+      setRefreshing(false)
     }
   }
 
@@ -328,11 +333,12 @@ function MasterDistributorDashboardContent() {
               </div>
               <div className="flex items-center gap-2 flex-shrink-0">
                 <button
-                  onClick={fetchDashboardData}
-                  className="p-2 rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                  onClick={() => { setRefreshing(true); fetchDashboardData() }}
+                  disabled={refreshing}
+                  className="p-2 rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors disabled:opacity-50"
                   title="Refresh"
                 >
-                  <RefreshCw className="w-4 h-4 text-gray-600 dark:text-gray-300" />
+                  <RefreshCw className={`w-4 h-4 text-gray-600 dark:text-gray-300 ${refreshing ? 'animate-spin' : ''}`} />
                 </button>
               </div>
             </div>
@@ -696,6 +702,9 @@ function NetworkTab({ distributors, retailers, user, onRefresh, defaultView, onN
   const [showMDRApproval, setShowMDRApproval] = useState(false)
   const [showAddDistributor, setShowAddDistributor] = useState(false)
   const [selectedUser, setSelectedUser] = useState<any>(null)
+  const [transferring, setTransferring] = useState(false)
+  const [approvingMdr, setApprovingMdr] = useState(false)
+  const { showToast } = useToast()
   const [transferData, setTransferData] = useState({
     amount: '',
     fund_category: 'cash' as 'cash' | 'online',
@@ -719,47 +728,51 @@ function NetworkTab({ distributors, retailers, user, onRefresh, defaultView, onN
 
   const handleMDRApproval = async () => {
     if (!selectedUser || !mdrData.approved_mdr_rate) {
-      alert('Please enter MDR rate')
+      showToast('Please enter MDR rate', 'warning')
       return
     }
 
     const mdrRate = parseFloat(mdrData.approved_mdr_rate)
     if (isNaN(mdrRate) || mdrRate < 0 || mdrRate > 100) {
-      alert('MDR rate must be between 0 and 100 (e.g., 1.5 for 1.5%)')
+      showToast('MDR rate must be between 0 and 100 (e.g., 1.5 for 1.5%)', 'warning')
       return
     }
 
+    setApprovingMdr(true)
     try {
       const response = await apiFetch('/api/master-distributor/approve-mdr', {
         method: 'POST',
         body: JSON.stringify({
           distributor_id: selectedUser.partner_id,
-          approved_mdr_rate: mdrRate / 100 // Convert percentage to decimal
+          approved_mdr_rate: mdrRate / 100
         })
       })
 
       const data = await response.json()
       if (data.success) {
-        alert(data.message || 'MDR approved successfully!')
+        showToast(data.message || 'MDR approved successfully!', 'success')
         setShowMDRApproval(false)
         setSelectedUser(null)
         setMdrData({ approved_mdr_rate: '' })
         onRefresh()
       } else {
-        alert(data.error || 'Failed to approve MDR')
+        showToast(data.error || 'Failed to approve MDR', 'error')
       }
     } catch (error) {
       console.error('MDR approval error:', error)
-      alert('Failed to approve MDR')
+      showToast('Failed to approve MDR', 'error')
+    } finally {
+      setApprovingMdr(false)
     }
   }
 
   const handleFundTransfer = async (action: 'push' | 'pull') => {
     if (!selectedUser || !transferData.amount) {
-      alert('Please fill all fields')
+      showToast('Please fill all fields', 'warning')
       return
     }
 
+    setTransferring(true)
     try {
       const response = await apiFetch('/api/admin/wallet/push', {
         method: 'POST',
@@ -775,17 +788,19 @@ function NetworkTab({ distributors, retailers, user, onRefresh, defaultView, onN
 
       const data = await response.json()
       if (data.success) {
-        alert(`Fund ${action} successful!`)
+        showToast(`Fund ${action} successful!`, 'success')
         setShowFundTransfer(false)
         setSelectedUser(null)
         setTransferData({ amount: '', fund_category: 'cash', remarks: '' })
         onRefresh()
       } else {
-        alert(data.error || 'Transfer failed')
+        showToast(data.error || 'Transfer failed', 'error')
       }
     } catch (error) {
       console.error('Transfer error:', error)
-      alert('Failed to transfer funds')
+      showToast('Failed to transfer funds', 'error')
+    } finally {
+      setTransferring(false)
     }
   }
 
@@ -1021,9 +1036,10 @@ function NetworkTab({ distributors, retailers, user, onRefresh, defaultView, onN
               <div className="flex gap-3">
                 <button
                   onClick={handleMDRApproval}
-                  className="flex-1 bg-yellow-600 text-white py-2 px-4 rounded-lg hover:bg-yellow-700"
+                  disabled={approvingMdr}
+                  className="flex-1 bg-yellow-600 text-white py-2 px-4 rounded-lg hover:bg-yellow-700 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  Approve MDR
+                  {approvingMdr ? 'Processing...' : 'Approve MDR'}
                 </button>
                 <button
                   onClick={() => {
@@ -1089,15 +1105,17 @@ function NetworkTab({ distributors, retailers, user, onRefresh, defaultView, onN
               <div className="flex gap-3">
                 <button
                   onClick={() => handleFundTransfer('push')}
-                  className="flex-1 bg-green-600 text-white py-2 px-4 rounded-lg hover:bg-green-700"
+                  disabled={transferring}
+                  className="flex-1 bg-green-600 text-white py-2 px-4 rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  Push Funds
+                  {transferring ? 'Processing...' : 'Push Funds'}
                 </button>
                 <button
                   onClick={() => handleFundTransfer('pull')}
-                  className="flex-1 bg-red-600 text-white py-2 px-4 rounded-lg hover:bg-red-700"
+                  disabled={transferring}
+                  className="flex-1 bg-red-600 text-white py-2 px-4 rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  Pull Funds
+                  {transferring ? 'Processing...' : 'Pull Funds'}
                 </button>
                 <button
                   onClick={() => {
@@ -1130,6 +1148,7 @@ function NetworkTab({ distributors, retailers, user, onRefresh, defaultView, onN
 
 // Add Distributor Modal Component
 function AddDistributorModal({ onClose, onSuccess }: { onClose: () => void, onSuccess: () => void }) {
+  const { showToast } = useToast()
   const [currentStep, setCurrentStep] = useState(1)
   const [formData, setFormData] = useState({
     name: '',
@@ -1205,7 +1224,7 @@ function AddDistributorModal({ onClose, onSuccess }: { onClose: () => void, onSu
   const handleStep1Next = (e: React.FormEvent) => {
     e.preventDefault()
     if (!formData.name || !formData.email || !formData.phone || !formData.password) {
-      alert('Please fill all required fields')
+      showToast('Please fill all required fields', 'warning')
       return
     }
     setCurrentStep(2)
@@ -1430,27 +1449,27 @@ function AddDistributorModal({ onClose, onSuccess }: { onClose: () => void, onSu
     e.preventDefault()
 
     if (!panVerified) {
-      alert('PAN verification is mandatory')
+      showToast('PAN verification is mandatory', 'warning')
       return
     }
     if (!aadhaarVerified) {
-      alert('Aadhaar verification via Digilocker is mandatory')
+      showToast('Aadhaar verification via Digilocker is mandatory', 'warning')
       return
     }
     if (!bankVerified) {
-      alert('Bank account verification is required')
+      showToast('Bank account verification is required', 'warning')
       return
     }
     if (bankNameMismatch) {
-      alert('Bank account holder name does not match. Please use the correct bank account.')
+      showToast('Bank account holder name does not match. Please use the correct bank account.', 'warning')
       return
     }
     if (formData.gst_applicable && !gstVerified) {
-      alert('Please verify GST before submission')
+      showToast('Please verify GST before submission', 'warning')
       return
     }
     if (formData.cin_applicable && !cinVerified) {
-      alert('Please verify CIN before submission')
+      showToast('Please verify CIN before submission', 'warning')
       return
     }
 
@@ -1517,14 +1536,14 @@ function AddDistributorModal({ onClose, onSuccess }: { onClose: () => void, onSu
 
       const data = await response.json()
       if (data.success) {
-        alert('Distributor created successfully! Status: Pending Verification. Admin will review and approve.')
+        showToast('Distributor created successfully! Status: Pending Verification.', 'success')
         onSuccess()
       } else {
-        alert(data.error || 'Failed to create distributor')
+        showToast(data.error || 'Failed to create distributor', 'error')
       }
     } catch (error: any) {
       console.error('Error creating distributor:', error)
-      alert(error.message || 'Failed to create distributor')
+      showToast(error.message || 'Failed to create distributor', 'error')
     } finally {
       setLoading(false)
     }
@@ -1910,11 +1929,11 @@ function AddDistributorModal({ onClose, onSuccess }: { onClose: () => void, onSu
               <button
                 type="button"
                 onClick={() => {
-                  if (!formData.business_name) { alert('Business Name is required.'); return }
-                  if (formData.gst_applicable && !gstVerified) { alert('Please verify GST number'); return }
-                  if (formData.cin_applicable && !cinVerified) { alert('Please verify CIN number'); return }
-                  if (!aadhaarVerified) { alert('Aadhaar verification via Digilocker is mandatory'); return }
-                  if (!formData.address) { alert('Address is required. Verify GST or Aadhaar to capture address.'); return }
+                  if (!formData.business_name) { showToast('Business Name is required.', 'warning'); return }
+                  if (formData.gst_applicable && !gstVerified) { showToast('Please verify GST number', 'warning'); return }
+                  if (formData.cin_applicable && !cinVerified) { showToast('Please verify CIN number', 'warning'); return }
+                  if (!aadhaarVerified) { showToast('Aadhaar verification via Digilocker is mandatory', 'warning'); return }
+                  if (!formData.address) { showToast('Address is required. Verify GST or Aadhaar to capture address.', 'warning'); return }
                   setCurrentStep(3)
                 }}
                 className="flex-1 px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700"
@@ -2236,13 +2255,16 @@ function ReportsTab({ user }: { user: any }) {
   const [reportType, setReportType] = useState<'ledger' | 'transactions' | 'commission'>('ledger')
   const [dateRange, setDateRange] = useState({ start: '', end: '' })
   const [format, setFormat] = useState<'csv' | 'pdf' | 'zip'>('csv')
+  const [downloading, setDownloading] = useState(false)
+  const { showToast } = useToast()
 
   const handleDownload = async () => {
     if (!dateRange.start || !dateRange.end) {
-      alert('Please select date range')
+      showToast('Please select date range', 'warning')
       return
     }
 
+    setDownloading(true)
     try {
       const response = await apiFetch(`/api/reports/${reportType}?start=${dateRange.start}&end=${dateRange.end}&format=${format}`, {
         method: 'GET',
@@ -2258,13 +2280,15 @@ function ReportsTab({ user }: { user: any }) {
         a.click()
         window.URL.revokeObjectURL(url)
         document.body.removeChild(a)
-        alert('Report downloaded successfully!')
+        showToast('Report downloaded successfully!', 'success')
       } else {
-        alert('Failed to download report')
+        showToast('Failed to download report', 'error')
       }
     } catch (error) {
       console.error('Download error:', error)
-      alert('Failed to download report')
+      showToast('Failed to download report', 'error')
+    } finally {
+      setDownloading(false)
     }
   }
 
@@ -2322,10 +2346,11 @@ function ReportsTab({ user }: { user: any }) {
           </div>
           <button
             onClick={handleDownload}
-            className="w-full bg-yellow-600 text-white py-2 px-4 rounded-lg hover:bg-yellow-700 flex items-center justify-center gap-2"
+            disabled={downloading}
+            className="w-full bg-yellow-600 text-white py-2 px-4 rounded-lg hover:bg-yellow-700 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <Download className="w-5 h-5" />
-            Download Report
+            <Download className={`w-5 h-5 ${downloading ? 'animate-pulse' : ''}`} />
+            {downloading ? 'Downloading...' : 'Download Report'}
           </button>
         </div>
       </div>
@@ -2512,6 +2537,12 @@ function SchemeManagementTab({ user }: { user: any }) {
   const [showConfigModal, setShowConfigModal] = useState(false)
   const [configSchemeId, setConfigSchemeId] = useState<string>('')
   const [configType, setConfigType] = useState<'bbps' | 'payout' | 'mdr' | 'aeps' | 'aeps_settlement' | null>(null)
+  const [savingScheme, setSavingScheme] = useState(false)
+  const [savingConfig, setSavingConfig] = useState(false)
+  const [deletingConfigId, setDeletingConfigId] = useState<string | null>(null)
+  const [expandingSchemeId, setExpandingSchemeId] = useState<string | null>(null)
+  const [mappingInProgress, setMappingInProgress] = useState<string | null>(null)
+  const { showToast } = useToast()
 
   const [schemeForm, setSchemeForm] = useState({
     name: '',
@@ -2694,6 +2725,7 @@ function SchemeManagementTab({ user }: { user: any }) {
       setDistributors(data || [])
     } catch (err: any) {
       console.error('Error fetching distributors:', err)
+      showToast('Failed to load distributors', 'error')
     }
   }
 
@@ -2710,6 +2742,8 @@ function SchemeManagementTab({ user }: { user: any }) {
       return
     }
     
+    setExpandingSchemeId(schemeId)
+    try {
     const [bbps, payout, mdr, aepsComm, aepsSettle, mappings] = await Promise.all([
       supabase.from('scheme_bbps_commissions').select('*').eq('scheme_id', schemeId).eq('status', 'active').order('min_amount'),
       supabase.from('scheme_payout_charges').select('*').eq('scheme_id', schemeId).eq('status', 'active').order('transfer_mode'),
@@ -2744,6 +2778,12 @@ function SchemeManagementTab({ user }: { user: any }) {
     } : s))
     
     setExpandedSchemeId(schemeId)
+    } catch (err) {
+      console.error('Error loading scheme details:', err)
+      showToast('Failed to load scheme details', 'error')
+    } finally {
+      setExpandingSchemeId(null)
+    }
   }
 
   const openCreateModal = () => {
@@ -2754,6 +2794,7 @@ function SchemeManagementTab({ user }: { user: any }) {
 
   const handleSaveScheme = async () => {
     if (!user?.partner_id) return
+    setSavingScheme(true)
     try {
       if (editingScheme) {
         const { error } = await supabase.from('schemes').update({
@@ -2783,6 +2824,8 @@ function SchemeManagementTab({ user }: { user: any }) {
     } catch (err: any) {
       setError(err.message)
       setTimeout(() => setError(''), 3000)
+    } finally {
+      setSavingScheme(false)
     }
   }
 
@@ -2804,6 +2847,7 @@ function SchemeManagementTab({ user }: { user: any }) {
   }
 
   const handleSaveConfig = async () => {
+    setSavingConfig(true)
     try {
       if (configType === 'bbps') {
         const { error } = await supabase.from('scheme_bbps_commissions').insert({
@@ -2917,7 +2961,6 @@ function SchemeManagementTab({ user }: { user: any }) {
       }
       setSuccess(`${configType?.toUpperCase()} configuration added successfully`)
       setShowConfigModal(false)
-      // Refresh expanded scheme
       if (expandedSchemeId === configSchemeId) {
         toggleExpand(configSchemeId)
       } else {
@@ -2927,11 +2970,14 @@ function SchemeManagementTab({ user }: { user: any }) {
     } catch (err: any) {
       setError(err.message)
       setTimeout(() => setError(''), 3000)
+    } finally {
+      setSavingConfig(false)
     }
   }
 
   const handleDeleteConfig = async (table: string, id: string) => {
     if (!confirm('Delete this configuration?')) return
+    setDeletingConfigId(id)
     try {
       const { error } = await supabase.from(table).delete().eq('id', id)
       if (error) throw error
@@ -2941,6 +2987,8 @@ function SchemeManagementTab({ user }: { user: any }) {
     } catch (err: any) {
       setError(err.message)
       setTimeout(() => setError(''), 3000)
+    } finally {
+      setDeletingConfigId(null)
     }
   }
 
@@ -2967,6 +3015,7 @@ function SchemeManagementTab({ user }: { user: any }) {
   }
 
   const handleMapScheme = async (distributorId: string) => {
+    setMappingInProgress(distributorId)
     try {
       const response = await apiFetch('/api/schemes/mappings', {
         method: 'POST',
@@ -2990,6 +3039,8 @@ function SchemeManagementTab({ user }: { user: any }) {
     } catch (err: any) {
       setError(err.message)
       setTimeout(() => setError(''), 3000)
+    } finally {
+      setMappingInProgress(null)
     }
   }
 
@@ -3094,7 +3145,7 @@ function SchemeManagementTab({ user }: { user: any }) {
                     className="p-1.5 rounded-lg hover:bg-purple-50 dark:hover:bg-purple-900/20 text-purple-600" title="Map to Distributor">
                     <Link2 className="w-4 h-4" />
                   </button>
-                  {expandedSchemeId === scheme.id ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}
+                  {expandingSchemeId === scheme.id ? <Loader2 className="w-4 h-4 text-gray-400 animate-spin" /> : expandedSchemeId === scheme.id ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}
                 </div>
               </div>
 
@@ -3142,8 +3193,8 @@ function SchemeManagementTab({ user }: { user: any }) {
                                 <td className="px-2 py-1.5 text-right">{c.md_commission}{c.md_commission_type === 'percentage' ? '%' : '₹'}</td>
                                 <td className="px-2 py-1.5 text-right">{c.company_charge}{c.company_charge_type === 'percentage' ? '%' : '₹'}</td>
                                 {!isAssigned && <td className="px-2 py-1.5 text-right">
-                                  <button onClick={() => handleDeleteConfig('scheme_bbps_commissions', c.id)} className="text-red-400 hover:text-red-600">
-                                    <Trash2 className="w-3 h-3" />
+                                  <button onClick={() => handleDeleteConfig('scheme_bbps_commissions', c.id)} disabled={deletingConfigId === c.id} className="text-red-400 hover:text-red-600 disabled:opacity-50">
+                                    {deletingConfigId === c.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
                                   </button>
                                 </td>}
                               </tr>
@@ -3187,8 +3238,8 @@ function SchemeManagementTab({ user }: { user: any }) {
                                 <td className="px-2 py-1.5 text-right">{c.md_commission}{c.md_commission_type === 'percentage' ? '%' : '₹'}</td>
                                 <td className="px-2 py-1.5 text-right">{c.company_charge}{c.company_charge_type === 'percentage' ? '%' : '₹'}</td>
                                 {!isAssigned && <td className="px-2 py-1.5 text-right">
-                                  <button onClick={() => handleDeleteConfig('scheme_payout_charges', c.id)} className="text-red-400 hover:text-red-600">
-                                    <Trash2 className="w-3 h-3" />
+                                  <button onClick={() => handleDeleteConfig('scheme_payout_charges', c.id)} disabled={deletingConfigId === c.id} className="text-red-400 hover:text-red-600 disabled:opacity-50">
+                                    {deletingConfigId === c.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
                                   </button>
                                 </td>}
                               </tr>
@@ -3248,8 +3299,8 @@ function SchemeManagementTab({ user }: { user: any }) {
                                   </>
                                 )}
                                 {!isAssigned && <td className="px-2 py-1.5 text-right">
-                                  <button onClick={() => handleDeleteConfig('scheme_mdr_rates', c.id)} className="text-red-400 hover:text-red-600">
-                                    <Trash2 className="w-3 h-3" />
+                                  <button onClick={() => handleDeleteConfig('scheme_mdr_rates', c.id)} disabled={deletingConfigId === c.id} className="text-red-400 hover:text-red-600 disabled:opacity-50">
+                                    {deletingConfigId === c.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
                                   </button>
                                 </td>}
                               </tr>
@@ -3297,8 +3348,8 @@ function SchemeManagementTab({ user }: { user: any }) {
                                   <td className="px-2 py-1.5 text-right">{fmt(c.retailer_commission, c.retailer_commission_type)}</td>
                                   <td className="px-2 py-1.5 text-right">{c.tds_percentage}%</td>
                                   <td className="px-2 py-1.5 text-right">
-                                    {!isAssigned && <button onClick={() => handleDeleteConfig('scheme_aeps_commissions', c.id)} className="text-red-400 hover:text-red-600">
-                                      <Trash2 className="w-3 h-3" />
+                                    {!isAssigned && <button onClick={() => handleDeleteConfig('scheme_aeps_commissions', c.id)} disabled={deletingConfigId === c.id} className="text-red-400 hover:text-red-600 disabled:opacity-50">
+                                      {deletingConfigId === c.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
                                     </button>}
                                   </td>
                                 </tr>
@@ -3341,8 +3392,8 @@ function SchemeManagementTab({ user }: { user: any }) {
                                   <td className="px-2 py-1.5 text-right">{fmt(c.md_commission, c.md_commission_type)}</td>
                                   <td className="px-2 py-1.5 text-right">{fmt(c.company_charge, c.company_charge_type)}</td>
                                   <td className="px-2 py-1.5 text-right">
-                                    {!isAssigned && <button onClick={() => handleDeleteConfig('scheme_aeps_settlement_charges', c.id)} className="text-red-400 hover:text-red-600">
-                                      <Trash2 className="w-3 h-3" />
+                                    {!isAssigned && <button onClick={() => handleDeleteConfig('scheme_aeps_settlement_charges', c.id)} disabled={deletingConfigId === c.id} className="text-red-400 hover:text-red-600 disabled:opacity-50">
+                                      {deletingConfigId === c.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
                                     </button>}
                                   </td>
                                 </tr>
@@ -3413,8 +3464,8 @@ function SchemeManagementTab({ user }: { user: any }) {
             </div>
             <div className="flex gap-3 mt-6">
               <button onClick={() => setShowCreateModal(false)} className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg">Cancel</button>
-              <button onClick={handleSaveScheme} className="px-4 py-2 text-sm bg-yellow-600 text-white rounded-lg hover:bg-yellow-700">
-                {editingScheme ? 'Update' : 'Create'}
+              <button onClick={handleSaveScheme} disabled={savingScheme} className="px-4 py-2 text-sm bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 disabled:opacity-50 disabled:cursor-not-allowed">
+                {savingScheme ? 'Saving...' : editingScheme ? 'Update' : 'Create'}
               </button>
             </div>
           </div>
@@ -3434,9 +3485,13 @@ function SchemeManagementTab({ user }: { user: any }) {
                   <button
                     key={dist.partner_id}
                     onClick={() => handleMapScheme(dist.partner_id)}
-                    className="w-full text-left p-3 border rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition"
+                    disabled={mappingInProgress !== null}
+                    className="w-full text-left p-3 border rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    <div className="font-medium">{dist.name}</div>
+                    <div className="font-medium flex items-center gap-2">
+                      {dist.name}
+                      {mappingInProgress === dist.partner_id && <Loader2 className="w-3 h-3 animate-spin" />}
+                    </div>
                     <div className="text-xs text-gray-500">{dist.partner_id}</div>
                   </button>
                 ))
@@ -3859,8 +3914,8 @@ function SchemeManagementTab({ user }: { user: any }) {
 
             <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700 shrink-0 flex justify-end gap-2">
               <button onClick={() => setShowConfigModal(false)} className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg">Cancel</button>
-              <button onClick={handleSaveConfig} className="px-4 py-2 text-sm bg-yellow-600 text-white rounded-lg hover:bg-yellow-700">
-                Save Configuration
+              <button onClick={handleSaveConfig} disabled={savingConfig} className="px-4 py-2 text-sm bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 disabled:opacity-50 disabled:cursor-not-allowed">
+                {savingConfig ? 'Saving...' : 'Save Configuration'}
               </button>
             </div>
           </div>
@@ -3963,6 +4018,7 @@ function ChangePasswordForm({ onPasswordChange, loading }: ChangePasswordFormPro
 // Settings Tab
 function SettingsTab() {
   const { user } = useAuth()
+  const { showToast } = useToast()
   const [activeSection, setActiveSection] = useState<'profile' | 'account' | 'notifications' | 'security' | 'preferences'>('profile')
   const [loading, setLoading] = useState(false)
   const [success, setSuccess] = useState('')
@@ -4025,6 +4081,7 @@ function SettingsTab() {
       }
     } catch (err: any) {
       console.error('Error fetching user data:', err)
+      showToast('Failed to load profile data', 'error')
     }
   }
 

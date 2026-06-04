@@ -3,6 +3,7 @@ import { Inter } from 'next/font/google'
 import './globals.css'
 import ConditionalLayout from '@/components/ConditionalLayout'
 import { AuthProvider } from '@/contexts/AuthContext'
+import { ToastProvider } from '@/components/Toast'
 
 const inter = Inter({ subsets: ['latin'] })
 
@@ -31,9 +32,11 @@ export default function RootLayout({
     <html lang="en" suppressHydrationWarning>
       <body className={inter.className} suppressHydrationWarning>
         <AuthProvider>
-          <ConditionalLayout>
-            {children}
-          </ConditionalLayout>
+          <ToastProvider>
+            <ConditionalLayout>
+              {children}
+            </ConditionalLayout>
+          </ToastProvider>
         </AuthProvider>
       </body>
     </html>

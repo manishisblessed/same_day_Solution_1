@@ -235,9 +235,11 @@ export async function POST(request: NextRequest) {
       bankName: b.bankName || b.name || 'Unknown Bank',
     }));
 
-    // Even if Chagans says logged in, our 24hr session / device check overrides
-    // Trust our 24h session — don't require Chagans loginStatus to be true
-    const effectiveLoginStatus = twoFAValid;
+    // Both conditions must be true: our local 24h+device session AND Chagans active session.
+    // When Chagans says loginStatus=false (session expired on their side), the retailer
+    // must re-do biometric login so Chagans can activate its session and return bankList.
+    const chagansLoggedIn = result.data?.loginStatus === true;
+    const effectiveLoginStatus = twoFAValid && chagansLoggedIn;
 
     return NextResponse.json({
       success: result.success,

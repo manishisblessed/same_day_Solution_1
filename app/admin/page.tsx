@@ -26,6 +26,7 @@ import POSPartnerAPIManagement from '@/components/POSPartnerAPIManagement'
 import ServiceTransactionReport from '@/components/ServiceTransactionReport'
 import { motion, AnimatePresence } from 'framer-motion'
 import { apiFetch } from '@/lib/api-client'
+import { useToast } from '@/components/Toast'
 import T1SettlementControl from '@/components/T1SettlementControl'
 import PerformanceTab from '@/components/PerformanceTab'
 import POSMachineHistoryTab from '@/components/POSMachineHistoryTab'
@@ -44,7 +45,14 @@ function AdminDashboardContent() {
   const { user, loading: authLoading, impersonate } = useAuth()
   const router = useRouter()
   const searchParams = useSearchParams()
+  const { showToast } = useToast()
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [walletProcessing, setWalletProcessing] = useState(false)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [bulkDeleting, setBulkDeleting] = useState(false)
+  const [returningToStock, setReturningToStock] = useState<string | null>(null)
+  const [impersonatingId, setImpersonatingId] = useState<string | null>(null)
+  const [refreshing, setRefreshing] = useState(false)
   
   // Initialize activeTab from URL or default to 'dashboard'
   const getInitialTab = (): TabType => {
@@ -177,6 +185,7 @@ function AdminDashboardContent() {
       return
     }
     setLoading(true)
+    setRefreshing(true)
     try {
       if (activeTab === 'retailers') {
         const { data, error } = await supabase
@@ -230,8 +239,10 @@ function AdminDashboardContent() {
       }
     } catch (error) {
       console.error('Error fetching data:', error)
+      showToast('Failed to fetch data', 'error')
     } finally {
       setLoading(false)
+      setRefreshing(false)
     }
   }
 
@@ -243,6 +254,7 @@ function AdminDashboardContent() {
     }
     if (!confirm(`Are you sure you want to delete "${label}"?`)) return
 
+    setDeletingId(id)
     try {
       const tableName = activeTab === 'retailers' ? 'retailers' : 
                        activeTab === 'distributors' ? 'distributors' : 
@@ -255,11 +267,14 @@ function AdminDashboardContent() {
         .eq('id', id)
 
       if (error) throw error
+      showToast('Item deleted successfully', 'success')
       fetchData()
       setSelectedItems(new Set())
     } catch (error) {
       console.error('Error deleting:', error)
-      alert('Failed to delete item')
+      showToast('Failed to delete item', 'error')
+    } finally {
+      setDeletingId(null)
     }
   }
 
@@ -270,11 +285,12 @@ function AdminDashboardContent() {
     const returnDate = prompt(`Return "${machine.machine_id}" to stock.\n\nEnter return date (YYYY-MM-DD):`, new Date().toISOString().slice(0, 10))
     if (!returnDate) return
     if (!/^\d{4}-\d{2}-\d{2}$/.test(returnDate)) {
-      alert('Invalid date format. Use YYYY-MM-DD.')
+      showToast('Invalid date format. Use YYYY-MM-DD.', 'error')
       return
     }
     const returnReason = prompt('Enter return reason (optional):') || ''
 
+    setReturningToStock(machine.id)
     try {
       const res = await apiFetch('/api/admin/pos-machines/return', {
         method: 'POST',
@@ -287,13 +303,16 @@ function AdminDashboardContent() {
       })
       const data = await res.json()
       if (data.success) {
+        showToast('Machine returned to stock successfully', 'success')
         fetchData()
       } else {
-        alert(data.error || 'Failed to return machine to stock')
+        showToast(data.error || 'Failed to return machine to stock', 'error')
       }
     } catch (e) {
       console.error('Return to stock error:', e)
-      alert('Failed to return machine to stock')
+      showToast('Failed to return machine to stock', 'error')
+    } finally {
+      setReturningToStock(null)
     }
   }
 
@@ -301,6 +320,7 @@ function AdminDashboardContent() {
     if (selectedItems.size === 0) return
     if (!confirm(`Are you sure you want to delete ${selectedItems.size} item(s)?`)) return
 
+    setBulkDeleting(true)
     try {
       const tableName = activeTab === 'retailers' ? 'retailers' : 
                        activeTab === 'distributors' ? 'distributors' : 
@@ -313,11 +333,14 @@ function AdminDashboardContent() {
         .in('id', Array.from(selectedItems))
 
       if (error) throw error
+      showToast(`${selectedItems.size} item(s) deleted successfully`, 'success')
       fetchData()
       setSelectedItems(new Set())
     } catch (error) {
       console.error('Error deleting:', error)
-      alert('Failed to delete items')
+      showToast('Failed to delete items', 'error')
+    } finally {
+      setBulkDeleting(false)
     }
   }
 
@@ -483,10 +506,11 @@ function AdminDashboardContent() {
               <div className="flex items-center gap-2 flex-shrink-0">
                 <button
                   onClick={fetchData}
-                  className="p-2 rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                  disabled={refreshing}
+                  className="p-2 rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors disabled:opacity-50"
                   title="Refresh"
                 >
-                  <RefreshCw className="w-4 h-4 text-gray-600 dark:text-gray-300" />
+                  <RefreshCw className={`w-4 h-4 text-gray-600 dark:text-gray-300 ${refreshing ? 'animate-spin' : ''}`} />
                 </button>
               </div>
             </div>
@@ -526,7 +550,9 @@ function AdminDashboardContent() {
                   .in('id', ids)
                 if (error) {
                   console.error('Bulk delete error:', error)
-                  alert('Failed to delete some machines')
+                  showToast('Failed to delete some machines', 'error')
+                } else {
+                  showToast('Machines deleted successfully', 'success')
                 }
                 fetchData()
               }}
@@ -832,12 +858,13 @@ function AdminDashboardContent() {
                               <ArrowDownCircle className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
                             </button>
                             <button
+                              disabled={impersonatingId === item.partner_id}
                               onClick={async () => {
+                                setImpersonatingId(item.partner_id)
                                 try {
                                   const userRole = activeTab === 'retailers' ? 'retailer' : 
                                                   activeTab === 'distributors' ? 'distributor' : 
                                                   'master_distributor'
-                                  // Call impersonate API directly to open in new tab
                                   const response = await apiFetch('/api/admin/impersonate', {
                                     method: 'POST',
                                     body: JSON.stringify({ user_id: item.partner_id, user_role: userRole })
@@ -847,23 +874,23 @@ function AdminDashboardContent() {
                                     throw new Error(data.error || 'Failed to login as user')
                                   }
                                   if (data.success && data.redirect_url) {
-                                    // Store impersonation data
                                     if (data.impersonation_token) {
                                       localStorage.setItem('impersonation_token', data.impersonation_token)
                                       localStorage.setItem('impersonation_session_id', data.user.impersonation_session_id || '')
                                     }
                                     sessionStorage.setItem('impersonated_user', JSON.stringify(data.user))
-                                    // Open in new tab
                                     window.open(data.redirect_url, '_blank')
                                   }
                                 } catch (error: any) {
-                                  alert(error.message || 'Failed to login as user')
+                                  showToast(error.message || 'Failed to login as user', 'error')
+                                } finally {
+                                  setImpersonatingId(null)
                                 }
                               }}
-                              className="p-1 sm:p-1.5 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded transition-colors"
+                              className="p-1 sm:p-1.5 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded transition-colors disabled:opacity-50"
                               title="Login As (Opens in new tab)"
                             >
-                              <LogIn className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
+                              {impersonatingId === item.partner_id ? <Loader2 className="w-3 h-3 sm:w-3.5 sm:h-3.5 animate-spin" /> : <LogIn className="w-3 h-3 sm:w-3.5 sm:h-3.5" />}
                             </button>
                             {activeTab === 'retailers' && (
                               <>
@@ -922,10 +949,11 @@ function AdminDashboardContent() {
                             </button>
                             <button
                               onClick={() => handleDelete(item.id)}
-                              className="p-1 sm:p-1.5 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors"
+                              disabled={deletingId === item.id}
+                              className="p-1 sm:p-1.5 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors disabled:opacity-50"
                               title="Delete"
                             >
-                              <Trash2 className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
+                              {deletingId === item.id ? <Loader2 className="w-3 h-3 sm:w-3.5 sm:h-3.5 animate-spin" /> : <Trash2 className="w-3 h-3 sm:w-3.5 sm:h-3.5" />}
                             </button>
                           </div>
                         </td>
@@ -1203,7 +1231,9 @@ function AdminDashboardContent() {
               </div>
               <div className="flex gap-3">
                 <button
+                  disabled={walletProcessing}
                   onClick={async () => {
+                    setWalletProcessing(true)
                     try {
                       const endpoint = walletAction === 'push' ? '/api/admin/wallet/push' : '/api/admin/wallet/pull'
                       const userRole = selectedWalletUser.user_type || 
@@ -1225,40 +1255,42 @@ function AdminDashboardContent() {
 
                       const data = await response.json()
                       if (data.success) {
-                        // Update the current balance with the response
                         if (data.after_balance !== undefined) {
                           setCurrentBalance(data.after_balance)
                         }
-                        alert(data.message || 'Action completed successfully!')
+                        showToast(data.message || 'Action completed successfully!', 'success')
                         setShowWalletModal(false)
                         setSelectedWalletUser(null)
                         setWalletFormData({ amount: '', fund_category: 'cash', wallet_type: 'primary', remarks: '' })
                         setCurrentBalance(null)
                         fetchData()
                       } else {
-                        alert(data.error || 'Action failed')
+                        showToast(data.error || 'Action failed', 'error')
                       }
                     } catch (error) {
                       console.error('Wallet action error:', error)
-                      alert('Failed to perform action')
+                      showToast('Failed to perform action', 'error')
+                    } finally {
+                      setWalletProcessing(false)
                     }
                   }}
-                  className={`flex-1 py-2 px-4 rounded-lg text-white ${
+                  className={`flex-1 py-2 px-4 rounded-lg text-white disabled:opacity-50 ${
                     walletAction === 'push' 
                       ? 'bg-green-600 hover:bg-green-700' 
                       : 'bg-red-600 hover:bg-red-700'
                   }`}
                 >
-                  {walletAction === 'push' ? 'Push Balance' : 'Pull Balance'}
+                  {walletProcessing ? 'Processing...' : walletAction === 'push' ? 'Push Balance' : 'Pull Balance'}
                 </button>
                 <button
+                  disabled={walletProcessing}
                   onClick={() => {
                     setShowWalletModal(false)
                     setSelectedWalletUser(null)
                     setWalletFormData({ amount: '', fund_category: 'cash', wallet_type: 'primary', remarks: '' })
                     setCurrentBalance(null)
                   }}
-                  className="flex-1 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 py-2 px-4 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600"
+                  className="flex-1 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 py-2 px-4 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600 disabled:opacity-50"
                 >
                   Cancel
                 </button>
@@ -1330,15 +1362,15 @@ function AdminDashboardContent() {
                 <button
                   onClick={async () => {
                     if (!newPassword || !confirmPassword) {
-                      alert('Please fill in both password fields')
+                      showToast('Please fill in both password fields', 'error')
                       return
                     }
                     if (newPassword.length < 8) {
-                      alert('Password must be at least 8 characters long')
+                      showToast('Password must be at least 8 characters long', 'error')
                       return
                     }
                     if (newPassword !== confirmPassword) {
-                      alert('Passwords do not match')
+                      showToast('Passwords do not match', 'error')
                       return
                     }
 
@@ -1359,17 +1391,17 @@ function AdminDashboardContent() {
 
                       const data = await response.json()
                       if (data.success) {
-                        alert(data.message || 'Password reset successfully!')
+                        showToast(data.message || 'Password reset successfully!', 'success')
                         setShowPasswordResetModal(false)
                         setSelectedUserForReset(null)
                         setNewPassword('')
                         setConfirmPassword('')
                       } else {
-                        alert(data.error || 'Failed to reset password')
+                        showToast(data.error || 'Failed to reset password', 'error')
                       }
                     } catch (error: any) {
                       console.error('Password reset error:', error)
-                      alert(error.message || 'Failed to reset password')
+                      showToast(error.message || 'Failed to reset password', 'error')
                     } finally {
                       setResettingPassword(false)
                     }
@@ -1484,16 +1516,16 @@ function AdminDashboardContent() {
 
                       const data = await response.json()
                       if (data.success) {
-                        alert(data.message || 'BBPS limit updated successfully!')
+                        showToast(data.message || 'BBPS limit updated successfully!', 'success')
                         setShowBBPSLimitModal(false)
                         setSelectedRetailerForLimit(null)
                         fetchData()
                       } else {
-                        alert(data.error || 'Failed to update BBPS limit')
+                        showToast(data.error || 'Failed to update BBPS limit', 'error')
                       }
                     } catch (error: any) {
                       console.error('BBPS limit update error:', error)
-                      alert(error.message || 'Failed to update BBPS limit')
+                      showToast(error.message || 'Failed to update BBPS limit', 'error')
                     } finally {
                       setUpdatingLimit(false)
                     }
@@ -1606,16 +1638,16 @@ function AdminDashboardContent() {
 
                       const data = await response.json()
                       if (data.success) {
-                        alert(data.message || 'Settlement limit updated successfully!')
+                        showToast(data.message || 'Settlement limit updated successfully!', 'success')
                         setShowSettlementLimitModal(false)
                         setSelectedRetailerForSettlementLimit(null)
                         fetchData()
                       } else {
-                        alert(data.error || 'Failed to update settlement limit')
+                        showToast(data.error || 'Failed to update settlement limit', 'error')
                       }
                     } catch (error: any) {
                       console.error('Settlement limit update error:', error)
-                      alert(error.message || 'Failed to update settlement limit')
+                      showToast(error.message || 'Failed to update settlement limit', 'error')
                     } finally {
                       setUpdatingSettlementLimit(false)
                     }
@@ -1654,6 +1686,7 @@ function AdminDashboardContent() {
               setEditingItem(null)
             }}
             onSuccess={() => {
+              showToast(editingItem ? 'POS machine updated successfully' : 'POS machine created successfully', 'success')
               setShowModal(false)
               setEditingItem(null)
               fetchData()
@@ -1668,6 +1701,7 @@ function AdminDashboardContent() {
               setEditingItem(null)
             }}
             onSuccess={() => {
+              showToast(editingItem ? 'Updated successfully' : 'Created successfully', 'success')
               setShowModal(false)
               setEditingItem(null)
               fetchData()
@@ -1689,6 +1723,8 @@ function AdminDashboardOverview({
   distributors: Distributor[]
   masterDistributors: MasterDistributor[]
 }) {
+  const { showToast } = useToast()
+  const [downloading, setDownloading] = useState(false)
   const [analyticsData, setAnalyticsData] = useState({
     totalTransactionVolume: 0,
     todayTransactionVolume: 0,
@@ -1833,6 +1869,7 @@ function AdminDashboardOverview({
       }))
     } catch (err) {
       console.error('Error fetching analytics:', err)
+      showToast('Failed to fetch analytics data', 'error')
     } finally {
       setLoading(false)
     }
@@ -1864,6 +1901,7 @@ function AdminDashboardOverview({
 
   // Download reports function (MDR `transactions` table: settlement_status, retailer_id, mode, etc.)
   const downloadReport = async (format: 'csv' | 'excel' | 'pdf' | 'json') => {
+    setDownloading(true)
     try {
       const { data: transactions } = await supabase
         .from('transactions')
@@ -1895,9 +1933,12 @@ function AdminDashboardOverview({
         const excelContent = [headers.join('\t'), ...rows.map(r => r.join('\t'))].join('\n')
         downloadFile(excelContent, 'transactions_report.xls', 'application/vnd.ms-excel')
       }
+      showToast(`Report downloaded as ${format.toUpperCase()}`, 'success')
     } catch (err) {
       console.error('Error downloading report:', err)
-      alert('Failed to download report')
+      showToast('Failed to download report', 'error')
+    } finally {
+      setDownloading(false)
     }
   }
 
@@ -1937,23 +1978,26 @@ function AdminDashboardOverview({
         <div className="flex gap-2">
           <button
             onClick={() => downloadReport('csv')}
-            className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-medium transition-all shadow-md hover:shadow-lg"
+            disabled={downloading}
+            className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-medium transition-all shadow-md hover:shadow-lg disabled:opacity-50"
           >
-            <FileDown className="w-4 h-4" />
+            {downloading ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileDown className="w-4 h-4" />}
             CSV
           </button>
           <button
             onClick={() => downloadReport('excel')}
-            className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-medium transition-all shadow-md hover:shadow-lg"
+            disabled={downloading}
+            className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-medium transition-all shadow-md hover:shadow-lg disabled:opacity-50"
           >
-            <Sheet className="w-4 h-4" />
+            {downloading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sheet className="w-4 h-4" />}
             Excel
           </button>
           <button
             onClick={() => downloadReport('json')}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-all shadow-md hover:shadow-lg"
+            disabled={downloading}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-all shadow-md hover:shadow-lg disabled:opacity-50"
           >
-            <FileBarChart className="w-4 h-4" />
+            {downloading ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileBarChart className="w-4 h-4" />}
             JSON
           </button>
         </div>
@@ -2307,6 +2351,7 @@ const SERVICE_FIELDS = ALL_SERVICES.map(s => `${s.key}_enabled`)
 // Services Management Component with Permission Control
 function ServicesManagementTab() {
   type ServiceSubTab = 'overview' | 'permissions'
+  const { showToast } = useToast()
   const [subTab, setSubTab] = useState<ServiceSubTab>('permissions')
   const [services, setServices] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
@@ -2320,7 +2365,6 @@ function ServicesManagementTab() {
   const [togglingUser, setTogglingUser] = useState<string | null>(null)
   const [bulkAction, setBulkAction] = useState(false)
   const [roleToggling, setRoleToggling] = useState<string | null>(null)
-  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
   const [confirmModal, setConfirmModal] = useState<{
     open: boolean
     title: string
@@ -2392,6 +2436,7 @@ function ServicesManagementTab() {
       ])
     } catch (error) {
       console.error('Error fetching services data:', error)
+      showToast('Failed to fetch services data', 'error')
       setServices([])
     } finally {
       setLoading(false)
@@ -2448,6 +2493,7 @@ function ServicesManagementTab() {
       setAllUsers([...retailers, ...distributors, ...mds, ...partners])
     } catch (error) {
       console.error('Error fetching users:', error)
+      showToast('Failed to fetch users', 'error')
       setAllUsers([])
     } finally {
       setUsersLoading(false)
@@ -2466,11 +2512,6 @@ function ServicesManagementTab() {
     setUserPage(1)
     setSelectedUsers(new Set())
   }, [userSearch, roleFilter, serviceFilter])
-
-  const showToast = (message: string, type: 'success' | 'error') => {
-    setToast({ message, type })
-    setTimeout(() => setToast(null), 3500)
-  }
 
   const handleToggleService = async (userId: string, userRole: string, serviceType: string, enabled: boolean) => {
     setTogglingUser(`${userId}-${serviceType}`)
@@ -2653,25 +2694,6 @@ function ServicesManagementTab() {
 
   return (
     <div className="space-y-3">
-      {/* Toast */}
-      <AnimatePresence>
-        {toast && (
-          <motion.div
-            initial={{ opacity: 0, y: -30 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -30 }}
-            className={`fixed top-20 right-4 z-50 px-4 py-3 rounded-lg shadow-lg text-sm font-medium ${
-              toast.type === 'success' ? 'bg-green-600 text-white' : 'bg-red-600 text-white'
-            }`}
-          >
-            <div className="flex items-center gap-2">
-              {toast.type === 'success' ? <CheckCircle2 className="w-4 h-4" /> : <XCircle className="w-4 h-4" />}
-              {toast.message}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
       {/* Confirmation Modal */}
       <AnimatePresence>
         {confirmModal.open && (
@@ -3233,6 +3255,7 @@ function PartnerModal({
   onClose: () => void
   onSuccess: () => void
 }) {
+  const { showToast } = useToast()
   const [currentStep, setCurrentStep] = useState(1) // 1: Basic Details, 2: Documents (only for new partners)
   const [formData, setFormData] = useState({
     name: '',
@@ -3730,21 +3753,20 @@ function PartnerModal({
     e.preventDefault()
     // Validate basic fields
     if (!formData.name || !formData.email || !formData.phone || (!item && !formData.password)) {
-      alert('Please fill all required fields')
+      showToast('Please fill all required fields', 'error')
       return
     }
-    // Validate hierarchy requirements
     if (type === 'distributors' && !formData.master_distributor_id) {
-      alert('Master Distributor is required to create a Distributor')
+      showToast('Master Distributor is required to create a Distributor', 'error')
       return
     }
     if (type === 'retailers') {
       if (!formData.distributor_id) {
-        alert('Distributor is required to create a Retailer')
+        showToast('Distributor is required to create a Retailer', 'error')
         return
       }
       if (!formData.master_distributor_id) {
-        alert('Master Distributor is required to create a Retailer')
+        showToast('Master Distributor is required to create a Retailer', 'error')
         return
       }
     }
@@ -3756,34 +3778,33 @@ function PartnerModal({
     
     if (!item) {
       if (!panVerified) {
-        alert('PAN verification is mandatory')
+        showToast('PAN verification is mandatory', 'error')
         return
       }
       if (!aadhaarVerified) {
-        alert('Aadhaar verification via Digilocker is mandatory')
+        showToast('Aadhaar verification via Digilocker is mandatory', 'error')
         return
       }
       if (!bankVerified) {
-        alert('Bank account verification is required')
+        showToast('Bank account verification is required', 'error')
         return
       }
       if (bankNameMismatch) {
-        alert('Bank account holder name does not match. Please use the correct bank account.')
+        showToast('Bank account holder name does not match. Please use the correct bank account.', 'error')
         return
       }
       if (formData.gst_applicable && !gstVerified) {
-        alert('GST verification is required when GST is applicable')
+        showToast('GST verification is required when GST is applicable', 'error')
         return
       }
     }
     
-    // Validate hierarchy requirements (for edits)
     if (item) {
       if (type === 'distributors' && !formData.master_distributor_id) {
         if (item.master_distributor_id) {
           formData.master_distributor_id = item.master_distributor_id
         } else {
-          alert('Master Distributor is required for a Distributor')
+          showToast('Master Distributor is required for a Distributor', 'error')
           return
         }
       }
@@ -3796,16 +3817,16 @@ function PartnerModal({
         }
         
         if (!formData.distributor_id) {
-          alert('Distributor is required for a Retailer')
+          showToast('Distributor is required for a Retailer', 'error')
           return
         }
         if (!formData.master_distributor_id) {
-          alert('Master Distributor is required for a Retailer')
+          showToast('Master Distributor is required for a Retailer', 'error')
           return
         }
         const selectedDistributor = distributors.find((d: any) => d.partner_id === formData.distributor_id)
         if (selectedDistributor && selectedDistributor.master_distributor_id !== formData.master_distributor_id) {
-          alert('Selected Distributor does not belong to the selected Master Distributor')
+          showToast('Selected Distributor does not belong to the selected Master Distributor', 'error')
           return
         }
       }
@@ -3958,8 +3979,7 @@ function PartnerModal({
         errorMessage = error.error
       }
       
-      // Show detailed error to user
-      alert(errorMessage)
+      showToast(errorMessage, 'error')
     } finally {
       setLoading(false)
     }
@@ -4501,23 +4521,23 @@ function PartnerModal({
                   type="button"
                   onClick={() => {
                     if (!formData.business_name) {
-                      alert('Business Name is required. Verify GST to auto-fill or enter manually.')
+                      showToast('Business Name is required. Verify GST to auto-fill or enter manually.', 'error')
                       return
                     }
                     if (formData.gst_applicable && !gstVerified) {
-                      alert('Please verify GST number or uncheck GST Registered')
+                      showToast('Please verify GST number or uncheck GST Registered', 'error')
                       return
                     }
                     if (formData.cin_applicable && !cinVerified) {
-                      alert('Please verify CIN number or uncheck Company CIN Verification')
+                      showToast('Please verify CIN number or uncheck Company CIN Verification', 'error')
                       return
                     }
                     if (!aadhaarVerified) {
-                      alert('Aadhaar verification via Digilocker is mandatory')
+                      showToast('Aadhaar verification via Digilocker is mandatory', 'error')
                       return
                     }
                     if (!formData.address) {
-                      alert('Address is required. Verify GST or Aadhaar to capture address.')
+                      showToast('Address is required. Verify GST or Aadhaar to capture address.', 'error')
                       return
                     }
                     setCurrentStep(3)
@@ -5086,6 +5106,7 @@ function POSMachinesTab({
   onBulkDelete?: (ids: string[]) => Promise<void>
   onBulkReturn?: (ids: string[], returnDate?: string, returnReason?: string) => Promise<{ ok: number; fail: number }>
 }) {
+  const { showToast } = useToast()
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [typeFilter, setTypeFilter] = useState<string>('all')
@@ -6628,7 +6649,7 @@ function POSMachinesTab({
                       type="button"
                       disabled={bulkReturning}
                       onClick={async () => {
-                        if (!bulkReturnDate) { alert('Return date is required'); return }
+                        if (!bulkReturnDate) { showToast('Return date is required', 'error'); return }
                         const ids = Array.from(bulkModalPickedIds).filter((id) => {
                           const m = posMachines.find((pm) => pm.id === id)
                           return m && assignableStatuses.includes(m.inventory_status || '')
@@ -6637,7 +6658,7 @@ function POSMachinesTab({
                         const returnDateISO = new Date(bulkReturnDate + 'T00:00:00').toISOString()
                         try {
                           const r = await onBulkReturn(ids, returnDateISO, bulkReturnReason.trim() || undefined)
-                          alert(`Returned ${r.ok} machine(s) to stock.${r.fail > 0 ? ` ${r.fail} failed.` : ''}`)
+                          showToast(`Returned ${r.ok} machine(s) to stock.${r.fail > 0 ? ` ${r.fail} failed.` : ''}`, r.fail > 0 ? 'warning' : 'success')
                           setSelectedItems(new Set())
                           setBulkModalPickedIds(new Set())
                           setShowBulkReturnModal(false)
@@ -6816,6 +6837,7 @@ function POSMachineModal({
   onClose: () => void
   onSuccess: () => void
 }) {
+  const { showToast } = useToast()
   const [formData, setFormData] = useState({
     machine_id: '',
     serial_number: '',
@@ -6893,12 +6915,12 @@ function POSMachineModal({
     const isAssignToPartner = formData.inventory_status === 'assigned_to_partner'
 
     if (isAssignToMD && !formData.master_distributor_id) {
-      alert('Master Distributor is required when assigning to master distributor')
+      showToast('Master Distributor is required when assigning to master distributor', 'error')
       return
     }
 
     if (isAssignToPartner && !formData.partner_id) {
-      alert('Partner is required when assigning to partner')
+      showToast('Partner is required when assigning to partner', 'error')
       return
     }
 
@@ -7012,11 +7034,11 @@ function POSMachineModal({
           if (!histRes.ok) {
             const errData = await histRes.json().catch(() => ({}))
             console.warn('POS history record failed:', errData)
-            alert(`POS saved, but the assignment was not recorded in POS History. ${errData?.error || 'Please use the "Backfill" button on the POS History tab to sync existing assignments.'}`)
+            showToast(`POS saved, but the assignment was not recorded in POS History. ${errData?.error || 'Please use the "Backfill" button on the POS History tab to sync existing assignments.'}`, 'warning')
           }
         } catch (histErr) {
           console.warn('Failed to record POS history:', histErr)
-          alert('POS saved, but the assignment could not be recorded in POS History. Use the "Backfill" button on the POS History tab to sync existing assignments.')
+          showToast('POS saved, but the assignment could not be recorded in POS History. Use the "Backfill" button on the POS History tab to sync existing assignments.', 'warning')
         }
       }
 
@@ -7049,7 +7071,7 @@ function POSMachineModal({
       onSuccess()
     } catch (error: any) {
       console.error('Error saving POS machine:', error)
-      alert(error.message || 'Failed to save POS machine')
+      showToast(error.message || 'Failed to save POS machine', 'error')
     } finally {
       setLoading(false)
     }
@@ -7329,6 +7351,7 @@ function POSMachineModal({
 
 // Partners Management Tab Component
 function PartnersTab() {
+  const { showToast } = useToast()
   const [partners, setPartners] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
@@ -7345,6 +7368,7 @@ function PartnersTab() {
   const [partnerWalletAmount, setPartnerWalletAmount] = useState('')
   const [partnerWalletRemarks, setPartnerWalletRemarks] = useState('')
   const [partnerWalletBalance, setPartnerWalletBalance] = useState<number | null>(null)
+  const [partnerWalletLoadingBalance, setPartnerWalletLoadingBalance] = useState(false)
   const [partnerWalletSubmitting, setPartnerWalletSubmitting] = useState(false)
 
   useEffect(() => {
@@ -7364,6 +7388,7 @@ function PartnersTab() {
       setPartners(data || [])
     } catch (error) {
       console.error('Error fetching partners:', error)
+      showToast('Failed to fetch partners', 'error')
       setPartners([])
     } finally {
       setLoading(false)
@@ -7383,6 +7408,7 @@ function PartnersTab() {
     setPartnerWalletAmount('')
     setPartnerWalletRemarks('')
     setPartnerWalletBalance(null)
+    setPartnerWalletLoadingBalance(true)
     try {
       const res = await apiFetch(`/api/admin/partner-wallet/balance?partner_id=${encodeURIComponent(partner.id)}`)
       const json = await res.json()
@@ -7391,6 +7417,8 @@ function PartnersTab() {
       }
     } catch {
       setPartnerWalletBalance(null)
+    } finally {
+      setPartnerWalletLoadingBalance(false)
     }
   }
 
@@ -7398,7 +7426,7 @@ function PartnersTab() {
     if (!partnerWalletModal) return
     const amt = parseFloat(partnerWalletAmount)
     if (isNaN(amt) || amt <= 0) {
-      alert('Enter a valid amount')
+      showToast('Enter a valid amount', 'error')
       return
     }
     setPartnerWalletSubmitting(true)
@@ -7418,13 +7446,13 @@ function PartnersTab() {
       })
       const data = await res.json()
       if (data.success) {
-        alert(data.message || 'Done')
+        showToast(data.message || 'Done', 'success')
         setPartnerWalletModal(null)
       } else {
-        alert(data.error || 'Action failed')
+        showToast(data.error || 'Action failed', 'error')
       }
     } catch (e: any) {
-      alert(e?.message || 'Request failed')
+      showToast(e?.message || 'Request failed', 'error')
     } finally {
       setPartnerWalletSubmitting(false)
     }
@@ -7571,6 +7599,7 @@ function PartnersTab() {
           <CreatePartnerModal
             onClose={() => setShowCreateModal(false)}
             onSuccess={() => {
+              showToast('Partner created successfully', 'success')
               setShowCreateModal(false)
               fetchPartners()
             }}
@@ -7581,6 +7610,7 @@ function PartnersTab() {
             partner={editingPartner}
             onClose={() => setEditingPartner(null)}
             onSuccess={() => {
+              showToast('Partner updated successfully', 'success')
               setEditingPartner(null)
               fetchPartners()
             }}
@@ -7601,6 +7631,7 @@ function PartnersTab() {
             partner={showWhitelistModal}
             onClose={() => setShowWhitelistModal(null)}
             onSuccess={() => {
+              showToast('IP whitelist updated successfully', 'success')
               setShowWhitelistModal(null)
               fetchPartners()
             }}
@@ -7622,16 +7653,21 @@ function PartnersTab() {
                   <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
                     {partnerWalletModal.partner.name}
                   </p>
-                  {partnerWalletBalance !== null && (
+                  {partnerWalletLoadingBalance ? (
+                    <p className="text-sm text-gray-500 dark:text-gray-400 mt-2 flex items-center gap-1">
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" /> Loading balance...
+                    </p>
+                  ) : partnerWalletBalance !== null ? (
                     <p className="text-sm font-medium text-gray-800 dark:text-gray-200 mt-2">
                       Current balance: ₹{partnerWalletBalance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                     </p>
-                  )}
+                  ) : null}
                 </div>
                 <button
                   type="button"
+                  disabled={partnerWalletSubmitting}
                   onClick={() => setPartnerWalletModal(null)}
-                  className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700"
+                  className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50"
                 >
                   <X className="w-5 h-5" />
                 </button>
@@ -7663,8 +7699,9 @@ function PartnersTab() {
               <div className="flex justify-end gap-2 mt-6">
                 <button
                   type="button"
+                  disabled={partnerWalletSubmitting}
                   onClick={() => setPartnerWalletModal(null)}
-                  className="px-4 py-2 rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200"
+                  className="px-4 py-2 rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200 disabled:opacity-50"
                 >
                   Cancel
                 </button>
@@ -7678,7 +7715,7 @@ function PartnersTab() {
                       : 'bg-red-600 hover:bg-red-700'
                   }`}
                 >
-                  {partnerWalletSubmitting ? '…' : partnerWalletModal.action === 'push' ? 'Push funds' : 'Pull funds'}
+                  {partnerWalletSubmitting ? <><Loader2 className="w-4 h-4 animate-spin inline mr-1" />Processing...</> : partnerWalletModal.action === 'push' ? 'Push funds' : 'Pull funds'}
                 </button>
               </div>
             </motion.div>
@@ -7697,6 +7734,7 @@ function CreatePartnerModal({
   onClose: () => void
   onSuccess: () => void
 }) {
+  const { showToast } = useToast()
   const [loading, setLoading] = useState(false)
   const [currentStep, setCurrentStep] = useState(1)
   const [showPartnerCreatePassword, setShowPartnerCreatePassword] = useState(false)
@@ -7939,14 +7977,14 @@ function CreatePartnerModal({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!panVerified) { alert('PAN verification is mandatory'); return }
-    if (!aadhaarVerified) { alert('Aadhaar verification via Digilocker is mandatory'); return }
-    if (!bankVerified) { alert('Bank account verification is required'); return }
-    if (bankNameMismatch) { alert('Bank account holder name does not match. Please use the correct bank account.'); return }
+    if (!panVerified) { showToast('PAN verification is mandatory', 'error'); return }
+    if (!aadhaarVerified) { showToast('Aadhaar verification via Digilocker is mandatory', 'error'); return }
+    if (!bankVerified) { showToast('Bank account verification is required', 'error'); return }
+    if (bankNameMismatch) { showToast('Bank account holder name does not match. Please use the correct bank account.', 'error'); return }
     setLoading(true)
     try {
-      if (formData.password && formData.password.length < 8) { alert('Password must be at least 8 characters long'); setLoading(false); return }
-      if (!formData.contact_email) { alert('Email is required'); setLoading(false); return }
+      if (formData.password && formData.password.length < 8) { showToast('Password must be at least 8 characters long', 'error'); setLoading(false); return }
+      if (!formData.contact_email) { showToast('Email is required', 'error'); setLoading(false); return }
 
       const partnerData: any = {
         name: formData.name,
@@ -8029,7 +8067,7 @@ function CreatePartnerModal({
       onSuccess()
     } catch (error: any) {
       console.error('Error creating partner:', error)
-      alert(error.message || 'Failed to create partner')
+      showToast(error.message || 'Failed to create partner', 'error')
     } finally { setLoading(false) }
   }
 
@@ -8169,7 +8207,7 @@ function CreatePartnerModal({
 
             <div className="flex justify-end pt-2">
               <button type="button" onClick={() => {
-                if (!formData.name || !formData.contact_email || !formData.contact_phone || !formData.subdomain) { alert('Please fill all required fields'); return }
+                if (!formData.name || !formData.contact_email || !formData.contact_phone || !formData.subdomain) { showToast('Please fill all required fields', 'error'); return }
                 setCurrentStep(2)
               }} className="px-6 py-2.5 bg-primary-600 text-white rounded-lg hover:bg-primary-700 font-medium text-sm">
                 Next: Business Details →
@@ -8294,11 +8332,11 @@ function CreatePartnerModal({
             <div className="flex justify-between pt-2">
               <button type="button" onClick={() => setCurrentStep(1)} className="px-4 py-2 text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 text-sm">← Back</button>
               <button type="button" onClick={() => {
-                if (!formData.business_name) { alert('Business Name is required'); return }
-                if (formData.gst_applicable && !gstVerified) { alert('Please verify GST number'); return }
-                if (formData.cin_applicable && !cinVerified) { alert('Please verify CIN number'); return }
-                if (!aadhaarVerified) { alert('Aadhaar verification via Digilocker is mandatory'); return }
-                if (!formData.address) { alert('Address is required. Verify GST or Aadhaar to capture address.'); return }
+                if (!formData.business_name) { showToast('Business Name is required', 'error'); return }
+                if (formData.gst_applicable && !gstVerified) { showToast('Please verify GST number', 'error'); return }
+                if (formData.cin_applicable && !cinVerified) { showToast('Please verify CIN number', 'error'); return }
+                if (!aadhaarVerified) { showToast('Aadhaar verification via Digilocker is mandatory', 'error'); return }
+                if (!formData.address) { showToast('Address is required. Verify GST or Aadhaar to capture address.', 'error'); return }
                 setCurrentStep(3)
               }} className="px-6 py-2.5 bg-primary-600 text-white rounded-lg hover:bg-primary-700 font-medium text-sm">
                 Next: KYC Verification →
@@ -8383,6 +8421,7 @@ function EditPartnerModal({
   onClose: () => void
   onSuccess: () => void
 }) {
+  const { showToast } = useToast()
   const [loading, setLoading] = useState(false)
   
   // Extract metadata fields
@@ -8413,12 +8452,11 @@ function EditPartnerModal({
 
     try {
       if (!formData.contact_email) {
-        alert('Email is required')
+        showToast('Email is required', 'error')
         setLoading(false)
         return
       }
 
-      // Map form fields to database columns
       const partnerData: any = {
         name: formData.name,
         email: formData.contact_email,
@@ -8459,7 +8497,7 @@ function EditPartnerModal({
       onSuccess()
     } catch (error: any) {
       console.error('Error updating partner:', error)
-      alert(error.message || 'Failed to update partner')
+      showToast(error.message || 'Failed to update partner', 'error')
     } finally {
       setLoading(false)
     }
@@ -8840,6 +8878,7 @@ function SetPartnerPasswordModal({
   onClose: () => void
   onSuccess: () => void
 }) {
+  const { showToast } = useToast()
   const [loading, setLoading] = useState(false)
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
@@ -8870,25 +8909,23 @@ function SetPartnerPasswordModal({
     e.preventDefault()
     
     if (!password) {
-      alert('Password is required')
+      showToast('Password is required', 'error')
       return
     }
     
     if (password.length < 8) {
-      alert('Password must be at least 8 characters long')
+      showToast('Password must be at least 8 characters long', 'error')
       return
     }
     
     if (password !== confirmPassword) {
-      alert('Passwords do not match')
+      showToast('Passwords do not match', 'error')
       return
     }
 
     setLoading(true)
 
     try {
-      // Call API route to set partner password (server-side only operation)
-      // Use apiFetch to route to EC2 backend which has SUPABASE_SERVICE_ROLE_KEY
       const response = await apiFetch('/api/admin/set-partner-password', {
         method: 'POST',
         body: JSON.stringify({
@@ -8903,11 +8940,11 @@ function SetPartnerPasswordModal({
         throw new Error(data.message || data.error || 'Failed to set password')
       }
 
-      alert('Password set successfully! Partner can now login with email and password.')
+      showToast('Password set successfully!', 'success')
       onSuccess()
     } catch (error: any) {
       console.error('Error setting partner password:', error)
-      alert(error.message || 'Failed to set password')
+      showToast(error.message || 'Failed to set password', 'error')
     } finally {
       setLoading(false)
     }
@@ -9027,6 +9064,7 @@ function SetPartnerPasswordModal({
 
 // Reports Management Tab Component
 function ReportsTab() {
+  const { showToast } = useToast()
   const [selectedReport, setSelectedReport] = useState<'transactions' | 'commissions' | 'partners' | 'services' | 'settlements' | 'wallets'>('transactions')
   const [dateRange, setDateRange] = useState<'today' | 'yesterday' | 'week' | 'month' | 'quarter' | 'year' | 'custom'>('month')
   const [startDate, setStartDate] = useState('')
@@ -9127,6 +9165,7 @@ function ReportsTab() {
       })
     } catch (error) {
       console.error('Error fetching report data:', error)
+      showToast('Failed to fetch report data', 'error')
     } finally {
       setLoading(false)
     }
