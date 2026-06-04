@@ -7,7 +7,8 @@ import {
   ArrowDownCircle, ArrowUpCircle,
   TrendingUp, TrendingDown, Wallet,
   Banknote, DollarSign, Percent, Fingerprint,
-  ChevronLeft, ChevronRight, Eye, X, ChevronDown
+  ChevronLeft, ChevronRight, Eye, X, ChevronDown,
+  Calculator, FileText, Shield
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 
@@ -49,6 +50,7 @@ const TX_TYPE_CONFIG: Record<string, { label: string; icon: any; color: string }
   'AEPS_CREDIT': { label: 'AEPS Cash Withdrawal', icon: ArrowDownCircle, color: 'text-green-600 dark:text-green-400' },
   'AEPS_DEBIT': { label: 'AEPS Cash Deposit', icon: ArrowUpCircle, color: 'text-red-600 dark:text-red-400' },
   'COMMISSION_CREDIT': { label: 'Commission Earned', icon: TrendingUp, color: 'text-emerald-600 dark:text-emerald-400' },
+  'TDS_DEDUCTION': { label: 'TDS Deducted', icon: Shield, color: 'text-amber-600 dark:text-amber-400' },
   'AEPS_SETTLEMENT': { label: 'Settlement to Bank', icon: Banknote, color: 'text-orange-600 dark:text-orange-400' },
   'REFUND': { label: 'Refund', icon: ArrowDownCircle, color: 'text-blue-600 dark:text-blue-400' },
   'WALLET_PUSH': { label: 'Admin Credit', icon: ArrowDownCircle, color: 'text-green-600 dark:text-green-400' },
@@ -60,7 +62,8 @@ export default function AEPSWalletLedger({ user }: AEPSWalletLedgerProps) {
   const [entries, setEntries] = useState<LedgerEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
-  const [filterType, setFilterType] = useState<'all' | 'credit' | 'debit' | 'commission'>('all')
+  const [filterType, setFilterType] = useState<'all' | 'credit' | 'debit' | 'commission' | 'tds'>('all')
+  const [showTdsCalculator, setShowTdsCalculator] = useState(false)
   const [currentPage, setCurrentPage] = useState(1)
   const [itemsPerPage, setItemsPerPage] = useState<10 | 25 | 100>(25)
   const [expandedRow, setExpandedRow] = useState<string | null>(null)
@@ -129,6 +132,7 @@ export default function AEPSWalletLedger({ user }: AEPSWalletLedgerProps) {
     if (filterType === 'credit') filtered = filtered.filter(e => e.credit > 0)
     else if (filterType === 'debit') filtered = filtered.filter(e => e.debit > 0)
     else if (filterType === 'commission') filtered = filtered.filter(e => e.transaction_type === 'COMMISSION_CREDIT')
+    else if (filterType === 'tds') filtered = filtered.filter(e => e.transaction_type === 'TDS_DEDUCTION')
 
     if (searchQuery) {
       const q = searchQuery.toLowerCase()
@@ -155,13 +159,16 @@ export default function AEPSWalletLedger({ user }: AEPSWalletLedgerProps) {
   }, [currentPage, totalPages])
 
   const totals = useMemo(() => {
-    const credits = filteredEntries.reduce((s, e) => s + (e.credit || 0), 0)
-    const debits = filteredEntries.reduce((s, e) => s + (e.debit || 0), 0)
-    const commissions = filteredEntries
+    const credits = entries.reduce((s, e) => s + (e.credit || 0), 0)
+    const debits = entries.reduce((s, e) => s + (e.debit || 0), 0)
+    const commissions = entries
       .filter(e => e.transaction_type === 'COMMISSION_CREDIT')
       .reduce((s, e) => s + (e.credit || 0), 0)
-    return { credits, debits, net: credits - debits, commissions }
-  }, [filteredEntries])
+    const tdsDeducted = entries
+      .filter(e => e.transaction_type === 'TDS_DEDUCTION')
+      .reduce((s, e) => s + (e.debit || 0), 0)
+    return { credits, debits, net: credits - debits, commissions, tdsDeducted }
+  }, [entries])
 
   const getTypeInfo = (entry: LedgerEntry) => {
     const isCredit = entry.credit > 0
@@ -261,17 +268,83 @@ export default function AEPSWalletLedger({ user }: AEPSWalletLedgerProps) {
 
         <motion.div
           initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}
-          className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 border border-gray-200 dark:border-gray-700"
+          className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 border border-amber-200 dark:border-amber-700 cursor-pointer hover:shadow-md transition-shadow"
+          onClick={() => setShowTdsCalculator(!showTdsCalculator)}
         >
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-600 dark:text-gray-400">Entries</p>
-              <p className="text-xl font-bold text-blue-600 dark:text-blue-400">{filteredEntries.length}</p>
+              <p className="text-sm text-gray-600 dark:text-gray-400">TDS Deducted</p>
+              <p className="text-xl font-bold text-amber-600 dark:text-amber-400">₹{totals.tdsDeducted.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</p>
             </div>
-            <Wallet className="w-7 h-7 text-blue-600 dark:text-blue-400" />
+            <Shield className="w-7 h-7 text-amber-600 dark:text-amber-400" />
           </div>
+          <p className="text-xs text-amber-500 mt-1">Click for TDS details</p>
         </motion.div>
       </div>
+
+      {/* TDS Calculator / Summary Panel */}
+      <AnimatePresence>
+        {showTdsCalculator && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            className="overflow-hidden"
+          >
+            <div className="bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-900/20 dark:to-orange-900/20 rounded-lg shadow border border-amber-200 dark:border-amber-700 p-5">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-base font-bold text-amber-800 dark:text-amber-300 flex items-center gap-2">
+                  <Calculator className="w-5 h-5" />
+                  TDS Summary & Verification
+                </h3>
+                <button onClick={() => setShowTdsCalculator(false)} className="text-amber-600 hover:text-amber-800 dark:text-amber-400">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+                <div className="bg-white dark:bg-gray-800 rounded-lg p-3 border border-amber-200 dark:border-amber-700">
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Gross Commission (Total)</p>
+                  <p className="text-lg font-bold text-emerald-600 dark:text-emerald-400">
+                    ₹{totals.commissions.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                  </p>
+                </div>
+                <div className="bg-white dark:bg-gray-800 rounded-lg p-3 border border-amber-200 dark:border-amber-700">
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">TDS Deducted (Total)</p>
+                  <p className="text-lg font-bold text-red-600 dark:text-red-400">
+                    -₹{totals.tdsDeducted.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                  </p>
+                </div>
+                <div className="bg-white dark:bg-gray-800 rounded-lg p-3 border border-amber-200 dark:border-amber-700">
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Net Commission Received</p>
+                  <p className="text-lg font-bold text-green-600 dark:text-green-400">
+                    ₹{(totals.commissions - totals.tdsDeducted).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                  </p>
+                </div>
+                <div className="bg-white dark:bg-gray-800 rounded-lg p-3 border border-amber-200 dark:border-amber-700">
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Effective TDS Rate</p>
+                  <p className="text-lg font-bold text-amber-600 dark:text-amber-400">
+                    {totals.commissions > 0 ? ((totals.tdsDeducted / totals.commissions) * 100).toFixed(2) : '0.00'}%
+                  </p>
+                </div>
+              </div>
+
+              <div className="bg-white dark:bg-gray-800 rounded-lg p-4 border border-amber-200 dark:border-amber-700">
+                <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-1">
+                  <FileText className="w-4 h-4" /> How to verify TDS
+                </h4>
+                <ul className="text-xs text-gray-600 dark:text-gray-400 space-y-1.5">
+                  <li>1. TDS is deducted at source on every commission earned from AEPS transactions.</li>
+                  <li>2. The TDS amount shown here should match your Form 26AS / AIS on the Income Tax portal.</li>
+                  <li>3. TAN of deductor: Same Day Solution Pvt. Ltd. Check your 26AS under &quot;TDS on Other Than Salary&quot;.</li>
+                  <li>4. Export the ledger (CSV) and filter by &quot;TDS Deducted&quot; to get a transaction-wise TDS statement.</li>
+                  <li>5. If you find any discrepancy, raise a support ticket with the transaction IDs.</li>
+                </ul>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Filters */}
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 border border-gray-200 dark:border-gray-700">
@@ -295,8 +368,13 @@ export default function AEPSWalletLedger({ user }: AEPSWalletLedgerProps) {
             <option value="credit">Credits Only</option>
             <option value="debit">Debits Only</option>
             <option value="commission">Commission Only</option>
+            <option value="tds">TDS Deductions Only</option>
           </select>
           <div className="flex gap-2">
+            <button onClick={() => setShowTdsCalculator(!showTdsCalculator)}
+              className="px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 flex items-center gap-2 text-sm">
+              <Calculator className="w-4 h-4" /> TDS
+            </button>
             <button onClick={fetchLedgerData} disabled={loading}
               className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 flex items-center gap-2 text-sm">
               <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /> Refresh

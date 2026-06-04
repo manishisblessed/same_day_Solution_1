@@ -131,6 +131,7 @@ export default function LedgerTab({ user }: LedgerTabProps) {
       'CHARGE': { label: 'Charge', icon: DollarSign, color: 'text-red-600 dark:text-red-400' },
       'AEPS_DEBIT': { label: 'AEPS Transaction', icon: Wallet, color: 'text-red-600 dark:text-red-400' },
       'AEPS_CREDIT': { label: 'AEPS Credit', icon: Wallet, color: 'text-green-600 dark:text-green-400' },
+      'TDS_DEDUCTION': { label: 'TDS Deducted', icon: ArrowUpCircle, color: 'text-amber-600 dark:text-amber-400' },
       'MDR_SETTLEMENT': { label: 'MDR Settlement', icon: TrendingUp, color: 'text-green-600 dark:text-green-400' },
       'WALLET_PUSH': { label: 'Wallet Credit (Admin)', icon: ArrowDownCircle, color: 'text-green-600 dark:text-green-400' },
       'WALLET_PULL': { label: 'Wallet Debit (Admin)', icon: ArrowUpCircle, color: 'text-red-600 dark:text-red-400' },

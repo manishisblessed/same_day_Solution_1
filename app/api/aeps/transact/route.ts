@@ -403,7 +403,19 @@ export async function POST(request: NextRequest) {
             dtUserId,
             mdUserId,
           });
-          rtCommissionForReceipt = commissionResult?.breakdown?.rtAmount ?? null;
+
+          const bk = commissionResult?.breakdown;
+          if (bk && bk.rtAmount > 0) {
+            rtCommissionGross = bk.rtAmount;
+            const tdsPct = bk.tdsAmount > 0 && (bk.rtAmount + (bk.dtAmount || 0) + (bk.mdAmount || 0)) > 0
+              ? Math.round((bk.tdsAmount / (bk.rtAmount + (bk.dtAmount || 0) + (bk.mdAmount || 0))) * 10000) / 100
+              : 0;
+            rtTdsPercentage = tdsPct;
+            rtTdsAmount = Math.round((bk.rtAmount * tdsPct / 100) * 100) / 100;
+            rtCommissionForReceipt = Math.round((bk.rtAmount - rtTdsAmount) * 100) / 100;
+          } else {
+            rtCommissionForReceipt = bk?.rtAmount ?? null;
+          }
 
           if (commissionResult.success && commissionResult.commissionId) {
             await supabase
@@ -411,7 +423,7 @@ export async function POST(request: NextRequest) {
               .update({ commission_id: commissionResult.commissionId })
               .eq('id', aepsTransaction.id);
           }
-          console.log(`[AEPS Transact] Legacy commission: RT=₹${rtCommissionForReceipt ?? 0}`);
+          console.log(`[AEPS Transact] Legacy commission: RT gross=₹${rtCommissionGross ?? 0}, net=₹${rtCommissionForReceipt ?? 0}, TDS=₹${rtTdsAmount ?? 0}`);
         }
       }
 

@@ -211,64 +211,142 @@ export async function distributeCommission(params: DistributeParams): Promise<{
       return { success: false, error: 'Failed to create commission record' };
     }
 
-    // Credit RT wallet (AEPS wallet — instant with transaction)
-    const rtNet = Math.round((breakdown.rtAmount * (1 - config.tds_pct / 100)) * 100) / 100;
-    if (rtNet > 0) {
-      await supabase.rpc('add_ledger_entry', {
+    // Credit RT wallet (gross) + TDS deduction
+    const rtTdsPct = config.tds_pct || 0;
+    const rtNet = Math.round((breakdown.rtAmount * (1 - rtTdsPct / 100)) * 100) / 100;
+    const rtTds = Math.round((breakdown.rtAmount - rtNet) * 100) / 100;
+
+    if (breakdown.rtAmount > 0) {
+      const { error: rtErr } = await supabase.rpc('add_ledger_entry', {
         p_user_id: rtUserId,
         p_user_role: 'retailer',
         p_wallet_type: config.rt_wallet_type,
         p_fund_category: 'commission',
         p_service_type: 'aeps',
         p_tx_type: 'COMMISSION_CREDIT',
-        p_credit: rtNet,
+        p_credit: breakdown.rtAmount,
         p_debit: 0,
         p_reference_id: `COMM_${transactionId}`,
         p_transaction_id: transactionId,
         p_status: 'completed',
-        p_remarks: `AEPS commission: ₹${rtNet} (after TDS)`,
+        p_remarks: `AEPS commission (gross): ₹${breakdown.rtAmount}`,
       });
-    }
 
-    // Credit DT wallet (Primary wallet)
-    if (dtUserId && breakdown.dtAmount > 0) {
-      const dtNet = Math.round((breakdown.dtAmount * (1 - config.tds_pct / 100)) * 100) / 100;
-      if (dtNet > 0) {
-        await supabase.rpc('add_ledger_entry', {
-          p_user_id: dtUserId,
-          p_user_role: 'distributor',
-          p_wallet_type: config.dt_wallet_type,
-          p_fund_category: 'commission',
+      if (rtErr) {
+        console.error('[Commission] RT COMMISSION_CREDIT failed:', rtErr.message);
+      }
+
+      if (rtTds > 0) {
+        const { error: rtTdsErr } = await supabase.rpc('add_ledger_entry', {
+          p_user_id: rtUserId,
+          p_user_role: 'retailer',
+          p_wallet_type: config.rt_wallet_type,
+          p_fund_category: 'tds',
           p_service_type: 'aeps',
-          p_tx_type: 'COMMISSION_CREDIT',
-          p_credit: dtNet,
-          p_debit: 0,
-          p_reference_id: `COMM_DT_${transactionId}`,
+          p_tx_type: 'TDS_DEDUCTION',
+          p_credit: 0,
+          p_debit: rtTds,
+          p_reference_id: `TDS_${transactionId}`,
           p_transaction_id: transactionId,
           p_status: 'completed',
-          p_remarks: `AEPS DT commission: ₹${dtNet} (after TDS)`,
+          p_remarks: `TDS @${rtTdsPct}% on AEPS commission ₹${breakdown.rtAmount}`,
         });
+
+        if (rtTdsErr) {
+          console.error('[Commission] RT TDS_DEDUCTION failed:', rtTdsErr.message);
+        }
       }
     }
 
-    // Credit MD wallet (Primary wallet)
+    // Credit DT wallet (gross) + TDS deduction
+    if (dtUserId && breakdown.dtAmount > 0) {
+      const dtNet = Math.round((breakdown.dtAmount * (1 - rtTdsPct / 100)) * 100) / 100;
+      const dtTds = Math.round((breakdown.dtAmount - dtNet) * 100) / 100;
+
+      const { error: dtErr } = await supabase.rpc('add_ledger_entry', {
+        p_user_id: dtUserId,
+        p_user_role: 'distributor',
+        p_wallet_type: config.dt_wallet_type,
+        p_fund_category: 'commission',
+        p_service_type: 'aeps',
+        p_tx_type: 'COMMISSION_CREDIT',
+        p_credit: breakdown.dtAmount,
+        p_debit: 0,
+        p_reference_id: `COMM_DT_${transactionId}`,
+        p_transaction_id: transactionId,
+        p_status: 'completed',
+        p_remarks: `AEPS DT commission (gross): ₹${breakdown.dtAmount}`,
+      });
+
+      if (dtErr) {
+        console.error('[Commission] DT COMMISSION_CREDIT failed:', dtErr.message);
+      }
+
+      if (dtTds > 0) {
+        const { error: dtTdsErr } = await supabase.rpc('add_ledger_entry', {
+          p_user_id: dtUserId,
+          p_user_role: 'distributor',
+          p_wallet_type: config.dt_wallet_type,
+          p_fund_category: 'tds',
+          p_service_type: 'aeps',
+          p_tx_type: 'TDS_DEDUCTION',
+          p_credit: 0,
+          p_debit: dtTds,
+          p_reference_id: `TDS_DT_${transactionId}`,
+          p_transaction_id: transactionId,
+          p_status: 'completed',
+          p_remarks: `TDS @${rtTdsPct}% on AEPS DT commission ₹${breakdown.dtAmount}`,
+        });
+
+        if (dtTdsErr) {
+          console.error('[Commission] DT TDS_DEDUCTION failed:', dtTdsErr.message);
+        }
+      }
+    }
+
+    // Credit MD wallet (gross) + TDS deduction
     if (mdUserId && breakdown.mdAmount > 0) {
-      const mdNet = Math.round((breakdown.mdAmount * (1 - config.tds_pct / 100)) * 100) / 100;
-      if (mdNet > 0) {
-        await supabase.rpc('add_ledger_entry', {
+      const mdNet = Math.round((breakdown.mdAmount * (1 - rtTdsPct / 100)) * 100) / 100;
+      const mdTds = Math.round((breakdown.mdAmount - mdNet) * 100) / 100;
+
+      const { error: mdErr } = await supabase.rpc('add_ledger_entry', {
+        p_user_id: mdUserId,
+        p_user_role: 'master_distributor',
+        p_wallet_type: config.md_wallet_type,
+        p_fund_category: 'commission',
+        p_service_type: 'aeps',
+        p_tx_type: 'COMMISSION_CREDIT',
+        p_credit: breakdown.mdAmount,
+        p_debit: 0,
+        p_reference_id: `COMM_MD_${transactionId}`,
+        p_transaction_id: transactionId,
+        p_status: 'completed',
+        p_remarks: `AEPS MD commission (gross): ₹${breakdown.mdAmount}`,
+      });
+
+      if (mdErr) {
+        console.error('[Commission] MD COMMISSION_CREDIT failed:', mdErr.message);
+      }
+
+      if (mdTds > 0) {
+        const { error: mdTdsErr } = await supabase.rpc('add_ledger_entry', {
           p_user_id: mdUserId,
           p_user_role: 'master_distributor',
           p_wallet_type: config.md_wallet_type,
-          p_fund_category: 'commission',
+          p_fund_category: 'tds',
           p_service_type: 'aeps',
-          p_tx_type: 'COMMISSION_CREDIT',
-          p_credit: mdNet,
-          p_debit: 0,
-          p_reference_id: `COMM_MD_${transactionId}`,
+          p_tx_type: 'TDS_DEDUCTION',
+          p_credit: 0,
+          p_debit: mdTds,
+          p_reference_id: `TDS_MD_${transactionId}`,
           p_transaction_id: transactionId,
           p_status: 'completed',
-          p_remarks: `AEPS MD commission: ₹${mdNet} (after TDS)`,
+          p_remarks: `TDS @${rtTdsPct}% on AEPS MD commission ₹${breakdown.mdAmount}`,
         });
+
+        if (mdTdsErr) {
+          console.error('[Commission] MD TDS_DEDUCTION failed:', mdTdsErr.message);
+        }
       }
     }
 

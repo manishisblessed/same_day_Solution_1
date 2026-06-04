@@ -19,8 +19,10 @@ import {
   Eye,
   RotateCcw,
   Building2,
-  Trash2
+  Trash2,
+  Shield
 } from 'lucide-react'
+import AdminAEPSCommissionReport from './AdminAEPSCommissionReport'
 
 interface AEPSTransaction {
   id: string
@@ -72,7 +74,7 @@ interface AEPSStats {
   activeMerchants: number
 }
 
-type TabType = 'overview' | 'transactions' | 'merchants' | 'settlement-accounts' | 'reconciliation' | 'settings'
+type TabType = 'overview' | 'transactions' | 'merchants' | 'settlement-accounts' | 'commission-tds' | 'reconciliation' | 'settings'
 
 interface SettlementAccountEntry {
   id: string
@@ -436,6 +438,7 @@ export function AdminAEPSManagement() {
             { id: 'transactions', label: 'Transactions', icon: DollarSign },
             { id: 'merchants', label: 'Merchants', icon: Building2 },
             { id: 'settlement-accounts', label: 'Settlement Accounts', icon: CheckCircle },
+            { id: 'commission-tds', label: 'Commission & TDS', icon: Shield },
             { id: 'reconciliation', label: 'Reconciliation', icon: RotateCcw },
             { id: 'settings', label: 'Settings', icon: Filter },
           ].map(tab => (
@@ -989,6 +992,11 @@ export function AdminAEPSManagement() {
                 </div>
               )}
             </div>
+          )}
+
+          {/* Commission & TDS Tab */}
+          {activeTab === 'commission-tds' && (
+            <AdminAEPSCommissionReport />
           )}
 
           {/* Settings Tab */}
