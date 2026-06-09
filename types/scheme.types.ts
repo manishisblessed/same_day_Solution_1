@@ -9,7 +9,7 @@
 
 export type SchemeType = 'global' | 'golden' | 'custom';
 export type SchemeStatus = 'active' | 'inactive' | 'draft';
-export type ServiceScope = 'all' | 'bbps' | 'payout' | 'mdr' | 'settlement' | 'aeps' | 'aeps_settlement';
+export type ServiceScope = 'all' | 'bbps' | 'payout' | 'mdr' | 'settlement' | 'aeps' | 'aeps_settlement' | 'shadval_settlement';
 export type AEPSTransactionType = 'cash_withdrawal' | 'cash_deposit' | 'balance_inquiry' | 'mini_statement' | 'aadhaar_to_aadhaar';
 export type ChargeType = 'flat' | 'percentage';
 export type TransferMode = 'IMPS' | 'NEFT' | 'RTGS';
@@ -44,6 +44,7 @@ export interface Scheme {
   mdr_rates?: SchemeMDRRate[];
   aeps_commissions?: SchemeAEPSCommission[];
   aeps_settlement_charges?: SchemeAEPSSettlementCharge[];
+  shadval_settlement_charges?: SchemeShadvalSettlementCharge[];
   mappings?: SchemeMapping[];
   mapping_count?: number;
 }
@@ -201,6 +202,34 @@ export interface SchemeAEPSSettlementCharge {
 }
 
 // ============================================================================
+// SHADVAL SETTLEMENT CHARGE
+// ============================================================================
+
+export interface SchemeShadvalSettlementCharge {
+  id: string;
+  scheme_id: string;
+  transfer_mode: TransferMode;
+  min_amount: number;
+  max_amount: number;
+
+  retailer_charge: number;
+  retailer_charge_type: ChargeType;
+
+  distributor_commission: number;
+  distributor_commission_type: ChargeType;
+
+  md_commission: number;
+  md_commission_type: ChargeType;
+
+  company_charge: number;
+  company_charge_type: ChargeType;
+
+  status: string;
+  created_at: string;
+  updated_at: string;
+}
+
+// ============================================================================
 // SCHEME MAPPING
 // ============================================================================
 
@@ -327,6 +356,21 @@ export interface CreateSchemeMappingInput {
 
 export interface CreateAEPSSettlementChargeInput {
   scheme_id: string;
+  min_amount?: number;
+  max_amount?: number;
+  retailer_charge: number;
+  retailer_charge_type: ChargeType;
+  distributor_commission?: number;
+  distributor_commission_type?: ChargeType;
+  md_commission?: number;
+  md_commission_type?: ChargeType;
+  company_charge?: number;
+  company_charge_type?: ChargeType;
+}
+
+export interface CreateShadvalSettlementChargeInput {
+  scheme_id: string;
+  transfer_mode: TransferMode;
   min_amount?: number;
   max_amount?: number;
   retailer_charge: number;

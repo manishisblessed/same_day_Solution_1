@@ -22,8 +22,10 @@ import type {
   CreateSchemeMappingInput,
   CreateAEPSCommissionInput,
   CreateAEPSSettlementChargeInput,
+  CreateShadvalSettlementChargeInput,
   SchemeAEPSCommission,
   SchemeAEPSSettlementCharge,
+  SchemeShadvalSettlementCharge,
   ServiceScope,
 } from '@/types/scheme.types';
 
@@ -632,6 +634,90 @@ export async function calculateAEPSSettlementCharge(
 
   if (chargeErr || !chargeData || chargeData.length === 0) {
     console.error('[SchemeService] AEPS settlement charge calculation failed:', chargeErr);
+    return null;
+  }
+
+  const chargeRow = chargeData[0];
+  return {
+    retailer_charge: parseFloat(chargeRow.retailer_charge) || 0,
+    retailer_commission: 0,
+    distributor_commission: parseFloat(chargeRow.distributor_commission) || 0,
+    md_commission: parseFloat(chargeRow.md_commission) || 0,
+    company_earning: parseFloat(chargeRow.company_charge) || 0,
+    scheme_id: resolved.scheme_id,
+    scheme_name: resolved.scheme_name,
+    scheme_type: resolved.scheme_type,
+    resolved_via: resolved.resolved_via,
+  };
+}
+
+// ============================================================================
+// SHADVAL SETTLEMENT CHARGE CRUD
+// ============================================================================
+
+export async function getShadvalSettlementCharges(schemeId: string): Promise<SchemeShadvalSettlementCharge[]> {
+  const supabase = getSupabase();
+  const { data } = await supabase
+    .from('scheme_shadval_settlement_charges')
+    .select('*')
+    .eq('scheme_id', schemeId)
+    .order('transfer_mode')
+    .order('min_amount');
+  return data || [];
+}
+
+export async function upsertShadvalSettlementCharge(
+  input: CreateShadvalSettlementChargeInput
+): Promise<{ data: SchemeShadvalSettlementCharge | null; error: string | null }> {
+  const supabase = getSupabase();
+  const { data, error } = await supabase
+    .from('scheme_shadval_settlement_charges')
+    .upsert({
+      scheme_id: input.scheme_id,
+      transfer_mode: input.transfer_mode,
+      min_amount: input.min_amount ?? 0,
+      max_amount: input.max_amount ?? 999999999,
+      retailer_charge: input.retailer_charge,
+      retailer_charge_type: input.retailer_charge_type,
+      distributor_commission: input.distributor_commission || 0,
+      distributor_commission_type: input.distributor_commission_type || 'flat',
+      md_commission: input.md_commission || 0,
+      md_commission_type: input.md_commission_type || 'flat',
+      company_charge: input.company_charge || 0,
+      company_charge_type: input.company_charge_type || 'flat',
+      status: 'active',
+    }, { onConflict: 'scheme_id,transfer_mode,min_amount,max_amount' })
+    .select()
+    .single();
+  return { data: data || null, error: error?.message || null };
+}
+
+export async function deleteShadvalSettlementCharge(id: string): Promise<{ success: boolean }> {
+  const supabase = getSupabase();
+  const { error } = await supabase.from('scheme_shadval_settlement_charges').delete().eq('id', id);
+  return { success: !error };
+}
+
+export async function calculateShadvalSettlementCharge(
+  userId: string,
+  userRole: string,
+  amount: number,
+  transferMode: string = 'IMPS',
+  distributorId?: string,
+  mdId?: string
+): Promise<ChargeBreakdown | null> {
+  const resolved = await resolveSchemeForUser(userId, userRole, 'shadval_settlement', distributorId, mdId);
+  if (!resolved) return null;
+
+  const supabase = getSupabase();
+  const { data: chargeData, error: chargeErr } = await supabase.rpc('calculate_shadval_settlement_charge_from_scheme', {
+    p_scheme_id: resolved.scheme_id,
+    p_amount: amount,
+    p_transfer_mode: transferMode,
+  });
+
+  if (chargeErr || !chargeData || chargeData.length === 0) {
+    console.error('[SchemeService] Shadval settlement charge calculation failed:', chargeErr);
     return null;
   }
 

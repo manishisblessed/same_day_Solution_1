@@ -6,7 +6,7 @@ import Link from 'next/link'
 import { 
   LayoutDashboard, ShoppingCart, Activity, 
   Settings, TrendingUp, CreditCard, X, Menu,
-  Wallet, Receipt, Banknote, Percent, BookOpen, Repeat, Fingerprint
+  Wallet, Receipt, Banknote, Percent, BookOpen, Repeat, Fingerprint, Send
 } from 'lucide-react'
 import { apiFetch } from '@/lib/api-client'
 import { useAuth } from '@/contexts/AuthContext'
@@ -27,6 +27,7 @@ const sidebarItems: SidebarItem[] = [
   { id: 'aeps', label: 'AEPS', icon: Fingerprint, href: '/dashboard/retailer?tab=aeps' },
   { id: 'bbps', label: 'BBPS Payments', icon: Receipt, href: '/dashboard/retailer?tab=bbps' },
   { id: 'payout', label: 'Settlement', icon: Banknote, href: '/dashboard/retailer?tab=payout' },
+  { id: 'shadval-pay', label: 'Settlement-2', icon: Send, href: '/dashboard/retailer?tab=shadval-pay' },
   { id: 'transactions', label: 'Transactions', icon: CreditCard, href: '/dashboard/retailer?tab=transactions' },
   { id: 'ledger', label: 'Ledger', icon: BookOpen, href: '/dashboard/retailer?tab=ledger' },
   { id: 'aeps-ledger', label: 'AEPS Ledger', icon: BookOpen, href: '/dashboard/retailer?tab=aeps-ledger' },
@@ -44,6 +45,7 @@ const SERVICE_TAB_MAP: Record<string, string[]> = {
   'aeps-ledger':  ['aeps'],
   bbps:           ['bbps'],
   payout:         ['banking_payments', 'dmt'],
+  'shadval-pay':  ['banking_payments', 'dmt'],
   transactions:   ['mini_atm_pos'],
   'pos-machines': ['mini_atm_pos'],
   'subscriptions': ['mini_atm_pos'],

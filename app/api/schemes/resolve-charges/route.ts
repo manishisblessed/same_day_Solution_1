@@ -791,6 +791,91 @@ export async function GET(request: NextRequest) {
       })
     }
 
+    if (serviceType === 'shadval_settlement') {
+      if (!transferMode) {
+        return NextResponse.json({ error: 'transfer_mode is required for shadval_settlement' }, { status: 400 })
+      }
+
+      let charges: any = null
+
+      try {
+        const { data: chargeResult, error: chargeError } = await supabase.rpc('calculate_shadval_settlement_charge_from_scheme', {
+          p_scheme_id: resolved.scheme_id,
+          p_amount: amount,
+          p_transfer_mode: transferMode,
+        })
+
+        if (chargeError) {
+          console.error(`[resolve-charges] Shadval settlement charge RPC error:`, chargeError.message)
+        } else if (chargeResult && chargeResult.length > 0) {
+          charges = {
+            retailer_charge: parseFloat(chargeResult[0].retailer_charge) || 0,
+            distributor_commission: parseFloat(chargeResult[0].distributor_commission) || 0,
+            md_commission: parseFloat(chargeResult[0].md_commission) || 0,
+            company_charge: parseFloat(chargeResult[0].company_charge) || 0,
+          }
+        }
+      } catch (err: any) {
+        console.error(`[resolve-charges] Shadval settlement charge exception:`, err.message)
+      }
+
+      // Fallback: direct query
+      if (!charges && clientMode === 'admin') {
+        try {
+          const { data: slabs } = await supabase
+            .from('scheme_shadval_settlement_charges')
+            .select('*')
+            .eq('scheme_id', resolved.scheme_id)
+            .eq('status', 'active')
+            .eq('transfer_mode', transferMode)
+            .lte('min_amount', amount)
+            .gte('max_amount', amount)
+            .order('min_amount', { ascending: false })
+            .limit(1)
+
+          if (slabs && slabs.length > 0) {
+            const s = slabs[0]
+            const calc = (v: number, t: string) => t === 'percentage' ? Math.round(amount * v / 100 * 100) / 100 : v
+            charges = {
+              retailer_charge: calc(parseFloat(s.retailer_charge) || 0, s.retailer_charge_type),
+              distributor_commission: calc(parseFloat(s.distributor_commission) || 0, s.distributor_commission_type),
+              md_commission: calc(parseFloat(s.md_commission) || 0, s.md_commission_type),
+              company_charge: calc(parseFloat(s.company_charge) || 0, s.company_charge_type),
+            }
+          }
+        } catch (e: any) {
+          console.error(`[resolve-charges] Shadval settlement direct query error:`, e.message)
+        }
+      }
+
+      let allSlabs: any[] = []
+      if (clientMode === 'admin') {
+        try {
+          const { data: slabData } = await supabase
+            .from('scheme_shadval_settlement_charges')
+            .select('*')
+            .eq('scheme_id', resolved.scheme_id)
+            .eq('status', 'active')
+            .order('transfer_mode')
+            .order('min_amount')
+          allSlabs = slabData || []
+        } catch (e: any) {}
+      }
+
+      return NextResponse.json({
+        resolved: true,
+        scheme: {
+          id: resolved.scheme_id,
+          name: resolved.scheme_name,
+          type: resolved.scheme_type,
+          resolved_via: resolved.resolved_via,
+        },
+        charges,
+        slabs: allSlabs,
+        _debug: { resolution_method: resolutionMethod, client_mode: clientMode },
+      })
+    }
+
     return NextResponse.json({ error: 'Invalid service_type' }, { status: 400 })
 
   } catch (err: any) {

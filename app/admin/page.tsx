@@ -1759,6 +1759,16 @@ function AdminDashboardOverview({
   } | null>(null)
   const [sparkupLoading, setSparkupLoading] = useState(false)
 
+  // SHADVAL PAY Balance State
+  const [shadvalBalance, setShadvalBalance] = useState<{
+    success: boolean
+    balance: number
+    available_balance: number
+    error?: string
+    last_checked: string
+  } | null>(null)
+  const [shadvalLoading, setShadvalLoading] = useState(false)
+
   // Helper to get auth token for API calls
   const getAuthToken = async (): Promise<string | null> => {
     const { data: { session } } = await supabase.auth.getSession()
@@ -1825,6 +1835,47 @@ function AdminDashboardOverview({
     }
   }
 
+  // Fetch SHADVAL PAY Balance
+  const fetchShadvalBalance = async () => {
+    setShadvalLoading(true)
+    const checkedAt = new Date().toISOString()
+    try {
+      const response = await apiFetch('/api/admin/shadval-pay-balance', { timeout: 20000 })
+      let data: any = {}
+      try { data = await response.json() } catch { data = {} }
+
+      if (response.ok && data.success) {
+        setShadvalBalance({
+          success: true,
+          balance: data.balance || 0,
+          available_balance: data.available_balance || 0,
+          last_checked: data.last_checked || checkedAt,
+        })
+      } else {
+        setShadvalBalance({
+          success: false,
+          balance: 0,
+          available_balance: 0,
+          error: data.error || data.message || `HTTP ${response.status}`,
+          last_checked: checkedAt,
+        })
+      }
+    } catch (error: any) {
+      console.error('Error fetching SHADVAL PAY balance:', error)
+      setShadvalBalance({
+        success: false,
+        balance: 0,
+        available_balance: 0,
+        error: error?.message?.includes('timeout')
+          ? 'Request timed out — SHADVAL PAY server may be slow or unreachable.'
+          : error?.message || 'Failed to fetch — server may be unreachable.',
+        last_checked: checkedAt,
+      })
+    } finally {
+      setShadvalLoading(false)
+    }
+  }
+
   useEffect(() => {
     fetchAnalytics()
   }, [selectedPeriod])
@@ -1832,6 +1883,7 @@ function AdminDashboardOverview({
   // Fetch Sparkup balance on mount
   useEffect(() => {
     fetchSparkupBalance()
+    fetchShadvalBalance()
   }, [])
 
   const fetchAnalytics = async () => {
@@ -2313,6 +2365,108 @@ function AdminDashboardOverview({
                 <button
                   onClick={fetchSparkupBalance}
                   className="mt-2 px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white rounded-lg text-sm font-medium transition-all"
+                >
+                  Try Again
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </motion.div>
+
+      {/* SHADVAL PAY Balance Card */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.4 }}
+        className="bg-gradient-to-br from-violet-950 via-purple-900 to-violet-950 rounded-2xl p-6 shadow-xl border border-violet-700"
+      >
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center gap-3">
+            <div className="p-3 bg-gradient-to-br from-violet-500 to-purple-600 rounded-xl shadow-lg">
+              <Banknote className="w-6 h-6 text-white" />
+            </div>
+            <div>
+              <h3 className="text-lg font-bold text-white">SHADVAL PAY Balance</h3>
+              <p className="text-sm text-violet-300/70">Payout Service Provider Wallet</p>
+            </div>
+          </div>
+          <button
+            onClick={fetchShadvalBalance}
+            disabled={shadvalLoading}
+            className="flex items-center gap-2 px-4 py-2 bg-violet-800 hover:bg-violet-700 text-white rounded-lg text-sm font-medium transition-all disabled:opacity-50"
+          >
+            <RefreshCw className={`w-4 h-4 ${shadvalLoading ? 'animate-spin' : ''}`} />
+            {shadvalLoading ? 'Refreshing...' : 'Refresh'}
+          </button>
+        </div>
+
+        {shadvalBalance ? (
+          <div className="space-y-4">
+            <div className={`rounded-xl p-5 border ${
+              shadvalBalance.success
+                ? 'bg-gradient-to-r from-violet-600/20 to-purple-600/20 border-violet-500/30'
+                : 'bg-red-900/20 border-red-500/30'
+            }`}>
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-violet-600 rounded-lg">
+                    <Wallet className="w-5 h-5 text-white" />
+                  </div>
+                  <div>
+                    <p className="font-semibold text-white">SHADVAL PAY Wallet</p>
+                    <p className="text-xs text-violet-300/60">Payout, IMPS/NEFT/RTGS Services</p>
+                  </div>
+                </div>
+                {shadvalBalance.success ? (
+                  <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-green-500/20 text-green-400">
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span className="text-sm font-medium">Active</span>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-red-500/20 text-red-400">
+                    <XCircle className="w-4 h-4" />
+                    <span className="text-sm font-medium">Error</span>
+                  </div>
+                )}
+              </div>
+
+              {shadvalBalance.success ? (
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="text-center p-3 bg-violet-900/40 rounded-lg">
+                    <p className="text-xs text-violet-300/60 mb-1">Total Balance</p>
+                    <p className="text-xl font-bold text-white">₹{shadvalBalance.balance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</p>
+                  </div>
+                  <div className="text-center p-3 bg-green-900/30 rounded-lg border border-green-500/30">
+                    <p className="text-xs text-green-300 mb-1">Available Balance</p>
+                    <p className="text-xl font-bold text-green-400">₹{shadvalBalance.available_balance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</p>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-sm text-red-400">{shadvalBalance.error || 'Failed to fetch balance'}</p>
+              )}
+
+              {shadvalBalance.last_checked && (
+                <p className="text-xs text-violet-300/50 mt-4 text-right">
+                  Last updated: {new Date(shadvalBalance.last_checked).toLocaleString('en-IN')}
+                </p>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div className="text-center py-8">
+            {shadvalLoading ? (
+              <div className="flex flex-col items-center gap-3">
+                <RefreshCw className="w-8 h-8 text-violet-400 animate-spin" />
+                <p className="text-violet-300/70">Fetching SHADVAL PAY balance...</p>
+              </div>
+            ) : (
+              <div className="flex flex-col items-center gap-3">
+                <AlertTriangle className="w-8 h-8 text-amber-400" />
+                <p className="text-violet-300/70">Unable to fetch SHADVAL PAY balance</p>
+                <button
+                  onClick={fetchShadvalBalance}
+                  className="mt-2 px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white rounded-lg text-sm font-medium transition-all"
                 >
                   Try Again
                 </button>
