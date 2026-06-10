@@ -195,6 +195,8 @@ export async function POST(request: NextRequest) {
           company_earning: chargeBreakdown.company_earning,
           scheme_name: chargeBreakdown.scheme_name,
           resolved_via: chargeBreakdown.resolved_via,
+          distributor_id: distributorId || null,
+          md_id: mdId || null,
         } : null,
       })
       .select()
@@ -303,8 +305,9 @@ export async function POST(request: NextRequest) {
         }).eq('id', ledgerId);
       }
 
-      // Distribute charge margins to DT/MD/Company wallets
-      if (chargeBreakdown && charge > 0) {
+      // Only distribute margins when payout is confirmed success.
+      // For processing status, check-pending cron will credit margins once SparkUp confirms success.
+      if (payoutStatus === 'success' && chargeBreakdown && charge > 0) {
         if (distributorId && chargeBreakdown.distributor_commission > 0) {
           await supabase.rpc('add_ledger_entry', {
             p_user_id: distributorId,
@@ -337,7 +340,6 @@ export async function POST(request: NextRequest) {
             p_remarks: `AEPS settlement MD margin: ₹${chargeBreakdown.md_commission}`,
           });
         }
-        // Credit company revenue wallet (charge minus all commissions distributed)
         const companyEarning = charge - (chargeBreakdown.distributor_commission || 0) - (chargeBreakdown.md_commission || 0);
         if (companyEarning > 0) {
           const revenueUserId = process.env.SUBSCRIPTION_REVENUE_USER_ID;
@@ -357,10 +359,8 @@ export async function POST(request: NextRequest) {
               p_status: 'completed',
               p_remarks: `Company revenue from AEPS settlement charge ₹${charge} on ₹${amountDecimal} (${user.partner_id})`,
             });
-            if (companyErr) console.error(`[AEPS Settlement] ❌ Company revenue credit error:`, companyErr);
-            else console.log(`[AEPS Settlement] ✅ Company revenue credited: ₹${companyEarning}`);
-          } else {
-            console.warn(`[AEPS Settlement] ⚠️ SUBSCRIPTION_REVENUE_USER_ID not set — company revenue ₹${companyEarning} not credited`);
+            if (companyErr) console.error(`[AEPS Settlement] Company revenue credit error:`, companyErr);
+            else console.log(`[AEPS Settlement] Company revenue credited: ₹${companyEarning}`);
           }
         }
       }

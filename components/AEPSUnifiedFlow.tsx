@@ -1364,34 +1364,6 @@ const TransactionPanel = ({
               </div>
             </div>
 
-            {/* Commission & TDS */}
-            {isSuccess && r.transaction.commission != null && r.transaction.commission > 0 && (
-              <div className="mb-5">
-                <div className="flex items-center gap-2 mb-3">
-                  <div className="w-1 h-4 bg-green-500 rounded-full"></div>
-                  <h3 className="text-xs font-bold text-green-800 uppercase tracking-wider">Commission Details</h3>
-                </div>
-                <div className="space-y-2 text-sm pl-3 border-l-2 border-green-100">
-                  {r.transaction.commissionGross != null && r.transaction.commissionGross > 0 && (
-                    <div className="flex justify-between">
-                      <span className="text-gray-500">Gross Commission</span>
-                      <span className="font-medium text-gray-800">₹{Number(r.transaction.commissionGross).toFixed(2)}</span>
-                    </div>
-                  )}
-                  {r.transaction.tdsPercentage != null && r.transaction.tdsPercentage > 0 && (
-                    <div className="flex justify-between">
-                      <span className="text-gray-500">TDS ({r.transaction.tdsPercentage}%)</span>
-                      <span className="font-medium text-red-600">-₹{Number(r.transaction.tdsAmount || 0).toFixed(2)}</span>
-                    </div>
-                  )}
-                  <div className="flex justify-between items-center bg-green-50 -ml-3 pl-3 pr-2 py-2 rounded-r-lg">
-                    <span className="text-green-700 font-medium">Net Commission (Credited)</span>
-                    <span className="font-bold text-green-600">+₹{Number(r.transaction.commission).toFixed(2)}</span>
-                  </div>
-                </div>
-              </div>
-            )}
-
             {/* Mini Statement */}
             {showMiniStmt && r.miniStatement && (
               <div className="mb-5">

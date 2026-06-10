@@ -1,0 +1,197 @@
+===============================================================================
+  SHADVAL PAY PRIVATE LIMITED - UAT API TEST LOGS
+  Date: 2026-06-09 13:11:06 UTC
+  Server IP: 15.207.31.125 (Whitelisted)
+  Environment: UAT
+  Base URL: https://partners.shadvalpay.co.in/api
+===============================================================================
+
+
+========================================================================
+  TEST 1: BALANCE CHECK API
+========================================================================
+
+>> Request:
+   Method:  POST
+   URL:     https://partners.shadvalpay.co.in/api/uat_wallet_balance/get_balance
+   Headers: Content-Type: application/json
+            Authorization: *****(masked)
+   Body:    {}
+
+>> Response:
+{"status":"SUCCESS","code":"SP100","message":"Payout Wallet Balance Fetched Successfully.","data":{"balance":99956.00}}
+
+
+========================================================================
+  TEST 2a: BANK TRANSFER API - SUCCESSFUL TRANSACTION
+  Account: 9632587410 (SUCCESS account)
+========================================================================
+
+>> Request:
+   Method:  POST
+   URL:     https://partners.shadvalpay.co.in/api/uat_payout_i/initiate_bank_transfer
+   Headers: Content-Type: application/json
+            Authorization: *****(masked)
+            Signature: 78940d0a2b2f2eeb87bfd55c6d21429c4d4e9db70925cff276e18f59d17600da
+   Body:
+   {
+     "amount": 1,
+     "mode": "IMPS",
+     "fund_account": {
+       "name": "Test User Success",
+       "ifsc": "SBIN0001234",
+       "account_number": "9632587410"
+     },
+     "contact_details": {
+       "name": "Test User",
+       "email": "test@samedaysolution.in",
+       "mobile": "9999999999"
+     },
+     "reference_id": "SDS_UAT_SUCCESS_1781010667",
+     "latitude": "28.6139",
+     "longitude": "77.2090",
+     "narration": "UAT Success Test"
+   }
+
+>> Response:
+{"status":"SUCCESS","code":"SP100","message":"Bank Transfer Successful.","data":{"reference_id":"SDS_UAT_SUCCESS_1781010667","order_id":"UAT090626184106AIFID","trans_amount":1.0,"utr":"1234567890","mode":"IMPS","internal_ref_id":"IN12365542124","wallet":{"trans_amount":1.0,"charges":10.00,"total_value":11.00,"trans_mode":"DR"},"fund_account":{"name":"TEST USER SUCCESS","ifsc":"SBIN0001234","account_number":"9632587410"},"timestamp":"2026-06-09 18:41:06"}}
+
+
+========================================================================
+  TEST 2b: BANK TRANSFER API - FAILED TRANSACTION
+  Account: 1234569870 (FAILED account)
+========================================================================
+
+>> Request:
+   Method:  POST
+   URL:     https://partners.shadvalpay.co.in/api/uat_payout_i/initiate_bank_transfer
+   Headers: Content-Type: application/json
+            Authorization: *****(masked)
+            Signature: e29ee0b73eae025f56a45ed9820289c7137c5fa952ff7d4a35f634cd7becb7f0
+   Body:
+   {
+     "amount": 1,
+     "mode": "IMPS",
+     "fund_account": {
+       "name": "Test User Failed",
+       "ifsc": "SBIN0001234",
+       "account_number": "1234569870"
+     },
+     "contact_details": {
+       "name": "Test User",
+       "email": "test@samedaysolution.in",
+       "mobile": "9999999999"
+     },
+     "reference_id": "SDS_UAT_FAILED_1781010668",
+     "latitude": "28.6139",
+     "longitude": "77.2090",
+     "narration": "UAT Failed Test"
+   }
+
+>> Response:
+{"status":"FAILED","code":"SP105","message":"Transaction failed, Invalid Account Details.","data":{"reference_id":"SDS_UAT_FAILED_1781010668","order_id":"UAT090626184107FIWLN","trans_amount":1.0,"utr":"","mode":"IMPS","internal_ref_id":"IN12365542124","wallet":{"trans_amount":1.0,"charges":10.00,"total_value":11.00,"trans_mode":"DR"},"fund_account":{"name":"TEST USER FAILED","ifsc":"SBIN0001234","account_number":"1234569870"},"timestamp":"2026-06-09 18:41:07"}}
+
+
+========================================================================
+  TEST 2c: BANK TRANSFER API - PENDING TRANSACTION
+  Account: 5555555555 (OTHER account - Pending)
+========================================================================
+
+>> Request:
+   Method:  POST
+   URL:     https://partners.shadvalpay.co.in/api/uat_payout_i/initiate_bank_transfer
+   Headers: Content-Type: application/json
+            Authorization: *****(masked)
+            Signature: ee16b4b3b5de1e02d0f6546caa81a5ea74fd895bc3035aef61515ba640154ae5
+   Body:
+   {
+     "amount": 1,
+     "mode": "IMPS",
+     "fund_account": {
+       "name": "Test User Pending",
+       "ifsc": "SBIN0001234",
+       "account_number": "5555555555"
+     },
+     "contact_details": {
+       "name": "Test User",
+       "email": "test@samedaysolution.in",
+       "mobile": "9999999999"
+     },
+     "reference_id": "SDS_UAT_PENDING_1781010669",
+     "latitude": "28.6139",
+     "longitude": "77.2090",
+     "narration": "UAT Pending Test"
+   }
+
+>> Response:
+{"status":"PENDING","code":"SP100","message":"Transaction Under Process","data":{"reference_id":"SDS_UAT_PENDING_1781010669","order_id":"UAT090626184108XFJTL","trans_amount":1.0,"utr":"","mode":"IMPS","internal_ref_id":"IN12365542124","wallet":{"trans_amount":1.0,"charges":10.00,"total_value":11.00,"trans_mode":"DR"},"fund_account":{"name":"TEST USER PENDING","ifsc":"SBIN0001234","account_number":"5555555555"},"timestamp":"2026-06-09 18:41:08"}}
+
+
+========================================================================
+  TEST 3a: STATUS CHECK API - SUCCESSFUL TRANSACTION STATUS
+  Reference ID: SDS_UAT_SUCCESS_1781010667
+========================================================================
+
+>> Request:
+   Method:  POST
+   URL:     https://partners.shadvalpay.co.in/api/uat_payout_i/check_status
+   Headers: Content-Type: application/json
+            Authorization: *****(masked)
+   Body:    {"reference_id": "SDS_UAT_SUCCESS_1781010667"}
+
+>> Response:
+{"status":"SUCCESS","code":"SP100","message":"Status Checked Successfully.","data":{"txn_datetime":"2026-06-09 18:41:07","txn_status":"SUCCESS","status_message":"Bank Transfer Successful.","reference_id":"SDS_UAT_SUCCESS_1781010667","order_id":"SDS_UAT_SUCCESS_1781010667","trans_amount":1.00,"utr":"1234567890","mode":null,"internal_ref_id":"IP123456789","wallet":{"transaction":{"trans_amount":1.00,"charges":10.00,"total_value":11.00,"trans_mode":"DR","debit_datetime":"2026-06-09 18:41:10"}},"fund_account":{"name":"TEST USER SUCCESS","ifsc":"SBIN0001234","account_number":"9632587410"},"timestamp":"2026-06-09 18:41:10"}}
+
+
+========================================================================
+  TEST 3b: STATUS CHECK API - FAILED TRANSACTION STATUS
+  Reference ID: SDS_UAT_FAILED_1781010668
+========================================================================
+
+>> Request:
+   Method:  POST
+   URL:     https://partners.shadvalpay.co.in/api/uat_payout_i/check_status
+   Headers: Content-Type: application/json
+            Authorization: *****(masked)
+   Body:    {"reference_id": "SDS_UAT_FAILED_1781010668"}
+
+>> Response:
+{"status":"SUCCESS","code":"SP100","message":"Status Checked Successfully.","data":{"txn_datetime":"2026-06-09 18:41:08","txn_status":"FAILED","status_message":"Transaction failed, Invalid Account Details.","reference_id":"SDS_UAT_FAILED_1781010668","order_id":"SDS_UAT_FAILED_1781010668","trans_amount":1.00,"utr":"1234567890","mode":null,"internal_ref_id":"IP123456789","wallet":{"transaction":{"trans_amount":1.00,"charges":10.00,"total_value":11.00,"trans_mode":"DR","debit_datetime":"2026-06-09 18:41:08"},"reversal":{"trans_amount":1.00,"charges":10.00,"total_value":11.00,"trans_mode":"CR","reversal_datetime":"2026-06-09 18:41:11"}},"fund_account":{"name":"TEST USER FAILED","ifsc":"SBIN0001234","account_number":"1234569870"},"timestamp":"2026-06-09 18:41:11"}}
+
+
+========================================================================
+  TEST 3c: STATUS CHECK API - PENDING TRANSACTION STATUS
+  Reference ID: SDS_UAT_PENDING_1781010669
+========================================================================
+
+>> Request:
+   Method:  POST
+   URL:     https://partners.shadvalpay.co.in/api/uat_payout_i/check_status
+   Headers: Content-Type: application/json
+            Authorization: *****(masked)
+   Body:    {"reference_id": "SDS_UAT_PENDING_1781010669"}
+
+>> Response:
+{"status":"SUCCESS","code":"SP100","message":"Status Checked Successfully.","data":{"txn_datetime":"2026-06-09 18:41:09","txn_status":"PENDING","reference_id":"SDS_UAT_PENDING_1781010669","status_message":"Bank Transfer Pending, Check after sometime.","order_id":"SDS_UAT_PENDING_1781010669","trans_amount":1.00,"utr":"","mode":null,"internal_ref_id":"IP123456789","wallet":{"transaction":{"trans_amount":1.00,"charges":10.00,"total_value":11.00,"trans_mode":"DR","debit_datetime":"2026-06-09 18:41:09"}},"fund_account":{"name":"TEST USER PENDING","ifsc":"SBIN0001234","account_number":"5555555555"},"timestamp":"2026-06-09 18:41:12"}}
+
+
+===============================================================================
+  UAT TEST SUMMARY
+===============================================================================
+  Test 1   : Balance Check API              - EXECUTED
+  Test 2a  : Bank Transfer (SUCCESS acct)   - EXECUTED
+  Test 2b  : Bank Transfer (FAILED acct)    - EXECUTED
+  Test 2c  : Bank Transfer (PENDING acct)   - EXECUTED
+  Test 3a  : Status Check (Success TxnID)   - EXECUTED
+  Test 3b  : Status Check (Failed TxnID)    - EXECUTED
+  Test 3c  : Status Check (Pending TxnID)   - EXECUTED
+
+  Reference IDs Used:
+    SUCCESS : SDS_UAT_SUCCESS_1781010667
+    FAILED  : SDS_UAT_FAILED_1781010668
+    PENDING : SDS_UAT_PENDING_1781010669
+
+  Server IP   : 15.207.31.125
+  Timestamp   : 2026-06-09 13:11:06 UTC
+  Environment : UAT
+===============================================================================
