@@ -3,6 +3,7 @@ export async function register() {
     const { initT1SettlementCron } = await import('@/lib/cron/t1-settlement-cron')
     const { initPartnerT1SettlementCron } = await import('@/lib/cron/t1-settlement-cron-partners')
     const { initSubscriptionAutoDebitCron } = await import('@/lib/cron/subscription-auto-debit-cron')
+    const { initAEPSSettlementCheckCron } = await import('@/lib/cron/aeps-settlement-check-cron')
 
     try {
       await initT1SettlementCron()
@@ -23,6 +24,13 @@ export async function register() {
       console.log('[Instrumentation] Subscription Auto-Debit Cron initialized successfully')
     } catch (err) {
       console.error('[Instrumentation] Failed to initialize Subscription cron:', err)
+    }
+
+    try {
+      await initAEPSSettlementCheckCron()
+      console.log('[Instrumentation] AEPS Settlement Check Cron initialized successfully')
+    } catch (err) {
+      console.error('[Instrumentation] Failed to initialize AEPS Settlement Check cron:', err)
     }
   }
 }

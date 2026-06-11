@@ -23,8 +23,8 @@ const supabaseAdmin = createClient(
   { auth: { persistSession: false } }
 )
 
-const STALE_MINUTES = 5
-const AUTO_REFUND_HOURS = 48
+const STALE_MINUTES = 2
+const NO_REF_REFUND_MINUTES = 5
 
 export async function OPTIONS(request: NextRequest) {
   const response = handleCorsPreflight(request)
@@ -228,7 +228,7 @@ export async function POST(request: NextRequest) {
     const { user_id, settlement_ids } = body
 
     const staleThreshold = new Date(Date.now() - STALE_MINUTES * 60 * 1000).toISOString()
-    const refundThreshold = new Date(Date.now() - AUTO_REFUND_HOURS * 60 * 60 * 1000).toISOString()
+    const noRefRefundThreshold = new Date(Date.now() - NO_REF_REFUND_MINUTES * 60 * 1000).toISOString()
 
     let query = supabaseAdmin
       .from('aeps_settlements')
@@ -374,17 +374,18 @@ export async function POST(request: NextRequest) {
         continue
       }
 
-      // Case 2: No payout reference — timed out during initiation
+      // Case 2: No payout reference — SparkUp never acknowledged the transfer
+      // Money never left SparkUp wallet. Refund after NO_REF_REFUND_MINUTES.
       const txAge = Date.now() - new Date(tx.created_at).getTime()
-      const txAgeHours = txAge / (1000 * 60 * 60)
+      const txAgeMinutes = txAge / (1000 * 60)
 
-      if (tx.created_at < refundThreshold) {
+      if (tx.created_at < noRefRefundThreshold) {
         try {
           await supabaseAdmin
             .from('aeps_settlements')
             .update({
               status: 'failed',
-              failure_reason: `Auto-refunded: No provider response after ${Math.round(txAgeHours)} hours`,
+              failure_reason: `No payout reference after ${Math.round(txAgeMinutes)} min - SparkUp never processed`,
               completed_at: new Date().toISOString(),
               updated_at: new Date().toISOString(),
             })
@@ -399,7 +400,7 @@ export async function POST(request: NextRequest) {
 
           const refResult = await refundAEPSWallet(
             tx.id, tx.user_id, userRole, totalDebit,
-            `No provider response after ${Math.round(txAgeHours)}h`
+            `No payout reference after ${Math.round(txAgeMinutes)} min - SparkUp never processed`
           )
 
           await reverseMargins(tx.id)
@@ -411,7 +412,7 @@ export async function POST(request: NextRequest) {
             amount: totalDebit,
             previous_status: tx.status,
             new_status: 'failed',
-            action: refResult.success ? 'auto_refund_timeout' : 'refund_error',
+            action: refResult.success ? 'auto_refund_no_reference' : 'refund_error',
           })
         } catch (err: any) {
           console.error(`[AEPS Check Pending] Error refunding ${tx.id}:`, err)
@@ -425,7 +426,7 @@ export async function POST(request: NextRequest) {
           amount: totalDebit,
           previous_status: tx.status,
           new_status: tx.status,
-          action: `no_ref_waiting (${Math.round(txAgeHours)}h old, refund at ${AUTO_REFUND_HOURS}h)`,
+          action: `no_ref_waiting (${Math.round(txAgeMinutes)}min old, refund at ${NO_REF_REFUND_MINUTES}min)`,
         })
       }
     }

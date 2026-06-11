@@ -12,8 +12,8 @@ const supabaseAdmin = createClient(
   { auth: { persistSession: false } }
 )
 
-const STALE_MINUTES = 5
-const AUTO_REFUND_HOURS = 48
+const STALE_MINUTES = 2
+const NO_REF_REFUND_MINUTES = 5
 
 export async function OPTIONS(request: NextRequest) {
   const response = handleCorsPreflight(request)
@@ -50,7 +50,7 @@ export async function POST(request: NextRequest) {
     const { retailer_id, transaction_ids } = body
 
     const staleThreshold = new Date(Date.now() - STALE_MINUTES * 60 * 1000).toISOString()
-    const refundThreshold = new Date(Date.now() - AUTO_REFUND_HOURS * 60 * 60 * 1000).toISOString()
+    const noRefRefundThreshold = new Date(Date.now() - NO_REF_REFUND_MINUTES * 60 * 1000).toISOString()
 
     let query = supabaseAdmin
       .from('payout_transactions')
@@ -177,12 +177,11 @@ export async function POST(request: NextRequest) {
         continue
       }
 
-      // Case 2: No UTR — transaction likely timed out
+      // Case 2: No UTR — SparkUp never acknowledged, money never left
       const txAge = Date.now() - new Date(tx.created_at).getTime()
-      const txAgeHours = txAge / (1000 * 60 * 60)
+      const txAgeMinutes = txAge / (1000 * 60)
 
-      if (tx.created_at < refundThreshold && tx.wallet_debited) {
-        // Older than 48h with no UTR — safe to auto-refund
+      if (tx.created_at < noRefRefundThreshold && tx.wallet_debited) {
         const totalAmount = parseFloat(String(tx.amount)) + parseFloat(String(tx.charges))
 
         try {
@@ -198,21 +197,21 @@ export async function POST(request: NextRequest) {
             p_reference_id: `REFUND_TIMEOUT_${tx.client_ref_id}`,
             p_transaction_id: tx.id,
             p_status: 'completed',
-            p_remarks: `Payout auto-refund: No provider response after ${Math.round(txAgeHours)}h (no UTR received)`
+            p_remarks: `Payout auto-refund: No provider response after ${Math.round(txAgeMinutes)}min (no UTR received)`
           })
 
           await supabaseAdmin
             .from('payout_transactions')
             .update({
               status: 'refunded',
-              failure_reason: `Auto-refunded: No provider response after ${Math.round(txAgeHours)} hours`,
+              failure_reason: `Auto-refunded: No provider response after ${Math.round(txAgeMinutes)} minutes`,
               completed_at: new Date().toISOString(),
               updated_at: new Date().toISOString(),
             })
             .eq('id', tx.id)
 
           refunded++
-          results.push({ id: tx.id, previous_status: tx.status, new_status: 'refunded', action: 'auto_refund_timeout' })
+          results.push({ id: tx.id, previous_status: tx.status, new_status: 'refunded', action: 'auto_refund_no_reference' })
         } catch (err: any) {
           console.error(`[Check Pending] Error refunding tx ${tx.id}:`, err)
           results.push({ id: tx.id, previous_status: tx.status, new_status: tx.status, action: 'refund_error' })
@@ -223,7 +222,7 @@ export async function POST(request: NextRequest) {
           id: tx.id,
           previous_status: tx.status,
           new_status: tx.status,
-          action: `no_utr_waiting (${Math.round(txAgeHours)}h old, refund at ${AUTO_REFUND_HOURS}h)`
+          action: `no_utr_waiting (${Math.round(txAgeMinutes)}min old, refund at ${NO_REF_REFUND_MINUTES}min)`
         })
       }
     }
