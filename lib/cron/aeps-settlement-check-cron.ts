@@ -185,9 +185,6 @@ async function creditMargins(
 }
 
 async function runCheck(): Promise<void> {
-  // #region agent log
-  fetch('http://127.0.0.1:7867/ingest/aac68605-cf2d-4bda-9cb1-86d2057b4562',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'afdf80'},body:JSON.stringify({sessionId:'afdf80',location:'aeps-settlement-check-cron.ts:runCheck-entry',message:'runCheck called',data:{isRunning:state.isRunning},timestamp:Date.now(),hypothesisId:'H-A,H-E'})}).catch(()=>{});
-  // #endregion
   if (state.isRunning) return
   state.isRunning = true
 
@@ -201,9 +198,6 @@ async function runCheck(): Promise<void> {
       .order('created_at', { ascending: true })
       .limit(50)
 
-    // #region agent log
-    fetch('http://127.0.0.1:7867/ingest/aac68605-cf2d-4bda-9cb1-86d2057b4562',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'afdf80'},body:JSON.stringify({sessionId:'afdf80',location:'aeps-settlement-check-cron.ts:db-query',message:'DB query result',data:{error:error?.message||null,count:pendingTxs?.length||0,txIds:pendingTxs?.map((t:any)=>({id:t.id,status:t.status,hasRef:!!t.payout_reference_id,ref:t.payout_reference_id}))||[]},timestamp:Date.now(),hypothesisId:'H-B'})}).catch(()=>{});
-    // #endregion
     if (error || !pendingTxs || pendingTxs.length === 0) return
 
     console.log(`[AEPS-Cron] Checking ${pendingTxs.length} pending settlements`)
@@ -217,9 +211,6 @@ async function runCheck(): Promise<void> {
         try {
           const statusResult = await getTransferStatus({ transactionId: tx.payout_reference_id })
 
-          // #region agent log
-          fetch('http://127.0.0.1:7867/ingest/aac68605-cf2d-4bda-9cb1-86d2057b4562',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'afdf80'},body:JSON.stringify({sessionId:'afdf80',location:'aeps-settlement-check-cron.ts:status-result',message:'getTransferStatus result',data:{txId:tx.id,ref:tx.payout_reference_id,success:statusResult.success,status:statusResult.status,statusMessage:statusResult.status_message,error:statusResult.error},timestamp:Date.now(),hypothesisId:'H-C'})}).catch(()=>{});
-          // #endregion
           if (!statusResult.success || !statusResult.status) continue
 
           if (statusResult.status === 'success') {
@@ -255,9 +246,6 @@ async function runCheck(): Promise<void> {
           }
           // pending/processing → do nothing, check again next cycle
         } catch (err: any) {
-          // #region agent log
-          fetch('http://127.0.0.1:7867/ingest/aac68605-cf2d-4bda-9cb1-86d2057b4562',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'afdf80'},body:JSON.stringify({sessionId:'afdf80',location:'aeps-settlement-check-cron.ts:catch-error',message:'getTransferStatus threw error',data:{txId:tx.id,ref:tx.payout_reference_id,error:err.message,stack:err.stack?.slice(0,300)},timestamp:Date.now(),hypothesisId:'H-D'})}).catch(()=>{});
-          // #endregion
           console.error(`[AEPS-Cron] Error checking ${tx.id}:`, err.message)
         }
 
@@ -300,9 +288,6 @@ export async function initAEPSSettlementCheckCron(): Promise<void> {
     timezone: 'Asia/Kolkata',
   })
 
-  // #region agent log
-  fetch('http://127.0.0.1:7867/ingest/aac68605-cf2d-4bda-9cb1-86d2057b4562',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'afdf80'},body:JSON.stringify({sessionId:'afdf80',location:'aeps-settlement-check-cron.ts:init',message:'AEPS cron initialized',data:{cronExpression:CRON_EXPRESSION},timestamp:Date.now(),hypothesisId:'H-A'})}).catch(()=>{});
-  // #endregion
   console.log('[AEPS-Cron] Settlement check cron started (every 2 minutes)')
 }
 

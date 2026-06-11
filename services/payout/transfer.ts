@@ -538,9 +538,6 @@ export function mapStatusCode(statusCode: number): 'pending' | 'success' | 'fail
     case 3:
       return 'failed'
     default:
-      // #region agent log
-      fetch('http://127.0.0.1:7867/ingest/aac68605-cf2d-4bda-9cb1-86d2057b4562',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'afdf80'},body:JSON.stringify({sessionId:'afdf80',location:'transfer.ts:mapStatusCode-default',message:'Unknown status code hit default',data:{statusCode},timestamp:Date.now(),hypothesisId:'H-C-verify'})}).catch(()=>{});
-      // #endregion
       return 'pending'
   }
 }
