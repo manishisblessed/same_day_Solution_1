@@ -5,7 +5,7 @@
  */
 
 export function getShadvalKey(): string {
-  return process.env.SHADVAL_PAY_KEY || ''
+  return process.env.SHADVAL_PAY_AUTHORIZATION_KEY || process.env.SHADVAL_PAY_KEY || ''
 }
 
 export function getShadvalBaseUrl(): string {

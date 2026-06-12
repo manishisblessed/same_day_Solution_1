@@ -86,7 +86,7 @@ export async function getBalance(): Promise<ShadvalBalanceResponse> {
     clearTimeout(timeoutId)
 
     const data: ShadvalBalanceResponse = await response.json()
-    log('balance', reqId, { status: data.status, code: data.code })
+    log('balance', reqId, { status: data.status, code: data.code, url })
     return data
   } catch (error: any) {
     clearTimeout(timeoutId)
