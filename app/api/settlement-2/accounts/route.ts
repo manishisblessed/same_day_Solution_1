@@ -47,6 +47,10 @@ export async function GET(request: NextRequest) {
       return addCorsHeaders(request, response)
     }
 
+    // #region agent log
+    console.log('[DBG:a6bed1] GET accounts:', JSON.stringify({ count: accounts?.length || 0, statuses: (accounts || []).map((a: any) => ({ id: a.id?.substring(0,8), verified: a.is_verified, status: a.verification_status })) }))
+    // #endregion
+
     const response = NextResponse.json({
       success: true,
       accounts: accounts || [],
@@ -206,6 +210,10 @@ export async function POST(request: NextRequest) {
 
     const apiResult = await initiateBankTransfer(pennyDropRequest)
 
+    // #region agent log
+    console.log('[DBG:a6bed1] POST penny drop response:', JSON.stringify({ status: apiResult.status, code: apiResult.code, msg: apiResult.message, order_id: apiResult.data?.order_id, utr: apiResult.data?.utr, name: apiResult.data?.fund_account?.name }))
+    // #endregion
+
     let finalStatus = apiResult.status
     let verifiedName = apiResult.data?.fund_account?.name || null
     let resolvedOrderId = apiResult.data?.order_id || null
@@ -266,6 +274,10 @@ export async function POST(request: NextRequest) {
       is_active: true,
     }
 
+    // #region agent log
+    console.log('[DBG:a6bed1] POST final decision:', JSON.stringify({ isSuccess, finalStatus, verifiedName, resolvedOrderId, resolvedUtr, verification_status: accountData.verification_status }))
+    // #endregion
+
     let accountRecord
     if (existing) {
       const { data: updated, error: updateError } = await supabaseAdmin
@@ -274,6 +286,9 @@ export async function POST(request: NextRequest) {
         .eq('id', existing.id)
         .select()
         .single()
+      // #region agent log
+      console.log('[DBG:a6bed1] POST DB update:', JSON.stringify({ ok: !updateError, err: updateError?.message || null, code: updateError?.code || null, hasRecord: !!updated }))
+      // #endregion
       if (updateError) console.error('[Settlement-2 Accounts] Update error:', updateError)
       accountRecord = updated
     } else {
@@ -282,6 +297,9 @@ export async function POST(request: NextRequest) {
         .insert(accountData)
         .select()
         .single()
+      // #region agent log
+      console.log('[DBG:a6bed1] POST DB insert:', JSON.stringify({ ok: !insertError, err: insertError?.message || null, code: insertError?.code || null, hasRecord: !!inserted }))
+      // #endregion
       if (insertError) console.error('[Settlement-2 Accounts] Insert error:', insertError)
       accountRecord = inserted
     }
@@ -351,6 +369,10 @@ export async function PATCH(request: NextRequest) {
     })
 
     const statusResult = await checkTransactionStatus({ reference_id: account.verification_ref_id })
+
+    // #region agent log
+    console.log('[DBG:a6bed1] PATCH status check:', JSON.stringify({ ref: account.verification_ref_id, apiStatus: statusResult.status, code: statusResult.code, txnStatus: statusResult.data?.txn_status, name: statusResult.data?.fund_account?.name, utr: statusResult.data?.utr }))
+    // #endregion
 
     if (statusResult.status === 'SUCCESS' && statusResult.data) {
       const txnStatus = statusResult.data.txn_status?.toLowerCase() || ''
