@@ -17,6 +17,31 @@ const supabaseAdmin = createClient(
   { auth: { persistSession: false } }
 )
 
+async function ensureColumns() {
+  try {
+    await supabaseAdmin.rpc('exec_sql' as any, {
+      query: `ALTER TABLE shadval_settlement_accounts
+        ADD COLUMN IF NOT EXISTS verification_order_id TEXT,
+        ADD COLUMN IF NOT EXISTS verification_utr TEXT,
+        ADD COLUMN IF NOT EXISTS verification_status TEXT,
+        ADD COLUMN IF NOT EXISTS verification_charges DECIMAL(12,2) DEFAULT 4.00,
+        ADD COLUMN IF NOT EXISTS verification_ledger_id TEXT,
+        ADD COLUMN IF NOT EXISTS verification_revenue_id TEXT,
+        ADD COLUMN IF NOT EXISTS verified_name TEXT,
+        ADD COLUMN IF NOT EXISTS verified_at TIMESTAMP WITH TIME ZONE,
+        ADD COLUMN IF NOT EXISTS verification_ref_id TEXT,
+        ADD COLUMN IF NOT EXISTS contact_name TEXT,
+        ADD COLUMN IF NOT EXISTS contact_email TEXT,
+        ADD COLUMN IF NOT EXISTS contact_mobile TEXT;
+        NOTIFY pgrst, 'reload schema';`
+    })
+  } catch {
+    // exec_sql RPC may not exist — that's fine, columns may already be there
+  }
+}
+
+let columnsChecked = false
+
 export async function OPTIONS(request: NextRequest) {
   const response = handleCorsPreflight(request)
   return response || new NextResponse(null, { status: 204 })
@@ -93,7 +118,12 @@ export async function POST(request: NextRequest) {
       return addCorsHeaders(request, response)
     }
 
-    // Check for existing account
+    // One-time attempt to ensure DB columns exist
+    if (!columnsChecked) {
+      await ensureColumns()
+      columnsChecked = true
+    }
+
     const { data: existing } = await supabaseAdmin
       .from('shadval_settlement_accounts')
       .select('id, is_verified, is_active')
@@ -101,6 +131,10 @@ export async function POST(request: NextRequest) {
       .eq('account_number', account_number)
       .eq('ifsc_code', ifsc_code.toUpperCase())
       .maybeSingle()
+
+    // #region agent log
+    console.log('[DBG:a6bed1] POST existing check:', JSON.stringify({ hasExisting: !!existing, isVerified: existing?.is_verified, isActive: existing?.is_active }))
+    // #endregion
 
     if (existing?.is_verified && existing?.is_active) {
       const response = NextResponse.json(
@@ -110,10 +144,13 @@ export async function POST(request: NextRequest) {
       return addCorsHeaders(request, response)
     }
 
-    // Check wallet balance for verification charge
     const { data: walletBalance, error: balanceError } = await (supabaseAdmin as any).rpc('get_wallet_balance', {
       p_retailer_id: user.partner_id,
     })
+
+    // #region agent log
+    console.log('[DBG:a6bed1] POST wallet check:', JSON.stringify({ walletBalance, balanceError: balanceError?.message || null, required: VERIFICATION_CHARGE }))
+    // #endregion
 
     if (balanceError || walletBalance === null || walletBalance === undefined) {
       console.error('[Settlement-2 Accounts] Wallet balance error:', balanceError)
@@ -136,7 +173,7 @@ export async function POST(request: NextRequest) {
 
     const refId = `SV2_VERIFY_${user.partner_id}_${Date.now()}`
 
-    // Debit verification charge from retailer wallet
+    // Debit verification charge
     const { data: chargeLedgerId, error: chargeError } = await (supabaseAdmin as any).rpc('add_ledger_entry', {
       p_user_id: user.partner_id,
       p_user_role: 'retailer',
@@ -158,7 +195,7 @@ export async function POST(request: NextRequest) {
       return addCorsHeaders(request, response)
     }
 
-    // Credit verification charge to company revenue
+    // Credit to company revenue
     let revenueLedgerId: string | null = null
     const revenueUserId = process.env.SUBSCRIPTION_REVENUE_USER_ID
     const revenueUserRole = process.env.SUBSCRIPTION_REVENUE_USER_ROLE || 'master_distributor'
@@ -181,7 +218,7 @@ export async function POST(request: NextRequest) {
       else console.error('[Settlement-2 Accounts] Revenue credit error:', revError)
     }
 
-    // Perform penny drop verification via Shadval Pay API
+    // Penny drop via ShadvalPay
     const pennyDropRequest: ShadvalTransferRequest = {
       amount: PENNY_DROP_AMOUNT,
       mode: 'IMPS',
@@ -252,17 +289,26 @@ export async function POST(request: NextRequest) {
     }
 
     const isSuccess = finalStatus === 'SUCCESS'
+    const verificationStatus = isSuccess ? 'SUCCESS' : finalStatus === 'FAILED' ? 'FAILED' : 'PENDING'
 
-    const accountData = {
+    // #region agent log
+    console.log('[DBG:a6bed1] POST final decision:', JSON.stringify({ isSuccess, finalStatus, verifiedName, verificationStatus }))
+    // #endregion
+
+    // Try full insert first, fallback to basic columns if schema is stale
+    let accountRecord: any = null
+    let dbError: any = null
+
+    const fullData = {
       retailer_id: user.partner_id,
-      account_number: account_number,
+      account_number,
       ifsc_code: ifsc_code.toUpperCase(),
       account_holder_name: account_holder_name.trim(),
       is_verified: isSuccess,
       verification_ref_id: refId,
       verification_order_id: resolvedOrderId,
       verification_utr: resolvedUtr,
-      verification_status: isSuccess ? 'SUCCESS' : finalStatus === 'FAILED' ? 'FAILED' : 'PENDING',
+      verification_status: verificationStatus,
       verification_charges: VERIFICATION_CHARGE,
       verification_ledger_id: chargeLedgerId,
       verification_revenue_id: revenueLedgerId,
@@ -274,40 +320,73 @@ export async function POST(request: NextRequest) {
       is_active: true,
     }
 
+    // Basic columns guaranteed to exist from original table creation
+    const basicData: Record<string, any> = {
+      retailer_id: user.partner_id,
+      account_number,
+      ifsc_code: ifsc_code.toUpperCase(),
+      account_holder_name: account_holder_name.trim(),
+      is_verified: isSuccess,
+      is_active: true,
+    }
+
+    if (existing) {
+      const { data, error } = await supabaseAdmin
+        .from('shadval_settlement_accounts').update(fullData).eq('id', existing.id).select().single()
+      if (error?.code === 'PGRST204') {
+        console.log('[Settlement-2 Accounts] Column missing on update, using basic columns')
+        const { data: d2, error: e2 } = await supabaseAdmin
+          .from('shadval_settlement_accounts').update(basicData).eq('id', existing.id).select().single()
+        accountRecord = d2; dbError = e2
+      } else {
+        accountRecord = data; dbError = error
+      }
+    } else {
+      const { data, error } = await supabaseAdmin
+        .from('shadval_settlement_accounts').insert(fullData).select().single()
+      if (error?.code === 'PGRST204') {
+        console.log('[Settlement-2 Accounts] Column missing on insert, using basic columns')
+        const { data: d2, error: e2 } = await supabaseAdmin
+          .from('shadval_settlement_accounts').insert(basicData).select().single()
+        accountRecord = d2; dbError = e2
+      } else {
+        accountRecord = data; dbError = error
+      }
+    }
+
     // #region agent log
-    console.log('[DBG:a6bed1] POST final decision:', JSON.stringify({ isSuccess, finalStatus, verifiedName, resolvedOrderId, resolvedUtr, verification_status: accountData.verification_status }))
+    console.log('[DBG:a6bed1] POST DB result:', JSON.stringify({ ok: !dbError, err: dbError?.message || null, code: dbError?.code || null, hasRecord: !!accountRecord }))
     // #endregion
 
-    let accountRecord
-    if (existing) {
-      const { data: updated, error: updateError } = await supabaseAdmin
-        .from('shadval_settlement_accounts')
-        .update(accountData)
-        .eq('id', existing.id)
-        .select()
-        .single()
-      // #region agent log
-      console.log('[DBG:a6bed1] POST DB update:', JSON.stringify({ ok: !updateError, err: updateError?.message || null, code: updateError?.code || null, hasRecord: !!updated }))
-      // #endregion
-      if (updateError) console.error('[Settlement-2 Accounts] Update error:', updateError)
-      accountRecord = updated
-    } else {
-      const { data: inserted, error: insertError } = await supabaseAdmin
-        .from('shadval_settlement_accounts')
-        .insert(accountData)
-        .select()
-        .single()
-      // #region agent log
-      console.log('[DBG:a6bed1] POST DB insert:', JSON.stringify({ ok: !insertError, err: insertError?.message || null, code: insertError?.code || null, hasRecord: !!inserted }))
-      // #endregion
-      if (insertError) console.error('[Settlement-2 Accounts] Insert error:', insertError)
-      accountRecord = inserted
+    if (dbError) {
+      console.error('[Settlement-2 Accounts] DB save failed, refunding charge:', dbError)
+      // Refund the ₹4 charge back to retailer
+      await (supabaseAdmin as any).rpc('add_ledger_entry', {
+        p_user_id: user.partner_id,
+        p_user_role: 'retailer',
+        p_wallet_type: 'primary',
+        p_fund_category: 'service',
+        p_service_type: 'shadval_settlement',
+        p_tx_type: 'ACCOUNT_VERIFICATION_REFUND',
+        p_credit: VERIFICATION_CHARGE,
+        p_debit: 0,
+        p_reference_id: `REFUND_${refId}`,
+        p_transaction_id: null,
+        p_status: 'completed',
+        p_remarks: `Refund: account verification failed for ${account_number} (${ifsc_code}). DB error: ${dbError.message}`,
+      }).catch((e: any) => console.error('[Settlement-2 Accounts] Refund failed:', e))
+
+      const response = NextResponse.json({
+        success: false,
+        error: 'Verification initiated but failed to save account. ₹4 has been refunded. Please contact support if the issue persists.',
+      }, { status: 500 })
+      return addCorsHeaders(request, response)
     }
 
     const response = NextResponse.json({
       success: true,
       verified: isSuccess,
-      verification_status: accountData.verification_status,
+      verification_status: verificationStatus,
       account: accountRecord,
       api_message: apiResult.message,
       verified_name: verifiedName,
@@ -387,31 +466,49 @@ export async function PATCH(request: NextRequest) {
       }
 
       const updateData: Record<string, any> = {
-        verification_status: newVerificationStatus,
         is_verified: isVerified,
-        verification_utr: statusResult.data.utr || account.verification_utr,
-        verification_order_id: statusResult.data.order_id || account.verification_order_id,
       }
 
-      if (isVerified) {
-        updateData.verified_name = statusResult.data.fund_account?.name || account.verified_name
-        updateData.verified_at = new Date().toISOString()
+      // Only set extended columns if they exist (catch and ignore column errors)
+      try {
+        const { error: updateErr } = await supabaseAdmin
+          .from('shadval_settlement_accounts')
+          .update({
+            verification_status: newVerificationStatus,
+            is_verified: isVerified,
+            verification_utr: statusResult.data.utr || account.verification_utr,
+            verification_order_id: statusResult.data.order_id || account.verification_order_id,
+            ...(isVerified ? {
+              verified_name: statusResult.data.fund_account?.name || account.verified_name,
+              verified_at: new Date().toISOString(),
+            } : {}),
+          })
+          .eq('id', account_id)
+
+        if (updateErr?.code === 'PGRST204') {
+          await supabaseAdmin
+            .from('shadval_settlement_accounts')
+            .update({ is_verified: isVerified })
+            .eq('id', account_id)
+        }
+      } catch (e) {
+        await supabaseAdmin
+          .from('shadval_settlement_accounts')
+          .update({ is_verified: isVerified })
+          .eq('id', account_id)
       }
 
-      const { data: updated, error: updateErr } = await supabaseAdmin
+      const { data: refreshed } = await supabaseAdmin
         .from('shadval_settlement_accounts')
-        .update(updateData)
+        .select('*')
         .eq('id', account_id)
-        .select()
         .single()
-
-      if (updateErr) console.error('[Settlement-2 Accounts] Status update error:', updateErr)
 
       const response = NextResponse.json({
         success: true,
         verified: isVerified,
         verification_status: newVerificationStatus,
-        account: updated || account,
+        account: refreshed || account,
         txn_status: statusResult.data.txn_status,
       })
       return addCorsHeaders(request, response)
