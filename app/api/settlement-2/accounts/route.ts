@@ -206,8 +206,16 @@ export async function POST(request: NextRequest) {
 
     const apiResult = await initiateBankTransfer(pennyDropRequest)
 
+    // #region agent log
+    fetch('http://127.0.0.1:7867/ingest/aac68605-cf2d-4bda-9cb1-86d2057b4562',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'a6bed1'},body:JSON.stringify({sessionId:'a6bed1',location:'settlement-2/accounts/route.ts:208',message:'pennyDrop fullResponse',data:{status:apiResult.status,code:apiResult.code,message:apiResult.message,hasData:!!apiResult.data,order_id:apiResult.data?.order_id,utr:apiResult.data?.utr,fund_account_name:apiResult.data?.fund_account?.name,dataKeys:apiResult.data?Object.keys(apiResult.data):[],fullData:apiResult.data},timestamp:Date.now(),hypothesisId:'A,C,E'})}).catch(()=>{});
+    // #endregion
+
     const isSuccess = apiResult.status === 'SUCCESS'
     const verifiedName = apiResult.data?.fund_account?.name || null
+
+    // #region agent log
+    fetch('http://127.0.0.1:7867/ingest/aac68605-cf2d-4bda-9cb1-86d2057b4562',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'a6bed1'},body:JSON.stringify({sessionId:'a6bed1',location:'settlement-2/accounts/route.ts:215',message:'verificationDecision',data:{isSuccess,verifiedName,topLevelStatus:apiResult.status,willBeVerified:isSuccess,verificationStatus:isSuccess?'SUCCESS':apiResult.status==='FAILED'?'FAILED':'PENDING'},timestamp:Date.now(),hypothesisId:'A'})}).catch(()=>{});
+    // #endregion
 
     // Upsert account record
     const accountData = {
@@ -230,6 +238,10 @@ export async function POST(request: NextRequest) {
       contact_mobile: contact_mobile || null,
       is_active: true,
     }
+
+    // #region agent log
+    fetch('http://127.0.0.1:7867/ingest/aac68605-cf2d-4bda-9cb1-86d2057b4562',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'a6bed1'},body:JSON.stringify({sessionId:'a6bed1',location:'settlement-2/accounts/route.ts:240',message:'accountDataToSave',data:{is_verified:accountData.is_verified,verification_status:accountData.verification_status,verified_name:accountData.verified_name,verification_order_id:accountData.verification_order_id,verification_utr:accountData.verification_utr,hasExisting:!!existing},timestamp:Date.now(),hypothesisId:'A,B'})}).catch(()=>{});
+    // #endregion
 
     let accountRecord
     if (existing) {
