@@ -3,7 +3,7 @@
  */
 
 export interface ShadvalBaseResponse {
-  status: 'SUCCESS' | 'FAILED'
+  status: 'SUCCESS' | 'FAILED' | 'PENDING'
   code: string
   message: string
 }

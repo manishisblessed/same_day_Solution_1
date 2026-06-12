@@ -274,6 +274,32 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
     }
   }
 
+  // Re-check pending verification
+  const [recheckingId, setRecheckingId] = useState<string | null>(null)
+  const handleRecheckVerification = async (accountId: string) => {
+    setRecheckingId(accountId)
+    try {
+      const res = await apiFetch('/api/settlement-2/accounts', {
+        method: 'PATCH',
+        body: JSON.stringify({ account_id: accountId }),
+      })
+      const data = await res.json()
+      if (data.success && data.verified) {
+        setAccounts(prev =>
+          prev.map(a => a.id === accountId ? { ...a, is_verified: true, verification_status: 'SUCCESS', verified_name: data.account?.verified_name || a.verified_name } : a)
+        )
+      } else if (data.verification_status === 'FAILED') {
+        setAccounts(prev =>
+          prev.map(a => a.id === accountId ? { ...a, verification_status: 'FAILED' } : a)
+        )
+      }
+    } catch (err) {
+      console.error('Re-check failed:', err)
+    } finally {
+      setRecheckingId(null)
+    }
+  }
+
   // Delete account
   const handleDeleteAccount = async (accountId: string) => {
     try {
@@ -414,7 +440,7 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
               <div className="p-5 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between">
                 <h3 className="font-semibold text-gray-900 dark:text-white flex items-center gap-2">
                   <ShieldCheck className="w-5 h-5 text-emerald-600" />
-                  Verified Accounts ({accounts.length})
+                  Bank Accounts ({accounts.length})
                 </h3>
                 <button onClick={fetchAccounts} className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg">
                   <RefreshCw className={`w-4 h-4 text-gray-400 ${loadingAccounts ? 'animate-spin' : ''}`} />
@@ -424,8 +450,10 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
                 {accounts.map(acct => (
                   <div key={acct.id} className="p-4 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-800/30">
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-xl bg-blue-50 dark:bg-blue-900/20 flex items-center justify-center">
-                        <Building2 className="w-5 h-5 text-blue-600" />
+                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+                        acct.is_verified ? 'bg-blue-50 dark:bg-blue-900/20' : 'bg-amber-50 dark:bg-amber-900/20'
+                      }`}>
+                        <Building2 className={`w-5 h-5 ${acct.is_verified ? 'text-blue-600' : 'text-amber-600'}`} />
                       </div>
                       <div>
                         <p className="font-medium text-gray-900 dark:text-white text-sm">
@@ -434,10 +462,26 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
                         <p className="text-xs text-gray-500 font-mono">
                           {acct.account_number} | {acct.ifsc_code}
                         </p>
+                        {!acct.is_verified && acct.verification_status === 'PENDING' && (
+                          <p className="text-xs text-amber-600 dark:text-amber-400 mt-0.5">Verification Pending</p>
+                        )}
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
-                      <BadgeCheck className="w-4 h-4 text-emerald-500" />
+                      {acct.is_verified ? (
+                        <BadgeCheck className="w-4 h-4 text-emerald-500" />
+                      ) : acct.verification_status === 'PENDING' ? (
+                        <button
+                          onClick={() => handleRecheckVerification(acct.id)}
+                          disabled={recheckingId === acct.id}
+                          className="px-2 py-1 text-xs font-medium text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/20 rounded-lg hover:bg-amber-100 dark:hover:bg-amber-900/40 transition-colors disabled:opacity-50 flex items-center gap-1"
+                        >
+                          {recheckingId === acct.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+                          Re-check
+                        </button>
+                      ) : (
+                        <XCircle className="w-4 h-4 text-red-500" />
+                      )}
                       <button
                         onClick={() => handleDeleteAccount(acct.id)}
                         className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"

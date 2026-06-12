@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
-import { initiateBankTransfer, generateSignature } from '@/services/shadval-pay'
+import { initiateBankTransfer, checkTransactionStatus, generateSignature } from '@/services/shadval-pay'
 import type { ShadvalTransferRequest } from '@/services/shadval-pay'
 import { createClient } from '@supabase/supabase-js'
 
@@ -206,18 +206,45 @@ export async function POST(request: NextRequest) {
 
     const apiResult = await initiateBankTransfer(pennyDropRequest)
 
-    // #region agent log
-    fetch('http://127.0.0.1:7867/ingest/aac68605-cf2d-4bda-9cb1-86d2057b4562',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'a6bed1'},body:JSON.stringify({sessionId:'a6bed1',location:'settlement-2/accounts/route.ts:208',message:'pennyDrop fullResponse',data:{status:apiResult.status,code:apiResult.code,message:apiResult.message,hasData:!!apiResult.data,order_id:apiResult.data?.order_id,utr:apiResult.data?.utr,fund_account_name:apiResult.data?.fund_account?.name,dataKeys:apiResult.data?Object.keys(apiResult.data):[],fullData:apiResult.data},timestamp:Date.now(),hypothesisId:'A,C,E'})}).catch(()=>{});
-    // #endregion
+    let finalStatus = apiResult.status
+    let verifiedName = apiResult.data?.fund_account?.name || null
+    let resolvedOrderId = apiResult.data?.order_id || null
+    let resolvedUtr = apiResult.data?.utr || null
 
-    const isSuccess = apiResult.status === 'SUCCESS'
-    const verifiedName = apiResult.data?.fund_account?.name || null
+    // If PENDING, poll ShadvalPay status API (up to 3 attempts, 3s apart)
+    if (finalStatus === 'PENDING' && refId) {
+      console.log('[Settlement-2 Accounts] Transfer PENDING, polling status for:', refId)
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        await new Promise(r => setTimeout(r, 3000))
+        try {
+          const statusResult = await checkTransactionStatus({ reference_id: refId })
+          console.log(`[Settlement-2 Accounts] Status poll #${attempt}:`, {
+            ref: refId,
+            apiStatus: statusResult.status,
+            txnStatus: statusResult.data?.txn_status,
+            name: statusResult.data?.fund_account?.name,
+          })
+          if (statusResult.status === 'SUCCESS' && statusResult.data) {
+            const txnStatus = statusResult.data.txn_status?.toLowerCase() || ''
+            if (txnStatus.includes('success')) {
+              finalStatus = 'SUCCESS'
+              verifiedName = statusResult.data.fund_account?.name || verifiedName
+              resolvedOrderId = statusResult.data.order_id || resolvedOrderId
+              resolvedUtr = statusResult.data.utr || resolvedUtr
+              break
+            } else if (txnStatus.includes('fail')) {
+              finalStatus = 'FAILED'
+              break
+            }
+          }
+        } catch (pollErr) {
+          console.error(`[Settlement-2 Accounts] Status poll #${attempt} error:`, pollErr)
+        }
+      }
+    }
 
-    // #region agent log
-    fetch('http://127.0.0.1:7867/ingest/aac68605-cf2d-4bda-9cb1-86d2057b4562',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'a6bed1'},body:JSON.stringify({sessionId:'a6bed1',location:'settlement-2/accounts/route.ts:215',message:'verificationDecision',data:{isSuccess,verifiedName,topLevelStatus:apiResult.status,willBeVerified:isSuccess,verificationStatus:isSuccess?'SUCCESS':apiResult.status==='FAILED'?'FAILED':'PENDING'},timestamp:Date.now(),hypothesisId:'A'})}).catch(()=>{});
-    // #endregion
+    const isSuccess = finalStatus === 'SUCCESS'
 
-    // Upsert account record
     const accountData = {
       retailer_id: user.partner_id,
       account_number: account_number,
@@ -225,9 +252,9 @@ export async function POST(request: NextRequest) {
       account_holder_name: account_holder_name.trim(),
       is_verified: isSuccess,
       verification_ref_id: refId,
-      verification_order_id: apiResult.data?.order_id || null,
-      verification_utr: apiResult.data?.utr || null,
-      verification_status: isSuccess ? 'SUCCESS' : apiResult.status === 'FAILED' ? 'FAILED' : 'PENDING',
+      verification_order_id: resolvedOrderId,
+      verification_utr: resolvedUtr,
+      verification_status: isSuccess ? 'SUCCESS' : finalStatus === 'FAILED' ? 'FAILED' : 'PENDING',
       verification_charges: VERIFICATION_CHARGE,
       verification_ledger_id: chargeLedgerId,
       verification_revenue_id: revenueLedgerId,
@@ -238,10 +265,6 @@ export async function POST(request: NextRequest) {
       contact_mobile: contact_mobile || null,
       is_active: true,
     }
-
-    // #region agent log
-    fetch('http://127.0.0.1:7867/ingest/aac68605-cf2d-4bda-9cb1-86d2057b4562',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'a6bed1'},body:JSON.stringify({sessionId:'a6bed1',location:'settlement-2/accounts/route.ts:240',message:'accountDataToSave',data:{is_verified:accountData.is_verified,verification_status:accountData.verification_status,verified_name:accountData.verified_name,verification_order_id:accountData.verification_order_id,verification_utr:accountData.verification_utr,hasExisting:!!existing},timestamp:Date.now(),hypothesisId:'A,B'})}).catch(()=>{});
-    // #endregion
 
     let accountRecord
     if (existing) {
@@ -275,6 +298,111 @@ export async function POST(request: NextRequest) {
     return addCorsHeaders(request, response)
   } catch (error: any) {
     console.error('[Settlement-2 Accounts] Error:', error)
+    const response = NextResponse.json({ success: false, error: error.message }, { status: 500 })
+    return addCorsHeaders(request, response)
+  }
+}
+
+/**
+ * PATCH /api/settlement-2/accounts
+ * Re-check verification status for a PENDING account
+ */
+export async function PATCH(request: NextRequest) {
+  try {
+    const { user } = await getCurrentUserWithFallback(request)
+    if (!user || user.role !== 'retailer') {
+      const response = NextResponse.json({ success: false, error: 'Access denied' }, { status: 403 })
+      return addCorsHeaders(request, response)
+    }
+
+    const body = await request.json()
+    const { account_id } = body
+
+    if (!account_id) {
+      const response = NextResponse.json({ success: false, error: 'account_id is required' }, { status: 400 })
+      return addCorsHeaders(request, response)
+    }
+
+    const { data: account, error: fetchErr } = await supabaseAdmin
+      .from('shadval_settlement_accounts')
+      .select('*')
+      .eq('id', account_id)
+      .eq('retailer_id', user.partner_id)
+      .maybeSingle()
+
+    if (fetchErr || !account) {
+      const response = NextResponse.json({ success: false, error: 'Account not found' }, { status: 404 })
+      return addCorsHeaders(request, response)
+    }
+
+    if (account.is_verified) {
+      const response = NextResponse.json({ success: true, verified: true, account })
+      return addCorsHeaders(request, response)
+    }
+
+    if (!account.verification_ref_id) {
+      const response = NextResponse.json({ success: false, error: 'No verification reference found' }, { status: 400 })
+      return addCorsHeaders(request, response)
+    }
+
+    console.log('[Settlement-2 Accounts] Re-checking verification:', {
+      ref: account.verification_ref_id,
+      accountId: account_id,
+    })
+
+    const statusResult = await checkTransactionStatus({ reference_id: account.verification_ref_id })
+
+    if (statusResult.status === 'SUCCESS' && statusResult.data) {
+      const txnStatus = statusResult.data.txn_status?.toLowerCase() || ''
+      let newVerificationStatus = 'PENDING'
+      let isVerified = false
+
+      if (txnStatus.includes('success')) {
+        newVerificationStatus = 'SUCCESS'
+        isVerified = true
+      } else if (txnStatus.includes('fail')) {
+        newVerificationStatus = 'FAILED'
+      }
+
+      const updateData: Record<string, any> = {
+        verification_status: newVerificationStatus,
+        is_verified: isVerified,
+        verification_utr: statusResult.data.utr || account.verification_utr,
+        verification_order_id: statusResult.data.order_id || account.verification_order_id,
+      }
+
+      if (isVerified) {
+        updateData.verified_name = statusResult.data.fund_account?.name || account.verified_name
+        updateData.verified_at = new Date().toISOString()
+      }
+
+      const { data: updated, error: updateErr } = await supabaseAdmin
+        .from('shadval_settlement_accounts')
+        .update(updateData)
+        .eq('id', account_id)
+        .select()
+        .single()
+
+      if (updateErr) console.error('[Settlement-2 Accounts] Status update error:', updateErr)
+
+      const response = NextResponse.json({
+        success: true,
+        verified: isVerified,
+        verification_status: newVerificationStatus,
+        account: updated || account,
+        txn_status: statusResult.data.txn_status,
+      })
+      return addCorsHeaders(request, response)
+    }
+
+    const response = NextResponse.json({
+      success: false,
+      error: statusResult.message || 'Status check failed',
+      verification_status: 'PENDING',
+    })
+    return addCorsHeaders(request, response)
+  } catch (error: any) {
+    console.error('[Settlement-2 Accounts] PATCH error:', error)
     const response = NextResponse.json({ success: false, error: error.message }, { status: 500 })
     return addCorsHeaders(request, response)
   }
