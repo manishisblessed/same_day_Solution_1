@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getCurrentUserFromRequest } from '@/lib/auth-server-request'
+import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
 import { checkTransactionStatus } from '@/services/shadval-pay'
 
@@ -19,7 +19,7 @@ export async function OPTIONS(request: NextRequest) {
  */
 export async function POST(request: NextRequest) {
   try {
-    const user = await getCurrentUserFromRequest(request)
+    const { user } = await getCurrentUserWithFallback(request)
     const userRole = user?.role as string | undefined
     const isRetailer = userRole === 'retailer'
     const isAdmin = userRole === 'admin' || userRole === 'super_admin'

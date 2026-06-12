@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getCurrentUserFromRequest } from '@/lib/auth-server-request'
+import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
 import { getBalance } from '@/services/shadval-pay'
 
@@ -17,7 +17,7 @@ export async function OPTIONS(request: NextRequest) {
  */
 export async function GET(request: NextRequest) {
   try {
-    const user = await getCurrentUserFromRequest(request)
+    const { user } = await getCurrentUserWithFallback(request)
     const userRole = user?.role as string | undefined
     const isAdmin = userRole === 'admin' || userRole === 'super_admin'
     const isRetailer = userRole === 'retailer'
