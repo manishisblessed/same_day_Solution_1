@@ -45,7 +45,7 @@ export async function GET(request: NextRequest) {
       return addCorsHeaders(request, response)
     }
 
-    const balance = parseFloat(result.data?.balance || '0')
+    const balance = Number(result.data?.balance ?? 0)
 
     if (!isAdmin) {
       const response = NextResponse.json({

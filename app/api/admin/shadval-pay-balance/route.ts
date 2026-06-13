@@ -40,7 +40,7 @@ export async function GET(request: NextRequest) {
 
     const result = await getBalance()
 
-    const balance = result.status === 'SUCCESS' ? parseFloat(result.data?.balance || '0') : 0
+    const balance = result.status === 'SUCCESS' ? Number(result.data?.balance ?? 0) : 0
 
     const response = NextResponse.json({
       success: result.status === 'SUCCESS',

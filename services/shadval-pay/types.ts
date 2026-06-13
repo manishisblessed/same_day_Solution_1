@@ -10,7 +10,7 @@ export interface ShadvalBaseResponse {
 
 export interface ShadvalBalanceResponse extends ShadvalBaseResponse {
   data?: {
-    balance: string
+    balance: number
   }
 }
 
@@ -115,7 +115,7 @@ export interface ShadvalPayTransaction {
 /** Response codes from SHADVAL PAY */
 export const SHADVAL_CODES = {
   SP100: 'Success',
-  SP101: 'Wrong authorization token',
-  SP102: 'IP not whitelisted',
-  SP105: 'Duplicate reference number',
+  SP103: 'Provide valid Content-Type in header',
+  SP104: 'Wrong authorization token / IP not whitelisted',
+  SP105: 'Payout service unavailable',
 } as const

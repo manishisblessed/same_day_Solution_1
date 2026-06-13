@@ -65,7 +65,7 @@ export async function getBalance(): Promise<ShadvalBalanceResponse> {
       status: 'SUCCESS',
       code: 'SP100',
       message: 'Payout Wallet Balance Fetched Successfully.',
-      data: { balance: '10000.00' },
+      data: { balance: 10000.00 },
     }
   }
 
