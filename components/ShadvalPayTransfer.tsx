@@ -10,6 +10,7 @@ import {
   ArrowRight, CheckCircle2, XCircle, Loader2,
   Wallet, Send, Search, Copy, ArrowLeft,
   Plus, CreditCard, Trash2, ShieldCheck, BadgeCheck,
+  Sparkles, Star, TrendingUp, ChevronRight, Banknote,
 } from 'lucide-react'
 
 interface VerifiedAccount {
@@ -75,6 +76,8 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
   const [newContactMobile, setNewContactMobile] = useState('')
   const [verifying, setVerifying] = useState(false)
   const [verifyResult, setVerifyResult] = useState<any>(null)
+  const [showCelebration, setShowCelebration] = useState(false)
+  const [celebrationCountdown, setCelebrationCountdown] = useState(3)
 
   // Transaction history
   const [transactions, setTransactions] = useState<TransactionRecord[]>([])
@@ -263,6 +266,8 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
           setNewConfirmAcc('')
           setNewIfsc('')
           setNewBeneName('')
+          setShowCelebration(true)
+          setCelebrationCountdown(3)
         }
       } else {
         setError(data.error || 'Verification failed')
@@ -273,6 +278,18 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
       setVerifying(false)
     }
   }
+
+  useEffect(() => {
+    if (!showCelebration) return
+    if (celebrationCountdown <= 0) {
+      setShowCelebration(false)
+      setVerifyResult(null)
+      setActiveView('home')
+      return
+    }
+    const t = setTimeout(() => setCelebrationCountdown(c => c - 1), 1000)
+    return () => clearTimeout(t)
+  }, [showCelebration, celebrationCountdown])
 
   // Re-check pending verification
   const [recheckingId, setRecheckingId] = useState<string | null>(null)
@@ -401,37 +418,68 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {/* Card 1: Process Settlement */}
-            <button
+            <motion.button
+              whileHover={{ y: -4 }}
+              whileTap={{ scale: 0.98 }}
               onClick={handleProcessSettlement}
-              className="group text-left bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 shadow-sm hover:shadow-lg hover:border-blue-300 dark:hover:border-blue-700 transition-all p-6"
+              className="group text-left relative bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 shadow-sm hover:shadow-2xl hover:shadow-blue-500/10 transition-all p-6 overflow-hidden"
             >
-              <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-                <Send className="w-7 h-7 text-white" />
+              <div className="absolute -right-10 -top-10 w-40 h-40 rounded-full bg-gradient-to-br from-blue-400/20 to-cyan-400/20 blur-2xl group-hover:scale-150 transition-transform duration-700" />
+              <div className="absolute right-4 top-4 opacity-0 group-hover:opacity-100 transition-opacity">
+                <ChevronRight className="w-5 h-5 text-blue-500" />
               </div>
-              <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-2">Process Settlement</h3>
-              <p className="text-sm text-gray-500 dark:text-gray-400">
-                Send settlement to verified bank accounts via IMPS, NEFT, or RTGS
-              </p>
-              {accounts.length > 0 && (
-                <p className="text-xs text-blue-600 dark:text-blue-400 mt-3 font-medium">
-                  {accounts.length} verified account{accounts.length !== 1 ? 's' : ''} available
+              <div className="relative">
+                <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-blue-500 to-cyan-600 flex items-center justify-center mb-4 group-hover:scale-110 group-hover:rotate-3 transition-all shadow-lg shadow-blue-500/30">
+                  <Send className="w-7 h-7 text-white" />
+                </div>
+                <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-2">Process Settlement</h3>
+                <p className="text-sm text-gray-500 dark:text-gray-400">
+                  Send money to verified bank accounts via IMPS, NEFT, or RTGS
                 </p>
-              )}
-            </button>
+                {accounts.length > 0 ? (
+                  <div className="mt-4 flex items-center gap-2">
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 text-xs font-semibold">
+                      <BadgeCheck className="w-3 h-3" />
+                      {accounts.length} verified
+                    </span>
+                    <span className="text-xs text-gray-400">Ready to use</span>
+                  </div>
+                ) : (
+                  <div className="mt-4 inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-500 text-xs">
+                    Add account first
+                  </div>
+                )}
+              </div>
+            </motion.button>
 
             {/* Card 2: Add Account */}
-            <button
+            <motion.button
+              whileHover={{ y: -4 }}
+              whileTap={{ scale: 0.98 }}
               onClick={() => { setActiveView('add-account'); setError(null); setVerifyResult(null) }}
-              className="group text-left bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 shadow-sm hover:shadow-lg hover:border-emerald-300 dark:hover:border-emerald-700 transition-all p-6"
+              className="group text-left relative bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 shadow-sm hover:shadow-2xl hover:shadow-emerald-500/10 transition-all p-6 overflow-hidden"
             >
-              <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-emerald-500 to-emerald-600 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-                <Plus className="w-7 h-7 text-white" />
+              <div className="absolute -right-10 -top-10 w-40 h-40 rounded-full bg-gradient-to-br from-emerald-400/20 to-teal-400/20 blur-2xl group-hover:scale-150 transition-transform duration-700" />
+              <div className="absolute right-4 top-4 opacity-0 group-hover:opacity-100 transition-opacity">
+                <ChevronRight className="w-5 h-5 text-emerald-500" />
               </div>
-              <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-2">Add Account</h3>
-              <p className="text-sm text-gray-500 dark:text-gray-400">
-                Verify & add bank accounts for future settlements (₹4 verification charge)
-              </p>
-            </button>
+              <div className="relative">
+                <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center mb-4 group-hover:scale-110 group-hover:rotate-3 transition-all shadow-lg shadow-emerald-500/30">
+                  <Plus className="w-7 h-7 text-white" />
+                </div>
+                <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-2">Add Bank Account</h3>
+                <p className="text-sm text-gray-500 dark:text-gray-400">
+                  Verify with penny drop & add to your beneficiary list
+                </p>
+                <div className="mt-4 flex items-center gap-2">
+                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 text-xs font-semibold">
+                    <Sparkles className="w-3 h-3" />
+                    ₹4 charge
+                  </span>
+                  <span className="text-xs text-gray-400">One-time per account</span>
+                </div>
+              </div>
+            </motion.button>
           </div>
 
           {/* Verified Accounts List */}
@@ -898,20 +946,24 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
       {activeView === 'add-account' && (
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
           <button
-            onClick={() => { setActiveView('home'); setError(null) }}
+            onClick={() => { setActiveView('home'); setError(null); setVerifyResult(null) }}
             className="mb-4 flex items-center gap-1 text-sm text-gray-500 hover:text-gray-900 dark:hover:text-white transition-colors"
           >
             <ArrowLeft className="w-4 h-4" /> Back
           </button>
 
-          <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 shadow-sm">
-            <div className="p-5 border-b border-gray-100 dark:border-gray-800">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Form section */}
+            <div className="lg:col-span-2 bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 shadow-sm">
+            <div className="p-5 border-b border-gray-100 dark:border-gray-800 bg-gradient-to-r from-emerald-50/50 to-teal-50/50 dark:from-emerald-900/10 dark:to-teal-900/10 rounded-t-2xl">
               <h3 className="font-semibold text-gray-900 dark:text-white flex items-center gap-2">
-                <Plus className="w-5 h-5 text-emerald-600" />
+                <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center shadow-md shadow-emerald-500/20">
+                  <ShieldCheck className="w-4 h-4 text-white" />
+                </div>
                 Add & Verify Bank Account
               </h3>
-              <p className="text-xs text-gray-500 mt-1">
-                A verification charge of <strong>₹4</strong> will be deducted from your wallet
+              <p className="text-xs text-gray-500 mt-1.5 ml-10">
+                We&apos;ll send <strong>₹1</strong> via IMPS to confirm the account is real. <strong>₹4</strong> service charge from wallet.
               </p>
             </div>
             <div className="p-5 space-y-4">
@@ -999,35 +1051,19 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
                 />
               </div>
 
-              {/* Charge notice */}
-              <div className="p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl">
-                <p className="text-xs text-amber-700 dark:text-amber-300 flex items-start gap-2">
-                  <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
-                  <span>
-                    <strong>Verification Charge:</strong> ₹4 will be deducted from your wallet to verify this bank account via penny drop.
-                    Verified accounts can be used for future settlements.
-                  </span>
-                </p>
-              </div>
-
-              {/* Verify Result */}
-              {verifyResult && (
+              {/* Verify Result (only shown for failed/pending — success shows celebration overlay) */}
+              {verifyResult && !verifyResult.verified && (
                 <motion.div
                   initial={{ opacity: 0, y: 5 }}
                   animate={{ opacity: 1, y: 0 }}
                   className={`p-4 rounded-xl border ${
-                    verifyResult.verified
-                      ? 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-800'
-                      : verifyResult.verification_status === 'PENDING'
+                    verifyResult.verification_status === 'PENDING'
                       ? 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800'
                       : 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800'
                   }`}
                 >
                   <div className="flex items-center gap-2">
-                    {verifyResult.verified ? (
-                      <><CheckCircle2 className="w-5 h-5 text-emerald-600" />
-                      <span className="font-semibold text-emerald-700 dark:text-emerald-300">Account Verified!</span></>
-                    ) : verifyResult.verification_status === 'PENDING' ? (
+                    {verifyResult.verification_status === 'PENDING' ? (
                       <><Clock className="w-5 h-5 text-amber-500" />
                       <span className="font-semibold text-amber-700 dark:text-amber-300">Verification Pending</span></>
                     ) : (
@@ -1035,28 +1071,78 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
                       <span className="font-semibold text-red-700 dark:text-red-300">Verification Failed</span></>
                     )}
                   </div>
-                  {verifyResult.verified_name && (
-                    <p className="text-sm mt-1 text-gray-700 dark:text-gray-300">
-                      Verified Name: <strong>{verifyResult.verified_name}</strong>
-                    </p>
+                  <p className="text-xs mt-1 text-gray-500">{verifyResult.api_message || verifyResult.error}</p>
+                  {verifyResult.charge_deducted > 0 && (
+                    <p className="text-xs mt-1 text-gray-500">₹{verifyResult.charge_deducted} deducted from wallet</p>
                   )}
-                  <p className="text-xs mt-1 text-gray-500">{verifyResult.api_message}</p>
-                  <p className="text-xs mt-1 text-gray-500">₹{verifyResult.charge_deducted} deducted from wallet</p>
                 </motion.div>
               )}
 
               {/* Verify Button */}
               <button
                 onClick={handleVerifyAccount}
-                disabled={verifying || !newAccNumber || !newIfsc || !newBeneName}
-                className="w-full py-3 rounded-xl bg-gradient-to-r from-emerald-600 to-emerald-700 text-white font-medium shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
+                disabled={verifying || !newAccNumber || !newIfsc || !newBeneName || newAccNumber !== newConfirmAcc}
+                className="w-full py-3.5 rounded-xl bg-gradient-to-r from-emerald-600 via-emerald-600 to-teal-600 text-white font-semibold shadow-lg shadow-emerald-500/20 hover:shadow-xl hover:shadow-emerald-500/30 hover:scale-[1.01] disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 transition-all flex items-center justify-center gap-2"
               >
                 {verifying ? (
-                  <><Loader2 className="w-4 h-4 animate-spin" /> Verifying...</>
+                  <><Loader2 className="w-4 h-4 animate-spin" /> Verifying via Penny Drop...</>
                 ) : (
-                  <><ShieldCheck className="w-4 h-4" /> Verify & Add Account (₹4)</>
+                  <><ShieldCheck className="w-5 h-5" /> Verify & Add Account (₹4)</>
                 )}
               </button>
+            </div>
+            </div>
+
+            {/* Side: Live Preview + Info */}
+            <div className="lg:col-span-1 space-y-4">
+              {/* Live Preview Card */}
+              <motion.div
+                initial={{ opacity: 0, x: 10 }}
+                animate={{ opacity: 1, x: 0 }}
+                className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 p-5 shadow-xl text-white"
+              >
+                <div className="absolute -right-12 -top-12 w-40 h-40 rounded-full bg-emerald-400/20 blur-3xl" />
+                <div className="absolute -left-8 -bottom-8 w-32 h-32 rounded-full bg-blue-400/20 blur-3xl" />
+                <div className="relative">
+                  <div className="flex items-center justify-between mb-6">
+                    <span className="text-xs uppercase tracking-widest text-white/60 font-semibold">Bank Account</span>
+                    <Banknote className="w-5 h-5 text-white/60" />
+                  </div>
+                  <div className="font-mono text-lg tracking-wider mb-5">
+                    {newAccNumber ? newAccNumber.match(/.{1,4}/g)?.join(' ') : '•••• •••• •••• ••••'}
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <p className="text-[10px] uppercase tracking-wider text-white/50 font-semibold mb-1">Holder</p>
+                      <p className="text-sm font-medium truncate">{newBeneName || 'Account Holder'}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] uppercase tracking-wider text-white/50 font-semibold mb-1">IFSC</p>
+                      <p className="text-sm font-mono">{newIfsc || 'XXXX0000000'}</p>
+                    </div>
+                  </div>
+                </div>
+              </motion.div>
+
+              {/* Steps */}
+              <div className="rounded-2xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-5">
+                <h4 className="text-xs uppercase tracking-wider font-semibold text-gray-500 mb-3">How it works</h4>
+                <div className="space-y-3">
+                  {[
+                    { icon: IndianRupee, text: '₹4 deducted from wallet' },
+                    { icon: Send, text: '₹1 sent via IMPS to your account' },
+                    { icon: BadgeCheck, text: 'Bank confirms beneficiary name' },
+                    { icon: Sparkles, text: 'Account verified & ready' },
+                  ].map((step, i) => (
+                    <div key={i} className="flex items-center gap-3">
+                      <div className="w-7 h-7 rounded-lg bg-emerald-50 dark:bg-emerald-900/20 flex items-center justify-center flex-shrink-0">
+                        <step.icon className="w-3.5 h-3.5 text-emerald-600" />
+                      </div>
+                      <p className="text-sm text-gray-700 dark:text-gray-300">{step.text}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
           </div>
         </motion.div>
@@ -1140,6 +1226,136 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
           )}
         </motion.div>
       )}
+
+      {/* ─── CELEBRATION OVERLAY (Account Verified) ─────────────── */}
+      <AnimatePresence>
+        {showCelebration && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+          >
+            <motion.div
+              initial={{ scale: 0.8, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              transition={{ type: 'spring', damping: 18, stiffness: 200 }}
+              className="relative bg-white dark:bg-gray-900 rounded-3xl shadow-2xl max-w-md w-full overflow-hidden"
+            >
+              {/* Animated gradient header */}
+              <div className="relative h-32 bg-gradient-to-br from-emerald-400 via-emerald-500 to-teal-600 overflow-hidden">
+                {/* Floating sparkles */}
+                {[...Array(12)].map((_, i) => (
+                  <motion.div
+                    key={i}
+                    className="absolute"
+                    initial={{
+                      x: Math.random() * 400 - 200,
+                      y: Math.random() * 100,
+                      opacity: 0,
+                      scale: 0,
+                    }}
+                    animate={{
+                      y: [Math.random() * 100, Math.random() * 100 - 50],
+                      opacity: [0, 1, 0],
+                      scale: [0, 1, 0],
+                      rotate: [0, 360],
+                    }}
+                    transition={{
+                      duration: 2 + Math.random() * 2,
+                      repeat: Infinity,
+                      delay: Math.random() * 2,
+                    }}
+                    style={{ left: `${Math.random() * 100}%`, top: `${Math.random() * 100}%` }}
+                  >
+                    <Sparkles className="w-3 h-3 text-white/80" />
+                  </motion.div>
+                ))}
+                {/* Animated check circle */}
+                <motion.div
+                  initial={{ scale: 0, rotate: -180 }}
+                  animate={{ scale: 1, rotate: 0 }}
+                  transition={{ type: 'spring', damping: 10, stiffness: 150, delay: 0.2 }}
+                  className="absolute left-1/2 -translate-x-1/2 -bottom-10 w-20 h-20 rounded-full bg-white dark:bg-gray-900 shadow-xl flex items-center justify-center border-4 border-emerald-500"
+                >
+                  <motion.div
+                    initial={{ scale: 0 }}
+                    animate={{ scale: 1 }}
+                    transition={{ delay: 0.5, type: 'spring', stiffness: 200 }}
+                  >
+                    <CheckCircle2 className="w-10 h-10 text-emerald-500 fill-emerald-100 dark:fill-emerald-900/40" />
+                  </motion.div>
+                </motion.div>
+              </div>
+
+              {/* Content */}
+              <div className="pt-14 pb-6 px-6 text-center">
+                <motion.h3
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.6 }}
+                  className="text-2xl font-bold text-gray-900 dark:text-white mb-1"
+                >
+                  Account Verified!
+                </motion.h3>
+                <motion.p
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ delay: 0.7 }}
+                  className="text-sm text-gray-500 dark:text-gray-400 mb-5"
+                >
+                  Your bank account is ready for settlements
+                </motion.p>
+
+                {verifyResult?.verified_name && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.8 }}
+                    className="bg-gradient-to-br from-emerald-50 to-teal-50 dark:from-emerald-900/20 dark:to-teal-900/20 border border-emerald-200 dark:border-emerald-800 rounded-2xl p-4 mb-5"
+                  >
+                    <div className="flex items-center justify-center gap-2 text-xs text-emerald-700 dark:text-emerald-300 font-medium uppercase tracking-wider mb-2">
+                      <BadgeCheck className="w-3.5 h-3.5" />
+                      Verified by Bank
+                    </div>
+                    <p className="text-xl font-bold text-gray-900 dark:text-white tracking-wide">
+                      {verifyResult.verified_name}
+                    </p>
+                    {verifyResult.account?.account_number && (
+                      <p className="text-xs text-gray-500 dark:text-gray-400 font-mono mt-1">
+                        ••••{String(verifyResult.account.account_number).slice(-4)} · {verifyResult.account?.ifsc_code}
+                      </p>
+                    )}
+                  </motion.div>
+                )}
+
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ delay: 0.9 }}
+                  className="flex items-center justify-center gap-2 text-sm text-gray-500 dark:text-gray-400 mb-4"
+                >
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  Redirecting in {celebrationCountdown}s...
+                </motion.div>
+
+                <button
+                  onClick={() => {
+                    setShowCelebration(false)
+                    setVerifyResult(null)
+                    setActiveView('home')
+                  }}
+                  className="w-full py-3 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-semibold shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2"
+                >
+                  Go to Bank Transfer
+                  <ArrowRight className="w-4 h-4" />
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   )
 }
