@@ -72,9 +72,7 @@ export async function GET(request: NextRequest) {
       return addCorsHeaders(request, response)
     }
 
-    // #region agent log
-    console.log('[DBG:a6bed1] GET accounts:', JSON.stringify({ count: accounts?.length || 0, statuses: (accounts || []).map((a: any) => ({ id: a.id?.substring(0,8), verified: a.is_verified, status: a.verification_status })) }))
-    // #endregion
+    console.log('[Settlement-2 Accounts] GET accounts:', accounts?.length || 0)
 
     const response = NextResponse.json({
       success: true,
@@ -132,10 +130,6 @@ export async function POST(request: NextRequest) {
       .eq('ifsc_code', ifsc_code.toUpperCase())
       .maybeSingle()
 
-    // #region agent log
-    console.log('[DBG:a6bed1] POST existing check:', JSON.stringify({ hasExisting: !!existing, isVerified: existing?.is_verified, isActive: existing?.is_active }))
-    // #endregion
-
     if (existing?.is_verified && existing?.is_active) {
       const response = NextResponse.json(
         { success: false, error: 'This account is already verified and active' },
@@ -147,10 +141,6 @@ export async function POST(request: NextRequest) {
     const { data: walletBalance, error: balanceError } = await (supabaseAdmin as any).rpc('get_wallet_balance', {
       p_retailer_id: user.partner_id,
     })
-
-    // #region agent log
-    console.log('[DBG:a6bed1] POST wallet check:', JSON.stringify({ walletBalance, balanceError: balanceError?.message || null, required: VERIFICATION_CHARGE }))
-    // #endregion
 
     if (balanceError || walletBalance === null || walletBalance === undefined) {
       console.error('[Settlement-2 Accounts] Wallet balance error:', balanceError)
@@ -172,6 +162,18 @@ export async function POST(request: NextRequest) {
     }
 
     const refId = `SV2_VERIFY_${user.partner_id}_${Date.now()}`
+
+    // Pre-flight: check if payout service is available before deducting
+    const { getBalance } = await import('@/services/shadval-pay')
+    const balanceCheck = await getBalance()
+    if (balanceCheck.status !== 'SUCCESS') {
+      console.log('[Settlement-2 Accounts] Payout service pre-check failed:', balanceCheck.code, balanceCheck.message)
+      const response = NextResponse.json({
+        success: false,
+        error: 'Payout service is currently unavailable. Please try again later. No charge deducted.',
+      }, { status: 503 })
+      return addCorsHeaders(request, response)
+    }
 
     // Debit verification charge
     const { data: chargeLedgerId, error: chargeError } = await (supabaseAdmin as any).rpc('add_ledger_entry', {
@@ -247,9 +249,54 @@ export async function POST(request: NextRequest) {
 
     const apiResult = await initiateBankTransfer(pennyDropRequest)
 
-    // #region agent log
-    console.log('[DBG:a6bed1] POST penny drop response:', JSON.stringify({ status: apiResult.status, code: apiResult.code, msg: apiResult.message, order_id: apiResult.data?.order_id, utr: apiResult.data?.utr, name: apiResult.data?.fund_account?.name }))
-    // #endregion
+    console.log('[Settlement-2 Accounts] Penny drop response:', JSON.stringify({ status: apiResult.status, code: apiResult.code, msg: apiResult.message }))
+
+    // SP105 = Payout service unavailable on provider side — refund the ₹4 charge
+    const isServiceUnavailable = apiResult.code === 'SP105' || apiResult.code === 'NETWORK_ERROR' ||
+      (!apiResult.status && !apiResult.code)
+    if (isServiceUnavailable) {
+      console.log('[Settlement-2 Accounts] Payout service unavailable, refunding ₹4 to retailer:', user.partner_id)
+      await (supabaseAdmin as any).rpc('add_ledger_entry', {
+        p_user_id: user.partner_id,
+        p_user_role: 'retailer',
+        p_wallet_type: 'primary',
+        p_fund_category: 'service',
+        p_service_type: 'shadval_settlement',
+        p_tx_type: 'ACCOUNT_VERIFICATION_REFUND',
+        p_credit: VERIFICATION_CHARGE,
+        p_debit: 0,
+        p_reference_id: `REFUND_${refId}`,
+        p_transaction_id: null,
+        p_status: 'completed',
+        p_remarks: `Auto-refund: Payout service unavailable (${apiResult.code || 'NO_RESPONSE'}). ₹${VERIFICATION_CHARGE} returned.`,
+      }).catch((e: any) => console.error('[Settlement-2 Accounts] Refund failed:', e))
+
+      // Reverse company revenue credit
+      if (revenueLedgerId && revenueUserId) {
+        await (supabaseAdmin as any).rpc('add_ledger_entry', {
+          p_user_id: revenueUserId,
+          p_user_role: revenueUserRole,
+          p_wallet_type: 'primary',
+          p_fund_category: 'revenue',
+          p_service_type: 'shadval_settlement',
+          p_tx_type: 'REVENUE_REVERSAL',
+          p_credit: 0,
+          p_debit: VERIFICATION_CHARGE,
+          p_reference_id: `REV_REFUND_${refId}`,
+          p_transaction_id: null,
+          p_status: 'completed',
+          p_remarks: `Reversal: payout service unavailable for ${account_number}`,
+        }).catch((e: any) => console.error('[Settlement-2 Accounts] Revenue reversal failed:', e))
+      }
+
+      const response = NextResponse.json({
+        success: false,
+        error: 'Payout service is currently unavailable. Your ₹4 verification charge has been refunded. Please try again later.',
+        refunded: true,
+        charge_refunded: VERIFICATION_CHARGE,
+      }, { status: 503 })
+      return addCorsHeaders(request, response)
+    }
 
     let finalStatus = apiResult.status
     let verifiedName = apiResult.data?.fund_account?.name || null
@@ -290,10 +337,6 @@ export async function POST(request: NextRequest) {
 
     const isSuccess = finalStatus === 'SUCCESS'
     const verificationStatus = isSuccess ? 'SUCCESS' : finalStatus === 'FAILED' ? 'FAILED' : 'PENDING'
-
-    // #region agent log
-    console.log('[DBG:a6bed1] POST final decision:', JSON.stringify({ isSuccess, finalStatus, verifiedName, verificationStatus }))
-    // #endregion
 
     // Try full insert first, fallback to basic columns if schema is stale
     let accountRecord: any = null
@@ -353,10 +396,6 @@ export async function POST(request: NextRequest) {
         accountRecord = data; dbError = error
       }
     }
-
-    // #region agent log
-    console.log('[DBG:a6bed1] POST DB result:', JSON.stringify({ ok: !dbError, err: dbError?.message || null, code: dbError?.code || null, hasRecord: !!accountRecord }))
-    // #endregion
 
     if (dbError) {
       console.error('[Settlement-2 Accounts] DB save failed, refunding charge:', dbError)
@@ -448,10 +487,6 @@ export async function PATCH(request: NextRequest) {
     })
 
     const statusResult = await checkTransactionStatus({ reference_id: account.verification_ref_id })
-
-    // #region agent log
-    console.log('[DBG:a6bed1] PATCH status check:', JSON.stringify({ ref: account.verification_ref_id, apiStatus: statusResult.status, code: statusResult.code, txnStatus: statusResult.data?.txn_status, name: statusResult.data?.fund_account?.name, utr: statusResult.data?.utr }))
-    // #endregion
 
     if (statusResult.status === 'SUCCESS' && statusResult.data) {
       const txnStatus = statusResult.data.txn_status?.toLowerCase() || ''

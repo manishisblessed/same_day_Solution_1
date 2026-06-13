@@ -166,6 +166,14 @@ export async function initiateBankTransfer(
     clearTimeout(timeoutId)
 
     const data: ShadvalTransferResponse = await response.json()
+
+    // Handle malformed response from provider (e.g. .NET exceptions)
+    if (!data.status && !data.code) {
+      const errorMsg = (data as any).Message || (data as any).ExceptionMessage || 'Unknown provider error'
+      logError('transfer', reqId, `Malformed response: ${errorMsg}`)
+      return { status: 'FAILED', code: 'SP105', message: 'Payout service is currently unavailable.Payout service will be up and running very soon. Thank you for your patience !!' }
+    }
+
     log('transfer', reqId, { status: data.status, code: data.code, order_id: data.data?.order_id })
     return data
   } catch (error: any) {
