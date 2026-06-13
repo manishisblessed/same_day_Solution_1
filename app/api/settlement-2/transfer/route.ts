@@ -161,7 +161,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Check wallet balance (only charges are deducted from retailer wallet)
+    // Check wallet balance (transfer amount + charges must be available)
     const { data: walletBalance, error: balanceError } = await (supabaseAdmin as any).rpc('get_wallet_balance', {
       p_retailer_id: user.partner_id,
     })
@@ -171,12 +171,14 @@ export async function POST(request: NextRequest) {
       return addCorsHeaders(request, response)
     }
 
-    if (charges > 0 && walletBalance < charges) {
+    const totalRequired = amountNum + charges
+    if (walletBalance < totalRequired) {
       const response = NextResponse.json(
         {
           success: false,
-          error: 'Insufficient wallet balance for settlement charges',
+          error: `Insufficient wallet balance. Required: ₹${totalRequired.toFixed(2)} (₹${amountNum} transfer + ₹${charges} charges). Available: ₹${walletBalance.toFixed(2)}`,
           wallet_balance: walletBalance,
+          required: totalRequired,
           charges,
         },
         { status: 400 }
@@ -217,7 +219,7 @@ export async function POST(request: NextRequest) {
         account_holder_name: account.account_holder_name,
         amount: amountNum,
         charges,
-        total_debit: charges,
+        total_debit: amountNum + charges,
         mode,
         reference_id: refId,
         status: 'PENDING',
@@ -241,7 +243,33 @@ export async function POST(request: NextRequest) {
       return addCorsHeaders(request, response)
     }
 
-    // Debit charges from retailer wallet (only charges, not the transfer amount)
+    // Debit transfer amount from retailer wallet
+    const { data: transferLedgerId, error: transferLedgerError } = await (supabaseAdmin as any).rpc('add_ledger_entry', {
+      p_user_id: user.partner_id,
+      p_user_role: 'retailer',
+      p_wallet_type: 'primary',
+      p_fund_category: 'service',
+      p_service_type: 'shadval_settlement',
+      p_tx_type: 'SETTLEMENT2_TRANSFER',
+      p_credit: 0,
+      p_debit: amountNum,
+      p_reference_id: refId,
+      p_transaction_id: txRecord.id,
+      p_status: 'completed',
+      p_remarks: `Settlement-2 transfer ₹${amountNum} to ${account.account_number} (${account.account_holder_name})`,
+    })
+
+    if (transferLedgerError) {
+      console.error('[Settlement-2] Transfer debit failed:', transferLedgerError)
+      await supabaseAdmin
+        .from('shadval_settlement')
+        .update({ status: 'FAILED', status_message: 'Transfer amount debit failed' })
+        .eq('id', txRecord.id)
+      const response = NextResponse.json({ success: false, error: 'Failed to debit transfer amount from wallet' }, { status: 500 })
+      return addCorsHeaders(request, response)
+    }
+
+    // Debit charges from retailer wallet
     let chargeLedgerId: string | null = null
     if (charges > 0) {
       const { data: ledgerId, error: ledgerError } = await (supabaseAdmin as any).rpc('add_ledger_entry', {
