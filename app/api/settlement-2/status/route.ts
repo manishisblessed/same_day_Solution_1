@@ -54,9 +54,10 @@ export async function POST(request: NextRequest) {
     const apiResult = await checkTransactionStatus({ reference_id })
 
     if (apiResult.status === 'SUCCESS' && apiResult.data) {
-      const newStatus = apiResult.data.txn_status?.toLowerCase().includes('success')
+      const txnStatusLower = apiResult.data.txn_status?.toLowerCase() || ''
+      const newStatus = (txnStatusLower.includes('success') && !txnStatusLower.includes('refund'))
         ? 'SUCCESS'
-        : apiResult.data.txn_status?.toLowerCase().includes('fail')
+        : (txnStatusLower.includes('fail') || txnStatusLower.includes('refund'))
         ? 'FAILED'
         : 'PENDING'
 

@@ -67,7 +67,7 @@ export interface ShadvalStatusResponse extends ShadvalBaseResponse {
     txn_datetime: string
     txn_status: string
     reference_id: string
-    status_message: string
+    status_message?: string
     order_id: string
     trans_amount: number
     utr: string
@@ -76,6 +76,9 @@ export interface ShadvalStatusResponse extends ShadvalBaseResponse {
     wallet: {
       transaction: ShadvalWalletInfo & {
         debit_datetime: string
+      }
+      reversal?: ShadvalWalletInfo & {
+        reversal_datetime: string
       }
     }
     fund_account: ShadvalFundAccount
@@ -118,4 +121,5 @@ export const SHADVAL_CODES = {
   SP103: 'Provide valid Content-Type in header',
   SP104: 'Wrong authorization token / IP not whitelisted / Bad Request',
   SP105: 'Duplicate reference number',
+  SP106: 'Transaction not found for this reference_id',
 } as const

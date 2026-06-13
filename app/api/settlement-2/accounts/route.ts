@@ -319,13 +319,13 @@ export async function POST(request: NextRequest) {
           })
           if (statusResult.status === 'SUCCESS' && statusResult.data) {
             const txnStatus = statusResult.data.txn_status?.toLowerCase() || ''
-            if (txnStatus.includes('success')) {
+            if (txnStatus.includes('success') && !txnStatus.includes('refund')) {
               finalStatus = 'SUCCESS'
               verifiedName = statusResult.data.fund_account?.name || verifiedName
               resolvedOrderId = statusResult.data.order_id || resolvedOrderId
               resolvedUtr = statusResult.data.utr || resolvedUtr
               break
-            } else if (txnStatus.includes('fail')) {
+            } else if (txnStatus.includes('fail') || txnStatus.includes('refund')) {
               finalStatus = 'FAILED'
               break
             }
@@ -494,10 +494,10 @@ export async function PATCH(request: NextRequest) {
       let newVerificationStatus = 'PENDING'
       let isVerified = false
 
-      if (txnStatus.includes('success')) {
+      if (txnStatus.includes('success') && !txnStatus.includes('refund')) {
         newVerificationStatus = 'SUCCESS'
         isVerified = true
-      } else if (txnStatus.includes('fail')) {
+      } else if (txnStatus.includes('fail') || txnStatus.includes('refund')) {
         newVerificationStatus = 'FAILED'
       }
 
