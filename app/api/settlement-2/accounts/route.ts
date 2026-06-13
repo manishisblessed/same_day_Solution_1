@@ -251,9 +251,10 @@ export async function POST(request: NextRequest) {
 
     console.log('[Settlement-2 Accounts] Penny drop response:', JSON.stringify({ status: apiResult.status, code: apiResult.code, msg: apiResult.message }))
 
-    // SP105 = Payout service unavailable on provider side — refund the ₹4 charge
-    const isServiceUnavailable = apiResult.code === 'SP105' || apiResult.code === 'NETWORK_ERROR' ||
-      (!apiResult.status && !apiResult.code)
+    // Refund ₹4 if failure is due to provider issue (not user's fault)
+    const isServiceUnavailable = apiResult.code === 'PROVIDER_ERROR' || apiResult.code === 'NETWORK_ERROR' ||
+      (!apiResult.status && !apiResult.code) ||
+      (apiResult.status === 'FAILED' && apiResult.message?.toLowerCase().includes('service is currently unavailable'))
     if (isServiceUnavailable) {
       console.log('[Settlement-2 Accounts] Payout service unavailable, refunding ₹4 to retailer:', user.partner_id)
       await (supabaseAdmin as any).rpc('add_ledger_entry', {

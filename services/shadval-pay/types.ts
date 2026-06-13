@@ -116,6 +116,6 @@ export interface ShadvalPayTransaction {
 export const SHADVAL_CODES = {
   SP100: 'Success',
   SP103: 'Provide valid Content-Type in header',
-  SP104: 'Wrong authorization token / IP not whitelisted',
-  SP105: 'Payout service unavailable',
+  SP104: 'Wrong authorization token / IP not whitelisted / Bad Request',
+  SP105: 'Duplicate reference number',
 } as const

@@ -171,7 +171,7 @@ export async function initiateBankTransfer(
     if (!data.status && !data.code) {
       const errorMsg = (data as any).Message || (data as any).ExceptionMessage || 'Unknown provider error'
       logError('transfer', reqId, `Malformed response: ${errorMsg}`)
-      return { status: 'FAILED', code: 'SP105', message: 'Payout service is currently unavailable.Payout service will be up and running very soon. Thank you for your patience !!' }
+      return { status: 'FAILED', code: 'PROVIDER_ERROR', message: 'Payout service is currently unavailable. Please try again later.' }
     }
 
     log('transfer', reqId, { status: data.status, code: data.code, order_id: data.data?.order_id })
