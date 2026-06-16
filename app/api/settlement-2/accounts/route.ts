@@ -1,15 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
-import { initiateBankTransfer, checkTransactionStatus, generateSignature } from '@/services/shadval-pay'
-import type { ShadvalTransferRequest } from '@/services/shadval-pay'
+import { verifyAccount, getVerificationBalance } from '@/services/shadval-pay'
 import { createClient } from '@supabase/supabase-js'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 const VERIFICATION_CHARGE = 4.00
-const PENNY_DROP_AMOUNT = 1.00
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -163,14 +161,13 @@ export async function POST(request: NextRequest) {
 
     const refId = `SV2_VERIFY_${user.partner_id}_${Date.now()}`
 
-    // Pre-flight: check if payout service is available before deducting
-    const { getBalance } = await import('@/services/shadval-pay')
-    const balanceCheck = await getBalance()
+    // Pre-flight: check verification wallet balance
+    const balanceCheck = await getVerificationBalance()
     if (balanceCheck.status !== 'SUCCESS') {
-      console.log('[Settlement-2 Accounts] Payout service pre-check failed:', balanceCheck.code, balanceCheck.message)
+      console.log('[Settlement-2 Accounts] Verification service pre-check failed:', balanceCheck.code, balanceCheck.message)
       const response = NextResponse.json({
         success: false,
-        error: 'Payout service is currently unavailable. Please try again later. No charge deducted.',
+        error: 'Verification service is currently unavailable. Please try again later. No charge deducted.',
       }, { status: 503 })
       return addCorsHeaders(request, response)
     }
@@ -220,43 +217,35 @@ export async function POST(request: NextRequest) {
       else console.error('[Settlement-2 Accounts] Revenue credit error:', revError)
     }
 
-    // Penny drop via ShadvalPay
-    const pennyDropRequest: ShadvalTransferRequest = {
-      amount: PENNY_DROP_AMOUNT,
-      mode: 'IMPS',
-      fund_account: {
-        name: account_holder_name.trim(),
-        ifsc: ifsc_code.toUpperCase(),
-        account_number: account_number,
-      },
-      contact_details: {
-        name: contact_name || user.name || account_holder_name,
-        email: contact_email || user.email || '',
-        mobile: contact_mobile || user.phone || '',
-      },
-      reference_id: refId,
-      latitude: '0',
-      longitude: '0',
-      narration: 'Account Verification',
-    }
-
-    console.log('[Settlement-2 Accounts] Initiating penny drop:', {
+    // Account Verification via ShadvalPay Verification API
+    console.log('[Settlement-2 Accounts] Initiating account verification:', {
       ref: refId,
       account: account_number.substring(0, 4) + '****',
       ifsc: ifsc_code,
       retailer: user.partner_id,
     })
 
-    const apiResult = await initiateBankTransfer(pennyDropRequest)
+    const apiResult = await verifyAccount({
+      account_number,
+      ifsc_code: ifsc_code.toUpperCase(),
+      ref_num: refId,
+      latitude: '0',
+      longitude: '0',
+    })
 
-    console.log('[Settlement-2 Accounts] Penny drop response:', JSON.stringify({ status: apiResult.status, code: apiResult.code, msg: apiResult.message }))
+    console.log('[Settlement-2 Accounts] Verification response:', JSON.stringify({
+      status: apiResult.status,
+      code: apiResult.code,
+      msg: apiResult.message,
+      verification_status: apiResult.data?.verification_status,
+      name_at_bank: apiResult.data?.name_at_bank,
+    }))
 
-    // Refund ₹4 if failure is due to provider issue (not user's fault)
-    const isServiceUnavailable = apiResult.code === 'PROVIDER_ERROR' || apiResult.code === 'NETWORK_ERROR' ||
-      (!apiResult.status && !apiResult.code) ||
-      (apiResult.status === 'FAILED' && apiResult.message?.toLowerCase().includes('service is currently unavailable'))
+    // Refund if service is unavailable (not user's fault)
+    const isServiceUnavailable = apiResult.code === 'NETWORK_ERROR' ||
+      (!apiResult.status && !apiResult.code)
     if (isServiceUnavailable) {
-      console.log('[Settlement-2 Accounts] Payout service unavailable, refunding ₹4 to retailer:', user.partner_id)
+      console.log('[Settlement-2 Accounts] Verification service unavailable, refunding ₹4 to retailer:', user.partner_id)
       await (supabaseAdmin as any).rpc('add_ledger_entry', {
         p_user_id: user.partner_id,
         p_user_role: 'retailer',
@@ -269,10 +258,9 @@ export async function POST(request: NextRequest) {
         p_reference_id: `REFUND_${refId}`,
         p_transaction_id: null,
         p_status: 'completed',
-        p_remarks: `Auto-refund: Payout service unavailable (${apiResult.code || 'NO_RESPONSE'}). ₹${VERIFICATION_CHARGE} returned.`,
+        p_remarks: `Auto-refund: Verification service unavailable (${apiResult.code || 'NO_RESPONSE'}). ₹${VERIFICATION_CHARGE} returned.`,
       }).catch((e: any) => console.error('[Settlement-2 Accounts] Refund failed:', e))
 
-      // Reverse company revenue credit
       if (revenueLedgerId && revenueUserId) {
         await (supabaseAdmin as any).rpc('add_ledger_entry', {
           p_user_id: revenueUserId,
@@ -286,58 +274,25 @@ export async function POST(request: NextRequest) {
           p_reference_id: `REV_REFUND_${refId}`,
           p_transaction_id: null,
           p_status: 'completed',
-          p_remarks: `Reversal: payout service unavailable for ${account_number}`,
+          p_remarks: `Reversal: verification service unavailable for ${account_number}`,
         }).catch((e: any) => console.error('[Settlement-2 Accounts] Revenue reversal failed:', e))
       }
 
       const response = NextResponse.json({
         success: false,
-        error: 'Payout service is currently unavailable. Your ₹4 verification charge has been refunded. Please try again later.',
+        error: 'Verification service is currently unavailable. Your ₹4 verification charge has been refunded. Please try again later.',
         refunded: true,
         charge_refunded: VERIFICATION_CHARGE,
       }, { status: 503 })
       return addCorsHeaders(request, response)
     }
 
-    let finalStatus = apiResult.status
-    let verifiedName = apiResult.data?.fund_account?.name || null
-    let resolvedOrderId = apiResult.data?.order_id || null
-    let resolvedUtr = apiResult.data?.utr || null
-
-    // If PENDING, poll ShadvalPay status API (up to 3 attempts, 3s apart)
-    if (finalStatus === 'PENDING' && refId) {
-      console.log('[Settlement-2 Accounts] Transfer PENDING, polling status for:', refId)
-      for (let attempt = 1; attempt <= 3; attempt++) {
-        await new Promise(r => setTimeout(r, 3000))
-        try {
-          const statusResult = await checkTransactionStatus({ reference_id: refId })
-          console.log(`[Settlement-2 Accounts] Status poll #${attempt}:`, {
-            ref: refId,
-            apiStatus: statusResult.status,
-            txnStatus: statusResult.data?.txn_status,
-            name: statusResult.data?.fund_account?.name,
-          })
-          if (statusResult.status === 'SUCCESS' && statusResult.data) {
-            const txnStatus = statusResult.data.txn_status?.toLowerCase() || ''
-            if (txnStatus.includes('success') && !txnStatus.includes('refund')) {
-              finalStatus = 'SUCCESS'
-              verifiedName = statusResult.data.fund_account?.name || verifiedName
-              resolvedOrderId = statusResult.data.order_id || resolvedOrderId
-              resolvedUtr = statusResult.data.utr || resolvedUtr
-              break
-            } else if (txnStatus.includes('fail') || txnStatus.includes('refund')) {
-              finalStatus = 'FAILED'
-              break
-            }
-          }
-        } catch (pollErr) {
-          console.error(`[Settlement-2 Accounts] Status poll #${attempt} error:`, pollErr)
-        }
-      }
-    }
-
-    const isSuccess = finalStatus === 'SUCCESS'
-    const verificationStatus = isSuccess ? 'SUCCESS' : finalStatus === 'FAILED' ? 'FAILED' : 'PENDING'
+    // Determine verification result
+    const isSuccess = apiResult.status === 'SUCCESS' && apiResult.data?.verification_status === true
+    const isPending = apiResult.status === 'PENDING'
+    const verifiedName = apiResult.data?.name_at_bank?.trim() || null
+    const resolvedOrderId = apiResult.data?.order_id || null
+    const verificationStatus = isSuccess ? 'SUCCESS' : isPending ? 'PENDING' : 'FAILED'
 
     // Try full insert first, fallback to basic columns if schema is stale
     let accountRecord: any = null
@@ -351,7 +306,7 @@ export async function POST(request: NextRequest) {
       is_verified: isSuccess,
       verification_ref_id: refId,
       verification_order_id: resolvedOrderId,
-      verification_utr: resolvedUtr,
+      verification_utr: null,
       verification_status: verificationStatus,
       verification_charges: VERIFICATION_CHARGE,
       verification_ledger_id: chargeLedgerId,
@@ -487,73 +442,59 @@ export async function PATCH(request: NextRequest) {
       accountId: account_id,
     })
 
-    const statusResult = await checkTransactionStatus({ reference_id: account.verification_ref_id })
+    // Re-verify the account using the verification API
+    const recheckResult = await verifyAccount({
+      account_number: account.account_number,
+      ifsc_code: account.ifsc_code,
+      ref_num: `RECHECK_${account.verification_ref_id}`,
+      latitude: '0',
+      longitude: '0',
+    })
 
-    if (statusResult.status === 'SUCCESS' && statusResult.data) {
-      const txnStatus = statusResult.data.txn_status?.toLowerCase() || ''
-      let newVerificationStatus = 'PENDING'
-      let isVerified = false
+    const isVerified = recheckResult.status === 'SUCCESS' && recheckResult.data?.verification_status === true
+    const newVerificationStatus = isVerified ? 'SUCCESS' : recheckResult.status === 'PENDING' ? 'PENDING' : 'FAILED'
+    const verifiedName = recheckResult.data?.name_at_bank?.trim() || null
 
-      if (txnStatus.includes('success') && !txnStatus.includes('refund')) {
-        newVerificationStatus = 'SUCCESS'
-        isVerified = true
-      } else if (txnStatus.includes('fail') || txnStatus.includes('refund')) {
-        newVerificationStatus = 'FAILED'
-      }
+    try {
+      const { error: updateErr } = await supabaseAdmin
+        .from('shadval_settlement_accounts')
+        .update({
+          verification_status: newVerificationStatus,
+          is_verified: isVerified,
+          verification_order_id: recheckResult.data?.order_id || account.verification_order_id,
+          ...(isVerified ? {
+            verified_name: verifiedName || account.verified_name,
+            verified_at: new Date().toISOString(),
+          } : {}),
+        })
+        .eq('id', account_id)
 
-      const updateData: Record<string, any> = {
-        is_verified: isVerified,
-      }
-
-      // Only set extended columns if they exist (catch and ignore column errors)
-      try {
-        const { error: updateErr } = await supabaseAdmin
-          .from('shadval_settlement_accounts')
-          .update({
-            verification_status: newVerificationStatus,
-            is_verified: isVerified,
-            verification_utr: statusResult.data.utr || account.verification_utr,
-            verification_order_id: statusResult.data.order_id || account.verification_order_id,
-            ...(isVerified ? {
-              verified_name: statusResult.data.fund_account?.name || account.verified_name,
-              verified_at: new Date().toISOString(),
-            } : {}),
-          })
-          .eq('id', account_id)
-
-        if (updateErr?.code === 'PGRST204') {
-          await supabaseAdmin
-            .from('shadval_settlement_accounts')
-            .update({ is_verified: isVerified })
-            .eq('id', account_id)
-        }
-      } catch (e) {
+      if (updateErr?.code === 'PGRST204') {
         await supabaseAdmin
           .from('shadval_settlement_accounts')
           .update({ is_verified: isVerified })
           .eq('id', account_id)
       }
-
-      const { data: refreshed } = await supabaseAdmin
+    } catch (e) {
+      await supabaseAdmin
         .from('shadval_settlement_accounts')
-        .select('*')
+        .update({ is_verified: isVerified })
         .eq('id', account_id)
-        .single()
-
-      const response = NextResponse.json({
-        success: true,
-        verified: isVerified,
-        verification_status: newVerificationStatus,
-        account: refreshed || account,
-        txn_status: statusResult.data.txn_status,
-      })
-      return addCorsHeaders(request, response)
     }
 
+    const { data: refreshed } = await supabaseAdmin
+      .from('shadval_settlement_accounts')
+      .select('*')
+      .eq('id', account_id)
+      .single()
+
     const response = NextResponse.json({
-      success: false,
-      error: statusResult.message || 'Status check failed',
-      verification_status: 'PENDING',
+      success: true,
+      verified: isVerified,
+      verification_status: newVerificationStatus,
+      account: refreshed || account,
+      name_at_bank: verifiedName,
+      message: recheckResult.message,
     })
     return addCorsHeaders(request, response)
   } catch (error: any) {

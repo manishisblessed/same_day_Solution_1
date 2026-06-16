@@ -86,6 +86,26 @@ export interface ShadvalStatusResponse extends ShadvalBaseResponse {
   }
 }
 
+export interface ShadvalAccountVerificationRequest {
+  account_number: string
+  ifsc_code: string
+  ref_num: string
+  latitude: string
+  longitude: string
+}
+
+export interface ShadvalAccountVerificationResponse extends ShadvalBaseResponse {
+  data?: {
+    ref_num: string
+    order_id: string
+    account_number: string
+    ifsc_code: string
+    name_at_bank: string
+    verification_status: boolean
+    timestamp: string
+  }
+}
+
 /** Internal transaction record for DB/UI */
 export interface ShadvalPayTransaction {
   id?: string

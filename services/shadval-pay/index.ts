@@ -3,6 +3,6 @@
  * API Version: 1.0.0
  */
 
-export { getBalance, initiateBankTransfer, checkTransactionStatus, generateSignature } from './client'
+export { getBalance, getVerificationBalance, verifyAccount, initiateBankTransfer, checkTransactionStatus, generateSignature } from './client'
 export * from './config'
 export * from './types'

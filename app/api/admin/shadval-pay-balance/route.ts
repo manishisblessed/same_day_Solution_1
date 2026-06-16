@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
-import { getBalance } from '@/services/shadval-pay'
+import { getBalance, getVerificationBalance } from '@/services/shadval-pay'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -38,16 +38,23 @@ export async function GET(request: NextRequest) {
       return addCorsHeaders(request, response)
     }
 
-    const result = await getBalance()
+    const [mainResult, verificationResult] = await Promise.all([
+      getBalance(),
+      getVerificationBalance(),
+    ])
 
-    const balance = result.status === 'SUCCESS' ? Number(result.data?.balance ?? 0) : 0
+    const mainBalance = mainResult.status === 'SUCCESS' ? Number(mainResult.data?.balance ?? 0) : 0
+    const verificationBalance = verificationResult.status === 'SUCCESS' ? Number(verificationResult.data?.balance ?? 0) : 0
 
     const response = NextResponse.json({
-      success: result.status === 'SUCCESS',
-      balance,
-      available_balance: balance,
-      code: result.code,
-      error: result.status !== 'SUCCESS' ? result.message : null,
+      success: mainResult.status === 'SUCCESS' || verificationResult.status === 'SUCCESS',
+      balance: mainBalance,
+      available_balance: mainBalance,
+      verification_balance: verificationBalance,
+      verification_success: verificationResult.status === 'SUCCESS',
+      verification_error: verificationResult.status !== 'SUCCESS' ? verificationResult.message : null,
+      code: mainResult.code,
+      error: mainResult.status !== 'SUCCESS' ? mainResult.message : null,
       provider: 'SHADVAL PAY PRIVATE LIMITED',
       service_name: 'Payout (IMPS/NEFT/RTGS)',
       last_checked: new Date().toISOString(),

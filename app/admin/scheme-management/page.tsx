@@ -36,6 +36,7 @@ interface Scheme {
   mdr_rates?: any[]
   aeps_commissions?: any[]
   aeps_settlement_charges?: any[]
+  shadval_settlement_charges?: any[]
   mappings?: any[]
   mapping_count?: number
   // Creator details (resolved from partner tables)
@@ -87,7 +88,7 @@ function SchemeManagementPageContent() {
   
   // Config modals
   const [showConfigModal, setShowConfigModal] = useState(false)
-  const [configType, setConfigType] = useState<'bbps' | 'payout' | 'mdr' | 'aeps' | 'aeps_settlement'>('bbps')
+  const [configType, setConfigType] = useState<'bbps' | 'payout' | 'mdr' | 'aeps' | 'aeps_settlement' | 'shadval_settlement'>('bbps')
   const [configSchemeId, setConfigSchemeId] = useState<string>('')
   
   // Mapping modal
@@ -221,12 +222,13 @@ function SchemeManagementPageContent() {
     
     setExpandingSchemeId(schemeId)
     try {
-    const [bbps, payout, mdr, aeps, aepsSettle, mappings] = await Promise.all([
+    const [bbps, payout, mdr, aeps, aepsSettle, shadvalSettle, mappings] = await Promise.all([
       supabase.from('scheme_bbps_commissions').select('*').eq('scheme_id', schemeId).eq('status', 'active').order('min_amount'),
       supabase.from('scheme_payout_charges').select('*').eq('scheme_id', schemeId).eq('status', 'active').order('transfer_mode'),
       supabase.from('scheme_mdr_rates').select('*').eq('scheme_id', schemeId).eq('status', 'active').order('mode'),
       supabase.from('scheme_aeps_commissions').select('*').eq('scheme_id', schemeId).eq('status', 'active').order('transaction_type').order('min_amount'),
       supabase.from('scheme_aeps_settlement_charges').select('*').eq('scheme_id', schemeId).eq('status', 'active').order('min_amount'),
+      supabase.from('scheme_shadval_settlement_charges').select('*').eq('scheme_id', schemeId).eq('status', 'active').order('transfer_mode'),
       supabase.from('scheme_mappings').select('*').eq('scheme_id', schemeId).eq('status', 'active'),
     ])
 
@@ -255,6 +257,7 @@ function SchemeManagementPageContent() {
       mdr_rates: mdr.data || [],
       aeps_commissions: aeps.data || [],
       aeps_settlement_charges: aepsSettle.data || [],
+      shadval_settlement_charges: shadvalSettle.data || [],
       mappings: enrichedMappings,
       // Auto-detect partner plan from mappings (if any mapping is entity_role='partner')
       is_partner_plan: s.is_partner_plan || enrichedMappings.some((m: any) => m.entity_role === 'partner'),
@@ -456,7 +459,21 @@ function SchemeManagementPageContent() {
     company_charge_type: 'flat' as 'flat' | 'percentage',
   })
 
-  const openConfigModal = (schemeId: string, type: 'bbps' | 'payout' | 'mdr' | 'aeps' | 'aeps_settlement') => {
+  const [shadvalSettleForm, setShadvalSettleForm] = useState({
+    transfer_mode: 'IMPS' as 'IMPS' | 'NEFT',
+    min_amount: 0,
+    max_amount: 100000,
+    retailer_charge: 0,
+    retailer_charge_type: 'flat' as 'flat' | 'percentage',
+    distributor_commission: 0,
+    distributor_commission_type: 'flat' as 'flat' | 'percentage',
+    md_commission: 0,
+    md_commission_type: 'flat' as 'flat' | 'percentage',
+    company_charge: 0,
+    company_charge_type: 'flat' as 'flat' | 'percentage',
+  })
+
+  const openConfigModal = (schemeId: string, type: 'bbps' | 'payout' | 'mdr' | 'aeps' | 'aeps_settlement' | 'shadval_settlement') => {
     setConfigSchemeId(schemeId)
     setConfigType(type)
     // Reset forms
@@ -596,6 +613,23 @@ function SchemeManagementPageContent() {
           md_commission_type: aepsSettleForm.md_commission_type,
           company_charge: aepsSettleForm.company_charge,
           company_charge_type: aepsSettleForm.company_charge_type,
+          status: 'active',
+        })
+        if (error) throw error
+      } else if (configType === 'shadval_settlement') {
+        const { error } = await supabase.from('scheme_shadval_settlement_charges').insert({
+          scheme_id: configSchemeId,
+          transfer_mode: shadvalSettleForm.transfer_mode,
+          min_amount: shadvalSettleForm.min_amount,
+          max_amount: shadvalSettleForm.max_amount,
+          retailer_charge: shadvalSettleForm.retailer_charge,
+          retailer_charge_type: shadvalSettleForm.retailer_charge_type,
+          distributor_commission: shadvalSettleForm.distributor_commission,
+          distributor_commission_type: shadvalSettleForm.distributor_commission_type,
+          md_commission: shadvalSettleForm.md_commission,
+          md_commission_type: shadvalSettleForm.md_commission_type,
+          company_charge: shadvalSettleForm.company_charge,
+          company_charge_type: shadvalSettleForm.company_charge_type,
           status: 'active',
         })
         if (error) throw error
@@ -922,6 +956,10 @@ function SchemeManagementPageContent() {
                     <button onClick={(e) => { e.stopPropagation(); openConfigModal(scheme.id, 'aeps_settlement') }}
                       className="p-1.5 rounded-lg hover:bg-purple-50 dark:hover:bg-purple-900/20 text-purple-600" title="Add AEPS Settlement Charge">
                       <DollarSign className="w-4 h-4" />
+                    </button>
+                    <button onClick={(e) => { e.stopPropagation(); openConfigModal(scheme.id, 'shadval_settlement') }}
+                      className="p-1.5 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-900/20 text-rose-600" title="Add Settlement-2 Charge">
+                      <Banknote className="w-4 h-4" />
                     </button>
                     <button onClick={(e) => { e.stopPropagation(); openMappingModal(scheme.id) }}
                       className="p-1.5 rounded-lg hover:bg-purple-50 dark:hover:bg-purple-900/20 text-purple-600" title="Map to User">
@@ -1254,6 +1292,52 @@ function SchemeManagementPageContent() {
                       )}
                     </div>
 
+                    {/* Settlement-2 (Shadval) Charges */}
+                    <div>
+                      <h4 className="font-semibold text-sm text-rose-700 dark:text-rose-400 mb-2 flex items-center gap-1">
+                        <Banknote className="w-4 h-4" /> Settlement-2 Charges ({scheme.shadval_settlement_charges?.length || 0})
+                      </h4>
+                      {scheme.shadval_settlement_charges && scheme.shadval_settlement_charges.length > 0 ? (
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-xs">
+                            <thead>
+                              <tr className="bg-rose-50 dark:bg-rose-900/20">
+                                <th className="px-2 py-1.5 text-left">Mode</th>
+                                <th className="px-2 py-1.5 text-left">Slab</th>
+                                <th className="px-2 py-1.5 text-right">Retailer Charge</th>
+                                <th className="px-2 py-1.5 text-right">Dist Comm</th>
+                                <th className="px-2 py-1.5 text-right">MD Comm</th>
+                                <th className="px-2 py-1.5 text-right">Company</th>
+                                <th className="px-2 py-1.5"></th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {scheme.shadval_settlement_charges.map((c: any) => {
+                                const fmt = (v: number, t: string) => t === 'percentage' ? `${v}%` : `₹${v}`
+                                return (
+                                  <tr key={c.id} className="border-b border-gray-100 dark:border-gray-700">
+                                    <td className="px-2 py-1.5 font-medium">{c.transfer_mode}</td>
+                                    <td className="px-2 py-1.5">₹{c.min_amount} - {c.max_amount >= 999999 ? '∞' : `₹${c.max_amount}`}</td>
+                                    <td className="px-2 py-1.5 text-right font-medium">{fmt(c.retailer_charge, c.retailer_charge_type)}</td>
+                                    <td className="px-2 py-1.5 text-right">{fmt(c.distributor_commission, c.distributor_commission_type)}</td>
+                                    <td className="px-2 py-1.5 text-right">{fmt(c.md_commission, c.md_commission_type)}</td>
+                                    <td className="px-2 py-1.5 text-right">{fmt(c.company_charge, c.company_charge_type)}</td>
+                                    <td className="px-2 py-1.5 text-right">
+                                      <button onClick={() => handleDeleteConfig('scheme_shadval_settlement_charges', c.id)} disabled={deletingConfigId === c.id} className="text-red-400 hover:text-red-600 disabled:opacity-50">
+                                        {deletingConfigId === c.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
+                                      </button>
+                                    </td>
+                                  </tr>
+                                )
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      ) : (
+                        <p className="text-xs text-gray-400 italic">No Settlement-2 charges configured</p>
+                      )}
+                    </div>
+
                     {/* Mappings */}
                     <div>
                       <h4 className="font-semibold text-sm text-purple-700 dark:text-purple-400 mb-2 flex items-center gap-1">
@@ -1329,6 +1413,7 @@ function SchemeManagementPageContent() {
                       <option value="mdr">MDR Only</option>
                       <option value="aeps">AEPS Commission Only</option>
                       <option value="aeps_settlement">AEPS Settlement Only</option>
+                      <option value="shadval_settlement">Settlement-2 Only</option>
                     </select>
                   </div>
                 </div>
@@ -1374,6 +1459,7 @@ function SchemeManagementPageContent() {
                   {configType === 'mdr' && <><TrendingUp className="w-5 h-5 text-orange-600" /> Add MDR Rate</>}
                   {configType === 'aeps' && <><Banknote className="w-5 h-5 text-teal-600" /> Add AEPS Commission</>}
                   {configType === 'aeps_settlement' && <><DollarSign className="w-5 h-5 text-purple-600" /> Add AEPS Settlement Charge</>}
+                  {configType === 'shadval_settlement' && <><Banknote className="w-5 h-5 text-rose-600" /> Add Settlement-2 Charge</>}
                 </h2>
               </div>
 
@@ -1786,6 +1872,58 @@ function SchemeManagementPageContent() {
                   </div>
                 </div>
               )}
+
+              {/* Settlement-2 (Shadval Pay) Form */}
+              {configType === 'shadval_settlement' && (
+                <div className="space-y-2">
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Transfer Mode</label>
+                    <select value={shadvalSettleForm.transfer_mode} onChange={(e) => setShadvalSettleForm({ ...shadvalSettleForm, transfer_mode: e.target.value as any })}
+                      className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700">
+                      <option value="IMPS">IMPS</option>
+                      <option value="NEFT">NEFT</option>
+                    </select>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Min Amount (₹)</label>
+                      <input type="number" value={shadvalSettleForm.min_amount} onChange={(e) => setShadvalSettleForm({ ...shadvalSettleForm, min_amount: parseFloat(e.target.value) || 0 })}
+                        className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Max Amount (₹)</label>
+                      <input type="number" value={shadvalSettleForm.max_amount} onChange={(e) => setShadvalSettleForm({ ...shadvalSettleForm, max_amount: parseFloat(e.target.value) || 100000 })}
+                        className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
+                    </div>
+                  </div>
+                  <p className="text-xs text-gray-500">Retailer charge is deducted on Settlement-2 (ShadvalPay payout). Margins go to DT/MD/Company.</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {[
+                    { label: 'Retailer Charge (deducted)', key: 'retailer_charge', typeKey: 'retailer_charge_type' },
+                    { label: 'Distributor Margin', key: 'distributor_commission', typeKey: 'distributor_commission_type' },
+                    { label: 'MD Margin', key: 'md_commission', typeKey: 'md_commission_type' },
+                    { label: 'Company Earning', key: 'company_charge', typeKey: 'company_charge_type' },
+                  ].map(({ label, key, typeKey }) => (
+                    <div key={key} className="grid grid-cols-3 gap-2 items-end">
+                      <div className="col-span-2">
+                        <label className="block text-xs font-medium mb-1">{label}</label>
+                        <input type="number" step="0.01" value={(shadvalSettleForm as any)[key]}
+                          onChange={(e) => setShadvalSettleForm({ ...shadvalSettleForm, [key]: parseFloat(e.target.value) || 0 })}
+                          className="w-full px-3 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
+                      </div>
+                      <div>
+                        <select value={(shadvalSettleForm as any)[typeKey]}
+                          onChange={(e) => setShadvalSettleForm({ ...shadvalSettleForm, [typeKey]: e.target.value })}
+                          className="w-full px-2 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700">
+                          <option value="flat">₹ Flat</option>
+                          <option value="percentage">% Pct</option>
+                        </select>
+                      </div>
+                    </div>
+                  ))}
+                  </div>
+                </div>
+              )}
               </div>
 
               <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700 shrink-0 flex justify-end gap-2">
@@ -1839,6 +1977,7 @@ function SchemeManagementPageContent() {
                     <option value="mdr">MDR Only</option>
                     <option value="aeps">AEPS Commission Only</option>
                     <option value="aeps_settlement">AEPS Settlement Only</option>
+                    <option value="shadval_settlement">Settlement-2 Only</option>
                   </select>
                 </div>
               </div>

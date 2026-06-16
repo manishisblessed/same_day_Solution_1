@@ -6,8 +6,11 @@
 import { createHmac } from 'crypto'
 import {
   getShadvalKey,
+  getShadvalVerificationKey,
   getShadvalBaseUrl,
   getShadvalBalanceEndpoint,
+  getShadvalVerificationBalanceEndpoint,
+  getShadvalAccountVerificationEndpoint,
   getShadvalPayoutEndpoint,
   getShadvalStatusEndpoint,
   getShadvalTimeout,
@@ -16,6 +19,8 @@ import {
 } from './config'
 import type {
   ShadvalBalanceResponse,
+  ShadvalAccountVerificationRequest,
+  ShadvalAccountVerificationResponse,
   ShadvalTransferRequest,
   ShadvalTransferResponse,
   ShadvalStatusRequest,
@@ -39,6 +44,13 @@ function getAuthHeaders(): Record<string, string> {
   return {
     'Content-Type': 'application/json',
     'Authorization': getShadvalKey(),
+  }
+}
+
+function getVerificationAuthHeaders(): Record<string, string> {
+  return {
+    'Content-Type': 'application/json',
+    'Authorization': getShadvalVerificationKey(),
   }
 }
 
@@ -94,6 +106,156 @@ export async function getBalance(): Promise<ShadvalBalanceResponse> {
       ? `Request timeout after ${getShadvalTimeout()}ms`
       : error.message || 'Network error'
     logError('balance', reqId, msg)
+    return { status: 'FAILED', code: 'NETWORK_ERROR', message: msg }
+  }
+}
+
+// ── Verification Wallet Balance Check ─────────────────────────────
+
+export async function getVerificationBalance(): Promise<ShadvalBalanceResponse> {
+  const reqId = `SVVBAL_${Date.now()}`
+
+  if (isShadvalMockMode()) {
+    log('verification_balance', reqId, { mode: 'MOCK' })
+    return {
+      status: 'SUCCESS',
+      code: 'SP100',
+      message: 'Verification Wallet Balance Fetched Successfully.',
+      data: { balance: 500.00 },
+    }
+  }
+
+  validateShadvalCredentials()
+  log('verification_balance', reqId)
+
+  const url = `${getShadvalBaseUrl()}/${getShadvalVerificationBalanceEndpoint()}`
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), getShadvalTimeout())
+
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: getVerificationAuthHeaders(),
+      body: JSON.stringify({}),
+      signal: controller.signal,
+    })
+    clearTimeout(timeoutId)
+
+    const data: ShadvalBalanceResponse = await response.json()
+    log('verification_balance', reqId, { status: data.status, code: data.code, url })
+    return data
+  } catch (error: any) {
+    clearTimeout(timeoutId)
+    const msg = error.name === 'AbortError'
+      ? `Request timeout after ${getShadvalTimeout()}ms`
+      : error.message || 'Network error'
+    logError('verification_balance', reqId, msg)
+    return { status: 'FAILED', code: 'NETWORK_ERROR', message: msg }
+  }
+}
+
+// ── Account Verification ──────────────────────────────────────────
+
+/**
+ * Signature: ShadvalKey + " payload " + account_number + " " + ifsc_code + " " + ref_num
+ * Uses verification key. Passed in header as "Payload"
+ */
+function generateVerificationSignature(accountNumber: string, ifscCode: string, refNum: string): string {
+  const key = getShadvalVerificationKey()
+  const plainText = `${key} payload ${accountNumber} ${ifscCode} ${refNum}`
+  return createHmac('sha256', key).update(plainText).digest('hex')
+}
+
+export async function verifyAccount(
+  request: ShadvalAccountVerificationRequest
+): Promise<ShadvalAccountVerificationResponse> {
+  const reqId = `SVAV_${Date.now()}`
+
+  if (isShadvalMockMode()) {
+    log('account_verification', reqId, { mode: 'MOCK', ref: request.ref_num })
+    const acct = request.account_number
+    if (acct === '1122334477') {
+      return {
+        status: 'PENDING',
+        code: 'SP301',
+        message: 'Transaction Under Process',
+        data: {
+          ref_num: request.ref_num,
+          order_id: `MOCK_AV_${Date.now()}`,
+          account_number: request.account_number,
+          ifsc_code: request.ifsc_code,
+          name_at_bank: '',
+          verification_status: false,
+          timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19),
+        },
+      }
+    }
+    if (acct === '1122334466') {
+      return {
+        status: 'FAILED',
+        code: 'SP402',
+        message: 'Invalid Account Number',
+        data: {
+          ref_num: request.ref_num,
+          order_id: `MOCK_AV_${Date.now()}`,
+          account_number: request.account_number,
+          ifsc_code: request.ifsc_code,
+          name_at_bank: '',
+          verification_status: false,
+          timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19),
+        },
+      }
+    }
+    return {
+      status: 'SUCCESS',
+      code: 'SP100',
+      message: 'Transaction Successful',
+      data: {
+        ref_num: request.ref_num,
+        order_id: `MOCK_AV_${Date.now()}`,
+        account_number: request.account_number,
+        ifsc_code: request.ifsc_code,
+        name_at_bank: 'MOCK TEST USER',
+        verification_status: true,
+        timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19),
+      },
+    }
+  }
+
+  validateShadvalCredentials()
+  const signature = generateVerificationSignature(request.account_number, request.ifsc_code, request.ref_num)
+  log('account_verification', reqId, { ref: request.ref_num, account: request.account_number })
+
+  const url = `${getShadvalBaseUrl()}/${getShadvalAccountVerificationEndpoint()}`
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), getShadvalTimeout())
+
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        ...getVerificationAuthHeaders(),
+        'Payload': signature,
+      },
+      body: JSON.stringify(request),
+      signal: controller.signal,
+    })
+    clearTimeout(timeoutId)
+
+    const data: ShadvalAccountVerificationResponse = await response.json()
+    log('account_verification', reqId, {
+      status: data.status,
+      code: data.code,
+      verification_status: data.data?.verification_status,
+      name_at_bank: data.data?.name_at_bank,
+    })
+    return data
+  } catch (error: any) {
+    clearTimeout(timeoutId)
+    const msg = error.name === 'AbortError'
+      ? `Request timeout after ${getShadvalTimeout()}ms`
+      : error.message || 'Network error'
+    logError('account_verification', reqId, msg)
     return { status: 'FAILED', code: 'NETWORK_ERROR', message: msg }
   }
 }

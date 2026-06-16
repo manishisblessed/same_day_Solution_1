@@ -1764,6 +1764,9 @@ function AdminDashboardOverview({
     success: boolean
     balance: number
     available_balance: number
+    verification_balance: number
+    verification_success: boolean
+    verification_error?: string
     error?: string
     last_checked: string
   } | null>(null)
@@ -1849,6 +1852,9 @@ function AdminDashboardOverview({
           success: true,
           balance: data.balance || 0,
           available_balance: data.available_balance || 0,
+          verification_balance: data.verification_balance || 0,
+          verification_success: data.verification_success ?? false,
+          verification_error: data.verification_error || undefined,
           last_checked: data.last_checked || checkedAt,
         })
       } else {
@@ -1856,6 +1862,8 @@ function AdminDashboardOverview({
           success: false,
           balance: 0,
           available_balance: 0,
+          verification_balance: 0,
+          verification_success: false,
           error: data.error || data.message || `HTTP ${response.status}`,
           last_checked: checkedAt,
         })
@@ -1866,6 +1874,8 @@ function AdminDashboardOverview({
         success: false,
         balance: 0,
         available_balance: 0,
+        verification_balance: 0,
+        verification_success: false,
         error: error?.message?.includes('timeout')
           ? 'Request timed out — SHADVAL PAY server may be slow or unreachable.'
           : error?.message || 'Failed to fetch — server may be unreachable.',
@@ -2403,6 +2413,7 @@ function AdminDashboardOverview({
 
         {shadvalBalance ? (
           <div className="space-y-4">
+            {/* Main Wallet */}
             <div className={`rounded-xl p-5 border ${
               shadvalBalance.success
                 ? 'bg-gradient-to-r from-violet-600/20 to-purple-600/20 border-violet-500/30'
@@ -2414,7 +2425,7 @@ function AdminDashboardOverview({
                     <Wallet className="w-5 h-5 text-white" />
                   </div>
                   <div>
-                    <p className="font-semibold text-white">SHADVAL PAY Wallet</p>
+                    <p className="font-semibold text-white">Main Wallet</p>
                     <p className="text-xs text-violet-300/60">Payout, IMPS/NEFT/RTGS Services</p>
                   </div>
                 </div>
@@ -2445,13 +2456,52 @@ function AdminDashboardOverview({
               ) : (
                 <p className="text-sm text-red-400">{shadvalBalance.error || 'Failed to fetch balance'}</p>
               )}
+            </div>
 
-              {shadvalBalance.last_checked && (
-                <p className="text-xs text-violet-300/50 mt-4 text-right">
-                  Last updated: {new Date(shadvalBalance.last_checked).toLocaleString('en-IN')}
-                </p>
+            {/* Verification Wallet */}
+            <div className={`rounded-xl p-5 border ${
+              shadvalBalance.verification_success
+                ? 'bg-gradient-to-r from-cyan-600/20 to-teal-600/20 border-cyan-500/30'
+                : 'bg-red-900/20 border-red-500/30'
+            }`}>
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-cyan-600 rounded-lg">
+                    <Wallet className="w-5 h-5 text-white" />
+                  </div>
+                  <div>
+                    <p className="font-semibold text-white">Verification Wallet</p>
+                    <p className="text-xs text-cyan-300/60">KYC & Verification Services</p>
+                  </div>
+                </div>
+                {shadvalBalance.verification_success ? (
+                  <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-green-500/20 text-green-400">
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span className="text-sm font-medium">Active</span>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-red-500/20 text-red-400">
+                    <XCircle className="w-4 h-4" />
+                    <span className="text-sm font-medium">Error</span>
+                  </div>
+                )}
+              </div>
+
+              {shadvalBalance.verification_success ? (
+                <div className="text-center p-3 bg-cyan-900/30 rounded-lg border border-cyan-500/30">
+                  <p className="text-xs text-cyan-300 mb-1">Available Balance</p>
+                  <p className="text-xl font-bold text-cyan-400">₹{shadvalBalance.verification_balance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</p>
+                </div>
+              ) : (
+                <p className="text-sm text-red-400">{shadvalBalance.verification_error || 'Failed to fetch verification balance'}</p>
               )}
             </div>
+
+            {shadvalBalance.last_checked && (
+              <p className="text-xs text-violet-300/50 text-right">
+                Last updated: {new Date(shadvalBalance.last_checked).toLocaleString('en-IN')}
+              </p>
+            )}
           </div>
         ) : (
           <div className="text-center py-8">

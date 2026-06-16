@@ -8,6 +8,10 @@ export function getShadvalKey(): string {
   return process.env.SHADVAL_PAY_AUTHORIZATION_KEY || process.env.SHADVAL_PAY_KEY || ''
 }
 
+export function getShadvalVerificationKey(): string {
+  return process.env.SHADVAL_PAY_VERIFICATION_KEY || getShadvalKey()
+}
+
 export function getShadvalBaseUrl(): string {
   const isUAT = process.env.SHADVAL_PAY_ENV !== 'production'
   return process.env.SHADVAL_PAY_BASE_URL || 'https://partners.shadvalpay.co.in/api'
@@ -16,6 +20,16 @@ export function getShadvalBaseUrl(): string {
 export function getShadvalBalanceEndpoint(): string {
   const isUAT = process.env.SHADVAL_PAY_ENV !== 'production'
   return isUAT ? 'uat_wallet_balance/get_balance' : 'wallet_balance/get_balance'
+}
+
+export function getShadvalVerificationBalanceEndpoint(): string {
+  const isUAT = process.env.SHADVAL_PAY_ENV !== 'production'
+  return isUAT ? 'uat_wallet_balance/verification_wallet' : 'wallet_balance/verification_wallet'
+}
+
+export function getShadvalAccountVerificationEndpoint(): string {
+  const isUAT = process.env.SHADVAL_PAY_ENV !== 'production'
+  return isUAT ? 'uat_verification/account_verification' : 'verification/account_verification'
 }
 
 export function getShadvalPayoutEndpoint(): string {
