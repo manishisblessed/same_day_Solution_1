@@ -23,13 +23,14 @@ export function getShadvalBalanceEndpoint(): string {
 }
 
 export function getShadvalVerificationBalanceEndpoint(): string {
-  const isUAT = process.env.SHADVAL_PAY_ENV !== 'production'
-  return isUAT ? 'uat_wallet_balance/verification_wallet' : 'wallet_balance/verification_wallet'
+  // Verification APIs use separate credentials that may have different env status
+  const isVerificationUAT = process.env.SHADVAL_PAY_VERIFICATION_ENV !== 'production'
+  return isVerificationUAT ? 'uat_wallet_balance/verification_wallet' : 'wallet_balance/verification_wallet'
 }
 
 export function getShadvalAccountVerificationEndpoint(): string {
-  const isUAT = process.env.SHADVAL_PAY_ENV !== 'production'
-  return isUAT ? 'uat_verification/account_verification' : 'verification/account_verification'
+  const isVerificationUAT = process.env.SHADVAL_PAY_VERIFICATION_ENV !== 'production'
+  return isVerificationUAT ? 'uat_verification/account_verification' : 'verification/account_verification'
 }
 
 export function getShadvalPayoutEndpoint(): string {

@@ -10,6 +10,9 @@ const ALLOWED_ORIGINS = [
   'http://127.0.0.1:3000',
   'http://44.193.29.59:3001',
   'http://44.193.29.59:3000',
+  // POS Partner API Portal
+  'https://samedaysolution-api.in',
+  'https://www.samedaysolution-api.in',
   // Legacy domains (keep temporarily for transition)
   'https://samedaysolution.co.in',
   'https://www.samedaysolution.co.in',

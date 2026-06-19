@@ -1274,30 +1274,51 @@ function AddRetailerModal({ onClose, onSuccess }: { onClose: () => void, onSucce
     }
   }, [aadhaarVerified, aadhaarAddress])
 
+  const fetchDigilockerDocument = async (verification_id: string, reference_id: string) => {
+    try {
+      const res = await apiFetch('/api/kyc/fetch-digilocker-document', {
+        method: 'POST',
+        body: JSON.stringify({ verification_id, reference_id, document_type: 'AADHAAR' })
+      })
+      const data = await res.json()
+      if (data.success && data.data) {
+        const d = data.data
+        setAadhaarVerified(true); setAadhaarName(d.name || ''); setAadhaarUid(d.uid || '')
+        setAadhaarDob(d.dob || ''); setAadhaarGender(d.gender || ''); setAadhaarAddress(d.address || '')
+        if (d.verification_id) setDigilockerVerificationId(d.verification_id)
+        if (d.uid) setFormData(prev => ({ ...prev, aadhar_number: d.uid.replace(/\s/g, '') }))
+      } else { setDigilockerError(data.error || 'Failed to fetch Aadhaar data') }
+    } catch (err: any) { setDigilockerError(err.message || 'Failed to fetch Aadhaar data') }
+  }
+
+  const handleDigilockerResult = (result: any) => {
+    if (result.success && result.data) {
+      if (result.pending) {
+        const d = result.data
+        if (d.verification_id) setDigilockerVerificationId(d.verification_id)
+        fetchDigilockerDocument(d.verification_id, d.reference_id || d.verification_id)
+      } else {
+        const d = result.data
+        setAadhaarVerified(true); setAadhaarName(d.name || ''); setAadhaarUid(d.uid || '')
+        setAadhaarDob(d.dob || ''); setAadhaarGender(d.gender || ''); setAadhaarAddress(d.address || '')
+        if (d.verification_id) setDigilockerVerificationId(d.verification_id)
+        if (d.uid) setFormData(prev => ({ ...prev, aadhar_number: d.uid.replace(/\s/g, '') }))
+      }
+    } else if (result.error) { setDigilockerError(result.error) }
+  }
+
   // Digilocker postMessage listener
   useEffect(() => {
     const handleDigilockerMessage = (event: MessageEvent) => {
       if (event.data?.type === 'DIGILOCKER_RESULT') {
-        if (event.data.success && event.data.data) {
-          const d = event.data.data
-          setAadhaarVerified(true); setAadhaarName(d.name || ''); setAadhaarUid(d.uid || '')
-          setAadhaarDob(d.dob || ''); setAadhaarGender(d.gender || ''); setAadhaarAddress(d.address || '')
-          if (d.verification_id) setDigilockerVerificationId(d.verification_id)
-          if (d.uid) setFormData(prev => ({ ...prev, aadhar_number: d.uid.replace(/\s/g, '') }))
-        } else if (event.data.error) { setDigilockerError(event.data.error) }
+        handleDigilockerResult(event.data)
       }
     }
     const handleStorageChange = (event: StorageEvent) => {
       if (event.key === 'digilocker_result' && event.newValue) {
         try {
           const result = JSON.parse(event.newValue)
-          if (result.success && result.data) {
-            const d = result.data
-            setAadhaarVerified(true); setAadhaarName(d.name || ''); setAadhaarUid(d.uid || '')
-            setAadhaarDob(d.dob || ''); setAadhaarGender(d.gender || ''); setAadhaarAddress(d.address || '')
-            if (d.verification_id) setDigilockerVerificationId(d.verification_id)
-            if (d.uid) setFormData(prev => ({ ...prev, aadhar_number: d.uid.replace(/\s/g, '') }))
-          } else if (result.error) { setDigilockerError(result.error) }
+          handleDigilockerResult(result)
           localStorage.removeItem('digilocker_result')
         } catch (e) {}
       }

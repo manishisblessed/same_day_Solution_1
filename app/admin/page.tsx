@@ -2569,6 +2569,7 @@ function ServicesManagementTab() {
   const [togglingUser, setTogglingUser] = useState<string | null>(null)
   const [bulkAction, setBulkAction] = useState(false)
   const [roleToggling, setRoleToggling] = useState<string | null>(null)
+  const [expandedUserId, setExpandedUserId] = useState<string | null>(null)
   const [confirmModal, setConfirmModal] = useState<{
     open: boolean
     title: string
@@ -3195,8 +3196,11 @@ function ServicesManagementTab() {
                         </td>
                       </tr>
                     ) : paginatedUsers.map(user => (
-                      <tr key={user.partner_id} className={`hover:bg-gray-50 dark:hover:bg-gray-900/30 transition-colors ${selectedUsers.has(user.partner_id) ? 'bg-primary-50/50 dark:bg-primary-900/10' : ''}`}>
-                        <td className="px-3 py-2.5">
+                      <React.Fragment key={user.partner_id}>
+                      <tr className={`hover:bg-gray-50 dark:hover:bg-gray-900/30 transition-colors cursor-pointer ${selectedUsers.has(user.partner_id) ? 'bg-primary-50/50 dark:bg-primary-900/10' : ''} ${expandedUserId === user.partner_id ? 'bg-blue-50/50 dark:bg-blue-900/10' : ''}`}
+                        onClick={() => setExpandedUserId(expandedUserId === user.partner_id ? null : user.partner_id)}
+                      >
+                        <td className="px-3 py-2.5" onClick={e => e.stopPropagation()}>
                           <input
                             type="checkbox"
                             checked={selectedUsers.has(user.partner_id)}
@@ -3205,8 +3209,13 @@ function ServicesManagementTab() {
                           />
                         </td>
                         <td className="px-3 py-2.5">
-                          <p className="font-medium text-gray-900 dark:text-white text-xs">{user.name}</p>
-                          <p className="text-[10px] text-gray-500 dark:text-gray-400">{user.email}</p>
+                          <div className="flex items-center gap-2">
+                            <div>
+                              <p className="font-medium text-gray-900 dark:text-white text-xs">{user.name}</p>
+                              <p className="text-[10px] text-gray-500 dark:text-gray-400">{user.email}</p>
+                            </div>
+                            <ChevronDown className={`w-3 h-3 text-gray-400 transition-transform ${expandedUserId === user.partner_id ? 'rotate-180' : ''}`} />
+                          </div>
                         </td>
                         <td className="px-2 py-2.5">
                           <span className={`inline-block px-1.5 py-0.5 text-[10px] rounded-full font-medium ${roleBadgeColor(user.role)}`}>
@@ -3218,7 +3227,7 @@ function ServicesManagementTab() {
                           const isEnabled = user[field]
                           const isToggling = togglingUser === `${user.partner_id}-${s.key}`
                           return (
-                            <td key={s.key} className="px-1 py-2.5 text-center">
+                            <td key={s.key} className="px-1 py-2.5 text-center" onClick={e => e.stopPropagation()}>
                               <button
                                 disabled={isToggling}
                                 onClick={() => handleToggleService(user.partner_id, user.role, s.key, !isEnabled)}
@@ -3242,6 +3251,83 @@ function ServicesManagementTab() {
                           }`}>{user.status}</span>
                         </td>
                       </tr>
+                      {expandedUserId === user.partner_id && (
+                        <tr>
+                          <td colSpan={3 + ALL_SERVICES.length + 1} className="px-4 py-4 bg-gray-50 dark:bg-gray-900/40 border-b border-gray-200 dark:border-gray-700">
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                              {/* PAN Details */}
+                              <div className="bg-white dark:bg-gray-800 rounded-lg p-3 border border-gray-200 dark:border-gray-700">
+                                <h5 className="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-1">
+                                  <CreditCard className="w-3 h-3 text-blue-500" /> PAN
+                                  {user.pan_verified ? <span className="ml-auto px-1.5 py-0.5 bg-green-100 text-green-700 rounded text-[9px] font-bold">VERIFIED</span> : <span className="ml-auto px-1.5 py-0.5 bg-gray-100 text-gray-500 rounded text-[9px]">N/A</span>}
+                                </h5>
+                                <div className="space-y-1 text-[11px]">
+                                  <div className="flex justify-between"><span className="text-gray-500">PAN:</span><span className="font-medium">{user.pan_number || 'N/A'}</span></div>
+                                  {user.pan_registered_name && <div className="flex justify-between"><span className="text-gray-500">Name:</span><span className="font-medium">{user.pan_registered_name}</span></div>}
+                                  {user.pan_type && <div className="flex justify-between"><span className="text-gray-500">Type:</span><span className="font-medium">{user.pan_type}</span></div>}
+                                </div>
+                              </div>
+
+                              {/* Aadhaar Details */}
+                              <div className="bg-white dark:bg-gray-800 rounded-lg p-3 border border-gray-200 dark:border-gray-700">
+                                <h5 className="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-1">
+                                  <ShieldCheck className="w-3 h-3 text-teal-500" /> Aadhaar
+                                  {user.aadhaar_verified ? <span className="ml-auto px-1.5 py-0.5 bg-green-100 text-green-700 rounded text-[9px] font-bold">VERIFIED</span> : <span className="ml-auto px-1.5 py-0.5 bg-gray-100 text-gray-500 rounded text-[9px]">N/A</span>}
+                                </h5>
+                                <div className="space-y-1 text-[11px]">
+                                  <div className="flex justify-between"><span className="text-gray-500">Aadhaar:</span><span className="font-medium">{user.aadhar_number ? `XXXX-XXXX-${user.aadhar_number.slice(-4)}` : 'N/A'}</span></div>
+                                  {user.aadhaar_name && <div className="flex justify-between"><span className="text-gray-500">Name:</span><span className="font-medium">{user.aadhaar_name}</span></div>}
+                                  {user.aadhaar_dob && <div className="flex justify-between"><span className="text-gray-500">DOB:</span><span className="font-medium">{user.aadhaar_dob}</span></div>}
+                                  {user.aadhaar_gender && <div className="flex justify-between"><span className="text-gray-500">Gender:</span><span className="font-medium">{user.aadhaar_gender}</span></div>}
+                                  {user.aadhaar_address && <div className="flex justify-between gap-2"><span className="text-gray-500 shrink-0">Address:</span><span className="font-medium text-right text-[10px]">{user.aadhaar_address}</span></div>}
+                                </div>
+                              </div>
+
+                              {/* Bank Details */}
+                              <div className="bg-white dark:bg-gray-800 rounded-lg p-3 border border-gray-200 dark:border-gray-700">
+                                <h5 className="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-1">
+                                  <Building2 className="w-3 h-3 text-purple-500" /> Bank
+                                  {user.bank_verified ? <span className="ml-auto px-1.5 py-0.5 bg-green-100 text-green-700 rounded text-[9px] font-bold">VERIFIED</span> : <span className="ml-auto px-1.5 py-0.5 bg-gray-100 text-gray-500 rounded text-[9px]">N/A</span>}
+                                </h5>
+                                <div className="space-y-1 text-[11px]">
+                                  {user.bank_name && <div className="flex justify-between"><span className="text-gray-500">Bank:</span><span className="font-medium">{user.bank_name}</span></div>}
+                                  {user.account_number && <div className="flex justify-between"><span className="text-gray-500">A/C:</span><span className="font-medium">{user.account_number}</span></div>}
+                                  {user.ifsc_code && <div className="flex justify-between"><span className="text-gray-500">IFSC:</span><span className="font-medium">{user.ifsc_code}</span></div>}
+                                  {user.bank_verified_name && <div className="flex justify-between"><span className="text-gray-500">Holder:</span><span className="font-medium">{user.bank_verified_name}</span></div>}
+                                  {user.bank_branch && <div className="flex justify-between"><span className="text-gray-500">Branch:</span><span className="font-medium">{user.bank_branch}</span></div>}
+                                </div>
+                              </div>
+
+                              {/* GST / CIN Details */}
+                              <div className="bg-white dark:bg-gray-800 rounded-lg p-3 border border-gray-200 dark:border-gray-700">
+                                <h5 className="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-1">
+                                  <FileText className="w-3 h-3 text-orange-500" /> GST / CIN
+                                  {user.gst_verified ? <span className="ml-auto px-1.5 py-0.5 bg-green-100 text-green-700 rounded text-[9px] font-bold">GST ✓</span> : null}
+                                  {user.cin_verified ? <span className="ml-1 px-1.5 py-0.5 bg-green-100 text-green-700 rounded text-[9px] font-bold">CIN ✓</span> : null}
+                                </h5>
+                                <div className="space-y-1 text-[11px]">
+                                  {user.gst_number && <div className="flex justify-between"><span className="text-gray-500">GST:</span><span className="font-medium">{user.gst_number}</span></div>}
+                                  {user.gst_trade_name && <div className="flex justify-between"><span className="text-gray-500">Trade:</span><span className="font-medium">{user.gst_trade_name}</span></div>}
+                                  {user.gst_legal_name && <div className="flex justify-between"><span className="text-gray-500">Legal:</span><span className="font-medium">{user.gst_legal_name}</span></div>}
+                                  {user.gst_status && <div className="flex justify-between"><span className="text-gray-500">Status:</span><span className={`font-medium ${user.gst_status === 'Active' ? 'text-green-600' : 'text-red-600'}`}>{user.gst_status}</span></div>}
+                                  {user.cin_number && <div className="flex justify-between"><span className="text-gray-500">CIN:</span><span className="font-medium">{user.cin_number}</span></div>}
+                                  {user.cin_company_name && <div className="flex justify-between"><span className="text-gray-500">Company:</span><span className="font-medium">{user.cin_company_name}</span></div>}
+                                  {user.udhyam_number && <div className="flex justify-between"><span className="text-gray-500">UDHYAM:</span><span className="font-medium">{user.udhyam_number}</span></div>}
+                                </div>
+                              </div>
+                            </div>
+                            {/* Additional info row */}
+                            <div className="mt-3 flex flex-wrap gap-4 text-[11px] text-gray-500">
+                              <span>ID: <span className="font-mono text-gray-700 dark:text-gray-300">{user.partner_id}</span></span>
+                              {user.phone && <span>Phone: <span className="font-medium text-gray-700 dark:text-gray-300">{user.phone}</span></span>}
+                              {user.business_name && <span>Business: <span className="font-medium text-gray-700 dark:text-gray-300">{user.business_name}</span></span>}
+                              {user.address && <span>Address: <span className="font-medium text-gray-700 dark:text-gray-300">{user.address}</span></span>}
+                              {user.auto_verification_score > 0 && <span>Verification Score: <span className="font-bold text-primary-600">{user.auto_verification_score}%</span></span>}
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                      </React.Fragment>
                     ))}
                   </tbody>
                 </table>

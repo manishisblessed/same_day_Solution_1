@@ -50,7 +50,7 @@ export async function GET(request: NextRequest) {
     // Get Supabase admin client
     const supabase = getSupabaseAdmin()
 
-    const verificationFields = 'partner_id, name, email, phone, status, verification_status, aadhar_number, pan_number, gst_number, udhyam_number, pan_verified, pan_registered_name, pan_type, bank_verified, bank_verified_name, bank_name, account_number, ifsc_code, gst_verified, gst_legal_name, gst_trade_name, gst_status, auto_verification_score, created_at'
+    const verificationFields = 'partner_id, name, email, phone, status, verification_status, aadhar_number, pan_number, gst_number, udhyam_number, pan_verified, pan_registered_name, pan_type, bank_verified, bank_verified_name, bank_name, account_number, ifsc_code, gst_verified, gst_legal_name, gst_trade_name, gst_status, aadhaar_verified, aadhaar_name, aadhaar_dob, aadhaar_gender, aadhaar_address, aadhaar_uid, digilocker_verification_id, auto_verification_score, created_at'
 
     // Fetch all partners with pending_verification status
     const [retailersResult, distributorsResult, masterDistributorsResult] = await Promise.all([

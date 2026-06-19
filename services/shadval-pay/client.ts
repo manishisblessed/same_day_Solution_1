@@ -235,7 +235,7 @@ export async function verifyAccount(
       method: 'POST',
       headers: {
         ...getVerificationAuthHeaders(),
-        'Payload': signature,
+        'Signature': signature,
       },
       body: JSON.stringify(request),
       signal: controller.signal,
