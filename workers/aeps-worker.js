@@ -10,6 +10,7 @@ const path = require('path');
 require('dotenv').config({ path: path.resolve(__dirname, '../.env.local') });
 
 const { createClient } = require('@supabase/supabase-js');
+const WebSocket = require('ws');
 
 // Configuration
 const POLL_INTERVAL = 60000; // 1 minute
@@ -25,7 +26,7 @@ if (!supabaseUrl || !supabaseKey) {
 }
 
 const supabase = createClient(supabaseUrl, supabaseKey, {
-  realtime: { params: { eventsPerSecond: 0 } },
+  realtime: { transport: WebSocket },
 });
 
 console.log('[AEPS Worker] Starting...');
