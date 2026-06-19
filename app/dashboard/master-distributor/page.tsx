@@ -2765,12 +2765,13 @@ function SchemeManagementTab({ user }: { user: any }) {
     
     setExpandingSchemeId(schemeId)
     try {
-    const [bbps, payout, mdr, aepsComm, aepsSettle, mappings] = await Promise.all([
+    const [bbps, payout, mdr, aepsComm, aepsSettle, shadvalSettle, mappings] = await Promise.all([
       supabase.from('scheme_bbps_commissions').select('*').eq('scheme_id', schemeId).eq('status', 'active').order('min_amount'),
       supabase.from('scheme_payout_charges').select('*').eq('scheme_id', schemeId).eq('status', 'active').order('transfer_mode'),
       supabase.from('scheme_mdr_rates').select('*').eq('scheme_id', schemeId).eq('status', 'active').order('mode'),
       supabase.from('scheme_aeps_commissions').select('*').eq('scheme_id', schemeId).eq('status', 'active').order('transaction_type,min_amount'),
       supabase.from('scheme_aeps_settlement_charges').select('*').eq('scheme_id', schemeId).eq('status', 'active').order('min_amount'),
+      supabase.from('scheme_shadval_settlement_charges').select('*').eq('scheme_id', schemeId).eq('status', 'active').order('transfer_mode'),
       supabase.from('scheme_mappings').select('*').eq('scheme_id', schemeId).eq('status', 'active'),
     ])
 
@@ -2795,6 +2796,7 @@ function SchemeManagementTab({ user }: { user: any }) {
       mdr_rates: mdr.data || [],
       aeps_commissions: aepsComm.data || [],
       aeps_settlement_charges: aepsSettle.data || [],
+      shadval_settlement_charges: shadvalSettle.data || [],
       mappings: enrichedMappings,
     } : s))
     
@@ -3425,6 +3427,52 @@ function SchemeManagementTab({ user }: { user: any }) {
                       </div>
                     ) : (
                       <p className="text-xs text-gray-400 italic">No AEPS settlement charges configured</p>
+                    )}
+                  </div>
+
+                  {/* Settlement-2 Charges */}
+                  <div>
+                    <h4 className="font-semibold text-sm text-rose-700 dark:text-rose-400 mb-2 flex items-center gap-1">
+                      <Banknote className="w-4 h-4" /> Settlement-2 Charges ({scheme.shadval_settlement_charges?.length || 0})
+                    </h4>
+                    {scheme.shadval_settlement_charges && scheme.shadval_settlement_charges.length > 0 ? (
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-xs">
+                          <thead>
+                            <tr className="bg-rose-50 dark:bg-rose-900/20">
+                              <th className="px-2 py-1.5 text-left">Mode</th>
+                              <th className="px-2 py-1.5 text-left">Slab</th>
+                              <th className="px-2 py-1.5 text-right">Retailer Charge</th>
+                              <th className="px-2 py-1.5 text-right">Dist Comm</th>
+                              <th className="px-2 py-1.5 text-right">MD Comm</th>
+                              <th className="px-2 py-1.5 text-right">Company</th>
+                              <th className="px-2 py-1.5"></th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {scheme.shadval_settlement_charges.map((c: any) => {
+                              const fmt = (v: number, t: string) => t === 'percentage' ? `${v}%` : `₹${v}`
+                              return (
+                                <tr key={c.id} className="border-b border-gray-100 dark:border-gray-700">
+                                  <td className="px-2 py-1.5 font-medium">{c.transfer_mode}</td>
+                                  <td className="px-2 py-1.5">₹{c.min_amount?.toLocaleString('en-IN')} - {c.max_amount >= 999999 ? '∞' : `₹${c.max_amount?.toLocaleString('en-IN')}`}</td>
+                                  <td className="px-2 py-1.5 text-right font-medium">{fmt(c.retailer_charge, c.retailer_charge_type)}</td>
+                                  <td className="px-2 py-1.5 text-right">{fmt(c.distributor_commission, c.distributor_commission_type)}</td>
+                                  <td className="px-2 py-1.5 text-right">{fmt(c.md_commission, c.md_commission_type)}</td>
+                                  <td className="px-2 py-1.5 text-right">{fmt(c.company_charge, c.company_charge_type)}</td>
+                                  <td className="px-2 py-1.5 text-right">
+                                    {!isAssigned && <button onClick={() => handleDeleteConfig('scheme_shadval_settlement_charges', c.id)} disabled={deletingConfigId === c.id} className="text-red-400 hover:text-red-600 disabled:opacity-50">
+                                      {deletingConfigId === c.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
+                                    </button>}
+                                  </td>
+                                </tr>
+                              )
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : (
+                      <p className="text-xs text-gray-400 italic">No Settlement-2 charges configured</p>
                     )}
                   </div>
 

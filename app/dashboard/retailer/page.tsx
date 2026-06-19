@@ -2431,7 +2431,8 @@ function MDRSchemesTab({ user }: { user: any }) {
             payout_charges:scheme_payout_charges (*),
             mdr_rates:scheme_mdr_rates (*),
             aeps_commissions:scheme_aeps_commissions (*),
-            aeps_settlement_charges:scheme_aeps_settlement_charges (*)
+            aeps_settlement_charges:scheme_aeps_settlement_charges (*),
+            shadval_settlement_charges:scheme_shadval_settlement_charges (*)
           )
         `)
         .eq('entity_id', user.partner_id)
@@ -3111,6 +3112,73 @@ function MDRSchemesTab({ user }: { user: any }) {
                     <tr key={c.id || index} className="hover:bg-gray-50 dark:hover:bg-gray-700">
                       <td className="px-4 py-3 text-sm text-gray-700 dark:text-gray-300">
                         ₹{Number(c.min_amount).toLocaleString('en-IN')} – {c.max_amount >= 100000 ? '∞' : `₹${Number(c.max_amount).toLocaleString('en-IN')}`}
+                      </td>
+                      <td className="px-4 py-3 text-sm font-semibold text-red-600 dark:text-red-400">
+                        {c.retailer_charge_type === 'percentage' 
+                          ? `${c.retailer_charge}%` 
+                          : `₹${Number(c.retailer_charge).toLocaleString('en-IN')}`}
+                      </td>
+                      <td className="px-4 py-3 text-xs text-gray-500 dark:text-gray-400">{c.scheme_name}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </motion.div>
+        )
+      })()}
+
+      {/* Settlement-2 Charges Section */}
+      {(() => {
+        const allShadvalSettle: any[] = []
+        const allSchemes = [...customSchemes, ...globalSchemes]
+        allSchemes.forEach((scheme: any) => {
+          if (scheme.shadval_settlement_charges && Array.isArray(scheme.shadval_settlement_charges) && scheme.shadval_settlement_charges.length > 0) {
+            scheme.shadval_settlement_charges.forEach((charge: any) => {
+              if (charge && charge.status === 'active') {
+                allShadvalSettle.push({
+                  ...charge,
+                  scheme_name: scheme.name,
+                  scheme_type: scheme.scheme_type,
+                })
+              }
+            })
+          }
+        })
+
+        if (allShadvalSettle.length === 0) return null
+
+        allShadvalSettle.sort((a, b) => (a.transfer_mode || '').localeCompare(b.transfer_mode || '') || (a.min_amount || 0) - (b.min_amount || 0))
+
+        return (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.345 }}
+            className="bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 p-6"
+          >
+            <div className="flex items-center gap-2 mb-4">
+              <Banknote className="w-5 h-5 text-rose-600 dark:text-rose-400" />
+              <h3 className="text-lg font-bold text-gray-900 dark:text-white">Settlement-2 Charges</h3>
+              <span className="text-xs bg-rose-100 text-rose-700 dark:bg-rose-900 dark:text-rose-300 px-2 py-0.5 rounded-full">From Scheme</span>
+            </div>
+            <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">Charges for Settlement-2 (ShadvalPay) transfers to your bank account</p>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-gray-50 dark:bg-gray-700">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Mode</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Amount Range</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Your Charge</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Scheme</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                  {allShadvalSettle.map((c, index) => (
+                    <tr key={c.id || index} className="hover:bg-gray-50 dark:hover:bg-gray-700">
+                      <td className="px-4 py-3 text-sm font-medium text-gray-700 dark:text-gray-300">{c.transfer_mode}</td>
+                      <td className="px-4 py-3 text-sm text-gray-700 dark:text-gray-300">
+                        ₹{Number(c.min_amount).toLocaleString('en-IN')} – {c.max_amount >= 999999 ? '∞' : `₹${Number(c.max_amount).toLocaleString('en-IN')}`}
                       </td>
                       <td className="px-4 py-3 text-sm font-semibold text-red-600 dark:text-red-400">
                         {c.retailer_charge_type === 'percentage' 
