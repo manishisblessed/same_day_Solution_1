@@ -88,52 +88,9 @@ nginx-config*.conf
 nginx-config*.txt
 
 # Documentation files (deployment-specific, not needed in repo)
-# Exclude deployment and setup guides, but keep important feature documentation
-*-SETUP.md
-*-DEPLOYMENT.md
-*-QUICK*.md
-*-FIX*.md
-*-TESTING*.md
-*-GUIDE.md
-*-CHECKLIST.md
-*-REFERENCE.md
-*-READY.md
-*-ERROR.md
-*-ROUTING.md
-*-CACHE*.md
-*-DOMAIN*.md
-*-NGINX*.md
-*-CLOUDFRONT*.md
-*-VERIFICATION*.md
-*-TROUBLESHOOTING*.md
-*-PRODUCTION*.md
-*-UAT*.md
-*-BACKEND*.md
-*-SERVER*.md
-*-HEALTH*.md
-*-DISABLE*.md
-*-ENABLE*.md
-*-CHECK*.md
-*-VERIFY*.md
-*-CREATE*.md
-*-UPDATE*.md
-*-FIND*.md
-
-# Keep important feature documentation (explicitly allow these)
-!API-CONTRACTS.md
-!ARCHITECTURE.md
-!ADMIN-CAPABILITIES-COMPLETE.md
-!ADMIN-IMPERSONATION-SUBADMIN-FEATURES.md
-!DISTRIBUTOR-FEATURES-IMPLEMENTATION.md
-!MDR-COMMISSION-SYSTEM.md
-!REAL-TIME-LEDGER-AND-REPORTS-IMPLEMENTATION.md
-!RETAILER-SERVICES-COMPLETE.md
-!RAZORPAY-INTEGRATION.md
-!BBPS-INTEGRATION.md
-!WALLET-IMPLEMENTATION-SUMMARY.md
-!WORKING-SCHEDULE-REVIEW.md
-!SAFETY-FEATURES.md
-!CONTRIBUTING.md
+# Ignore ALL .md files except README.md
+*.md
+!README.md
 
 # SQL files - Keep migration files but exclude temporary fix files
 fix-add-ledger-entry-amount.sql
@@ -149,8 +106,4 @@ src/test/
 /postman/
 *postman*.json
 *Postman*.json
-POSTMAN-*.md
-BBPS_API_POSTMAN*.md
-BBPS_CREDIT_CARD_PAYMENT_GUIDE.md
-BBPS_API_FETCH_BILLERS_UPDATE.md
 SparkUpTech-Payout-API.postman_collection.json

@@ -3,7 +3,7 @@ import { createClient } from '@supabase/supabase-js'
 import crypto from 'crypto'
 import { extractClientIpFromHeaders, isIpWhitelisted } from './ip-utils'
 
-export type PartnerApiScope = 'bbps' | 'payout'
+export type PartnerApiScope = 'bbps' | 'payout' | 'settlement'
 
 export interface PartnerAuthResult {
   partner: {
@@ -13,6 +13,7 @@ export interface PartnerAuthResult {
     permissions: string[]
     bbps_enabled: boolean
     settlement_enabled: boolean
+    settlement2_enabled: boolean
   }
 }
 
@@ -43,7 +44,7 @@ export function partnerCanUseApi(
   scope: PartnerApiScope
 ): { allowed: boolean; message: string } {
   const perms = partner.permissions
-  const permName = scope === 'payout' ? 'payout' : 'bbps'
+  const permName = scope === 'settlement' ? 'settlement' : scope === 'payout' ? 'payout' : 'bbps'
   if (!perms.includes('all') && !perms.includes(permName)) {
     return { allowed: false, message: `Missing required permission: ${permName}` }
   }
@@ -57,6 +58,12 @@ export function partnerCanUseApi(
     return {
       allowed: false,
       message: 'Settlement / Payout is not enabled for this partner account. Contact admin.',
+    }
+  }
+  if (scope === 'settlement' && !partner.settlement2_enabled) {
+    return {
+      allowed: false,
+      message: 'Settlement-2 (SHADVAL Pay) is not enabled for this partner account. Contact admin.',
     }
   }
   return { allowed: true, message: '' }
@@ -158,7 +165,8 @@ export async function authenticatePartner(
         status,
         ip_whitelist,
         bbps_enabled,
-        settlement_enabled
+        settlement_enabled,
+        settlement2_enabled
       )
     `)
     .eq('api_key', apiKey)
@@ -268,6 +276,7 @@ export async function authenticatePartner(
       permissions: parsePartnerKeyPermissions(keyRecord.permissions),
       bbps_enabled: partner.bbps_enabled === true,
       settlement_enabled: partner.settlement_enabled === true,
+      settlement2_enabled: partner.settlement2_enabled === true,
     },
   }
 }
