@@ -48,8 +48,8 @@ export async function POST(request: NextRequest) {
       contact_email,
       contact_mobile,
       reference_id,
-      latitude = '0',
-      longitude = '0',
+      latitude = '28.6139',
+      longitude = '77.2090',
       narration = 'Bank Transfer',
     } = body
 

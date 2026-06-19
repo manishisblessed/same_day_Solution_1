@@ -229,8 +229,8 @@ export async function POST(request: NextRequest) {
       account_number,
       ifsc_code: ifsc_code.toUpperCase(),
       ref_num: refId,
-      latitude: '0',
-      longitude: '0',
+      latitude: '28.6139',
+      longitude: '77.2090',
     })
 
     console.log('[Settlement-2 Accounts] Verification response:', JSON.stringify({
@@ -447,8 +447,8 @@ export async function PATCH(request: NextRequest) {
       account_number: account.account_number,
       ifsc_code: account.ifsc_code,
       ref_num: `RECHECK_${account.verification_ref_id}`,
-      latitude: '0',
-      longitude: '0',
+      latitude: '28.6139',
+      longitude: '77.2090',
     })
 
     const isVerified = recheckResult.status === 'SUCCESS' && recheckResult.data?.verification_status === true

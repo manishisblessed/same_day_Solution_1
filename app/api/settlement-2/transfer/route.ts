@@ -384,8 +384,8 @@ export async function POST(request: NextRequest) {
         mobile: account.contact_mobile || user.phone || '',
       },
       reference_id: refId,
-      latitude: '0',
-      longitude: '0',
+      latitude: '28.6139',
+      longitude: '77.2090',
       narration: narration || 'Settlement-2 Transfer',
     }
 

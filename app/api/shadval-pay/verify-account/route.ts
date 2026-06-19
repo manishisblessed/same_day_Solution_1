@@ -49,8 +49,8 @@ export async function POST(request: NextRequest) {
       account_number,
       ifsc_code,
       ref_num,
-      latitude: latitude || '0.0',
-      longitude: longitude || '0.0',
+      latitude: latitude || '28.6139',
+      longitude: longitude || '77.2090',
     })
 
     const verified = result.status === 'SUCCESS' && result.data?.verification_status === true
