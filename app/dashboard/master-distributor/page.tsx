@@ -2557,7 +2557,7 @@ function SchemeManagementTab({ user }: { user: any }) {
   const [distributors, setDistributors] = useState<any[]>([])
   const [showConfigModal, setShowConfigModal] = useState(false)
   const [configSchemeId, setConfigSchemeId] = useState<string>('')
-  const [configType, setConfigType] = useState<'bbps' | 'payout' | 'mdr' | 'aeps' | 'aeps_settlement' | null>(null)
+  const [configType, setConfigType] = useState<'bbps' | 'payout' | 'mdr' | 'aeps' | 'aeps_settlement' | 'shadval_settlement' | null>(null)
   const [savingScheme, setSavingScheme] = useState(false)
   const [savingConfig, setSavingConfig] = useState(false)
   const [deletingConfigId, setDeletingConfigId] = useState<string | null>(null)
@@ -2633,6 +2633,20 @@ function SchemeManagementTab({ user }: { user: any }) {
   })
 
   const [aepsSettleForm, setAepsSettleForm] = useState({
+    min_amount: 0,
+    max_amount: 100000,
+    retailer_charge: 0,
+    retailer_charge_type: 'flat' as 'flat' | 'percentage',
+    distributor_commission: 0,
+    distributor_commission_type: 'flat' as 'flat' | 'percentage',
+    md_commission: 0,
+    md_commission_type: 'flat' as 'flat' | 'percentage',
+    company_charge: 0,
+    company_charge_type: 'flat' as 'flat' | 'percentage',
+  })
+
+  const [shadvalSettleForm, setShadvalSettleForm] = useState({
+    transfer_mode: 'IMPS' as 'IMPS' | 'NEFT' | 'RTGS',
     min_amount: 0,
     max_amount: 100000,
     retailer_charge: 0,
@@ -2857,7 +2871,7 @@ function SchemeManagementTab({ user }: { user: any }) {
     setShowMappingModal(true)
   }
 
-  const openConfigModal = (schemeId: string, type: 'bbps' | 'payout' | 'mdr' | 'aeps' | 'aeps_settlement') => {
+  const openConfigModal = (schemeId: string, type: 'bbps' | 'payout' | 'mdr' | 'aeps' | 'aeps_settlement' | 'shadval_settlement') => {
     setConfigSchemeId(schemeId)
     setConfigType(type)
     // Reset forms
@@ -2866,6 +2880,7 @@ function SchemeManagementTab({ user }: { user: any }) {
     setMdrForm({ mode: 'CARD', card_type: '', brand_type: '', card_classification: '', retailer_mdr_t1: 0, retailer_mdr_t0: 0, distributor_mdr_t1: 0, distributor_mdr_t0: 0, md_mdr_t1: 0, md_mdr_t0: 0, partner_mdr: 0 })
     setAepsForm({ transaction_type: 'cash_withdrawal', min_amount: 0, max_amount: 100000, base_commission: 0, base_commission_type: 'percentage', company_earning: 0, company_earning_type: 'flat', md_commission: 0, md_commission_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', retailer_commission: 0, retailer_commission_type: 'flat', tds_percentage: 5 })
     setAepsSettleForm({ min_amount: 0, max_amount: 100000, retailer_charge: 0, retailer_charge_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat', company_charge: 0, company_charge_type: 'flat' })
+    setShadvalSettleForm({ transfer_mode: 'IMPS', min_amount: 0, max_amount: 100000, retailer_charge: 0, retailer_charge_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat', company_charge: 0, company_charge_type: 'flat' })
     setShowConfigModal(true)
   }
 
@@ -2978,6 +2993,23 @@ function SchemeManagementTab({ user }: { user: any }) {
           md_commission_type: aepsSettleForm.md_commission_type,
           company_charge: aepsSettleForm.company_charge,
           company_charge_type: aepsSettleForm.company_charge_type,
+          status: 'active',
+        })
+        if (error) throw error
+      } else if (configType === 'shadval_settlement') {
+        const { error } = await supabase.from('scheme_shadval_settlement_charges').insert({
+          scheme_id: configSchemeId,
+          transfer_mode: shadvalSettleForm.transfer_mode,
+          min_amount: shadvalSettleForm.min_amount,
+          max_amount: shadvalSettleForm.max_amount,
+          retailer_charge: shadvalSettleForm.retailer_charge,
+          retailer_charge_type: shadvalSettleForm.retailer_charge_type,
+          distributor_commission: shadvalSettleForm.distributor_commission,
+          distributor_commission_type: shadvalSettleForm.distributor_commission_type,
+          md_commission: shadvalSettleForm.md_commission,
+          md_commission_type: shadvalSettleForm.md_commission_type,
+          company_charge: shadvalSettleForm.company_charge,
+          company_charge_type: shadvalSettleForm.company_charge_type,
           status: 'active',
         })
         if (error) throw error
@@ -3162,6 +3194,10 @@ function SchemeManagementTab({ user }: { user: any }) {
                   <button onClick={(e) => { e.stopPropagation(); openConfigModal(scheme.id, 'aeps_settlement') }}
                     className="p-1.5 rounded-lg hover:bg-purple-50 dark:hover:bg-purple-900/20 text-purple-600" title="Add AEPS Settlement Charge">
                     <DollarSign className="w-4 h-4" />
+                  </button>
+                  <button onClick={(e) => { e.stopPropagation(); openConfigModal(scheme.id, 'shadval_settlement') }}
+                    className="p-1.5 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-900/20 text-rose-600" title="Add Settlement-2 Charge">
+                    <Banknote className="w-4 h-4" />
                   </button>
                   </>)}
                   <button onClick={(e) => { e.stopPropagation(); openMappingModal(scheme.id) }}
@@ -3582,6 +3618,7 @@ function SchemeManagementTab({ user }: { user: any }) {
                 {configType === 'mdr' && <><TrendingUp className="w-5 h-5 text-orange-600" /> Add MDR Rate</>}
                 {configType === 'aeps' && <><Banknote className="w-5 h-5 text-teal-600" /> Add AEPS Commission</>}
                 {configType === 'aeps_settlement' && <><DollarSign className="w-5 h-5 text-purple-600" /> Add AEPS Settlement Charge</>}
+                {configType === 'shadval_settlement' && <><Banknote className="w-5 h-5 text-rose-600" /> Add Settlement-2 Charge</>}
               </h2>
             </div>
 
@@ -3969,6 +4006,58 @@ function SchemeManagementTab({ user }: { user: any }) {
                     <div>
                       <select value={(aepsSettleForm as any)[typeKey]}
                         onChange={(e) => setAepsSettleForm({ ...aepsSettleForm, [typeKey]: e.target.value })}
+                        className="w-full px-2 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700">
+                        <option value="flat">₹ Flat</option>
+                        <option value="percentage">% Pct</option>
+                      </select>
+                    </div>
+                  </div>
+                ))}
+                </div>
+              </div>
+            )}
+
+            {configType === 'shadval_settlement' && (
+              <div className="space-y-2">
+                <div>
+                  <label className="block text-sm font-medium mb-1">Transfer Mode</label>
+                  <select value={shadvalSettleForm.transfer_mode} onChange={(e) => setShadvalSettleForm({ ...shadvalSettleForm, transfer_mode: e.target.value as any })}
+                    className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700">
+                    <option value="IMPS">IMPS</option>
+                    <option value="NEFT">NEFT</option>
+                    <option value="RTGS">RTGS</option>
+                  </select>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Min Amount (₹)</label>
+                    <input type="number" value={shadvalSettleForm.min_amount} onChange={(e) => setShadvalSettleForm({ ...shadvalSettleForm, min_amount: parseFloat(e.target.value) || 0 })}
+                      className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Max Amount (₹)</label>
+                    <input type="number" value={shadvalSettleForm.max_amount} onChange={(e) => setShadvalSettleForm({ ...shadvalSettleForm, max_amount: parseFloat(e.target.value) || 100000 })}
+                      className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
+                  </div>
+                </div>
+                <p className="text-xs text-gray-500">Retailer charge is deducted on Settlement-2 (ShadvalPay payout). Margins go to DT/MD/Company.</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {[
+                  { label: 'Retailer Charge (deducted)', key: 'retailer_charge', typeKey: 'retailer_charge_type' },
+                  { label: 'Distributor Margin', key: 'distributor_commission', typeKey: 'distributor_commission_type' },
+                  { label: 'MD Margin', key: 'md_commission', typeKey: 'md_commission_type' },
+                  { label: 'Company Earning', key: 'company_charge', typeKey: 'company_charge_type' },
+                ].map(({ label, key, typeKey }) => (
+                  <div key={key} className="grid grid-cols-3 gap-2 items-end">
+                    <div className="col-span-2">
+                      <label className="block text-xs font-medium mb-1">{label}</label>
+                      <input type="number" step="0.01" value={(shadvalSettleForm as any)[key]}
+                        onChange={(e) => setShadvalSettleForm({ ...shadvalSettleForm, [key]: parseFloat(e.target.value) || 0 })}
+                        className="w-full px-3 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
+                    </div>
+                    <div>
+                      <select value={(shadvalSettleForm as any)[typeKey]}
+                        onChange={(e) => setShadvalSettleForm({ ...shadvalSettleForm, [typeKey]: e.target.value })}
                         className="w-full px-2 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700">
                         <option value="flat">₹ Flat</option>
                         <option value="percentage">% Pct</option>
