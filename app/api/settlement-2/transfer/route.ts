@@ -370,18 +370,29 @@ export async function POST(request: NextRequest) {
     }
 
     // Initiate bank transfer via Shadval Pay
+    const fundAccountName = account.verified_name || account.account_holder_name
+    const contactMobile = account.contact_mobile || user.phone || ''
+
+    if (!contactMobile) {
+      const response = NextResponse.json(
+        { success: false, error: 'Mobile number is missing for this account. Please delete and re-add the account with a valid mobile number.' },
+        { status: 400 }
+      )
+      return addCorsHeaders(request, response)
+    }
+
     const transferRequest: ShadvalTransferRequest = {
       amount: amountNum,
       mode: mode as 'IMPS' | 'NEFT' | 'RTGS',
       fund_account: {
-        name: account.account_holder_name,
+        name: fundAccountName,
         ifsc: account.ifsc_code,
         account_number: account.account_number,
       },
       contact_details: {
-        name: account.contact_name || user.name || account.account_holder_name,
+        name: account.contact_name || user.name || fundAccountName,
         email: account.contact_email || user.email || '',
-        mobile: account.contact_mobile || user.phone || '',
+        mobile: contactMobile,
       },
       reference_id: refId,
       latitude: '28.6139',

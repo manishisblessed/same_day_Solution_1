@@ -19,6 +19,28 @@ export const dynamic = 'force-dynamic'
  * - Distributor → sees transactions matching device serials from pos_device_mapping
  * - Retailer → sees transactions matching TIDs/serials from pos_machines + pos_device_mapping
  */
+async function fetchAllRows(
+  supabase: any,
+  table: string,
+  buildQuery: (q: any) => any
+): Promise<any[]> {
+  const BATCH = 1000
+  let allRows: any[] = []
+  let from = 0
+  while (true) {
+    let q = supabase.from(table).select('*')
+    q = buildQuery(q)
+    q = q.range(from, from + BATCH - 1)
+    const { data, error } = await q
+    if (error) throw error
+    if (!data || data.length === 0) break
+    allRows = allRows.concat(data)
+    if (data.length < BATCH) break
+    from += BATCH
+  }
+  return allRows
+}
+
 export async function GET(request: NextRequest) {
   try {
     // Initialize Supabase client at runtime (not during build)
@@ -44,10 +66,11 @@ export async function GET(request: NextRequest) {
 
     // Get query parameters
     const searchParams = request.nextUrl.searchParams
+    const exportAll = searchParams.get('export_all') === 'true'
     const page = parseInt(searchParams.get('page') || '1')
     const rawLimit = parseInt(searchParams.get('limit') || '25', 10)
-    const limit = [10, 25, 100].includes(rawLimit) ? rawLimit : 25
-    const offset = (page - 1) * limit
+    const limit = exportAll ? 100000 : ([10, 25, 100].includes(rawLimit) ? rawLimit : 25)
+    const offset = exportAll ? 0 : (page - 1) * limit
     const machineId = searchParams.get('machine_id')
     const deviceSerial = searchParams.get('device_serial')
     const rawDateFrom = searchParams.get('date_from')
@@ -201,26 +224,23 @@ export async function GET(request: NextRequest) {
       if (tids.length > 0) orConditions.push(`tid.in.(${tids.join(',')})`)
       if (serials.length > 0) orConditions.push(`device_serial.in.(${serials.join(',')})`)
 
-      // Fetch all matching transactions (in-memory filtering requires full result set)
-      let query = supabase
-        .from('razorpay_pos_transactions')
-        .select('*')
-        .or(orConditions.join(','))
-        .order('transaction_time', { ascending: false, nullsFirst: false })
-        .limit(5000)
-
-      if (dateFrom) query = query.gte('transaction_time', dateFrom)
-      if (dateTo) query = query.lte('transaction_time', dateTo)
-      if (statusFilter && statusFilter !== 'all') {
-        const displayStatus = statusFilter.toUpperCase() === 'CAPTURED' ? 'SUCCESS' : statusFilter.toUpperCase()
-        query = query.eq('display_status', displayStatus)
-      }
-      if (tidFilter) query = query.eq('tid', tidFilter)
-      if (targetDeviceSerial) query = query.eq('device_serial', targetDeviceSerial)
-
-      const { data: allTransactions, error } = await query
-
-      if (error) {
+      // Fetch all matching transactions in batches (no artificial cap)
+      const orFilter = orConditions.join(',')
+      let allTransactions: any[]
+      try {
+        allTransactions = await fetchAllRows(supabase, 'razorpay_pos_transactions', (q: any) => {
+          q = q.or(orFilter).order('transaction_time', { ascending: false, nullsFirst: false })
+          if (dateFrom) q = q.gte('transaction_time', dateFrom)
+          if (dateTo) q = q.lte('transaction_time', dateTo)
+          if (statusFilter && statusFilter !== 'all') {
+            const displayStatus = statusFilter.toUpperCase() === 'CAPTURED' ? 'SUCCESS' : statusFilter.toUpperCase()
+            q = q.eq('display_status', displayStatus)
+          }
+          if (tidFilter) q = q.eq('tid', tidFilter)
+          if (targetDeviceSerial) q = q.eq('device_serial', targetDeviceSerial)
+          return q
+        })
+      } catch (error) {
         console.error('Error fetching POS transactions for partner:', error)
         return NextResponse.json({ error: 'Failed to fetch transactions' }, { status: 500 })
       }
@@ -232,21 +252,25 @@ export async function GET(request: NextRequest) {
         return windows.some((w: { from: Date, to: Date | null }) => txTime >= w.from && (!w.to || txTime <= w.to))
       })
 
-      // Paginate in-memory after filtering
+      // Return all for export, or paginate for normal view
       const total = filtered.length
-      const paginatedData = filtered.slice(offset, offset + limit)
+      const paginatedData = exportAll ? filtered : filtered.slice(offset, offset + limit)
 
-      // Enrich with machine_id
+      // Enrich with machine_id (batch to avoid Supabase IN clause limits)
       const uniqueSerials = Array.from(new Set(paginatedData.map((t: any) => t.device_serial).filter(Boolean)))
       const machineMap = new Map<string, string>()
       if (uniqueSerials.length > 0) {
-        const { data: machines } = await supabase
-          .from('pos_machines')
-          .select('machine_id, serial_number')
-          .in('serial_number', uniqueSerials)
-        machines?.forEach((m: any) => {
-          if (m.serial_number) machineMap.set(m.serial_number, m.machine_id)
-        })
+        const batchSize = 100
+        for (let i = 0; i < uniqueSerials.length; i += batchSize) {
+          const batch = uniqueSerials.slice(i, i + batchSize)
+          const { data: machines } = await supabase
+            .from('pos_machines')
+            .select('machine_id, serial_number')
+            .in('serial_number', batch)
+          machines?.forEach((m: any) => {
+            if (m.serial_number) machineMap.set(m.serial_number, m.machine_id)
+          })
+        }
       }
 
       const enriched = paginatedData.map((tx: any) => ({
@@ -339,26 +363,23 @@ export async function GET(request: NextRequest) {
         })
       }
 
-      // Fetch all matching transactions (in-memory filtering requires full result set)
-      let query = supabase
-        .from('razorpay_pos_transactions')
-        .select('*')
-        .or(orConditions.join(','))
-        .order('transaction_time', { ascending: false, nullsFirst: false })
-        .limit(5000)
-
-      if (targetDeviceSerial) query = query.eq('device_serial', targetDeviceSerial)
-      if (dateFrom) query = query.gte('transaction_time', dateFrom)
-      if (dateTo) query = query.lte('transaction_time', dateTo)
-      if (statusFilter && statusFilter !== 'all') {
-        const displayStatus = statusFilter.toUpperCase() === 'CAPTURED' ? 'SUCCESS' : statusFilter.toUpperCase()
-        query = query.eq('display_status', displayStatus)
-      }
-      if (tidFilter) query = query.eq('tid', tidFilter)
-
-      const { data: allTransactions, error } = await query
-
-      if (error) {
+      // Fetch all matching transactions in batches (no artificial cap)
+      const orFilter = orConditions.join(',')
+      let allTransactions: any[]
+      try {
+        allTransactions = await fetchAllRows(supabase, 'razorpay_pos_transactions', (q: any) => {
+          q = q.or(orFilter).order('transaction_time', { ascending: false, nullsFirst: false })
+          if (targetDeviceSerial) q = q.eq('device_serial', targetDeviceSerial)
+          if (dateFrom) q = q.gte('transaction_time', dateFrom)
+          if (dateTo) q = q.lte('transaction_time', dateTo)
+          if (statusFilter && statusFilter !== 'all') {
+            const displayStatus = statusFilter.toUpperCase() === 'CAPTURED' ? 'SUCCESS' : statusFilter.toUpperCase()
+            q = q.eq('display_status', displayStatus)
+          }
+          if (tidFilter) q = q.eq('tid', tidFilter)
+          return q
+        })
+      } catch (error) {
         console.error('Error fetching Razorpay POS transactions for retailer:', error)
         return NextResponse.json({ error: 'Failed to fetch transactions' }, { status: 500 })
       }
@@ -370,21 +391,25 @@ export async function GET(request: NextRequest) {
         return windows.some((w: { from: Date, to: Date | null }) => txTime >= w.from && (!w.to || txTime <= w.to))
       })
 
-      // Paginate in-memory after filtering
+      // Return all for export, or paginate for normal view
       const total = filtered.length
-      const paginatedData = filtered.slice(offset, offset + limit)
+      const paginatedData = exportAll ? filtered : filtered.slice(offset, offset + limit)
 
-      // Enrich with machine_id
+      // Enrich with machine_id (batch to avoid Supabase IN clause limits)
       const uniqueSerials = Array.from(new Set(paginatedData.map((t: any) => t.device_serial).filter(Boolean)))
       const machineMap = new Map<string, string>()
       if (uniqueSerials.length > 0) {
-        const { data: machines } = await supabase
-          .from('pos_machines')
-          .select('machine_id, serial_number')
-          .in('serial_number', uniqueSerials)
-        machines?.forEach((m: any) => {
-          if (m.serial_number) machineMap.set(m.serial_number, m.machine_id)
-        })
+        const batchSize = 100
+        for (let i = 0; i < uniqueSerials.length; i += batchSize) {
+          const batch = uniqueSerials.slice(i, i + batchSize)
+          const { data: machines } = await supabase
+            .from('pos_machines')
+            .select('machine_id, serial_number')
+            .in('serial_number', batch)
+          machines?.forEach((m: any) => {
+            if (m.serial_number) machineMap.set(m.serial_number, m.machine_id)
+          })
+        }
       }
 
       const enriched = paginatedData.map((tx: any) => ({
@@ -489,7 +514,9 @@ export async function GET(request: NextRequest) {
       query = query.eq('display_status', displayStatus)
     }
 
-    query = query.range(offset, offset + limit - 1)
+    if (!exportAll) {
+      query = query.range(offset, offset + limit - 1)
+    }
 
     const { data: transactions, error, count } = await query
 

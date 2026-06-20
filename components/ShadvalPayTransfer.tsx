@@ -238,6 +238,10 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
       setError('Enter beneficiary name')
       return
     }
+    if (!newContactMobile || newContactMobile.length !== 10) {
+      setError('Enter a valid 10-digit mobile number')
+      return
+    }
 
     setError(null)
     setVerifying(true)
@@ -266,6 +270,7 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
           setNewConfirmAcc('')
           setNewIfsc('')
           setNewBeneName('')
+          setNewContactMobile('')
           setShowCelebration(true)
           setCelebrationCountdown(3)
         }
@@ -1041,14 +1046,23 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
 
               {/* Contact Mobile */}
               <div className="max-w-xs">
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Contact Mobile</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Contact Mobile *</label>
                 <input
                   type="tel"
                   value={newContactMobile}
                   onChange={(e) => setNewContactMobile(e.target.value.replace(/\D/g, '').slice(0, 10))}
-                  placeholder="10-digit mobile"
-                  className="w-full px-4 py-2.5 rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                  placeholder="10-digit mobile number"
+                  className={`w-full px-4 py-2.5 rounded-xl border ${
+                    newContactMobile && newContactMobile.length === 10
+                      ? 'border-green-400 focus:ring-green-500'
+                      : newContactMobile && newContactMobile.length > 0 && newContactMobile.length < 10
+                      ? 'border-amber-400 focus:ring-amber-500'
+                      : 'border-gray-300 dark:border-gray-700'
+                  } bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:border-transparent transition-all`}
                 />
+                {newContactMobile && newContactMobile.length > 0 && newContactMobile.length < 10 && (
+                  <p className="text-xs text-amber-600 mt-1">Enter complete 10-digit mobile number</p>
+                )}
               </div>
 
               {/* Verify Result (only shown for failed/pending — success shows celebration overlay) */}
@@ -1081,7 +1095,7 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
               {/* Verify Button */}
               <button
                 onClick={handleVerifyAccount}
-                disabled={verifying || !newAccNumber || !newIfsc || !newBeneName || newAccNumber !== newConfirmAcc}
+                disabled={verifying || !newAccNumber || !newIfsc || !newBeneName || newAccNumber !== newConfirmAcc || !newContactMobile || newContactMobile.length !== 10}
                 className="w-full py-3.5 rounded-xl bg-gradient-to-r from-emerald-600 via-emerald-600 to-teal-600 text-white font-semibold shadow-lg shadow-emerald-500/20 hover:shadow-xl hover:shadow-emerald-500/30 hover:scale-[1.01] disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 transition-all flex items-center justify-center gap-2"
               >
                 {verifying ? (

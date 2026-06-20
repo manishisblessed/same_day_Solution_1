@@ -323,32 +323,60 @@ export default function POSTransactionsTable({
     return `\u20B9${Number(amount).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
   }
 
-  const handleExport = () => {
-    const csv = [
-      ['Date/Time', 'TID', 'Device Serial', 'Amount', 'Status', 'Settlement', 'Payment Mode', 'Card Brand', 'Card Classification', 'MDR Rate', 'Net Amount', 'Transaction ID'].join(','),
-      ...filteredTransactions.map(t => [
-        t.transaction_time ? new Date(t.transaction_time).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }) : '',
-        t.tid || '',
-        t.device_serial || '',
-        t.amount || 0,
-        t.display_status || t.status || '',
-        getSettlementStatus(t).label,
-        t.payment_mode || '',
-        t.card_brand || '',
-        t.card_classification || '',
-        t.mdr_rate != null ? `${t.mdr_rate}%` : '',
-        t.net_amount || '',
-        t.txn_id || ''
-      ].join(','))
-    ].join('\n')
+  const [exporting, setExporting] = useState(false)
 
-    const blob = new Blob([csv], { type: 'text/csv' })
-    const url = window.URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `pos-transactions-${new Date().toISOString().split('T')[0]}.csv`
-    a.click()
-    window.URL.revokeObjectURL(url)
+  const handleExport = async () => {
+    try {
+      setExporting(true)
+
+      // Fetch ALL transactions matching current filters (no pagination limit)
+      const params = new URLSearchParams()
+      params.append('page', '1')
+      params.append('limit', '100')
+      params.append('export_all', 'true')
+      if (dateFrom) params.append('date_from', dateFrom)
+      if (dateTo) params.append('date_to', dateTo)
+      if (statusFilter && statusFilter !== 'all') params.append('status', statusFilter)
+      if (tidFilter) params.append('device_serial', tidFilter)
+
+      const response = await apiFetch(`/api/razorpay/transactions?${params.toString()}`)
+      const result = await response.json()
+
+      const allData: RazorpayPOSTransaction[] = result.success && result.data ? result.data : filteredTransactions
+
+      const escapeCsv = (val: string) => val.includes(',') || val.includes('"') ? `"${val.replace(/"/g, '""')}"` : val
+
+      const csv = [
+        ['Date/Time', 'TID', 'Device Serial', 'Amount', 'Status', 'Settlement', 'Payment Mode', 'Card Brand', 'Card Classification', 'MDR Rate', 'Net Amount', 'Transaction ID'].join(','),
+        ...allData.map(t => [
+          t.transaction_time ? new Date(t.transaction_time).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }) : '',
+          escapeCsv(t.tid || ''),
+          escapeCsv(t.device_serial || ''),
+          t.amount || 0,
+          t.display_status || t.status || '',
+          getSettlementStatus(t).label,
+          t.payment_mode || '',
+          t.card_brand || '',
+          t.card_classification || '',
+          t.mdr_rate != null ? `${t.mdr_rate}%` : '',
+          t.net_amount || '',
+          escapeCsv(t.txn_id || '')
+        ].join(','))
+      ].join('\n')
+
+      const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' })
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `pos-transactions-${new Date().toISOString().split('T')[0]}.csv`
+      a.click()
+      window.URL.revokeObjectURL(url)
+    } catch (err) {
+      console.error('Export failed:', err)
+      setError('Export failed. Please try again.')
+    } finally {
+      setExporting(false)
+    }
   }
 
   const resetFilters = () => {
@@ -443,11 +471,11 @@ export default function POSTransactionsTable({
           </button>
           <button
             onClick={handleExport}
-            disabled={filteredTransactions.length === 0}
+            disabled={filteredTransactions.length === 0 || exporting}
             className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors text-sm disabled:opacity-50"
           >
-            <Download className="w-4 h-4" />
-            Export
+            {exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+            {exporting ? 'Exporting...' : 'Export'}
           </button>
         </div>
       </div>

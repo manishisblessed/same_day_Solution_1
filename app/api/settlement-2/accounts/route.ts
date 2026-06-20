@@ -109,6 +109,14 @@ export async function POST(request: NextRequest) {
       return addCorsHeaders(request, response)
     }
 
+    if (!contact_mobile || !/^\d{10}$/.test(contact_mobile)) {
+      const response = NextResponse.json(
+        { success: false, error: 'A valid 10-digit mobile number is required for verification' },
+        { status: 400 }
+      )
+      return addCorsHeaders(request, response)
+    }
+
     if (!/^[A-Z]{4}0[A-Z0-9]{6}$/i.test(ifsc_code)) {
       const response = NextResponse.json({ success: false, error: 'Invalid IFSC code format' }, { status: 400 })
       return addCorsHeaders(request, response)
@@ -298,11 +306,15 @@ export async function POST(request: NextRequest) {
     let accountRecord: any = null
     let dbError: any = null
 
+    const resolvedHolderName = (isSuccess && verifiedName && verifiedName.length >= 3)
+      ? verifiedName
+      : account_holder_name.trim()
+
     const fullData = {
       retailer_id: user.partner_id,
       account_number,
       ifsc_code: ifsc_code.toUpperCase(),
-      account_holder_name: account_holder_name.trim(),
+      account_holder_name: resolvedHolderName,
       is_verified: isSuccess,
       verification_ref_id: refId,
       verification_order_id: resolvedOrderId,
