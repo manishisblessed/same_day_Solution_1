@@ -28,6 +28,7 @@ const sidebarItems: SidebarItem[] = [
   { id: 'wallet', label: 'Wallet', icon: Wallet, href: '/dashboard/partner?tab=wallet' },
   { id: 'services', label: 'API Integrations', icon: Activity, href: '/dashboard/partner?tab=services' },
   { id: 'bbps', label: 'BBPS API Transactions', icon: Receipt, href: '/dashboard/partner?tab=bbps' },
+  { id: 'bbps-2', label: 'BBPS-2 (Pay2New)', icon: CreditCard, href: '/dashboard/partner?tab=bbps-2' },
   { id: 'payout', label: 'Payouts / Settlements', icon: Banknote, href: '/dashboard/partner?tab=payout' },
   { id: 'transactions', label: 'Transactions', icon: CreditCard, href: '/dashboard/partner?tab=transactions' },
   { id: 'ledger', label: 'Ledger', icon: BookOpen, href: '/dashboard/partner?tab=ledger' },

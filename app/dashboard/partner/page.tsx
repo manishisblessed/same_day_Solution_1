@@ -16,6 +16,7 @@ import {
 import TransactionsTable from '@/components/TransactionsTable'
 import BBPSTransactionsTable from '@/components/BBPSTransactionsTable'
 import BBPSPayment from '@/components/BBPSPayment'
+import Pay2NewCCPayment from '@/components/Pay2NewCCPayment'
 import { BBPS_CATEGORY_GROUPS } from '@/lib/bbps/category-groups'
 import PayoutTransfer from '@/components/PayoutTransfer'
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
@@ -45,7 +46,7 @@ import ReconciliationTab from '@/components/partner/ReconciliationTab'
 import { Crown, Sparkles, BarChart3, Zap, Scale, Server } from 'lucide-react'
 import { useToast } from '@/components/Toast'
 
-type TabType = 'dashboard' | 'wallet' | 'services' | 'bbps' | 'payout' | 'transactions' | 'ledger' | 'mdr-schemes' | 'reports' | 'settings' | 'pos-machines' | 'subscriptions' | 'api-management' | 'analytics' | 'api-dashboard' | 'reconciliation'
+type TabType = 'dashboard' | 'wallet' | 'services' | 'bbps' | 'bbps-2' | 'payout' | 'transactions' | 'ledger' | 'mdr-schemes' | 'reports' | 'settings' | 'pos-machines' | 'subscriptions' | 'api-management' | 'analytics' | 'api-dashboard' | 'reconciliation'
 
 function PartnerDashboardContent() {
   const { user, loading: authLoading } = useAuth()
@@ -57,7 +58,7 @@ function PartnerDashboardContent() {
   
   const getInitialTab = (): TabType => {
     const tab = searchParams?.get('tab')
-    if (tab && ['dashboard', 'wallet', 'services', 'bbps', 'payout', 'transactions', 'ledger', 'mdr-schemes', 'reports', 'settings', 'pos-machines', 'subscriptions', 'api-management', 'analytics', 'api-dashboard', 'reconciliation'].includes(tab)) {
+    if (tab && ['dashboard', 'wallet', 'services', 'bbps', 'bbps-2', 'payout', 'transactions', 'ledger', 'mdr-schemes', 'reports', 'settings', 'pos-machines', 'subscriptions', 'api-management', 'analytics', 'api-dashboard', 'reconciliation'].includes(tab)) {
       return tab as TabType
     }
     return 'dashboard'
@@ -94,7 +95,7 @@ function PartnerDashboardContent() {
 
   useEffect(() => {
     const tab = searchParams?.get('tab')
-    if (tab && ['dashboard', 'wallet', 'services', 'bbps', 'payout', 'transactions', 'ledger', 'mdr-schemes', 'reports', 'settings', 'pos-machines', 'subscriptions', 'api-management', 'analytics', 'api-dashboard', 'reconciliation'].includes(tab)) {
+    if (tab && ['dashboard', 'wallet', 'services', 'bbps', 'bbps-2', 'payout', 'transactions', 'ledger', 'mdr-schemes', 'reports', 'settings', 'pos-machines', 'subscriptions', 'api-management', 'analytics', 'api-dashboard', 'reconciliation'].includes(tab)) {
       if (tab !== activeTab) {
         setActiveTab(tab as TabType)
       }
@@ -395,6 +396,7 @@ function PartnerDashboardContent() {
           {activeTab === 'wallet' && <WalletTab user={user} />}
           {activeTab === 'services' && <APIIntegrationsTab />}
           {activeTab === 'bbps' && <BBPSTab readOnly />}
+          {activeTab === 'bbps-2' && <Pay2NewBBPSTab />}
           {activeTab === 'payout' && <PayoutTransfer title="Payouts / Settlements" readOnly />}
           {activeTab === 'transactions' && <POSTransactionsTable autoPoll={true} pollInterval={15000} />}
           {activeTab === 'ledger' && <PartnerLedgerTab user={user} />}
@@ -765,6 +767,18 @@ function BBPSTab({ readOnly = false }: { readOnly?: boolean }) {
         categoryFilter={activeGroup.categories}
         title={activeGroup.label}
       />
+    </motion.div>
+  )
+}
+
+function Pay2NewBBPSTab() {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="space-y-4"
+    >
+      <Pay2NewCCPayment />
     </motion.div>
   )
 }

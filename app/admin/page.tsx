@@ -1772,6 +1772,15 @@ function AdminDashboardOverview({
   } | null>(null)
   const [shadvalLoading, setShadvalLoading] = useState(false)
 
+  // Pay2New Balance State
+  const [pay2newBalance, setPay2newBalance] = useState<{
+    success: boolean
+    balance: number | null
+    error?: string
+    last_checked: string
+  } | null>(null)
+  const [pay2newLoading, setPay2newLoading] = useState(false)
+
   // Helper to get auth token for API calls
   const getAuthToken = async (): Promise<string | null> => {
     const { data: { session } } = await supabase.auth.getSession()
@@ -1886,6 +1895,39 @@ function AdminDashboardOverview({
     }
   }
 
+  // Fetch Pay2New Balance
+  const fetchPay2newBalance = async () => {
+    setPay2newLoading(true)
+    const checkedAt = new Date().toISOString()
+    try {
+      const response = await apiFetch('/api/admin/pay2new-balance', { timeout: 20000 })
+      const data = await response.json()
+      if (data.success) {
+        setPay2newBalance({
+          success: true,
+          balance: data.balance,
+          last_checked: checkedAt,
+        })
+      } else {
+        setPay2newBalance({
+          success: false,
+          balance: null,
+          error: data.error || 'Failed to fetch Pay2New balance',
+          last_checked: checkedAt,
+        })
+      }
+    } catch (error: any) {
+      setPay2newBalance({
+        success: false,
+        balance: null,
+        error: error?.message || 'Failed to fetch Pay2New balance',
+        last_checked: checkedAt,
+      })
+    } finally {
+      setPay2newLoading(false)
+    }
+  }
+
   useEffect(() => {
     fetchAnalytics()
   }, [selectedPeriod])
@@ -1894,6 +1936,7 @@ function AdminDashboardOverview({
   useEffect(() => {
     fetchSparkupBalance()
     fetchShadvalBalance()
+    fetchPay2newBalance()
   }, [])
 
   const fetchAnalytics = async () => {
@@ -2272,6 +2315,88 @@ function AdminDashboardOverview({
               <RefreshCw className="w-6 h-6 text-indigo-400 animate-spin mx-auto" />
             ) : (
               <p className="text-indigo-400">Unable to fetch Chagans balance</p>
+            )}
+          </div>
+        )}
+      </motion.div>
+
+      {/* Pay2New Balance Card */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.32 }}
+        className="bg-gradient-to-br from-emerald-950 via-emerald-900 to-emerald-950 rounded-2xl p-6 shadow-xl border border-emerald-700"
+      >
+        <div className="flex items-center justify-between mb-5">
+          <div className="flex items-center gap-3">
+            <div className="p-3 bg-gradient-to-br from-emerald-500 to-teal-600 rounded-xl shadow-lg">
+              <CreditCard className="w-6 h-6 text-white" />
+            </div>
+            <div>
+              <h3 className="text-lg font-bold text-white">Pay2New Fintech</h3>
+              <p className="text-sm text-emerald-300">Credit Card Bill Payment Provider</p>
+            </div>
+          </div>
+          <button
+            onClick={fetchPay2newBalance}
+            disabled={pay2newLoading}
+            className="flex items-center gap-2 px-4 py-2 bg-emerald-700 hover:bg-emerald-600 text-white rounded-lg text-sm font-medium transition-all disabled:opacity-50"
+          >
+            <RefreshCw className={`w-4 h-4 ${pay2newLoading ? 'animate-spin' : ''}`} />
+            {pay2newLoading ? 'Refreshing...' : 'Refresh'}
+          </button>
+        </div>
+
+        {pay2newBalance ? (
+          <div className={`rounded-xl p-5 border ${
+            pay2newBalance.success
+              ? 'bg-gradient-to-r from-emerald-600/20 to-teal-600/20 border-emerald-500/30'
+              : 'bg-red-900/20 border-red-500/30'
+          }`}>
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-emerald-600 rounded-lg">
+                  <Wallet className="w-5 h-5 text-white" />
+                </div>
+                <div>
+                  <p className="font-semibold text-white">Pay2New Wallet</p>
+                  <p className="text-xs text-emerald-300">CC Bill Fetch &amp; Pay</p>
+                </div>
+              </div>
+              {pay2newBalance.success ? (
+                <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-green-500/20 text-green-400">
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span className="text-sm font-medium">Active</span>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-red-500/20 text-red-400">
+                  <XCircle className="w-4 h-4" />
+                  <span className="text-sm font-medium">Error</span>
+                </div>
+              )}
+            </div>
+
+            {pay2newBalance.success && pay2newBalance.balance != null ? (
+              <div className="text-center p-4 bg-emerald-800/50 rounded-lg">
+                <p className="text-xs text-emerald-300 mb-1">Available Balance</p>
+                <p className="text-3xl font-bold text-white">₹{pay2newBalance.balance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</p>
+              </div>
+            ) : (
+              <p className="text-sm text-red-400">{pay2newBalance.error || 'Unable to fetch Pay2New balance'}</p>
+            )}
+
+            {pay2newBalance.last_checked && (
+              <p className="text-xs text-emerald-300 mt-4 text-right">
+                Last updated: {new Date(pay2newBalance.last_checked).toLocaleString('en-IN')}
+              </p>
+            )}
+          </div>
+        ) : (
+          <div className="text-center py-8">
+            {pay2newLoading ? (
+              <RefreshCw className="w-6 h-6 text-emerald-400 animate-spin mx-auto" />
+            ) : (
+              <p className="text-emerald-400">Unable to fetch Pay2New balance</p>
             )}
           </div>
         )}
