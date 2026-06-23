@@ -1,17 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getCurrentUserFromRequest } from '@/lib/auth-server-request'
+import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
 import { pay2newPayBill } from '@/services/pay2new'
-import { createClient } from '@supabase/supabase-js'
 
 export const dynamic = 'force-dynamic'
-
-function getSupabaseClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-  if (!url || !key) throw new Error('Supabase environment variables not configured')
-  return createClient(url, key)
-}
 
 export async function OPTIONS(request: NextRequest) {
   const response = handleCorsPreflight(request)
@@ -22,18 +14,7 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
 
-    let user = await getCurrentUserFromRequest(request)
-    if (!user && body.user_id) {
-      const supabase = getSupabaseClient()
-      const { data: retailer } = await supabase
-        .from('retailers')
-        .select('partner_id, name, email')
-        .eq('partner_id', body.user_id)
-        .maybeSingle()
-      if (retailer) {
-        user = { id: body.user_id, email: retailer.email || '', role: 'retailer' } as any
-      }
-    }
+    const { user } = await getCurrentUserWithFallback(request)
 
     if (!user) {
       const response = NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
