@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
 import { getTransferStatus } from '@/services/payout'
 import { createClient } from '@supabase/supabase-js'
+import { getCurrentUserWithFallback } from '@/lib/auth-server'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -38,7 +39,10 @@ export async function OPTIONS(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const cronSecret = request.headers.get('x-cron-secret')
-    const isAuthorizedCron = cronSecret === process.env.CRON_SECRET
+    if (!cronSecret || cronSecret !== process.env.CRON_SECRET) {
+      return NextResponse.json({ error: 'Unauthorized: valid cron secret required' }, { status: 401 })
+    }
+    const isAuthorizedCron = true
 
     let body: any = {}
     try {
@@ -255,8 +259,17 @@ export async function POST(request: NextRequest) {
  */
 export async function GET(request: NextRequest) {
   try {
+    // Require authentication; callers may only check their OWN pending count
+    // (admins/finance may query any retailer).
+    const { user } = await getCurrentUserWithFallback(request)
+    if (!user || !user.partner_id) {
+      const response = NextResponse.json({ success: false, error: 'Authentication required' }, { status: 401 })
+      return addCorsHeaders(request, response)
+    }
+
     const { searchParams } = new URL(request.url)
-    const retailerId = searchParams.get('retailer_id')
+    const isPrivileged = ['admin', 'finance_executive'].includes(user.role as string)
+    const retailerId = isPrivileged ? searchParams.get('retailer_id') : user.partner_id
 
     if (!retailerId) {
       const response = NextResponse.json(

@@ -5,6 +5,12 @@ import { payRequest, generateAgentTransactionId, getBBPSWalletBalance } from '@/
 import { getBBPSProvider, getChagansMerchantId } from '@/services/bbps/config'
 import { paiseToRupees } from '@/lib/bbps/currency'
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
+import { rateLimit, RATE_LIMITS } from '@/lib/rate-limit'
+import {
+  reserveIdempotencyKey,
+  finalizeIdempotencyKey,
+  getIdempotencyKeyFromHeaders,
+} from '@/lib/security/idempotency'
 import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger'
 
 export const runtime = 'nodejs' // Force Node.js runtime (Supabase not compatible with Edge Runtime)
@@ -16,6 +22,12 @@ export async function OPTIONS(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  const rl = rateLimit(request, RATE_LIMITS.bbpsPay)
+  if (rl.limited) return addCorsHeaders(request, rl.response!)
+
+  const idemKey = getIdempotencyKeyFromHeaders(request.headers)
+  const IDEM_SCOPE = 'bbps_pay'
+
   try {
     // Initialize Supabase client at runtime (not during build)
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
@@ -33,33 +45,11 @@ export async function POST(request: NextRequest) {
     
     const body = await request.json()
     
-    // Prefer Bearer token (works cross-origin); fallback to cookies then body user_id
-    let user = (await getCurrentUserWithFallback(request)).user
-    
-    if ((!user || !user.partner_id) && body.user_id) {
-      // Verify the user_id exists in retailers table
-      const { data: retailer } = await supabase
-        .from('retailers')
-        .select('partner_id, name, email')
-        .eq('partner_id', body.user_id)
-        .maybeSingle()
-      
-      if (retailer) {
-        user = {
-          id: body.user_id,
-          email: retailer.email,
-          role: 'retailer',
-          partner_id: retailer.partner_id,
-          name: retailer.name,
-        }
-        // Fallback auth active (cross-origin — no Supabase cookies)
-      }
-    }
+    const { user } = await getCurrentUserWithFallback(request)
     
     if (!user || !user.partner_id) {
-      console.error('BBPS Bill Pay: No authenticated user found')
       const response = NextResponse.json(
-        { error: 'Unauthorized', message: 'Please log in to pay bills' },
+        { error: 'Authentication required' },
         { status: 401 }
       )
       return addCorsHeaders(request, response)
@@ -496,6 +486,50 @@ export async function POST(request: NextRequest) {
     // Generate agent transaction ID
     const agentTransactionId = generateAgentTransactionId(user.partner_id)
 
+    // ========== IDEMPOTENCY RESERVATION (client-supplied key) ==========
+    if (idemKey) {
+      const reservation = await reserveIdempotencyKey({
+        scope: IDEM_SCOPE,
+        key: idemKey,
+        userId: user.partner_id,
+      })
+      if (!reservation.fresh) {
+        if (reservation.status === 'completed' && reservation.cachedResponse) {
+          return addCorsHeaders(request, NextResponse.json(reservation.cachedResponse))
+        }
+        return addCorsHeaders(
+          request,
+          NextResponse.json(
+            { error: 'A request with this idempotency key is already being processed.', code: 'IDEMPOTENT_REPLAY' },
+            { status: 409 }
+          )
+        )
+      }
+    }
+    // ========== END IDEMPOTENCY RESERVATION ==========
+
+    // Idempotency: reject if a non-failed transaction already exists for this biller+consumer+amount within last 5 minutes
+    const idempotencyWindow = new Date(Date.now() - 5 * 60 * 1000).toISOString()
+    const { data: existingTx } = await supabase
+      .from('bbps_transactions')
+      .select('id, status, created_at')
+      .eq('retailer_id', user.partner_id)
+      .eq('biller_id', biller_id)
+      .eq('consumer_number', consumer_number)
+      .eq('bill_amount', billAmountInRupees)
+      .neq('status', 'failed')
+      .gte('created_at', idempotencyWindow)
+      .limit(1)
+      .maybeSingle()
+
+    if (existingTx) {
+      const response = NextResponse.json(
+        { error: 'Duplicate payment detected. A payment for this biller/consumer/amount was already submitted recently.', duplicate_transaction_id: existingTx.id },
+        { status: 409 }
+      )
+      return addCorsHeaders(request, response)
+    }
+
     // Create BBPS transaction record
     // Store amount in rupees in database (for consistency with wallet which is in rupees)
     const { data: bbpsTransaction, error: txError } = await supabase
@@ -570,6 +604,7 @@ export async function POST(request: NextRequest) {
           })
           .eq('id', bbpsTransaction.id)
 
+        if (idemKey) await finalizeIdempotencyKey({ scope: IDEM_SCOPE, key: idemKey, status: 'failed' })
         const response = NextResponse.json(
           { error: 'Failed to debit wallet: ' + debitError.message },
           { status: 500 }
@@ -599,6 +634,7 @@ export async function POST(request: NextRequest) {
         })
         .eq('id', bbpsTransaction.id)
 
+      if (idemKey) await finalizeIdempotencyKey({ scope: IDEM_SCOPE, key: idemKey, status: 'failed' })
       const response = NextResponse.json(
         { error: debitError.message || 'Failed to debit wallet' },
         { status: 500 }
@@ -1038,7 +1074,7 @@ export async function POST(request: NextRequest) {
       metadata: { amount, biller_id, biller_name, consumer_number, payment_mode, agent_transaction_id: agentTransactionId },
     }).catch(() => {})
 
-    const response = NextResponse.json({
+    const responsePayload = {
       success: paymentResponse.success,
       transaction_id: bbpsTransaction.id,
       agent_transaction_id: agentTransactionId,
@@ -1048,11 +1084,21 @@ export async function POST(request: NextRequest) {
       error_code: paymentResponse.error_code,
       error_message: paymentResponse.error_message,
       wallet_balance: newWalletBalance,
-    })
-    
+    }
+    if (idemKey) {
+      await finalizeIdempotencyKey({
+        scope: IDEM_SCOPE,
+        key: idemKey,
+        status: paymentResponse.success ? 'completed' : 'failed',
+        response: responsePayload,
+      })
+    }
+    const response = NextResponse.json(responsePayload)
+
     return addCorsHeaders(request, response)
   } catch (error: any) {
     console.error('Error paying bill:', error)
+    if (idemKey) await finalizeIdempotencyKey({ scope: IDEM_SCOPE, key: idemKey, status: 'failed' }).catch(() => {})
     const ctx = getRequestContext(request)
     logActivityFromContext(ctx, null, {
       activity_type: 'bbps_bill_pay',

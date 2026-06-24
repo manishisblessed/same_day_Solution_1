@@ -19,6 +19,7 @@ import { getCurrentUserWithFallback } from '@/lib/auth-server';
 import { initiateTransfer } from '@/services/payout/transfer';
 import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger';
 import { calculateAEPSSettlementCharge } from '@/lib/scheme/scheme.service';
+import { rateLimit, RATE_LIMITS } from '@/lib/rate-limit';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -30,6 +31,9 @@ function generateIdempotencyKey(prefix: string): string {
 }
 
 export async function POST(request: NextRequest) {
+  const rl = rateLimit(request, RATE_LIMITS.transfer);
+  if (rl.limited) return rl.response!;
+
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
   const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 

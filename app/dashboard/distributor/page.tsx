@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback, Suspense, memo } from 'react'
+import { useState, useEffect, useCallback, Suspense, memo, useRef } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useToast } from '@/components/Toast'
 import { useRouter, useSearchParams, usePathname } from 'next/navigation'
@@ -20,7 +20,7 @@ import {
 import TransactionsTable from '@/components/TransactionsTable'
 import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
 import { motion } from 'framer-motion'
-import { apiFetch } from '@/lib/api-client'
+import { apiFetch, newIdempotencyKey } from '@/lib/api-client'
 import POSMachinesTab from '@/components/POSMachinesTab'
 import DistributorSubscriptionsTab from '@/components/DistributorSubscriptionsTab'
 import ServiceTransactionReport from '@/components/ServiceTransactionReport'
@@ -199,18 +199,11 @@ function DistributorDashboardContent() {
     // Wait for auth to finish loading before checking user
     if (authLoading) return
     
-    // Only redirect if we're sure the user is not a distributor
-    if (user && user.role !== 'distributor') {
+    if (!user || user.role !== 'distributor') {
       router.push('/business-login')
       return
     }
-    // Only fetch data if user exists and is a distributor
-    if (user && user.role === 'distributor') {
-      fetchDashboardData()
-    } else if (!authLoading) {
-      // Stop loading if no user after auth loads
-      setLoading(false)
-    }
+    fetchDashboardData()
   }, [user, router, authLoading, fetchDashboardData])
 
   useEffect(() => {
@@ -831,6 +824,8 @@ function NetworkTab({ retailers, user, onRefresh }: { retailers: any[], user: an
   const [selectedUser, setSelectedUser] = useState<any>(null)
   const [detailRetailer, setDetailRetailer] = useState<any>(null)
   const [transferring, setTransferring] = useState(false)
+  // Stable idempotency key for the in-progress fund transfer (cleared on success)
+  const fundTransferIdemRef = useRef<string | null>(null)
   const [transferData, setTransferData] = useState({
     amount: '',
     fund_category: 'cash' as 'cash' | 'online',
@@ -856,9 +851,11 @@ function NetworkTab({ retailers, user, onRefresh }: { retailers: any[], user: an
     }
 
     setTransferring(true)
+    if (!fundTransferIdemRef.current) fundTransferIdemRef.current = newIdempotencyKey()
     try {
       const response = await apiFetch('/api/distributor/wallet/transfer', {
         method: 'POST',
+        idempotencyKey: fundTransferIdemRef.current,
         body: JSON.stringify({
           retailer_id: selectedUser.partner_id,
           action: action,
@@ -870,6 +867,7 @@ function NetworkTab({ retailers, user, onRefresh }: { retailers: any[], user: an
 
       const data = await response.json()
       if (data.success) {
+        fundTransferIdemRef.current = null
         showToast(`Fund ${action} successful!`, 'success')
         setShowFundTransfer(false)
         setSelectedUser(null)
@@ -3062,6 +3060,7 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
   })
 
   const [bbpsForm, setBbpsForm] = useState({
+    bbps_type: 'bbps_1' as 'bbps_1' | 'bbps_2',
     category: '',
     min_amount: 0,
     max_amount: 100000,
@@ -3364,7 +3363,7 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
     setConfigSchemeId(schemeId)
     setConfigType(type)
     // Reset forms
-    setBbpsForm({ category: '', min_amount: 0, max_amount: 100000, retailer_charge: 0, retailer_charge_type: 'flat', retailer_commission: 0, retailer_commission_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat' })
+    setBbpsForm({ bbps_type: 'bbps_1', category: '', min_amount: 0, max_amount: 100000, retailer_charge: 0, retailer_charge_type: 'flat', retailer_commission: 0, retailer_commission_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat' })
     setPayoutForm({ transfer_mode: 'IMPS', min_amount: 0, max_amount: 100000, retailer_charge: 0, retailer_charge_type: 'flat', retailer_commission: 0, retailer_commission_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat' })
     setMdrForm({ mode: 'CARD', card_type: '', brand_type: '', card_classification: '', retailer_mdr_t1: 0, retailer_mdr_t0: 0, distributor_mdr_t1: 0, distributor_mdr_t0: 0, md_mdr_t1: 0, md_mdr_t0: 0, partner_mdr: 0 })
     setAepsForm({ transaction_type: 'cash_withdrawal', min_amount: 0, max_amount: 100000, base_commission: 0, base_commission_type: 'percentage', company_earning: 0, company_earning_type: 'flat', md_commission: 0, md_commission_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', retailer_commission: 0, retailer_commission_type: 'flat', tds_percentage: 5 })
@@ -3376,133 +3375,45 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
   const handleSaveConfig = async () => {
     setSavingConfig(true)
     try {
-      if (configType === 'bbps') {
-        const { error } = await supabase.from('scheme_bbps_commissions').insert({
-          scheme_id: configSchemeId,
-          category: bbpsForm.category || null,
-          min_amount: bbpsForm.min_amount,
-          max_amount: bbpsForm.max_amount,
-          retailer_charge: bbpsForm.retailer_charge,
-          retailer_charge_type: bbpsForm.retailer_charge_type,
-          retailer_commission: bbpsForm.retailer_commission,
-          retailer_commission_type: bbpsForm.retailer_commission_type,
-          distributor_commission: bbpsForm.distributor_commission,
-          distributor_commission_type: bbpsForm.distributor_commission_type,
-          md_commission: bbpsForm.md_commission,
-          md_commission_type: bbpsForm.md_commission_type,
-          company_charge: 0,
-          company_charge_type: 'flat',
-          status: 'active',
-        })
-        if (error) throw error
-      } else if (configType === 'payout') {
-        const { error } = await supabase.from('scheme_payout_charges').insert({
-          scheme_id: configSchemeId,
-          transfer_mode: payoutForm.transfer_mode,
-          min_amount: payoutForm.min_amount,
-          max_amount: payoutForm.max_amount,
-          retailer_charge: payoutForm.retailer_charge,
-          retailer_charge_type: payoutForm.retailer_charge_type,
-          retailer_commission: payoutForm.retailer_commission,
-          retailer_commission_type: payoutForm.retailer_commission_type,
-          distributor_commission: payoutForm.distributor_commission,
-          distributor_commission_type: payoutForm.distributor_commission_type,
-          md_commission: payoutForm.md_commission,
-          md_commission_type: payoutForm.md_commission_type,
-          company_charge: 0,
-          company_charge_type: 'flat',
-          status: 'active',
-        })
-        if (error) throw error
-      } else if (configType === 'mdr') {
-        const configScheme = schemes.find(s => s.id === configSchemeId)
-        const isPartnerPlan = configScheme?.is_partner_plan || false
-        const insertData: any = {
-          scheme_id: configSchemeId,
-          mode: mdrForm.mode,
-          card_type: mdrForm.card_type || null,
-          brand_type: mdrForm.brand_type || null,
-          card_classification: mdrForm.card_classification || null,
-          status: 'active',
-        }
-        if (isPartnerPlan) {
-          insertData.partner_mdr = mdrForm.partner_mdr
-          insertData.retailer_mdr_t1 = 0
-          insertData.retailer_mdr_t0 = 0
-          insertData.distributor_mdr_t1 = 0
-          insertData.distributor_mdr_t0 = 0
-          insertData.md_mdr_t1 = 0
-          insertData.md_mdr_t0 = 0
-        } else {
-          insertData.retailer_mdr_t1 = mdrForm.retailer_mdr_t1
-          insertData.retailer_mdr_t0 = mdrForm.retailer_mdr_t0
-          insertData.distributor_mdr_t1 = mdrForm.distributor_mdr_t1
-          insertData.distributor_mdr_t0 = mdrForm.distributor_mdr_t0
-          insertData.md_mdr_t1 = mdrForm.md_mdr_t1
-          insertData.md_mdr_t0 = mdrForm.md_mdr_t0
-          insertData.partner_mdr = null
-        }
-        const { error } = await supabase.from('scheme_mdr_rates').insert(insertData)
-        if (error) throw error
-      } else if (configType === 'aeps') {
+      if (configType === 'aeps') {
         const preview = aepsPreview()
         if (!preview.valid) {
           setError(`Distribution (₹${preview.distributed}) exceeds partner pool (₹${preview.base}) at ₹${preview.amt}. Reduce role commissions.`)
+          setSavingConfig(false)
           return
         }
-        const { error } = await supabase.from('scheme_aeps_commissions').insert({
-          scheme_id: configSchemeId,
-          transaction_type: aepsForm.transaction_type,
-          min_amount: aepsForm.min_amount,
-          max_amount: aepsForm.max_amount,
-          base_commission: aepsForm.base_commission,
-          base_commission_type: aepsForm.base_commission_type,
-          company_earning: aepsForm.company_earning,
-          company_earning_type: aepsForm.company_earning_type,
-          md_commission: aepsForm.md_commission,
-          md_commission_type: aepsForm.md_commission_type,
-          distributor_commission: aepsForm.distributor_commission,
-          distributor_commission_type: aepsForm.distributor_commission_type,
-          retailer_commission: aepsForm.retailer_commission,
-          retailer_commission_type: aepsForm.retailer_commission_type,
-          tds_percentage: aepsForm.tds_percentage,
-          status: 'active',
-        })
-        if (error) throw error
-      } else if (configType === 'aeps_settlement') {
-        const { error } = await supabase.from('scheme_aeps_settlement_charges').insert({
-          scheme_id: configSchemeId,
-          min_amount: aepsSettleForm.min_amount,
-          max_amount: aepsSettleForm.max_amount,
-          retailer_charge: aepsSettleForm.retailer_charge,
-          retailer_charge_type: aepsSettleForm.retailer_charge_type,
-          distributor_commission: aepsSettleForm.distributor_commission,
-          distributor_commission_type: aepsSettleForm.distributor_commission_type,
-          md_commission: aepsSettleForm.md_commission,
-          md_commission_type: aepsSettleForm.md_commission_type,
-          company_charge: aepsSettleForm.company_charge,
-          company_charge_type: aepsSettleForm.company_charge_type,
-          status: 'active',
-        })
-        if (error) throw error
-      } else if (configType === 'shadval_settlement') {
-        const { error } = await supabase.from('scheme_shadval_settlement_charges').insert({
-          scheme_id: configSchemeId,
-          transfer_mode: shadvalSettleForm.transfer_mode,
-          min_amount: shadvalSettleForm.min_amount,
-          max_amount: shadvalSettleForm.max_amount,
-          retailer_charge: shadvalSettleForm.retailer_charge,
-          retailer_charge_type: shadvalSettleForm.retailer_charge_type,
-          distributor_commission: shadvalSettleForm.distributor_commission,
-          distributor_commission_type: shadvalSettleForm.distributor_commission_type,
-          md_commission: shadvalSettleForm.md_commission,
-          md_commission_type: shadvalSettleForm.md_commission_type,
-          company_charge: shadvalSettleForm.company_charge,
-          company_charge_type: shadvalSettleForm.company_charge_type,
-          status: 'active',
-        })
-        if (error) throw error
       }
+
+      let configData: any = {}
+      if (configType === 'bbps') {
+        configData = { ...bbpsForm, category: bbpsForm.category || null, company_charge: 0, company_charge_type: 'flat' }
+      } else if (configType === 'payout') {
+        configData = { ...payoutForm, company_charge: 0, company_charge_type: 'flat' }
+      } else if (configType === 'mdr') {
+        const configScheme = schemes.find(s => s.id === configSchemeId)
+        const isPartnerPlan = configScheme?.is_partner_plan || false
+        configData = { mode: mdrForm.mode, card_type: mdrForm.card_type || null, brand_type: mdrForm.brand_type || null, card_classification: mdrForm.card_classification || null }
+        if (isPartnerPlan) {
+          configData.partner_mdr = mdrForm.partner_mdr; configData.retailer_mdr_t1 = 0; configData.retailer_mdr_t0 = 0; configData.distributor_mdr_t1 = 0; configData.distributor_mdr_t0 = 0; configData.md_mdr_t1 = 0; configData.md_mdr_t0 = 0
+        } else {
+          configData.retailer_mdr_t1 = mdrForm.retailer_mdr_t1; configData.retailer_mdr_t0 = mdrForm.retailer_mdr_t0; configData.distributor_mdr_t1 = mdrForm.distributor_mdr_t1; configData.distributor_mdr_t0 = mdrForm.distributor_mdr_t0; configData.md_mdr_t1 = mdrForm.md_mdr_t1; configData.md_mdr_t0 = mdrForm.md_mdr_t0; configData.partner_mdr = null
+        }
+      } else if (configType === 'aeps') {
+        configData = { ...aepsForm }
+      } else if (configType === 'aeps_settlement') {
+        configData = { ...aepsSettleForm }
+      } else if (configType === 'shadval_settlement') {
+        configData = { ...shadvalSettleForm }
+      }
+
+      const res = await fetch(`/api/schemes/${configSchemeId}/config`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ config_type: configType, ...configData }),
+      })
+      const result = await res.json()
+      if (!res.ok) throw new Error(result.error || 'Failed to save configuration')
+
       setSuccess(`${configType?.toUpperCase()} configuration added successfully`)
       showToast(`${configType?.toUpperCase()} configuration added`, 'success')
       setShowConfigModal(false)
@@ -3523,10 +3434,17 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
 
   const handleDeleteConfig = async (table: string, id: string) => {
     if (!confirm('Delete this configuration?')) return
+    if (!expandedSchemeId) return
     setDeletingConfigId(id)
     try {
-      const { error } = await supabase.from(table).delete().eq('id', id)
-      if (error) throw error
+      const configTypeMap: Record<string, string> = {
+        scheme_bbps_commissions: 'bbps', scheme_payout_charges: 'payout', scheme_mdr_rates: 'mdr',
+        scheme_aeps_commissions: 'aeps', scheme_aeps_settlement_charges: 'aeps_settlement', scheme_shadval_settlement_charges: 'shadval_settlement',
+      }
+      const ct = configTypeMap[table] || table
+      const res = await fetch(`/api/schemes/${expandedSchemeId}/config?config_type=${ct}&config_id=${id}`, { method: 'DELETE' })
+      const result = await res.json()
+      if (!res.ok) throw new Error(result.error || 'Failed to delete configuration')
       setSuccess('Configuration deleted')
       showToast('Configuration deleted', 'success')
       if (expandedSchemeId) toggleExpand(expandedSchemeId)
@@ -3675,7 +3593,7 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
                     <CreditCard className="w-4 h-4" />
                   </button>
                   <button onClick={(e) => { e.stopPropagation(); openConfigModal(scheme.id, 'payout') }}
-                    className="p-1.5 rounded-lg hover:bg-green-50 dark:hover:bg-green-900/20 text-green-600" title="Add Payout Charge">
+                    className="p-1.5 rounded-lg hover:bg-green-50 dark:hover:bg-green-900/20 text-green-600" title="Add Settlement-1 Charge">
                     <Banknote className="w-4 h-4" />
                   </button>
                   <button onClick={(e) => { e.stopPropagation(); openConfigModal(scheme.id, 'mdr') }}
@@ -3726,6 +3644,7 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
                         <table className="w-full text-xs">
                           <thead>
                             <tr className="bg-blue-50 dark:bg-blue-900/20">
+                              <th className="px-2 py-1.5 text-left">Type</th>
                               <th className="px-2 py-1.5 text-left">Category</th>
                               <th className="px-2 py-1.5 text-left">Slab</th>
                               <th className="px-2 py-1.5 text-right">Retailer Charge</th>
@@ -3738,6 +3657,7 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
                           <tbody>
                             {scheme.bbps_commissions.map((c: any) => (
                               <tr key={c.id} className="border-b border-gray-100 dark:border-gray-700">
+                                <td className="px-2 py-1.5"><span className={`px-1.5 py-0.5 rounded text-xs font-medium ${c.bbps_type === 'bbps_2' ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400' : 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'}`}>{c.bbps_type === 'bbps_2' ? 'BBPS 2' : 'BBPS 1'}</span></td>
                                 <td className="px-2 py-1.5">{c.category || 'All'}</td>
                                 <td className="px-2 py-1.5">{`₹${c.min_amount} - ₹${c.max_amount >= 999999 ? '∞' : c.max_amount}`}</td>
                                 <td className="px-2 py-1.5 text-right">{c.retailer_charge}{c.retailer_charge_type === 'percentage' ? '%' : '₹'}</td>
@@ -3762,7 +3682,7 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
                   {/* Payout Charges */}
                   <div>
                     <h4 className="font-semibold text-sm text-green-700 dark:text-green-400 mb-2 flex items-center gap-1">
-                      <Banknote className="w-4 h-4" /> Payout Charges ({scheme.payout_charges?.length || 0})
+                      <Banknote className="w-4 h-4" /> Settlement-1 Charges ({scheme.payout_charges?.length || 0})
                     </h4>
                     {scheme.payout_charges && scheme.payout_charges.length > 0 ? (
                       <div className="overflow-x-auto">
@@ -3798,7 +3718,7 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
                         </table>
                       </div>
                     ) : (
-                      <p className="text-xs text-gray-400 italic">No payout charges configured</p>
+                      <p className="text-xs text-gray-400 italic">No Settlement-1 charges configured</p>
                     )}
                   </div>
 
@@ -4062,7 +3982,7 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
                   className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700">
                   <option value="all">All Services</option>
                   <option value="bbps">BBPS Only</option>
-                  <option value="payout">Payout Only</option>
+                  <option value="payout">Settlement-1 Only</option>
                   <option value="mdr">MDR Only</option>
                   <option value="aeps">AEPS Only</option>
                 </select>
@@ -4106,14 +4026,14 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
         </div>
       )}
 
-      {/* Configuration Modal (BBPS / Payout / MDR) */}
+      {/* Configuration Modal (BBPS / Settlement / MDR) */}
       {showConfigModal && configType && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-lg max-h-[90vh] flex flex-col my-4">
             <div className="px-6 pt-5 pb-4 border-b border-gray-200 dark:border-gray-700 shrink-0">
               <h2 className="text-lg font-bold flex items-center gap-2">
                 {configType === 'bbps' && <><CreditCard className="w-5 h-5 text-blue-600" /> Add BBPS Commission</>}
-                {configType === 'payout' && <><Banknote className="w-5 h-5 text-green-600" /> Add Payout Charge</>}
+                {configType === 'payout' && <><Banknote className="w-5 h-5 text-green-600" /> Add Settlement-1 Charge</>}
                 {configType === 'mdr' && <><TrendingUp className="w-5 h-5 text-orange-600" /> Add MDR Rate</>}
                 {configType === 'aeps' && <><Banknote className="w-5 h-5 text-teal-600" /> Add AEPS Commission</>}
                 {configType === 'aeps_settlement' && <><DollarSign className="w-5 h-5 text-purple-600" /> Add AEPS Settlement Charge</>}
@@ -4125,6 +4045,14 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
             {/* BBPS Form */}
             {configType === 'bbps' && (
               <div className="space-y-2">
+                <div>
+                  <label className="block text-sm font-medium mb-1">BBPS Type</label>
+                  <select value={bbpsForm.bbps_type} onChange={(e) => setBbpsForm({ ...bbpsForm, bbps_type: e.target.value as 'bbps_1' | 'bbps_2' })}
+                    className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700">
+                    <option value="bbps_1">BBPS 1</option>
+                    <option value="bbps_2">BBPS 2</option>
+                  </select>
+                </div>
                 <div>
                   <label className="block text-sm font-medium mb-1">Category (leave empty for all)</label>
                   <select value={bbpsForm.category} onChange={(e) => setBbpsForm({ ...bbpsForm, category: e.target.value })}
@@ -4535,7 +4463,7 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
                       className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
                   </div>
                 </div>
-                <p className="text-xs text-gray-500">Retailer charge is deducted on Settlement-2 (ShadvalPay payout). Margins go to DT/MD/Company.</p>
+                <p className="text-xs text-gray-500">Retailer charge is deducted on Settlement-2 transfers. Margins go to DT/MD/Company.</p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 {[
                   { label: 'Retailer Charge (deducted)', key: 'retailer_charge', typeKey: 'retailer_charge_type' },
@@ -4701,11 +4629,14 @@ function SettingsTab() {
     setSuccess('')
     
     try {
-      const { error } = await supabase.auth.updateUser({
-        password: newPassword
+      const res = await fetch('/api/auth/change-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ currentPassword, newPassword }),
       })
-      
-      if (error) throw error
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Failed to change password')
       setSuccess('Password changed successfully!')
       setTimeout(() => setSuccess(''), 3000)
     } catch (err: any) {

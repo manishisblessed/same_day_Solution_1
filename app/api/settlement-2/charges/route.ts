@@ -6,6 +6,8 @@ import { createClient } from '@supabase/supabase-js'
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
+const GST_PERCENT = 18
+
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!,
@@ -119,7 +121,17 @@ export async function GET(request: NextRequest) {
       amount,
       mode,
       scheme_name: schemeName,
-      charges: charges || { retailer_charge: 0, distributor_commission: 0, md_commission: 0, company_charge: 0 },
+      charges: charges
+        ? {
+            retailer_charge: Math.round((charges.retailer_charge + charges.retailer_charge * GST_PERCENT / 100) * 100) / 100,
+            retailer_charge_base: charges.retailer_charge,
+            gst_amount: Math.round(charges.retailer_charge * GST_PERCENT / 100 * 100) / 100,
+            gst_percent: GST_PERCENT,
+            distributor_commission: charges.distributor_commission,
+            md_commission: charges.md_commission,
+            company_charge: charges.company_charge,
+          }
+        : { retailer_charge: 0, retailer_charge_base: 0, gst_amount: 0, gst_percent: GST_PERCENT, distributor_commission: 0, md_commission: 0, company_charge: 0 },
     })
     return addCorsHeaders(request, response)
   } catch (error: any) {

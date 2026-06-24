@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
+import { getSupabaseAdmin } from '@/lib/supabase/server-admin'
 import { ezetapStatus } from '@/lib/ezetap/client'
 import { getEzetapCredentials } from '@/lib/ezetap/config'
+import { retailerOwnsDevice, serialFromDeviceId } from '@/lib/pos-bridge/device-access'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -34,6 +36,22 @@ export async function POST(request: NextRequest) {
       getEzetapCredentials(merchant_slug)
     } catch (e: any) {
       return NextResponse.json({ error: e?.message || 'Credentials not configured' }, { status: 400 })
+    }
+
+    // Retailers may only query status for devices assigned to them.
+    if (user.role === 'retailer') {
+      if (!user.partner_id) {
+        return NextResponse.json({ error: 'Account misconfigured' }, { status: 400 })
+      }
+      const serial = serialFromDeviceId(String(body.device_id || body.device_serial || ''))
+      if (!serial) {
+        return NextResponse.json({ error: 'device_serial or device_id required' }, { status: 400 })
+      }
+      const supabase = getSupabaseAdmin()
+      const ok = await retailerOwnsDevice(supabase, user.partner_id, serial)
+      if (!ok) {
+        return NextResponse.json({ error: 'Device not assigned to your account' }, { status: 403 })
+      }
     }
 
     const result = await ezetapStatus(merchant_slug, origP2pRequestId)

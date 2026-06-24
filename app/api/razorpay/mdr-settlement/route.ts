@@ -155,11 +155,15 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // Get webhook signature from headers
+    // Get webhook signature from headers — MANDATORY (this endpoint credits wallets).
     const signature = request.headers.get('x-razorpay-signature');
     if (!signature) {
-      console.warn('Missing Razorpay signature header');
-      // Continue processing but log warning
+      console.error('[mdr-settlement] Rejected: missing Razorpay signature header');
+      return sendResponse({
+        received: true,
+        processed: false,
+        error: 'Missing signature',
+      });
     }
 
     // Read raw body for signature verification
@@ -177,8 +181,8 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // Verify signature if present
-    if (signature) {
+    // Verify signature — reject on any failure. No unsigned/forged path is accepted.
+    {
       const isValid = verifySignature(
         rawBody,
         signature,

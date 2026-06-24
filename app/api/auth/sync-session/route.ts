@@ -9,6 +9,14 @@ export const dynamic = 'force-dynamic'
  */
 export async function POST(request: NextRequest) {
   try {
+    // Reject cross-origin calls — this endpoint must only be called from our own login pages
+    const origin = request.headers.get('origin')
+    const referer = request.headers.get('referer')
+    const host = request.headers.get('host') || ''
+    if (origin && !origin.includes(host.split(':')[0]) && !origin.includes('localhost') && !origin.includes('127.0.0.1')) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+
     const body = await request.json()
     const { access_token, refresh_token } = body
 

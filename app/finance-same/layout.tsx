@@ -13,6 +13,7 @@ const mobileLinks = [
   { href: '/finance-same/reports', label: 'Reports' },
   { href: '/finance-same/settlement', label: 'T+1' },
   { href: '/finance-same/wallet-ledger', label: 'Ledger' },
+  { href: '/finance-same/settings', label: 'Settings' },
 ]
 
 export default function FinanceLayout({ children }: { children: React.ReactNode }) {

@@ -164,6 +164,7 @@ export async function upsertBBPSCommission(
     .from('scheme_bbps_commissions')
     .upsert({
       scheme_id: input.scheme_id,
+      bbps_type: input.bbps_type || 'bbps_1',
       category: input.category || null,
       min_amount: input.min_amount,
       max_amount: input.max_amount,

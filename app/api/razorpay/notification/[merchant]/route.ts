@@ -45,31 +45,48 @@ export async function POST(
   const supabase = createClient(supabaseUrl, supabaseServiceKey)
 
   try {
+    // Signature verification is MANDATORY — this webhook drives POS settlement / wallet credit.
     const signature = request.headers.get('x-razorpay-signature')
 
+    if (!RAZORPAY_WEBHOOK_SECRET) {
+      console.error(`[Webhook/${merchantSlug}] Rejected: RAZORPAY_WEBHOOK_SECRET not configured`)
+      return NextResponse.json(
+        { received: true, processed: false, error: 'Webhook secret not configured' },
+        { status: 200 }
+      )
+    }
+    if (!signature) {
+      console.error(`[Webhook/${merchantSlug}] Rejected: missing x-razorpay-signature header`)
+      return NextResponse.json(
+        { received: true, processed: false, error: 'Missing signature' },
+        { status: 200 }
+      )
+    }
+
+    const rawBody = await request.text()
     let payload: any
-
-    if (signature && RAZORPAY_WEBHOOK_SECRET) {
-      const rawBody = await request.text()
+    try {
       payload = JSON.parse(rawBody)
+    } catch {
+      return NextResponse.json(
+        { received: true, processed: false, error: 'Invalid JSON payload' },
+        { status: 200 }
+      )
+    }
 
-      const expectedSignature = crypto
-        .createHmac('sha256', RAZORPAY_WEBHOOK_SECRET)
-        .update(rawBody)
-        .digest('hex')
+    const expectedSignature = crypto
+      .createHmac('sha256', RAZORPAY_WEBHOOK_SECRET)
+      .update(rawBody)
+      .digest('hex')
 
-      if (!crypto.timingSafeEqual(
-        Buffer.from(signature),
-        Buffer.from(expectedSignature)
-      )) {
-        console.error(`[Webhook/${merchantSlug}] Invalid signature`)
-        return NextResponse.json(
-          { received: true, processed: false, error: 'Invalid signature' },
-          { status: 200 }
-        )
-      }
-    } else {
-      payload = await request.json()
+    const sigBuf = Buffer.from(signature)
+    const expBuf = Buffer.from(expectedSignature)
+    if (sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) {
+      console.error(`[Webhook/${merchantSlug}] Invalid signature`)
+      return NextResponse.json(
+        { received: true, processed: false, error: 'Invalid signature' },
+        { status: 200 }
+      )
     }
 
     const isStandardWebhook = !!(payload.event && payload.payload)

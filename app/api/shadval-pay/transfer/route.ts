@@ -25,13 +25,17 @@ export async function OPTIONS(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const { user } = await getCurrentUserWithFallback(request)
-    const userRole = user?.role as string | undefined
-    const isRetailer = userRole === 'retailer'
+    if (!user) {
+      const response = NextResponse.json({ success: false, error: 'Authentication required' }, { status: 401 })
+      return addCorsHeaders(request, response)
+    }
+    // This is a RAW provider passthrough with no wallet debit. Retailers must use
+    // the wallet-integrated /api/settlement-2/transfer instead. Admin-only here.
+    const userRole = user.role as string | undefined
     const isAdmin = userRole === 'admin' || userRole === 'super_admin'
-
-    if (!isRetailer && !isAdmin) {
+    if (!isAdmin) {
       const response = NextResponse.json(
-        { success: false, error: 'Access denied.' },
+        { success: false, error: 'Access denied. Use Settlement-2 transfer.' },
         { status: 403 }
       )
       return addCorsHeaders(request, response)

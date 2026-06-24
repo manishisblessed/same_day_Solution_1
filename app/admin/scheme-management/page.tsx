@@ -90,6 +90,7 @@ function SchemeManagementPageContent() {
   const [showConfigModal, setShowConfigModal] = useState(false)
   const [configType, setConfigType] = useState<'bbps' | 'payout' | 'mdr' | 'aeps' | 'aeps_settlement' | 'shadval_settlement'>('bbps')
   const [configSchemeId, setConfigSchemeId] = useState<string>('')
+  const [editingConfigId, setEditingConfigId] = useState<string | null>(null)
   
   // Mapping modal
   const [showMappingModal, setShowMappingModal] = useState(false)
@@ -380,10 +381,11 @@ function SchemeManagementPageContent() {
   }
 
   // ============================================================================
-  // CONFIG MODALS (BBPS / Payout / MDR)
+  // CONFIG MODALS (BBPS / Settlement / MDR / AEPS)
   // ============================================================================
 
   const [bbpsForm, setBbpsForm] = useState({
+    bbps_type: 'bbps_1' as 'bbps_1' | 'bbps_2',
     category: '',
     min_amount: 0,
     max_amount: 100000,
@@ -398,6 +400,8 @@ function SchemeManagementPageContent() {
     company_charge: 0,
     company_charge_type: 'flat' as 'flat' | 'percentage',
   })
+
+  const [settlementTypeSelection, setSettlementTypeSelection] = useState<'payout' | 'shadval_settlement'>('payout')
 
   const [payoutForm, setPayoutForm] = useState({
     transfer_mode: 'IMPS' as 'IMPS' | 'NEFT',
@@ -473,15 +477,42 @@ function SchemeManagementPageContent() {
     company_charge_type: 'flat' as 'flat' | 'percentage',
   })
 
-  const openConfigModal = (schemeId: string, type: 'bbps' | 'payout' | 'mdr' | 'aeps' | 'aeps_settlement' | 'shadval_settlement') => {
+  const openConfigModal = (schemeId: string, type: 'bbps' | 'payout' | 'mdr' | 'aeps' | 'aeps_settlement' | 'shadval_settlement', editData?: any) => {
     setConfigSchemeId(schemeId)
-    setConfigType(type)
-    // Reset forms
-    setBbpsForm({ category: '', min_amount: 0, max_amount: 100000, retailer_charge: 0, retailer_charge_type: 'flat', retailer_commission: 0, retailer_commission_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat', company_charge: 0, company_charge_type: 'flat' })
-    setPayoutForm({ transfer_mode: 'IMPS', min_amount: 0, max_amount: 100000, retailer_charge: 0, retailer_charge_type: 'flat', retailer_commission: 0, retailer_commission_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat', company_charge: 0, company_charge_type: 'flat' })
-    setMdrForm({ mode: 'CARD', card_type: '', brand_type: '', card_classification: '', retailer_mdr_t1: 0, retailer_mdr_t0: 0, distributor_mdr_t1: 0, distributor_mdr_t0: 0, md_mdr_t1: 0, md_mdr_t0: 0, partner_mdr: 0 })
-    setAepsForm({ transaction_type: 'cash_withdrawal', min_amount: 0, max_amount: 100000, base_commission: 0, base_commission_type: 'percentage', company_earning: 0, company_earning_type: 'flat', md_commission: 0, md_commission_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', retailer_commission: 0, retailer_commission_type: 'flat', tds_percentage: 5 })
-    setAepsSettleForm({ min_amount: 0, max_amount: 100000, retailer_charge: 0, retailer_charge_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat', company_charge: 0, company_charge_type: 'flat' })
+    setEditingConfigId(editData?.id || null)
+    if (type === 'shadval_settlement') {
+      if (editData) {
+        setConfigType('shadval_settlement')
+      } else {
+        setConfigType('payout')
+      }
+      setSettlementTypeSelection('shadval_settlement')
+    } else {
+      setConfigType(type)
+      setSettlementTypeSelection('payout')
+    }
+    if (editData) {
+      if (type === 'bbps') {
+        setBbpsForm({ bbps_type: editData.bbps_type || 'bbps_1', category: editData.category || '', min_amount: editData.min_amount || 0, max_amount: editData.max_amount || 100000, retailer_charge: editData.retailer_charge || 0, retailer_charge_type: editData.retailer_charge_type || 'flat', retailer_commission: editData.retailer_commission || 0, retailer_commission_type: editData.retailer_commission_type || 'flat', distributor_commission: editData.distributor_commission || 0, distributor_commission_type: editData.distributor_commission_type || 'flat', md_commission: editData.md_commission || 0, md_commission_type: editData.md_commission_type || 'flat', company_charge: editData.company_charge || 0, company_charge_type: editData.company_charge_type || 'flat' })
+      } else if (type === 'payout') {
+        setPayoutForm({ transfer_mode: editData.transfer_mode || 'IMPS', min_amount: editData.min_amount || 0, max_amount: editData.max_amount || 100000, retailer_charge: editData.retailer_charge || 0, retailer_charge_type: editData.retailer_charge_type || 'flat', retailer_commission: editData.retailer_commission || 0, retailer_commission_type: editData.retailer_commission_type || 'flat', distributor_commission: editData.distributor_commission || 0, distributor_commission_type: editData.distributor_commission_type || 'flat', md_commission: editData.md_commission || 0, md_commission_type: editData.md_commission_type || 'flat', company_charge: editData.company_charge || 0, company_charge_type: editData.company_charge_type || 'flat' })
+      } else if (type === 'mdr') {
+        setMdrForm({ mode: editData.mode || 'CARD', card_type: editData.card_type || '', brand_type: editData.brand_type || '', card_classification: editData.card_classification || '', retailer_mdr_t1: editData.retailer_mdr_t1 || 0, retailer_mdr_t0: editData.retailer_mdr_t0 || 0, distributor_mdr_t1: editData.distributor_mdr_t1 || 0, distributor_mdr_t0: editData.distributor_mdr_t0 || 0, md_mdr_t1: editData.md_mdr_t1 || 0, md_mdr_t0: editData.md_mdr_t0 || 0, partner_mdr: editData.partner_mdr || 0 })
+      } else if (type === 'aeps') {
+        setAepsForm({ transaction_type: editData.transaction_type || 'cash_withdrawal', min_amount: editData.min_amount || 0, max_amount: editData.max_amount || 100000, base_commission: editData.base_commission || 0, base_commission_type: editData.base_commission_type || 'percentage', company_earning: editData.company_earning || 0, company_earning_type: editData.company_earning_type || 'flat', md_commission: editData.md_commission || 0, md_commission_type: editData.md_commission_type || 'flat', distributor_commission: editData.distributor_commission || 0, distributor_commission_type: editData.distributor_commission_type || 'flat', retailer_commission: editData.retailer_commission || 0, retailer_commission_type: editData.retailer_commission_type || 'flat', tds_percentage: editData.tds_percentage ?? 5 })
+      } else if (type === 'aeps_settlement') {
+        setAepsSettleForm({ min_amount: editData.min_amount || 0, max_amount: editData.max_amount || 100000, retailer_charge: editData.retailer_charge || 0, retailer_charge_type: editData.retailer_charge_type || 'flat', distributor_commission: editData.distributor_commission || 0, distributor_commission_type: editData.distributor_commission_type || 'flat', md_commission: editData.md_commission || 0, md_commission_type: editData.md_commission_type || 'flat', company_charge: editData.company_charge || 0, company_charge_type: editData.company_charge_type || 'flat' })
+      } else if (type === 'shadval_settlement') {
+        setShadvalSettleForm({ transfer_mode: editData.transfer_mode || 'IMPS', min_amount: editData.min_amount || 0, max_amount: editData.max_amount || 100000, retailer_charge: editData.retailer_charge || 0, retailer_charge_type: editData.retailer_charge_type || 'flat', distributor_commission: editData.distributor_commission || 0, distributor_commission_type: editData.distributor_commission_type || 'flat', md_commission: editData.md_commission || 0, md_commission_type: editData.md_commission_type || 'flat', company_charge: editData.company_charge || 0, company_charge_type: editData.company_charge_type || 'flat' })
+      }
+    } else {
+      setBbpsForm({ bbps_type: 'bbps_1', category: '', min_amount: 0, max_amount: 100000, retailer_charge: 0, retailer_charge_type: 'flat', retailer_commission: 0, retailer_commission_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat', company_charge: 0, company_charge_type: 'flat' })
+      setPayoutForm({ transfer_mode: 'IMPS', min_amount: 0, max_amount: 100000, retailer_charge: 0, retailer_charge_type: 'flat', retailer_commission: 0, retailer_commission_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat', company_charge: 0, company_charge_type: 'flat' })
+      setMdrForm({ mode: 'CARD', card_type: '', brand_type: '', card_classification: '', retailer_mdr_t1: 0, retailer_mdr_t0: 0, distributor_mdr_t1: 0, distributor_mdr_t0: 0, md_mdr_t1: 0, md_mdr_t0: 0, partner_mdr: 0 })
+      setAepsForm({ transaction_type: 'cash_withdrawal', min_amount: 0, max_amount: 100000, base_commission: 0, base_commission_type: 'percentage', company_earning: 0, company_earning_type: 'flat', md_commission: 0, md_commission_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', retailer_commission: 0, retailer_commission_type: 'flat', tds_percentage: 5 })
+      setAepsSettleForm({ min_amount: 0, max_amount: 100000, retailer_charge: 0, retailer_charge_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat', company_charge: 0, company_charge_type: 'flat' })
+      setShadvalSettleForm({ transfer_mode: 'IMPS', min_amount: 0, max_amount: 100000, retailer_charge: 0, retailer_charge_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat', company_charge: 0, company_charge_type: 'flat' })
+    }
     setShowConfigModal(true)
   }
 
@@ -505,75 +536,7 @@ function SchemeManagementPageContent() {
   const handleSaveConfig = async () => {
     setSavingConfig(true)
     try {
-      if (configType === 'bbps') {
-        const { error } = await supabase.from('scheme_bbps_commissions').insert({
-          scheme_id: configSchemeId,
-          category: bbpsForm.category || null,
-          min_amount: bbpsForm.min_amount,
-          max_amount: bbpsForm.max_amount,
-          retailer_charge: bbpsForm.retailer_charge,
-          retailer_charge_type: bbpsForm.retailer_charge_type,
-          retailer_commission: bbpsForm.retailer_commission,
-          retailer_commission_type: bbpsForm.retailer_commission_type,
-          distributor_commission: bbpsForm.distributor_commission,
-          distributor_commission_type: bbpsForm.distributor_commission_type,
-          md_commission: bbpsForm.md_commission,
-          md_commission_type: bbpsForm.md_commission_type,
-          company_charge: bbpsForm.company_charge,
-          company_charge_type: bbpsForm.company_charge_type,
-          status: 'active',
-        })
-        if (error) throw error
-      } else if (configType === 'payout') {
-        const { error } = await supabase.from('scheme_payout_charges').insert({
-          scheme_id: configSchemeId,
-          transfer_mode: payoutForm.transfer_mode,
-          min_amount: payoutForm.min_amount,
-          max_amount: payoutForm.max_amount,
-          retailer_charge: payoutForm.retailer_charge,
-          retailer_charge_type: payoutForm.retailer_charge_type,
-          retailer_commission: payoutForm.retailer_commission,
-          retailer_commission_type: payoutForm.retailer_commission_type,
-          distributor_commission: payoutForm.distributor_commission,
-          distributor_commission_type: payoutForm.distributor_commission_type,
-          md_commission: payoutForm.md_commission,
-          md_commission_type: payoutForm.md_commission_type,
-          company_charge: payoutForm.company_charge,
-          company_charge_type: payoutForm.company_charge_type,
-          status: 'active',
-        })
-        if (error) throw error
-      } else if (configType === 'mdr') {
-        const configScheme = schemes.find(s => s.id === configSchemeId)
-        const isPartnerPlan = configScheme?.is_partner_plan || false
-        const insertData: any = {
-          scheme_id: configSchemeId,
-          mode: mdrForm.mode,
-          card_type: mdrForm.card_type || null,
-          brand_type: mdrForm.brand_type || null,
-          card_classification: mdrForm.card_classification || null,
-          status: 'active',
-        }
-        if (isPartnerPlan) {
-          insertData.partner_mdr = mdrForm.retailer_mdr_t1
-          insertData.retailer_mdr_t1 = mdrForm.retailer_mdr_t1
-          insertData.retailer_mdr_t0 = mdrForm.retailer_mdr_t0
-          insertData.distributor_mdr_t1 = 0
-          insertData.distributor_mdr_t0 = 0
-          insertData.md_mdr_t1 = 0
-          insertData.md_mdr_t0 = 0
-        } else {
-          insertData.retailer_mdr_t1 = mdrForm.retailer_mdr_t1
-          insertData.retailer_mdr_t0 = mdrForm.retailer_mdr_t0
-          insertData.distributor_mdr_t1 = mdrForm.distributor_mdr_t1
-          insertData.distributor_mdr_t0 = mdrForm.distributor_mdr_t0
-          insertData.md_mdr_t1 = mdrForm.md_mdr_t1
-          insertData.md_mdr_t0 = mdrForm.md_mdr_t0
-          insertData.partner_mdr = null
-        }
-        const { error } = await supabase.from('scheme_mdr_rates').insert(insertData)
-        if (error) throw error
-      } else if (configType === 'aeps') {
+      if (configType === 'aeps') {
         const preview = aepsPreview()
         if (!preview.valid) {
           setError(`Distribution (₹${preview.distributed}) exceeds partner pool (₹${preview.base}) at ₹${preview.amt}. Reduce role commissions.`)
@@ -581,61 +544,91 @@ function SchemeManagementPageContent() {
           setSavingConfig(false)
           return
         }
-        const { error } = await supabase.from('scheme_aeps_commissions').insert({
-          scheme_id: configSchemeId,
-          transaction_type: aepsForm.transaction_type,
-          min_amount: aepsForm.min_amount,
-          max_amount: aepsForm.max_amount,
-          base_commission: aepsForm.base_commission,
-          base_commission_type: aepsForm.base_commission_type,
-          company_earning: aepsForm.company_earning,
-          company_earning_type: aepsForm.company_earning_type,
-          md_commission: aepsForm.md_commission,
-          md_commission_type: aepsForm.md_commission_type,
-          distributor_commission: aepsForm.distributor_commission,
-          distributor_commission_type: aepsForm.distributor_commission_type,
-          retailer_commission: aepsForm.retailer_commission,
-          retailer_commission_type: aepsForm.retailer_commission_type,
-          tds_percentage: aepsForm.tds_percentage,
-          status: 'active',
-        })
-        if (error) throw error
-      } else if (configType === 'aeps_settlement') {
-        const { error } = await supabase.from('scheme_aeps_settlement_charges').insert({
-          scheme_id: configSchemeId,
-          min_amount: aepsSettleForm.min_amount,
-          max_amount: aepsSettleForm.max_amount,
-          retailer_charge: aepsSettleForm.retailer_charge,
-          retailer_charge_type: aepsSettleForm.retailer_charge_type,
-          distributor_commission: aepsSettleForm.distributor_commission,
-          distributor_commission_type: aepsSettleForm.distributor_commission_type,
-          md_commission: aepsSettleForm.md_commission,
-          md_commission_type: aepsSettleForm.md_commission_type,
-          company_charge: aepsSettleForm.company_charge,
-          company_charge_type: aepsSettleForm.company_charge_type,
-          status: 'active',
-        })
-        if (error) throw error
-      } else if (configType === 'shadval_settlement') {
-        const { error } = await supabase.from('scheme_shadval_settlement_charges').insert({
-          scheme_id: configSchemeId,
-          transfer_mode: shadvalSettleForm.transfer_mode,
-          min_amount: shadvalSettleForm.min_amount,
-          max_amount: shadvalSettleForm.max_amount,
-          retailer_charge: shadvalSettleForm.retailer_charge,
-          retailer_charge_type: shadvalSettleForm.retailer_charge_type,
-          distributor_commission: shadvalSettleForm.distributor_commission,
-          distributor_commission_type: shadvalSettleForm.distributor_commission_type,
-          md_commission: shadvalSettleForm.md_commission,
-          md_commission_type: shadvalSettleForm.md_commission_type,
-          company_charge: shadvalSettleForm.company_charge,
-          company_charge_type: shadvalSettleForm.company_charge_type,
-          status: 'active',
-        })
-        if (error) throw error
       }
-      setSuccess(`${configType.toUpperCase()} config added successfully`)
-      showToast(`${configType.toUpperCase()} config added`, 'success')
+
+      // If editing, delete old record first then insert new
+      if (editingConfigId) {
+        const configTypeMap: Record<string, string> = {
+          bbps: 'bbps', payout: 'payout', mdr: 'mdr', aeps: 'aeps',
+          aeps_settlement: 'aeps_settlement', shadval_settlement: 'shadval_settlement',
+        }
+        const ct = configTypeMap[configType] || configType
+        await fetch(`/api/schemes/${configSchemeId}/config?config_type=${ct}&config_id=${editingConfigId}`, { method: 'DELETE' })
+      }
+
+      let effectiveConfigType = configType
+      if (configType === 'payout' && settlementTypeSelection === 'shadval_settlement' && !editingConfigId) {
+        effectiveConfigType = 'shadval_settlement'
+      }
+
+      let configData: any = {}
+      if (effectiveConfigType === 'bbps') {
+        configData = { ...bbpsForm, category: bbpsForm.category || null }
+      } else if (effectiveConfigType === 'payout') {
+        configData = { ...payoutForm }
+      } else if (effectiveConfigType === 'mdr') {
+        const configScheme = schemes.find(s => s.id === configSchemeId)
+        const isPartnerPlan = configScheme?.is_partner_plan || false
+        configData = {
+          mode: mdrForm.mode,
+          card_type: mdrForm.card_type || null,
+          brand_type: mdrForm.brand_type || null,
+          card_classification: mdrForm.card_classification || null,
+        }
+        if (isPartnerPlan) {
+          configData.partner_mdr = mdrForm.retailer_mdr_t1
+          configData.retailer_mdr_t1 = mdrForm.retailer_mdr_t1
+          configData.retailer_mdr_t0 = mdrForm.retailer_mdr_t0
+          configData.distributor_mdr_t1 = 0
+          configData.distributor_mdr_t0 = 0
+          configData.md_mdr_t1 = 0
+          configData.md_mdr_t0 = 0
+        } else {
+          configData.retailer_mdr_t1 = mdrForm.retailer_mdr_t1
+          configData.retailer_mdr_t0 = mdrForm.retailer_mdr_t0
+          configData.distributor_mdr_t1 = mdrForm.distributor_mdr_t1
+          configData.distributor_mdr_t0 = mdrForm.distributor_mdr_t0
+          configData.md_mdr_t1 = mdrForm.md_mdr_t1
+          configData.md_mdr_t0 = mdrForm.md_mdr_t0
+          configData.partner_mdr = null
+        }
+      } else if (effectiveConfigType === 'aeps') {
+        configData = { ...aepsForm }
+      } else if (effectiveConfigType === 'aeps_settlement') {
+        configData = { ...aepsSettleForm }
+      } else if (effectiveConfigType === 'shadval_settlement') {
+        if (configType === 'payout') {
+          configData = {
+            transfer_mode: payoutForm.transfer_mode,
+            min_amount: payoutForm.min_amount,
+            max_amount: payoutForm.max_amount,
+            retailer_charge: payoutForm.retailer_charge,
+            retailer_charge_type: payoutForm.retailer_charge_type,
+            distributor_commission: payoutForm.distributor_commission,
+            distributor_commission_type: payoutForm.distributor_commission_type,
+            md_commission: payoutForm.md_commission,
+            md_commission_type: payoutForm.md_commission_type,
+            company_charge: payoutForm.company_charge,
+            company_charge_type: payoutForm.company_charge_type,
+          }
+        } else {
+          configData = { ...shadvalSettleForm }
+        }
+      }
+
+      const res = await fetch(`/api/schemes/${configSchemeId}/config`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ config_type: effectiveConfigType, ...configData }),
+      })
+      const result = await res.json()
+      if (!res.ok) throw new Error(result.error || 'Failed to save configuration')
+
+      const action = editingConfigId ? 'updated' : 'added'
+      const typeLabel = effectiveConfigType === 'payout' ? 'Settlement-1' : effectiveConfigType === 'shadval_settlement' ? 'Settlement-2' : effectiveConfigType?.toUpperCase()
+      setSuccess(`${typeLabel} config ${action} successfully`)
+      showToast(`${typeLabel} config ${action}`, 'success')
+      setEditingConfigId(null)
       setShowConfigModal(false)
       if (expandedSchemeId === configSchemeId) {
         toggleExpand(configSchemeId)
@@ -650,10 +643,23 @@ function SchemeManagementPageContent() {
 
   const handleDeleteConfig = async (table: string, id: string) => {
     if (!confirm('Delete this configuration?')) return
+    if (!expandedSchemeId) return
     setDeletingConfigId(id)
     try {
-      const { error } = await supabase.from(table).delete().eq('id', id)
-      if (error) throw error
+      const configTypeMap: Record<string, string> = {
+        scheme_bbps_commissions: 'bbps',
+        scheme_payout_charges: 'payout',
+        scheme_mdr_rates: 'mdr',
+        scheme_aeps_commissions: 'aeps',
+        scheme_aeps_settlement_charges: 'aeps_settlement',
+        scheme_shadval_settlement_charges: 'shadval_settlement',
+      }
+      const ct = configTypeMap[table] || table
+      const res = await fetch(`/api/schemes/${expandedSchemeId}/config?config_type=${ct}&config_id=${id}`, {
+        method: 'DELETE',
+      })
+      const result = await res.json()
+      if (!res.ok) throw new Error(result.error || 'Failed to delete configuration')
       setSuccess('Config deleted')
       showToast('Config deleted', 'success')
       if (expandedSchemeId) toggleExpand(expandedSchemeId)
@@ -817,7 +823,7 @@ function SchemeManagementPageContent() {
                 <Layers className="w-7 h-7 text-primary-600" />
                 Scheme Management
               </h1>
-              <p className="text-sm text-gray-500 mt-1">Manage Global, Golden &amp; Custom schemes with BBPS, Payout &amp; MDR configurations</p>
+              <p className="text-sm text-gray-500 mt-1">Manage Global, Golden &amp; Custom schemes with BBPS, Settlement, MDR &amp; AEPS configurations</p>
             </div>
             <button
               onClick={openCreateModal}
@@ -942,7 +948,7 @@ function SchemeManagementPageContent() {
                       <CreditCard className="w-4 h-4" />
                     </button>
                     <button onClick={(e) => { e.stopPropagation(); openConfigModal(scheme.id, 'payout') }}
-                      className="p-1.5 rounded-lg hover:bg-green-50 dark:hover:bg-green-900/20 text-green-600" title="Add Payout Config">
+                      className="p-1.5 rounded-lg hover:bg-green-50 dark:hover:bg-green-900/20 text-green-600" title={`Add Settlement-1${user?.role === 'admin' ? ' (Sparkup)' : ''} Config`}>
                       <Banknote className="w-4 h-4" />
                     </button>
                     <button onClick={(e) => { e.stopPropagation(); openConfigModal(scheme.id, 'mdr') }}
@@ -958,8 +964,8 @@ function SchemeManagementPageContent() {
                       <DollarSign className="w-4 h-4" />
                     </button>
                     <button onClick={(e) => { e.stopPropagation(); openConfigModal(scheme.id, 'shadval_settlement') }}
-                      className="p-1.5 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-900/20 text-rose-600" title="Add Settlement-2 Charge">
-                      <Banknote className="w-4 h-4" />
+                      className="p-1.5 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-900/20 text-rose-600" title={`Add Settlement-2${user?.role === 'admin' ? ' (Shadval)' : ''} Charge`}>
+                      <DollarSign className="w-4 h-4" />
                     </button>
                     <button onClick={(e) => { e.stopPropagation(); openMappingModal(scheme.id) }}
                       className="p-1.5 rounded-lg hover:bg-purple-50 dark:hover:bg-purple-900/20 text-purple-600" title="Map to User">
@@ -1048,6 +1054,7 @@ function SchemeManagementPageContent() {
                           <table className="w-full text-xs">
                             <thead>
                               <tr className="bg-blue-50 dark:bg-blue-900/20">
+                                <th className="px-2 py-1.5 text-left">Type</th>
                                 <th className="px-2 py-1.5 text-left">Category</th>
                                 <th className="px-2 py-1.5 text-left">Slab</th>
                                 <th className="px-2 py-1.5 text-right">Retailer Charge</th>
@@ -1061,6 +1068,7 @@ function SchemeManagementPageContent() {
                             <tbody>
                               {scheme.bbps_commissions.map((c: any) => (
                                 <tr key={c.id} className="border-b border-gray-100 dark:border-gray-700">
+                                  <td className="px-2 py-1.5"><span className={`px-1.5 py-0.5 rounded text-xs font-medium ${c.bbps_type === 'bbps_2' ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400' : 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'}`}>{c.bbps_type === 'bbps_2' ? 'BBPS 2' : 'BBPS 1'}</span></td>
                                   <td className="px-2 py-1.5">{c.category || 'All'}</td>
                                   <td className="px-2 py-1.5">{`₹${c.min_amount} - ₹${c.max_amount >= 999999 ? '∞' : c.max_amount}`}</td>
                                   <td className="px-2 py-1.5 text-right">{c.retailer_charge}{c.retailer_charge_type === 'percentage' ? '%' : '₹'}</td>
@@ -1068,7 +1076,10 @@ function SchemeManagementPageContent() {
                                   <td className="px-2 py-1.5 text-right">{c.distributor_commission}{c.distributor_commission_type === 'percentage' ? '%' : '₹'}</td>
                                   <td className="px-2 py-1.5 text-right">{c.md_commission}{c.md_commission_type === 'percentage' ? '%' : '₹'}</td>
                                   <td className="px-2 py-1.5 text-right">{c.company_charge}{c.company_charge_type === 'percentage' ? '%' : '₹'}</td>
-                                  <td className="px-2 py-1.5 text-right">
+                                  <td className="px-2 py-1.5 text-right flex gap-1">
+                                    <button onClick={() => openConfigModal(scheme.id, 'bbps', c)} className="text-blue-400 hover:text-blue-600" title="Edit">
+                                      <Edit2 className="w-3 h-3" />
+                                    </button>
                                     <button onClick={() => handleDeleteConfig('scheme_bbps_commissions', c.id)} disabled={deletingConfigId === c.id} className="text-red-400 hover:text-red-600 disabled:opacity-50">
                                       {deletingConfigId === c.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
                                     </button>
@@ -1083,10 +1094,10 @@ function SchemeManagementPageContent() {
                       )}
                     </div>
 
-                    {/* Payout Charges */}
+                    {/* Settlement-1 Charges */}
                     <div>
                       <h4 className="font-semibold text-sm text-green-700 dark:text-green-400 mb-2 flex items-center gap-1">
-                        <Banknote className="w-4 h-4" /> Payout Charges ({scheme.payout_charges?.length || 0})
+                        <Banknote className="w-4 h-4" /> Settlement-1 Charges{user?.role === 'admin' ? ' (Sparkup)' : ''} ({scheme.payout_charges?.length || 0})
                       </h4>
                       {scheme.payout_charges && scheme.payout_charges.length > 0 ? (
                         <div className="overflow-x-auto">
@@ -1113,7 +1124,10 @@ function SchemeManagementPageContent() {
                                   <td className="px-2 py-1.5 text-right">{c.distributor_commission}{c.distributor_commission_type === 'percentage' ? '%' : '₹'}</td>
                                   <td className="px-2 py-1.5 text-right">{c.md_commission}{c.md_commission_type === 'percentage' ? '%' : '₹'}</td>
                                   <td className="px-2 py-1.5 text-right">{c.company_charge}{c.company_charge_type === 'percentage' ? '%' : '₹'}</td>
-                                  <td className="px-2 py-1.5 text-right">
+                                  <td className="px-2 py-1.5 text-right flex gap-1">
+                                    <button onClick={() => openConfigModal(scheme.id, 'payout', c)} className="text-blue-400 hover:text-blue-600" title="Edit">
+                                      <Edit2 className="w-3 h-3" />
+                                    </button>
                                     <button onClick={() => handleDeleteConfig('scheme_payout_charges', c.id)} disabled={deletingConfigId === c.id} className="text-red-400 hover:text-red-600 disabled:opacity-50">
                                       {deletingConfigId === c.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
                                     </button>
@@ -1124,7 +1138,7 @@ function SchemeManagementPageContent() {
                           </table>
                         </div>
                       ) : (
-                        <p className="text-xs text-gray-400 italic">No Payout charges configured</p>
+                        <p className="text-xs text-gray-400 italic">No Settlement-1 charges configured</p>
                       )}
                     </div>
 
@@ -1183,7 +1197,10 @@ function SchemeManagementPageContent() {
                                       <td className="px-2 py-1.5 text-right">{r.md_mdr_t0}%</td>
                                     </>
                                   )}
-                                  <td className="px-2 py-1.5 text-right">
+                                  <td className="px-2 py-1.5 text-right flex gap-1">
+                                    <button onClick={() => openConfigModal(scheme.id, 'mdr', r)} className="text-blue-400 hover:text-blue-600" title="Edit">
+                                      <Edit2 className="w-3 h-3" />
+                                    </button>
                                     <button onClick={() => handleDeleteConfig('scheme_mdr_rates', r.id)} disabled={deletingConfigId === r.id} className="text-red-400 hover:text-red-600 disabled:opacity-50">
                                       {deletingConfigId === r.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
                                     </button>
@@ -1232,7 +1249,10 @@ function SchemeManagementPageContent() {
                                     <td className="px-2 py-1.5 text-right">{fmt(c.distributor_commission, c.distributor_commission_type)}</td>
                                     <td className="px-2 py-1.5 text-right">{fmt(c.retailer_commission, c.retailer_commission_type)}</td>
                                     <td className="px-2 py-1.5 text-right">{c.tds_percentage}%</td>
-                                    <td className="px-2 py-1.5 text-right">
+                                    <td className="px-2 py-1.5 text-right flex gap-1">
+                                      <button onClick={() => openConfigModal(scheme.id, 'aeps', c)} className="text-blue-400 hover:text-blue-600" title="Edit">
+                                        <Edit2 className="w-3 h-3" />
+                                      </button>
                                       <button onClick={() => handleDeleteConfig('scheme_aeps_commissions', c.id)} disabled={deletingConfigId === c.id} className="text-red-400 hover:text-red-600 disabled:opacity-50">
                                         {deletingConfigId === c.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
                                       </button>
@@ -1276,7 +1296,10 @@ function SchemeManagementPageContent() {
                                     <td className="px-2 py-1.5 text-right">{fmt(c.distributor_commission, c.distributor_commission_type)}</td>
                                     <td className="px-2 py-1.5 text-right">{fmt(c.md_commission, c.md_commission_type)}</td>
                                     <td className="px-2 py-1.5 text-right">{fmt(c.company_charge, c.company_charge_type)}</td>
-                                    <td className="px-2 py-1.5 text-right">
+                                    <td className="px-2 py-1.5 text-right flex gap-1">
+                                      <button onClick={() => openConfigModal(scheme.id, 'aeps_settlement', c)} className="text-blue-400 hover:text-blue-600" title="Edit">
+                                        <Edit2 className="w-3 h-3" />
+                                      </button>
                                       <button onClick={() => handleDeleteConfig('scheme_aeps_settlement_charges', c.id)} disabled={deletingConfigId === c.id} className="text-red-400 hover:text-red-600 disabled:opacity-50">
                                         {deletingConfigId === c.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
                                       </button>
@@ -1295,7 +1318,7 @@ function SchemeManagementPageContent() {
                     {/* Settlement-2 (Shadval) Charges */}
                     <div>
                       <h4 className="font-semibold text-sm text-rose-700 dark:text-rose-400 mb-2 flex items-center gap-1">
-                        <Banknote className="w-4 h-4" /> Settlement-2 Charges ({scheme.shadval_settlement_charges?.length || 0})
+                        <Banknote className="w-4 h-4" /> Settlement-2 Charges{user?.role === 'admin' ? ' (Shadval)' : ''} ({scheme.shadval_settlement_charges?.length || 0})
                       </h4>
                       {scheme.shadval_settlement_charges && scheme.shadval_settlement_charges.length > 0 ? (
                         <div className="overflow-x-auto">
@@ -1322,7 +1345,10 @@ function SchemeManagementPageContent() {
                                     <td className="px-2 py-1.5 text-right">{fmt(c.distributor_commission, c.distributor_commission_type)}</td>
                                     <td className="px-2 py-1.5 text-right">{fmt(c.md_commission, c.md_commission_type)}</td>
                                     <td className="px-2 py-1.5 text-right">{fmt(c.company_charge, c.company_charge_type)}</td>
-                                    <td className="px-2 py-1.5 text-right">
+                                    <td className="px-2 py-1.5 text-right flex gap-1">
+                                      <button onClick={() => openConfigModal(scheme.id, 'shadval_settlement', c)} className="text-blue-400 hover:text-blue-600" title="Edit">
+                                        <Edit2 className="w-3 h-3" />
+                                      </button>
                                       <button onClick={() => handleDeleteConfig('scheme_shadval_settlement_charges', c.id)} disabled={deletingConfigId === c.id} className="text-red-400 hover:text-red-600 disabled:opacity-50">
                                         {deletingConfigId === c.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
                                       </button>
@@ -1409,7 +1435,7 @@ function SchemeManagementPageContent() {
                       className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700">
                       <option value="all">All Services</option>
                       <option value="bbps">BBPS Only</option>
-                      <option value="payout">Payout Only</option>
+                      <option value="payout">Settlement-1 Only</option>
                       <option value="mdr">MDR Only</option>
                       <option value="aeps">AEPS Commission Only</option>
                       <option value="aeps_settlement">AEPS Settlement Only</option>
@@ -1447,19 +1473,19 @@ function SchemeManagementPageContent() {
         )}
 
         {/* ================================================================ */}
-        {/* CONFIG MODAL (BBPS / Payout / MDR) */}
+        {/* CONFIG MODAL (BBPS / Settlement / MDR / AEPS) */}
         {/* ================================================================ */}
         {showConfigModal && (
           <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
             <div className="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-lg max-h-[90vh] flex flex-col my-4">
               <div className="px-6 pt-5 pb-4 border-b border-gray-200 dark:border-gray-700 shrink-0">
                 <h2 className="text-lg font-bold flex items-center gap-2">
-                  {configType === 'bbps' && <><CreditCard className="w-5 h-5 text-blue-600" /> Add BBPS Commission</>}
-                  {configType === 'payout' && <><Banknote className="w-5 h-5 text-green-600" /> Add Payout Charge</>}
-                  {configType === 'mdr' && <><TrendingUp className="w-5 h-5 text-orange-600" /> Add MDR Rate</>}
-                  {configType === 'aeps' && <><Banknote className="w-5 h-5 text-teal-600" /> Add AEPS Commission</>}
-                  {configType === 'aeps_settlement' && <><DollarSign className="w-5 h-5 text-purple-600" /> Add AEPS Settlement Charge</>}
-                  {configType === 'shadval_settlement' && <><Banknote className="w-5 h-5 text-rose-600" /> Add Settlement-2 Charge</>}
+                  {configType === 'bbps' && <><CreditCard className="w-5 h-5 text-blue-600" /> {editingConfigId ? 'Edit' : 'Add'} BBPS Commission</>}
+                  {configType === 'payout' && <><Banknote className="w-5 h-5 text-green-600" /> {editingConfigId ? 'Edit' : 'Add'} {settlementTypeSelection === 'shadval_settlement' && !editingConfigId ? `Settlement-2${user?.role === 'admin' ? ' (Shadval)' : ''}` : `Settlement-1${user?.role === 'admin' ? ' (Sparkup)' : ''}`} Charge</>}
+                  {configType === 'mdr' && <><TrendingUp className="w-5 h-5 text-orange-600" /> {editingConfigId ? 'Edit' : 'Add'} MDR Rate</>}
+                  {configType === 'aeps' && <><Banknote className="w-5 h-5 text-teal-600" /> {editingConfigId ? 'Edit' : 'Add'} AEPS Commission</>}
+                  {configType === 'aeps_settlement' && <><DollarSign className="w-5 h-5 text-purple-600" /> {editingConfigId ? 'Edit' : 'Add'} AEPS Settlement Charge</>}
+                  {configType === 'shadval_settlement' && <><Banknote className="w-5 h-5 text-rose-600" /> {editingConfigId ? 'Edit' : 'Add'} Settlement-2{user?.role === 'admin' ? ' (Shadval)' : ''} Charge</>}
                 </h2>
               </div>
 
@@ -1467,6 +1493,14 @@ function SchemeManagementPageContent() {
               {/* BBPS Form */}
               {configType === 'bbps' && (
                 <div className="space-y-2">
+                  <div>
+                    <label className="block text-sm font-medium mb-1">BBPS Type</label>
+                    <select value={bbpsForm.bbps_type} onChange={(e) => setBbpsForm({ ...bbpsForm, bbps_type: e.target.value as 'bbps_1' | 'bbps_2' })}
+                      className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700">
+                      <option value="bbps_1">BBPS 1</option>
+                      <option value="bbps_2">BBPS 2</option>
+                    </select>
+                  </div>
                   <div>
                     <label className="block text-sm font-medium mb-1">Category (leave empty for all)</label>
                     <select value={bbpsForm.category} onChange={(e) => setBbpsForm({ ...bbpsForm, category: e.target.value })}
@@ -1527,9 +1561,19 @@ function SchemeManagementPageContent() {
                 </div>
               )}
 
-              {/* Payout Form */}
+              {/* Payout / Settlement Form */}
               {configType === 'payout' && (
                 <div className="space-y-2">
+                  {!editingConfigId && (
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Settlement Type</label>
+                      <select value={settlementTypeSelection} onChange={(e) => setSettlementTypeSelection(e.target.value as 'payout' | 'shadval_settlement')}
+                        className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700">
+                        <option value="payout">Settlement-1{user?.role === 'admin' ? ' (Sparkup)' : ''}</option>
+                        <option value="shadval_settlement">Settlement-2{user?.role === 'admin' ? ' (Shadval)' : ''}</option>
+                      </select>
+                    </div>
+                  )}
                   <div>
                     <label className="block text-sm font-medium mb-1">Transfer Mode</label>
                     <select value={payoutForm.transfer_mode} onChange={(e) => setPayoutForm({ ...payoutForm, transfer_mode: e.target.value as any })}
@@ -1553,7 +1597,7 @@ function SchemeManagementPageContent() {
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {[
                     { label: 'Retailer Charge', key: 'retailer_charge', typeKey: 'retailer_charge_type' },
-                    { label: 'Retailer Commission', key: 'retailer_commission', typeKey: 'retailer_commission_type' },
+                    ...(settlementTypeSelection === 'payout' ? [{ label: 'Retailer Commission', key: 'retailer_commission', typeKey: 'retailer_commission_type' }] : []),
                     { label: 'Distributor Commission', key: 'distributor_commission', typeKey: 'distributor_commission_type' },
                     { label: 'MD Commission', key: 'md_commission', typeKey: 'md_commission_type' },
                     { label: 'Company Earning', key: 'company_charge', typeKey: 'company_charge_type' },
@@ -1929,7 +1973,7 @@ function SchemeManagementPageContent() {
               <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700 shrink-0 flex justify-end gap-2">
                 <button onClick={() => setShowConfigModal(false)} disabled={savingConfig} className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg">Cancel</button>
                 <button onClick={handleSaveConfig} disabled={savingConfig} className="px-4 py-2 text-sm bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50">
-                  {savingConfig ? 'Saving...' : 'Save Configuration'}
+                  {savingConfig ? 'Saving...' : editingConfigId ? 'Update Configuration' : 'Save Configuration'}
                 </button>
               </div>
             </div>
@@ -1973,7 +2017,7 @@ function SchemeManagementPageContent() {
                     className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700">
                     <option value="all">All Services</option>
                     <option value="bbps">BBPS Only</option>
-                    <option value="payout">Payout Only</option>
+                    <option value="payout">Settlement-1 Only</option>
                     <option value="mdr">MDR Only</option>
                     <option value="aeps">AEPS Commission Only</option>
                     <option value="aeps_settlement">AEPS Settlement Only</option>

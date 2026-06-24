@@ -152,10 +152,39 @@ async function runPartnerT1Settlement() {
         // Credit partner wallet with batch amount
         if (partnerSuccessCount > 0) {
           try {
+            const settleDate = new Date().toISOString().split('T')[0]
+            const referenceId = `PARTNER-T1-${settleDate}-${partnerId}`
+
+            // Idempotency: check if this partner was already settled today
+            const { data: existingEntry } = await supabase
+              .from('wallet_ledger')
+              .select('id')
+              .eq('reference_id', referenceId)
+              .limit(1)
+              .maybeSingle()
+
+            if (existingEntry) {
+              console.warn(`[Partner T1-Cron] Skipping partner ${partnerId}: already settled today (${referenceId})`)
+              for (const item of processedTxns) {
+                await supabase
+                  .from('razorpay_pos_transactions')
+                  .update({ partner_wallet_credited: true, partner_auto_settled_at: new Date().toISOString() })
+                  .eq('id', item.id)
+              }
+              continue
+            }
+
+            // Mark transactions first to prevent race condition
+            const txnIds = processedTxns.map(item => item.id)
+            await supabase
+              .from('razorpay_pos_transactions')
+              .update({ partner_wallet_credited: true })
+              .in('id', txnIds)
+
             const walletResult = await creditPartnerWallet(
               partnerId,
               partnerNet,
-              `PARTNER-T1-${new Date().toISOString().split('T')[0]}`,
+              referenceId,
               `T+1 Auto Settlement - ${partnerSuccessCount} txn(s), Gross: ₹${partnerGross.toFixed(2)}, MDR: ₹${partnerMdr.toFixed(2)}, Net: ₹${partnerNet.toFixed(2)}`
             )
 
@@ -164,6 +193,11 @@ async function runPartnerT1Settlement() {
                 `[Partner T1-Cron] Wallet credit failed for partner ${partnerId}:`,
                 walletResult.error
               )
+              // Revert marking
+              await supabase
+                .from('razorpay_pos_transactions')
+                .update({ partner_wallet_credited: false })
+                .in('id', txnIds)
               totalFailed += partnerSuccessCount
               continue
             }
@@ -173,7 +207,6 @@ async function runPartnerT1Settlement() {
               await supabase
                 .from('razorpay_pos_transactions')
                 .update({
-                  partner_wallet_credited: true,
                   partner_wallet_credit_id: walletResult.wallet_credit_id,
                   partner_mdr_amount: item.mdrAmount,
                   partner_net_amount: item.netAmount,

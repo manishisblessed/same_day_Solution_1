@@ -28,12 +28,12 @@ function getServiceClient() {
 async function getUserRole(_supabase: any, email: string, userId: string): Promise<AuthUser | null> {
   const supabase = getServiceClient() || _supabase
   const [retailer, distributor, masterDistributor, admin, finance, partner] = await Promise.all([
-    supabase.from('retailers').select('*').eq('email', email).maybeSingle(),
-    supabase.from('distributors').select('*').eq('email', email).maybeSingle(),
-    supabase.from('master_distributors').select('*').eq('email', email).maybeSingle(),
+    supabase.from('retailers').select('*').eq('email', email).eq('status', 'active').maybeSingle(),
+    supabase.from('distributors').select('*').eq('email', email).eq('status', 'active').maybeSingle(),
+    supabase.from('master_distributors').select('*').eq('email', email).eq('status', 'active').maybeSingle(),
     supabase.from('admin_users').select('*').eq('email', email).maybeSingle(),
-    supabase.from('finance_users').select('*').eq('email', email).maybeSingle(),
-    supabase.from('partners').select('*').eq('email', email).maybeSingle(),
+    supabase.from('finance_users').select('*').eq('email', email).eq('is_active', true).maybeSingle(),
+    supabase.from('partners').select('*').eq('email', email).eq('status', 'active').maybeSingle(),
   ])
 
   // Check admin_users FIRST — admin is the highest privilege level and must

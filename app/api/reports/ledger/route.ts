@@ -3,6 +3,7 @@ import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { createClient } from '@supabase/supabase-js'
 import { addCorsHeaders } from '@/lib/cors'
+import { resolveDownline, downlineToIdSet, isPrivilegedRole } from '@/lib/security/downline'
 
 export const runtime = 'nodejs' // Force Node.js runtime (Supabase not compatible with Edge Runtime)
 export const dynamic = 'force-dynamic'
@@ -53,18 +54,19 @@ export async function GET(request: NextRequest) {
       .select('*', { count: 'exact' })
       .order('created_at', { ascending: false })
 
-    // Role-based filtering
-    if (user.role === 'retailer' && user.partner_id) {
-      query = query.eq('retailer_id', user.partner_id)
-    } else if (user.role === 'distributor' && user.partner_id) {
-      // Distributors can see their retailers
-      query = query.eq('user_role', 'retailer')
-      // TODO: Add distributor_id filtering when available
-    } else if (user.role === 'master_distributor' && user.partner_id) {
-      // Master distributors can see their distributors and retailers
-      // TODO: Add hierarchical filtering
+    // Hierarchy scoping — non-admins only see their own + downline ledger rows.
+    let allowedIds: string[] | null = null
+    if (!isPrivilegedRole(user.role)) {
+      const downline = await resolveDownline(supabase, user)
+      allowedIds = downlineToIdSet(downline, user.partner_id)
+      if (allowedIds.length === 0) {
+        return NextResponse.json({ success: true, data: [], total: 0, limit, offset })
+      }
+      // Match rows owned by an allowed id on either ownership column.
+      query = query.or(
+        `user_id.in.(${allowedIds.join(',')}),retailer_id.in.(${allowedIds.join(',')})`
+      )
     }
-    // Admin can see all
 
     // Apply filters
     if (dateFrom) {
@@ -74,6 +76,10 @@ export async function GET(request: NextRequest) {
       query = query.lte('created_at', dateTo)
     }
     if (user_id) {
+      // A specific user_id filter must stay within the caller's allowed set.
+      if (allowedIds !== null && !allowedIds.includes(user_id)) {
+        return NextResponse.json({ error: 'Forbidden: user not in your network' }, { status: 403 })
+      }
       query = query.eq('retailer_id', user_id) // Using retailer_id for backward compatibility
     }
     if (user_role) {

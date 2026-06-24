@@ -1,11 +1,12 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useRouter } from 'next/navigation'
 import { Lock, Mail, AlertCircle, Loader2, MapPin, ShieldCheck, Clock, Eye, EyeOff } from 'lucide-react'
 import AnimatedSection from '@/components/AnimatedSection'
 import { getGeoLocationForLogin, clearGeoCache } from '@/hooks/useGeolocation'
+import TurnstileWidget, { TurnstileHandle, isCaptchaEnabled } from '@/components/TurnstileWidget'
 
 export default function FinanceLoginPage() {
   const { user, login } = useAuth()
@@ -17,6 +18,9 @@ export default function FinanceLoginPage() {
   const [locationLoading, setLocationLoading] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
   const [showExpiredBanner, setShowExpiredBanner] = useState(false)
+  const [captchaToken, setCaptchaToken] = useState('')
+  const [captchaError, setCaptchaError] = useState(false)
+  const turnstileRef = useRef<TurnstileHandle>(null)
 
   useEffect(() => {
     clearGeoCache()
@@ -60,12 +64,19 @@ export default function FinanceLoginPage() {
       setError('Please verify your location before signing in.')
       return
     }
+    if (isCaptchaEnabled() && !captchaToken && !captchaError) {
+      setError('Please complete the CAPTCHA verification.')
+      return
+    }
     setLoading(true)
     try {
-      await login(formData.email, formData.password, 'finance_executive')
-      router.push('/finance-same')
+      await login(formData.email, formData.password, 'finance_executive', captchaToken)
+      const params = new URLSearchParams(window.location.search)
+      router.push(params.get('redirect')?.startsWith('/finance-same') ? params.get('redirect')! : '/finance-same')
     } catch (err: any) {
       setError(err.message || 'Invalid credentials')
+      setCaptchaToken('')
+      turnstileRef.current?.reset()
     } finally {
       setLoading(false)
     }
@@ -166,7 +177,17 @@ export default function FinanceLoginPage() {
                     <ShieldCheck className="w-4 h-4 flex-shrink-0" />
                     <span>Location verified</span>
                   </div>
-                  <button type="submit" disabled={loading} className="w-full btn-primary bg-emerald-600 hover:bg-emerald-700">
+                  {isCaptchaEnabled() && (
+                    <div className="flex flex-col items-center">
+                      <TurnstileWidget
+                        ref={turnstileRef}
+                        onVerify={(t) => { setCaptchaToken(t); setCaptchaError(false) }}
+                        onExpire={() => setCaptchaToken('')}
+                        onError={() => setCaptchaError(true)}
+                      />
+                    </div>
+                  )}
+                  <button type="submit" disabled={loading || (isCaptchaEnabled() && !captchaToken && !captchaError)} className="w-full btn-primary bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60">
                     {loading ? 'Signing in...' : 'Sign in'}
                   </button>
                 </>

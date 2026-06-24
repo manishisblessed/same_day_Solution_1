@@ -3,6 +3,7 @@ import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { createClient } from '@supabase/supabase-js'
 import { addCorsHeaders } from '@/lib/cors'
+import { resolveDownline, downlineToIdSet, isPrivilegedRole } from '@/lib/security/downline'
 
 export const runtime = 'nodejs' // Force Node.js runtime (Supabase not compatible with Edge Runtime)
 export const dynamic = 'force-dynamic'
@@ -44,6 +45,21 @@ export async function GET(request: NextRequest) {
     const offset = parseInt(searchParams.get('offset') || '0')
     const format = searchParams.get('format') || 'json' // json, csv, pdf, zip
 
+    // Hierarchy scoping: non-admins are limited to their own + downline ids.
+    // `allowedIds === null` means privileged (admin/finance) → no restriction.
+    const privileged = isPrivilegedRole(user.role)
+    let allowedIds: string[] | null = null
+    if (!privileged) {
+      const downline = await resolveDownline(supabase, user)
+      allowedIds = downlineToIdSet(downline, user.partner_id)
+      if (allowedIds.length === 0) {
+        return NextResponse.json({ success: true, data: [], total: 0, limit, offset })
+      }
+    }
+    if (user_id && allowedIds !== null && !allowedIds.includes(user_id)) {
+      return NextResponse.json({ error: 'Forbidden: user not in your network' }, { status: 403 })
+    }
+
     let results: any[] = []
     let total = 0
 
@@ -54,8 +70,8 @@ export async function GET(request: NextRequest) {
         .select('*', { count: 'exact' })
         .order('created_at', { ascending: false })
 
-      if (user.role === 'retailer' && user.partner_id) {
-        bbpsQuery = bbpsQuery.eq('retailer_id', user.partner_id)
+      if (allowedIds !== null) {
+        bbpsQuery = bbpsQuery.in('retailer_id', allowedIds)
       }
 
       if (dateFrom) bbpsQuery = bbpsQuery.gte('created_at', dateFrom)
@@ -83,8 +99,8 @@ export async function GET(request: NextRequest) {
         .select('*', { count: 'exact' })
         .order('created_at', { ascending: false })
 
-      if (user.role === 'retailer' && user.partner_id) {
-        aepsQuery = aepsQuery.eq('user_id', user.partner_id)
+      if (allowedIds !== null) {
+        aepsQuery = aepsQuery.in('user_id', allowedIds)
       }
 
       if (dateFrom) aepsQuery = aepsQuery.gte('created_at', dateFrom)
@@ -112,8 +128,8 @@ export async function GET(request: NextRequest) {
         .select('*', { count: 'exact' })
         .order('created_at', { ascending: false })
 
-      if (user.role === 'retailer' && user.partner_id) {
-        settlementQuery = settlementQuery.eq('user_id', user.partner_id)
+      if (allowedIds !== null) {
+        settlementQuery = settlementQuery.in('user_id', allowedIds)
       }
 
       if (dateFrom) settlementQuery = settlementQuery.gte('created_at', dateFrom)
@@ -140,7 +156,7 @@ export async function GET(request: NextRequest) {
       // Get device serials based on user role for filtering
       let deviceSerials: string[] = []
       
-      if (user.role !== 'admin') {
+      if (!privileged) {
         let mappingQuery = supabase
           .from('pos_device_mapping')
           .select('device_serial')
@@ -152,6 +168,9 @@ export async function GET(request: NextRequest) {
           mappingQuery = mappingQuery.eq('distributor_id', user.partner_id)
         } else if (user.role === 'retailer' && user.partner_id) {
           mappingQuery = mappingQuery.eq('retailer_id', user.partner_id)
+        } else {
+          // Unknown non-privileged role → no POS access
+          mappingQuery = mappingQuery.eq('device_serial', '__none__')
         }
 
         const { data: mappings } = await mappingQuery
@@ -164,9 +183,9 @@ export async function GET(request: NextRequest) {
         .order('transaction_time', { ascending: false })
 
       // Apply role-based filtering
-      if (user.role !== 'admin' && deviceSerials.length > 0) {
+      if (!privileged && deviceSerials.length > 0) {
         posQuery = posQuery.in('device_serial', deviceSerials)
-      } else if (user.role !== 'admin' && deviceSerials.length === 0) {
+      } else if (!privileged && deviceSerials.length === 0) {
         // No access - return empty
         posQuery = posQuery.eq('id', '00000000-0000-0000-0000-000000000000') // Impossible match
       }

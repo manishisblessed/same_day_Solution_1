@@ -64,17 +64,47 @@ export async function GET(request: NextRequest) {
       status: url.searchParams.get('status') || 'active',
     };
 
-    // Non-admin: can only see their own mappings or their downstream
-    if (user.role === 'retailer' || user.role === 'partner') {
-      filters.entity_id = user.partner_id;
-    }
-    // Distributors can only see mappings they assigned or for their own retailers
-    if (user.role === 'distributor' && filters.entity_id && user.partner_id) {
-      // Verify the entity belongs to this distributor
-      const entityId = filters.entity_id;
-      const isOwned = await verifyDistributorOwnsRetailer(user.partner_id, entityId);
-      if (!isOwned && entityId !== user.partner_id) {
-        return NextResponse.json({ error: 'Access denied: entity does not belong to you' }, { status: 403 });
+    const isPrivileged = user.role === 'admin' || user.role === 'finance_executive';
+
+    if (!isPrivileged) {
+      if (!user.partner_id) {
+        return NextResponse.json({ error: 'Account misconfigured' }, { status: 400 });
+      }
+
+      // Retailers/partners can only ever see their own mappings.
+      if (user.role === 'retailer' || user.role === 'partner') {
+        filters.entity_id = user.partner_id;
+      } else if (user.role === 'distributor' || user.role === 'master_distributor') {
+        // MD/Distributor MUST scope to a specific entity they own — otherwise
+        // they could list the entire network's mappings.
+        const entityId = filters.entity_id;
+        if (!entityId) {
+          // Default to their own mappings when no entity specified.
+          filters.entity_id = user.partner_id;
+        } else if (entityId !== user.partner_id) {
+          let owned = false;
+          if (user.role === 'distributor') {
+            owned = await verifyDistributorOwnsRetailer(user.partner_id, entityId);
+          } else {
+            // master_distributor: owns the distributor OR the retailer in network
+            owned = await verifyMDOwnsDistributor(user.partner_id, entityId);
+            if (!owned) {
+              const supabase = getSupabase();
+              const { data: ret } = await supabase
+                .from('retailers')
+                .select('partner_id')
+                .eq('partner_id', entityId)
+                .eq('master_distributor_id', user.partner_id)
+                .maybeSingle();
+              owned = !!ret;
+            }
+          }
+          if (!owned) {
+            return NextResponse.json({ error: 'Access denied: entity does not belong to you' }, { status: 403 });
+          }
+        }
+      } else {
+        return NextResponse.json({ error: 'Access denied' }, { status: 403 });
       }
     }
 

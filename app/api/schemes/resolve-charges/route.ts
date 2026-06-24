@@ -11,7 +11,7 @@
  *   card_type: 'CREDIT' | 'DEBIT' | 'PREPAID' (optional for mdr)
  *   brand_type: string (optional for mdr)
  *   settlement_type: 'T+1' | 'T+0' (optional for mdr)
- *   user_id: string (fallback auth via query param)
+ *   user_id: string (user identifier for charge lookup)
  * 
  * SELF-CONTAINED: This route creates its own Supabase client inline.
  * It does NOT depend on server-admin.ts or auth-server-request.ts.
@@ -20,6 +20,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient, SupabaseClient } from '@supabase/supabase-js'
+import { getCurrentUserWithFallback } from '@/lib/auth-server'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -337,7 +338,16 @@ export async function GET(request: NextRequest) {
     const cardType = searchParams.get('card_type')
     const brandType = searchParams.get('brand_type')
     const settlementType = searchParams.get('settlement_type') || 'T+1'
-    const userId = searchParams.get('user_id')
+
+    // Authentication required. Non-admin callers may only resolve charges for
+    // themselves — the client-supplied user_id is ignored for them to prevent
+    // enumerating other users' schemes / pricing slabs.
+    const { user } = await getCurrentUserWithFallback(request)
+    if (!user || !user.partner_id) {
+      return NextResponse.json({ error: 'Authentication required', code: 'SESSION_EXPIRED' }, { status: 401 })
+    }
+    const isPrivileged = ['admin', 'finance_executive'].includes(user.role as string)
+    const userId = isPrivileged ? searchParams.get('user_id') : user.partner_id
 
     console.log(`[resolve-charges] >> GET service=${serviceType} amount=${amount} mode=${transferMode} user=${userId}`)
 

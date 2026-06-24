@@ -77,7 +77,7 @@ export async function POST(request: NextRequest) {
 
     const supabase = getSupabase()
 
-    // Verify retailer exists and belongs to this partner
+    // Verify retailer exists
     const { data: retailer } = await supabase
       .from('retailers')
       .select('partner_id, name, email, distributor_id, master_distributor_id')
@@ -88,6 +88,23 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { success: false, error: { code: 'NOT_FOUND', message: 'Retailer not found' } },
         { status: 404 }
+      )
+    }
+
+    // CRITICAL ownership check: the retailer MUST be linked to the authenticated
+    // partner. Without this, a partner could debit ANY retailer's wallet by
+    // supplying an arbitrary retailer_id. Fail closed if no link exists.
+    const { data: partnerRetailerLink } = await supabase
+      .from('partner_retailers')
+      .select('id')
+      .eq('partner_id', partner.id)
+      .eq('retailer_code', retailer_id)
+      .maybeSingle()
+
+    if (!partnerRetailerLink) {
+      return NextResponse.json(
+        { success: false, error: { code: 'FORBIDDEN', message: 'Retailer is not linked to your partner account' } },
+        { status: 403 }
       )
     }
 

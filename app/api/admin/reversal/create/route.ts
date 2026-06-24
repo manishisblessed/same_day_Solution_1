@@ -90,6 +90,13 @@ export async function POST(request: NextRequest) {
         )
       }
 
+      if (tx.status === 'success') {
+        return NextResponse.json(
+          { error: 'Cannot reverse a successful BBPS transaction. Successful payments are auto-refunded by the BBPS provider on failure. Manual reversal would cause double-credit.' },
+          { status: 400 }
+        )
+      }
+
       originalTransaction = tx
       user_id = tx.retailer_id
       user_role = 'retailer'

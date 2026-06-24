@@ -9,7 +9,7 @@ import { getGeoLocation, clearGeoCache } from '@/hooks/useGeolocation'
 interface AuthContextType {
   user: AuthUser | null
   loading: boolean
-  login: (email: string, password: string, role: string) => Promise<void>
+  login: (email: string, password: string, role: string, captchaToken?: string) => Promise<void>
   logout: () => Promise<void>
   refreshUser: () => Promise<void>
   impersonate: (userId: string, userRole: 'retailer' | 'distributor' | 'master_distributor') => Promise<void>
@@ -149,10 +149,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
-  const login = async (email: string, password: string, role: string) => {
+  const login = async (email: string, password: string, role: string, captchaToken?: string) => {
     setLoading(true)
     try {
-      const result = await signIn(email, password, role as any)
+      const result = await signIn(email, password, role as any, captchaToken)
       setUser(result.user)
       // Store user in localStorage to persist across page navigations
       // This is critical because the session may not be immediately available after login

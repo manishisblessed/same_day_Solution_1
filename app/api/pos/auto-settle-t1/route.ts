@@ -176,6 +176,49 @@ export async function POST(request: NextRequest) {
       // 5. Credit wallet in one batch for this retailer
       if (retailerNet > 0 && processedTxns.length > 0) {
         try {
+          const settleDate = new Date().toISOString().split('T')[0]
+          const referenceId = `AUTO-T1-${settleDate}-${retailerId}`
+
+          // Idempotency: check if this retailer was already settled today
+          const { data: existingEntry } = await supabase
+            .from('wallet_ledger')
+            .select('id')
+            .eq('reference_id', referenceId)
+            .eq('user_id', retailerId)
+            .limit(1)
+            .maybeSingle()
+
+          if (existingEntry) {
+            console.warn(`[AutoT1] Skipping retailer ${retailerId}: already settled today (${referenceId})`)
+            // Still mark txns as settled to prevent re-processing
+            for (const item of processedTxns) {
+              await supabase
+                .from('razorpay_pos_transactions')
+                .update({
+                  wallet_credited: true,
+                  settlement_mode: 'AUTO_T1',
+                  auto_settled_at: new Date().toISOString(),
+                })
+                .eq('id', item.txn.id)
+                .eq('wallet_credited', false)
+            }
+            continue
+          }
+
+          // Mark transactions FIRST to prevent race condition on re-run
+          const txnIds = processedTxns.map(item => item.txn.id)
+          const { error: markError } = await supabase
+            .from('razorpay_pos_transactions')
+            .update({ wallet_credited: true, settlement_mode: 'AUTO_T1' })
+            .in('id', txnIds)
+            .eq('wallet_credited', false)
+
+          if (markError) {
+            console.error(`[AutoT1] Failed to mark txns for retailer ${retailerId}:`, markError)
+            totalFailed += processedTxns.length
+            continue
+          }
+
           const { data: ledgerId, error: ledgerError } = await supabase.rpc('add_ledger_entry', {
             p_user_id: retailerId,
             p_user_role: 'retailer',
@@ -185,7 +228,7 @@ export async function POST(request: NextRequest) {
             p_tx_type: 'POS_CREDIT',
             p_credit: retailerNet,
             p_debit: 0,
-            p_reference_id: `AUTO-T1-${new Date().toISOString().split('T')[0]}`,
+            p_reference_id: referenceId,
             p_transaction_id: null,
             p_status: 'completed',
             p_remarks: `T+1 Auto Settlement - ${retailerSuccessCount} txn(s), Gross: ₹${retailerGross.toFixed(2)}, MDR: ₹${retailerMdr.toFixed(2)}, Net: ₹${retailerNet.toFixed(2)}`
@@ -193,18 +236,21 @@ export async function POST(request: NextRequest) {
 
           if (ledgerError) {
             console.error(`[AutoT1] Wallet credit error for retailer ${retailerId}:`, ledgerError)
+            // Revert: unmark transactions so they can be retried
+            await supabase
+              .from('razorpay_pos_transactions')
+              .update({ wallet_credited: false, settlement_mode: null })
+              .in('id', txnIds)
             totalFailed += processedTxns.length
             continue
           }
 
-          // 6. Update each transaction as settled via AUTO_T1
+          // Update individual txn metadata (MDR details, wallet_credit_id)
           for (const item of processedTxns) {
             await supabase
               .from('razorpay_pos_transactions')
               .update({
-                wallet_credited: true,
                 wallet_credit_id: ledgerId,
-                settlement_mode: 'AUTO_T1',
                 mdr_rate: item.mdrRate,
                 mdr_amount: item.mdrAmount,
                 net_amount: item.netAmount,

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '@/contexts/AuthContext'
 import AnimatedSection from '@/components/AnimatedSection'
@@ -8,6 +8,7 @@ import AnimatedCard from '@/components/AnimatedCard'
 import Link from 'next/link'
 import { AlertCircle, Loader2, MapPin, ShieldCheck, ShieldX, Clock, Eye, EyeOff } from 'lucide-react'
 import { getGeoLocationForLogin, isLoginGeoVerified, clearGeoCache } from '@/hooks/useGeolocation'
+import TurnstileWidget, { TurnstileHandle, isCaptchaEnabled } from '@/components/TurnstileWidget'
 
 export default function BusinessLogin() {
   const { user, login, loading: authLoading } = useAuth()
@@ -25,6 +26,9 @@ export default function BusinessLogin() {
   const [locationVerified, setLocationVerified] = useState(false)
   const [locationLoading, setLocationLoading] = useState(false)
   const [showExpiredBanner, setShowExpiredBanner] = useState(false)
+  const [captchaToken, setCaptchaToken] = useState('')
+  const [captchaError, setCaptchaError] = useState(false)
+  const turnstileRef = useRef<TurnstileHandle>(null)
 
   // Wait for component to mount. Clear geo flag so user must verify location for each login.
   useEffect(() => {
@@ -56,12 +60,18 @@ export default function BusinessLogin() {
   useEffect(() => {
     // Only redirect if auth is done loading and user exists
     if (!authLoading && user) {
-      if (user.role === 'retailer') router.push('/dashboard/retailer')
-      else if (user.role === 'distributor') router.push('/dashboard/distributor')
-      else if (user.role === 'master_distributor') router.push('/dashboard/master-distributor')
-      else if (user.role === 'partner') router.push('/dashboard/partner')
+      const params = new URLSearchParams(window.location.search)
+      const redirectTo = params.get('redirect')
+      let dest = ''
+      if (redirectTo?.startsWith('/dashboard/')) {
+        dest = redirectTo
+      } else if (user.role === 'retailer') dest = '/dashboard/retailer'
+      else if (user.role === 'distributor') dest = '/dashboard/distributor'
+      else if (user.role === 'master_distributor') dest = '/dashboard/master-distributor'
+      else if (user.role === 'partner') dest = '/dashboard/partner'
+      if (dest) router.push(dest)
     }
-  }, [user, router, authLoading])
+  }, [user, authLoading])
 
   // Show loading while auth is initializing (max 1.5 seconds)
   if (!mounted || (authLoading && !forceShow)) {
@@ -105,29 +115,43 @@ export default function BusinessLogin() {
       return
     }
 
+    if (isCaptchaEnabled() && !captchaToken && !captchaError) {
+      setError('Please complete the CAPTCHA verification.')
+      return
+    }
+
     setLoading(true)
 
     try {
       let role: string = userType === 'master-distributor' ? 'master_distributor' : userType!
-      await login(formData.email, formData.password, role as any)
+      await login(formData.email, formData.password, role as any, captchaToken)
       
-      // Wait for session cookies to be fully processed by the browser
-      // This is critical - without this delay, the redirect may happen before cookies are set
       await new Promise(resolve => setTimeout(resolve, 500))
-      
-      // Use router.push for client-side navigation to preserve auth state
-      // This prevents full page reload which could lose the session
-      if (userType === 'retailer') {
-        router.push('/dashboard/retailer')
+
+      const params = new URLSearchParams(window.location.search)
+      const redirectTo = params.get('redirect')
+      let dest = ''
+      if (redirectTo?.startsWith('/dashboard/')) {
+        dest = redirectTo
+      } else if (userType === 'retailer') {
+        dest = '/dashboard/retailer'
       } else if (userType === 'distributor') {
-        router.push('/dashboard/distributor')
+        dest = '/dashboard/distributor'
       } else if (userType === 'master-distributor') {
-        router.push('/dashboard/master-distributor')
+        dest = '/dashboard/master-distributor'
       } else if (userType === 'partner') {
-        router.push('/dashboard/partner')
+        dest = '/dashboard/partner'
+      }
+      if (dest) {
+        router.push(dest)
+        setTimeout(() => setLoading(false), 3000)
+      } else {
+        setLoading(false)
       }
     } catch (err: any) {
       setError(err.message || 'Invalid credentials')
+      setCaptchaToken('')
+      turnstileRef.current?.reset()
       setLoading(false)
     }
   }
@@ -326,10 +350,20 @@ export default function BusinessLogin() {
                             <ShieldCheck className="w-4 h-4 flex-shrink-0" />
                             <span>Location verified</span>
                           </div>
+                          {isCaptchaEnabled() && (
+                            <div className="mb-3 flex flex-col items-center">
+                              <TurnstileWidget
+                                ref={turnstileRef}
+                                onVerify={(t) => { setCaptchaToken(t); setCaptchaError(false) }}
+                                onExpire={() => setCaptchaToken('')}
+                                onError={() => setCaptchaError(true)}
+                              />
+                            </div>
+                          )}
                           <button
                             type="submit"
-                            disabled={loading}
-                            className="w-full btn-primary"
+                            disabled={loading || (isCaptchaEnabled() && !captchaToken && !captchaError)}
+                            className="w-full btn-primary disabled:opacity-60"
                           >
                             {loading ? 'Signing in...' : 'Sign In'}
                           </button>

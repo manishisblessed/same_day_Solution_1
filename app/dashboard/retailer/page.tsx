@@ -6,7 +6,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import { useGeolocation } from '@/hooks/useGeolocation'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase/client'
-import { apiFetch, apiFetchJson } from '@/lib/api-client'
+import { apiFetch, apiFetchJson, newIdempotencyKey } from '@/lib/api-client'
 import RetailerHeader from '@/components/RetailerHeader'
 import { 
   TrendingUp, DollarSign, Users, Activity, 
@@ -19,6 +19,7 @@ import TransactionsTable from '@/components/TransactionsTable'
 import BBPSTransactionsTable from '@/components/BBPSTransactionsTable'
 import BBPSPayment from '@/components/BBPSPayment'
 import Pay2NewServiceHub from '@/components/Pay2NewServiceHub'
+import Pay2NewServiceFlow from '@/components/Pay2NewServiceFlow'
 import { BBPS_CATEGORY_GROUPS } from '@/lib/bbps/category-groups'
 import PayoutTransfer from '@/components/PayoutTransfer'
 import ShadvalPayTransfer from '@/components/ShadvalPayTransfer'
@@ -48,7 +49,7 @@ import AEPSDashboard from '@/components/AEPSDashboard'
 import AEPSWalletLedger from '@/components/AEPSWalletLedger'
 import AEPSTransactionHistory from '@/components/AEPSTransactionHistory'
 
-type TabType = 'dashboard' | 'wallet' | 'services' | 'aeps' | 'bbps' | 'bbps-2' | 'payout' | 'settlement-2' | 'transactions' | 'ledger' | 'aeps-ledger' | 'mdr-schemes' | 'reports' | 'settings' | 'pos-machines' | 'subscriptions'
+type TabType = 'dashboard' | 'wallet' | 'services' | 'aeps' | 'bbps' | 'bbps-2' | 'credit-card' | 'payout' | 'settlement-2' | 'transactions' | 'ledger' | 'aeps-ledger' | 'mdr-schemes' | 'reports' | 'settings' | 'pos-machines' | 'subscriptions'
 
 function RetailerDashboardContent() {
   const { user, loading: authLoading } = useAuth()
@@ -60,7 +61,7 @@ function RetailerDashboardContent() {
   
   const getInitialTab = (): TabType => {
     const tab = searchParams?.get('tab')
-    if (tab && ['dashboard', 'wallet', 'services', 'aeps', 'bbps', 'bbps-2', 'payout', 'settlement-2', 'transactions', 'ledger', 'aeps-ledger', 'mdr-schemes', 'reports', 'settings', 'pos-machines', 'subscriptions'].includes(tab)) {
+    if (tab && ['dashboard', 'wallet', 'services', 'aeps', 'bbps', 'bbps-2', 'credit-card', 'payout', 'settlement-2', 'transactions', 'ledger', 'aeps-ledger', 'mdr-schemes', 'reports', 'settings', 'pos-machines', 'subscriptions'].includes(tab)) {
       return tab as TabType
     }
     return 'dashboard'
@@ -112,7 +113,7 @@ function RetailerDashboardContent() {
 
   useEffect(() => {
     const tab = searchParams?.get('tab')
-    if (tab && ['dashboard', 'wallet', 'services', 'aeps', 'bbps', 'bbps-2', 'payout', 'settlement-2', 'transactions', 'ledger', 'aeps-ledger', 'mdr-schemes', 'reports', 'settings', 'pos-machines', 'subscriptions'].includes(tab)) {
+    if (tab && ['dashboard', 'wallet', 'services', 'aeps', 'bbps', 'bbps-2', 'credit-card', 'payout', 'settlement-2', 'transactions', 'ledger', 'aeps-ledger', 'mdr-schemes', 'reports', 'settings', 'pos-machines', 'subscriptions'].includes(tab)) {
       if (tab !== activeTab) {
         setActiveTab(tab as TabType)
       }
@@ -568,7 +569,8 @@ function RetailerDashboardContent() {
           {activeTab === 'aeps' && <AEPSDashboard />}
           {activeTab === 'bbps' && <BBPSTab />}
           {activeTab === 'bbps-2' && <Pay2NewBBPSTab />}
-          {activeTab === 'payout' && <PayoutTransfer title="Settlement to Bank Account" />}
+          {activeTab === 'credit-card' && <CreditCardTab />}
+          {activeTab === 'payout' && <PayoutTransfer title="Settlement-1 - Bank Transfer" />}
           {activeTab === 'settlement-2' && <ShadvalPayTransfer title="Settlement-2 - Bank Transfer" />}
           {activeTab === 'transactions' && (
             <>
@@ -996,6 +998,31 @@ function Pay2NewBBPSTab() {
   )
 }
 
+function CreditCardTab() {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="space-y-4"
+    >
+      <Pay2NewServiceFlow
+        serviceId={34}
+        title="Credit Card"
+        subtitle="Pay any credit card bill"
+        icon={<CreditCard className="w-6 h-6" />}
+        mode="bill"
+        numberLabel="Last 4 Digits of Credit Card"
+        numberPlaceholder="e.g. 1266"
+        numberMaxLength={4}
+        showOptional1={true}
+        optional1Label="Registered Mobile Number (Optional)"
+        optional1Placeholder="e.g. 9876543210"
+        accent="purple"
+      />
+    </motion.div>
+  )
+}
+
 // Services Tab Component
 function ServicesTab() {
   const { user } = useAuth()
@@ -1305,6 +1332,8 @@ function WalletTab({ user }: { user: any }) {
   const [aepsTransferAmount, setAepsTransferAmount] = useState('')
   const [aepsTransferProcessing, setAepsTransferProcessing] = useState(false)
   const [aepsTransferConfirmed, setAepsTransferConfirmed] = useState(false)
+  // Stable idempotency key for the in-progress AEPS→Primary transfer (cleared on success)
+  const aepsTransferIdemRef = useRef<string | null>(null)
   const [aepsSettleAccounts, setAepsSettleAccounts] = useState<any[]>([])
   const [selectedSettleAccountId, setSelectedSettleAccountId] = useState<string>('')
   const [showAddSettleAccount, setShowAddSettleAccount] = useState(false)
@@ -1610,9 +1639,11 @@ function WalletTab({ user }: { user: any }) {
       return
     }
     setAepsTransferProcessing(true)
+    if (!aepsTransferIdemRef.current) aepsTransferIdemRef.current = newIdempotencyKey()
     try {
       const data = await apiFetchJson<{ success: boolean; error?: string; message?: string }>('/api/wallet/transfer', {
         method: 'POST',
+        idempotencyKey: aepsTransferIdemRef.current,
         body: JSON.stringify({
           amount: amt,
           source_wallet: 'aeps',
@@ -1620,6 +1651,7 @@ function WalletTab({ user }: { user: any }) {
         })
       })
       if (data.success) {
+        aepsTransferIdemRef.current = null
         showToast(data.message || 'Transfer successful!', 'success')
         setShowAepsTransfer(false)
         setAepsTransferAmount('')
@@ -2552,7 +2584,7 @@ function MDRSchemesTab({ user }: { user: any }) {
           <div className="flex-1">
             <h3 className="font-semibold text-blue-900 dark:text-blue-200 mb-1">Scheme Information</h3>
             <p className="text-sm text-blue-800 dark:text-blue-300">
-              Your charges and rates (MDR, BBPS, Payout) are determined by schemes assigned to you by your distributor. 
+              Your charges and rates (MDR, BBPS, Settlement) are determined by schemes assigned to you by your distributor. 
               Only schemes that are mapped to your account are shown here. These charges are automatically applied during transactions.
             </p>
           </div>
@@ -2905,7 +2937,7 @@ function MDRSchemesTab({ user }: { user: any }) {
         )
       })()}
 
-      {/* Payout / Settlement Charges Section */}
+      {/* Settlement Charges Section */}
       {(() => {
         const allPayoutCharges: any[] = []
         const allSchemes = [...customSchemes, ...globalSchemes]
@@ -2941,7 +2973,7 @@ function MDRSchemesTab({ user }: { user: any }) {
           >
             <div className="flex items-center gap-2 mb-4">
               <Banknote className="w-5 h-5 text-green-600 dark:text-green-400" />
-              <h3 className="text-lg font-bold text-gray-900 dark:text-white">Payout / Settlement Charges</h3>
+              <h3 className="text-lg font-bold text-gray-900 dark:text-white">Settlement Charges</h3>
               <span className="text-xs bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300 px-2 py-0.5 rounded-full">From Scheme</span>
             </div>
             <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">Charges for bank settlements (IMPS & NEFT transfers)</p>
@@ -3245,6 +3277,100 @@ function MDRSchemesTab({ user }: { user: any }) {
   )
 }
 
+function ChangePasswordCard() {
+  const [currentPassword, setCurrentPassword] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [showPasswords, setShowPasswords] = useState({ current: false, new: false, confirm: false })
+  const [loading, setLoading] = useState(false)
+  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (newPassword !== confirmPassword) {
+      setMessage({ type: 'error', text: 'New passwords do not match' })
+      return
+    }
+    if (newPassword.length < 8) {
+      setMessage({ type: 'error', text: 'Password must be at least 8 characters' })
+      return
+    }
+    setLoading(true)
+    setMessage(null)
+    try {
+      const res = await fetch('/api/auth/change-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ currentPassword, newPassword }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Failed to change password')
+      setMessage({ type: 'success', text: 'Password changed successfully!' })
+      setCurrentPassword('')
+      setNewPassword('')
+      setConfirmPassword('')
+    } catch (err: any) {
+      setMessage({ type: 'error', text: err.message || 'Failed to change password' })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: 0.15 }}
+      className="bg-white dark:bg-gray-800 rounded-lg shadow-md border border-gray-200 dark:border-gray-700 p-6"
+    >
+      <div className="flex items-center gap-3 mb-4">
+        <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
+          <Lock className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+        </div>
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Change Password</h3>
+      </div>
+      {message && (
+        <div className={`mb-4 p-3 rounded-lg text-sm ${message.type === 'success' ? 'bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-400' : 'bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-400'}`}>
+          {message.text}
+        </div>
+      )}
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Current Password</label>
+          <div className="relative">
+            <input type={showPasswords.current ? 'text' : 'password'} value={currentPassword} onChange={e => setCurrentPassword(e.target.value)} required className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white pr-10" />
+            <button type="button" onClick={() => setShowPasswords(p => ({ ...p, current: !p.current }))} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">
+              {showPasswords.current ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+            </button>
+          </div>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">New Password</label>
+          <div className="relative">
+            <input type={showPasswords.new ? 'text' : 'password'} value={newPassword} onChange={e => setNewPassword(e.target.value)} required minLength={8} className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white pr-10" />
+            <button type="button" onClick={() => setShowPasswords(p => ({ ...p, new: !p.new }))} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">
+              {showPasswords.new ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+            </button>
+          </div>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Confirm New Password</label>
+          <div className="relative">
+            <input type={showPasswords.confirm ? 'text' : 'password'} value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} required minLength={8} className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white pr-10" />
+            <button type="button" onClick={() => setShowPasswords(p => ({ ...p, confirm: !p.confirm }))} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">
+              {showPasswords.confirm ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+            </button>
+          </div>
+        </div>
+        <button type="submit" disabled={loading} className="w-full py-2 px-4 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors font-medium">
+          {loading ? 'Changing...' : 'Change Password'}
+        </button>
+      </form>
+    </motion.div>
+  )
+}
+
 function SettingsTab({ user }: { user: any }) {
   const [tpinStatus, setTpinStatus] = useState<{
     tpin_enabled: boolean
@@ -3528,6 +3654,9 @@ function SettingsTab({ user }: { user: any }) {
           </ul>
         </div>
       </motion.div>
+
+      {/* Change Password Card */}
+      <ChangePasswordCard />
 
       {/* Profile Settings Card */}
       <motion.div

@@ -1,9 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { getCurrentUserWithFallback } from '@/lib/auth-server'
 
 export const runtime = 'nodejs'
 
 export async function GET(request: NextRequest) {
+  const { user } = await getCurrentUserWithFallback(request)
+  if (!user || user.role !== 'admin') {
+    return NextResponse.json({ error: 'Admin authentication required' }, { status: 401 })
+  }
+
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
   const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
 
@@ -53,6 +59,11 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  const { user } = await getCurrentUserWithFallback(request)
+  if (!user || user.role !== 'admin') {
+    return NextResponse.json({ error: 'Admin authentication required' }, { status: 401 })
+  }
+
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
   const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
 
@@ -153,6 +164,11 @@ export async function POST(request: NextRequest) {
 }
 
 export async function PUT(request: NextRequest) {
+  const { user } = await getCurrentUserWithFallback(request)
+  if (!user || user.role !== 'admin') {
+    return NextResponse.json({ error: 'Admin authentication required' }, { status: 401 })
+  }
+
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
   const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
 

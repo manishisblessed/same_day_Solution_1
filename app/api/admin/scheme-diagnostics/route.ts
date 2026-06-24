@@ -29,14 +29,11 @@ const supabaseAdmin = createClient(
 
 export async function GET(request: NextRequest) {
   try {
-    // Admin auth check - try standard auth first, then service_role key check
+    // Admin/finance session required. The previous service-role-Bearer and
+    // ?admin_key= bypasses were removed — they granted access with no user
+    // identity / audit trail and leaked diagnostic data if a key was known.
     const { user: adminUser } = await getCurrentUserWithFallback(request)
-    const isServiceRole = process.env.SUPABASE_SERVICE_ROLE_KEY && 
-      request.headers.get('authorization') === `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`
-    const adminKey = request.nextUrl.searchParams.get('admin_key')
-    const isAdminKey = adminKey && adminKey === process.env.ADMIN_DIAGNOSTIC_KEY
-    
-    if (!isServiceRole && !isAdminKey && (!adminUser || adminUser.role !== 'admin')) {
+    if (!adminUser || !['admin', 'finance_executive'].includes(adminUser.role as string)) {
       return NextResponse.json({ error: 'Admin access required' }, { status: 403 })
     }
 

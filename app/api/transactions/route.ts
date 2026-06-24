@@ -7,13 +7,49 @@ import { getCurrentUserWithFallback } from '@/lib/auth-server'
 // Mark this route as dynamic (uses cookies for authentication)
 export const dynamic = 'force-dynamic'
 
+/**
+ * Resolve the set of POS TIDs a non-admin user is allowed to see, based on the
+ * device mappings / machines they own. Returns null for admin (no restriction).
+ */
+async function resolveOwnedTids(adminClient: any, user: any): Promise<string[] | null> {
+  if (user.role === 'admin' || user.role === 'finance_executive') return null
+
+  const tids = new Set<string>()
+
+  // pos_device_mapping (distributor / master_distributor / retailer columns)
+  const mapCol =
+    user.role === 'master_distributor' ? 'master_distributor_id'
+    : user.role === 'distributor' ? 'distributor_id'
+    : user.role === 'retailer' ? 'retailer_id'
+    : null
+
+  if (mapCol) {
+    const { data: maps } = await adminClient
+      .from('pos_device_mapping')
+      .select('tid')
+      .eq('status', 'ACTIVE')
+      .eq(mapCol, user.partner_id)
+    ;(maps || []).forEach((m: any) => { if (m.tid) tids.add(m.tid) })
+
+    const machineCol = mapCol === 'retailer_id' ? 'retailer_id' : mapCol
+    const { data: machines } = await adminClient
+      .from('pos_machines')
+      .select('tid')
+      .eq(machineCol, user.partner_id)
+    ;(machines || []).forEach((m: any) => { if (m.tid) tids.add(m.tid) })
+  }
+
+  return Array.from(tids)
+}
+
 export async function GET(request: NextRequest) {
   try {
     // Get env vars at runtime, not module load
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
     const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-    
-    if (!supabaseUrl || !supabaseAnonKey) {
+
+    if (!supabaseUrl || !supabaseServiceKey || !supabaseAnonKey) {
       return NextResponse.json(
         { error: 'Supabase configuration missing' },
         { status: 500 }
@@ -31,7 +67,21 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    const supabase = createClient(supabaseUrl, supabaseAnonKey)
+    const allowedRoles = ['admin', 'finance_executive', 'distributor', 'master_distributor', 'retailer', 'partner']
+    if (!allowedRoles.includes(user.role as string)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+
+    // Use the service-role client so we can enforce ownership scoping ourselves
+    // (the table has no RLS owner columns). Non-admins are restricted to their TIDs.
+    const supabase = createClient(supabaseUrl, supabaseServiceKey)
+
+    const ownedTids = await resolveOwnedTids(supabase, user)
+    if (ownedTids !== null && ownedTids.length === 0) {
+      // Non-admin with no owned devices → no rows (prevents data leak)
+      return NextResponse.json({ transactions: [], total: 0, page: 1, limit: 25, totalPages: 0 })
+    }
+
     const { searchParams } = new URL(request.url)
 
     // Parse filters
@@ -62,9 +112,10 @@ export async function GET(request: NextRequest) {
       .from('razorpay_transactions')
       .select('*', { count: 'exact' })
 
-    // Role-based filtering removed - new razorpay_transactions table schema doesn't support it
-    // Admin can see all transactions (no filter)
-    // For role-based access, use /api/razorpay/transactions endpoint
+    // Ownership scoping: non-admins only see transactions on TIDs they own.
+    if (ownedTids !== null) {
+      query = query.in('tid', ownedTids)
+    }
 
     // Apply filters
     if (filters.dateFrom) {

@@ -11,6 +11,7 @@ export type SchemeType = 'global' | 'golden' | 'custom';
 export type SchemeStatus = 'active' | 'inactive' | 'draft';
 export type ServiceScope = 'all' | 'bbps' | 'payout' | 'mdr' | 'settlement' | 'aeps' | 'aeps_settlement' | 'shadval_settlement';
 export type AEPSTransactionType = 'cash_withdrawal' | 'cash_deposit' | 'balance_inquiry' | 'mini_statement' | 'aadhaar_to_aadhaar';
+export type BBPSType = 'bbps_1' | 'bbps_2';
 export type ChargeType = 'flat' | 'percentage';
 export type TransferMode = 'IMPS' | 'NEFT' | 'RTGS';
 export type PaymentMode = 'CARD' | 'UPI';
@@ -56,6 +57,7 @@ export interface Scheme {
 export interface SchemeBBPSCommission {
   id: string;
   scheme_id: string;
+  bbps_type: BBPSType;
   category: string | null;
   min_amount: number;
   max_amount: number;
@@ -297,6 +299,7 @@ export interface CreateSchemeInput {
 
 export interface CreateBBPSCommissionInput {
   scheme_id: string;
+  bbps_type?: BBPSType;
   category?: string;
   min_amount: number;
   max_amount: number;

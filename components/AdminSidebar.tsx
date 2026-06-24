@@ -36,6 +36,7 @@ const sidebarItems: SidebarItem[] = [
   { id: 'services', label: 'Services', icon: Activity, href: '/admin?tab=services' },
   { id: 'aeps', label: 'AEPS Management', icon: Fingerprint, href: '/admin?tab=aeps' },
   { id: 'reports', label: 'Reports', icon: FileBarChart, href: '/admin?tab=reports' },
+  { id: 'business-report', label: 'Business Report', icon: BarChart3, href: '/admin/business-report' },
   { id: 'settlement', label: 'Settlement', icon: Timer, href: '/admin?tab=settlement' },
   { id: 'revenue-wallet', label: 'Revenue Wallet', icon: Wallet, href: '/admin?tab=revenue-wallet' },
   { id: 'wallet-ledger', label: 'Wallet ledger', icon: ScrollText, href: '/admin?tab=wallet-ledger' },

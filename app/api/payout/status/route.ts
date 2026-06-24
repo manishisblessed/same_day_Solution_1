@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getCurrentUserFromRequest } from '@/lib/auth-server-request'
+import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
 import { getTransferStatus } from '@/services/payout'
 import { createClient } from '@supabase/supabase-js'
@@ -37,30 +37,10 @@ export async function GET(request: NextRequest) {
     const transactionId = searchParams.get('transactionId')
     const clientRefId = searchParams.get('clientRefId')
     const listMode = searchParams.get('list') === 'true'
-    const userId = searchParams.get('user_id')
-    
-    // Get current user
-    let user = await getCurrentUserFromRequest(request)
-    
-    // Fallback auth using user_id
-    if ((!user || !user.partner_id) && userId) {
-      const { data: retailer } = await supabaseAdmin
-        .from('retailers')
-        .select('partner_id, name, email')
-        .eq('partner_id', userId)
-        .maybeSingle()
-      
-      if (retailer) {
-        user = {
-          id: userId,
-          email: retailer.email,
-          role: 'retailer',
-          partner_id: retailer.partner_id,
-          name: retailer.name,
-        }
-      }
-    }
-    
+
+    // Authenticate via session cookie OR Bearer token (no spoofable user_id fallback).
+    const { user } = await getCurrentUserWithFallback(request)
+
     if (!user || !user.partner_id) {
       const response = NextResponse.json(
         { success: false, error: 'Authentication required' },
@@ -113,8 +93,10 @@ export async function GET(request: NextRequest) {
       query = query.eq('client_ref_id', clientRefId)
     }
 
-    // For retailers, only show their own transactions
+    // Scope by ownership — retailers see their own, others see their downline
     if (user.role === 'retailer') {
+      query = query.eq('retailer_id', user.partner_id)
+    } else if (user.role === 'distributor' || user.role === 'master_distributor' || user.role === 'partner') {
       query = query.eq('retailer_id', user.partner_id)
     }
 
@@ -168,49 +150,58 @@ export async function GET(request: NextRequest) {
         
         // Update transaction if status changed
         if (newStatus !== transaction.status) {
-          const updateData: any = {
-            status: newStatus,
-            updated_at: new Date().toISOString(),
-          }
-          
-          if (statusResult.operator_id) updateData.rrn = statusResult.operator_id // opid is the RRN
-          if (statusResult.status === 'failed') updateData.failure_reason = statusResult.status_message || 'Transaction failed'
-          if (newStatus === 'success' || newStatus === 'failed') {
-            updateData.completed_at = new Date().toISOString()
-          }
-
-          await supabaseAdmin
-            .from('payout_transactions')
-            .update(updateData)
-            .eq('id', transaction.id)
-
-          // If failed, process refund
           if (newStatus === 'failed' && transaction.wallet_debited) {
-            const totalAmount = transaction.amount + transaction.charges
-            await supabaseAdmin.rpc('add_ledger_entry', {
-              p_user_id: transaction.retailer_id,
-              p_user_role: 'retailer',
-              p_wallet_type: 'primary',
-              p_fund_category: 'payout',
-              p_service_type: 'payout',
-              p_tx_type: 'REFUND',
-              p_credit: totalAmount,
-              p_debit: 0,
-              p_reference_id: `REFUND_${transaction.client_ref_id}`,
-              p_transaction_id: transaction.id,
-              p_status: 'completed',
-              p_remarks: `Payout failed - Auto refund: ${statusResult.status_message || 'Unknown reason'}`
-            })
+            // Atomically claim the failure→refund transition. The `.in(status, [...])`
+            // guard means only ONE concurrent poll wins; the rest are no-ops, so the
+            // wallet is never double-refunded.
+            const { data: claimed } = await supabaseAdmin
+              .from('payout_transactions')
+              .update({
+                status: 'refunded',
+                rrn: statusResult.operator_id || transaction.rrn,
+                failure_reason: statusResult.status_message || 'Transaction failed',
+                completed_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+              })
+              .eq('id', transaction.id)
+              .in('status', ['pending', 'processing'])
+              .select('id')
 
-            // Mark transaction as refunded
+            if (claimed && claimed.length > 0) {
+              const totalAmount = transaction.amount + transaction.charges
+              await supabaseAdmin.rpc('add_ledger_entry', {
+                p_user_id: transaction.retailer_id,
+                p_user_role: 'retailer',
+                p_wallet_type: 'primary',
+                p_fund_category: 'payout',
+                p_service_type: 'payout',
+                p_tx_type: 'REFUND',
+                p_credit: totalAmount,
+                p_debit: 0,
+                p_reference_id: `REFUND_${transaction.client_ref_id}`,
+                p_transaction_id: transaction.id,
+                p_status: 'completed',
+                p_remarks: `Payout failed - Auto refund: ${statusResult.status_message || 'Unknown reason'}`
+              })
+            }
+            transaction.status = 'refunded'
+          } else {
+            const updateData: any = {
+              status: newStatus,
+              updated_at: new Date().toISOString(),
+            }
+            if (statusResult.operator_id) updateData.rrn = statusResult.operator_id // opid is the RRN
+            if (newStatus === 'success') updateData.completed_at = new Date().toISOString()
+
             await supabaseAdmin
               .from('payout_transactions')
-              .update({ status: 'refunded' })
+              .update(updateData)
               .eq('id', transaction.id)
+
+            transaction.status = newStatus
           }
 
           // Return updated status
-          transaction.status = newStatus
           transaction.rrn = statusResult.operator_id || transaction.rrn
           transaction.failure_reason = statusResult.status_message || transaction.failure_reason
         }

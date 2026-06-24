@@ -9,11 +9,23 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getCurrentUserWithFallback } from '@/lib/auth-server';
 import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger';
+import { rateLimit, RATE_LIMITS } from '@/lib/rate-limit';
+import {
+  reserveIdempotencyKey,
+  finalizeIdempotencyKey,
+  getIdempotencyKeyFromHeaders,
+} from '@/lib/security/idempotency';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function POST(request: NextRequest) {
+  const rl = rateLimit(request, RATE_LIMITS.transfer);
+  if (rl.limited) return rl.response!;
+
+  const idemKey = getIdempotencyKeyFromHeaders(request.headers);
+  const IDEM_SCOPE = 'wallet_transfer';
+
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
   const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
@@ -76,6 +88,20 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
 
+    // Idempotency: dedup repeated submits of the same transfer
+    if (idemKey) {
+      const reservation = await reserveIdempotencyKey({ scope: IDEM_SCOPE, key: idemKey, userId: user.partner_id });
+      if (!reservation.fresh) {
+        if (reservation.status === 'completed' && reservation.cachedResponse) {
+          return NextResponse.json(reservation.cachedResponse);
+        }
+        return NextResponse.json(
+          { error: 'A transfer with this idempotency key is already being processed.', code: 'IDEMPOTENT_REPLAY' },
+          { status: 409 }
+        );
+      }
+    }
+
     const transferRef = `WALLET_TRANSFER_${user.partner_id}_${Date.now()}`;
 
     // Debit AEPS wallet
@@ -95,6 +121,7 @@ export async function POST(request: NextRequest) {
 
     if (debitErr) {
       console.error('[Wallet Transfer] AEPS debit failed:', debitErr);
+      if (idemKey) await finalizeIdempotencyKey({ scope: IDEM_SCOPE, key: idemKey, status: 'failed' });
       return NextResponse.json({ error: 'Failed to debit AEPS wallet' }, { status: 500 });
     }
 
@@ -129,6 +156,7 @@ export async function POST(request: NextRequest) {
         p_status: 'completed',
         p_remarks: `Transfer reversal - Primary wallet credit failed`,
       });
+      if (idemKey) await finalizeIdempotencyKey({ scope: IDEM_SCOPE, key: idemKey, status: 'failed' });
       return NextResponse.json({ error: 'Failed to credit Primary wallet. AEPS wallet refunded.' }, { status: 500 });
     }
 
@@ -159,7 +187,7 @@ export async function POST(request: NextRequest) {
       metadata: { amount: amountDecimal, source: 'aeps', target: 'primary' },
     }).catch(() => {});
 
-    return NextResponse.json({
+    const successPayload = {
       success: true,
       amount: amountDecimal,
       source_wallet: 'aeps',
@@ -167,9 +195,12 @@ export async function POST(request: NextRequest) {
       aeps_balance: newAepsBalance || 0,
       primary_balance: newPrimaryBalance || 0,
       message: `₹${amountDecimal.toLocaleString('en-IN')} transferred from AEPS to Primary wallet`,
-    });
+    };
+    if (idemKey) await finalizeIdempotencyKey({ scope: IDEM_SCOPE, key: idemKey, status: 'completed', response: successPayload });
+    return NextResponse.json(successPayload);
   } catch (error: any) {
     console.error('[Wallet Transfer] Error:', error);
+    if (idemKey) await finalizeIdempotencyKey({ scope: IDEM_SCOPE, key: idemKey, status: 'failed' }).catch(() => {});
     return NextResponse.json({ error: error.message || 'Transfer failed' }, { status: 500 });
   }
 }

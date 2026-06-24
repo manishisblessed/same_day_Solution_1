@@ -1,9 +1,10 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase/client'
+import TurnstileWidget, { TurnstileHandle, isCaptchaEnabled } from '@/components/TurnstileWidget'
 import AdminSidebar from '@/components/AdminSidebar'
 import { 
   Lock, Eye, EyeOff, CheckCircle, AlertCircle, 
@@ -26,6 +27,9 @@ export default function AdminSettings() {
   const [showCurrentPassword, setShowCurrentPassword] = useState(false)
   const [showNewPassword, setShowNewPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
+  const [pwCaptchaToken, setPwCaptchaToken] = useState('')
+  const [pwCaptchaError, setPwCaptchaError] = useState(false)
+  const pwTurnstileRef = useRef<TurnstileHandle>(null)
   const [showSubAdminPassword, setShowSubAdminPassword] = useState(false)
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
@@ -295,28 +299,32 @@ export default function AdminSettings() {
       return
     }
 
+    if (isCaptchaEnabled() && !pwCaptchaToken && !pwCaptchaError) {
+      setMessage({ type: 'error', text: 'Please complete the CAPTCHA verification.' })
+      return
+    }
+
     setLoading(true)
 
     try {
-      // First, verify current password by attempting to sign in
-      const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
-        email: user?.email || '',
-        password: formData.currentPassword,
+      // CAPTCHA token is single-use; clear + reset for any subsequent attempt.
+      setPwCaptchaToken('')
+      pwTurnstileRef.current?.reset()
+
+      // Use server-side API route to change password (handles Supabase secure password change)
+      const res = await fetch('/api/auth/change-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          currentPassword: formData.currentPassword,
+          newPassword: formData.newPassword,
+        }),
       })
 
-      if (signInError) {
-        setMessage({ type: 'error', text: 'Current password is incorrect' })
-        setLoading(false)
-        return
-      }
-
-      // Update password
-      const { error: updateError } = await supabase.auth.updateUser({
-        password: formData.newPassword,
-      })
-
-      if (updateError) {
-        throw updateError
+      const data = await res.json()
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to change password')
       }
 
       setMessage({ type: 'success', text: 'Password changed successfully!' })
@@ -568,11 +576,22 @@ export default function AdminSettings() {
                   </div>
                 )}
 
+                {isCaptchaEnabled() && (
+                  <div className="flex justify-end pt-2">
+                    <TurnstileWidget
+                      ref={pwTurnstileRef}
+                      onVerify={(t) => { setPwCaptchaToken(t); setPwCaptchaError(false) }}
+                      onExpire={() => setPwCaptchaToken('')}
+                      onError={() => setPwCaptchaError(true)}
+                    />
+                  </div>
+                )}
+
                 {/* Submit Button */}
                 <div className="flex justify-end pt-4">
                   <button
                     type="submit"
-                    disabled={loading}
+                    disabled={loading || (isCaptchaEnabled() && !pwCaptchaToken && !pwCaptchaError)}
                     className="btn-primary flex items-center gap-2 px-6 py-2 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {loading ? (

@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger'
 import { getCurrentUserFromRequest } from '@/lib/auth-server-request'
-import { createClient } from '@supabase/supabase-js'
 import { complaintRegistration } from '@/services/bbps'
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
+import { createClient } from '@supabase/supabase-js'
 
 export const dynamic = 'force-dynamic'
 
@@ -17,36 +17,13 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
     const { transaction_id, complaint_type, description, complaint_disposition } = body
     
-    // Try cookie-based auth first
-    let user = await getCurrentUserFromRequest(request)
-    
-    // If cookie auth fails, try to verify user from request body (fallback)
-    if (!user && body.user_id) {
-      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-      const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
-      const supabase = createClient(supabaseUrl, supabaseServiceKey || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
-      
-      const { data: retailer } = await supabase
-        .from('retailers')
-        .select('partner_id, name, email')
-        .eq('partner_id', body.user_id)
-        .maybeSingle()
-      
-      if (retailer) {
-        user = {
-          id: body.user_id,
-          email: retailer.email,
-          role: 'retailer',
-          partner_id: retailer.partner_id,
-          name: retailer.name,
-        }
-        // Fallback auth active (cross-origin — no Supabase cookies)
-      }
-    }
+    const user = await getCurrentUserFromRequest(request)
     
     if (!user) {
-      console.error('[BBPS Complaint Register] No authenticated user found')
-      const response = NextResponse.json({ error: 'Session expired. Please log in again.', code: 'SESSION_EXPIRED' }, { status: 401 })
+      const response = NextResponse.json(
+        { error: 'Authentication required' },
+        { status: 401 }
+      )
       return addCorsHeaders(request, response)
     }
 
@@ -63,6 +40,28 @@ export async function POST(request: NextRequest) {
       const response = NextResponse.json(
         { error: 'transaction_id and description are required' },
         { status: 400 }
+      )
+      return addCorsHeaders(request, response)
+    }
+
+    // Ownership check: the transaction must belong to the calling retailer.
+    const supabaseAdmin = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      { auth: { persistSession: false } }
+    )
+    const { data: ownedTx } = await supabaseAdmin
+      .from('bbps_transactions')
+      .select('id')
+      .eq('retailer_id', user.partner_id)
+      .or(`transaction_id.eq.${transaction_id},agent_transaction_id.eq.${transaction_id}`)
+      .limit(1)
+      .maybeSingle()
+
+    if (!ownedTx) {
+      const response = NextResponse.json(
+        { error: 'Transaction not found' },
+        { status: 404 }
       )
       return addCorsHeaders(request, response)
     }

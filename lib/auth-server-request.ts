@@ -101,12 +101,12 @@ export async function getCurrentUserFromRequest(
         const fallbackUser = session.user
         // Continue with fallbackUser instead of returning null
         const [retailer, distributor, masterDistributor, admin, finance, partner] = await Promise.all([
-          supabase.from('retailers').select('*').eq('email', fallbackUser.email!).maybeSingle(),
-          supabase.from('distributors').select('*').eq('email', fallbackUser.email!).maybeSingle(),
-          supabase.from('master_distributors').select('*').eq('email', fallbackUser.email!).maybeSingle(),
+          supabase.from('retailers').select('*').eq('email', fallbackUser.email!).eq('status', 'active').maybeSingle(),
+          supabase.from('distributors').select('*').eq('email', fallbackUser.email!).eq('status', 'active').maybeSingle(),
+          supabase.from('master_distributors').select('*').eq('email', fallbackUser.email!).eq('status', 'active').maybeSingle(),
           supabase.from('admin_users').select('*').eq('email', fallbackUser.email!).maybeSingle(),
-          supabase.from('finance_users').select('*').eq('email', fallbackUser.email!).maybeSingle(),
-          supabase.from('partners').select('*').eq('email', fallbackUser.email!).maybeSingle(),
+          supabase.from('finance_users').select('*').eq('email', fallbackUser.email!).eq('is_active', true).maybeSingle(),
+          supabase.from('partners').select('*').eq('email', fallbackUser.email!).eq('status', 'active').maybeSingle(),
         ])
 
         if (admin.data && !admin.error) {
@@ -180,12 +180,12 @@ export async function getCurrentUserFromRequest(
     // Check which table the user belongs to
     // Use maybeSingle() instead of single() to avoid 406 errors when user doesn't belong to a table
     const [retailer, distributor, masterDistributor, admin, finance, partner] = await Promise.all([
-      supabase.from('retailers').select('*').eq('email', user.email!).maybeSingle(),
-      supabase.from('distributors').select('*').eq('email', user.email!).maybeSingle(),
-      supabase.from('master_distributors').select('*').eq('email', user.email!).maybeSingle(),
+      supabase.from('retailers').select('*').eq('email', user.email!).eq('status', 'active').maybeSingle(),
+      supabase.from('distributors').select('*').eq('email', user.email!).eq('status', 'active').maybeSingle(),
+      supabase.from('master_distributors').select('*').eq('email', user.email!).eq('status', 'active').maybeSingle(),
       supabase.from('admin_users').select('*').eq('email', user.email!).maybeSingle(),
-      supabase.from('finance_users').select('*').eq('email', user.email!).maybeSingle(),
-      supabase.from('partners').select('*').eq('email', user.email!).maybeSingle(),
+      supabase.from('finance_users').select('*').eq('email', user.email!).eq('is_active', true).maybeSingle(),
+      supabase.from('partners').select('*').eq('email', user.email!).eq('status', 'active').maybeSingle(),
     ])
 
     if (admin.data && !admin.error) {

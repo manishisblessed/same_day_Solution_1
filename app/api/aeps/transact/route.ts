@@ -3,6 +3,12 @@ import { createClient } from '@supabase/supabase-js';
 import { getCurrentUserWithFallback } from '@/lib/auth-server';
 import { getAEPSService } from '@/services/aeps';
 import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger';
+import { rateLimit, RATE_LIMITS } from '@/lib/rate-limit';
+import {
+  reserveIdempotencyKey,
+  finalizeIdempotencyKey,
+  getIdempotencyKeyFromHeaders,
+} from '@/lib/security/idempotency';
 import { distributeCommission, mapTransactionTypeToServiceType } from '@/services/aeps/commission';
 import { calculateAEPSCommission } from '@/lib/pricing/aeps-pricing';
 import { settleAEPSCommission } from '@/services/aeps/settle-commission';
@@ -45,6 +51,12 @@ function isValidUtr(utr?: string | null): boolean {
  * - Withdrawal/deposit amounts update the wallet; bank balance is NOT stored
  */
 export async function POST(request: NextRequest) {
+  const rl = rateLimit(request, RATE_LIMITS.aeps);
+  if (rl.limited) return rl.response!;
+
+  const clientIdemKey = getIdempotencyKeyFromHeaders(request.headers);
+  const IDEM_SCOPE = 'aeps_transact';
+
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
   const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
@@ -151,11 +163,21 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Enforce device fingerprint check — new device requires re-authentication
+    // Enforce device fingerprint + IP binding — new device/network requires re-auth
     const storedFingerprint = merchantRecord?.device_fingerprint;
     if (!storedFingerprint || deviceFingerprint !== storedFingerprint) {
       return NextResponse.json(
         { error: 'Device changed or not registered. Please re-authenticate.', code: 'DEVICE_CHANGED' },
+        { status: 403 }
+      );
+    }
+    // Bind transaction to the same IP used during 2FA login
+    const clientIp = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
+                     request.headers.get('x-real-ip') || 'unknown';
+    const storedIp = (merchantRecord as any)?.login_ip;
+    if (storedIp && storedIp !== 'unknown' && clientIp !== storedIp) {
+      return NextResponse.json(
+        { error: 'Network changed since authentication. Please re-authenticate from this network.', code: 'IP_CHANGED' },
         { status: 403 }
       );
     }
@@ -233,6 +255,27 @@ export async function POST(request: NextRequest) {
 
     const idempotencyKey = generateIdempotencyKey(`AEPS_${user.partner_id}`);
 
+    // ========== CLIENT IDEMPOTENCY RESERVATION ==========
+    // If the client supplies an Idempotency-Key header, dedup repeated submits
+    // (e.g. double-tap / retry on a flaky network) for this financial action.
+    if (clientIdemKey) {
+      const reservation = await reserveIdempotencyKey({
+        scope: IDEM_SCOPE,
+        key: clientIdemKey,
+        userId: user.partner_id,
+      });
+      if (!reservation.fresh) {
+        if (reservation.status === 'completed' && reservation.cachedResponse) {
+          return NextResponse.json(reservation.cachedResponse);
+        }
+        return NextResponse.json(
+          { error: 'A request with this idempotency key is already being processed.', code: 'IDEMPOTENT_REPLAY' },
+          { status: 409 }
+        );
+      }
+    }
+    // ========== END CLIENT IDEMPOTENCY RESERVATION ==========
+
     // Create AEPS transaction record (pending)
     const { data: aepsTransaction, error: txError } = await supabase
       .from('aeps_transactions')
@@ -254,6 +297,7 @@ export async function POST(request: NextRequest) {
 
     if (txError || !aepsTransaction) {
       console.error('[AEPS Transact] DB Error:', txError);
+      if (clientIdemKey) await finalizeIdempotencyKey({ scope: IDEM_SCOPE, key: clientIdemKey, status: 'failed' });
       return NextResponse.json(
         { error: 'Failed to create transaction record' },
         { status: 500 }
@@ -445,7 +489,7 @@ export async function POST(request: NextRequest) {
         .eq('user_id', user.partner_id)
         .maybeSingle();
 
-      return NextResponse.json({
+      const successPayload = {
         success: true,
         receipt: {
           txnId: aepsTransaction.id,
@@ -481,7 +525,9 @@ export async function POST(request: NextRequest) {
           status: 'SUCCESS',
         },
         isMockMode: aepsService.isMockMode(),
-      });
+      };
+      if (clientIdemKey) await finalizeIdempotencyKey({ scope: IDEM_SCOPE, key: clientIdemKey, status: 'completed', response: successPayload });
+      return NextResponse.json(successPayload);
     } else {
       // Format error using NPCI code mapping
       const errorInfo = formatErrorForReceipt(
@@ -509,7 +555,7 @@ export async function POST(request: NextRequest) {
         metadata: { transactionType, amount: txnAmount, errorCode: errorInfo.errorCode },
       }).catch(() => {});
 
-      return NextResponse.json({
+      const failedPayload = {
         success: false,
         receipt: {
           txnId: aepsTransaction.id,
@@ -530,10 +576,13 @@ export async function POST(request: NextRequest) {
           error: errorInfo,
         },
         isMockMode: aepsService.isMockMode(),
-      });
+      };
+      if (clientIdemKey) await finalizeIdempotencyKey({ scope: IDEM_SCOPE, key: clientIdemKey, status: 'failed', response: failedPayload });
+      return NextResponse.json(failedPayload);
     }
   } catch (error: any) {
     console.error('[AEPS Transact] Error:', error);
+    if (clientIdemKey) await finalizeIdempotencyKey({ scope: IDEM_SCOPE, key: clientIdemKey, status: 'failed' }).catch(() => {});
     return NextResponse.json(
       { error: error.message || 'Failed to process transaction' },
       { status: 500 }

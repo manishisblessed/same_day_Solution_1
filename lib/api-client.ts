@@ -122,6 +122,23 @@ export function getApiUrl(path: string): string {
  */
 export interface ApiFetchOptions extends Omit<RequestInit, 'signal'> {
   timeout?: number // Timeout in milliseconds (default: 120000 for BBPS/Payout routes)
+  /**
+   * Idempotency key for money-moving requests. Pass the SAME key when retrying
+   * the same logical operation (e.g. a payment) so the server dedupes it.
+   * Generate one per user submission with `newIdempotencyKey()`.
+   */
+  idempotencyKey?: string
+}
+
+/**
+ * Generate a fresh idempotency key for a single logical operation/submission.
+ * Reuse the returned value across retries of that same operation.
+ */
+export function newIdempotencyKey(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+  return `idem_${Date.now()}_${Math.random().toString(36).slice(2)}`
 }
 
 /**
@@ -159,6 +176,11 @@ export async function apiFetch(
     ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
     ...(options.headers as Record<string, string> || {}),
   }
+
+  // Attach idempotency key for money-moving requests when provided
+  if (options.idempotencyKey) {
+    headers['Idempotency-Key'] = options.idempotencyKey
+  }
   
   // Always include the access token in Authorization header
   // This is needed because:
@@ -182,8 +204,8 @@ export async function apiFetch(
     }
   }
   
-  // Remove timeout from options before spreading (it's not a valid fetch option)
-  const { timeout: _, ...restOptions } = options
+  // Remove non-fetch options before spreading (not valid fetch options)
+  const { timeout: _, idempotencyKey: __, ...restOptions } = options
   
   const fetchOptions: RequestInit = {
     ...restOptions,
@@ -261,7 +283,7 @@ function extractErrorFromHtml(html: string, status: number): string {
 
 export async function apiFetchJson<T = any>(
   path: string,
-  options: RequestInit = {}
+  options: ApiFetchOptions = {}
 ): Promise<T> {
   const response = await apiFetch(path, options)
   

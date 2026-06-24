@@ -1,11 +1,12 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useRouter } from 'next/navigation'
 import { Lock, Mail, AlertCircle, Loader2, MapPin, ShieldCheck, Clock, Eye, EyeOff } from 'lucide-react'
 import AnimatedSection from '@/components/AnimatedSection'
 import { getGeoLocationForLogin, clearGeoCache } from '@/hooks/useGeolocation'
+import TurnstileWidget, { TurnstileHandle, isCaptchaEnabled } from '@/components/TurnstileWidget'
 
 export default function AdminLogin() {
   const { user, login } = useAuth()
@@ -20,6 +21,9 @@ export default function AdminLogin() {
   const [locationLoading, setLocationLoading] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
   const [showExpiredBanner, setShowExpiredBanner] = useState(false)
+  const [captchaToken, setCaptchaToken] = useState('')
+  const [captchaError, setCaptchaError] = useState(false)
+  const turnstileRef = useRef<TurnstileHandle>(null)
 
   useEffect(() => {
     clearGeoCache()
@@ -65,13 +69,21 @@ export default function AdminLogin() {
       return
     }
 
+    if (isCaptchaEnabled() && !captchaToken && !captchaError) {
+      setError('Please complete the CAPTCHA verification.')
+      return
+    }
+
     setLoading(true)
 
     try {
-      await login(formData.email, formData.password, 'admin')
-      router.push('/admin')
+      await login(formData.email, formData.password, 'admin', captchaToken)
+      const params = new URLSearchParams(window.location.search)
+      router.push(params.get('redirect')?.startsWith('/admin') ? params.get('redirect')! : '/admin')
     } catch (err: any) {
       setError(err.message || 'Invalid credentials')
+      setCaptchaToken('')
+      turnstileRef.current?.reset()
     } finally {
       setLoading(false)
     }
@@ -170,10 +182,20 @@ export default function AdminLogin() {
                     <ShieldCheck className="w-4 h-4 flex-shrink-0" />
                     <span>Location verified</span>
                   </div>
+                  {isCaptchaEnabled() && (
+                    <div className="flex flex-col items-center">
+                      <TurnstileWidget
+                        ref={turnstileRef}
+                        onVerify={(t) => { setCaptchaToken(t); setCaptchaError(false) }}
+                        onExpire={() => setCaptchaToken('')}
+                        onError={() => setCaptchaError(true)}
+                      />
+                    </div>
+                  )}
                   <button
                     type="submit"
-                    disabled={loading}
-                    className="w-full btn-primary"
+                    disabled={loading || (isCaptchaEnabled() && !captchaToken && !captchaError)}
+                    className="w-full btn-primary disabled:opacity-60"
                   >
                     {loading ? 'Signing in...' : 'Sign In'}
                   </button>

@@ -2,23 +2,10 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserFromRequest } from '@/lib/auth-server-request'
 import { fetchBill } from '@/services/bbps'
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
-import { createClient } from '@supabase/supabase-js'
 import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger'
 import { getBBPSProvider } from '@/services/bbps/config'
 
 export const dynamic = 'force-dynamic'
-
-// Helper to get Supabase client at runtime (not build time)
-function getSupabaseClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-  
-  if (!supabaseUrl || !supabaseAnonKey) {
-    throw new Error('Supabase environment variables not configured')
-  }
-  
-  return createClient(supabaseUrl, supabaseAnonKey)
-}
 
 export async function OPTIONS(request: NextRequest) {
   const response = handleCorsPreflight(request)
@@ -41,36 +28,11 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json() as any
     
-    // Try cookie-based auth first
-    let user = await getCurrentUserFromRequest(request)
-    
-    // If cookie auth fails, try to verify user from request body (fallback)
-    // This is needed because Supabase cookie-based auth may not work reliably in all cases
-    if (!user && body.user_id) {
-      const supabase = getSupabaseClient()
-      // Verify the user_id exists in retailers table
-      const { data: retailer } = await supabase
-        .from('retailers')
-        .select('partner_id, name, email')
-        .eq('partner_id', body.user_id)
-        .maybeSingle()
-      
-      if (retailer) {
-        user = {
-          id: body.user_id,
-          email: retailer.email,
-          role: 'retailer',
-          partner_id: retailer.partner_id,
-          name: retailer.name,
-        }
-        // Fallback auth active (cross-origin — no Supabase cookies)
-      }
-    }
+    const user = await getCurrentUserFromRequest(request)
     
     if (!user) {
-      console.error('BBPS Bill Fetch: No authenticated user found')
       const response = NextResponse.json(
-        { error: 'Unauthorized', message: 'Please log in to fetch bills' },
+        { error: 'Authentication required' },
         { status: 401 }
       )
       return addCorsHeaders(request, response)

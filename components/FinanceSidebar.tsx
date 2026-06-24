@@ -10,6 +10,7 @@ import {
   PanelLeftClose,
   PanelLeft,
   Timer,
+  Settings,
 } from 'lucide-react'
 import { useState } from 'react'
 
@@ -19,6 +20,7 @@ const items = [
   { href: '/finance-same/reports', label: 'Service reports', icon: FileBarChart },
   { href: '/finance-same/settlement', label: 'T+1 settlement', icon: Timer },
   { href: '/finance-same/wallet-ledger', label: 'Wallet ledger', icon: ScrollText },
+  { href: '/finance-same/settings', label: 'Settings', icon: Settings },
 ]
 
 export default function FinanceSidebar() {

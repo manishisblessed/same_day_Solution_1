@@ -3,11 +3,23 @@ import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { createClient } from '@supabase/supabase-js'
 import { addCorsHeaders } from '@/lib/cors'
 import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger'
+import { rateLimit, RATE_LIMITS } from '@/lib/rate-limit'
+import {
+  reserveIdempotencyKey,
+  finalizeIdempotencyKey,
+  getIdempotencyKeyFromHeaders,
+} from '@/lib/security/idempotency'
 
 export const runtime = 'nodejs' // Force Node.js runtime (Supabase not compatible with Edge Runtime)
 export const dynamic = 'force-dynamic'
 
 export async function POST(request: NextRequest) {
+  const rl = rateLimit(request, RATE_LIMITS.transfer)
+  if (rl.limited) return rl.response!
+
+  const idemKey = getIdempotencyKeyFromHeaders(request.headers)
+  const IDEM_SCOPE = 'distributor_wallet_transfer'
+
   try {
     // Initialize Supabase client at runtime (not during build)
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
@@ -39,7 +51,8 @@ export async function POST(request: NextRequest) {
       action, // 'push' or 'pull'
       amount,
       fund_category, // 'cash' or 'online'
-      remarks
+      remarks,
+      tpin,
     } = body
 
     // Validation
@@ -87,6 +100,20 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Idempotency: dedup repeated submits of the same push/pull
+    if (idemKey) {
+      const reservation = await reserveIdempotencyKey({ scope: IDEM_SCOPE, key: idemKey, userId: distributor.partner_id })
+      if (!reservation.fresh) {
+        if (reservation.status === 'completed' && reservation.cachedResponse) {
+          return NextResponse.json(reservation.cachedResponse)
+        }
+        return NextResponse.json(
+          { error: 'A transfer with this idempotency key is already being processed.', code: 'IDEMPOTENT_REPLAY' },
+          { status: 409 }
+        )
+      }
+    }
+
     // Get IP address for audit
     const ipAddress = request.headers.get('x-forwarded-for') || 
                      request.headers.get('x-real-ip') || 
@@ -128,6 +155,7 @@ export async function POST(request: NextRequest) {
 
       if (debitError) {
         console.error('Error debiting distributor wallet:', debitError)
+        if (idemKey) await finalizeIdempotencyKey({ scope: IDEM_SCOPE, key: idemKey, status: 'failed' })
         return NextResponse.json(
           { error: 'Failed to debit distributor wallet' },
           { status: 500 }
@@ -163,6 +191,7 @@ export async function POST(request: NextRequest) {
           p_reference_id: `REVERSE_${Date.now()}`,
           p_remarks: 'Reversal: Failed to credit retailer wallet'
         })
+        if (idemKey) await finalizeIdempotencyKey({ scope: IDEM_SCOPE, key: idemKey, status: 'failed' })
         return NextResponse.json(
           { error: 'Failed to credit retailer wallet' },
           { status: 500 }
@@ -177,16 +206,31 @@ export async function POST(request: NextRequest) {
         reference_table: 'wallet_ledger',
       }).catch(() => {})
 
-      return NextResponse.json({
+      const pushPayload = {
         success: true,
         message: `Funds pushed successfully to retailer`,
         amount: amountDecimal,
         fund_category: fund_category,
         distributor_balance: (distributorBalance || 0) - amountDecimal
-      })
+      }
+      if (idemKey) await finalizeIdempotencyKey({ scope: IDEM_SCOPE, key: idemKey, status: 'completed', response: pushPayload })
+      return NextResponse.json(pushPayload)
     } else {
       // Pull funds: Debit retailer, Credit distributor
-      
+      // Require retailer's TPIN to authorize debit from their wallet
+      if (!tpin || tpin.length !== 4) {
+        return NextResponse.json({ error: "Retailer's 4-digit TPIN is required for pull transfers" }, { status: 400 })
+      }
+      const { data: tpinResult, error: tpinError } = await supabase.rpc('verify_retailer_tpin', {
+        p_retailer_id: retailer_id,
+        p_tpin: tpin,
+      })
+      if (tpinError || !tpinResult?.success) {
+        const msg = tpinResult?.error || tpinError?.message || 'TPIN verification failed'
+        if (idemKey) await finalizeIdempotencyKey({ scope: IDEM_SCOPE, key: idemKey, status: 'failed' })
+        return NextResponse.json({ error: msg }, { status: 403 })
+      }
+
       // Check retailer balance
       const { data: retailerBalance } = await supabase.rpc('get_wallet_balance_v2', {
         p_user_id: retailer_id,
@@ -220,6 +264,7 @@ export async function POST(request: NextRequest) {
 
       if (debitError) {
         console.error('Error debiting retailer wallet:', debitError)
+        if (idemKey) await finalizeIdempotencyKey({ scope: IDEM_SCOPE, key: idemKey, status: 'failed' })
         return NextResponse.json(
           { error: 'Failed to debit retailer wallet' },
           { status: 500 }
@@ -255,6 +300,7 @@ export async function POST(request: NextRequest) {
           p_reference_id: `REVERSE_${Date.now()}`,
           p_remarks: 'Reversal: Failed to credit distributor wallet'
         })
+        if (idemKey) await finalizeIdempotencyKey({ scope: IDEM_SCOPE, key: idemKey, status: 'failed' })
         return NextResponse.json(
           { error: 'Failed to credit distributor wallet' },
           { status: 500 }
@@ -269,15 +315,18 @@ export async function POST(request: NextRequest) {
         reference_table: 'wallet_ledger',
       }).catch(() => {})
 
-      return NextResponse.json({
+      const pullPayload = {
         success: true,
         message: `Funds pulled successfully from retailer`,
         amount: amountDecimal,
         fund_category: fund_category
-      })
+      }
+      if (idemKey) await finalizeIdempotencyKey({ scope: IDEM_SCOPE, key: idemKey, status: 'completed', response: pullPayload })
+      return NextResponse.json(pullPayload)
     }
   } catch (error: any) {
     console.error('Error in fund transfer:', error)
+    if (idemKey) await finalizeIdempotencyKey({ scope: IDEM_SCOPE, key: idemKey, status: 'failed' }).catch(() => {})
     return NextResponse.json(
       { error: 'Failed to transfer funds' },
       { status: 500 }

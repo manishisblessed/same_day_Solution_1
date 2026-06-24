@@ -7,7 +7,10 @@ import { createClient } from '@supabase/supabase-js'
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-const VERIFICATION_CHARGE = 4.00
+const VERIFICATION_CHARGE_BASE = 4.00
+const GST_PERCENT = 18
+const VERIFICATION_GST = Math.round(VERIFICATION_CHARGE_BASE * GST_PERCENT / 100 * 100) / 100
+const VERIFICATION_CHARGE = Math.round((VERIFICATION_CHARGE_BASE + VERIFICATION_GST) * 100) / 100
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -109,6 +112,23 @@ export async function POST(request: NextRequest) {
       return addCorsHeaders(request, response)
     }
 
+    const trimmedName = account_holder_name.trim()
+    if (trimmedName.length < 3) {
+      const response = NextResponse.json(
+        { success: false, error: 'Beneficiary name must be at least 3 characters' },
+        { status: 400 }
+      )
+      return addCorsHeaders(request, response)
+    }
+
+    if (!/^[A-Za-z\s.]+$/.test(trimmedName)) {
+      const response = NextResponse.json(
+        { success: false, error: 'Beneficiary name must contain only letters, spaces, and dots' },
+        { status: 400 }
+      )
+      return addCorsHeaders(request, response)
+    }
+
     if (!contact_mobile || !/^\d{10}$/.test(contact_mobile)) {
       const response = NextResponse.json(
         { success: false, error: 'A valid 10-digit mobile number is required for verification' },
@@ -193,7 +213,7 @@ export async function POST(request: NextRequest) {
       p_reference_id: refId,
       p_transaction_id: null,
       p_status: 'completed',
-      p_remarks: `Account verification charge ₹${VERIFICATION_CHARGE} for ${account_number} (${ifsc_code})`,
+      p_remarks: `Account verification charge ₹${VERIFICATION_CHARGE_BASE} + GST ₹${VERIFICATION_GST} = ₹${VERIFICATION_CHARGE} for ${account_number} (${ifsc_code})`,
     })
 
     if (chargeError) {

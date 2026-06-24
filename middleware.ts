@@ -6,35 +6,111 @@ const ALLOWED_ORIGINS = [
   'https://samedaysolution.in',
   'https://www.samedaysolution.in',
   'https://api.samedaysolution.in',
-  'http://localhost:3000',
-  'http://127.0.0.1:3000',
-  'http://44.193.29.59:3001',
-  'http://44.193.29.59:3000',
-  // POS Partner API Portal
   'https://samedaysolution-api.in',
   'https://www.samedaysolution-api.in',
-  // Legacy domains (keep temporarily for transition)
-  'https://samedaysolution.co.in',
-  'https://www.samedaysolution.co.in',
-  'https://api.samedaysolution.co.in',
+  // Dev only — stripped in production via CORS_DEV_ORIGINS env flag
+  ...(process.env.NODE_ENV !== 'production'
+    ? ['http://localhost:3000', 'http://127.0.0.1:3000']
+    : []),
 ]
 
-// Add CORS headers to response
+// Routes that require an authenticated Supabase session.
+// If no session, the user is redirected to the corresponding login page.
+const PROTECTED_PREFIXES: { prefix: string; loginPath: string }[] = [
+  { prefix: '/dashboard/', loginPath: '/business-login' },
+  { prefix: '/admin', loginPath: '/admin/login' },
+  { prefix: '/finance-same', loginPath: '/finance-same/login' },
+]
+
+// Login pages — if the user already has a session we skip the
+// server-side redirect and let the client-side AuthContext handle
+// role-based routing (it knows the actual role).
+const LOGIN_PAGES = ['/business-login', '/admin/login', '/finance-same/login']
+
+function isProtectedRoute(pathname: string): { loginPath: string } | null {
+  // Login pages themselves are never "protected"
+  if (LOGIN_PAGES.includes(pathname)) return null
+  for (const { prefix, loginPath } of PROTECTED_PREFIXES) {
+    if (pathname.startsWith(prefix)) return { loginPath }
+  }
+  return null
+}
+
+// ── Admin gate helpers (IP allowlist + coarse mutation rate limit) ──
+function getRequestIp(request: NextRequest): string {
+  return (
+    request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
+    request.headers.get('x-real-ip') ||
+    'unknown'
+  )
+}
+
+function getAdminIpAllowlist(): string[] {
+  return (process.env.ADMIN_IP_ALLOWLIST || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+}
+
+const adminRlStore = new Map<string, { count: number; resetAt: number }>()
+function adminMutationRateLimit(ip: string, max = 30, windowMs = 60_000): boolean {
+  const now = Date.now()
+  let entry = adminRlStore.get(ip)
+  if (!entry || entry.resetAt < now) {
+    entry = { count: 0, resetAt: now + windowMs }
+    adminRlStore.set(ip, entry)
+  }
+  entry.count++
+  if (adminRlStore.size > 5000) {
+    for (const [k, v] of adminRlStore) if (v.resetAt < now) adminRlStore.delete(k)
+  }
+  return entry.count <= max
+}
+
+// ── Security headers (applied to every page response) ──
+function addSecurityHeaders(response: NextResponse): void {
+  response.headers.set('X-Content-Type-Options', 'nosniff')
+  response.headers.set('X-Frame-Options', 'DENY')
+  response.headers.set('X-XSS-Protection', '1; mode=block')
+  response.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin')
+  response.headers.set(
+    'Permissions-Policy',
+    'camera=(), microphone=(), geolocation=(self), payment=()'
+  )
+
+  // Content Security Policy — blocks injected scripts/styles from untrusted sources.
+  // 'unsafe-inline' for style-src is required by Next.js + Tailwind CSS.
+  // 'unsafe-eval' for script-src is needed by Next.js dev mode only.
+  const scriptSrc = process.env.NODE_ENV === 'production'
+    ? "'self' 'unsafe-inline' https://challenges.cloudflare.com"
+    : "'self' 'unsafe-inline' 'unsafe-eval' https://challenges.cloudflare.com"
+  const csp = [
+    `default-src 'self'`,
+    `script-src ${scriptSrc}`,
+    `style-src 'self' 'unsafe-inline' https://fonts.googleapis.com`,
+    `font-src 'self' https://fonts.gstatic.com data:`,
+    `img-src 'self' data: blob: https://*.supabase.co`,
+    `connect-src 'self' https://*.supabase.co https://challenges.cloudflare.com https://api.samedaysolution.in wss://*.supabase.co`,
+    `frame-src https://challenges.cloudflare.com`,
+    `frame-ancestors 'none'`,
+    `form-action 'self'`,
+    `base-uri 'self'`,
+    `object-src 'none'`,
+  ].join('; ')
+  response.headers.set('Content-Security-Policy', csp)
+
+  if (process.env.NODE_ENV === 'production') {
+    response.headers.set(
+      'Strict-Transport-Security',
+      'max-age=63072000; includeSubDomains; preload'
+    )
+  }
+}
+
 function addCorsHeaders(request: NextRequest, response: NextResponse): NextResponse {
   const origin = request.headers.get('origin')
-  
   if (origin) {
-    // Check for exact match or if origin starts with allowed origin
-    const isAllowed = ALLOWED_ORIGINS.some(allowed => {
-      // Exact match
-      if (origin === allowed) return true
-      // Origin starts with allowed (for sub-paths)
-      if (origin.startsWith(allowed + '/')) return true
-      // For IP addresses, also check if they match the base IP
-      if (allowed.includes('44.193.29.59') && origin.includes('44.193.29.59')) return true
-      return false
-    })
-    
+    const isAllowed = ALLOWED_ORIGINS.some((allowed) => origin === allowed)
     if (isAllowed) {
       response.headers.set('Access-Control-Allow-Origin', origin)
       response.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
@@ -43,41 +119,55 @@ function addCorsHeaders(request: NextRequest, response: NextResponse): NextRespo
       response.headers.set('Access-Control-Max-Age', '86400')
     }
   }
-  
   return response
 }
 
 export async function middleware(request: NextRequest) {
-  // For API routes, ensure we always return JSON responses
-  // This prevents HTML error pages from being returned
-  // EXCEPT for routes that handle file uploads (multipart/form-data)
   const isApiRoute = request.nextUrl.pathname.startsWith('/api/')
-  const isFileUploadRoute = request.nextUrl.pathname.includes('/upload-document') ||
-                            request.nextUrl.pathname.includes('/bulk-upload')
+  const isFileUploadRoute =
+    request.nextUrl.pathname.includes('/upload-document') ||
+    request.nextUrl.pathname.includes('/bulk-upload')
 
-  // Handle CORS preflight requests for API routes
+  // CORS preflight
   if (isApiRoute && request.method === 'OPTIONS') {
     const response = new NextResponse(null, { status: 204 })
     return addCorsHeaders(request, response)
   }
 
-  // Create response early so we can set cookies
-  let response = NextResponse.next({
-    request: {
-      headers: request.headers,
-    },
-  })
+  // ── Admin API gate (IP allowlist + rate limit) ──
+  const isAdminApi = request.nextUrl.pathname.startsWith('/api/admin/')
+  if (isAdminApi) {
+    const ip = getRequestIp(request)
+    const allowlist = getAdminIpAllowlist()
+    if (allowlist.length > 0 && !allowlist.includes(ip)) {
+      console.warn(`[middleware] Blocked admin request from non-allowlisted IP ${ip} -> ${request.nextUrl.pathname}`)
+      return addCorsHeaders(request, NextResponse.json({ error: 'Access denied from this network' }, { status: 403 }))
+    }
+    const isMutation = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(request.method)
+    if (isMutation && !adminMutationRateLimit(ip)) {
+      return addCorsHeaders(
+        request,
+        NextResponse.json({ error: 'Too many requests. Please slow down.' }, { status: 429, headers: { 'Retry-After': '60' } })
+      )
+    }
+  }
+
+  let response = NextResponse.next({ request: { headers: request.headers } })
+
+  // ── API routes: return early with JSON content type + CORS ──
+  // Skip Supabase session check — API routes handle their own auth
+  // and getSession() can hang when refreshing expired tokens.
+  if (isApiRoute) {
+    if (!isFileUploadRoute) {
+      response.headers.set('Content-Type', 'application/json')
+    }
+    return addCorsHeaders(request, response)
+  }
+
+  // ── Security headers for page responses ──
+  addSecurityHeaders(response)
 
   try {
-    // Get request cookies for later use
-    const requestCookies = request.cookies.getAll()
-    
-    // Note: We removed the aggressive "corrupted cookie" detection that was
-    // incorrectly clearing valid Supabase session cookies. Supabase SSR cookies
-    // legitimately contain JSON data, so checking for '{' was wrong.
-
-    // Handle Supabase session refresh for ALL routes (including API routes)
-    // This ensures session cookies are properly refreshed before API routes try to use them
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -96,49 +186,26 @@ export async function middleware(request: NextRequest) {
       }
     )
 
-    // Refresh session if expired - required for both Server Components and API routes
-    // Use getSession() to refresh the session and update cookies
-    // The setAll callback above will update both request.cookies and response.cookies
     const {
       data: { session },
-      error: sessionError,
     } = await supabase.auth.getSession()
-    
-    // Note: We removed aggressive cookie clearing on session errors.
-    // The session might just be expired or the user not logged in yet.
-    // Let the app handle authentication state, not the middleware.
 
-    // For API routes, set JSON content type and CORS headers
-    // CORS is handled centrally here in middleware so ALL API routes get CORS headers
-    // automatically - even error responses. Individual route handlers do NOT need to
-    // add CORS headers (lib/cors.ts addCorsHeaders is now a no-op pass-through).
-    if (isApiRoute) {
-      if (!isFileUploadRoute) {
-        response.headers.set('Content-Type', 'application/json')
+    // ── Route protection: redirect to login if no session ──
+    const protectedMatch = isProtectedRoute(request.nextUrl.pathname)
+    if (protectedMatch && !session) {
+      // In development, skip server-side redirect — let client-side AuthContext handle it.
+      // This avoids cookie issues with localhost (Secure flag, SameSite, etc.).
+      if (process.env.NODE_ENV !== 'production') {
+        return response
       }
-      return addCorsHeaders(request, response)
+      const url = request.nextUrl.clone()
+      url.pathname = protectedMatch.loginPath
+      url.searchParams.set('redirect', request.nextUrl.pathname)
+      return NextResponse.redirect(url)
     }
-
-    // If user is signed in and the current path is /login, redirect to appropriate dashboard based on role
-    // Note: We can't determine role from middleware without additional queries, so we'll let the app handle this
-    // This prevents hardcoded redirects to retailer dashboard
-    // if (user && request.nextUrl.pathname.startsWith('/business-login')) {
-    //   const url = request.nextUrl.clone()
-    //   url.pathname = '/dashboard/retailer'
-    //   return NextResponse.redirect(url)
-    // }
-
-    // If user is not signed in and the current path is not /login, redirect to login
-    // (This is optional - remove if you want public pages)
-    // if (!user && request.nextUrl.pathname.startsWith('/dashboard')) {
-    //   const url = request.nextUrl.clone()
-    //   url.pathname = '/business-login'
-    //   return NextResponse.redirect(url)
-    // }
 
     return response
   } catch (error: any) {
-    // If Supabase auth fails, still return response (don't break the app)
     console.error('Middleware Supabase error:', error)
     return response
   }
@@ -146,13 +213,6 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    /*
-     * Match all request paths except for the ones starting with:
-     * - _next/static (static files)
-     * - _next/image (image optimization files)
-     * - favicon.ico (favicon file)
-     * - public folder
-     */
     '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 }

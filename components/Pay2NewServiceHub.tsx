@@ -28,8 +28,7 @@ interface ServiceConfig {
   category: 'recharge' | 'utility' | 'finance' | 'other'
 }
 
-// service_id values per Pay2New activeServices.
-// Adjust these IDs to match your account's productList output.
+// service_id values per Pay2New /apis/v1/servicesList response.
 const SERVICES: ServiceConfig[] = [
   // Recharges
   {
@@ -41,14 +40,14 @@ const SERVICES: ServiceConfig[] = [
   },
   {
     id: 'dth', label: 'DTH Recharge', description: 'Recharge your TV connection',
-    serviceId: 2, mode: 'recharge', category: 'recharge',
+    serviceId: 3, mode: 'recharge', category: 'recharge',
     icon: <Tv className="w-6 h-6" />, iconColor: 'text-purple-600', bgGradient: 'from-purple-500/10 to-purple-600/5',
     numberLabel: 'Subscriber ID', numberPlaceholder: 'Enter subscriber ID',
     accent: 'purple',
   },
   {
     id: 'fastag', label: 'FASTag', description: 'Recharge FASTag wallet',
-    serviceId: 14, mode: 'recharge', category: 'recharge',
+    serviceId: 9, mode: 'recharge', category: 'recharge',
     icon: <Car className="w-6 h-6" />, iconColor: 'text-cyan-600', bgGradient: 'from-cyan-500/10 to-cyan-600/5',
     numberLabel: 'Vehicle Number', numberPlaceholder: 'e.g. MH12AB1234',
     numberDigitsOnly: false,
@@ -58,14 +57,14 @@ const SERVICES: ServiceConfig[] = [
   // Utility bill payments
   {
     id: 'mobile-postpaid', label: 'Mobile Postpaid', description: 'Pay your postpaid mobile bill',
-    serviceId: 3, mode: 'bill', category: 'utility',
+    serviceId: 2, mode: 'bill', category: 'utility',
     icon: <Phone className="w-6 h-6" />, iconColor: 'text-indigo-600', bgGradient: 'from-indigo-500/10 to-indigo-600/5',
     numberLabel: 'Mobile Number', numberPlaceholder: '10-digit mobile', numberMaxLength: 10,
     accent: 'indigo',
   },
   {
     id: 'electricity', label: 'Electricity', description: 'Pay your electricity bill',
-    serviceId: 5, mode: 'bill', category: 'utility',
+    serviceId: 8, mode: 'bill', category: 'utility',
     icon: <Zap className="w-6 h-6" />, iconColor: 'text-orange-600', bgGradient: 'from-orange-500/10 to-orange-600/5',
     numberLabel: 'Consumer Number', numberPlaceholder: 'Enter consumer number',
     numberDigitsOnly: false,
@@ -73,7 +72,7 @@ const SERVICES: ServiceConfig[] = [
   },
   {
     id: 'gas', label: 'Piped Gas', description: 'Pay piped gas bill',
-    serviceId: 7, mode: 'bill', category: 'utility',
+    serviceId: 11, mode: 'bill', category: 'utility',
     icon: <Flame className="w-6 h-6" />, iconColor: 'text-red-600', bgGradient: 'from-red-500/10 to-red-600/5',
     numberLabel: 'Account Number', numberPlaceholder: 'Enter account number',
     numberDigitsOnly: false,
@@ -81,7 +80,7 @@ const SERVICES: ServiceConfig[] = [
   },
   {
     id: 'water', label: 'Water', description: 'Pay water bill',
-    serviceId: 10, mode: 'bill', category: 'utility',
+    serviceId: 22, mode: 'bill', category: 'utility',
     icon: <Droplets className="w-6 h-6" />, iconColor: 'text-cyan-600', bgGradient: 'from-cyan-500/10 to-cyan-600/5',
     numberLabel: 'Consumer Number', numberPlaceholder: 'Enter consumer number',
     numberDigitsOnly: false,
@@ -89,7 +88,7 @@ const SERVICES: ServiceConfig[] = [
   },
   {
     id: 'broadband', label: 'Broadband / Landline', description: 'Pay internet bill',
-    serviceId: 24, mode: 'bill', category: 'utility',
+    serviceId: 15, mode: 'bill', category: 'utility',
     icon: <Wifi className="w-6 h-6" />, iconColor: 'text-blue-600', bgGradient: 'from-blue-500/10 to-blue-600/5',
     numberLabel: 'Account / User ID', numberPlaceholder: 'Enter account number',
     numberDigitsOnly: false,
@@ -97,7 +96,7 @@ const SERVICES: ServiceConfig[] = [
   },
   {
     id: 'lpg', label: 'LPG Cylinder', description: 'Book LPG / Pay LPG bill',
-    serviceId: 9, mode: 'bill', category: 'utility',
+    serviceId: 10, mode: 'bill', category: 'utility',
     icon: <Flame className="w-6 h-6" />, iconColor: 'text-orange-600', bgGradient: 'from-orange-500/10 to-orange-600/5',
     numberLabel: 'Consumer / LPG ID', numberPlaceholder: 'Enter consumer number',
     numberDigitsOnly: false,
@@ -105,7 +104,7 @@ const SERVICES: ServiceConfig[] = [
   },
   {
     id: 'cable', label: 'Cable TV', description: 'Pay cable TV bill',
-    serviceId: 35, mode: 'bill', category: 'utility',
+    serviceId: 4, mode: 'bill', category: 'utility',
     icon: <Tv className="w-6 h-6" />, iconColor: 'text-pink-600', bgGradient: 'from-pink-500/10 to-pink-600/5',
     numberLabel: 'Subscriber ID', numberPlaceholder: 'Enter subscriber ID',
     numberDigitsOnly: false,
@@ -113,7 +112,7 @@ const SERVICES: ServiceConfig[] = [
   },
   {
     id: 'municipal', label: 'Municipal Tax', description: 'Property / municipal tax',
-    serviceId: 38, mode: 'bill', category: 'utility',
+    serviceId: 20, mode: 'bill', category: 'utility',
     icon: <Building2 className="w-6 h-6" />, iconColor: 'text-indigo-600', bgGradient: 'from-indigo-500/10 to-indigo-600/5',
     numberLabel: 'Account / Property ID', numberPlaceholder: 'Enter account number',
     numberDigitsOnly: false,
@@ -131,7 +130,7 @@ const SERVICES: ServiceConfig[] = [
   },
   {
     id: 'insurance', label: 'Insurance Premium', description: 'Pay insurance premium',
-    serviceId: 8, mode: 'bill', category: 'finance',
+    serviceId: 14, mode: 'bill', category: 'finance',
     icon: <Shield className="w-6 h-6" />, iconColor: 'text-green-600', bgGradient: 'from-green-500/10 to-green-600/5',
     numberLabel: 'Policy Number', numberPlaceholder: 'Enter policy number',
     numberDigitsOnly: false,
@@ -139,7 +138,7 @@ const SERVICES: ServiceConfig[] = [
   },
   {
     id: 'loan', label: 'Loan EMI', description: 'Repay loan installment',
-    serviceId: 30, mode: 'bill', category: 'finance',
+    serviceId: 17, mode: 'bill', category: 'finance',
     icon: <Banknote className="w-6 h-6" />, iconColor: 'text-green-600', bgGradient: 'from-green-500/10 to-green-600/5',
     numberLabel: 'Loan Account Number', numberPlaceholder: 'Enter loan account',
     numberDigitsOnly: false,
@@ -149,7 +148,7 @@ const SERVICES: ServiceConfig[] = [
   // Other
   {
     id: 'education', label: 'Education Fees', description: 'Pay school / college fees',
-    serviceId: 40, mode: 'bill', category: 'other',
+    serviceId: 19, mode: 'bill', category: 'other',
     icon: <GraduationCap className="w-6 h-6" />, iconColor: 'text-pink-600', bgGradient: 'from-pink-500/10 to-pink-600/5',
     numberLabel: 'Roll / Reference No.', numberPlaceholder: 'Enter reference',
     numberDigitsOnly: false,

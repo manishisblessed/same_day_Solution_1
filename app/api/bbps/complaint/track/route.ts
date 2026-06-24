@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger'
 import { getCurrentUserFromRequest } from '@/lib/auth-server-request'
-import { createClient } from '@supabase/supabase-js'
 import { complaintTracking } from '@/services/bbps'
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
 
@@ -17,36 +16,13 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
     const { complaint_id, complaint_type } = body
     
-    // Try cookie-based auth first
-    let user = await getCurrentUserFromRequest(request)
-    
-    // If cookie auth fails, try to verify user from request body (fallback)
-    if (!user && body.user_id) {
-      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-      const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
-      const supabase = createClient(supabaseUrl, supabaseServiceKey || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
-      
-      const { data: retailer } = await supabase
-        .from('retailers')
-        .select('partner_id, name, email')
-        .eq('partner_id', body.user_id)
-        .maybeSingle()
-      
-      if (retailer) {
-        user = {
-          id: body.user_id,
-          email: retailer.email,
-          role: 'retailer',
-          partner_id: retailer.partner_id,
-          name: retailer.name,
-        }
-        // Fallback auth active (cross-origin — no Supabase cookies)
-      }
-    }
+    const user = await getCurrentUserFromRequest(request)
     
     if (!user) {
-      console.error('[BBPS Complaint Track] No authenticated user found')
-      const response = NextResponse.json({ error: 'Session expired. Please log in again.', code: 'SESSION_EXPIRED' }, { status: 401 })
+      const response = NextResponse.json(
+        { error: 'Authentication required' },
+        { status: 401 }
+      )
       return addCorsHeaders(request, response)
     }
 

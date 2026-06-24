@@ -4,6 +4,7 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js'
 import { addCorsHeaders } from '@/lib/cors'
 import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger'
 import { calculatePayoutCharge } from '@/lib/scheme/scheme.service'
+import { rateLimit, RATE_LIMITS } from '@/lib/rate-limit'
 
 // Generate idempotency key using crypto
 function generateIdempotencyKey(prefix: string): string {
@@ -172,6 +173,9 @@ async function checkSettlementLimits(
 }
 
 export async function POST(request: NextRequest) {
+  const rl = rateLimit(request, RATE_LIMITS.transfer)
+  if (rl.limited) return rl.response!
+
   try {
     // Initialize Supabase client at runtime (not during build)
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!

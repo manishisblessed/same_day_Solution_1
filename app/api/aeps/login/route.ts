@@ -71,6 +71,7 @@ export async function POST(request: NextRequest) {
           last_login_at: new Date().toISOString(),
           login_wadh: mockWadh,
           device_fingerprint: deviceFingerprint || null,
+          login_ip: request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || request.headers.get('x-real-ip') || 'unknown',
           updated_at: new Date().toISOString(),
         })
         .eq('user_id', user.partner_id);
@@ -157,6 +158,7 @@ export async function POST(request: NextRequest) {
             last_login_at: new Date().toISOString(),
             login_wadh: responseWadh,
             device_fingerprint: deviceFingerprint || null,
+            login_ip: request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || request.headers.get('x-real-ip') || 'unknown',
             updated_at: new Date().toISOString(),
           })
           .eq('user_id', user.partner_id);

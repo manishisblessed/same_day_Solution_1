@@ -1,8 +1,8 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
-import { apiFetch } from '@/lib/api-client'
+import { apiFetch, newIdempotencyKey } from '@/lib/api-client'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   RefreshCw, AlertCircle, AlertTriangle, Check,
@@ -11,6 +11,7 @@ import {
   Wallet, Send, Search, Copy, ArrowLeft,
   Plus, CreditCard, Trash2, ShieldCheck, BadgeCheck,
   Sparkles, Star, TrendingUp, ChevronRight, Banknote,
+  Download, Share2, MessageCircle, Printer,
 } from 'lucide-react'
 
 interface VerifiedAccount {
@@ -66,6 +67,8 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
   const [loadingCharges, setLoadingCharges] = useState(false)
   const [settlementStep, setSettlementStep] = useState<'select-account' | 'enter-amount' | 'confirm' | 'result'>('select-account')
   const [transferring, setTransferring] = useState(false)
+  // Stable idempotency key for the in-progress settlement (cleared on success)
+  const settlementIdemRef = useRef<string | null>(null)
   const [transferResult, setTransferResult] = useState<TransactionRecord | null>(null)
 
   // Add account state
@@ -193,10 +196,12 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
     if (!selectedAccount) return
     setError(null)
     setTransferring(true)
+    if (!settlementIdemRef.current) settlementIdemRef.current = newIdempotencyKey()
 
     try {
       const res = await apiFetch('/api/settlement-2/transfer', {
         method: 'POST',
+        idempotencyKey: settlementIdemRef.current,
         body: JSON.stringify({
           account_id: selectedAccount.id,
           amount: parseFloat(amount),
@@ -207,6 +212,7 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
 
       const data = await res.json()
       if (data.success && data.transaction) {
+        settlementIdemRef.current = null
         setTransferResult(data.transaction)
         setTransactions(prev => [data.transaction, ...prev])
         setSettlementStep('result')
@@ -234,11 +240,20 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
       setError('Enter a valid IFSC code')
       return
     }
-    if (!newBeneName.trim()) {
+    const trimmedName = newBeneName.trim()
+    if (!trimmedName) {
       setError('Enter beneficiary name')
       return
     }
-    if (!newContactMobile || newContactMobile.length !== 10) {
+    if (trimmedName.length < 3) {
+      setError('Beneficiary name must be at least 3 characters')
+      return
+    }
+    if (!/^[A-Za-z\s.]+$/.test(trimmedName)) {
+      setError('Beneficiary name must contain only letters, spaces, and dots')
+      return
+    }
+    if (!newContactMobile || !/^\d{10}$/.test(newContactMobile)) {
       setError('Enter a valid 10-digit mobile number')
       return
     }
@@ -479,7 +494,7 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
                 <div className="mt-4 flex items-center gap-2">
                   <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 text-xs font-semibold">
                     <Sparkles className="w-3 h-3" />
-                    ₹4 charge
+                    ₹4 + GST
                   </span>
                   <span className="text-xs text-gray-400">One-time per account</span>
                 </div>
@@ -584,7 +599,7 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
                 </div>
                 <h3 className="text-lg font-bold text-gray-900 dark:text-white">No Bank Account Added</h3>
                 <p className="text-sm text-gray-500 dark:text-gray-400">
-                  You need to add and verify a bank account before processing settlements. A verification charge of ₹4 will apply.
+                  You need to add and verify a bank account before processing settlements. A verification charge of ₹4 + GST will apply.
                 </p>
                 <div className="flex gap-3">
                   <button
@@ -757,7 +772,7 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
                     </div>
                     <div className="flex justify-between text-sm">
                       <span className="text-gray-500">
-                        Charges {loadingCharges && <Loader2 className="w-3 h-3 animate-spin inline ml-1" />}
+                        Charges (incl. 18% GST) {loadingCharges && <Loader2 className="w-3 h-3 animate-spin inline ml-1" />}
                       </span>
                       <span className="font-medium text-gray-900 dark:text-white">₹{charges.toFixed(2)}</span>
                     </div>
@@ -820,7 +835,7 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
                   </div>
                   {charges > 0 && (
                     <div className="p-3 bg-amber-50 dark:bg-amber-900/20 rounded-xl col-span-2">
-                      <p className="text-amber-600 dark:text-amber-400 text-xs mb-1">Settlement Charges (Wallet Debit)</p>
+                      <p className="text-amber-600 dark:text-amber-400 text-xs mb-1">Settlement Charges incl. GST (Wallet Debit)</p>
                       <p className="text-lg font-bold text-amber-700 dark:text-amber-300">₹{charges.toFixed(2)}</p>
                     </div>
                   )}
@@ -850,97 +865,221 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
             </div>
           )}
 
-          {/* Step: Result */}
+          {/* Step: Result - Professional Receipt */}
           {settlementStep === 'result' && transferResult && (
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
-              className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 shadow-sm"
+              className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 shadow-lg overflow-hidden"
             >
-              <div className="p-8 text-center space-y-4">
-                <div className={`w-16 h-16 mx-auto rounded-full flex items-center justify-center ${
-                  transferResult.status === 'SUCCESS'
-                    ? 'bg-emerald-100 dark:bg-emerald-900/30'
-                    : transferResult.status === 'FAILED'
-                    ? 'bg-red-100 dark:bg-red-900/30'
-                    : 'bg-amber-100 dark:bg-amber-900/30'
-                }`}>
+              {/* Receipt Header */}
+              <div className={`p-6 text-center ${
+                transferResult.status === 'SUCCESS'
+                  ? 'bg-gradient-to-br from-emerald-500 to-emerald-700'
+                  : transferResult.status === 'FAILED'
+                  ? 'bg-gradient-to-br from-red-500 to-red-700'
+                  : 'bg-gradient-to-br from-amber-500 to-amber-700'
+              }`}>
+                <motion.div
+                  initial={{ scale: 0 }}
+                  animate={{ scale: 1 }}
+                  transition={{ type: 'spring', damping: 12, delay: 0.1 }}
+                  className="w-16 h-16 mx-auto rounded-full bg-white/20 backdrop-blur flex items-center justify-center mb-3"
+                >
                   {transferResult.status === 'SUCCESS' ? (
-                    <CheckCircle2 className="w-8 h-8 text-emerald-600" />
+                    <CheckCircle2 className="w-9 h-9 text-white" />
                   ) : transferResult.status === 'FAILED' ? (
-                    <XCircle className="w-8 h-8 text-red-600" />
+                    <XCircle className="w-9 h-9 text-white" />
                   ) : (
-                    <Clock className="w-8 h-8 text-amber-600" />
+                    <Clock className="w-9 h-9 text-white" />
                   )}
-                </div>
-                <h3 className="text-xl font-bold text-gray-900 dark:text-white">
-                  {transferResult.status === 'SUCCESS' ? 'Settlement Successful!' :
-                   transferResult.status === 'FAILED' ? 'Settlement Failed' : 'Settlement Processing'}
+                </motion.div>
+                <h3 className="text-xl font-bold text-white">
+                  {transferResult.status === 'SUCCESS' ? 'Transfer Successful' :
+                   transferResult.status === 'FAILED' ? 'Transfer Failed' : 'Transfer Processing'}
                 </h3>
-                <p className="text-sm text-gray-500 dark:text-gray-400">{transferResult.status_message}</p>
+                <p className="text-white/80 text-sm mt-1">{transferResult.status_message || 'Transaction processed'}</p>
+                <p className="text-3xl font-bold text-white mt-3">₹{transferResult.amount.toFixed(2)}</p>
               </div>
 
-              <div className="px-5 pb-5 space-y-3">
-                <div className="grid grid-cols-2 gap-3 text-sm">
+              {/* Receipt Body */}
+              <div className="p-5" id="receipt-body">
+                {/* Dashed separator */}
+                <div className="border-t-2 border-dashed border-gray-200 dark:border-gray-700 mb-5 -mt-1" />
+
+                {/* Transaction Details */}
+                <div className="space-y-3">
+                  <div className="flex justify-between items-center py-2 border-b border-gray-100 dark:border-gray-800">
+                    <span className="text-sm text-gray-500 dark:text-gray-400">Beneficiary</span>
+                    <span className="text-sm font-semibold text-gray-900 dark:text-white text-right max-w-[60%] truncate">
+                      {transferResult.account_holder_name}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center py-2 border-b border-gray-100 dark:border-gray-800">
+                    <span className="text-sm text-gray-500 dark:text-gray-400">Account No.</span>
+                    <span className="text-sm font-mono font-medium text-gray-900 dark:text-white">
+                      {transferResult.account_number}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center py-2 border-b border-gray-100 dark:border-gray-800">
+                    <span className="text-sm text-gray-500 dark:text-gray-400">Transfer Mode</span>
+                    <span className="text-sm font-semibold text-gray-900 dark:text-white">{transferResult.mode}</span>
+                  </div>
                   {transferResult.order_id && (
-                    <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded-xl">
-                      <p className="text-gray-500 text-xs mb-1">Order ID</p>
-                      <div className="flex items-center gap-1">
-                        <p className="font-mono text-xs font-medium text-gray-900 dark:text-white truncate">{transferResult.order_id}</p>
-                        <button onClick={() => copyToClipboard(transferResult.order_id!)} className="p-0.5 hover:bg-gray-200 dark:hover:bg-gray-700 rounded">
+                    <div className="flex justify-between items-center py-2 border-b border-gray-100 dark:border-gray-800">
+                      <span className="text-sm text-gray-500 dark:text-gray-400">Order ID</span>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs font-mono font-medium text-gray-900 dark:text-white">{transferResult.order_id}</span>
+                        <button onClick={() => copyToClipboard(transferResult.order_id!)} className="p-0.5 hover:bg-gray-100 dark:hover:bg-gray-800 rounded">
                           <Copy className="w-3 h-3 text-gray-400" />
                         </button>
                       </div>
                     </div>
                   )}
                   {transferResult.utr && (
-                    <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded-xl">
-                      <p className="text-gray-500 text-xs mb-1">UTR</p>
-                      <div className="flex items-center gap-1">
-                        <p className="font-mono text-xs font-medium text-gray-900 dark:text-white truncate">{transferResult.utr}</p>
-                        <button onClick={() => copyToClipboard(transferResult.utr!)} className="p-0.5 hover:bg-gray-200 dark:hover:bg-gray-700 rounded">
+                    <div className="flex justify-between items-center py-2 border-b border-gray-100 dark:border-gray-800">
+                      <span className="text-sm text-gray-500 dark:text-gray-400">UTR Number</span>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs font-mono font-medium text-emerald-700 dark:text-emerald-400">{transferResult.utr}</span>
+                        <button onClick={() => copyToClipboard(transferResult.utr!)} className="p-0.5 hover:bg-gray-100 dark:hover:bg-gray-800 rounded">
                           <Copy className="w-3 h-3 text-gray-400" />
                         </button>
                       </div>
                     </div>
                   )}
-                  <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded-xl">
-                    <p className="text-gray-500 text-xs mb-1">Amount</p>
-                    <p className="font-medium text-gray-900 dark:text-white">₹{transferResult.amount.toFixed(2)}</p>
+                  <div className="flex justify-between items-center py-2 border-b border-gray-100 dark:border-gray-800">
+                    <span className="text-sm text-gray-500 dark:text-gray-400">Reference ID</span>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs font-mono font-medium text-gray-900 dark:text-white">{transferResult.reference_id}</span>
+                      <button onClick={() => copyToClipboard(transferResult.reference_id)} className="p-0.5 hover:bg-gray-100 dark:hover:bg-gray-800 rounded">
+                        <Copy className="w-3 h-3 text-gray-400" />
+                      </button>
+                    </div>
                   </div>
                   {transferResult.charges > 0 && (
-                    <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded-xl">
-                      <p className="text-gray-500 text-xs mb-1">Charges</p>
-                      <p className="font-medium text-gray-900 dark:text-white">₹{transferResult.charges.toFixed(2)}</p>
+                    <div className="flex justify-between items-center py-2 border-b border-gray-100 dark:border-gray-800">
+                      <span className="text-sm text-gray-500 dark:text-gray-400">Charges (incl. GST)</span>
+                      <span className="text-sm font-medium text-gray-900 dark:text-white">₹{transferResult.charges.toFixed(2)}</span>
                     </div>
                   )}
-                  <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded-xl">
-                    <p className="text-gray-500 text-xs mb-1">Mode</p>
-                    <p className="font-medium text-gray-900 dark:text-white">{transferResult.mode}</p>
-                  </div>
-                  <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded-xl">
-                    <p className="text-gray-500 text-xs mb-1">Reference</p>
-                    <p className="font-mono text-xs font-medium text-gray-900 dark:text-white">{transferResult.reference_id}</p>
+                  <div className="flex justify-between items-center py-2">
+                    <span className="text-sm text-gray-500 dark:text-gray-400">Date & Time</span>
+                    <span className="text-sm font-medium text-gray-900 dark:text-white">
+                      {new Date(transferResult.provider_timestamp || Date.now()).toLocaleString('en-IN', {
+                        day: '2-digit', month: 'short', year: 'numeric',
+                        hour: '2-digit', minute: '2-digit', hour12: true,
+                      })}
+                    </span>
                   </div>
                 </div>
 
-                <div className="flex gap-3 pt-2">
-                  <button
-                    onClick={() => { setActiveView('home'); setError(null) }}
-                    className="flex-1 py-3 rounded-xl bg-gradient-to-r from-blue-600 to-blue-700 text-white font-medium shadow-md hover:shadow-lg transition-all"
-                  >
-                    Done
-                  </button>
-                  {transferResult.status === 'PENDING' && (
+                {/* Dashed separator */}
+                <div className="border-t-2 border-dashed border-gray-200 dark:border-gray-700 my-5" />
+
+                {/* Share Options */}
+                <div className="space-y-3">
+                  <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Share Receipt</p>
+                  <div className="grid grid-cols-4 gap-2">
                     <button
-                      onClick={() => handleCheckStatus(transferResult.reference_id)}
-                      className="flex-1 py-3 rounded-xl border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300 font-medium hover:bg-gray-50 dark:hover:bg-gray-800 transition-all flex items-center justify-center gap-2"
+                      onClick={() => {
+                        const text = `*Settlement Receipt*%0A%0AStatus: ${transferResult.status}%0AAmount: ₹${transferResult.amount.toFixed(2)}%0ABeneficiary: ${transferResult.account_holder_name}%0AAccount: ${transferResult.account_number}%0AMode: ${transferResult.mode}%0A${transferResult.utr ? `UTR: ${transferResult.utr}%0A` : ''}Reference: ${transferResult.reference_id}%0ACharges: ₹${transferResult.charges.toFixed(2)}%0ADate: ${new Date(transferResult.provider_timestamp || Date.now()).toLocaleString('en-IN')}`
+                        window.open(`https://wa.me/?text=${text}`, '_blank')
+                      }}
+                      className="flex flex-col items-center gap-1.5 p-3 rounded-xl bg-green-50 dark:bg-green-900/20 hover:bg-green-100 dark:hover:bg-green-900/30 transition-colors"
                     >
-                      <Search className="w-4 h-4" />
-                      Check Status
+                      <MessageCircle className="w-5 h-5 text-green-600" />
+                      <span className="text-[10px] font-medium text-green-700 dark:text-green-400">WhatsApp</span>
                     </button>
-                  )}
+                    <button
+                      onClick={() => {
+                        const receiptText = `Settlement Receipt\n\nStatus: ${transferResult.status}\nAmount: ₹${transferResult.amount.toFixed(2)}\nBeneficiary: ${transferResult.account_holder_name}\nAccount: ${transferResult.account_number}\nMode: ${transferResult.mode}\n${transferResult.utr ? `UTR: ${transferResult.utr}\n` : ''}Reference: ${transferResult.reference_id}\nCharges: ₹${transferResult.charges.toFixed(2)}\nDate: ${new Date(transferResult.provider_timestamp || Date.now()).toLocaleString('en-IN')}`
+                        navigator.clipboard.writeText(receiptText)
+                        setError(null)
+                      }}
+                      className="flex flex-col items-center gap-1.5 p-3 rounded-xl bg-blue-50 dark:bg-blue-900/20 hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors"
+                    >
+                      <Copy className="w-5 h-5 text-blue-600" />
+                      <span className="text-[10px] font-medium text-blue-700 dark:text-blue-400">Copy</span>
+                    </button>
+                    <button
+                      onClick={() => {
+                        const receiptText = `Settlement Receipt\n${'─'.repeat(35)}\nStatus: ${transferResult.status}\nAmount: ₹${transferResult.amount.toFixed(2)}\nBeneficiary: ${transferResult.account_holder_name}\nAccount: ${transferResult.account_number}\nMode: ${transferResult.mode}\n${transferResult.utr ? `UTR: ${transferResult.utr}\n` : ''}${transferResult.order_id ? `Order ID: ${transferResult.order_id}\n` : ''}Reference: ${transferResult.reference_id}\nCharges: ₹${transferResult.charges.toFixed(2)}\nDate: ${new Date(transferResult.provider_timestamp || Date.now()).toLocaleString('en-IN')}\n${'─'.repeat(35)}\nSame Day Solution`
+                        const blob = new Blob([receiptText], { type: 'text/plain' })
+                        const url = URL.createObjectURL(blob)
+                        const a = document.createElement('a')
+                        a.href = url
+                        a.download = `receipt_${transferResult.reference_id}.txt`
+                        a.click()
+                        URL.revokeObjectURL(url)
+                      }}
+                      className="flex flex-col items-center gap-1.5 p-3 rounded-xl bg-purple-50 dark:bg-purple-900/20 hover:bg-purple-100 dark:hover:bg-purple-900/30 transition-colors"
+                    >
+                      <Download className="w-5 h-5 text-purple-600" />
+                      <span className="text-[10px] font-medium text-purple-700 dark:text-purple-400">Download</span>
+                    </button>
+                    <button
+                      onClick={() => {
+                        const printWindow = window.open('', '_blank')
+                        if (printWindow) {
+                          printWindow.document.write(`
+                            <html><head><title>Receipt - ${transferResult.reference_id}</title>
+                            <style>
+                              body { font-family: 'Segoe UI', sans-serif; max-width: 400px; margin: 20px auto; padding: 20px; }
+                              .header { text-align: center; padding: 20px; border-radius: 12px; color: white; background: ${transferResult.status === 'SUCCESS' ? '#059669' : transferResult.status === 'FAILED' ? '#dc2626' : '#d97706'}; }
+                              .amount { font-size: 28px; font-weight: bold; margin-top: 10px; }
+                              .row { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #f3f4f6; }
+                              .label { color: #6b7280; font-size: 14px; }
+                              .value { font-weight: 600; font-size: 14px; }
+                              .divider { border-top: 2px dashed #e5e7eb; margin: 16px 0; }
+                              .footer { text-align: center; color: #9ca3af; font-size: 12px; margin-top: 20px; }
+                            </style></head><body>
+                            <div class="header">
+                              <div style="font-size:18px;font-weight:bold">${transferResult.status === 'SUCCESS' ? 'Transfer Successful' : transferResult.status === 'FAILED' ? 'Transfer Failed' : 'Transfer Processing'}</div>
+                              <div class="amount">₹${transferResult.amount.toFixed(2)}</div>
+                            </div>
+                            <div class="divider"></div>
+                            <div class="row"><span class="label">Beneficiary</span><span class="value">${transferResult.account_holder_name}</span></div>
+                            <div class="row"><span class="label">Account</span><span class="value">${transferResult.account_number}</span></div>
+                            <div class="row"><span class="label">Mode</span><span class="value">${transferResult.mode}</span></div>
+                            ${transferResult.utr ? `<div class="row"><span class="label">UTR</span><span class="value">${transferResult.utr}</span></div>` : ''}
+                            ${transferResult.order_id ? `<div class="row"><span class="label">Order ID</span><span class="value">${transferResult.order_id}</span></div>` : ''}
+                            <div class="row"><span class="label">Reference</span><span class="value">${transferResult.reference_id}</span></div>
+                            <div class="row"><span class="label">Charges (incl. GST)</span><span class="value">₹${transferResult.charges.toFixed(2)}</span></div>
+                            <div class="row"><span class="label">Date</span><span class="value">${new Date(transferResult.provider_timestamp || Date.now()).toLocaleString('en-IN')}</span></div>
+                            <div class="divider"></div>
+                            <div class="footer">Same Day Solution - Settlement Receipt</div>
+                            </body></html>
+                          `)
+                          printWindow.document.close()
+                          printWindow.print()
+                        }
+                      }}
+                      className="flex flex-col items-center gap-1.5 p-3 rounded-xl bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                    >
+                      <Printer className="w-5 h-5 text-gray-600" />
+                      <span className="text-[10px] font-medium text-gray-700 dark:text-gray-400">Print</span>
+                    </button>
+                  </div>
                 </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="p-5 pt-0 flex gap-3">
+                <button
+                  onClick={() => { setActiveView('home'); setError(null) }}
+                  className="flex-1 py-3 rounded-xl bg-gradient-to-r from-blue-600 to-blue-700 text-white font-medium shadow-md hover:shadow-lg transition-all"
+                >
+                  Done
+                </button>
+                {transferResult.status === 'PENDING' && (
+                  <button
+                    onClick={() => handleCheckStatus(transferResult.reference_id)}
+                    className="flex-1 py-3 rounded-xl border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300 font-medium hover:bg-gray-50 dark:hover:bg-gray-800 transition-all flex items-center justify-center gap-2"
+                  >
+                    <Search className="w-4 h-4" />
+                    Check Status
+                  </button>
+                )}
               </div>
             </motion.div>
           )}
@@ -968,7 +1107,7 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
                 Add & Verify Bank Account
               </h3>
               <p className="text-xs text-gray-500 mt-1.5 ml-10">
-                We&apos;ll send <strong>₹1</strong> via IMPS to confirm the account is real. <strong>₹4</strong> service charge from wallet.
+                We&apos;ll send <strong>₹1</strong> via IMPS to confirm the account is real. <strong>₹4 + GST</strong> service charge from wallet.
               </p>
             </div>
             <div className="p-5 space-y-4">
@@ -1079,7 +1218,7 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
                   <div className="flex items-center gap-2">
                     {verifyResult.verification_status === 'PENDING' ? (
                       <><Clock className="w-5 h-5 text-amber-500" />
-                      <span className="font-semibold text-amber-700 dark:text-amber-300">Verification Pending</span></>
+                      <span className="font-semibold text-amber-700 dark:text-amber-300">Account Verification in Progress</span></>
                     ) : (
                       <><XCircle className="w-5 h-5 text-red-500" />
                       <span className="font-semibold text-red-700 dark:text-red-300">Verification Failed</span></>
@@ -1095,13 +1234,13 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
               {/* Verify Button */}
               <button
                 onClick={handleVerifyAccount}
-                disabled={verifying || !newAccNumber || !newIfsc || !newBeneName || newAccNumber !== newConfirmAcc || !newContactMobile || newContactMobile.length !== 10}
+                disabled={verifying || !newAccNumber || !newIfsc || !newBeneName || newBeneName.trim().length < 3 || !/^[A-Za-z\s.]+$/.test(newBeneName.trim()) || newAccNumber !== newConfirmAcc || !newContactMobile || !/^\d{10}$/.test(newContactMobile)}
                 className="w-full py-3.5 rounded-xl bg-gradient-to-r from-emerald-600 via-emerald-600 to-teal-600 text-white font-semibold shadow-lg shadow-emerald-500/20 hover:shadow-xl hover:shadow-emerald-500/30 hover:scale-[1.01] disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 transition-all flex items-center justify-center gap-2"
               >
                 {verifying ? (
-                  <><Loader2 className="w-4 h-4 animate-spin" /> Verifying via Penny Drop...</>
+                  <><Loader2 className="w-4 h-4 animate-spin" /> Account Verification in Progress...</>
                 ) : (
-                  <><ShieldCheck className="w-5 h-5" /> Verify & Add Account (₹4)</>
+                  <><ShieldCheck className="w-5 h-5" /> Verify & Add Account (₹4 + GST)</>
                 )}
               </button>
             </div>
@@ -1143,7 +1282,7 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
                 <h4 className="text-xs uppercase tracking-wider font-semibold text-gray-500 mb-3">How it works</h4>
                 <div className="space-y-3">
                   {[
-                    { icon: IndianRupee, text: '₹4 deducted from wallet' },
+                    { icon: IndianRupee, text: '₹4 + GST deducted from wallet' },
                     { icon: Send, text: '₹1 sent via IMPS to your account' },
                     { icon: BadgeCheck, text: 'Bank confirms beneficiary name' },
                     { icon: Sparkles, text: 'Account verified & ready' },
@@ -1311,7 +1450,7 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
                   transition={{ delay: 0.6 }}
                   className="text-2xl font-bold text-gray-900 dark:text-white mb-1"
                 >
-                  Account Verified!
+                  Verification Successful!
                 </motion.h3>
                 <motion.p
                   initial={{ opacity: 0 }}

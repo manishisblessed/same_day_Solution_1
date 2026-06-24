@@ -261,12 +261,14 @@ function AdminDashboardContent() {
                        activeTab === 'pos-machines' ? 'pos_machines' :
                        'master_distributors'
       
-      const { error } = await supabase
-        .from(tableName)
-        .delete()
-        .eq('id', id)
+      const apiPath = tableName === 'pos_machines' ? '/api/admin/pos-machines' : '/api/admin/users'
+      const body = tableName === 'pos_machines'
+        ? { ids: [id] }
+        : { type: tableName, ids: [id] }
+      const res = await apiFetch(apiPath, { method: 'DELETE', body: JSON.stringify(body) })
+      const result = await res.json()
+      if (!res.ok) throw new Error(result.error || 'Failed to delete')
 
-      if (error) throw error
       showToast('Item deleted successfully', 'success')
       fetchData()
       setSelectedItems(new Set())
@@ -327,12 +329,14 @@ function AdminDashboardContent() {
                        activeTab === 'pos-machines' ? 'pos_machines' :
                        'master_distributors'
       
-      const { error } = await supabase
-        .from(tableName)
-        .delete()
-        .in('id', Array.from(selectedItems))
+      const apiPath = tableName === 'pos_machines' ? '/api/admin/pos-machines' : '/api/admin/users'
+      const body = tableName === 'pos_machines'
+        ? { ids: Array.from(selectedItems) }
+        : { type: tableName, ids: Array.from(selectedItems) }
+      const res = await apiFetch(apiPath, { method: 'DELETE', body: JSON.stringify(body) })
+      const result = await res.json()
+      if (!res.ok) throw new Error(result.error || 'Failed to delete')
 
-      if (error) throw error
       showToast(`${selectedItems.size} item(s) deleted successfully`, 'success')
       fetchData()
       setSelectedItems(new Set())
@@ -543,16 +547,14 @@ function AdminDashboardContent() {
               onDelete={handleDelete}
               onReturnToStock={handleReturnToStock}
               onBulkDelete={async (ids: string[]) => {
-                const tableName = 'pos_machines'
-                const { error } = await supabase
-                  .from(tableName)
-                  .delete()
-                  .in('id', ids)
-                if (error) {
-                  console.error('Bulk delete error:', error)
-                  showToast('Failed to delete some machines', 'error')
-                } else {
+                try {
+                  const res = await apiFetch('/api/admin/pos-machines', { method: 'DELETE', body: JSON.stringify({ ids }) })
+                  const result = await res.json()
+                  if (!res.ok) throw new Error(result.error)
                   showToast('Machines deleted successfully', 'success')
+                } catch (err: any) {
+                  console.error('Bulk delete error:', err)
+                  showToast('Failed to delete some machines', 'error')
                 }
                 fetchData()
               }}
@@ -1781,6 +1783,37 @@ function AdminDashboardOverview({
   } | null>(null)
   const [pay2newLoading, setPay2newLoading] = useState(false)
 
+  // eKYC Hub balance (reported up from child component for the total)
+  const [ekycHubBalance, setEkycHubBalance] = useState<number | null>(null)
+
+  // Provider wallet balance visibility (persisted in localStorage)
+  const [balancesVisible, setBalancesVisible] = useState(true)
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    try {
+      const stored = window.localStorage.getItem('admin-balances-visible')
+      if (stored !== null) setBalancesVisible(stored === '1')
+    } catch {}
+  }, [])
+
+  const toggleBalancesVisible = () => {
+    setBalancesVisible(prev => {
+      const next = !prev
+      try {
+        if (typeof window !== 'undefined') {
+          window.localStorage.setItem('admin-balances-visible', next ? '1' : '0')
+        }
+      } catch {}
+      return next
+    })
+  }
+
+  const formatINR = (n: number | null | undefined): string =>
+    `₹${(n ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+  const maskedINR = (n: number | null | undefined): string =>
+    balancesVisible ? formatINR(n) : '₹ • • • • •'
+
   // Helper to get auth token for API calls
   const getAuthToken = async (): Promise<string | null> => {
     const { data: { session } } = await supabase.auth.getSession()
@@ -1927,6 +1960,22 @@ function AdminDashboardOverview({
       setPay2newLoading(false)
     }
   }
+
+  const refreshAllProviders = () => {
+    fetchSparkupBalance()
+    fetchPay2newBalance()
+    fetchShadvalBalance()
+  }
+
+  const anyProviderLoading = sparkupLoading || pay2newLoading || shadvalLoading
+
+  const totalAvailableBalance =
+    (sparkupBalance?.bbps?.available_balance ?? 0) +
+    (sparkupBalance?.payout?.available_balance ?? 0) +
+    (pay2newBalance?.balance ?? 0) +
+    (shadvalBalance?.available_balance ?? 0) +
+    (shadvalBalance?.verification_balance ?? 0) +
+    (ekycHubBalance ?? 0)
 
   useEffect(() => {
     fetchAnalytics()
@@ -2221,438 +2270,157 @@ function AdminDashboardOverview({
         </motion.div>
       </div>
 
-      {/* Chagans Technologies Balance Card */}
+      {/* Provider Wallets — unified compact grid */}
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.3 }}
-        className="bg-gradient-to-br from-indigo-950 via-indigo-900 to-indigo-950 rounded-2xl p-6 shadow-xl border border-indigo-700"
+        className="relative overflow-hidden bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 rounded-2xl p-5 shadow-2xl border border-slate-800"
       >
-        <div className="flex items-center justify-between mb-5">
+        {/* ambient glow accents */}
+        <div className="pointer-events-none absolute -top-16 -right-16 w-64 h-64 bg-indigo-500/10 rounded-full blur-3xl" />
+        <div className="pointer-events-none absolute -bottom-20 -left-20 w-72 h-72 bg-fuchsia-500/10 rounded-full blur-3xl" />
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_-20%,rgba(99,102,241,0.08),transparent_60%)]" />
+
+        {/* Header */}
+        <div className="relative flex flex-wrap items-center justify-between gap-3 mb-5">
           <div className="flex items-center gap-3">
-            <div className="p-3 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl shadow-lg">
-              <Globe className="w-6 h-6 text-white" />
+            <div className="relative p-2.5 bg-gradient-to-br from-indigo-500 via-purple-600 to-fuchsia-600 rounded-xl shadow-lg shadow-purple-500/30">
+              <Wallet className="w-5 h-5 text-white" />
+              <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-emerald-400 shadow-[0_0_8px_2px_rgba(52,211,153,0.6)] animate-pulse" />
             </div>
             <div>
-              <h3 className="text-lg font-bold text-white">Chagans Technologies Limited</h3>
-              <p className="text-sm text-indigo-300">BBPS Bill Payment Provider</p>
+              <h3 className="text-base sm:text-lg font-bold bg-gradient-to-r from-white via-indigo-100 to-fuchsia-200 bg-clip-text text-transparent">
+                Provider Wallets
+              </h3>
+              <p className="text-[11px] text-slate-400">Live balances across all upstream API providers</p>
             </div>
           </div>
-          <button
-            onClick={fetchSparkupBalance}
-            disabled={sparkupLoading}
-            className="flex items-center gap-2 px-4 py-2 bg-indigo-700 hover:bg-indigo-600 text-white rounded-lg text-sm font-medium transition-all disabled:opacity-50"
-          >
-            <RefreshCw className={`w-4 h-4 ${sparkupLoading ? 'animate-spin' : ''}`} />
-            {sparkupLoading ? 'Refreshing...' : 'Refresh'}
-          </button>
+
+          <div className="flex items-center gap-2 flex-wrap">
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-800/70 border border-slate-700 backdrop-blur-sm">
+              <span className="text-[10px] uppercase tracking-wider text-slate-400">Total available</span>
+              <span className="text-sm font-bold bg-gradient-to-r from-emerald-300 to-teal-300 bg-clip-text text-transparent tabular-nums">
+                {maskedINR(totalAvailableBalance)}
+              </span>
+            </div>
+            <button
+              onClick={toggleBalancesVisible}
+              title={balancesVisible ? 'Hide balances' : 'Show balances'}
+              className="flex items-center justify-center w-9 h-9 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 transition-all"
+            >
+              {balancesVisible ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+            </button>
+            <button
+              onClick={refreshAllProviders}
+              disabled={anyProviderLoading}
+              className="flex items-center gap-2 px-3 h-9 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white rounded-lg text-xs font-semibold transition-all shadow-md shadow-indigo-500/30 disabled:opacity-50"
+            >
+              <RefreshCw className={`w-4 h-4 ${anyProviderLoading ? 'animate-spin' : ''}`} />
+              <span className="hidden sm:inline">Refresh All</span>
+            </button>
+          </div>
         </div>
 
-        {sparkupBalance ? (
-          <div className={`rounded-xl p-5 border ${
-            sparkupBalance.bbps.success
-              ? 'bg-gradient-to-r from-indigo-600/20 to-purple-600/20 border-indigo-500/30'
-              : 'bg-red-900/20 border-red-500/30'
-          }`}>
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-3">
-                <div className="p-2 bg-indigo-600 rounded-lg">
-                  <Wallet className="w-5 h-5 text-white" />
-                </div>
-                <div>
-                  <p className="font-semibold text-white">Chagans BBPS Wallet</p>
-                  <p className="text-xs text-indigo-300">Bill Fetch &amp; Pay Services</p>
-                </div>
-              </div>
-              {sparkupBalance.bbps.success ? (
-                <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-green-500/20 text-green-400">
-                  <CheckCircle2 className="w-4 h-4" />
-                  <span className="text-sm font-medium">Active</span>
-                </div>
-              ) : (
-                <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-red-500/20 text-red-400">
-                  <XCircle className="w-4 h-4" />
-                  <span className="text-sm font-medium">Error</span>
-                </div>
-              )}
-            </div>
+        {/* Grid of provider cards */}
+        <div className="relative grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+          {/* Chagans BBPS */}
+          <ProviderWalletCard
+            theme="indigo"
+            icon={<Globe className="w-4 h-4 text-white" />}
+            title="Chagans BBPS"
+            subtitle="Bill Fetch & Pay"
+            status={sparkupBalance?.bbps?.success ? 'active' : sparkupBalance ? 'error' : 'idle'}
+            available={sparkupBalance?.bbps?.available_balance ?? null}
+            total={sparkupBalance?.bbps?.balance ?? null}
+            lien={sparkupBalance?.bbps?.lien ?? null}
+            errorMessage={sparkupBalance?.bbps?.error}
+            lastChecked={sparkupBalance?.last_checked}
+            loading={sparkupLoading}
+            onRefresh={fetchSparkupBalance}
+            globalVisible={balancesVisible}
+            formatINR={formatINR}
+          />
 
-            {sparkupBalance.bbps.success &&
-            sparkupBalance.bbps.balance != null &&
-            sparkupBalance.bbps.available_balance != null ? (
-              <div className="grid grid-cols-3 gap-4">
-                <div className="text-center p-3 bg-indigo-800/50 rounded-lg">
-                  <p className="text-xs text-indigo-300 mb-1">Total Balance</p>
-                  <p className="text-xl font-bold text-white">₹{sparkupBalance.bbps.balance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</p>
-                </div>
-                <div className="text-center p-3 bg-indigo-800/50 rounded-lg">
-                  <p className="text-xs text-indigo-300 mb-1">Lien Amount</p>
-                  <p className="text-xl font-bold text-orange-400">₹{(sparkupBalance.bbps.lien ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</p>
-                </div>
-                <div className="text-center p-3 bg-green-900/30 rounded-lg border border-green-500/30">
-                  <p className="text-xs text-green-300 mb-1">Available</p>
-                  <p className="text-xl font-bold text-green-400">₹{sparkupBalance.bbps.available_balance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</p>
-                </div>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                <p className="text-sm text-red-400">{sparkupBalance.bbps.error || 'Unable to fetch Chagans wallet balance from API'}</p>
-                {sparkupBalance.bbps.setup_hint && (
-                  <p className="text-xs text-indigo-300">{sparkupBalance.bbps.setup_hint}</p>
-                )}
-              </div>
-            )}
+          {/* Pay2New */}
+          <ProviderWalletCard
+            theme="emerald"
+            icon={<CreditCard className="w-4 h-4 text-white" />}
+            title="Pay2New Fintech"
+            subtitle="Credit Card Bill Pay"
+            status={pay2newBalance?.success ? 'active' : pay2newBalance ? 'error' : 'idle'}
+            available={pay2newBalance?.balance ?? null}
+            errorMessage={pay2newBalance?.error}
+            lastChecked={pay2newBalance?.last_checked}
+            loading={pay2newLoading}
+            onRefresh={fetchPay2newBalance}
+            globalVisible={balancesVisible}
+            formatINR={formatINR}
+          />
 
-            {sparkupBalance.last_checked && (
-              <p className="text-xs text-indigo-300 mt-4 text-right">
-                Last updated: {new Date(sparkupBalance.last_checked).toLocaleString('en-IN')}
-              </p>
-            )}
-          </div>
-        ) : (
-          <div className="text-center py-8">
-            {sparkupLoading ? (
-              <RefreshCw className="w-6 h-6 text-indigo-400 animate-spin mx-auto" />
-            ) : (
-              <p className="text-indigo-400">Unable to fetch Chagans balance</p>
-            )}
-          </div>
-        )}
-      </motion.div>
+          {/* Sparkup Master Wallet */}
+          <ProviderWalletCard
+            theme="cyan"
+            icon={<Globe className="w-4 h-4 text-white" />}
+            title="Sparkup Master"
+            subtitle="Payout · DMT · IMPS/NEFT"
+            status={sparkupBalance?.payout?.success ? 'active' : sparkupBalance ? 'error' : 'idle'}
+            available={sparkupBalance?.payout?.available_balance ?? null}
+            total={sparkupBalance?.payout?.balance ?? null}
+            lien={sparkupBalance?.payout?.lien ?? null}
+            errorMessage={sparkupBalance?.payout?.error}
+            lastChecked={sparkupBalance?.last_checked}
+            loading={sparkupLoading}
+            onRefresh={fetchSparkupBalance}
+            globalVisible={balancesVisible}
+            formatINR={formatINR}
+          />
 
-      {/* Pay2New Balance Card */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.32 }}
-        className="bg-gradient-to-br from-emerald-950 via-emerald-900 to-emerald-950 rounded-2xl p-6 shadow-xl border border-emerald-700"
-      >
-        <div className="flex items-center justify-between mb-5">
-          <div className="flex items-center gap-3">
-            <div className="p-3 bg-gradient-to-br from-emerald-500 to-teal-600 rounded-xl shadow-lg">
-              <CreditCard className="w-6 h-6 text-white" />
+          {/* SHADVAL PAY Main */}
+          <ProviderWalletCard
+            theme="violet"
+            icon={<Banknote className="w-4 h-4 text-white" />}
+            title="SHADVAL Main"
+            subtitle="Payout · IMPS/NEFT/RTGS"
+            status={shadvalBalance?.success ? 'active' : shadvalBalance ? 'error' : 'idle'}
+            available={shadvalBalance?.available_balance ?? null}
+            total={shadvalBalance?.balance ?? null}
+            errorMessage={shadvalBalance?.error}
+            lastChecked={shadvalBalance?.last_checked}
+            loading={shadvalLoading}
+            onRefresh={fetchShadvalBalance}
+            globalVisible={balancesVisible}
+            formatINR={formatINR}
+          />
+
+          {/* SHADVAL Verification Wallet */}
+          <ProviderWalletCard
+            theme="teal"
+            icon={<ShieldCheck className="w-4 h-4 text-white" />}
+            title="SHADVAL Verification"
+            subtitle="KYC & Verification"
+            status={shadvalBalance?.verification_success ? 'active' : shadvalBalance ? 'error' : 'idle'}
+            available={shadvalBalance?.verification_balance ?? null}
+            errorMessage={shadvalBalance?.verification_error}
+            lastChecked={shadvalBalance?.last_checked}
+            loading={shadvalLoading}
+            onRefresh={fetchShadvalBalance}
+            globalVisible={balancesVisible}
+            formatINR={formatINR}
+          />
+
+          {/* Placeholder — show empty-state hint when sparkup/pay2new/shadval all idle */}
+          {!sparkupBalance && !pay2newBalance && !shadvalBalance && (
+            <div className="md:col-span-2 xl:col-span-3 flex flex-col items-center gap-2 py-8 text-slate-400 text-sm">
+              <RefreshCw className={`w-5 h-5 ${anyProviderLoading ? 'animate-spin text-indigo-400' : 'text-slate-500'}`} />
+              <p>{anyProviderLoading ? 'Fetching provider balances…' : 'No provider data yet. Click "Refresh All" to load.'}</p>
             </div>
-            <div>
-              <h3 className="text-lg font-bold text-white">Pay2New Fintech</h3>
-              <p className="text-sm text-emerald-300">Credit Card Bill Payment Provider</p>
-            </div>
-          </div>
-          <button
-            onClick={fetchPay2newBalance}
-            disabled={pay2newLoading}
-            className="flex items-center gap-2 px-4 py-2 bg-emerald-700 hover:bg-emerald-600 text-white rounded-lg text-sm font-medium transition-all disabled:opacity-50"
-          >
-            <RefreshCw className={`w-4 h-4 ${pay2newLoading ? 'animate-spin' : ''}`} />
-            {pay2newLoading ? 'Refreshing...' : 'Refresh'}
-          </button>
+          )}
         </div>
-
-        {pay2newBalance ? (
-          <div className={`rounded-xl p-5 border ${
-            pay2newBalance.success
-              ? 'bg-gradient-to-r from-emerald-600/20 to-teal-600/20 border-emerald-500/30'
-              : 'bg-red-900/20 border-red-500/30'
-          }`}>
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-3">
-                <div className="p-2 bg-emerald-600 rounded-lg">
-                  <Wallet className="w-5 h-5 text-white" />
-                </div>
-                <div>
-                  <p className="font-semibold text-white">Pay2New Wallet</p>
-                  <p className="text-xs text-emerald-300">CC Bill Fetch &amp; Pay</p>
-                </div>
-              </div>
-              {pay2newBalance.success ? (
-                <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-green-500/20 text-green-400">
-                  <CheckCircle2 className="w-4 h-4" />
-                  <span className="text-sm font-medium">Active</span>
-                </div>
-              ) : (
-                <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-red-500/20 text-red-400">
-                  <XCircle className="w-4 h-4" />
-                  <span className="text-sm font-medium">Error</span>
-                </div>
-              )}
-            </div>
-
-            {pay2newBalance.success && pay2newBalance.balance != null ? (
-              <div className="text-center p-4 bg-emerald-800/50 rounded-lg">
-                <p className="text-xs text-emerald-300 mb-1">Available Balance</p>
-                <p className="text-3xl font-bold text-white">₹{pay2newBalance.balance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</p>
-              </div>
-            ) : (
-              <p className="text-sm text-red-400">{pay2newBalance.error || 'Unable to fetch Pay2New balance'}</p>
-            )}
-
-            {pay2newBalance.last_checked && (
-              <p className="text-xs text-emerald-300 mt-4 text-right">
-                Last updated: {new Date(pay2newBalance.last_checked).toLocaleString('en-IN')}
-              </p>
-            )}
-          </div>
-        ) : (
-          <div className="text-center py-8">
-            {pay2newLoading ? (
-              <RefreshCw className="w-6 h-6 text-emerald-400 animate-spin mx-auto" />
-            ) : (
-              <p className="text-emerald-400">Unable to fetch Pay2New balance</p>
-            )}
-          </div>
-        )}
-      </motion.div>
-
-      {/* Sparkup Provider Balance Card */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.35 }}
-        className="bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 rounded-2xl p-6 shadow-xl border border-slate-700"
-      >
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-3">
-            <div className="p-3 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-xl shadow-lg">
-              <Globe className="w-6 h-6 text-white" />
-            </div>
-            <div>
-              <h3 className="text-lg font-bold text-white">Sparkup Provider Balance</h3>
-              <p className="text-sm text-slate-400">API Service Provider Wallet Status</p>
-            </div>
-          </div>
-          <button
-            onClick={fetchSparkupBalance}
-            disabled={sparkupLoading}
-            className="flex items-center gap-2 px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-sm font-medium transition-all disabled:opacity-50"
-          >
-            <RefreshCw className={`w-4 h-4 ${sparkupLoading ? 'animate-spin' : ''}`} />
-            {sparkupLoading ? 'Refreshing...' : 'Refresh'}
-          </button>
-        </div>
-
-        {sparkupBalance ? (
-          <div className="space-y-4">
-            {/* Payout Balance Card (real Sparkup balance) */}
-            <div className={`rounded-xl p-5 border ${
-              sparkupBalance.payout.success 
-                ? 'bg-gradient-to-r from-cyan-600/20 to-blue-600/20 border-cyan-500/30' 
-                : 'bg-red-900/20 border-red-500/30'
-            }`}>
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-3">
-                  <div className="p-2 bg-cyan-600 rounded-lg">
-                    <Wallet className="w-5 h-5 text-white" />
-                  </div>
-                  <div>
-                    <p className="font-semibold text-white">Sparkup Master Wallet</p>
-                    <p className="text-xs text-slate-400">Payout, DMT, IMPS/NEFT Services</p>
-                  </div>
-                </div>
-                {sparkupBalance.payout.success ? (
-                  <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-green-500/20 text-green-400">
-                    <CheckCircle2 className="w-4 h-4" />
-                    <span className="text-sm font-medium">Active</span>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-red-500/20 text-red-400">
-                    <XCircle className="w-4 h-4" />
-                    <span className="text-sm font-medium">Error</span>
-                  </div>
-                )}
-              </div>
-              
-              {sparkupBalance.payout.success ? (
-                <div className="grid grid-cols-3 gap-4">
-                  <div className="text-center p-3 bg-slate-800/50 rounded-lg">
-                    <p className="text-xs text-slate-400 mb-1">Total Balance</p>
-                    <p className="text-xl font-bold text-white">₹{sparkupBalance.payout.balance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</p>
-                  </div>
-                  <div className="text-center p-3 bg-slate-800/50 rounded-lg">
-                    <p className="text-xs text-slate-400 mb-1">Lien Amount</p>
-                    <p className="text-xl font-bold text-orange-400">₹{sparkupBalance.payout.lien.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</p>
-                  </div>
-                  <div className="text-center p-3 bg-green-900/30 rounded-lg border border-green-500/30">
-                    <p className="text-xs text-green-300 mb-1">Available</p>
-                    <p className="text-xl font-bold text-green-400">₹{sparkupBalance.payout.available_balance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</p>
-                  </div>
-                </div>
-              ) : (
-                <p className="text-sm text-red-400">{sparkupBalance.payout.error || 'Failed to fetch balance'}</p>
-              )}
-              
-              {sparkupBalance.last_checked && (
-                <p className="text-xs text-slate-400 mt-4 text-right">
-                  Last updated: {new Date(sparkupBalance.last_checked).toLocaleString('en-IN')}
-                </p>
-              )}
-            </div>
-          </div>
-        ) : (
-          <div className="text-center py-8">
-            {sparkupLoading ? (
-              <div className="flex flex-col items-center gap-3">
-                <RefreshCw className="w-8 h-8 text-cyan-400 animate-spin" />
-                <p className="text-slate-400">Fetching Sparkup balance...</p>
-              </div>
-            ) : (
-              <div className="flex flex-col items-center gap-3">
-                <AlertTriangle className="w-8 h-8 text-amber-400" />
-                <p className="text-slate-400">Unable to fetch Sparkup balance</p>
-                <button
-                  onClick={fetchSparkupBalance}
-                  className="mt-2 px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white rounded-lg text-sm font-medium transition-all"
-                >
-                  Try Again
-                </button>
-              </div>
-            )}
-          </div>
-        )}
-      </motion.div>
-
-      {/* SHADVAL PAY Balance Card */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.4 }}
-        className="bg-gradient-to-br from-violet-950 via-purple-900 to-violet-950 rounded-2xl p-6 shadow-xl border border-violet-700"
-      >
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-3">
-            <div className="p-3 bg-gradient-to-br from-violet-500 to-purple-600 rounded-xl shadow-lg">
-              <Banknote className="w-6 h-6 text-white" />
-            </div>
-            <div>
-              <h3 className="text-lg font-bold text-white">SHADVAL PAY Balance</h3>
-              <p className="text-sm text-violet-300/70">Payout Service Provider Wallet</p>
-            </div>
-          </div>
-          <button
-            onClick={fetchShadvalBalance}
-            disabled={shadvalLoading}
-            className="flex items-center gap-2 px-4 py-2 bg-violet-800 hover:bg-violet-700 text-white rounded-lg text-sm font-medium transition-all disabled:opacity-50"
-          >
-            <RefreshCw className={`w-4 h-4 ${shadvalLoading ? 'animate-spin' : ''}`} />
-            {shadvalLoading ? 'Refreshing...' : 'Refresh'}
-          </button>
-        </div>
-
-        {shadvalBalance ? (
-          <div className="space-y-4">
-            {/* Main Wallet */}
-            <div className={`rounded-xl p-5 border ${
-              shadvalBalance.success
-                ? 'bg-gradient-to-r from-violet-600/20 to-purple-600/20 border-violet-500/30'
-                : 'bg-red-900/20 border-red-500/30'
-            }`}>
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-3">
-                  <div className="p-2 bg-violet-600 rounded-lg">
-                    <Wallet className="w-5 h-5 text-white" />
-                  </div>
-                  <div>
-                    <p className="font-semibold text-white">Main Wallet</p>
-                    <p className="text-xs text-violet-300/60">Payout, IMPS/NEFT/RTGS Services</p>
-                  </div>
-                </div>
-                {shadvalBalance.success ? (
-                  <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-green-500/20 text-green-400">
-                    <CheckCircle2 className="w-4 h-4" />
-                    <span className="text-sm font-medium">Active</span>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-red-500/20 text-red-400">
-                    <XCircle className="w-4 h-4" />
-                    <span className="text-sm font-medium">Error</span>
-                  </div>
-                )}
-              </div>
-
-              {shadvalBalance.success ? (
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="text-center p-3 bg-violet-900/40 rounded-lg">
-                    <p className="text-xs text-violet-300/60 mb-1">Total Balance</p>
-                    <p className="text-xl font-bold text-white">₹{shadvalBalance.balance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</p>
-                  </div>
-                  <div className="text-center p-3 bg-green-900/30 rounded-lg border border-green-500/30">
-                    <p className="text-xs text-green-300 mb-1">Available Balance</p>
-                    <p className="text-xl font-bold text-green-400">₹{shadvalBalance.available_balance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</p>
-                  </div>
-                </div>
-              ) : (
-                <p className="text-sm text-red-400">{shadvalBalance.error || 'Failed to fetch balance'}</p>
-              )}
-            </div>
-
-            {/* Verification Wallet */}
-            <div className={`rounded-xl p-5 border ${
-              shadvalBalance.verification_success
-                ? 'bg-gradient-to-r from-cyan-600/20 to-teal-600/20 border-cyan-500/30'
-                : 'bg-red-900/20 border-red-500/30'
-            }`}>
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-3">
-                  <div className="p-2 bg-cyan-600 rounded-lg">
-                    <Wallet className="w-5 h-5 text-white" />
-                  </div>
-                  <div>
-                    <p className="font-semibold text-white">Verification Wallet</p>
-                    <p className="text-xs text-cyan-300/60">KYC & Verification Services</p>
-                  </div>
-                </div>
-                {shadvalBalance.verification_success ? (
-                  <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-green-500/20 text-green-400">
-                    <CheckCircle2 className="w-4 h-4" />
-                    <span className="text-sm font-medium">Active</span>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-red-500/20 text-red-400">
-                    <XCircle className="w-4 h-4" />
-                    <span className="text-sm font-medium">Error</span>
-                  </div>
-                )}
-              </div>
-
-              {shadvalBalance.verification_success ? (
-                <div className="text-center p-3 bg-cyan-900/30 rounded-lg border border-cyan-500/30">
-                  <p className="text-xs text-cyan-300 mb-1">Available Balance</p>
-                  <p className="text-xl font-bold text-cyan-400">₹{shadvalBalance.verification_balance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</p>
-                </div>
-              ) : (
-                <p className="text-sm text-red-400">{shadvalBalance.verification_error || 'Failed to fetch verification balance'}</p>
-              )}
-            </div>
-
-            {shadvalBalance.last_checked && (
-              <p className="text-xs text-violet-300/50 text-right">
-                Last updated: {new Date(shadvalBalance.last_checked).toLocaleString('en-IN')}
-              </p>
-            )}
-          </div>
-        ) : (
-          <div className="text-center py-8">
-            {shadvalLoading ? (
-              <div className="flex flex-col items-center gap-3">
-                <RefreshCw className="w-8 h-8 text-violet-400 animate-spin" />
-                <p className="text-violet-300/70">Fetching SHADVAL PAY balance...</p>
-              </div>
-            ) : (
-              <div className="flex flex-col items-center gap-3">
-                <AlertTriangle className="w-8 h-8 text-amber-400" />
-                <p className="text-violet-300/70">Unable to fetch SHADVAL PAY balance</p>
-                <button
-                  onClick={fetchShadvalBalance}
-                  className="mt-2 px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white rounded-lg text-sm font-medium transition-all"
-                >
-                  Try Again
-                </button>
-              </div>
-            )}
-          </div>
-        )}
       </motion.div>
 
       {/* eKYC Hub Balance & API Testing Card */}
-      <EkycHubCard />
+      <EkycHubCard balancesVisible={balancesVisible} onToggleBalances={toggleBalancesVisible} onBalanceFetched={setEkycHubBalance} />
 
       {/* Reports & Analytics */}
       <ReportsTab />
@@ -4315,26 +4083,18 @@ function PartnerModal({
       }
 
       if (item) {
-        const { error } = await supabase
-          .from(tableName)
-          .update(partnerData)
-          .eq('id', item.id)
-
-        if (error) throw error
+        const res = await apiFetch('/api/admin/users', {
+          method: 'PUT',
+          body: JSON.stringify({ type: tableName, id: item.id, data: partnerData }),
+        })
+        const result = await res.json()
+        if (!res.ok) throw new Error(result.error || 'Failed to update')
       } else {
         partnerData.partner_id = generatePartnerId()
         
         if (formData.password) {
-          // Get auth token for fallback authentication
-          const { data: { session } } = await supabase.auth.getSession()
-          const authHeaders: HeadersInit = {}
-          if (session?.access_token) {
-            authHeaders['Authorization'] = `Bearer ${session.access_token}`
-          }
-          
           const response = await apiFetch('/api/admin/create-user', {
             method: 'POST',
-            headers: authHeaders,
             body: JSON.stringify({
               email: formData.email,
               password: formData.password,
@@ -4344,10 +4104,8 @@ function PartnerModal({
             }),
           })
 
-          // Check if response is JSON before parsing
           const contentType = response.headers.get('content-type')
           if (!contentType || !contentType.includes('application/json')) {
-            // Handle non-JSON responses (e.g., HTML error pages from timeouts)
             const text = await response.text()
             console.error('Non-JSON response received:', text.substring(0, 200))
             
@@ -4364,18 +4122,18 @@ function PartnerModal({
 
           const result = await response.json()
           if (!response.ok) {
-            // Provide more detailed error message
             const errorMsg = result.error || result.message || 'Failed to create user'
             const errorDetails = result.details ? `\n\nDetails: ${result.details}` : ''
             const fullMessage = result.message && result.message !== errorMsg ? `${errorMsg}: ${result.message}${errorDetails}` : `${errorMsg}${errorDetails}`
             throw new Error(fullMessage)
           }
         } else {
-          const { error } = await supabase
-            .from(tableName)
-            .insert([partnerData])
-
-          if (error) throw error
+          const res = await apiFetch('/api/admin/users', {
+            method: 'POST',
+            body: JSON.stringify({ type: tableName, data: partnerData }),
+          })
+          const result = await res.json()
+          if (!res.ok) throw new Error(result.error || 'Failed to create')
         }
       }
 
@@ -7377,22 +7135,21 @@ function POSMachineModal({
 
       let savedMachineId: string
       if (item) {
-        const { error } = await supabase
-          .from('pos_machines')
-          .update(machineData)
-          .eq('id', item.id)
-
-        if (error) throw error
+        const res = await apiFetch('/api/admin/pos-machines', {
+          method: 'PUT',
+          body: JSON.stringify({ id: item.id, data: machineData }),
+        })
+        const result = await res.json()
+        if (!res.ok) throw new Error(result.error || 'Failed to update POS machine')
         savedMachineId = item.id
       } else {
-        const { data: inserted, error } = await supabase
-          .from('pos_machines')
-          .insert([machineData])
-          .select('id')
-          .single()
-
-        if (error) throw error
-        savedMachineId = inserted.id
+        const res = await apiFetch('/api/admin/pos-machines', {
+          method: 'POST',
+          body: JSON.stringify({ data: machineData }),
+        })
+        const result = await res.json()
+        if (!res.ok) throw new Error(result.error || 'Failed to create POS machine')
+        savedMachineId = result.data.id
       }
 
       // Sync to partner_pos_machines if assigned to partner
@@ -8459,25 +8216,30 @@ function CreatePartnerModal({
       if (Object.keys(metadata).length > 0) partnerData.metadata = metadata
 
       if (formData.password) {
-        const { data: { session } } = await supabase.auth.getSession()
-        const authHeaders: HeadersInit = {}
-        if (session?.access_token) authHeaders['Authorization'] = `Bearer ${session.access_token}`
-
-        const { data: createdPartner, error: partnerError } = await supabase.from('partners').insert([partnerData]).select().single()
-        if (partnerError) throw partnerError
+        const createRes = await apiFetch('/api/admin/partners', {
+          method: 'POST',
+          body: JSON.stringify({ data: partnerData }),
+        })
+        const createResult = await createRes.json()
+        if (!createRes.ok) throw new Error(createResult.error || 'Failed to create partner')
+        const createdPartner = createResult.data
 
         const response = await apiFetch('/api/admin/create-user', {
-          method: 'POST', headers: authHeaders,
+          method: 'POST',
           body: JSON.stringify({ email: formData.contact_email, password: formData.password, role: 'partner', tableName: 'partners', userData: { id: createdPartner.id, ...partnerData } }),
         })
         if (!response.ok) {
-          await supabase.from('partners').delete().eq('id', createdPartner.id)
+          await apiFetch('/api/admin/partners', { method: 'DELETE', body: JSON.stringify({ id: createdPartner.id }) })
           const errorData = await response.json()
           throw new Error(errorData.error || 'Failed to create authentication user')
         }
       } else {
-        const { error } = await supabase.from('partners').insert([partnerData]).select()
-        if (error) throw error
+        const res = await apiFetch('/api/admin/partners', {
+          method: 'POST',
+          body: JSON.stringify({ data: partnerData }),
+        })
+        const result = await res.json()
+        if (!res.ok) throw new Error(result.error || 'Failed to create partner')
       }
       onSuccess()
     } catch (error: any) {
@@ -8901,13 +8663,12 @@ function EditPartnerModal({
         partnerData.metadata = finalMetadata
       }
 
-      // Update partner record
-      const { error } = await supabase
-        .from('partners')
-        .update(partnerData)
-        .eq('id', partner.id)
-
-      if (error) throw error
+      const res = await apiFetch('/api/admin/partners', {
+        method: 'PUT',
+        body: JSON.stringify({ id: partner.id, data: partnerData }),
+      })
+      const result = await res.json()
+      if (!res.ok) throw new Error(result.error || 'Failed to update partner')
 
       onSuccess()
     } catch (error: any) {
@@ -10040,12 +9801,201 @@ function IPWhitelistModal({
   )
 }
 
+// Compact provider wallet card used inside the unified "Provider Wallets" grid
+type ProviderTheme = 'indigo' | 'emerald' | 'cyan' | 'violet' | 'teal'
+
+const PROVIDER_THEMES: Record<ProviderTheme, {
+  cardClass: string
+  iconBgClass: string
+  accentMutedClass: string
+  accentGradientClass: string
+  glowClass: string
+}> = {
+  indigo: {
+    cardClass: 'from-indigo-950/70 via-indigo-900/30 to-slate-900/60 border-indigo-700/40 hover:border-indigo-500/60',
+    iconBgClass: 'from-indigo-500 to-purple-600',
+    accentMutedClass: 'text-indigo-300/70',
+    accentGradientClass: 'from-indigo-200 via-purple-200 to-fuchsia-200',
+    glowClass: 'bg-indigo-500/10',
+  },
+  emerald: {
+    cardClass: 'from-emerald-950/70 via-emerald-900/30 to-slate-900/60 border-emerald-700/40 hover:border-emerald-500/60',
+    iconBgClass: 'from-emerald-500 to-teal-600',
+    accentMutedClass: 'text-emerald-300/70',
+    accentGradientClass: 'from-emerald-200 via-teal-200 to-emerald-100',
+    glowClass: 'bg-emerald-500/10',
+  },
+  cyan: {
+    cardClass: 'from-cyan-950/70 via-cyan-900/30 to-slate-900/60 border-cyan-700/40 hover:border-cyan-500/60',
+    iconBgClass: 'from-cyan-500 to-blue-600',
+    accentMutedClass: 'text-cyan-300/70',
+    accentGradientClass: 'from-cyan-200 via-sky-200 to-blue-200',
+    glowClass: 'bg-cyan-500/10',
+  },
+  violet: {
+    cardClass: 'from-violet-950/70 via-violet-900/30 to-slate-900/60 border-violet-700/40 hover:border-violet-500/60',
+    iconBgClass: 'from-violet-500 to-purple-600',
+    accentMutedClass: 'text-violet-300/70',
+    accentGradientClass: 'from-violet-200 via-purple-200 to-fuchsia-200',
+    glowClass: 'bg-violet-500/10',
+  },
+  teal: {
+    cardClass: 'from-teal-950/70 via-teal-900/30 to-slate-900/60 border-teal-700/40 hover:border-teal-500/60',
+    iconBgClass: 'from-teal-500 to-cyan-600',
+    accentMutedClass: 'text-teal-300/70',
+    accentGradientClass: 'from-teal-200 via-cyan-200 to-sky-200',
+    glowClass: 'bg-teal-500/10',
+  },
+}
+
+function ProviderWalletCard({
+  theme,
+  icon,
+  title,
+  subtitle,
+  status,
+  available,
+  total,
+  lien,
+  errorMessage,
+  lastChecked,
+  loading,
+  onRefresh,
+  globalVisible,
+  formatINR,
+}: {
+  theme: ProviderTheme
+  icon: React.ReactNode
+  title: string
+  subtitle: string
+  status: 'active' | 'error' | 'idle'
+  available: number | null
+  total?: number | null
+  lien?: number | null
+  errorMessage?: string
+  lastChecked?: string
+  loading: boolean
+  onRefresh: () => void
+  globalVisible: boolean
+  formatINR: (n: number | null | undefined) => string
+}) {
+  const [localVisible, setLocalVisible] = useState(true)
+  const visible = globalVisible && localVisible
+  const mask = (n: number | null | undefined) => visible ? formatINR(n) : '₹ • • • • •'
+
+  const t = PROVIDER_THEMES[theme]
+  const showSecondary = (total != null || lien != null) && status === 'active'
+
+  return (
+    <div
+      className={`group relative overflow-hidden rounded-xl border bg-gradient-to-br ${t.cardClass} p-3.5 backdrop-blur-sm transition-all duration-200 hover:shadow-xl hover:-translate-y-0.5`}
+    >
+      <div className={`pointer-events-none absolute -top-10 -right-10 w-32 h-32 ${t.glowClass} rounded-full blur-2xl opacity-70 group-hover:opacity-100 transition-opacity`} />
+
+      <div className="relative flex items-start justify-between gap-2 mb-3">
+        <div className="flex items-center gap-2 min-w-0">
+          <div className={`p-1.5 bg-gradient-to-br ${t.iconBgClass} rounded-lg shadow-lg shrink-0`}>
+            {icon}
+          </div>
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-white leading-tight truncate">{title}</p>
+            <p className={`text-[10px] ${t.accentMutedClass} truncate`}>{subtitle}</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-1 shrink-0">
+          {status === 'active' && (
+            <div className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 text-[10px] font-medium border border-emerald-500/20">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              Active
+            </div>
+          )}
+          {status === 'error' && (
+            <div className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-red-500/15 text-red-300 text-[10px] font-medium border border-red-500/20">
+              <XCircle className="w-3 h-3" />
+              Error
+            </div>
+          )}
+          {status === 'idle' && (
+            <div className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-slate-500/15 text-slate-400 text-[10px] font-medium border border-slate-500/20">
+              <Clock className="w-3 h-3" />
+              Idle
+            </div>
+          )}
+          <button
+            onClick={() => setLocalVisible(v => !v)}
+            title={visible ? 'Hide balance' : 'Show balance'}
+            className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-white/10 text-slate-300 transition-colors"
+          >
+            {visible ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+          </button>
+          <button
+            onClick={onRefresh}
+            disabled={loading}
+            title="Refresh"
+            className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-white/10 text-slate-300 transition-colors disabled:opacity-50"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+          </button>
+        </div>
+      </div>
+
+      {status === 'idle' && loading ? (
+        <div className="flex items-center justify-center py-6 text-slate-400 text-xs gap-2">
+          <RefreshCw className="w-4 h-4 animate-spin" />
+          Fetching balance…
+        </div>
+      ) : status === 'error' ? (
+        <div className="rounded-lg p-3 bg-red-950/40 border border-red-500/20">
+          <p className="text-xs text-red-300 leading-snug line-clamp-3">{errorMessage || 'Failed to fetch balance'}</p>
+        </div>
+      ) : status === 'idle' ? (
+        <div className="flex items-center justify-center py-6 text-slate-500 text-xs">No data yet</div>
+      ) : (
+        <>
+          <div className="relative rounded-lg p-3 bg-black/30 border border-white/5">
+            <p className={`text-[10px] uppercase tracking-wider ${t.accentMutedClass} mb-0.5`}>Available Balance</p>
+            <p className={`text-2xl font-bold tracking-tight tabular-nums bg-gradient-to-r ${t.accentGradientClass} bg-clip-text text-transparent ${!visible ? 'tracking-[0.15em]' : ''}`}>
+              {mask(available)}
+            </p>
+          </div>
+
+          {showSecondary && (
+            <div className="grid grid-cols-2 gap-2 mt-2">
+              {total != null && (
+                <div className="rounded-lg p-2 bg-white/[0.03] border border-white/5">
+                  <p className="text-[10px] text-slate-400">Total</p>
+                  <p className="text-sm font-semibold text-white tabular-nums">{mask(total)}</p>
+                </div>
+              )}
+              {lien != null && (
+                <div className="rounded-lg p-2 bg-white/[0.03] border border-white/5">
+                  <p className="text-[10px] text-slate-400">Lien</p>
+                  <p className="text-sm font-semibold text-orange-300 tabular-nums">{mask(lien)}</p>
+                </div>
+              )}
+            </div>
+          )}
+        </>
+      )}
+
+      {lastChecked && (
+        <p className="text-[10px] text-slate-500 mt-2 text-right">
+          Updated {new Date(lastChecked).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+        </p>
+      )}
+    </div>
+  )
+}
+
 // eKYC Hub Balance Card & API Testing Panel
-function EkycHubCard() {
+function EkycHubCard({ balancesVisible = true, onToggleBalances, onBalanceFetched }: { balancesVisible?: boolean; onToggleBalances?: () => void; onBalanceFetched?: (bal: number | null) => void } = {}) {
   const [balance, setBalance] = useState<{ balance: number; raw_balance: string } | null>(null)
   const [balanceLoading, setBalanceLoading] = useState(false)
   const [balanceError, setBalanceError] = useState('')
   const [lastChecked, setLastChecked] = useState<string | null>(null)
+
+  const [localBalanceVisible, setLocalBalanceVisible] = useState(true)
+  const effectiveVisible = balancesVisible && localBalanceVisible
 
   // API Testing state
   const [testTab, setTestTab] = useState<'pan' | 'bank' | 'gst' | 'upi' | 'pan360' | 'dl' | 'passport' | 'voter' | 'cin' | 'digilocker'>('pan')
@@ -10078,11 +10028,14 @@ function EkycHubCard() {
       if (data.success) {
         setBalance({ balance: data.balance, raw_balance: data.raw_balance })
         setLastChecked(new Date().toISOString())
+        onBalanceFetched?.(data.balance ?? null)
       } else {
         setBalanceError(data.error || 'Failed to fetch balance')
+        onBalanceFetched?.(null)
       }
     } catch (err: any) {
       setBalanceError(err.message || 'Failed to fetch balance')
+      onBalanceFetched?.(null)
     } finally {
       setBalanceLoading(false)
     }
@@ -10177,6 +10130,13 @@ function EkycHubCard() {
           </div>
           <div className="flex items-center gap-2">
             <button
+              onClick={() => setLocalBalanceVisible(v => !v)}
+              title={effectiveVisible ? 'Hide balance' : 'Show balance'}
+              className="flex items-center justify-center w-9 h-9 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 transition-all"
+            >
+              {effectiveVisible ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+            </button>
+            <button
               onClick={() => setShowTesting(!showTesting)}
               className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-medium transition-all"
             >
@@ -10194,33 +10154,35 @@ function EkycHubCard() {
           </div>
         </div>
 
-        {/* Balance Display */}
+        {/* Balance Display — compact */}
         {balance ? (
-          <div className="rounded-xl p-5 bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200 mb-4">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-3">
-                <div className="p-2 bg-emerald-600 rounded-lg">
-                  <Wallet className="w-5 h-5 text-white" />
-                </div>
-                <div>
-                  <p className="font-semibold text-gray-900">eKYC Hub Wallet</p>
-                  <p className="text-xs text-gray-500">PAN, Bank, GST, Aadhaar Verification</p>
-                </div>
+          <div className="rounded-xl p-4 bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200 mb-4 flex items-center justify-between flex-wrap gap-3">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-gradient-to-br from-emerald-500 to-teal-600 rounded-lg shadow-md">
+                <Wallet className="w-5 h-5 text-white" />
               </div>
-              <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-green-100 text-green-700">
-                <CheckCircle2 className="w-4 h-4" />
-                <span className="text-sm font-medium">Active</span>
+              <div>
+                <p className="font-semibold text-gray-900 leading-tight">eKYC Hub Wallet</p>
+                <p className="text-[11px] text-gray-500">PAN, Bank, GST, Aadhaar Verification</p>
               </div>
             </div>
-            <div className="grid grid-cols-1 gap-4">
-              <div className="text-center p-4 bg-white rounded-lg border border-emerald-200 shadow-sm">
-                <p className="text-xs text-gray-500 mb-1">Available Balance</p>
-                <p className="text-3xl font-bold text-emerald-600">₹{balance.balance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</p>
+            <div className="flex items-center gap-3">
+              <div className="text-right">
+                <p className="text-[10px] uppercase tracking-wider text-emerald-700/70">Available Balance</p>
+                <p className={`text-2xl font-bold text-emerald-600 tabular-nums leading-tight ${!effectiveVisible ? 'tracking-[0.15em]' : ''}`}>
+                  {effectiveVisible
+                    ? `₹${balance.balance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`
+                    : '₹ • • • • •'}
+                </p>
+              </div>
+              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-green-100 text-green-700">
+                <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+                <span className="text-xs font-medium">Active</span>
               </div>
             </div>
             {lastChecked && (
-              <p className="text-xs text-gray-400 mt-4 text-right">
-                Last updated: {new Date(lastChecked).toLocaleString('en-IN')}
+              <p className="text-[10px] text-gray-400 w-full text-right">
+                Updated {new Date(lastChecked).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
               </p>
             )}
           </div>

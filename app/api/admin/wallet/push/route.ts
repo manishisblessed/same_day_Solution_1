@@ -1,13 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { createClient } from '@supabase/supabase-js'
 import { addCorsHeaders } from '@/lib/cors'
 import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger'
+import { requireAdmin } from '@/lib/security/admin-guard'
+import { rateLimit, RATE_LIMITS } from '@/lib/rate-limit'
 
 export const runtime = 'nodejs' // Force Node.js runtime (Supabase not compatible with Edge Runtime)
 export const dynamic = 'force-dynamic'
 
 export async function POST(request: NextRequest) {
+  // Rate limit admin wallet operations
+  const rl = rateLimit(request, RATE_LIMITS.adminWallet)
+  if (rl.limited) return rl.response!
+
   try {
     // Initialize Supabase client at runtime (not during build)
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
@@ -22,16 +27,10 @@ export async function POST(request: NextRequest) {
     
     const supabase = createClient(supabaseUrl, supabaseServiceKey)
     
-    // Get current admin user with fallback
-    const { user: admin, method } = await getCurrentUserWithFallback(request)
-    console.log('[Wallet Push] Auth method:', method, '| User:', admin?.email || 'none')
-    
-    if (!admin) {
-      return NextResponse.json({ error: 'Session expired. Please log in again.', code: 'SESSION_EXPIRED' }, { status: 401 })
-    }
-    if (admin.role !== 'admin') {
-      return NextResponse.json({ error: 'Unauthorized: Admin access required' }, { status: 403 })
-    }
+    // Require admin role + enforce optional IP allowlist (ADMIN_IP_ALLOWLIST)
+    const guard = await requireAdmin(request)
+    if (!guard.ok) return guard.response
+    const admin = guard.user
 
     // Note: Wallet push/pull is a core admin function available to all admins
     // Permission checks can be added later if needed for role-based access control
@@ -79,6 +78,14 @@ export async function POST(request: NextRequest) {
     if (isNaN(amountDecimal) || amountDecimal <= 0) {
       return NextResponse.json(
         { error: 'Invalid amount' },
+        { status: 400 }
+      )
+    }
+
+    const MAX_ADMIN_WALLET_OP = 500_000 // ₹5,00,000
+    if (amountDecimal > MAX_ADMIN_WALLET_OP) {
+      return NextResponse.json(
+        { error: `Amount exceeds maximum allowed limit of ₹${MAX_ADMIN_WALLET_OP.toLocaleString('en-IN')}` },
         { status: 400 }
       )
     }

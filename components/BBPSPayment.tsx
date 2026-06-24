@@ -9,7 +9,7 @@ import {
 import { jsPDF } from 'jspdf'
 import { motion, AnimatePresence } from 'framer-motion'
 import { paiseToRupees, formatPaiseAsRupees } from '@/lib/bbps/currency'
-import { apiFetch, apiFetchJson } from '@/lib/api-client'
+import { apiFetch, apiFetchJson, newIdempotencyKey } from '@/lib/api-client'
 import { supabase } from '@/lib/supabase/client'
 import { useAuth } from '@/contexts/AuthContext'
 import { isPrepaidCategoryName } from '@/lib/bbps/category-groups'
@@ -1093,6 +1093,7 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
 
       const data = await apiFetchJson<PaymentResult>('/api/bbps/bill/pay', {
         method: 'POST',
+        idempotencyKey: newIdempotencyKey(),
         body: JSON.stringify({
           biller_id: selectedBiller.biller_id,
           biller_name: selectedBiller.biller_name,
@@ -1508,6 +1509,7 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
 
       const data = await apiFetchJson<PaymentResult>('/api/bbps/bill/pay', {
         method: 'POST',
+        idempotencyKey: newIdempotencyKey(),
         body: JSON.stringify({
           biller_id: selectedBiller.biller_id,
           biller_name: selectedBiller.biller_name,

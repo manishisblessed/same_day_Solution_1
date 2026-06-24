@@ -50,8 +50,9 @@ export async function GET(request: NextRequest) {
 
     // Get device serials based on user role
     let deviceSerials: string[] = []
+    const privileged = user.role === 'admin' || user.role === 'finance_executive'
 
-    if (user.role !== 'admin') {
+    if (!privileged) {
       let mappingQuery = supabase
         .from('pos_device_mapping')
         .select('device_serial')
@@ -63,6 +64,9 @@ export async function GET(request: NextRequest) {
         mappingQuery = mappingQuery.eq('distributor_id', user.partner_id)
       } else if (user.role === 'retailer' && user.partner_id) {
         mappingQuery = mappingQuery.eq('retailer_id', user.partner_id)
+      } else {
+        // Any other non-privileged role has no POS device scope → deny.
+        mappingQuery = mappingQuery.eq('device_serial', '__none__')
       }
 
       const { data: mappings } = await mappingQuery
@@ -109,7 +113,7 @@ export async function GET(request: NextRequest) {
       .order('transaction_time', { ascending: false })
 
     // Apply role-based filtering
-    if (user.role !== 'admin' && deviceSerials.length > 0) {
+    if (!privileged && deviceSerials.length > 0) {
       if (targetDeviceSerial && deviceSerials.includes(targetDeviceSerial)) {
         query = query.eq('device_serial', targetDeviceSerial)
       } else if (!targetDeviceSerial) {

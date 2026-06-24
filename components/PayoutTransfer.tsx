@@ -1,9 +1,9 @@
 'use client'
 
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
 import { supabase } from '@/lib/supabase/client'
-import { apiFetchJson } from '@/lib/api-client'
+import { apiFetchJson, newIdempotencyKey } from '@/lib/api-client'
 import { motion } from 'framer-motion'
 import {
   Search, X, RefreshCw, Info, AlertCircle, AlertTriangle, Check, Building2, 
@@ -103,6 +103,8 @@ export default function PayoutTransfer({ title, readOnly }: PayoutTransferProps 
   // Transfer state
   const [step, setStep] = useState<'details' | 'verify' | 'confirm' | 'result'>('details')
   const [transferring, setTransferring] = useState(false)
+  // Stable idempotency key for the current transfer attempt (reused on retry, cleared on success)
+  const idemKeyRef = useRef<string | null>(null)
   const [transferResult, setTransferResult] = useState<PayoutTransaction | null>(null)
   const [isPollingStatus, setIsPollingStatus] = useState(false)
   
@@ -958,6 +960,8 @@ export default function PayoutTransfer({ title, readOnly }: PayoutTransferProps 
     }
     
     setTransferring(true)
+    // Generate once per transfer attempt; reuse on retry so the server dedupes.
+    if (!idemKeyRef.current) idemKeyRef.current = newIdempotencyKey()
     try {
       const result = await apiFetchJson<{
         success: boolean
@@ -977,6 +981,7 @@ export default function PayoutTransfer({ title, readOnly }: PayoutTransferProps 
         refunded?: boolean
       }>('/api/payout/transfer', {
         method: 'POST',
+        idempotencyKey: idemKeyRef.current,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           accountNumber,
@@ -997,6 +1002,7 @@ export default function PayoutTransfer({ title, readOnly }: PayoutTransferProps 
       })
       
       if (result.success) {
+        idemKeyRef.current = null // success — next transfer gets a fresh key
         setTransferResult({
           id: result.transaction_id || '',
           client_ref_id: result.client_ref_id || '',

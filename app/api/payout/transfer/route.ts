@@ -2,6 +2,13 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
+import { rateLimit, RATE_LIMITS } from '@/lib/rate-limit'
+import { checkPayoutVelocity, checkBeneficiaryCooling } from '@/lib/security/velocity'
+import {
+  reserveIdempotencyKey,
+  finalizeIdempotencyKey,
+  getIdempotencyKeyFromHeaders,
+} from '@/lib/security/idempotency'
 import { initiateTransfer, generateClientRefId, getPayoutBalance } from '@/services/payout'
 import { getPayoutCharges, getTransferLimits } from '@/services/payout/config'
 import { createClient } from '@supabase/supabase-js'
@@ -41,11 +48,17 @@ export async function OPTIONS(request: NextRequest) {
  * - senderEmail: Optional sender email
  * - remarks: Optional remarks
  * - tpin: Transaction PIN for authorization
- * - user_id: Fallback auth - retailer partner_id (if cookie auth fails)
  */
 export async function POST(request: NextRequest) {
+  const rl = rateLimit(request, RATE_LIMITS.payout)
+  if (rl.limited) return addCorsHeaders(request, rl.response!)
+
+  // Idempotency key (optional, supplied by honest clients to prevent double-submit)
+  const idemKey = getIdempotencyKeyFromHeaders(request.headers)
+  const IDEM_SCOPE = 'payout_transfer'
+
   try {
-    // Parse request body first (needed for fallback auth)
+    // Parse request body
     const body = await request.json()
     const { 
       accountNumber, 
@@ -61,35 +74,14 @@ export async function POST(request: NextRequest) {
       senderEmail,
       remarks,
       tpin,
-      user_id
     } = body
 
-    // Prefer Bearer token (works when frontend calls api.samedaysolution.in); fallback to cookies then body
-    let user = (await getCurrentUserWithFallback(request)).user
-    
-    if ((!user || !user.partner_id) && user_id) {
-      const { data: retailer } = await supabaseAdmin
-        .from('retailers')
-        .select('partner_id, name, email')
-        .eq('partner_id', user_id)
-        .maybeSingle()
-      
-      if (retailer) {
-        user = {
-          id: user_id,
-          email: retailer.email,
-          role: 'retailer',
-          partner_id: retailer.partner_id,
-          name: retailer.name,
-        }
-        console.log('[Payout Transfer] Using fallback auth with user_id:', user.email)
-      }
-    }
+    const user = (await getCurrentUserWithFallback(request)).user
     
     if (!user || !user.partner_id) {
       console.error('[Payout Transfer] No authenticated user found')
       const response = NextResponse.json(
-        { success: false, error: 'Authentication required. Please log in again.' },
+        { success: false, error: 'Authentication required' },
         { status: 401 }
       )
       return addCorsHeaders(request, response)
@@ -174,8 +166,16 @@ export async function POST(request: NextRequest) {
       return addCorsHeaders(request, response)
     }
 
-    // TODO: Verify TPIN against stored hash
-    // For now, accept any 4-digit TPIN
+    // Verify TPIN against stored hash
+    const { data: tpinResult, error: tpinError } = await supabaseAdmin.rpc('verify_retailer_tpin', {
+      p_retailer_id: user.partner_id,
+      p_tpin: tpin,
+    })
+    if (tpinError || !tpinResult?.success) {
+      const msg = tpinResult?.error || tpinError?.message || 'TPIN verification failed'
+      const response = NextResponse.json({ success: false, error: msg }, { status: 403 })
+      return addCorsHeaders(request, response)
+    }
     
     // Validate amount
     const amountNum = parseFloat(amount)
@@ -212,6 +212,57 @@ export async function POST(request: NextRequest) {
       )
       return addCorsHeaders(request, response)
     }
+
+    // ========== FRAUD VELOCITY CONTROLS ==========
+    // Per-retailer rolling 24h amount + count caps
+    const velocity = await checkPayoutVelocity({ retailerId: user.partner_id, amount: amountNum })
+    if (!velocity.allowed) {
+      const response = NextResponse.json(
+        { success: false, error: velocity.reason, code: velocity.code },
+        { status: 429 }
+      )
+      return addCorsHeaders(request, response)
+    }
+
+    // New-beneficiary cooling period (blocks transfers to freshly-added accounts)
+    const cooling = await checkBeneficiaryCooling({
+      retailerId: user.partner_id,
+      accountNumber,
+      ifscCode,
+    })
+    if (!cooling.allowed) {
+      const response = NextResponse.json(
+        { success: false, error: cooling.reason, code: cooling.code },
+        { status: 403 }
+      )
+      return addCorsHeaders(request, response)
+    }
+    // ========== END FRAUD VELOCITY CONTROLS ==========
+
+    // ========== IDEMPOTENCY RESERVATION ==========
+    if (idemKey) {
+      const reservation = await reserveIdempotencyKey({
+        scope: IDEM_SCOPE,
+        key: idemKey,
+        userId: user.partner_id,
+      })
+      if (!reservation.fresh) {
+        if (reservation.status === 'completed' && reservation.cachedResponse) {
+          const response = NextResponse.json(reservation.cachedResponse)
+          return addCorsHeaders(request, response)
+        }
+        const response = NextResponse.json(
+          {
+            success: false,
+            error: 'A request with this idempotency key is already being processed.',
+            code: 'IDEMPOTENT_REPLAY',
+          },
+          { status: 409 }
+        )
+        return addCorsHeaders(request, response)
+      }
+    }
+    // ========== END IDEMPOTENCY RESERVATION ==========
 
     // Fetch retailer's distributor chain for proper scheme hierarchy resolution
     let distributorId: string | null = null
@@ -620,7 +671,7 @@ export async function POST(request: NextRequest) {
         metadata: { amount: amountNum, transferMode, bankName, accountNumber: accountNumber?.slice(-4) },
       }).catch(() => {})
 
-      const response = NextResponse.json({
+      const timeoutPayload = {
         success: true,  // Return success to UI - transaction is processing
         message: 'Transfer initiated successfully. Processing may take a few minutes.',
         transaction_id: payoutTx.id,
@@ -634,7 +685,9 @@ export async function POST(request: NextRequest) {
         bank_name: bankName,
         transfer_mode: transferMode,
         ...(resolvedSchemeName ? { scheme_name: resolvedSchemeName } : {}),
-      })
+      }
+      if (idemKey) await finalizeIdempotencyKey({ scope: IDEM_SCOPE, key: idemKey, status: 'completed', response: timeoutPayload })
+      const response = NextResponse.json(timeoutPayload)
       return addCorsHeaders(request, response)
     }
     // ========== END TIMEOUT HANDLING ==========
@@ -664,6 +717,8 @@ export async function POST(request: NextRequest) {
         .from('wallet_ledger')
         .update({ status: 'failed' })
         .eq('id', ledgerId)
+
+      if (idemKey) await finalizeIdempotencyKey({ scope: IDEM_SCOPE, key: idemKey, status: 'failed', response: { success: false, error: errorMsg } })
 
       const response = NextResponse.json(
         { 
@@ -818,7 +873,7 @@ export async function POST(request: NextRequest) {
       metadata: { amount: amountNum, transferMode, bankName, accountNumber: accountNumber?.slice(-4) },
     }).catch(() => {})
 
-    const response = NextResponse.json({
+    const successPayload = {
       success: true,
       message: transferResult.remark || 'Transfer initiated successfully',
       transaction_id: payoutTx.id,
@@ -833,8 +888,10 @@ export async function POST(request: NextRequest) {
       bank_name: bankName,
       transfer_mode: transferMode,
       ...(resolvedSchemeName ? { scheme_name: resolvedSchemeName } : {}),
-    })
-    
+    }
+    if (idemKey) await finalizeIdempotencyKey({ scope: IDEM_SCOPE, key: idemKey, status: 'completed', response: successPayload })
+    const response = NextResponse.json(successPayload)
+
     return addCorsHeaders(request, response)
 
   } catch (error: any) {

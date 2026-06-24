@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
-import { createClient } from '@supabase/supabase-js'
+
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
 import { verifyBankAccount } from '@/services/payout'
 
@@ -34,45 +34,19 @@ export async function OPTIONS(request: NextRequest) {
  * - ifscCode: IFSC code
  * - bankName: Bank name (optional)
  * - bankId: Bank ID from bank list (optional)
- * - user_id: Fallback auth - retailer partner_id (if cookie auth fails)
  */
 export async function POST(request: NextRequest) {
   try {
-    // Parse request body first (needed for fallback auth)
+    // Parse request body
     const body = await request.json()
-    const { accountNumber, ifscCode, bankName, bankId, user_id } = body
+    const { accountNumber, ifscCode, bankName, bankId } = body
 
-    // Initialize Supabase client for fallback auth
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
-    const supabase = createClient(supabaseUrl, supabaseServiceKey || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
-
-    // Prefer Bearer token (works when frontend calls api.samedaysolution.in); fallback to cookies then body
-    let user = (await getCurrentUserWithFallback(request)).user
-    
-    if ((!user || !user.partner_id) && user_id) {
-      const { data: retailer } = await supabase
-        .from('retailers')
-        .select('partner_id, name, email')
-        .eq('partner_id', user_id)
-        .maybeSingle()
-      
-      if (retailer) {
-        user = {
-          id: user_id,
-          email: retailer.email,
-          role: 'retailer',
-          partner_id: retailer.partner_id,
-          name: retailer.name,
-        }
-        console.log('[Payout Verify] Using fallback auth with user_id:', user.email)
-      }
-    }
+    const user = (await getCurrentUserWithFallback(request)).user
     
     if (!user || !user.partner_id) {
       console.error('[Payout Verify] No authenticated user found')
       const response = NextResponse.json(
-        { success: false, error: 'Authentication required. Please log in again.' },
+        { success: false, error: 'Authentication required' },
         { status: 401 }
       )
       return addCorsHeaders(request, response)

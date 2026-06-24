@@ -1,9 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getCurrentUserWithFallback } from '@/lib/auth-server'
 
 export const runtime = 'nodejs'
 
 export async function POST(request: NextRequest) {
   try {
+    const { user } = await getCurrentUserWithFallback(request)
+    if (!user || user.role !== 'admin') {
+      return NextResponse.json({ error: 'Admin authentication required' }, { status: 401 })
+    }
+
     const { triggerPartnerManualRun } = await import('@/lib/cron/t1-settlement-cron-partners')
 
     console.log('[Admin] Triggering manual partner T+1 settlement run')

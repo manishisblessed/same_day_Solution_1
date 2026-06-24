@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "create-admin": "node scripts/create-admin.js"
+    "create-admin": "node scripts/create-admin.js",
+    "migrate": "node scripts/run-migration.mjs"
   },
   "dependencies": {
     "@emotion/is-prop-valid": "^1.4.0",
@@ -39,6 +40,8 @@
     "ws": "^8.21.0"
   },
   "devDependencies": {
-    "@types/node-cron": "^3.0.11"
+    "@jest/globals": "^30.4.1",
+    "@types/node-cron": "^3.0.11",
+    "pg": "^8.22.0"
   }
 }

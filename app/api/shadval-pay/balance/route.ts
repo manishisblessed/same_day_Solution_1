@@ -18,7 +18,11 @@ export async function OPTIONS(request: NextRequest) {
 export async function GET(request: NextRequest) {
   try {
     const { user } = await getCurrentUserWithFallback(request)
-    const userRole = user?.role as string | undefined
+    if (!user) {
+      const response = NextResponse.json({ success: false, error: 'Authentication required' }, { status: 401 })
+      return addCorsHeaders(request, response)
+    }
+    const userRole = user.role as string | undefined
     const isAdmin = userRole === 'admin' || userRole === 'super_admin'
     const isRetailer = userRole === 'retailer'
 

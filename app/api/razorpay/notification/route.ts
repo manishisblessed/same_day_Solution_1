@@ -48,38 +48,49 @@ export async function POST(request: NextRequest) {
   const supabase = createClient(supabaseUrl, supabaseServiceKey)
   
   try {
-    // Get webhook signature from headers (optional - verify if present)
+    // Signature verification is MANDATORY — this webhook drives POS settlement / wallet credit.
     const signature = request.headers.get('x-razorpay-signature')
-    
-    // Read raw body for signature verification (if signature is present)
-    let rawBody: string | null = null
+
+    if (!RAZORPAY_WEBHOOK_SECRET) {
+      console.error('[Webhook] Rejected: RAZORPAY_WEBHOOK_SECRET not configured')
+      return NextResponse.json(
+        { received: true, processed: false, error: 'Webhook secret not configured' },
+        { status: 200 }
+      )
+    }
+    if (!signature) {
+      console.error('[Webhook] Rejected: missing x-razorpay-signature header')
+      return NextResponse.json(
+        { received: true, processed: false, error: 'Missing signature' },
+        { status: 200 }
+      )
+    }
+
+    // Read raw body as text for signature verification
+    const rawBody: string = await request.text()
     let payload: any
-    
-    if (signature && RAZORPAY_WEBHOOK_SECRET) {
-      // Read raw body as text for signature verification
-      rawBody = await request.text()
+    try {
       payload = JSON.parse(rawBody)
-      
-      // Verify signature
-      const expectedSignature = crypto
-        .createHmac('sha256', RAZORPAY_WEBHOOK_SECRET)
-        .update(rawBody)
-        .digest('hex')
-      
-      if (!crypto.timingSafeEqual(
-        Buffer.from(signature),
-        Buffer.from(expectedSignature)
-      )) {
-        console.error('Invalid webhook signature')
-        // Still return 200 to prevent retries, but log the error
-        return NextResponse.json(
-          { received: true, processed: false, error: 'Invalid signature' },
-          { status: 200 }
-        )
-      }
-    } else {
-      // No signature verification needed, parse JSON directly
-      payload = await request.json()
+    } catch {
+      return NextResponse.json(
+        { received: true, processed: false, error: 'Invalid JSON payload' },
+        { status: 200 }
+      )
+    }
+
+    const expectedSignature = crypto
+      .createHmac('sha256', RAZORPAY_WEBHOOK_SECRET)
+      .update(rawBody)
+      .digest('hex')
+
+    const sigBuf = Buffer.from(signature)
+    const expBuf = Buffer.from(expectedSignature)
+    if (sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) {
+      console.error('Invalid webhook signature')
+      return NextResponse.json(
+        { received: true, processed: false, error: 'Invalid signature' },
+        { status: 200 }
+      )
     }
 
     // ========================================================

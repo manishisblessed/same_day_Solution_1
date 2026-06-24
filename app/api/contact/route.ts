@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import nodemailer, { Transporter } from 'nodemailer'
 import SMTPTransport from 'nodemailer/lib/smtp-transport'
+import { rateLimit, RATE_LIMITS } from '@/lib/rate-limit'
 
 // Helper function to escape HTML and prevent XSS
 function escapeHtml(text: string): string {
@@ -15,6 +16,9 @@ function escapeHtml(text: string): string {
 }
 
 export async function POST(request: NextRequest) {
+  const rl = rateLimit(request, RATE_LIMITS.contact)
+  if (rl.limited) return rl.response!
+
   try {
     const body = await request.json()
     const { name, email, phone, message } = body

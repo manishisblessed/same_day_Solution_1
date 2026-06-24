@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   CreditCard, UserCheck, Fingerprint, Wallet, ArrowRight, ArrowLeft,
@@ -9,7 +9,7 @@ import {
   ShieldCheck, Eye, EyeOff
 } from 'lucide-react';
 import { DatePicker } from './DatePicker';
-import { apiFetchJson, apiFetch } from '@/lib/api-client';
+import { apiFetchJson, apiFetch, newIdempotencyKey } from '@/lib/api-client';
 
 // ============================================================================
 // TYPES
@@ -1053,6 +1053,8 @@ const TransactionPanel = ({
   const [mobile, setMobile] = useState('');
   const [amount, setAmount] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
+  // Stable idempotency key for the in-progress AEPS transaction (cleared on success)
+  const aepsTxnIdemRef = useRef<string | null>(null);
   const [result, setResult] = useState<TransactionResult | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [show2FA, setShow2FA] = useState(false);
@@ -1131,6 +1133,7 @@ const TransactionPanel = ({
   const processTransaction = async (biometricData?: BiometricData) => {
     setIsProcessing(true);
     setResult(null);
+    if (!aepsTxnIdemRef.current) aepsTxnIdemRef.current = newIdempotencyKey();
 
     try {
       const payload: Record<string, unknown> = {
@@ -1151,6 +1154,7 @@ const TransactionPanel = ({
 
       const data = await apiFetchJson('/api/aeps/transact', {
         method: 'POST',
+        idempotencyKey: aepsTxnIdemRef.current,
         body: JSON.stringify(payload)
       });
 
@@ -1166,6 +1170,7 @@ const TransactionPanel = ({
         receipt: data.receipt,
       };
 
+      if (data.success) aepsTxnIdemRef.current = null; // settled — next txn gets a fresh key
       setShow2FA(false);
       setResult(txnResult);
       onTransactionComplete(txnResult);

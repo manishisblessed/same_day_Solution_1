@@ -33,11 +33,13 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
       return NextResponse.json({ error }, { status: 404 });
     }
 
-    // Retailers can only see schemes mapped to them or global schemes
-    if (user.role === 'retailer' && data) {
+    // Non-privileged users (retailer/distributor/master_distributor/partner) can
+    // only see a CUSTOM scheme if they created it or it is mapped to them.
+    // Global/default schemes remain visible to everyone. Admin/finance see all.
+    const isPrivileged = user.role === 'admin' || user.role === 'finance_executive';
+    if (!isPrivileged && data) {
       const scheme = data as any;
       if (scheme.scheme_type === 'custom' && scheme.created_by_id !== user.partner_id) {
-        // Check if this scheme is mapped to the retailer
         const hasMappingToUser = scheme.mappings?.some(
           (m: any) => m.entity_id === user.partner_id && m.status === 'active'
         );

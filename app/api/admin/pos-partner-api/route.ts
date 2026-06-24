@@ -209,6 +209,15 @@ export async function POST(request: NextRequest) {
         let { partner_id, label = 'default', permissions = ['read', 'export'] } = body
         if (isPartner) {
           partner_id = user.partner_id
+          // Partners cannot self-issue keys with money-moving permissions.
+          const PRIVILEGED_PERMS = new Set(['all', 'payout', 'settlement'])
+          const requested = Array.isArray(permissions) ? permissions.map((p: unknown) => String(p).toLowerCase()) : []
+          if (requested.some((p: string) => PRIVILEGED_PERMS.has(p))) {
+            return NextResponse.json(
+              { error: 'Only an administrator can issue keys with payout/settlement permissions.' },
+              { status: 403 }
+            )
+          }
         }
         if (!partner_id) {
           return NextResponse.json({ error: 'partner_id is required' }, { status: 400 })
@@ -277,6 +286,16 @@ export async function POST(request: NextRequest) {
         }
 
         const normalized = raw.includes('all') ? ['all'] : Array.from(new Set(raw))
+
+        // Partners may NOT self-grant privileged (money-moving) permissions —
+        // only an admin can enable payout/settlement/all on a key.
+        const PRIVILEGED_PERMS = new Set(['all', 'payout', 'settlement'])
+        if (isPartner && normalized.some((p: string) => PRIVILEGED_PERMS.has(p))) {
+          return NextResponse.json(
+            { error: 'Only an administrator can grant payout/settlement permissions. Contact support.' },
+            { status: 403 }
+          )
+        }
 
         const { data: existing, error: findErr } = await supabase
           .from('partner_api_keys')

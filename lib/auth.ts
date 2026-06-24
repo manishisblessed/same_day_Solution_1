@@ -1,15 +1,73 @@
 import { supabase } from './supabase/client'
 import { AuthUser, UserRole } from '@/types/database.types'
 
-export async function signIn(email: string, password: string, role: UserRole) {
+/**
+ * Best-effort call to the server-side login throttle. Never throws on network
+ * errors (so a guard outage can't lock out all logins), except when the guard
+ * explicitly reports the account is locked.
+ */
+async function loginGuardCheck(email: string): Promise<void> {
+  if (typeof window === 'undefined') return
   try {
-    // First, authenticate with Supabase Auth
+    const res = await fetch('/api/auth/login-guard', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'check', email }),
+    })
+    if (res.status === 429) {
+      const data = await res.json().catch(() => ({}))
+      const mins = data?.retry_after_minutes || 15
+      throw new Error(`Too many failed login attempts. Please try again in about ${mins} minute(s).`)
+    }
+  } catch (e: any) {
+    // Re-throw only the explicit lockout message; swallow network errors.
+    if (e?.message?.startsWith('Too many failed login attempts')) throw e
+  }
+}
+
+async function loginGuardRecord(email: string, success: boolean): Promise<void> {
+  if (typeof window === 'undefined') return
+  try {
+    await fetch('/api/auth/login-guard', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'record', email, success }),
+    })
+  } catch {
+    // ignore — recording is best-effort
+  }
+}
+
+export async function signIn(email: string, password: string, role: UserRole, captchaToken?: string) {
+  try {
+    // Brute-force protection: block if this account is currently locked out.
+    await loginGuardCheck(email)
+
+    // First, authenticate with Supabase Auth. When CAPTCHA is enabled in
+    // Supabase Auth, the captchaToken (Cloudflare Turnstile) is required.
     const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
       email,
       password,
+      ...(captchaToken ? { options: { captchaToken } } : {}),
     })
 
-    if (authError) throw authError
+    if (authError) {
+      await loginGuardRecord(email, false)
+      const msg = authError.message?.toLowerCase() || ''
+      if (msg.includes('invalid login credentials') || msg.includes('invalid_credentials')) {
+        throw new Error('Incorrect email or password. Please try again.')
+      }
+      if (msg.includes('email not confirmed')) {
+        throw new Error('Your email is not verified. Please check your inbox for a confirmation link.')
+      }
+      if (msg.includes('captcha')) {
+        throw new Error('CAPTCHA verification failed. Please try again.')
+      }
+      throw authError
+    }
+
+    // Record successful credential verification.
+    await loginGuardRecord(email, true)
 
     // CRITICAL: Sync session to cookies so API routes can access it
     // The createBrowserClient stores in localStorage, but API routes need cookies
@@ -78,7 +136,11 @@ export async function signIn(email: string, password: string, role: UserRole) {
 
     if (error || !data) {
       await supabase.auth.signOut()
-      throw new Error('User not found or inactive')
+      const roleLabel = role.replace('_', ' ')
+      throw new Error(
+        `No active ${roleLabel} account found for this email. ` +
+        `Please check that you selected the correct account type.`
+      )
     }
 
     userData = data
@@ -113,12 +175,12 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
     // Check which table the user belongs to
     // Use maybeSingle() instead of single() to avoid 406 errors when user doesn't belong to a table
     const [retailer, distributor, masterDistributor, admin, finance, partner] = await Promise.all([
-      supabase.from('retailers').select('*').eq('email', user.email!).maybeSingle(),
-      supabase.from('distributors').select('*').eq('email', user.email!).maybeSingle(),
-      supabase.from('master_distributors').select('*').eq('email', user.email!).maybeSingle(),
+      supabase.from('retailers').select('*').eq('email', user.email!).eq('status', 'active').maybeSingle(),
+      supabase.from('distributors').select('*').eq('email', user.email!).eq('status', 'active').maybeSingle(),
+      supabase.from('master_distributors').select('*').eq('email', user.email!).eq('status', 'active').maybeSingle(),
       supabase.from('admin_users').select('*').eq('email', user.email!).maybeSingle(),
-      supabase.from('finance_users').select('*').eq('email', user.email!).maybeSingle(),
-      supabase.from('partners').select('*').eq('email', user.email!).maybeSingle(),
+      supabase.from('finance_users').select('*').eq('email', user.email!).eq('is_active', true).maybeSingle(),
+      supabase.from('partners').select('*').eq('email', user.email!).eq('status', 'active').maybeSingle(),
     ])
 
     // Precedence: admin and finance before hierarchy users (matches server-side auth).
@@ -130,7 +192,7 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
         name: admin.data.name,
       }
     }
-    if (finance.data && !finance.error && finance.data.is_active !== false) {
+    if (finance.data && !finance.error) {
       return {
         id: user.id,
         email: user.email!,

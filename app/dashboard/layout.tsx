@@ -12,10 +12,10 @@ export default function DashboardLayout({
   const pathname = usePathname()
   const { user, loading } = useAuth()
   
-  // Determine user role from pathname
-  const getUserRole = (): 'retailer' | 'distributor' | 'master_distributor' => {
-    if (pathname?.includes('/distributor')) return 'distributor'
+  const getUserRole = (): 'retailer' | 'distributor' | 'master_distributor' | 'partner' => {
+    if (pathname?.includes('/partner')) return 'partner'
     if (pathname?.includes('/master-distributor')) return 'master_distributor'
+    if (pathname?.includes('/distributor')) return 'distributor'
     return 'retailer'
   }
 

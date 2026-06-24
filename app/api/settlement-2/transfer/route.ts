@@ -4,9 +4,17 @@ import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
 import { initiateBankTransfer } from '@/services/shadval-pay'
 import type { ShadvalTransferRequest } from '@/services/shadval-pay'
 import { createClient } from '@supabase/supabase-js'
+import { rateLimit, RATE_LIMITS } from '@/lib/rate-limit'
+import {
+  reserveIdempotencyKey,
+  finalizeIdempotencyKey,
+  getIdempotencyKeyFromHeaders,
+} from '@/lib/security/idempotency'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
+
+const IDEM_SCOPE = 'settlement2_transfer'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -27,6 +35,11 @@ export async function OPTIONS(request: NextRequest) {
  * Charges are debited from retailer's wallet and credited to company revenue.
  */
 export async function POST(request: NextRequest) {
+  const rl = rateLimit(request, RATE_LIMITS.transfer)
+  if (rl.limited) return addCorsHeaders(request, rl.response!)
+
+  const idemKey = getIdempotencyKeyFromHeaders(request.headers)
+
   try {
     const { user } = await getCurrentUserWithFallback(request)
     if (!user || user.role !== 'retailer') {
@@ -35,7 +48,22 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { account_id, amount, mode = 'IMPS', narration } = body
+    const { account_id, amount, mode = 'IMPS', narration, tpin } = body
+
+    if (!tpin || tpin.length !== 4) {
+      const response = NextResponse.json({ success: false, error: 'Valid 4-digit TPIN is required' }, { status: 400 })
+      return addCorsHeaders(request, response)
+    }
+
+    const { data: tpinResult, error: tpinError } = await supabaseAdmin.rpc('verify_retailer_tpin', {
+      p_retailer_id: user.partner_id,
+      p_tpin: tpin,
+    })
+    if (tpinError || !tpinResult?.success) {
+      const msg = tpinResult?.error || tpinError?.message || 'TPIN verification failed'
+      const response = NextResponse.json({ success: false, error: msg }, { status: 403 })
+      return addCorsHeaders(request, response)
+    }
 
     if (!account_id || !amount) {
       const response = NextResponse.json(
@@ -77,6 +105,9 @@ export async function POST(request: NextRequest) {
 
     // Resolve scheme and calculate charges
     let charges = 0
+    let baseCharges = 0
+    let gstAmount = 0
+    const GST_PERCENT = 18
     let resolvedSchemeId: string | null = null
     let resolvedSchemeName: string | null = null
     let resolvedVia: string | null = null
@@ -119,13 +150,15 @@ export async function POST(request: NextRequest) {
         )
 
         if (!chargeError && chargeResult?.length > 0) {
-          charges = parseFloat(chargeResult[0].retailer_charge) || 0
+          baseCharges = parseFloat(chargeResult[0].retailer_charge) || 0
+          gstAmount = Math.round(baseCharges * GST_PERCENT / 100 * 100) / 100
+          charges = Math.round((baseCharges + gstAmount) * 100) / 100
           commissionSplit = {
             distributor_commission: parseFloat(chargeResult[0].distributor_commission) || 0,
             md_commission: parseFloat(chargeResult[0].md_commission) || 0,
             company_earning: parseFloat(chargeResult[0].company_charge) || 0,
           }
-          console.log(`[Settlement-2] Scheme charge: ₹${charges}`)
+          console.log(`[Settlement-2] Scheme charge: ₹${baseCharges} + GST ₹${gstAmount} = ₹${charges}`)
         }
       }
     } catch (schemeErr) {
@@ -148,7 +181,9 @@ export async function POST(request: NextRequest) {
         if (slabs?.length) {
           const slab = slabs[0] as any
           const calc = (v: number, t: string) => t === 'percentage' ? Math.round(amountNum * v / 100 * 100) / 100 : v
-          charges = calc(parseFloat(slab.retailer_charge) || 0, slab.retailer_charge_type)
+          baseCharges = calc(parseFloat(slab.retailer_charge) || 0, slab.retailer_charge_type)
+          gstAmount = Math.round(baseCharges * GST_PERCENT / 100 * 100) / 100
+          charges = Math.round((baseCharges + gstAmount) * 100) / 100
           commissionSplit = {
             distributor_commission: calc(parseFloat(slab.distributor_commission) || 0, slab.distributor_commission_type),
             md_commission: calc(parseFloat(slab.md_commission) || 0, slab.md_commission_type),
@@ -207,6 +242,23 @@ export async function POST(request: NextRequest) {
       return addCorsHeaders(request, response)
     }
 
+    // Idempotency: dedup repeated submits of the same settlement
+    if (idemKey) {
+      const reservation = await reserveIdempotencyKey({ scope: IDEM_SCOPE, key: idemKey, userId: user.partner_id })
+      if (!reservation.fresh) {
+        if (reservation.status === 'completed' && reservation.cachedResponse) {
+          return addCorsHeaders(request, NextResponse.json(reservation.cachedResponse))
+        }
+        return addCorsHeaders(
+          request,
+          NextResponse.json(
+            { success: false, error: 'A settlement with this idempotency key is already being processed.', code: 'IDEMPOTENT_REPLAY' },
+            { status: 409 }
+          )
+        )
+      }
+    }
+
     const refId = `SV2_${user.partner_id}_${Date.now()}`
 
     // Create transaction record
@@ -239,6 +291,7 @@ export async function POST(request: NextRequest) {
 
     if (txError || !txRecord) {
       console.error('[Settlement-2] Transaction insert error:', txError)
+      if (idemKey) await finalizeIdempotencyKey({ scope: IDEM_SCOPE, key: idemKey, status: 'failed' })
       const response = NextResponse.json({ success: false, error: 'Failed to create transaction record' }, { status: 500 })
       return addCorsHeaders(request, response)
     }
@@ -265,6 +318,7 @@ export async function POST(request: NextRequest) {
         .from('shadval_settlement')
         .update({ status: 'FAILED', status_message: 'Transfer amount debit failed' })
         .eq('id', txRecord.id)
+      if (idemKey) await finalizeIdempotencyKey({ scope: IDEM_SCOPE, key: idemKey, status: 'failed' })
       const response = NextResponse.json({ success: false, error: 'Failed to debit transfer amount from wallet' }, { status: 500 })
       return addCorsHeaders(request, response)
     }
@@ -284,16 +338,32 @@ export async function POST(request: NextRequest) {
         p_reference_id: refId,
         p_transaction_id: txRecord.id,
         p_status: 'completed',
-        p_remarks: `Settlement-2 charge ₹${charges} for ₹${amountNum} transfer to ${account.account_number}`,
+        p_remarks: `Settlement-2 charge ₹${baseCharges} + GST ₹${gstAmount} = ₹${charges} for ₹${amountNum} transfer to ${account.account_number}`,
       })
 
       if (ledgerError) {
         console.error('[Settlement-2] Charge debit failed:', ledgerError)
+        // Reverse the transfer-amount debit that already succeeded so the retailer is made whole.
+        await (supabaseAdmin as any).rpc('add_ledger_entry', {
+          p_user_id: user.partner_id,
+          p_user_role: 'retailer',
+          p_wallet_type: 'primary',
+          p_fund_category: 'service',
+          p_service_type: 'shadval_settlement',
+          p_tx_type: 'SETTLEMENT2_REFUND',
+          p_credit: amountNum,
+          p_debit: 0,
+          p_reference_id: `REFUND_${refId}`,
+          p_transaction_id: txRecord.id,
+          p_status: 'completed',
+          p_remarks: `Settlement-2 refund ₹${amountNum} — charge debit failed`,
+        }).catch((e: any) => console.error('[Settlement-2] CRITICAL refund failed:', e))
         await supabaseAdmin
           .from('shadval_settlement')
-          .update({ status: 'FAILED', status_message: 'Charge debit failed' })
+          .update({ status: 'FAILED', status_message: 'Charge debit failed (transfer amount refunded)' })
           .eq('id', txRecord.id)
-        const response = NextResponse.json({ success: false, error: 'Failed to debit charges' }, { status: 500 })
+        if (idemKey) await finalizeIdempotencyKey({ scope: IDEM_SCOPE, key: idemKey, status: 'failed' })
+        const response = NextResponse.json({ success: false, error: 'Failed to debit charges. Amount refunded.' }, { status: 500 })
         return addCorsHeaders(request, response)
       }
       chargeLedgerId = ledgerId
@@ -374,6 +444,7 @@ export async function POST(request: NextRequest) {
     const contactMobile = account.contact_mobile || user.phone || ''
 
     if (!contactMobile) {
+      if (idemKey) await finalizeIdempotencyKey({ scope: IDEM_SCOPE, key: idemKey, status: 'failed' })
       const response = NextResponse.json(
         { success: false, error: 'Mobile number is missing for this account. Please delete and re-add the account with a valid mobile number.' },
         { status: 400 }
@@ -410,23 +481,76 @@ export async function POST(request: NextRequest) {
 
     const apiResult = await initiateBankTransfer(transferRequest)
     const isSuccess = apiResult.status === 'SUCCESS'
+    const isFailed = apiResult.status === 'FAILED'
+
+    // Provider hard-failed → make everyone whole: refund the retailer (amount + charges)
+    // and reverse the commission/revenue credits that were posted optimistically above.
+    if (isFailed) {
+      await (supabaseAdmin as any).rpc('add_ledger_entry', {
+        p_user_id: user.partner_id,
+        p_user_role: 'retailer',
+        p_wallet_type: 'primary',
+        p_fund_category: 'service',
+        p_service_type: 'shadval_settlement',
+        p_tx_type: 'SETTLEMENT2_REFUND',
+        p_credit: amountNum + charges,
+        p_debit: 0,
+        p_reference_id: `REFUND_${refId}`,
+        p_transaction_id: txRecord.id,
+        p_status: 'completed',
+        p_remarks: `Settlement-2 refund ₹${amountNum + charges} — provider transfer failed: ${apiResult.message || ''}`,
+      }).catch((e: any) => console.error('[Settlement-2] CRITICAL retailer refund failed:', e))
+
+      if (charges > 0) {
+        const companyEarning = commissionSplit.company_earning > 0 ? commissionSplit.company_earning : charges
+        const revenueUserId = process.env.SUBSCRIPTION_REVENUE_USER_ID
+        const revenueUserRole = process.env.SUBSCRIPTION_REVENUE_USER_ROLE || 'master_distributor'
+        if (revenueLedgerId && revenueUserId) {
+          await (supabaseAdmin as any).rpc('add_ledger_entry', {
+            p_user_id: revenueUserId, p_user_role: revenueUserRole, p_wallet_type: 'primary',
+            p_fund_category: 'revenue', p_service_type: 'shadval_settlement', p_tx_type: 'COMPANY_REVENUE_REVERSAL',
+            p_credit: 0, p_debit: companyEarning,
+            p_reference_id: `REVREV_${refId}`, p_transaction_id: txRecord.id, p_status: 'completed',
+            p_remarks: `Reversal of Settlement-2 revenue ₹${companyEarning} — transfer failed`,
+          }).catch((e: any) => console.error('[Settlement-2] Revenue reversal failed:', e))
+        }
+        if (commissionSplit.distributor_commission > 0 && distributorId) {
+          await (supabaseAdmin as any).rpc('add_ledger_entry', {
+            p_user_id: distributorId, p_user_role: 'distributor', p_wallet_type: 'primary',
+            p_fund_category: 'commission', p_service_type: 'shadval_settlement', p_tx_type: 'COMMISSION_REVERSAL',
+            p_credit: 0, p_debit: commissionSplit.distributor_commission,
+            p_reference_id: `DTCOMMREV_${refId}`, p_transaction_id: txRecord.id, p_status: 'completed',
+            p_remarks: `Reversal of Settlement-2 DT commission — transfer failed`,
+          }).catch((e: any) => console.error('[Settlement-2] DT commission reversal failed:', e))
+        }
+        if (commissionSplit.md_commission > 0 && mdId) {
+          await (supabaseAdmin as any).rpc('add_ledger_entry', {
+            p_user_id: mdId, p_user_role: 'master_distributor', p_wallet_type: 'primary',
+            p_fund_category: 'commission', p_service_type: 'shadval_settlement', p_tx_type: 'COMMISSION_REVERSAL',
+            p_credit: 0, p_debit: commissionSplit.md_commission,
+            p_reference_id: `MDCOMMREV_${refId}`, p_transaction_id: txRecord.id, p_status: 'completed',
+            p_remarks: `Reversal of Settlement-2 MD commission — transfer failed`,
+          }).catch((e: any) => console.error('[Settlement-2] MD commission reversal failed:', e))
+        }
+      }
+    }
 
     // Update transaction with API result
     await supabaseAdmin
       .from('shadval_settlement')
       .update({
-        status: isSuccess ? 'SUCCESS' : apiResult.status === 'FAILED' ? 'FAILED' : 'PENDING',
+        status: isSuccess ? 'SUCCESS' : isFailed ? 'FAILED' : 'PENDING',
+        status_message: isFailed ? `${apiResult.message || 'Transfer failed'} [Wallet refunded]` : apiResult.message,
         order_id: apiResult.data?.order_id || null,
         internal_ref_id: apiResult.data?.internal_ref_id || null,
         utr: apiResult.data?.utr || null,
-        status_message: apiResult.message,
         charge_ledger_id: chargeLedgerId,
         revenue_ledger_id: revenueLedgerId,
         provider_timestamp: apiResult.data?.timestamp || null,
       })
       .eq('id', txRecord.id)
 
-    const response = NextResponse.json({
+    const successBody = {
       success: true,
       transaction: {
         id: txRecord.id,
@@ -442,10 +566,21 @@ export async function POST(request: NextRequest) {
         account_holder_name: account.account_holder_name,
         provider_timestamp: apiResult.data?.timestamp,
       },
-    })
+    }
+    // Provider FAILED is retryable; only persist a replayable result when not failed.
+    if (idemKey) {
+      await finalizeIdempotencyKey({
+        scope: IDEM_SCOPE,
+        key: idemKey,
+        status: apiResult.status === 'FAILED' ? 'failed' : 'completed',
+        response: apiResult.status === 'FAILED' ? undefined : successBody,
+      })
+    }
+    const response = NextResponse.json(successBody)
     return addCorsHeaders(request, response)
   } catch (error: any) {
     console.error('[Settlement-2 Transfer] Error:', error)
+    if (idemKey) await finalizeIdempotencyKey({ scope: IDEM_SCOPE, key: idemKey, status: 'failed' }).catch(() => {})
     const response = NextResponse.json({ success: false, error: error.message }, { status: 500 })
     return addCorsHeaders(request, response)
   }

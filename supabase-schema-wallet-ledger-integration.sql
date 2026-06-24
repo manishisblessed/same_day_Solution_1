@@ -543,6 +543,11 @@ BEGIN
   -- Calculate closing balance
   v_closing_balance := v_opening_balance + p_credit - p_debit;
   
+  -- Prevent negative balance on debits (skip for admin credit-only operations)
+  IF p_debit > 0 AND v_closing_balance < 0 THEN
+    RAISE EXCEPTION 'Insufficient balance. Available: %, Required: %', v_opening_balance, p_debit;
+  END IF;
+  
   -- Insert ledger entry
   -- Note: balance_after_old is a migration artifact column that may exist
   INSERT INTO wallet_ledger (

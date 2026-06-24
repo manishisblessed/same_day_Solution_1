@@ -86,8 +86,37 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 500 })
     }
 
+    const entries = data || []
+    const uniqueIds = [...new Set(entries.map((e) => e.retailer_id).filter(Boolean))]
+
+    let nameMap: Record<string, { user_name?: string; partner_name?: string }> = {}
+    if (uniqueIds.length > 0) {
+      const [retRes, partRes] = await Promise.all([
+        supabase.from('retailers').select('partner_id, name, business_name').in('partner_id', uniqueIds),
+        supabase.from('partners').select('id, name, business_name').in('id', uniqueIds),
+      ])
+      for (const r of retRes.data || []) {
+        nameMap[r.partner_id] = {
+          ...nameMap[r.partner_id],
+          user_name: r.name || r.business_name || undefined,
+        }
+      }
+      for (const p of partRes.data || []) {
+        nameMap[p.id] = {
+          ...nameMap[p.id],
+          partner_name: p.name || p.business_name || undefined,
+        }
+      }
+    }
+
+    const enriched = entries.map((e) => ({
+      ...e,
+      user_name: nameMap[e.retailer_id]?.user_name || null,
+      partner_name: nameMap[e.retailer_id]?.partner_name || null,
+    }))
+
     return NextResponse.json({
-      entries: data || [],
+      entries: enriched,
       total: count ?? 0,
       page,
       limit,

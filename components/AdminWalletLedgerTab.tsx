@@ -8,6 +8,8 @@ import { motion } from 'framer-motion'
 type LedgerRow = {
   id: string
   retailer_id: string
+  user_name?: string | null
+  partner_name?: string | null
   user_role?: string
   wallet_type?: string
   fund_category?: string
@@ -211,10 +213,15 @@ export default function AdminWalletLedgerTab() {
                       {new Date(e.created_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}
                     </td>
                     <td className="px-3 py-2 text-xs">
-                      <div className="font-mono text-gray-800 dark:text-gray-200 truncate max-w-[140px]" title={e.retailer_id}>
-                        {e.retailer_id?.slice(0, 10)}…
+                      <div className="font-medium text-gray-800 dark:text-gray-200 truncate max-w-[180px]" title={e.user_name || e.retailer_id}>
+                        {e.user_name || e.retailer_id?.slice(0, 10) + '…'}
                       </div>
-                      <div className="text-gray-500">{e.user_role || '—'}</div>
+                      {e.partner_name && (
+                        <div className="text-gray-500 truncate max-w-[180px]" title={e.partner_name}>
+                          {e.partner_name}
+                        </div>
+                      )}
+                      <div className="text-gray-400 text-[10px]">{e.user_role || '—'}</div>
                     </td>
                     <td className="px-3 py-2 text-xs">{e.transaction_type || '—'}</td>
                     <td className="px-3 py-2 text-xs">{e.service_type || '—'}</td>
