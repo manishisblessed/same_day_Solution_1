@@ -186,13 +186,13 @@ export async function middleware(request: NextRequest) {
       }
     )
 
-    const {
-      data: { session },
-    } = await supabase.auth.getSession()
+    // getUser() makes a server call and properly refreshes the session cookie.
+    // getSession() only reads from storage and may return stale tokens.
+    const { data: { user } } = await supabase.auth.getUser()
 
     // ── Route protection: redirect to login if no session ──
     const protectedMatch = isProtectedRoute(request.nextUrl.pathname)
-    if (protectedMatch && !session) {
+    if (protectedMatch && !user) {
       // In development, skip server-side redirect — let client-side AuthContext handle it.
       // This avoids cookie issues with localhost (Secure flag, SameSite, etc.).
       if (process.env.NODE_ENV !== 'production') {

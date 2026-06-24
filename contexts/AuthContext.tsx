@@ -38,111 +38,66 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const checkUser = async () => {
     try {
-      // First, check if we have a cached user from recent login
-      // This is important because Supabase session might not be immediately available
       if (typeof window !== 'undefined') {
-        try {
-          const cachedUser = localStorage.getItem('auth_user')
-          const cacheTimestamp = localStorage.getItem('auth_user_timestamp')
-          
-          if (cachedUser) {
-            const parsedUser = JSON.parse(cachedUser) as AuthUser
-            setUser(parsedUser)
-            setLoading(false)
-            
-            // Check if this is a recent login (within 5 minutes)
-            // If recent, trust the cache and don't verify immediately
-            const isRecentLogin = cacheTimestamp && 
-              (Date.now() - parseInt(cacheTimestamp)) < 5 * 60 * 1000
-            
-            if (isRecentLogin) {
-              return
-            }
-            
-            // For older sessions, verify in background but DON'T clear on failure
-            // Only update if we get valid data
-            getCurrentUser().then((verifiedUser) => {
-              if (verifiedUser) {
-                // Update cache with fresh data
-                localStorage.setItem('auth_user', JSON.stringify(verifiedUser))
-                localStorage.setItem('auth_user_timestamp', Date.now().toString())
-                setUser(verifiedUser)
-              }
-              // Don't clear user on verification failure - keep cached user
-              // User will be properly logged out when they try to access protected resources
-            }).catch(() => {
-              // On error, keep cached user
-            })
-            return
-          }
-        } catch (e) {
-          // Ignore parse errors
-        }
-        
         // Clear corrupted storage entries
         try {
-          const localStorageKeys = Object.keys(localStorage)
-          for (const key of localStorageKeys) {
+          for (const key of Object.keys(localStorage)) {
             const value = localStorage.getItem(key)
-            if (value && value.startsWith('base64-')) {
-              localStorage.removeItem(key)
-            }
+            if (value && value.startsWith('base64-')) localStorage.removeItem(key)
           }
-          
-          const sessionStorageKeys = Object.keys(sessionStorage)
-          for (const key of sessionStorageKeys) {
+          for (const key of Object.keys(sessionStorage)) {
             const value = sessionStorage.getItem(key)
-            if (value && value.startsWith('base64-')) {
-              sessionStorage.removeItem(key)
-            }
+            if (value && value.startsWith('base64-')) sessionStorage.removeItem(key)
           }
-        } catch (e) {
-          // Ignore cleanup errors
+        } catch { /* ignore */ }
+      }
+
+      // Use a short timeout to avoid hanging when no session exists
+      const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 3000))
+      const currentUser = await Promise.race([getCurrentUser(), timeoutPromise])
+
+      if (currentUser) {
+        setUser(currentUser)
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('auth_user', JSON.stringify(currentUser))
+          localStorage.setItem('auth_user_timestamp', Date.now().toString())
         }
-      }
-      
-      // Add shorter timeout to prevent hanging (2 seconds for logged out state)
-      const timeoutPromise = new Promise((resolve) => 
-        setTimeout(() => resolve(null), 2000)
-      )
-      
-      const currentUser = await Promise.race([
-        getCurrentUser(),
-        timeoutPromise
-      ]) as AuthUser | null
-      
-      setUser(currentUser)
-      
-      // Cache the user if found
-      if (typeof window !== 'undefined' && currentUser) {
-        localStorage.setItem('auth_user', JSON.stringify(currentUser))
-        localStorage.setItem('auth_user_timestamp', Date.now().toString())
-      }
-    } catch (error: any) {
-      const errorMessage = error?.message || error?.toString() || ''
-      const isCorruptedSessionError = errorMessage.includes("Cannot create property 'user' on string") || 
-                                      errorMessage.includes('base64-')
-      
-      if (!isCorruptedSessionError) {
-        console.error('Error checking user:', error)
-      }
-      
-      if (isCorruptedSessionError) {
+      } else {
+        // getCurrentUser returned null — check if we have a RECENT cache
+        // (covers the rare case where the Supabase token refresh hangs/times out
+        //  right after login, but the user just authenticated moments ago)
         if (typeof window !== 'undefined') {
           try {
-            const allKeys = [...Object.keys(localStorage), ...Object.keys(sessionStorage)]
-            allKeys.forEach(key => {
+            const cachedUser = localStorage.getItem('auth_user')
+            const cacheTs = localStorage.getItem('auth_user_timestamp')
+            const isVeryRecent = cacheTs && (Date.now() - parseInt(cacheTs)) < 60_000
+            if (cachedUser && isVeryRecent) {
+              setUser(JSON.parse(cachedUser) as AuthUser)
+              return
+            }
+          } catch { /* ignore */ }
+          // Session is truly gone — clear stale cache
+          localStorage.removeItem('auth_user')
+          localStorage.removeItem('auth_user_timestamp')
+        }
+        setUser(null)
+      }
+    } catch (error: any) {
+      const msg = error?.message || ''
+      if (msg.includes("Cannot create property 'user' on string") || msg.includes('base64-')) {
+        if (typeof window !== 'undefined') {
+          try {
+            [...Object.keys(localStorage), ...Object.keys(sessionStorage)].forEach(key => {
               if (key.includes('supabase') || key.includes('sb-') || key.startsWith('auth-token')) {
                 localStorage.removeItem(key)
                 sessionStorage.removeItem(key)
               }
             })
-          } catch (e) {
-            // Ignore cleanup errors
-          }
+          } catch { /* ignore */ }
         }
+      } else {
+        console.error('Error checking user:', error)
       }
-      
       setUser(null)
     } finally {
       setLoading(false)

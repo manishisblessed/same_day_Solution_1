@@ -14,20 +14,29 @@ import { createBrowserClient } from '@supabase/ssr'
 import { getGeoHeader } from '@/hooks/useGeolocation'
 
 /**
- * Get Supabase access token for API calls
- * This is needed for cross-origin requests where cookies won't be sent
+ * Get Supabase access token for API calls.
+ * Uses getSession() first (reads from cookie/memory, auto-refreshes if expired),
+ * then falls back to an explicit refreshSession() if the stored session is gone.
  */
 async function getAccessToken(): Promise<string | null> {
   if (typeof window === 'undefined') return null
-  
+
   try {
     const supabase = createBrowserClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
     )
-    
+
+    // getSession reads from storage and auto-refreshes expired access tokens
     const { data: { session } } = await supabase.auth.getSession()
-    return session?.access_token || null
+    if (session?.access_token) return session.access_token
+
+    // Session not found in storage — attempt an explicit refresh
+    // (handles edge cases where cookies were cleared but refresh token survives)
+    const { data: { session: refreshed } } = await supabase.auth.refreshSession()
+    if (refreshed?.access_token) return refreshed.access_token
+
+    return null
   } catch (error) {
     console.error('Failed to get access token:', error)
     return null
@@ -215,13 +224,34 @@ export async function apiFetch(
   }
 
   try {
-    const response = await fetch(url, fetchOptions)
+    let response = await fetch(url, fetchOptions)
     clearTimeout(timeoutId)
 
-    // Handle 401 Unauthorized errors gracefully
-    if (response.status === 401) {
-      if (process.env.NODE_ENV === 'development') {
-        console.warn('API call returned 401 Unauthorized:', path)
+    // On 401/403, the stored token may be stale. Force a session refresh
+    // and retry once with a fresh token before giving up.
+    if ((response.status === 401 || response.status === 403) && typeof window !== 'undefined') {
+      try {
+        const supabase = createBrowserClient(
+          process.env.NEXT_PUBLIC_SUPABASE_URL!,
+          process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+        )
+        const { data: { session: fresh } } = await supabase.auth.refreshSession()
+        if (fresh?.access_token) {
+          const retryHeaders = { ...headers, Authorization: `Bearer ${fresh.access_token}` }
+          const retryController = new AbortController()
+          const retryTimeout = setTimeout(() => retryController.abort(), timeout)
+          try {
+            const retryResponse = await fetch(url, { ...fetchOptions, headers: retryHeaders, signal: retryController.signal })
+            clearTimeout(retryTimeout)
+            if (retryResponse.status !== 401 && retryResponse.status !== 403) {
+              return retryResponse
+            }
+          } catch {
+            clearTimeout(retryTimeout)
+          }
+        }
+      } catch {
+        // refresh failed — return original response
       }
     }
 
