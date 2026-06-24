@@ -7,6 +7,8 @@
  */
 
 import { createClient } from '@supabase/supabase-js';
+import { readFileSync } from 'fs';
+import { join } from 'path';
 import type {
   Scheme,
   SchemeBBPSCommission,
@@ -35,14 +37,24 @@ import type {
 
 let _supabaseClient: ReturnType<typeof createClient> | null = null;
 
+function loadEnvFromFile(varName: string): string | undefined {
+  try {
+    const envPath = join(process.cwd(), '.env.local');
+    const content = readFileSync(envPath, 'utf-8');
+    const match = content.match(new RegExp(`^${varName}=(.+)$`, 'm'));
+    return match?.[1]?.trim();
+  } catch { return undefined; }
+}
+
 function getSupabase() {
   if (_supabaseClient) return _supabaseClient;
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) {
-    throw new Error(
-      `Missing Supabase env vars: URL=${url ? 'set' : 'MISSING'}, SERVICE_KEY=${key ? 'set' : 'MISSING'}`
-    );
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://ohmvvtnfdvvatgofrzta.supabase.co';
+  let key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!key) {
+    key = loadEnvFromFile('SUPABASE_SERVICE_ROLE_KEY');
+  }
+  if (!key) {
+    throw new Error('SUPABASE_SERVICE_ROLE_KEY not found in process.env or .env.local');
   }
   _supabaseClient = createClient(url, key);
   return _supabaseClient;

@@ -1,30 +1,35 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js'
+import { readFileSync } from 'fs'
+import { join } from 'path'
 
-// Check if we're in build phase
-// Next.js sets NEXT_PHASE during build
 const isBuildPhase = 
   process.env.NEXT_PHASE === 'phase-production-build' ||
   process.env.NEXT_PHASE === 'phase-export'
 
-// Lazy initialization for Supabase admin client
-// This ensures environment variables are read at runtime, not at module load time
+function loadEnvFromFile(varName: string): string | undefined {
+  try {
+    const envPath = join(process.cwd(), '.env.local')
+    const content = readFileSync(envPath, 'utf-8')
+    const match = content.match(new RegExp(`^${varName}=(.+)$`, 'm'))
+    return match?.[1]?.trim()
+  } catch { return undefined }
+}
+
 let _supabaseAdmin: SupabaseClient | null = null
 
-/**
- * Get Supabase admin client with service role key
- * Uses lazy initialization to ensure env vars are available at runtime
- */
 export function getSupabaseAdmin(): SupabaseClient {
   if (_supabaseAdmin) {
     return _supabaseAdmin
   }
 
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://ohmvvtnfdvvatgofrzta.supabase.co'
+  let supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
 
-  // During build phase, return a placeholder client that will throw if used
+  if (!supabaseServiceKey) {
+    supabaseServiceKey = loadEnvFromFile('SUPABASE_SERVICE_ROLE_KEY')
+  }
+
   if (isBuildPhase) {
-    console.log('[Supabase Admin] Build phase detected, using placeholder client')
     _supabaseAdmin = createClient(
       supabaseUrl || 'https://placeholder.supabase.co',
       supabaseServiceKey || 'placeholder-key-for-build-phase-only'
@@ -32,17 +37,8 @@ export function getSupabaseAdmin(): SupabaseClient {
     return _supabaseAdmin
   }
 
-  // Runtime validation
-  if (!supabaseUrl) {
-    console.error('[Supabase Admin] NEXT_PUBLIC_SUPABASE_URL is missing')
-    console.error('[Supabase Admin] Available env vars:', Object.keys(process.env).filter(k => k.includes('SUPABASE')))
-    throw new Error('NEXT_PUBLIC_SUPABASE_URL is not configured')
-  }
-
   if (!supabaseServiceKey) {
-    console.error('[Supabase Admin] SUPABASE_SERVICE_ROLE_KEY is missing')
-    console.error('[Supabase Admin] Available env vars:', Object.keys(process.env).filter(k => k.includes('SUPABASE')))
-    throw new Error('SUPABASE_SERVICE_ROLE_KEY is not configured. Please add it to your environment variables.')
+    throw new Error('SUPABASE_SERVICE_ROLE_KEY not found in process.env or .env.local')
   }
 
   _supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey)
