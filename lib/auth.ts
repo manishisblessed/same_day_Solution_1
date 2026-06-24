@@ -38,6 +38,71 @@ async function loginGuardRecord(email: string, success: boolean): Promise<void> 
   }
 }
 
+async function completeSignIn(
+  authData: { user: any; session: any },
+  role: UserRole,
+  email: string
+) {
+  if (authData.session && typeof window !== 'undefined') {
+    try {
+      const syncResponse = await fetch('/api/auth/sync-session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          access_token: authData.session.access_token,
+          refresh_token: authData.session.refresh_token,
+        }),
+      })
+      if (!syncResponse.ok) {
+        console.warn('Session sync returned non-OK status:', syncResponse.status)
+      }
+    } catch (syncError) {
+      console.error('CRITICAL: Failed to sync session to cookies:', syncError)
+    }
+  }
+
+  let tableName = ''
+  switch (role) {
+    case 'retailer': tableName = 'retailers'; break
+    case 'distributor': tableName = 'distributors'; break
+    case 'master_distributor': tableName = 'master_distributors'; break
+    case 'admin': tableName = 'admin_users'; break
+    case 'partner': tableName = 'partners'; break
+    case 'finance_executive': tableName = 'finance_users'; break
+  }
+
+  let query = supabase.from(tableName).select('*').eq('email', email)
+  if (role === 'finance_executive') {
+    query = query.eq('is_active', true)
+  } else if (role !== 'admin') {
+    query = query.eq('status', 'active')
+  }
+
+  const { data, error } = await query.single()
+  if (error || !data) {
+    await supabase.auth.signOut()
+    const roleLabel = role.replace('_', ' ')
+    throw new Error(
+      `No active ${roleLabel} account found for this email. ` +
+      `Please check that you selected the correct account type.`
+    )
+  }
+
+  const user: AuthUser = {
+    id: authData.user.id,
+    email: authData.user.email!,
+    role,
+    partner_id: role === 'partner' ? data.id : data.partner_id,
+    name: data.name,
+    ...(role === 'finance_executive' && 'phone' in data
+      ? { phone: (data as { phone?: string }).phone }
+      : {}),
+  }
+
+  return { user, session: authData.session }
+}
+
 export async function signIn(email: string, password: string, role: UserRole, captchaToken?: string) {
   try {
     // Brute-force protection: block if this account is currently locked out.
@@ -52,8 +117,38 @@ export async function signIn(email: string, password: string, role: UserRole, ca
     })
 
     if (authError) {
-      await loginGuardRecord(email, false)
+      // If captcha token was sent and caused the failure, retry without it.
+      // This handles domain-mismatch where Turnstile token is invalid for the
+      // current hostname but Supabase doesn't strictly require CAPTCHA.
       const msg = authError.message?.toLowerCase() || ''
+      if (captchaToken && (msg.includes('captcha') || msg.includes('bad request'))) {
+        console.warn('[Auth] CAPTCHA token rejected, retrying without it')
+        const { data: retryData, error: retryError } = await supabase.auth.signInWithPassword({
+          email,
+          password,
+        })
+        if (!retryError && retryData?.user) {
+          await loginGuardRecord(email, true)
+          return await completeSignIn(retryData, role, email)
+        }
+        // If retry also failed, fall through to original error handling
+        if (retryError) {
+          const retryMsg = retryError.message?.toLowerCase() || ''
+          if (retryMsg.includes('invalid login credentials') || retryMsg.includes('invalid_credentials')) {
+            await loginGuardRecord(email, false)
+            throw new Error('Incorrect email or password. Please try again.')
+          }
+          if (retryMsg.includes('captcha')) {
+            await loginGuardRecord(email, false)
+            throw new Error(
+              'CAPTCHA verification failed. Please check that your domain is authorized ' +
+              'in Cloudflare Turnstile and Supabase Auth settings.'
+            )
+          }
+        }
+      }
+
+      await loginGuardRecord(email, false)
       if (msg.includes('invalid login credentials') || msg.includes('invalid_credentials')) {
         throw new Error('Incorrect email or password. Please try again.')
       }
@@ -61,102 +156,16 @@ export async function signIn(email: string, password: string, role: UserRole, ca
         throw new Error('Your email is not verified. Please check your inbox for a confirmation link.')
       }
       if (msg.includes('captcha')) {
-        throw new Error('CAPTCHA verification failed. Please try again.')
+        throw new Error(
+          'CAPTCHA verification failed. Please check that your domain is authorized ' +
+          'in Cloudflare Turnstile and Supabase Auth settings.'
+        )
       }
       throw authError
     }
 
-    // Record successful credential verification.
     await loginGuardRecord(email, true)
-
-    // CRITICAL: Sync session to cookies so API routes can access it
-    // The createBrowserClient stores in localStorage, but API routes need cookies
-    // Call sync endpoint to ensure cookies are set on the server
-    if (authData.session && typeof window !== 'undefined') {
-      try {
-        // Call sync endpoint to set cookies on server
-        // This is CRITICAL for API routes to work
-        const syncResponse = await fetch('/api/auth/sync-session', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include', // CRITICAL: Include cookies
-          body: JSON.stringify({
-            access_token: authData.session.access_token,
-            refresh_token: authData.session.refresh_token,
-          }),
-        })
-        
-        if (!syncResponse.ok) {
-          console.warn('Session sync returned non-OK status:', syncResponse.status)
-        }
-      } catch (syncError) {
-        // This is CRITICAL - if sync fails, API routes won't work
-        console.error('CRITICAL: Failed to sync session to cookies:', syncError)
-        // Don't throw - let the login complete, but log the error
-      }
-    }
-
-    // Then verify the user exists in the appropriate table
-    let userData = null
-    let tableName = ''
-
-    switch (role) {
-      case 'retailer':
-        tableName = 'retailers'
-        break
-      case 'distributor':
-        tableName = 'distributors'
-        break
-      case 'master_distributor':
-        tableName = 'master_distributors'
-        break
-      case 'admin':
-        tableName = 'admin_users'
-        break
-      case 'partner':
-        tableName = 'partners'
-        break
-      case 'finance_executive':
-        tableName = 'finance_users'
-        break
-    }
-
-    let query = supabase.from(tableName).select('*').eq('email', email)
-    
-    // Admin users don't have status field
-    if (role === 'finance_executive') {
-      query = query.eq('is_active', true)
-    } else if (role !== 'admin' && role !== 'partner') {
-      query = query.eq('status', 'active')
-    } else if (role === 'partner') {
-      query = query.eq('status', 'active')
-    }
-    
-    const { data, error } = await query.single()
-
-    if (error || !data) {
-      await supabase.auth.signOut()
-      const roleLabel = role.replace('_', ' ')
-      throw new Error(
-        `No active ${roleLabel} account found for this email. ` +
-        `Please check that you selected the correct account type.`
-      )
-    }
-
-    userData = data
-
-    const user: AuthUser = {
-      id: authData.user.id,
-      email: authData.user.email!,
-      role,
-      partner_id: role === 'partner' ? userData.id : userData.partner_id,
-      name: userData.name,
-      ...(role === 'finance_executive' && 'phone' in userData
-        ? { phone: (userData as { phone?: string }).phone }
-        : {}),
-    }
-
-    return { user, session: authData.session }
+    return await completeSignIn(authData, role, email)
   } catch (error: any) {
     throw new Error(error.message || 'Authentication failed')
   }
