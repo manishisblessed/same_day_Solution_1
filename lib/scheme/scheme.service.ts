@@ -33,10 +33,19 @@ import type {
 // HELPER: Get admin Supabase client
 // ============================================================================
 
+let _supabaseClient: ReturnType<typeof createClient> | null = null;
+
 function getSupabase() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-  return createClient(url, key);
+  if (_supabaseClient) return _supabaseClient;
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) {
+    throw new Error(
+      `Missing Supabase env vars: URL=${url ? 'set' : 'MISSING'}, SERVICE_KEY=${key ? 'set' : 'MISSING'}`
+    );
+  }
+  _supabaseClient = createClient(url, key);
+  return _supabaseClient;
 }
 
 // ============================================================================
