@@ -40,7 +40,7 @@ export async function POST(request: NextRequest) {
               // Set cookies in the response so they're sent to the browser
               response.cookies.set(name, value, {
                 ...options,
-                httpOnly: true,
+                httpOnly: false,
                 sameSite: 'lax',
                 secure: process.env.NODE_ENV === 'production',
                 path: '/',
