@@ -53,9 +53,9 @@ export default function AdminCapabilities() {
       ])
 
       const allUsers = [
-        ...(retailers.data || []).map(u => ({ ...u, user_type: 'retailer' })),
-        ...(distributors.data || []).map(u => ({ ...u, user_type: 'distributor' })),
-        ...(masterDistributors.data || []).map(u => ({ ...u, user_type: 'master_distributor' }))
+        ...(retailers.data || []).map((u: any) => ({ ...u, user_type: 'retailer' })),
+        ...(distributors.data || []).map((u: any) => ({ ...u, user_type: 'distributor' })),
+        ...(masterDistributors.data || []).map((u: any) => ({ ...u, user_type: 'master_distributor' }))
       ]
 
       setUsers(allUsers)

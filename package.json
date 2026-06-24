@@ -12,8 +12,8 @@
   },
   "dependencies": {
     "@emotion/is-prop-valid": "^1.4.0",
-    "@supabase/ssr": "^0.1.0",
-    "@supabase/supabase-js": "^2.39.0",
+    "@supabase/ssr": "^0.4.0",
+    "@supabase/supabase-js": "^2.43.4",
     "@types/node": "^25.0.9",
     "@types/nodemailer": "^6.4.14",
     "@types/react": "^18.2.0",
