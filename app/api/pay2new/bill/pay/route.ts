@@ -186,7 +186,11 @@ export async function POST(request: NextRequest) {
       serviceCharge = 0
     }
 
-    const totalDebit = amountNum + serviceCharge
+    // Add 18% GST on service charge
+    const GST_PERCENT = 18
+    const gstAmount = Math.round(serviceCharge * GST_PERCENT / 100 * 100) / 100
+    const totalServiceCharge = Math.round((serviceCharge + gstAmount) * 100) / 100
+    const totalDebit = amountNum + totalServiceCharge
 
     // Balance check
     const { data: walletBalance, error: balErr } = await (supabaseAdmin as any).rpc('get_wallet_balance', {
@@ -198,7 +202,7 @@ export async function POST(request: NextRequest) {
     }
     if ((walletBalance || 0) < totalDebit) {
       const response = NextResponse.json(
-        { success: false, error: 'Insufficient wallet balance', wallet_balance: walletBalance || 0, bill_amount: amountNum, charge: serviceCharge, required_amount: totalDebit },
+        { success: false, error: 'Insufficient wallet balance', wallet_balance: walletBalance || 0, bill_amount: amountNum, charge: totalServiceCharge, required_amount: totalDebit },
         { status: 400 }
       )
       return addCorsHeaders(request, response)
@@ -218,7 +222,7 @@ export async function POST(request: NextRequest) {
       p_debit: totalDebit,
       p_reference_id: request_id,
       p_status: 'completed',
-      p_remarks: `Pay2New CC payment ₹${amountNum} + charge ₹${serviceCharge} (${product_code}) - ${customer_number}`,
+      p_remarks: `Pay2New CC payment ₹${amountNum} + charge ₹${totalServiceCharge} (base ₹${serviceCharge} + GST ₹${gstAmount}) (${product_code}) - ${customer_number}`,
     })
     if (debitErr) {
       const response = NextResponse.json({ success: false, error: 'Failed to debit wallet' }, { status: 500 })
@@ -231,7 +235,7 @@ export async function POST(request: NextRequest) {
         p_fund_category: 'service', p_service_type: 'pay2new', p_tx_type: 'PAY2NEW_REFUND',
         p_credit: totalDebit, p_debit: 0,
         p_reference_id: `REFUND_${request_id}`, p_status: 'completed',
-        p_remarks: `Pay2New refund ₹${totalDebit} (Bill: ₹${amountNum}, Charge: ₹${serviceCharge}) — ${reason}`,
+        p_remarks: `Pay2New refund ₹${totalDebit} (Bill: ₹${amountNum}, Charge: ₹${totalServiceCharge}) — ${reason}`,
       })
       if (refundErr) console.error('[Pay2New Bill Pay] CRITICAL refund failed:', refundErr)
     }
@@ -306,8 +310,8 @@ export async function POST(request: NextRequest) {
           })
         }
 
-        // Company revenue = charge - all distributed commissions
-        const companyEarning = serviceCharge - commissionSplit.retailer_commission
+        // Company revenue = (base charge + GST) - all distributed commissions
+        const companyEarning = totalServiceCharge - commissionSplit.retailer_commission
           - ((!skipDtCommission && distributorId) ? commissionSplit.distributor_commission : 0)
           - ((!skipMdCommission && mdId) ? commissionSplit.md_commission : 0)
         if (companyEarning > 0) {
@@ -319,7 +323,7 @@ export async function POST(request: NextRequest) {
               p_fund_category: 'revenue', p_service_type: 'pay2new', p_tx_type: 'REVENUE_CREDIT',
               p_credit: companyEarning, p_debit: 0,
               p_reference_id: txRef, p_status: 'completed',
-              p_remarks: `Company revenue from Pay2New CC charge ₹${serviceCharge} on ₹${amountNum} (RT:${user.partner_id})`,
+              p_remarks: `Company revenue from Pay2New CC charge ₹${totalServiceCharge} (base ₹${serviceCharge} + GST ₹${gstAmount}) on ₹${amountNum} (RT:${user.partner_id})`,
             })
           }
         }
@@ -333,7 +337,7 @@ export async function POST(request: NextRequest) {
       order_id: result.order_id,
       operator_reference: result.operator_reference,
       amount: result.amount,
-      charge: serviceCharge,
+      charge: totalServiceCharge,
       request_id,
     })
     return addCorsHeaders(request, response)

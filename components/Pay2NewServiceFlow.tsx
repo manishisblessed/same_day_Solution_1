@@ -713,12 +713,6 @@ export default function Pay2NewServiceFlow(props: Pay2NewServiceFlowProps) {
                         <span className="text-sm font-mono">{payResult.operator_reference}</span>
                       </div>
                     )}
-                    {(payResult.charge != null && payResult.charge > 0) && (
-                      <div className="flex justify-between">
-                        <span className="text-sm text-gray-500">Service Charge</span>
-                        <span className="text-sm font-medium text-orange-600">₹{payResult.charge}</span>
-                      </div>
-                    )}
                   </div>
                 )}
 
