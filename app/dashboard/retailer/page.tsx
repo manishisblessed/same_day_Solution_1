@@ -1096,6 +1096,9 @@ function ServicesTab() {
         { id: 'cash-management', name: 'Cash Management', icon: '💰' },
         { id: 'lic-payment', name: 'LIC Bill Payment', icon: '🛡️' },
         { id: 'insurance', name: 'Insurance', icon: '🏥' },
+        { id: 'government', name: 'Government Services', icon: '🏛️' },
+        { id: 'doorstep-banking', name: 'Doorstep Banking', icon: '🚪' },
+        { id: 'settlement', name: 'Settlement / Payout', icon: '🏦' },
       ]
 
       // Merge default services with actual data

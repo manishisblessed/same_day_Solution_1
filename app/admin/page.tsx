@@ -2441,6 +2441,9 @@ const ALL_SERVICES = [
   { key: 'cash_management', label: 'Cash Management', icon: '💰', short: 'Cash' },
   { key: 'lic', label: 'LIC Bill Payment', icon: '🛡️', short: 'LIC' },
   { key: 'insurance', label: 'Insurance', icon: '🏥', short: 'Insurance' },
+  { key: 'government', label: 'Government Services', icon: '🏛️', short: 'Govt' },
+  { key: 'doorstep_banking', label: 'Doorstep Banking', icon: '🚪', short: 'Doorstep' },
+  { key: 'settlement', label: 'Settlement / Payout', icon: '🏦', short: 'Settlement' },
 ] as const
 
 const SERVICE_FIELDS = ALL_SERVICES.map(s => `${s.key}_enabled`)
@@ -3328,7 +3331,7 @@ function ServiceOverviewPanel({ services, bbpsProviderBalance, onRefreshBalance 
         )}
       </motion.div>
 
-      {/* All 11 Services Grid */}
+      {/* All Services Grid */}
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}
         className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 sm:gap-3"
       >

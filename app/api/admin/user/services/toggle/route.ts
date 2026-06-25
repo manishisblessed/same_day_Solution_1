@@ -8,7 +8,8 @@ export const dynamic = 'force-dynamic'
 
 const VALID_SERVICES = [
   'banking_payments', 'mini_atm_pos', 'aeps', 'aadhaar_pay', 'dmt',
-  'bbps', 'recharge', 'travel', 'cash_management', 'lic', 'insurance'
+  'bbps', 'recharge', 'travel', 'cash_management', 'lic', 'insurance',
+  'government', 'doorstep_banking', 'settlement'
 ] as const
 
 type ServiceType = typeof VALID_SERVICES[number]
