@@ -222,7 +222,7 @@ export async function POST(request: NextRequest) {
       p_debit: totalDebit,
       p_reference_id: request_id,
       p_status: 'completed',
-      p_remarks: `CC Bill Payment ₹${amountNum} to ${product_name || product_code} (Card: ****${number}) | Charge: ₹${totalServiceCharge} (₹${serviceCharge} + GST ₹${gstAmount})`,
+      p_remarks: `CC ₹${amountNum} + ₹${totalServiceCharge} GST | ${product_name || product_code} | Card:${number} | Mob:${customer_number}`,
     })
     if (debitErr) {
       const response = NextResponse.json({ success: false, error: 'Failed to debit wallet' }, { status: 500 })
@@ -235,7 +235,7 @@ export async function POST(request: NextRequest) {
         p_fund_category: 'service', p_service_type: 'pay2new', p_tx_type: 'PAY2NEW_REFUND',
         p_credit: totalDebit, p_debit: 0,
         p_reference_id: `REFUND_${request_id}`, p_status: 'completed',
-        p_remarks: `Refund CC Bill ₹${amountNum} to ${product_name || product_code} (Card: ****${number}) | Total: ₹${totalDebit} — ${reason}`,
+        p_remarks: `Refund ₹${totalDebit} | ${product_name || product_code} | Card:${number} | Mob:${customer_number} — ${reason}`,
       })
       if (refundErr) console.error('[Pay2New Bill Pay] CRITICAL refund failed:', refundErr)
     }

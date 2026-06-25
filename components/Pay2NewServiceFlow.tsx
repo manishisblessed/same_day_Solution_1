@@ -659,7 +659,7 @@ export default function Pay2NewServiceFlow(props: Pay2NewServiceFlowProps) {
                   ) : (
                     <>
                       <Receipt className="w-4 h-4" />
-                      Pay ₹{payAmount ? parseFloat(payAmount).toLocaleString('en-IN') : '0'}
+                      Pay ₹{payAmount ? (parseFloat(payAmount) + (chargesData?.total_charge || 0)).toLocaleString('en-IN', { minimumFractionDigits: 2 }) : '0'}
                     </>
                   )}
                 </button>
