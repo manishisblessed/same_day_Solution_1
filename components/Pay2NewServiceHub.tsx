@@ -175,7 +175,7 @@ export default function Pay2NewServiceHub() {
           onClick={() => setSelectedId(null)}
           className="text-sm text-blue-600 hover:underline flex items-center gap-1"
         >
-          ← All Pay2New Services
+          ← All BBPS Services
         </button>
         <Pay2NewServiceFlow
           key={selected.id}
@@ -205,9 +205,9 @@ export default function Pay2NewServiceHub() {
     >
       {/* Header */}
       <div className="bg-gradient-to-r from-blue-500 to-purple-600 rounded-xl p-5 text-white shadow-md">
-        <h2 className="text-xl font-bold mb-1">Pay2New Services</h2>
+        <h2 className="text-xl font-bold mb-1">BBPS Services</h2>
         <p className="text-sm text-blue-50">
-          Recharges, utility bills, credit card payments, and more — all powered by BBPS-2
+          Recharges, utility bills, credit card payments, and more
         </p>
       </div>
 

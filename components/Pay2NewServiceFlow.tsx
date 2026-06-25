@@ -102,7 +102,7 @@ export default function Pay2NewServiceFlow(props: Pay2NewServiceFlowProps) {
     order_id?: string
     operator_reference?: string
     amount?: number | string
-    balance?: string
+    charge?: number
     error?: string
   } | null>(null)
 
@@ -377,7 +377,6 @@ export default function Pay2NewServiceFlow(props: Pay2NewServiceFlowProps) {
                       </div>
                       <div className="min-w-0">
                         <p className="font-medium text-sm text-gray-900 dark:text-white truncate">{biller.product_name}</p>
-                        <p className="text-xs text-gray-500">Code: {biller.product_code}</p>
                       </div>
                     </button>
                   ))}
@@ -653,7 +652,7 @@ export default function Pay2NewServiceFlow(props: Pay2NewServiceFlowProps) {
                     </div>
                     {payResult.order_id && (
                       <div className="flex justify-between">
-                        <span className="text-sm text-gray-500">Pay2New Order ID</span>
+                        <span className="text-sm text-gray-500">Order ID</span>
                         <span className="text-sm font-mono">{payResult.order_id}</span>
                       </div>
                     )}
@@ -663,10 +662,10 @@ export default function Pay2NewServiceFlow(props: Pay2NewServiceFlowProps) {
                         <span className="text-sm font-mono">{payResult.operator_reference}</span>
                       </div>
                     )}
-                    {payResult.balance && (
+                    {(payResult.charge != null && payResult.charge > 0) && (
                       <div className="flex justify-between">
-                        <span className="text-sm text-gray-500">Pay2New Balance</span>
-                        <span className="text-sm">₹{payResult.balance}</span>
+                        <span className="text-sm text-gray-500">Service Charge</span>
+                        <span className="text-sm font-medium text-orange-600">₹{payResult.charge}</span>
                       </div>
                     )}
                   </div>

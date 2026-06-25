@@ -88,6 +88,106 @@ export async function POST(request: NextRequest) {
       return addCorsHeaders(request, response)
     }
 
+    // Retailer hierarchy for scheme resolution
+    let distributorId: string | null = null
+    let mdId: string | null = null
+    try {
+      const { data: retailerData } = await (supabaseAdmin as any)
+        .from('retailers')
+        .select('distributor_id, master_distributor_id')
+        .eq('partner_id', user.partner_id)
+        .maybeSingle()
+      distributorId = retailerData?.distributor_id || null
+      mdId = retailerData?.master_distributor_id || null
+    } catch (e) {
+      console.warn('[Pay2New Bill Pay] Failed to fetch retailer hierarchy:', e)
+    }
+
+    // Resolve scheme charges (uses BBPS scheme with "Credit Card" category)
+    let serviceCharge = 0
+    let resolvedSchemeId: string | null = null
+    let resolvedSchemeName: string | null = null
+    let resolvedVia: string | null = null
+    let commissionSplit = { retailer_commission: 0, distributor_commission: 0, md_commission: 0 }
+    const schemeCategory = 'Credit Card'
+
+    try {
+      const { data: schemeResult, error: schemeError } = await (supabaseAdmin as any).rpc('resolve_scheme_for_user', {
+        p_user_id: user.partner_id,
+        p_user_role: 'retailer',
+        p_service_type: 'bbps',
+        p_distributor_id: distributorId,
+        p_md_id: mdId,
+      })
+
+      if (schemeError) {
+        console.error('[Pay2New Bill Pay] Scheme RPC error:', schemeError)
+      } else if (schemeResult && schemeResult.length > 0) {
+        const resolved = schemeResult[0]
+        resolvedSchemeId = resolved.scheme_id
+        resolvedSchemeName = resolved.scheme_name
+        resolvedVia = resolved.resolved_via
+        console.log(`[Pay2New Bill Pay] Scheme resolved: "${resolved.scheme_name}" via ${resolved.resolved_via}`)
+
+        const { data: chargeResult, error: chargeError } = await (supabaseAdmin as any).rpc('calculate_bbps_charge_from_scheme', {
+          p_scheme_id: resolved.scheme_id,
+          p_amount: amountNum,
+          p_category: schemeCategory,
+        })
+
+        if (chargeError) {
+          console.error('[Pay2New Bill Pay] Charge calculation error:', chargeError)
+        } else if (chargeResult && chargeResult.length > 0 && parseFloat(chargeResult[0].retailer_charge) > 0) {
+          serviceCharge = parseFloat(chargeResult[0].retailer_charge)
+          commissionSplit = {
+            retailer_commission: parseFloat(chargeResult[0].retailer_commission) || 0,
+            distributor_commission: parseFloat(chargeResult[0].distributor_commission) || 0,
+            md_commission: parseFloat(chargeResult[0].md_commission) || 0,
+          }
+          console.log(`[Pay2New Bill Pay] Charge: ₹${serviceCharge}, commissions: RT=${commissionSplit.retailer_commission}, DT=${commissionSplit.distributor_commission}, MD=${commissionSplit.md_commission}`)
+        } else {
+          // Fallback: direct slab query
+          const { data: slabs } = await (supabaseAdmin as any)
+            .from('scheme_bbps_commissions')
+            .select('*')
+            .eq('scheme_id', resolved.scheme_id)
+            .eq('status', 'active')
+            .lte('min_amount', amountNum)
+            .gte('max_amount', amountNum)
+            .order('min_amount', { ascending: false })
+
+          if (slabs && slabs.length > 0) {
+            const bestSlab = slabs.find((s: any) => {
+              const sc = s.category
+              return !sc || sc === '' || sc.toLowerCase() === 'all' || sc.toLowerCase() === 'all categories' || sc === schemeCategory
+            })
+            if (bestSlab) {
+              const rc = parseFloat(bestSlab.retailer_charge) || 0
+              serviceCharge = bestSlab.retailer_charge_type === 'percentage'
+                ? Math.round(amountNum * rc / 100 * 100) / 100
+                : rc
+              const calcComm = (val: number, type: string) => type === 'percentage' ? Math.round(amountNum * val / 100 * 100) / 100 : val
+              commissionSplit = {
+                retailer_commission: calcComm(parseFloat(bestSlab.retailer_commission) || 0, bestSlab.retailer_commission_type),
+                distributor_commission: calcComm(parseFloat(bestSlab.distributor_commission) || 0, bestSlab.distributor_commission_type),
+                md_commission: calcComm(parseFloat(bestSlab.md_commission) || 0, bestSlab.md_commission_type),
+              }
+              console.log(`[Pay2New Bill Pay] Charge via direct slab: ₹${serviceCharge}`)
+            }
+          }
+        }
+      }
+    } catch (schemeErr) {
+      console.error('[Pay2New Bill Pay] Scheme resolution failed:', schemeErr)
+    }
+
+    if (!resolvedSchemeId) {
+      console.warn(`[Pay2New Bill Pay] No scheme resolved for user=${user.partner_id} — charge will be ₹0`)
+      serviceCharge = 0
+    }
+
+    const totalDebit = amountNum + serviceCharge
+
     // Balance check
     const { data: walletBalance, error: balErr } = await (supabaseAdmin as any).rpc('get_wallet_balance', {
       p_retailer_id: user.partner_id,
@@ -96,9 +196,9 @@ export async function POST(request: NextRequest) {
       const response = NextResponse.json({ success: false, error: 'Failed to check wallet balance' }, { status: 500 })
       return addCorsHeaders(request, response)
     }
-    if ((walletBalance || 0) < amountNum) {
+    if ((walletBalance || 0) < totalDebit) {
       const response = NextResponse.json(
-        { success: false, error: 'Insufficient wallet balance', wallet_balance: walletBalance || 0, required_amount: amountNum },
+        { success: false, error: 'Insufficient wallet balance', wallet_balance: walletBalance || 0, bill_amount: amountNum, charge: serviceCharge, required_amount: totalDebit },
         { status: 400 }
       )
       return addCorsHeaders(request, response)
@@ -106,7 +206,7 @@ export async function POST(request: NextRequest) {
 
     const request_id = `SDS${Date.now()}`
 
-    // Debit the retailer wallet BEFORE calling the provider (refunded on failure).
+    // Debit total (bill + charge) from retailer wallet BEFORE calling provider
     const { error: debitErr } = await (supabaseAdmin as any).rpc('add_ledger_entry', {
       p_user_id: user.partner_id,
       p_user_role: 'retailer',
@@ -115,10 +215,10 @@ export async function POST(request: NextRequest) {
       p_service_type: 'pay2new',
       p_tx_type: 'PAY2NEW_DEBIT',
       p_credit: 0,
-      p_debit: amountNum,
+      p_debit: totalDebit,
       p_reference_id: request_id,
       p_status: 'completed',
-      p_remarks: `Pay2New bill payment ₹${amountNum} (${product_code}) - ${customer_number}`,
+      p_remarks: `Pay2New CC payment ₹${amountNum} + charge ₹${serviceCharge} (${product_code}) - ${customer_number}`,
     })
     if (debitErr) {
       const response = NextResponse.json({ success: false, error: 'Failed to debit wallet' }, { status: 500 })
@@ -129,9 +229,9 @@ export async function POST(request: NextRequest) {
       const { error: refundErr } = await (supabaseAdmin as any).rpc('add_ledger_entry', {
         p_user_id: user.partner_id, p_user_role: 'retailer', p_wallet_type: 'primary',
         p_fund_category: 'service', p_service_type: 'pay2new', p_tx_type: 'PAY2NEW_REFUND',
-        p_credit: amountNum, p_debit: 0,
+        p_credit: totalDebit, p_debit: 0,
         p_reference_id: `REFUND_${request_id}`, p_status: 'completed',
-        p_remarks: `Pay2New refund ₹${amountNum} — ${reason}`,
+        p_remarks: `Pay2New refund ₹${totalDebit} (Bill: ₹${amountNum}, Charge: ₹${serviceCharge}) — ${reason}`,
       })
       if (refundErr) console.error('[Pay2New Bill Pay] CRITICAL refund failed:', refundErr)
     }
@@ -169,12 +269,71 @@ export async function POST(request: NextRequest) {
       return addCorsHeaders(request, response)
     }
 
+    // Payment succeeded — distribute commissions
+    if (serviceCharge > 0) {
+      const txRef = `P2N_COMM_${request_id}`
+      try {
+        if (commissionSplit.retailer_commission > 0) {
+          await (supabaseAdmin as any).rpc('add_ledger_entry', {
+            p_user_id: user.partner_id, p_user_role: 'retailer', p_wallet_type: 'primary',
+            p_fund_category: 'commission', p_service_type: 'pay2new', p_tx_type: 'COMMISSION_CREDIT',
+            p_credit: commissionSplit.retailer_commission, p_debit: 0,
+            p_reference_id: txRef, p_status: 'completed',
+            p_remarks: `Retailer commission on Pay2New CC ₹${amountNum}`,
+          })
+        }
+
+        const skipDtCommission = resolvedVia === 'distributor_mapping'
+        const skipMdCommission = resolvedVia === 'md_mapping'
+
+        if (commissionSplit.distributor_commission > 0 && distributorId && !skipDtCommission) {
+          await (supabaseAdmin as any).rpc('add_ledger_entry', {
+            p_user_id: distributorId, p_user_role: 'distributor', p_wallet_type: 'primary',
+            p_fund_category: 'commission', p_service_type: 'pay2new', p_tx_type: 'COMMISSION_CREDIT',
+            p_credit: commissionSplit.distributor_commission, p_debit: 0,
+            p_reference_id: txRef, p_status: 'completed',
+            p_remarks: `Distributor commission on Pay2New CC ₹${amountNum} (RT:${user.partner_id})`,
+          })
+        }
+
+        if (commissionSplit.md_commission > 0 && mdId && !skipMdCommission) {
+          await (supabaseAdmin as any).rpc('add_ledger_entry', {
+            p_user_id: mdId, p_user_role: 'master_distributor', p_wallet_type: 'primary',
+            p_fund_category: 'commission', p_service_type: 'pay2new', p_tx_type: 'COMMISSION_CREDIT',
+            p_credit: commissionSplit.md_commission, p_debit: 0,
+            p_reference_id: txRef, p_status: 'completed',
+            p_remarks: `MD commission on Pay2New CC ₹${amountNum} (RT:${user.partner_id})`,
+          })
+        }
+
+        // Company revenue = charge - all distributed commissions
+        const companyEarning = serviceCharge - commissionSplit.retailer_commission
+          - ((!skipDtCommission && distributorId) ? commissionSplit.distributor_commission : 0)
+          - ((!skipMdCommission && mdId) ? commissionSplit.md_commission : 0)
+        if (companyEarning > 0) {
+          const revenueUserId = process.env.SUBSCRIPTION_REVENUE_USER_ID
+          const revenueUserRole = process.env.SUBSCRIPTION_REVENUE_USER_ROLE || 'master_distributor'
+          if (revenueUserId) {
+            await (supabaseAdmin as any).rpc('add_ledger_entry', {
+              p_user_id: revenueUserId, p_user_role: revenueUserRole, p_wallet_type: 'primary',
+              p_fund_category: 'revenue', p_service_type: 'pay2new', p_tx_type: 'REVENUE_CREDIT',
+              p_credit: companyEarning, p_debit: 0,
+              p_reference_id: txRef, p_status: 'completed',
+              p_remarks: `Company revenue from Pay2New CC charge ₹${serviceCharge} on ₹${amountNum} (RT:${user.partner_id})`,
+            })
+          }
+        }
+      } catch (commErr: any) {
+        console.error('[Pay2New Bill Pay] Commission distribution error (non-fatal):', commErr.message)
+      }
+    }
+
     const response = NextResponse.json({
       success: true,
       order_id: result.order_id,
       operator_reference: result.operator_reference,
       amount: result.amount,
-      balance: result.balance,
+      charge: serviceCharge,
       request_id,
     })
     return addCorsHeaders(request, response)
