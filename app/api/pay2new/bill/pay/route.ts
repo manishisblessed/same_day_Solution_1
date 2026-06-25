@@ -44,11 +44,20 @@ export async function POST(request: NextRequest) {
     const rl = rateLimit(request, { ...RATE_LIMITS.bbpsPay, identifier: user.partner_id })
     if (rl.limited) return addCorsHeaders(request, rl.response!)
 
-    const { number, amount, product_code, bill_fetch_ref, optional1, optional2, optional3, optional4, customer_number, pincode } = body
+    const { number, amount, product_code, bill_fetch_ref, optional1, optional2, optional3, optional4, customer_number, pincode, tpin } = body
 
     if (!number || !amount || !product_code || !bill_fetch_ref || !customer_number) {
       const response = NextResponse.json(
         { success: false, error: 'Missing required fields: number, amount, product_code, bill_fetch_ref, customer_number' },
+        { status: 400 }
+      )
+      return addCorsHeaders(request, response)
+    }
+
+    // TPIN is mandatory for Credit Card / Pay2New transactions
+    if (!tpin || !/^\d{4,6}$/.test(String(tpin).trim())) {
+      const response = NextResponse.json(
+        { success: false, error: 'T-PIN is required', tpin_error: true },
         { status: 400 }
       )
       return addCorsHeaders(request, response)
@@ -64,6 +73,20 @@ export async function POST(request: NextRequest) {
     }
 
     const supabaseAdmin = getSupabaseAdmin()
+
+    // Verify TPIN before proceeding
+    const { data: tpinResult, error: tpinError } = await (supabaseAdmin as any).rpc('verify_retailer_tpin', {
+      p_retailer_id: user.partner_id,
+      p_tpin: String(tpin).trim(),
+    })
+    if (tpinError || !tpinResult?.success) {
+      const msg = tpinResult?.error || tpinError?.message || 'TPIN verification failed'
+      const response = NextResponse.json(
+        { success: false, error: msg, tpin_error: true, attempts_remaining: tpinResult?.attempts_remaining, locked_until: tpinResult?.locked_until },
+        { status: 401 }
+      )
+      return addCorsHeaders(request, response)
+    }
 
     // Balance check
     const { data: walletBalance, error: balErr } = await (supabaseAdmin as any).rpc('get_wallet_balance', {
