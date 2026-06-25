@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger'
-import { getCurrentUserFromRequest } from '@/lib/auth-server-request'
+import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
 import { createClient } from '@supabase/supabase-js'
 
@@ -26,10 +26,11 @@ export async function OPTIONS(request: NextRequest) {
  */
 export async function GET(request: NextRequest) {
   try {
-    const user = await getCurrentUserFromRequest(request)
+    const { user } = await getCurrentUserWithFallback(request)
     
     if (!user || !user.partner_id) {
-      return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
+      const response = NextResponse.json({ error: 'Authentication required' }, { status: 401 })
+      return addCorsHeaders(request, response)
     }
 
     // Get saved beneficiaries
@@ -96,10 +97,11 @@ export async function POST(request: NextRequest) {
       is_default,
     } = body
 
-    const user = await getCurrentUserFromRequest(request)
+    const { user } = await getCurrentUserWithFallback(request)
     
     if (!user || !user.partner_id) {
-      return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
+      const response = NextResponse.json({ error: 'Authentication required' }, { status: 401 })
+      return addCorsHeaders(request, response)
     }
 
     // Validate required fields
@@ -247,10 +249,11 @@ export async function DELETE(request: NextRequest) {
     const { searchParams } = new URL(request.url)
     const id = searchParams.get('id')
 
-    const user = await getCurrentUserFromRequest(request)
+    const { user } = await getCurrentUserWithFallback(request)
     
     if (!user || !user.partner_id) {
-      return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
+      const response = NextResponse.json({ error: 'Authentication required' }, { status: 401 })
+      return addCorsHeaders(request, response)
     }
 
     if (!id) {

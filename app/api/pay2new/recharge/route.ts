@@ -100,13 +100,14 @@ export async function POST(request: NextRequest) {
     }
 
     const refund = async (reason: string) => {
-      await (supabaseAdmin as any).rpc('add_ledger_entry', {
+      const { error: refundErr } = await (supabaseAdmin as any).rpc('add_ledger_entry', {
         p_user_id: user.partner_id, p_user_role: 'retailer', p_wallet_type: 'primary',
         p_fund_category: 'service', p_service_type: 'pay2new', p_tx_type: 'PAY2NEW_REFUND',
         p_credit: amountNum, p_debit: 0,
         p_reference_id: `REFUND_${request_id}`, p_status: 'completed',
         p_remarks: `Pay2New recharge refund ₹${amountNum} — ${reason}`,
-      }).catch((e: any) => console.error('[Pay2New Recharge] CRITICAL refund failed:', e))
+      })
+      if (refundErr) console.error('[Pay2New Recharge] CRITICAL refund failed:', refundErr)
     }
 
     let result

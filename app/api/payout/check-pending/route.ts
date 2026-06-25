@@ -39,10 +39,17 @@ export async function OPTIONS(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const cronSecret = request.headers.get('x-cron-secret')
-    if (!cronSecret || cronSecret !== process.env.CRON_SECRET) {
-      return NextResponse.json({ error: 'Unauthorized: valid cron secret required' }, { status: 401 })
+    const isAuthorizedCron = !!(cronSecret && cronSecret === process.env.CRON_SECRET)
+
+    let authenticatedRetailerId: string | null = null
+    if (!isAuthorizedCron) {
+      const { user } = await getCurrentUserWithFallback(request)
+      if (!user || !user.partner_id) {
+        const response = NextResponse.json({ error: 'Authentication required' }, { status: 401 })
+        return addCorsHeaders(request, response)
+      }
+      authenticatedRetailerId = user.partner_id
     }
-    const isAuthorizedCron = true
 
     let body: any = {}
     try {
@@ -51,7 +58,8 @@ export async function POST(request: NextRequest) {
       // empty body is fine
     }
 
-    const { retailer_id, transaction_ids } = body
+    const retailer_id = authenticatedRetailerId || body.retailer_id
+    const { transaction_ids } = body
 
     const staleThreshold = new Date(Date.now() - STALE_MINUTES * 60 * 1000).toISOString()
     const noRefRefundThreshold = new Date(Date.now() - NO_REF_REFUND_MINUTES * 60 * 1000).toISOString()

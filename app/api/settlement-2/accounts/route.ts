@@ -274,7 +274,7 @@ export async function POST(request: NextRequest) {
       (!apiResult.status && !apiResult.code)
     if (isServiceUnavailable) {
       console.log('[Settlement-2 Accounts] Verification service unavailable, refunding ₹4 to retailer:', user.partner_id)
-      await (supabaseAdmin as any).rpc('add_ledger_entry', {
+      const { error: refundErr } = await (supabaseAdmin as any).rpc('add_ledger_entry', {
         p_user_id: user.partner_id,
         p_user_role: 'retailer',
         p_wallet_type: 'primary',
@@ -287,10 +287,11 @@ export async function POST(request: NextRequest) {
         p_transaction_id: null,
         p_status: 'completed',
         p_remarks: `Auto-refund: Verification service unavailable (${apiResult.code || 'NO_RESPONSE'}). ₹${VERIFICATION_CHARGE} returned.`,
-      }).catch((e: any) => console.error('[Settlement-2 Accounts] Refund failed:', e))
+      })
+      if (refundErr) console.error('[Settlement-2 Accounts] Refund failed:', refundErr)
 
       if (revenueLedgerId && revenueUserId) {
-        await (supabaseAdmin as any).rpc('add_ledger_entry', {
+        const { error: revRefundErr } = await (supabaseAdmin as any).rpc('add_ledger_entry', {
           p_user_id: revenueUserId,
           p_user_role: revenueUserRole,
           p_wallet_type: 'primary',
@@ -303,7 +304,8 @@ export async function POST(request: NextRequest) {
           p_transaction_id: null,
           p_status: 'completed',
           p_remarks: `Reversal: verification service unavailable for ${account_number}`,
-        }).catch((e: any) => console.error('[Settlement-2 Accounts] Revenue reversal failed:', e))
+        })
+        if (revRefundErr) console.error('[Settlement-2 Accounts] Revenue reversal failed:', revRefundErr)
       }
 
       const response = NextResponse.json({
@@ -388,7 +390,7 @@ export async function POST(request: NextRequest) {
     if (dbError) {
       console.error('[Settlement-2 Accounts] DB save failed, refunding charge:', dbError)
       // Refund the ₹4 charge back to retailer
-      await (supabaseAdmin as any).rpc('add_ledger_entry', {
+      const { error: dbRefundErr } = await (supabaseAdmin as any).rpc('add_ledger_entry', {
         p_user_id: user.partner_id,
         p_user_role: 'retailer',
         p_wallet_type: 'primary',
@@ -401,7 +403,8 @@ export async function POST(request: NextRequest) {
         p_transaction_id: null,
         p_status: 'completed',
         p_remarks: `Refund: account verification failed for ${account_number} (${ifsc_code}). DB error: ${dbError.message}`,
-      }).catch((e: any) => console.error('[Settlement-2 Accounts] Refund failed:', e))
+      })
+      if (dbRefundErr) console.error('[Settlement-2 Accounts] Refund failed:', dbRefundErr)
 
       const response = NextResponse.json({
         success: false,

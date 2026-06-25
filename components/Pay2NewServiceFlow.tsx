@@ -95,6 +95,7 @@ export default function Pay2NewServiceFlow(props: Pay2NewServiceFlowProps) {
 
   // Common pay
   const [payAmount, setPayAmount] = useState('')
+  const [tpin, setTpin] = useState('')
   const [payLoading, setPayLoading] = useState(false)
   const [payResult, setPayResult] = useState<{
     success: boolean
@@ -142,6 +143,7 @@ export default function Pay2NewServiceFlow(props: Pay2NewServiceFlowProps) {
     setFetchError(null)
     setPayResult(null)
     setPayAmount('')
+    setTpin('')
   }
 
   const handleSelectBiller = (biller: Biller) => {
@@ -201,6 +203,10 @@ export default function Pay2NewServiceFlow(props: Pay2NewServiceFlowProps) {
       showToast('Please enter a valid amount', 'error')
       return
     }
+    if (!tpin || tpin.length < 4) {
+      showToast('T-PIN is required (4 digits)', 'error')
+      return
+    }
 
     setPayLoading(true)
     try {
@@ -214,6 +220,7 @@ export default function Pay2NewServiceFlow(props: Pay2NewServiceFlowProps) {
           optional1: optional1 || '',
           customer_number: optional1 || number,
           user_id: user?.id,
+          tpin,
         }),
       })
 
@@ -569,9 +576,28 @@ export default function Pay2NewServiceFlow(props: Pay2NewServiceFlowProps) {
                   </div>
                 </div>
 
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Transaction PIN (TPIN) *
+                  </label>
+                  <input
+                    type="password"
+                    inputMode="numeric"
+                    autoComplete="off"
+                    value={tpin}
+                    onChange={(e) => setTpin(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                    placeholder="Enter 4-digit TPIN"
+                    maxLength={4}
+                    className="w-full px-4 py-2.5 rounded-lg border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-sm tracking-[0.5em] text-center focus:ring-2 focus:ring-blue-500"
+                  />
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                    Required for every transaction. Set it under Settings if not configured.
+                  </p>
+                </div>
+
                 <button
                   onClick={handlePayBill}
-                  disabled={payLoading || !payAmount || parseFloat(payAmount) <= 0}
+                  disabled={payLoading || !payAmount || parseFloat(payAmount) <= 0 || tpin.length < 4}
                   className="w-full py-3 bg-gradient-to-r from-green-600 to-green-700 text-white rounded-lg font-medium text-sm hover:from-green-700 hover:to-green-800 disabled:opacity-50 flex items-center justify-center gap-2"
                 >
                   {payLoading ? (

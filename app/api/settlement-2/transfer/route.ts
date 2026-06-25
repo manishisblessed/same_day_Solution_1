@@ -344,7 +344,7 @@ export async function POST(request: NextRequest) {
       if (ledgerError) {
         console.error('[Settlement-2] Charge debit failed:', ledgerError)
         // Reverse the transfer-amount debit that already succeeded so the retailer is made whole.
-        await (supabaseAdmin as any).rpc('add_ledger_entry', {
+        const { error: refundErr } = await (supabaseAdmin as any).rpc('add_ledger_entry', {
           p_user_id: user.partner_id,
           p_user_role: 'retailer',
           p_wallet_type: 'primary',
@@ -357,7 +357,8 @@ export async function POST(request: NextRequest) {
           p_transaction_id: txRecord.id,
           p_status: 'completed',
           p_remarks: `Settlement-2 refund ₹${amountNum} — charge debit failed`,
-        }).catch((e: any) => console.error('[Settlement-2] CRITICAL refund failed:', e))
+        })
+        if (refundErr) console.error('[Settlement-2] CRITICAL refund failed:', refundErr)
         await supabaseAdmin
           .from('shadval_settlement')
           .update({ status: 'FAILED', status_message: 'Charge debit failed (transfer amount refunded)' })
@@ -486,7 +487,7 @@ export async function POST(request: NextRequest) {
     // Provider hard-failed → make everyone whole: refund the retailer (amount + charges)
     // and reverse the commission/revenue credits that were posted optimistically above.
     if (isFailed) {
-      await (supabaseAdmin as any).rpc('add_ledger_entry', {
+      const { error: retailerRefundErr } = await (supabaseAdmin as any).rpc('add_ledger_entry', {
         p_user_id: user.partner_id,
         p_user_role: 'retailer',
         p_wallet_type: 'primary',
@@ -499,38 +500,42 @@ export async function POST(request: NextRequest) {
         p_transaction_id: txRecord.id,
         p_status: 'completed',
         p_remarks: `Settlement-2 refund ₹${amountNum + charges} — provider transfer failed: ${apiResult.message || ''}`,
-      }).catch((e: any) => console.error('[Settlement-2] CRITICAL retailer refund failed:', e))
+      })
+      if (retailerRefundErr) console.error('[Settlement-2] CRITICAL retailer refund failed:', retailerRefundErr)
 
       if (charges > 0) {
         const companyEarning = commissionSplit.company_earning > 0 ? commissionSplit.company_earning : charges
         const revenueUserId = process.env.SUBSCRIPTION_REVENUE_USER_ID
         const revenueUserRole = process.env.SUBSCRIPTION_REVENUE_USER_ROLE || 'master_distributor'
         if (revenueLedgerId && revenueUserId) {
-          await (supabaseAdmin as any).rpc('add_ledger_entry', {
+          const { error: revRevErr } = await (supabaseAdmin as any).rpc('add_ledger_entry', {
             p_user_id: revenueUserId, p_user_role: revenueUserRole, p_wallet_type: 'primary',
             p_fund_category: 'revenue', p_service_type: 'shadval_settlement', p_tx_type: 'COMPANY_REVENUE_REVERSAL',
             p_credit: 0, p_debit: companyEarning,
             p_reference_id: `REVREV_${refId}`, p_transaction_id: txRecord.id, p_status: 'completed',
             p_remarks: `Reversal of Settlement-2 revenue ₹${companyEarning} — transfer failed`,
-          }).catch((e: any) => console.error('[Settlement-2] Revenue reversal failed:', e))
+          })
+          if (revRevErr) console.error('[Settlement-2] Revenue reversal failed:', revRevErr)
         }
         if (commissionSplit.distributor_commission > 0 && distributorId) {
-          await (supabaseAdmin as any).rpc('add_ledger_entry', {
+          const { error: dtCommRevErr } = await (supabaseAdmin as any).rpc('add_ledger_entry', {
             p_user_id: distributorId, p_user_role: 'distributor', p_wallet_type: 'primary',
             p_fund_category: 'commission', p_service_type: 'shadval_settlement', p_tx_type: 'COMMISSION_REVERSAL',
             p_credit: 0, p_debit: commissionSplit.distributor_commission,
             p_reference_id: `DTCOMMREV_${refId}`, p_transaction_id: txRecord.id, p_status: 'completed',
             p_remarks: `Reversal of Settlement-2 DT commission — transfer failed`,
-          }).catch((e: any) => console.error('[Settlement-2] DT commission reversal failed:', e))
+          })
+          if (dtCommRevErr) console.error('[Settlement-2] DT commission reversal failed:', dtCommRevErr)
         }
         if (commissionSplit.md_commission > 0 && mdId) {
-          await (supabaseAdmin as any).rpc('add_ledger_entry', {
+          const { error: mdCommRevErr } = await (supabaseAdmin as any).rpc('add_ledger_entry', {
             p_user_id: mdId, p_user_role: 'master_distributor', p_wallet_type: 'primary',
             p_fund_category: 'commission', p_service_type: 'shadval_settlement', p_tx_type: 'COMMISSION_REVERSAL',
             p_credit: 0, p_debit: commissionSplit.md_commission,
             p_reference_id: `MDCOMMREV_${refId}`, p_transaction_id: txRecord.id, p_status: 'completed',
             p_remarks: `Reversal of Settlement-2 MD commission — transfer failed`,
-          }).catch((e: any) => console.error('[Settlement-2] MD commission reversal failed:', e))
+          })
+          if (mdCommRevErr) console.error('[Settlement-2] MD commission reversal failed:', mdCommRevErr)
         }
       }
     }
