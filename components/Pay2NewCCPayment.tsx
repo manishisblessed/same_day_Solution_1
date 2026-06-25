@@ -450,31 +450,22 @@ export default function Pay2NewCCPayment() {
                   </div>
                 </div>
 
-                {/* Charges breakdown */}
+                {/* Charges breakdown - Settlement style */}
                 {parseFloat(payAmount) > 0 && (
-                  <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4 space-y-2 border border-gray-200 dark:border-gray-600">
-                    <div className="flex justify-between text-sm">
-                      <span className="text-gray-500">Payment Amount</span>
-                      <span className="font-medium text-gray-900 dark:text-white">₹{parseFloat(payAmount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                  <div className="space-y-3">
+                    <div className="p-3 bg-green-50 dark:bg-green-900/20 rounded-xl border border-green-200 dark:border-green-800">
+                      <p className="text-green-600 dark:text-green-400 text-xs font-medium mb-1">Payment Amount</p>
+                      <p className="text-lg font-bold text-green-700 dark:text-green-300">₹{parseFloat(payAmount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</p>
                     </div>
-                    <div className="flex justify-between text-sm">
-                      <span className="text-gray-500">
-                        Charges (incl. {chargesData?.gst_percent || 18}% GST)
+                    <div className="p-3 bg-amber-50 dark:bg-amber-900/20 rounded-xl border border-amber-200 dark:border-amber-800">
+                      <p className="text-amber-600 dark:text-amber-400 text-xs font-medium mb-1">
+                        Service Charges incl. GST (Wallet Debit)
                         {loadingCharges && <Loader2 className="w-3 h-3 animate-spin inline ml-1" />}
-                      </span>
-                      <span className="font-medium text-gray-900 dark:text-white">
-                        ₹{(chargesData?.total_charge || 0).toFixed(2)}
-                      </span>
+                      </p>
+                      <p className="text-lg font-bold text-amber-700 dark:text-amber-300">
+                        ₹{(chargesData?.total_charge ?? 0).toFixed(2)}
+                      </p>
                     </div>
-                    <div className="border-t border-gray-200 dark:border-gray-600 pt-2 flex justify-between text-sm">
-                      <span className="text-gray-700 dark:text-gray-300 font-medium">Total Wallet Debit</span>
-                      <span className="font-bold text-gray-900 dark:text-white">
-                        ₹{(parseFloat(payAmount) + (chargesData?.total_charge || 0)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                      </span>
-                    </div>
-                    <p className="text-xs text-gray-400 dark:text-gray-500 pt-1">
-                      Payment amount (₹{parseFloat(payAmount).toLocaleString('en-IN')}) is sent to biller. Only charges are deducted from your wallet.
-                    </p>
                   </div>
                 )}
 

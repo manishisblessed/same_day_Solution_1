@@ -1,18 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
-import { createClient } from '@supabase/supabase-js'
+import { createClient, SupabaseClient } from '@supabase/supabase-js'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 const GST_PERCENT = 18
 
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  { auth: { persistSession: false } }
-)
+let _supabaseAdmin: SupabaseClient | null = null
+function getSupabaseAdmin() {
+  if (!_supabaseAdmin) {
+    _supabaseAdmin = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      { auth: { persistSession: false } }
+    )
+  }
+  return _supabaseAdmin
+}
 
 export async function OPTIONS(request: NextRequest) {
   const response = handleCorsPreflight(request)
@@ -39,10 +45,12 @@ export async function GET(request: NextRequest) {
       return addCorsHeaders(request, response)
     }
 
+    const supabase = getSupabaseAdmin()
+
     let distributorId: string | null = null
     let mdId: string | null = null
     try {
-      const { data: retailer } = await supabaseAdmin
+      const { data: retailer } = await supabase
         .from('retailers')
         .select('distributor_id, master_distributor_id')
         .eq('partner_id', user.partner_id)
@@ -58,7 +66,7 @@ export async function GET(request: NextRequest) {
     const schemeCategory = 'Credit Card'
 
     try {
-      const { data: schemeResult, error: schemeError } = await (supabaseAdmin as any).rpc('resolve_scheme_for_user', {
+      const { data: schemeResult, error: schemeError } = await (supabase as any).rpc('resolve_scheme_for_user', {
         p_user_id: user.partner_id,
         p_user_role: 'retailer',
         p_service_type: 'bbps',
@@ -71,7 +79,7 @@ export async function GET(request: NextRequest) {
       } else if (schemeResult?.length > 0) {
         schemeName = schemeResult[0].scheme_name
 
-        const { data: chargeResult, error: chargeError } = await (supabaseAdmin as any).rpc('calculate_bbps_charge_from_scheme', {
+        const { data: chargeResult, error: chargeError } = await (supabase as any).rpc('calculate_bbps_charge_from_scheme', {
           p_scheme_id: schemeResult[0].scheme_id,
           p_amount: amount,
           p_category: schemeCategory,
@@ -88,7 +96,7 @@ export async function GET(request: NextRequest) {
           }
         } else {
           // Fallback: direct slab query
-          const { data: slabs } = await (supabaseAdmin as any)
+          const { data: slabs } = await (supabase as any)
             .from('scheme_bbps_commissions')
             .select('*')
             .eq('scheme_id', schemeResult[0].scheme_id)
