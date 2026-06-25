@@ -106,10 +106,42 @@ export default function Pay2NewServiceFlow(props: Pay2NewServiceFlowProps) {
     error?: string
   } | null>(null)
 
+  // Charges preview (for credit card / bill payments)
+  const [chargesData, setChargesData] = useState<{ base_charge: number; gst_percent: number; gst_amount: number; total_charge: number } | null>(null)
+  const [loadingCharges, setLoadingCharges] = useState(false)
+
   useEffect(() => {
     fetchBillers()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [serviceId])
+
+  // Fetch charges when payment amount changes (bill mode only)
+  useEffect(() => {
+    if (mode !== 'bill') return
+    const amountNum = parseFloat(payAmount)
+    if (!amountNum || amountNum <= 0 || step !== 'bill-fetched') {
+      setChargesData(null)
+      return
+    }
+
+    const timer = setTimeout(async () => {
+      setLoadingCharges(true)
+      try {
+        const data = await apiFetchJson(`/api/pay2new/charges?amount=${amountNum}`)
+        if (data.success && data.charges) {
+          setChargesData(data.charges)
+        } else {
+          setChargesData(null)
+        }
+      } catch {
+        setChargesData(null)
+      } finally {
+        setLoadingCharges(false)
+      }
+    }, 500)
+
+    return () => clearTimeout(timer)
+  }, [payAmount, step, mode])
 
   const fetchBillers = async () => {
     setBillersLoading(true)
@@ -574,6 +606,25 @@ export default function Pay2NewServiceFlow(props: Pay2NewServiceFlowProps) {
                     </button>
                   </div>
                 </div>
+
+                {/* Charges breakdown - Settlement style */}
+                {parseFloat(payAmount) > 0 && (
+                  <div className="space-y-3">
+                    <div className="p-3 bg-green-50 dark:bg-green-900/20 rounded-xl border border-green-200 dark:border-green-800">
+                      <p className="text-green-600 dark:text-green-400 text-xs font-medium mb-1">Payment Amount</p>
+                      <p className="text-lg font-bold text-green-700 dark:text-green-300">₹{parseFloat(payAmount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</p>
+                    </div>
+                    <div className="p-3 bg-amber-50 dark:bg-amber-900/20 rounded-xl border border-amber-200 dark:border-amber-800">
+                      <p className="text-amber-600 dark:text-amber-400 text-xs font-medium mb-1">
+                        Service Charges incl. GST (Wallet Debit)
+                        {loadingCharges && <Loader2 className="w-3 h-3 animate-spin inline ml-1" />}
+                      </p>
+                      <p className="text-lg font-bold text-amber-700 dark:text-amber-300">
+                        ₹{(chargesData?.total_charge ?? 0).toFixed(2)}
+                      </p>
+                    </div>
+                  </div>
+                )}
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
