@@ -2915,9 +2915,8 @@ function SchemeManagementTab({ user }: { user: any }) {
         configData = { ...shadvalSettleForm }
       }
 
-      const res = await fetch(`/api/schemes/${configSchemeId}/config`, {
+      const res = await apiFetch(`/api/schemes/${configSchemeId}/config`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ config_type: configType, ...configData }),
       })
       const result = await res.json()
@@ -2949,7 +2948,7 @@ function SchemeManagementTab({ user }: { user: any }) {
         scheme_aeps_commissions: 'aeps', scheme_aeps_settlement_charges: 'aeps_settlement', scheme_shadval_settlement_charges: 'shadval_settlement',
       }
       const ct = configTypeMap[table] || table
-      const res = await fetch(`/api/schemes/${expandedSchemeId}/config?config_type=${ct}&config_id=${id}`, { method: 'DELETE' })
+      const res = await apiFetch(`/api/schemes/${expandedSchemeId}/config?config_type=${ct}&config_id=${id}`, { method: 'DELETE' })
       const result = await res.json()
       if (!res.ok) throw new Error(result.error || 'Failed to delete configuration')
       setSuccess('Configuration deleted')
