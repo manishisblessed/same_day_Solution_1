@@ -11,6 +11,7 @@ import {
   Save, X, AlertCircle, CheckCircle, Globe, Star, Settings, Eye, DollarSign, Loader2
 } from 'lucide-react'
 import { useToast } from '@/components/Toast'
+import { apiFetch } from '@/lib/api-client'
 
 // ============================================================================
 // TYPES
@@ -553,7 +554,7 @@ function SchemeManagementPageContent() {
           aeps_settlement: 'aeps_settlement', shadval_settlement: 'shadval_settlement',
         }
         const ct = configTypeMap[configType] || configType
-        await fetch(`/api/schemes/${configSchemeId}/config?config_type=${ct}&config_id=${editingConfigId}`, { method: 'DELETE' })
+        await apiFetch(`/api/schemes/${configSchemeId}/config?config_type=${ct}&config_id=${editingConfigId}`, { method: 'DELETE' })
       }
 
       let effectiveConfigType = configType
@@ -616,9 +617,8 @@ function SchemeManagementPageContent() {
         }
       }
 
-      const res = await fetch(`/api/schemes/${configSchemeId}/config`, {
+      const res = await apiFetch(`/api/schemes/${configSchemeId}/config`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ config_type: effectiveConfigType, ...configData }),
       })
       const result = await res.json()
@@ -655,7 +655,7 @@ function SchemeManagementPageContent() {
         scheme_shadval_settlement_charges: 'shadval_settlement',
       }
       const ct = configTypeMap[table] || table
-      const res = await fetch(`/api/schemes/${expandedSchemeId}/config?config_type=${ct}&config_id=${id}`, {
+      const res = await apiFetch(`/api/schemes/${expandedSchemeId}/config?config_type=${ct}&config_id=${id}`, {
         method: 'DELETE',
       })
       const result = await res.json()

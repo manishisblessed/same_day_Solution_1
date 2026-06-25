@@ -11,7 +11,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger';
-import { getCurrentUserFromRequest } from '@/lib/auth-server-request';
+import { getCurrentUserWithFallback } from '@/lib/auth-server';
 import {
   getSchemeById,
   upsertBBPSCommission,
@@ -69,7 +69,7 @@ async function authorizeSchemeAccess(user: any, schemeId: string): Promise<strin
 
 export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
   try {
-    const user = await getCurrentUserFromRequest(request);
+    const { user } = await getCurrentUserWithFallback(request);
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
@@ -141,7 +141,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
 
 export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
   try {
-    const user = await getCurrentUserFromRequest(request);
+    const { user } = await getCurrentUserWithFallback(request);
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
