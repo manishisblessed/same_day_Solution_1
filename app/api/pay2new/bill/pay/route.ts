@@ -44,7 +44,7 @@ export async function POST(request: NextRequest) {
     const rl = rateLimit(request, { ...RATE_LIMITS.bbpsPay, identifier: user.partner_id })
     if (rl.limited) return addCorsHeaders(request, rl.response!)
 
-    const { number, amount, product_code, bill_fetch_ref, optional1, optional2, optional3, optional4, customer_number, pincode, tpin } = body
+    const { number, amount, product_code, product_name, bill_fetch_ref, optional1, optional2, optional3, optional4, customer_number, pincode, tpin } = body
 
     if (!number || !amount || !product_code || !bill_fetch_ref || !customer_number) {
       const response = NextResponse.json(
@@ -222,7 +222,7 @@ export async function POST(request: NextRequest) {
       p_debit: totalDebit,
       p_reference_id: request_id,
       p_status: 'completed',
-      p_remarks: `Pay2New CC payment ₹${amountNum} + charge ₹${totalServiceCharge} (base ₹${serviceCharge} + GST ₹${gstAmount}) (${product_code}) - ${customer_number}`,
+      p_remarks: `CC Bill Payment ₹${amountNum} to ${product_name || product_code} (Card: ****${number}) | Charge: ₹${totalServiceCharge} (₹${serviceCharge} + GST ₹${gstAmount})`,
     })
     if (debitErr) {
       const response = NextResponse.json({ success: false, error: 'Failed to debit wallet' }, { status: 500 })
@@ -235,7 +235,7 @@ export async function POST(request: NextRequest) {
         p_fund_category: 'service', p_service_type: 'pay2new', p_tx_type: 'PAY2NEW_REFUND',
         p_credit: totalDebit, p_debit: 0,
         p_reference_id: `REFUND_${request_id}`, p_status: 'completed',
-        p_remarks: `Pay2New refund ₹${totalDebit} (Bill: ₹${amountNum}, Charge: ₹${totalServiceCharge}) — ${reason}`,
+        p_remarks: `Refund CC Bill ₹${amountNum} to ${product_name || product_code} (Card: ****${number}) | Total: ₹${totalDebit} — ${reason}`,
       })
       if (refundErr) console.error('[Pay2New Bill Pay] CRITICAL refund failed:', refundErr)
     }
@@ -283,7 +283,7 @@ export async function POST(request: NextRequest) {
             p_fund_category: 'commission', p_service_type: 'pay2new', p_tx_type: 'COMMISSION_CREDIT',
             p_credit: commissionSplit.retailer_commission, p_debit: 0,
             p_reference_id: txRef, p_status: 'completed',
-            p_remarks: `Retailer commission on Pay2New CC ₹${amountNum}`,
+            p_remarks: `Commission on CC Bill ₹${amountNum} - ${product_name || product_code}`,
           })
         }
 
@@ -296,7 +296,7 @@ export async function POST(request: NextRequest) {
             p_fund_category: 'commission', p_service_type: 'pay2new', p_tx_type: 'COMMISSION_CREDIT',
             p_credit: commissionSplit.distributor_commission, p_debit: 0,
             p_reference_id: txRef, p_status: 'completed',
-            p_remarks: `Distributor commission on Pay2New CC ₹${amountNum} (RT:${user.partner_id})`,
+            p_remarks: `DT commission on CC Bill ₹${amountNum} - ${product_name || product_code} (RT:${user.partner_id})`,
           })
         }
 
@@ -306,7 +306,7 @@ export async function POST(request: NextRequest) {
             p_fund_category: 'commission', p_service_type: 'pay2new', p_tx_type: 'COMMISSION_CREDIT',
             p_credit: commissionSplit.md_commission, p_debit: 0,
             p_reference_id: txRef, p_status: 'completed',
-            p_remarks: `MD commission on Pay2New CC ₹${amountNum} (RT:${user.partner_id})`,
+            p_remarks: `MD commission on CC Bill ₹${amountNum} - ${product_name || product_code} (RT:${user.partner_id})`,
           })
         }
 
@@ -323,7 +323,7 @@ export async function POST(request: NextRequest) {
               p_fund_category: 'revenue', p_service_type: 'pay2new', p_tx_type: 'REVENUE_CREDIT',
               p_credit: companyEarning, p_debit: 0,
               p_reference_id: txRef, p_status: 'completed',
-              p_remarks: `Company revenue from Pay2New CC charge ₹${totalServiceCharge} (base ₹${serviceCharge} + GST ₹${gstAmount}) on ₹${amountNum} (RT:${user.partner_id})`,
+              p_remarks: `Revenue from CC Bill charge ₹${totalServiceCharge} on ₹${amountNum} - ${product_name || product_code} (RT:${user.partner_id})`,
             })
           }
         }

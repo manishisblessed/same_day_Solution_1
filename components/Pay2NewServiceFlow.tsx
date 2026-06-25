@@ -248,6 +248,7 @@ export default function Pay2NewServiceFlow(props: Pay2NewServiceFlowProps) {
           number,
           amount,
           product_code: selectedBiller.product_code,
+          product_name: selectedBiller.product_name,
           bill_fetch_ref: orderId,
           optional1: optional1 || '',
           customer_number: optional1 || number,
