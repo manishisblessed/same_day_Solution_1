@@ -1786,8 +1786,8 @@ function AdminDashboardOverview({
   // eKYC Hub balance (reported up from child component for the total)
   const [ekycHubBalance, setEkycHubBalance] = useState<number | null>(null)
 
-  // Provider wallet balance visibility (persisted in localStorage)
-  const [balancesVisible, setBalancesVisible] = useState(true)
+  // Provider wallet balance visibility (hidden by default, persisted in localStorage)
+  const [balancesVisible, setBalancesVisible] = useState(false)
 
   useEffect(() => {
     if (typeof window === 'undefined') return
