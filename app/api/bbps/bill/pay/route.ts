@@ -127,35 +127,41 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Verify T-PIN if provided (optional security feature)
-    if (tpin) {
-      try {
-        const { data: tpinResult, error: tpinError } = await (supabase as any).rpc('verify_retailer_tpin', {
-          p_retailer_id: user.partner_id,
-          p_tpin: tpin
-        })
+    // T-PIN is MANDATORY for every BBPS transaction.
+    if (!tpin || !/^\d{4,6}$/.test(String(tpin).trim())) {
+      const response = NextResponse.json(
+        { error: 'T-PIN is required', tpin_error: true },
+        { status: 400 }
+      )
+      return addCorsHeaders(request, response)
+    }
 
-        if (tpinError) {
-          console.log('T-PIN verification function not available, proceeding without verification:', tpinError.message)
-          // T-PIN feature not set up yet, allow transaction to proceed
-        } else if (tpinResult && !tpinResult.success) {
-          // T-PIN verification failed
-          console.log('T-PIN verification failed:', tpinResult)
-          return NextResponse.json(
-            { 
-              error: tpinResult.error || 'Invalid T-PIN',
-              tpin_error: true,
-              attempts_remaining: tpinResult.attempts_remaining,
-              locked_until: tpinResult.locked_until
-            },
-            { status: 401 }
-          )
-        } else if (tpinResult && tpinResult.success) {
-          console.log('T-PIN verified successfully for retailer:', user.partner_id)
-        }
-      } catch (tpinVerifyError: any) {
-        console.log('T-PIN verification error (feature may not be set up):', tpinVerifyError.message)
-        // Continue without T-PIN verification if the feature is not available
+    {
+      const { data: tpinResult, error: tpinError } = await (supabase as any).rpc('verify_retailer_tpin', {
+        p_retailer_id: user.partner_id,
+        p_tpin: String(tpin).trim()
+      })
+
+      if (tpinError) {
+        console.error('[BBPS Pay] T-PIN verification error:', tpinError.message)
+        const response = NextResponse.json(
+          { error: 'T-PIN verification failed. Please set your T-PIN in Settings and try again.', tpin_error: true },
+          { status: 400 }
+        )
+        return addCorsHeaders(request, response)
+      }
+
+      if (!tpinResult?.success) {
+        const response = NextResponse.json(
+          {
+            error: tpinResult?.error || 'Invalid T-PIN',
+            tpin_error: true,
+            attempts_remaining: tpinResult?.attempts_remaining,
+            locked_until: tpinResult?.locked_until
+          },
+          { status: 401 }
+        )
+        return addCorsHeaders(request, response)
       }
     }
 

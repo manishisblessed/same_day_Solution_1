@@ -1023,10 +1023,9 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
       return
     }
 
-    // Validate T-PIN format if provided
-    // T-PIN is optional if not configured for the account
-    if (tpin && tpin.length > 0 && tpin.length < 4) {
-      setTpinError('T-PIN must be at least 4 digits')
+    // T-PIN is mandatory for every BBPS transaction
+    if (!tpin || tpin.length < 4) {
+      setTpinError('T-PIN is required (4 digits)')
       return
     }
 
@@ -1474,9 +1473,9 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
       return
     }
 
-    // Validate T-PIN if provided
-    if (tpin && tpin.length > 0 && tpin.length < 4) {
-      setTpinError('T-PIN must be at least 4 digits')
+    // T-PIN is mandatory for every BBPS transaction
+    if (!tpin || tpin.length < 4) {
+      setTpinError('T-PIN is required (4 digits)')
       return
     }
 
@@ -2226,7 +2225,7 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
                 </button>
                 <button
                   onClick={payPrepaid}
-                  disabled={paying}
+                  disabled={paying || tpin.length < 4}
                   className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                 >
                   {paying ? (
@@ -2695,7 +2694,7 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
 
               <button
                 onClick={payBill}
-                disabled={paying || (tpin.length > 0 && tpin.length < 4) || (getSelectedAmount() >= 50000 && panNumber.length !== 10) || (isUPIPayment && (!upiId.trim() || !upiId.includes('@')))}
+                disabled={paying || tpin.length < 4 || (getSelectedAmount() >= 50000 && panNumber.length !== 10) || (isUPIPayment && (!upiId.trim() || !upiId.includes('@')))}
                 className="w-full px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center gap-2 font-semibold"
               >
                 {paying ? (

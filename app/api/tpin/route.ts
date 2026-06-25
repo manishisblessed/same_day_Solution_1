@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger'
-import { getCurrentUserFromRequest } from '@/lib/auth-server-request'
+import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
 import { rateLimit, RATE_LIMITS } from '@/lib/rate-limit'
 import { createClient } from '@supabase/supabase-js'
@@ -27,7 +27,7 @@ export async function OPTIONS(request: NextRequest) {
  */
 export async function GET(request: NextRequest) {
   try {
-    const user = await getCurrentUserFromRequest(request)
+    const { user } = await getCurrentUserWithFallback(request)
     
     if (!user || !user.partner_id) {
       return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
@@ -97,7 +97,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
     const { tpin, current_tpin } = body
 
-    const user = await getCurrentUserFromRequest(request)
+    const { user } = await getCurrentUserWithFallback(request)
     
     if (!user || !user.partner_id) {
       return NextResponse.json({ error: 'Authentication required' }, { status: 401 })

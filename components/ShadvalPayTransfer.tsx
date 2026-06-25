@@ -67,6 +67,7 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
   const [loadingCharges, setLoadingCharges] = useState(false)
   const [settlementStep, setSettlementStep] = useState<'select-account' | 'enter-amount' | 'confirm' | 'result'>('select-account')
   const [transferring, setTransferring] = useState(false)
+  const [tpin, setTpin] = useState('')
   // Stable idempotency key for the in-progress settlement (cleared on success)
   const settlementIdemRef = useRef<string | null>(null)
   const [transferResult, setTransferResult] = useState<TransactionRecord | null>(null)
@@ -194,6 +195,10 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
   // Execute settlement
   const handleExecuteSettlement = async () => {
     if (!selectedAccount) return
+    if (!tpin || tpin.length !== 4) {
+      setError('Enter your 4-digit TPIN to authorize this settlement')
+      return
+    }
     setError(null)
     setTransferring(true)
     if (!settlementIdemRef.current) settlementIdemRef.current = newIdempotencyKey()
@@ -207,12 +212,14 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
           amount: parseFloat(amount),
           mode: transferMode,
           narration: narration || 'Settlement-2 Transfer',
+          tpin,
         }),
       })
 
       const data = await res.json()
       if (data.success && data.transaction) {
         settlementIdemRef.current = null
+        setTpin('')
         setTransferResult(data.transaction)
         setTransactions(prev => [data.transaction, ...prev])
         setSettlementStep('result')
@@ -841,9 +848,28 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
                   )}
                 </div>
 
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Transaction PIN (TPIN)
+                  </label>
+                  <input
+                    type="password"
+                    inputMode="numeric"
+                    autoComplete="off"
+                    value={tpin}
+                    onChange={(e) => setTpin(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                    placeholder="Enter 4-digit TPIN"
+                    maxLength={4}
+                    className="w-full px-4 py-3 rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white tracking-[0.5em] text-center focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                    TPIN is required to authorize every settlement. Set it under Settings if you haven't.
+                  </p>
+                </div>
+
                 <div className="flex gap-3">
                   <button
-                    onClick={() => setSettlementStep('enter-amount')}
+                    onClick={() => { setSettlementStep('enter-amount'); setTpin('') }}
                     disabled={transferring}
                     className="flex-1 py-3 rounded-xl border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300 font-medium hover:bg-gray-50 dark:hover:bg-gray-800 transition-all"
                   >
@@ -851,7 +877,7 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
                   </button>
                   <button
                     onClick={handleExecuteSettlement}
-                    disabled={transferring}
+                    disabled={transferring || tpin.length !== 4}
                     className="flex-1 py-3 rounded-xl bg-gradient-to-r from-emerald-600 to-emerald-700 text-white font-medium shadow-md hover:shadow-lg disabled:opacity-50 transition-all flex items-center justify-center gap-2"
                   >
                     {transferring ? (
