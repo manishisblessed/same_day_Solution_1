@@ -58,12 +58,44 @@ export default function Pay2NewCCPayment() {
     operator_reference?: string
     amount?: number | string
     balance?: string
+    charge?: number
     error?: string
   } | null>(null)
+
+  // Charges preview
+  const [chargesData, setChargesData] = useState<{ base_charge: number; gst_percent: number; gst_amount: number; total_charge: number } | null>(null)
+  const [loadingCharges, setLoadingCharges] = useState(false)
 
   useEffect(() => {
     fetchBillers()
   }, [])
+
+  // Fetch charges when payment amount changes
+  useEffect(() => {
+    const amountNum = parseFloat(payAmount)
+    if (!amountNum || amountNum <= 0 || step !== 'bill-fetched') {
+      setChargesData(null)
+      return
+    }
+
+    const timer = setTimeout(async () => {
+      setLoadingCharges(true)
+      try {
+        const data = await apiFetchJson(`/api/pay2new/charges?amount=${amountNum}`)
+        if (data.success && data.charges) {
+          setChargesData(data.charges)
+        } else {
+          setChargesData(null)
+        }
+      } catch {
+        setChargesData(null)
+      } finally {
+        setLoadingCharges(false)
+      }
+    }, 500)
+
+    return () => clearTimeout(timer)
+  }, [payAmount, step])
 
   const fetchBillers = async () => {
     setBillersLoading(true)
@@ -418,6 +450,34 @@ export default function Pay2NewCCPayment() {
                   </div>
                 </div>
 
+                {/* Charges breakdown */}
+                {parseFloat(payAmount) > 0 && (
+                  <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4 space-y-2 border border-gray-200 dark:border-gray-600">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-500">Payment Amount</span>
+                      <span className="font-medium text-gray-900 dark:text-white">₹{parseFloat(payAmount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-500">
+                        Charges (incl. {chargesData?.gst_percent || 18}% GST)
+                        {loadingCharges && <Loader2 className="w-3 h-3 animate-spin inline ml-1" />}
+                      </span>
+                      <span className="font-medium text-gray-900 dark:text-white">
+                        ₹{(chargesData?.total_charge || 0).toFixed(2)}
+                      </span>
+                    </div>
+                    <div className="border-t border-gray-200 dark:border-gray-600 pt-2 flex justify-between text-sm">
+                      <span className="text-gray-700 dark:text-gray-300 font-medium">Total Wallet Debit</span>
+                      <span className="font-bold text-gray-900 dark:text-white">
+                        ₹{(parseFloat(payAmount) + (chargesData?.total_charge || 0)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-400 dark:text-gray-500 pt-1">
+                      Payment amount (₹{parseFloat(payAmount).toLocaleString('en-IN')}) is sent to biller. Only charges are deducted from your wallet.
+                    </p>
+                  </div>
+                )}
+
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                     Transaction PIN (TPIN) *
@@ -499,6 +559,12 @@ export default function Pay2NewCCPayment() {
                       <div className="flex justify-between">
                         <span className="text-sm text-gray-500">Operator Reference</span>
                         <span className="text-sm font-mono">{payResult.operator_reference}</span>
+                      </div>
+                    )}
+                    {payResult.charge != null && payResult.charge > 0 && (
+                      <div className="flex justify-between">
+                        <span className="text-sm text-gray-500">Service Charge</span>
+                        <span className="text-sm text-orange-600">₹{payResult.charge}</span>
                       </div>
                     )}
                     {payResult.balance && (
