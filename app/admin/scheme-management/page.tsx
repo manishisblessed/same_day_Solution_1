@@ -948,7 +948,7 @@ function SchemeManagementPageContent() {
                       <CreditCard className="w-4 h-4" />
                     </button>
                     <button onClick={(e) => { e.stopPropagation(); openConfigModal(scheme.id, 'payout') }}
-                      className="p-1.5 rounded-lg hover:bg-green-50 dark:hover:bg-green-900/20 text-green-600" title={`Add Settlement-1${user?.role === 'admin' ? ' (Sparkup)' : ''} Config`}>
+                      className="p-1.5 rounded-lg hover:bg-green-50 dark:hover:bg-green-900/20 text-green-600" title="Add Settlement Charges">
                       <Banknote className="w-4 h-4" />
                     </button>
                     <button onClick={(e) => { e.stopPropagation(); openConfigModal(scheme.id, 'mdr') }}
@@ -961,10 +961,6 @@ function SchemeManagementPageContent() {
                     </button>
                     <button onClick={(e) => { e.stopPropagation(); openConfigModal(scheme.id, 'aeps_settlement') }}
                       className="p-1.5 rounded-lg hover:bg-purple-50 dark:hover:bg-purple-900/20 text-purple-600" title="Add AEPS Settlement Charge">
-                      <DollarSign className="w-4 h-4" />
-                    </button>
-                    <button onClick={(e) => { e.stopPropagation(); openConfigModal(scheme.id, 'shadval_settlement') }}
-                      className="p-1.5 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-900/20 text-rose-600" title={`Add Settlement-2${user?.role === 'admin' ? ' (Shadval)' : ''} Charge`}>
                       <DollarSign className="w-4 h-4" />
                     </button>
                     <button onClick={(e) => { e.stopPropagation(); openMappingModal(scheme.id) }}
@@ -1097,7 +1093,7 @@ function SchemeManagementPageContent() {
                     {/* Settlement-1 Charges */}
                     <div>
                       <h4 className="font-semibold text-sm text-green-700 dark:text-green-400 mb-2 flex items-center gap-1">
-                        <Banknote className="w-4 h-4" /> Settlement-1 Charges{user?.role === 'admin' ? ' (Sparkup)' : ''} ({scheme.payout_charges?.length || 0})
+                        <Banknote className="w-4 h-4" /> Settlement-1 Charges (Sparkup) ({scheme.payout_charges?.length || 0})
                       </h4>
                       {scheme.payout_charges && scheme.payout_charges.length > 0 ? (
                         <div className="overflow-x-auto">
@@ -1318,7 +1314,7 @@ function SchemeManagementPageContent() {
                     {/* Settlement-2 (Shadval) Charges */}
                     <div>
                       <h4 className="font-semibold text-sm text-rose-700 dark:text-rose-400 mb-2 flex items-center gap-1">
-                        <Banknote className="w-4 h-4" /> Settlement-2 Charges{user?.role === 'admin' ? ' (Shadval)' : ''} ({scheme.shadval_settlement_charges?.length || 0})
+                        <Banknote className="w-4 h-4" /> Settlement-2 Charges (Shadval) ({scheme.shadval_settlement_charges?.length || 0})
                       </h4>
                       {scheme.shadval_settlement_charges && scheme.shadval_settlement_charges.length > 0 ? (
                         <div className="overflow-x-auto">
@@ -1481,11 +1477,11 @@ function SchemeManagementPageContent() {
               <div className="px-6 pt-5 pb-4 border-b border-gray-200 dark:border-gray-700 shrink-0">
                 <h2 className="text-lg font-bold flex items-center gap-2">
                   {configType === 'bbps' && <><CreditCard className="w-5 h-5 text-blue-600" /> {editingConfigId ? 'Edit' : 'Add'} BBPS Commission</>}
-                  {configType === 'payout' && <><Banknote className="w-5 h-5 text-green-600" /> {editingConfigId ? 'Edit' : 'Add'} {settlementTypeSelection === 'shadval_settlement' && !editingConfigId ? `Settlement-2${user?.role === 'admin' ? ' (Shadval)' : ''}` : `Settlement-1${user?.role === 'admin' ? ' (Sparkup)' : ''}`} Charge</>}
+                  {configType === 'payout' && <><Banknote className="w-5 h-5 text-green-600" /> {editingConfigId ? 'Edit' : 'Add'} Settlement Charge</>}
                   {configType === 'mdr' && <><TrendingUp className="w-5 h-5 text-orange-600" /> {editingConfigId ? 'Edit' : 'Add'} MDR Rate</>}
                   {configType === 'aeps' && <><Banknote className="w-5 h-5 text-teal-600" /> {editingConfigId ? 'Edit' : 'Add'} AEPS Commission</>}
                   {configType === 'aeps_settlement' && <><DollarSign className="w-5 h-5 text-purple-600" /> {editingConfigId ? 'Edit' : 'Add'} AEPS Settlement Charge</>}
-                  {configType === 'shadval_settlement' && <><Banknote className="w-5 h-5 text-rose-600" /> {editingConfigId ? 'Edit' : 'Add'} Settlement-2{user?.role === 'admin' ? ' (Shadval)' : ''} Charge</>}
+                  {configType === 'shadval_settlement' && <><Banknote className="w-5 h-5 text-rose-600" /> {editingConfigId ? 'Edit' : 'Add'} Settlement Charge</>}
                 </h2>
               </div>
 
@@ -1569,8 +1565,8 @@ function SchemeManagementPageContent() {
                       <label className="block text-sm font-medium mb-1">Settlement Type</label>
                       <select value={settlementTypeSelection} onChange={(e) => setSettlementTypeSelection(e.target.value as 'payout' | 'shadval_settlement')}
                         className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700">
-                        <option value="payout">Settlement-1{user?.role === 'admin' ? ' (Sparkup)' : ''}</option>
-                        <option value="shadval_settlement">Settlement-2{user?.role === 'admin' ? ' (Shadval)' : ''}</option>
+                        <option value="payout">Settlement-1 (Sparkup)</option>
+                        <option value="shadval_settlement">Settlement-2 (Shadval)</option>
                       </select>
                     </div>
                   )}
@@ -1940,7 +1936,7 @@ function SchemeManagementPageContent() {
                         className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
                     </div>
                   </div>
-                  <p className="text-xs text-gray-500">Retailer charge is deducted on Settlement-2 (ShadvalPay payout). Margins go to DT/MD/Company.</p>
+                  <p className="text-xs text-gray-500">Retailer charge is deducted on Settlement-2 (Shadval) payout. Margins go to DT/MD/Company.</p>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {[
                     { label: 'Retailer Charge (deducted)', key: 'retailer_charge', typeKey: 'retailer_charge_type' },
