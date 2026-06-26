@@ -354,6 +354,29 @@ function RazorpayTransactionsPageContent() {
     URL.revokeObjectURL(url)
   };
 
+  const downloadSampleReport = () => {
+    const headers = [
+      'ID', 'Date', 'Consumer', 'Username', 'Mode', 'Amount', 'Auth Code', 'Card',
+      'Issuing Bank', 'Card Type', 'Brand Type', 'Card Classification', 'Card Txn Type',
+      'RRN', 'Device Serial', 'Status', 'MID', 'TID', 'Ref#', 'Acquiring Bank',
+      'Receipt URL', 'Company', 'Payer',
+    ]
+    const rows = [
+      ['2606261051abc214287', '2026-06-25 16:21:28', 'SHAH M K', 'teachway_user', 'CARD', '11.00', '123456', '3730-09XX-XXXX-1234', 'HDFC BANK', 'CREDIT', 'AMEX', 'COMMERCIAL', 'CHIP', '506512345678', '3170049122', 'SETTLED', '123456789012345', '96202872', 'REF1001', 'RAZORPAY', 'https://receipt.example/abc', 'Teachway Education Private Limited', 'SHAH M K'],
+      ['2606241623def613351', '2026-06-24 21:53:04', 'KEVAL SADHU', 'teachway_user', 'CARD', '36300.00', '654321', '5554-47XX-XXXX-5678', 'ICICI BANK', 'CREDIT', 'VISA', 'CONSUMER', 'CHIP', '506598765432', '3170026068', 'SETTLED', '123456789012345', '96202867', 'REF1002', 'RAZORPAY', 'https://receipt.example/def', 'Teachway Education Private Limited', 'KEVAL SADHU'],
+    ]
+    const tsv = [headers.join('\t'), ...rows.map(r => r.join('\t'))].join('\n')
+    const blob = new Blob([tsv], { type: 'text/tab-separated-values;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'sample-razorpay-report.txt'
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  };
+
   const handleEnrichUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
@@ -1433,6 +1456,16 @@ function RazorpayTransactionsPageContent() {
                 <p className="text-sm text-gray-500 dark:text-gray-400">
                   Upload the Razorpay/Ezetap POS transaction report (tab-separated .txt/.csv). This will enrich existing transactions AND insert any missing ones (e.g. from webhook failures):
                 </p>
+                <div className="flex items-center justify-between gap-2 px-3 py-2 bg-gray-50 dark:bg-gray-900/40 rounded-lg border border-gray-200 dark:border-gray-700">
+                  <span className="text-xs text-gray-500 dark:text-gray-400">Not sure about the format?</span>
+                  <button
+                    type="button"
+                    onClick={downloadSampleReport}
+                    className="inline-flex items-center gap-1.5 text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:underline"
+                  >
+                    <Download className="w-3.5 h-3.5" /> Download sample file
+                  </button>
+                </div>
                 <div className="grid grid-cols-2 gap-2 text-xs">
                   <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-indigo-50 dark:bg-indigo-900/20 rounded-lg text-indigo-700 dark:text-indigo-400">
                     <CheckCircle2 className="w-3 h-3" /> Card Classification
