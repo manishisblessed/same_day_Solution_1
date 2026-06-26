@@ -8,7 +8,7 @@ import TurnstileWidget, { TurnstileHandle, isCaptchaEnabled } from '@/components
 import AdminSidebar from '@/components/AdminSidebar'
 import { 
   Lock, Eye, EyeOff, CheckCircle, AlertCircle, 
-  User, Mail, Shield, Save, ArrowLeft, Users, Plus, Edit, Trash2, X, IndianRupee
+  User, Mail, Shield, Save, ArrowLeft, Users, Plus, Edit, Trash2, X, IndianRupee, Key
 } from 'lucide-react'
 import { motion } from 'framer-motion'
 import { apiFetch } from '@/lib/api-client'
@@ -59,6 +59,14 @@ export default function AdminSettings() {
     phone: '',
     password: '',
   })
+
+  // Reset password modal state
+  const [showResetPwModal, setShowResetPwModal] = useState(false)
+  const [resetPwTarget, setResetPwTarget] = useState<{ id: string; email: string; name: string; role: string } | null>(null)
+  const [resetPwValue, setResetPwValue] = useState('')
+  const [resetPwConfirm, setResetPwConfirm] = useState('')
+  const [resetPwLoading, setResetPwLoading] = useState(false)
+  const [showResetPwText, setShowResetPwText] = useState(false)
 
   const canManageFinanceUsers =
     adminInfo?.admin_type === 'super_admin' ||
@@ -233,6 +241,47 @@ export default function AdminSettings() {
       fetchSubAdmins()
     } catch (error: any) {
       setMessage({ type: 'error', text: error.message || 'Failed to delete sub-admin' })
+    }
+  }
+
+  const openResetPwModal = (targetUser: { id: string; email: string; name: string }, role: string) => {
+    setResetPwTarget({ ...targetUser, role })
+    setResetPwValue('')
+    setResetPwConfirm('')
+    setShowResetPwText(false)
+    setShowResetPwModal(true)
+  }
+
+  const handleResetPassword = async () => {
+    if (!resetPwTarget) return
+    if (!resetPwValue || resetPwValue.length < 8) {
+      setMessage({ type: 'error', text: 'Password must be at least 8 characters' })
+      return
+    }
+    if (resetPwValue !== resetPwConfirm) {
+      setMessage({ type: 'error', text: 'Passwords do not match' })
+      return
+    }
+    setResetPwLoading(true)
+    setMessage(null)
+    try {
+      const response = await apiFetch('/api/admin/reset-password', {
+        method: 'POST',
+        body: JSON.stringify({
+          user_id: resetPwTarget.id,
+          user_role: resetPwTarget.role,
+          new_password: resetPwValue,
+        }),
+      })
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.error || 'Failed to reset password')
+      setMessage({ type: 'success', text: `Password reset successfully for ${resetPwTarget.email}` })
+      setShowResetPwModal(false)
+      setResetPwTarget(null)
+    } catch (error: any) {
+      setMessage({ type: 'error', text: error.message || 'Failed to reset password' })
+    } finally {
+      setResetPwLoading(false)
     }
   }
 
@@ -706,6 +755,13 @@ export default function AdminSettings() {
                             {admin.admin_type !== 'super_admin' && (
                               <div className="flex items-center justify-end gap-2">
                                 <button
+                                  onClick={() => openResetPwModal({ id: admin.id, email: admin.email, name: admin.name }, 'admin')}
+                                  className="p-2 text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-900/20 rounded transition-colors"
+                                  title="Reset Password"
+                                >
+                                  <Key className="w-4 h-4" />
+                                </button>
+                                <button
                                   onClick={() => {
                                     setEditingSubAdmin(admin)
                                     setSubAdminFormData({
@@ -794,6 +850,7 @@ export default function AdminSettings() {
                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700 dark:text-gray-300">Email</th>
                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700 dark:text-gray-300">Mobile</th>
                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700 dark:text-gray-300">Status</th>
+                        <th className="text-right py-3 px-4 text-sm font-semibold text-gray-700 dark:text-gray-300">Actions</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -813,11 +870,20 @@ export default function AdminSettings() {
                               {fu.is_active ? 'Active' : 'Inactive'}
                             </span>
                           </td>
+                          <td className="py-3 px-4 text-right">
+                            <button
+                              onClick={() => openResetPwModal({ id: fu.id, email: fu.email, name: fu.name }, 'finance_executive')}
+                              className="p-2 text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-900/20 rounded transition-colors"
+                              title="Reset Password"
+                            >
+                              <Key className="w-4 h-4" />
+                            </button>
+                          </td>
                         </tr>
                       ))}
                       {financeUsers.length === 0 && (
                         <tr>
-                          <td colSpan={4} className="py-8 text-center text-gray-500 dark:text-gray-400">
+                          <td colSpan={5} className="py-8 text-center text-gray-500 dark:text-gray-400">
                             No finance users yet. Click &quot;Add finance user&quot; to create one.
                           </td>
                         </tr>
@@ -1113,6 +1179,94 @@ export default function AdminSettings() {
                     className="btn-primary px-6 py-2 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {loading ? 'Saving...' : editingSubAdmin ? 'Update' : 'Create'}
+                  </button>
+                </div>
+              </motion.div>
+            </div>
+          )}
+
+          {/* Reset Password Modal */}
+          {showResetPwModal && resetPwTarget && (
+            <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-md w-full p-6"
+              >
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-bold text-gray-900 dark:text-white">Reset Password</h3>
+                  <button
+                    type="button"
+                    onClick={() => { setShowResetPwModal(false); setResetPwTarget(null) }}
+                    className="text-gray-400 hover:text-gray-600 p-1"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+                <div className="mb-4 space-y-1">
+                  <p className="text-sm text-gray-600 dark:text-gray-400">User: <span className="font-medium text-gray-900 dark:text-white">{resetPwTarget.name}</span></p>
+                  <p className="text-sm text-gray-600 dark:text-gray-400">Email: <span className="font-medium text-gray-900 dark:text-white">{resetPwTarget.email}</span></p>
+                </div>
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">New Password *</label>
+                    <div className="relative">
+                      <input
+                        type={showResetPwText ? 'text' : 'password'}
+                        value={resetPwValue}
+                        onChange={(e) => setResetPwValue(e.target.value)}
+                        className="w-full pl-3 pr-11 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+                        minLength={8}
+                        placeholder="Min. 8 characters"
+                        autoComplete="new-password"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowResetPwText(!showResetPwText)}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 rounded-md"
+                      >
+                        {showResetPwText ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Confirm Password *</label>
+                    <input
+                      type={showResetPwText ? 'text' : 'password'}
+                      value={resetPwConfirm}
+                      onChange={(e) => setResetPwConfirm(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+                      minLength={8}
+                      placeholder="Confirm new password"
+                      autoComplete="new-password"
+                    />
+                  </div>
+                  {message && (
+                    <div className={`p-3 rounded-lg flex items-center gap-2 text-sm ${
+                      message.type === 'success'
+                        ? 'bg-green-50 dark:bg-green-900/20 text-green-800 dark:text-green-400'
+                        : 'bg-red-50 dark:bg-red-900/20 text-red-800 dark:text-red-400'
+                    }`}>
+                      {message.type === 'success' ? <CheckCircle className="w-4 h-4 flex-shrink-0" /> : <AlertCircle className="w-4 h-4 flex-shrink-0" />}
+                      <span className="font-medium">{message.text}</span>
+                    </div>
+                  )}
+                </div>
+                <div className="flex justify-end gap-2 mt-4">
+                  <button
+                    type="button"
+                    onClick={() => { setShowResetPwModal(false); setResetPwTarget(null) }}
+                    className="px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleResetPassword}
+                    disabled={resetPwLoading}
+                    className="px-4 py-2 rounded-lg text-white bg-purple-600 hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {resetPwLoading ? 'Resetting...' : 'Reset Password'}
                   </button>
                 </div>
               </motion.div>

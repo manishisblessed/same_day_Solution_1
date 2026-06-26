@@ -65,7 +65,8 @@ async function handleResetPassword(request: NextRequest) {
       )
     }
 
-    if (!['retailer', 'distributor', 'master_distributor'].includes(user_role)) {
+    const VALID_ROLES = ['retailer', 'distributor', 'master_distributor', 'admin', 'finance_executive', 'partner']
+    if (!VALID_ROLES.includes(user_role)) {
       return NextResponse.json(
         { error: 'Invalid user_role' },
         { status: 400 }
@@ -79,30 +80,36 @@ async function handleResetPassword(request: NextRequest) {
       )
     }
 
-    // Get the user to reset password for
-    let tableName = ''
-    switch (user_role) {
-      case 'retailer':
-        tableName = 'retailers'
-        break
-      case 'distributor':
-        tableName = 'distributors'
-        break
-      case 'master_distributor':
-        tableName = 'master_distributors'
-        break
+    // Resolve the profile table and lookup key based on role
+    const roleConfig: Record<string, { table: string; lookupField: string }> = {
+      retailer: { table: 'retailers', lookupField: 'partner_id' },
+      distributor: { table: 'distributors', lookupField: 'partner_id' },
+      master_distributor: { table: 'master_distributors', lookupField: 'partner_id' },
+      admin: { table: 'admin_users', lookupField: 'id' },
+      finance_executive: { table: 'finance_users', lookupField: 'id' },
+      partner: { table: 'partners', lookupField: 'id' },
     }
+
+    const { table: tableName, lookupField } = roleConfig[user_role]
 
     const { data: targetUser, error: userError } = await supabase
       .from(tableName)
-      .select('email, partner_id')
-      .eq('partner_id', user_id)
+      .select('email')
+      .eq(lookupField, user_id)
       .single()
 
     if (userError || !targetUser) {
       return NextResponse.json(
         { error: 'User not found' },
         { status: 404 }
+      )
+    }
+
+    // Prevent admin from resetting their own password via this route
+    if (targetUser.email.toLowerCase() === admin.email.toLowerCase()) {
+      return NextResponse.json(
+        { error: 'Use the Change Password page to update your own password' },
+        { status: 400 }
       )
     }
 
@@ -136,6 +143,16 @@ async function handleResetPassword(request: NextRequest) {
         { error: updateError.message || 'Failed to reset password' },
         { status: 500 }
       )
+    }
+
+    // Clear login lockout so the user can log in immediately
+    try {
+      await supabase.from('login_attempts').delete()
+        .eq('email', targetUser.email.toLowerCase())
+        .eq('success', false)
+        .gte('created_at', new Date(Date.now() - 15 * 60 * 1000).toISOString())
+    } catch {
+      // non-fatal — lockout will expire naturally
     }
 
     // Get IP address and user agent for audit
