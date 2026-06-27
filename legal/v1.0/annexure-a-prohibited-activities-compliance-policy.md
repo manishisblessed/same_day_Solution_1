@@ -1,10 +1,10 @@
 # ANNEXURE A — PROHIBITED ACTIVITIES & COMPLIANCE POLICY
 
 **Document Reference:** Annexure A / v1.0  
-**Effective Date:** [Effective Date]  
+**Effective Date:** _______________ (filled on execution)  
 **Issuing Entity:** SAMEDAY SOLUTIONS PRIVATE LIMITED  
 **Registered Office:** TF-11B, 3rd Floor, Eros Metro Mall, Dwarka Sector-14, New Delhi – 110078  
-**CIN:** [CIN] | **PAN:** [Company PAN] | **GSTIN:** [Company GSTIN]
+**CIN:** U66190DL2025PTC455028 | **PAN:** ABRCS2826B | **GSTIN:** 07ABRCS2826B2ZA
 
 **Applicable To:** All Channel Partners including Retailers, Distributors, Master Distributors, and Partners (API)
 

@@ -1,10 +1,10 @@
 # ANNEXURE C — FEE & SETTLEMENT SCHEDULE
 
 **Document Reference:** Annexure C / v1.0  
-**Effective Date:** [Effective Date]  
+**Effective Date:** _______________ (filled on execution)  
 **Issuing Entity:** SAMEDAY SOLUTIONS PRIVATE LIMITED  
 **Registered Office:** TF-11B, 3rd Floor, Eros Metro Mall, Dwarka Sector-14, New Delhi – 110078  
-**CIN:** [CIN] | **PAN:** [Company PAN] | **GSTIN:** [Company GSTIN]
+**CIN:** U66190DL2025PTC455028 | **PAN:** ABRCS2826B | **GSTIN:** 07ABRCS2826B2ZA
 
 **Applicable To:** All Channel Partners onboarded under the Channel Partner Agreement
 
@@ -44,7 +44,7 @@
 
 ### Section 3 — General Commission Principles
 
-**3.1** Commission rates are configurable by partner role, volume tier, and promotional schemes. The tables below reflect standard rate **placeholders**; partner-specific rates shall be confirmed in the onboarding approval letter and partner portal.
+**3.1** Commission rates are configurable by partner role, volume tier, and promotional schemes. The values in the tables below are **standard default (indicative) rates** and may be revised, or superseded by partner-specific rates, in the onboarding approval letter and partner portal. All AEPS, DMT, BBPS, and UPI rates are subject to NPCI / RBI / sponsor-bank caps prevailing from time to time and shall automatically stand modified to remain compliant.
 
 **3.2** Commission is earned only on successfully settled, non-reversed, and non-fraudulent transactions.
 
@@ -54,70 +54,70 @@
 
 ---
 
-### Section 4 — Retailer Commission Schedule (Placeholders)
+### Section 4 — Retailer Commission Schedule (Default / Indicative)
 
 | Service | Transaction Type | Commission to Retailer | Unit | Remarks |
 |---------|------------------|------------------------|------|---------|
-| **POS** | Debit Card | [POS_DC_COMMISSION] | % of TPV / flat per txn | Min txn: [MIN_POS_TXN] |
-| **POS** | Credit Card | [POS_CC_COMMISSION] | % of TPV / flat per txn | MDR as per card network |
-| **POS** | RuPay | [POS_RUPAY_COMMISSION] | % of TPV / flat per txn | [Remarks] |
-| **AEPS** | Cash Withdrawal | [AEPS_CW_COMMISSION] | Flat per txn | Subject to NPCI caps |
-| **AEPS** | Cash Deposit | [AEPS_CD_COMMISSION] | Flat per txn | [Remarks] |
-| **AEPS** | Balance Enquiry | [AEPS_BE_COMMISSION] | Flat per txn | May be nominal/zero |
-| **DMT** | IMPS / NEFT Transfer | [DMT_COMMISSION] | Flat / % of amount | Tiered by txn value |
-| **BBPS** | Bill Payment | [BBPS_COMMISSION] | Flat per txn | Biller-specific variance |
-| **Wallet Load** | Load Transaction | [WALLET_LOAD_COMMISSION] | Flat / % | [Remarks] |
-| **QR** | UPI Collection | [QR_UPI_COMMISSION] | Flat / % of TPV | [Remarks] |
+| **POS** | Debit Card | 0.40% | % of TPV | Min txn: ₹100 |
+| **POS** | Credit Card | 0.90% | % of TPV | MDR as per card network |
+| **POS** | RuPay | 0.30% | % of TPV | Subject to scheme MDR |
+| **AEPS** | Cash Withdrawal | ₹4.00 | Flat per txn | Subject to NPCI caps |
+| **AEPS** | Cash Deposit | ₹3.00 | Flat per txn | Subject to NPCI caps |
+| **AEPS** | Balance Enquiry | ₹1.00 | Flat per txn | May be nominal/zero |
+| **DMT** | IMPS / NEFT Transfer | 0.40% (min ₹5) | % of amount | Tiered by txn value |
+| **BBPS** | Bill Payment | ₹2.00 | Flat per txn | Biller-specific variance |
+| **Wallet Load** | Load Transaction | 0.10% | % of amount | — |
+| **QR** | UPI Collection | Nil | — | UPI P2M MDR is zero per NPCI |
 | **Settlement** | Standard T+1 | Included in service MDR | — | No separate commission |
-| **Instant Settlement** | Same-day credit | See Section 8 | Fee-based | Eligibility required |
+| **Instant Settlement** | Same-day credit | See Section 9 | Fee-based | Eligibility required |
 
 ---
 
-### Section 5 — Distributor Override Commission (Placeholders)
+### Section 5 — Distributor Override Commission (Default / Indicative)
 
 | Service | Override on Downline Volume | Unit | Conditions |
 |---------|----------------------------|------|------------|
-| **POS** | [DIST_POS_OVERRIDE] | % of downline TPV / flat | Active supervision duties met |
-| **AEPS** | [DIST_AEPS_OVERRIDE] | Flat per downline txn | [Remarks] |
-| **DMT** | [DIST_DMT_OVERRIDE] | Flat / % | [Remarks] |
-| **BBPS** | [DIST_BBPS_OVERRIDE] | Flat per txn | [Remarks] |
-| **Wallet Load** | [DIST_WALLET_OVERRIDE] | Flat / % | [Remarks] |
-| **QR** | [DIST_QR_OVERRIDE] | Flat / % | [Remarks] |
-| **New Retailer Bonus** | [DIST_ONBOARD_BONUS] | One-time per activated retailer | Subject to min volume criteria |
+| **POS** | 0.05% | % of downline TPV | Active supervision duties met |
+| **AEPS** | ₹0.50 | Flat per downline txn | Subject to NPCI caps |
+| **DMT** | 0.05% | % of downline amount | — |
+| **BBPS** | ₹0.25 | Flat per txn | — |
+| **Wallet Load** | 0.02% | % of amount | — |
+| **QR** | ₹0.10 | Flat per settled txn | — |
+| **New Retailer Bonus** | ₹100 | One-time per activated retailer | Subject to min volume criteria |
 
 **5.1** Override commission is payable only when the Distributor's downline Retailer transaction settles successfully and the Distributor is in good compliance standing.
 
 ---
 
-### Section 6 — Master Distributor Override Commission (Placeholders)
+### Section 6 — Master Distributor Override Commission (Default / Indicative)
 
 | Service | MD Override (Full Tree) | Unit | Conditions |
 |---------|-------------------------|------|------------|
-| **POS** | [MD_POS_OVERRIDE] | % of network TPV | Minimum network volume: [MD_MIN_VOLUME] |
-| **AEPS** | [MD_AEPS_OVERRIDE] | Flat per txn | [Remarks] |
-| **DMT** | [MD_DMT_OVERRIDE] | Flat / % | [Remarks] |
-| **BBPS** | [MD_BBPS_OVERRIDE] | Flat per txn | [Remarks] |
-| **Wallet Load** | [MD_WALLET_OVERRIDE] | Flat / % | [Remarks] |
-| **QR** | [MD_QR_OVERRIDE] | Flat / % | [Remarks] |
-| **Distributor Onboarding Bonus** | [MD_DIST_BONUS] | One-time per activated distributor | [Remarks] |
+| **POS** | 0.03% | % of network TPV | Minimum network volume: ₹10,00,000 / month |
+| **AEPS** | ₹0.25 | Flat per txn | Subject to NPCI caps |
+| **DMT** | 0.03% | % of network amount | — |
+| **BBPS** | ₹0.15 | Flat per txn | — |
+| **Wallet Load** | 0.01% | % of amount | — |
+| **QR** | ₹0.05 | Flat per settled txn | — |
+| **Distributor Onboarding Bonus** | ₹250 | One-time per activated distributor | — |
 
 **6.1** MD override is calculated on the entire downline tree (Distributors + Retailers) unless otherwise specified in the MD approval letter.
 
 ---
 
-### Section 7 — Partner (API) Fee Schedule (Placeholders)
+### Section 7 — Partner (API) Fee Schedule (Default / Indicative)
 
 | Service | API Partner Rate | Unit | Notes |
 |---------|------------------|------|-------|
-| **DMT** | [API_DMT_FEE] | Flat / % per txn | Volume tiers available |
-| **BBPS** | [API_BBPS_FEE] | Flat per txn | [Remarks] |
-| **Wallet Load** | [API_WALLET_FEE] | Flat / % | [Remarks] |
-| **QR** | [API_QR_FEE] | Flat / % | [Remarks] |
-| **Settlement** | [API_SETTLEMENT_FEE] | Per settlement / % | T+1 standard |
-| **Instant Settlement** | [API_INSTANT_FEE] | % of settled amount | See Section 8 |
-| **Monthly Platform Fee** | [API_PLATFORM_FEE] | Fixed monthly | Waived for volume > [API_WAIVER_VOLUME] |
+| **DMT** | 0.35% | % per txn | Volume tiers available |
+| **BBPS** | ₹1.50 | Flat per txn | — |
+| **Wallet Load** | 0.08% | % of amount | — |
+| **QR** | Nil | — | UPI P2M MDR is zero per NPCI |
+| **Settlement** | Included | Per settlement | T+1 standard |
+| **Instant Settlement** | 0.30% | % of settled amount | See Section 9 |
+| **Monthly Platform Fee** | ₹2,000 | Fixed monthly | Waived for monthly volume > ₹50,00,000 |
 
-**7.1** API Partners may be subject to setup fee of [API_SETUP_FEE] and annual maintenance fee of [API_AMC_FEE] as specified in the API integration agreement.
+**7.1** API Partners may be subject to a setup fee of ₹10,000 and an annual maintenance fee of ₹6,000 as specified in the API integration agreement.
 
 ---
 
@@ -131,19 +131,19 @@
 
 | Service | Cut-Off Time (Day T) | Settlement Day | Notes |
 |---------|----------------------|----------------|-------|
-| **POS** | [POS_CUTOFF] IST | T+1 Business Day | Batch closure per acquirer |
-| **AEPS** | [AEPS_CUTOFF] IST | T+1 Business Day | NPCI settlement cycle |
-| **DMT** | [DMT_CUTOFF] IST | T+1 Business Day | IMPS/NEFT window dependent |
-| **BBPS** | [BBPS_CUTOFF] IST | T+1 Business Day | Biller confirmation required |
-| **Wallet Load** | [WALLET_CUTOFF] IST | T+1 Business Day | [Remarks] |
-| **QR / UPI** | [QR_CUTOFF] IST | T+1 Business Day | UPI settlement cycle |
-| **Commission Payout** | [COMM_CUTOFF] IST | T+1 Business Day | Aggregated with settlement or separate |
+| **POS** | 11:00 PM IST | T+1 Business Day | Batch closure per acquirer |
+| **AEPS** | 10:30 PM IST | T+1 Business Day | NPCI settlement cycle |
+| **DMT** | 8:00 PM IST | T+1 Business Day | IMPS/NEFT window dependent |
+| **BBPS** | 9:00 PM IST | T+1 Business Day | Biller confirmation required |
+| **Wallet Load** | 11:00 PM IST | T+1 Business Day | — |
+| **QR / UPI** | 11:00 PM IST | T+1 Business Day | UPI settlement cycle |
+| **Commission Payout** | 11:00 PM IST | T+1 Business Day | Aggregated with settlement or separate |
 
 **8.3** Transactions post cut-off shall roll into the next settlement cycle (T+2 for transactions after T cut-off).
 
 **8.4** SAMEDAY shall initiate NEFT/IMPS/RTGS credit to the Channel Partner's verified bank account registered in DOC-1.
 
-**8.5** Settlement reports shall be available on the partner portal by [REPORT_TIME] IST on the settlement day.
+**8.5** Settlement reports shall be available on the partner portal by 10:00 AM IST on the settlement day.
 
 ---
 
@@ -151,7 +151,7 @@
 
 **9.1 Eligibility.** Instant Settlement is available to Channel Partners who:
 
-**(a)** Have completed minimum [INSTANT_MIN_DAYS] days of active operations;
+**(a)** Have completed minimum 30 days of active operations;
 
 **(b)** Maintain compliance rating of Low or Medium risk;
 
@@ -159,17 +159,17 @@
 
 **(d)** Opt in via partner portal and accept instant settlement fees;
 
-**(e)** Meet minimum monthly volume threshold of [INSTANT_MIN_VOLUME] (if applicable).
+**(e)** Meet minimum monthly volume threshold of ₹50,000 (if applicable).
 
 **9.2 Instant Settlement Fees (Placeholders):**
 
 | Tier | Eligible Services | Fee Structure | Maximum Daily Instant Limit |
 |------|-------------------|---------------|----------------------------|
-| **Tier 1 — Retailer** | POS, QR, Wallet | [INSTANT_FEE_T1]% of amount or ₹[INSTANT_FLAT_T1] per txn, whichever is higher | ₹[INSTANT_LIMIT_T1] |
-| **Tier 2 — Distributor / MD** | POS, QR, Wallet, BBPS | [INSTANT_FEE_T2]% or ₹[INSTANT_FLAT_T2] per txn | ₹[INSTANT_LIMIT_T2] |
-| **Tier 3 — API Partner** | QR, Wallet, DMT | [INSTANT_FEE_T3]% or ₹[INSTANT_FLAT_T3] per txn | ₹[INSTANT_LIMIT_T3] |
+| **Tier 1 — Retailer** | POS, QR, Wallet | 0.30% of amount or ₹5 per txn, whichever is higher | ₹50,000 |
+| **Tier 2 — Distributor / MD** | POS, QR, Wallet, BBPS | 0.25% or ₹5 per txn | ₹2,00,000 |
+| **Tier 3 — API Partner** | QR, Wallet, DMT | 0.20% or ₹4 per txn | ₹5,00,000 |
 
-**9.3** Instant Settlement requests received before [INSTANT_CUTOFF] IST on a Business Day shall be processed same day subject to bank/NPCI availability. Requests after cut-off roll to next Business Day.
+**9.3** Instant Settlement requests received before 9:00 PM IST on a Business Day shall be processed same day subject to bank/NPCI availability. Requests after cut-off roll to next Business Day.
 
 **9.4** SAMEDAY may suspend Instant Settlement facility without notice if fraud indicators, velocity breaches, or regulatory concerns arise.
 
@@ -179,13 +179,13 @@
 
 ### Section 10 — Minimum Payout Threshold
 
-**10.1** Standard Settlement (T+1): SAMEDAY shall process settlement only when the **Net Settlement Amount** meets or exceeds the minimum payout threshold of **₹[MIN_PAYOUT_AMOUNT]** (placeholder: e.g., ₹100 / ₹500 / ₹1,000 as configured per role).
+**10.1** Standard Settlement (T+1): SAMEDAY shall process settlement only when the **Net Settlement Amount** meets or exceeds the minimum payout threshold of **₹500** (as configured per role; may be revised in the partner portal).
 
 **10.2** Amounts below the minimum threshold shall be carried forward and aggregated with subsequent days' earnings until the threshold is met.
 
-**10.3** Upon termination of the Channel Partner Agreement, SAMEDAY shall remit any remaining balance (including amounts below threshold) after deducting outstanding penalties, chargebacks, and holdbacks, within [FINAL_SETTLEMENT_DAYS] Business Days of account closure, subject to compliance clearance.
+**10.3** Upon termination of the Channel Partner Agreement, SAMEDAY shall remit any remaining balance (including amounts below threshold) after deducting outstanding penalties, chargebacks, and holdbacks, within seven (7) Business Days of account closure, subject to compliance clearance and the post-termination chargeback withholding window of one hundred eighty (180) days.
 
-**10.4** Minimum payout threshold may be waived for Instant Settlement requests where a separate minimum of ₹[INSTANT_MIN_PAYOUT] applies.
+**10.4** Minimum payout threshold may be waived for Instant Settlement requests where a separate minimum of ₹100 applies.
 
 ---
 
@@ -193,17 +193,17 @@
 
 **11.1** SAMEDAY may withhold settlement amounts for:
 
-**(a)** Pending chargebacks and customer disputes (up to [CHARGEBACK_HOLD_DAYS] days);
+**(a)** Pending chargebacks and customer disputes (up to one hundred twenty (120) days);
 
 **(b)** Fraud investigation (up to ninety (90) days or longer if law enforcement involved);
 
 **(c)** Regulatory direction;
 
-**(d)** Security deposit requirements for high-risk partners: ₹[SECURITY_DEPOSIT_AMOUNT].
+**(d)** Security deposit requirements for high-risk partners: ₹10,000 (or higher as per risk assessment).
 
 **11.2** Chargeback losses shall be debited from future settlements or recovered per Annexure A, Section 6.
 
-**11.3** A rolling reserve of [RESERVE_PERCENT]% of TPV may apply to new partners for the first [RESERVE_PERIOD] days.
+**11.3** A rolling reserve of 5% of TPV may apply to new partners for the first ninety (90) days.
 
 ---
 
@@ -240,13 +240,13 @@
 
 **13.1** Commission paid to Channel Partners is subject to GST as applicable. Channel Partners shall provide valid GSTIN and issue tax invoices/comply with reverse charge mechanism as per law.
 
-**13.2** SAMEDAY may deduct TDS under Section 194H or other applicable provisions at [TDS_RATE]% and issue Form 16A.
+**13.2** SAMEDAY may deduct TDS under Section 194H or other applicable provisions at 2% (Section 194H rate w.e.f. 01.10.2024, as amended from time to time) and issue Form 16A.
 
 **13.3** Service charges and penalties charged by SAMEDAY shall be exclusive of GST; GST shall be added at applicable rate.
 
 ### Section 14 — Invoicing
 
-**14.1** Channel Partners shall upload monthly commission invoices on the partner portal by the [INVOICE_DUE_DAY] of the following month for commission paid in the preceding month.
+**14.1** Channel Partners shall upload monthly commission invoices on the partner portal by the 7th of the following month for commission paid in the preceding month.
 
 **14.2** Failure to submit invoices may delay commission disbursement for subsequent periods until compliance is restored.
 
@@ -254,9 +254,9 @@
 
 **15.1** Channel Partners shall reconcile settlement statements within seven (7) Business Days of receipt.
 
-**15.2** Disputes must be raised in writing via [Settlement Dispute Email] with transaction references within fifteen (15) days of settlement date. Late disputes may not be entertained except for proven system errors.
+**15.2** Disputes must be raised in writing via settlements@samedaysolution.in with transaction references within fifteen (15) days of settlement date. Late disputes may not be entertained except for proven system errors.
 
-**15.3** SAMEDAY shall investigate disputes within [DISPUTE_RESOLUTION_DAYS] Business Days and credit/debit adjustments in the next settlement cycle if validated.
+**15.3** SAMEDAY shall investigate disputes within seven (7) Business Days and credit/debit adjustments in the next settlement cycle if validated.
 
 ---
 
@@ -280,20 +280,21 @@
 
 ## PART VIII — SUMMARY TABLE — KEY FINANCIAL PARAMETERS
 
-| Parameter | Value (Placeholder) |
-|-----------|---------------------|
+| Parameter | Value (Default / Indicative) |
+|-----------|------------------------------|
 | Standard Settlement Cycle | T+1 Business Day |
-| POS Cut-Off | [POS_CUTOFF] IST |
-| AEPS Cut-Off | [AEPS_CUTOFF] IST |
-| DMT Cut-Off | [DMT_CUTOFF] IST |
-| BBPS Cut-Off | [BBPS_CUTOFF] IST |
-| QR Cut-Off | [QR_CUTOFF] IST |
-| Instant Settlement Cut-Off | [INSTANT_CUTOFF] IST |
-| Minimum Payout (T+1) | ₹[MIN_PAYOUT_AMOUNT] |
-| Minimum Payout (Instant) | ₹[INSTANT_MIN_PAYOUT] |
-| Instant Settlement Fee (Retailer) | [INSTANT_FEE_T1]% / ₹[INSTANT_FLAT_T1] |
-| TDS Rate | [TDS_RATE]% |
-| Security Deposit (if applicable) | ₹[SECURITY_DEPOSIT_AMOUNT] |
+| POS Cut-Off | 11:00 PM IST |
+| AEPS Cut-Off | 10:30 PM IST |
+| DMT Cut-Off | 8:00 PM IST |
+| BBPS Cut-Off | 9:00 PM IST |
+| QR Cut-Off | 11:00 PM IST |
+| Instant Settlement Cut-Off | 9:00 PM IST |
+| Minimum Payout (T+1) | ₹500 |
+| Minimum Payout (Instant) | ₹100 |
+| Instant Settlement Fee (Retailer) | 0.30% / ₹5 (whichever higher) |
+| TDS Rate | 2% (Section 194H) |
+| Security Deposit (if applicable) | ₹10,000 |
+| Device Recovery Fee (per Device) | ₹16,000 + GST |
 
 ---
 

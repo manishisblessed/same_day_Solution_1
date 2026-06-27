@@ -1,8 +1,8 @@
 # CHANNEL PARTNER ONBOARDING FORM
 
 **Document Reference:** DOC-1 / v1.0  
-**Effective Date:** [Effective Date]  
-**Governing Agreement:** Channel Partner Agreement dated [Agreement Date]
+**Effective Date:** _______________ (filled on execution)  
+**Governing Agreement:** Master Channel Partner Agreement (SDS-MCPA / v1.0) dated _______________
 
 ---
 
@@ -12,12 +12,12 @@
 |-------|---------|
 | **Legal Name** | SAMEDAY SOLUTIONS PRIVATE LIMITED |
 | **Registered Office** | TF-11B, 3rd Floor, Eros Metro Mall, Dwarka Sector-14, New Delhi – 110078 |
-| **CIN** | [CIN] |
-| **Company PAN** | [Company PAN] |
-| **Company GSTIN** | [Company GSTIN] |
-| **Contact Email** | [Company Email] |
-| **Contact Phone** | [Company Phone] |
-| **Website** | [Company Website] |
+| **CIN** | U66190DL2025PTC455028 |
+| **Company PAN** | ABRCS2826B |
+| **Company GSTIN** | 07ABRCS2826B2ZA |
+| **Contact Email** | info@samedaysolution.in |
+| **Contact Phone** | +91-7090601025 |
+| **Website** | https://samedaysolution.in/ |
 
 ---
 

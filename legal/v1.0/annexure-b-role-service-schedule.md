@@ -1,10 +1,10 @@
 # ANNEXURE B — ROLE & SERVICE SCHEDULE
 
 **Document Reference:** Annexure B / v1.0  
-**Effective Date:** [Effective Date]  
+**Effective Date:** _______________ (filled on execution)  
 **Issuing Entity:** SAMEDAY SOLUTIONS PRIVATE LIMITED  
 **Registered Office:** TF-11B, 3rd Floor, Eros Metro Mall, Dwarka Sector-14, New Delhi – 110078  
-**CIN:** [CIN] | **PAN:** [Company PAN] | **GSTIN:** [Company GSTIN]
+**CIN:** U66190DL2025PTC455028 | **PAN:** ABRCS2826B | **GSTIN:** 07ABRCS2826B2ZA
 
 **Applicable To:** All Channel Partners onboarded under the Channel Partner Agreement
 
@@ -16,7 +16,7 @@
 
 **1.1** This Annexure B ("**Role & Service Schedule**") defines the roles, responsibilities, service entitlements, operational obligations, and inter-partner relationships within the SAMEDAY channel partner network.
 
-**1.2** This Schedule forms an integral part of the Channel Partner Agreement dated [Agreement Date] between SAMEDAY SOLUTIONS PRIVATE LIMITED ("**SAMEDAY**") and the Channel Partner identified in DOC-1.
+**1.2** This Schedule forms an integral part of the Master Channel Partner Agreement (SDS-MCPA / v1.0) dated _______________ between SAMEDAY SOLUTIONS PRIVATE LIMITED ("**SAMEDAY**") and the Channel Partner identified in DOC-1.
 
 **1.3** In the event of conflict between this Schedule and the principal agreement, the order of precedence shall be: (a) regulatory mandate; (b) principal agreement; (c) this Schedule; (d) operational circulars.
 

@@ -823,7 +823,7 @@ In this Agreement, unless the context otherwise requires, the following terms sh
 |-------|---------|
 | **Name** | ________________________________ |
 | **Designation** | Grievance Officer |
-| **Email** | grievance@samedaysolutions.in |
+| **Email** | grievance@samedaysolution.in |
 | **Phone** | ________________________________ |
 | **Address** | TF-11B, 3rd Floor, Eros Metro Mall, Dwarka Sector-14, New Delhi – 110078 |
 

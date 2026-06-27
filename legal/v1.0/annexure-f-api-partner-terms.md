@@ -81,7 +81,7 @@ Registered Office: TF-11B, 3rd Floor, Eros Metro Mall, Dwarka Sector-14, New Del
    (d) Never transmit secrets via unencrypted channels;
    (e) Use separate credentials for sandbox and production.
 
-4.3 The Partner must report suspected or actual credential compromise to **security@samedaysolutions.in** within **one (1) hour** of discovery.
+4.3 The Partner must report suspected or actual credential compromise to **security@samedaysolution.in** within **one (1) hour** of discovery.
 
 4.4 The Company may immediately revoke, rotate, or suspend API Credentials upon security concern, breach, or Agreement violation without liability.
 
@@ -335,7 +335,7 @@ Registered Office: TF-11B, 3rd Floor, Eros Metro Mall, Dwarka Sector-14, New Del
 
 ## 19. SUPPORT AND INCIDENT MANAGEMENT
 
-19.1 API support is available via **api-support@samedaysolutions.in** during Business Hours.
+19.1 API support is available via **api-support@samedaysolution.in** during Business Hours.
 
 19.2 Severity definitions:
 
@@ -348,7 +348,7 @@ Registered Office: TF-11B, 3rd Floor, Eros Metro Mall, Dwarka Sector-14, New Del
 
 19.3 Response targets are best-effort and **not SLA commitments** unless Enterprise SLA is signed.
 
-19.4 Security incidents must be reported to **security@samedaysolutions.in** immediately.
+19.4 Security incidents must be reported to **security@samedaysolution.in** immediately.
 
 ---
 

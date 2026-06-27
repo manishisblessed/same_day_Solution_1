@@ -25,9 +25,9 @@ This Notice is issued in compliance with the **DPDP Act, 2023**, and shall be re
 |-------|---------|
 | **Legal Entity** | SAMEDAY SOLUTIONS PRIVATE LIMITED |
 | **Registered Address** | TF-11B, 3rd Floor, Eros Metro Mall, Dwarka Sector-14, New Delhi – 110078 |
-| **Privacy / Grievance Email** | privacy@samedaysolutions.in |
-| **Grievance Email** | grievance@samedaysolutions.in |
-| **Website** | www.samedaysolutions.in |
+| **Privacy / Grievance Email** | privacy@samedaysolution.in |
+| **Grievance Email** | grievance@samedaysolution.in |
+| **Website** | https://samedaysolution.in/ |
 
 ---
 
@@ -149,7 +149,7 @@ Cross-border transfer shall occur only where permitted under Applicable Law and 
 
 ## 9. DATA BREACH NOTIFICATION — 24 HOURS
 
-9.1 Any known or suspected personal data breach affecting Company systems or data shared with the Company must be reported by the Agent to **privacy@samedaysolutions.in** within **twenty-four (24) hours** of discovery.
+9.1 Any known or suspected personal data breach affecting Company systems or data shared with the Company must be reported by the Agent to **privacy@samedaysolution.in** within **twenty-four (24) hours** of discovery.
 
 9.2 Report must include: nature of breach, categories of data affected, approximate number of individuals affected, likely consequences, and remedial measures taken.
 
@@ -171,7 +171,7 @@ Subject to Applicable Law and verification of identity, Data Principals may have
 | **Grievance Redressal** | Lodge complaint with Our Grievance Officer |
 | **Nomination** | Nominate another individual to exercise rights in case of death/incapacity (as per DPDP rules) |
 
-Requests may be submitted to **privacy@samedaysolutions.in** or the Grievance Officer. We shall respond within timelines prescribed under the DPDP Act.
+Requests may be submitted to **privacy@samedaysolution.in** or the Grievance Officer. We shall respond within timelines prescribed under the DPDP Act.
 
 Certain requests may be declined where retention is mandated by PMLA, RBI, tax, or ongoing legal proceedings.
 
@@ -185,8 +185,8 @@ In accordance with the DPDP Act, 2023, and IT Act grievance requirements:
 |-------|---------|
 | **Name** | ________________________________ |
 | **Designation** | Grievance Officer & Data Protection Contact |
-| **Email** | grievance@samedaysolutions.in |
-| **Alternate Email** | privacy@samedaysolutions.in |
+| **Email** | grievance@samedaysolution.in |
+| **Alternate Email** | privacy@samedaysolution.in |
 | **Phone** | ________________________________ |
 | **Address** | TF-11B, 3rd Floor, Eros Metro Mall, Dwarka Sector-14, New Delhi – 110078 |
 | **Working Hours** | Monday to Friday, 10:00 AM – 6:00 PM IST (excluding public holidays) |

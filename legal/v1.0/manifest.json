@@ -4,15 +4,15 @@
   "company": {
     "legalName": "SAMEDAY SOLUTIONS PRIVATE LIMITED",
     "registeredOffice": "TF-11B, 3rd Floor, Eros Metro Mall, Dwarka Sector-14, New Delhi – 110078, India",
-    "cin": "[CIN]",
-    "pan": "[Company PAN]",
-    "gstin": "[Company GSTIN]",
-    "email": "[Company Email]",
-    "website": "[Website]",
+    "cin": "U66190DL2025PTC455028",
+    "pan": "ABRCS2826B",
+    "gstin": "07ABRCS2826B2ZA",
+    "email": "info@samedaysolution.in",
+    "website": "https://samedaysolution.in/",
     "grievanceOfficer": {
-      "name": "[Grievance Officer Name]",
-      "email": "[grievance@company.com]",
-      "phone": "[Helpline Number]"
+      "name": "Manish Kumar",
+      "email": "grievance@samedaysolution.in",
+      "phone": "+91-7090601025"
     }
   },
   "governingLaw": "Laws of India",
@@ -30,6 +30,16 @@
       "order": 1
     },
     {
+      "id": "doc-3",
+      "fileName": "doc-3-master-channel-partner-agreement.md",
+      "title": "Master Channel Partner Agreement (Full & Final)",
+      "shortTitle": "Master Channel Partner Agreement",
+      "description": "Consolidated, execution-ready master agreement covering all services including EDC card acquiring, settlement, chargebacks, device, compliance, data protection, IP, anti-bribery, and dispute resolution.",
+      "roles": ["retailer", "distributor", "master_distributor", "partner"],
+      "requiredForOnboarding": true,
+      "order": 2
+    },
+    {
       "id": "doc-2",
       "fileName": "doc-2-master-service-agreement.md",
       "title": "Channel Partner Master Service Agreement",
@@ -37,7 +47,7 @@
       "description": "Primary legal contract governing POS, AEPS, DMT, BBPS, wallet, QR, settlement, API services, liability, and dispute resolution.",
       "roles": ["retailer", "distributor", "master_distributor", "partner"],
       "requiredForOnboarding": true,
-      "order": 2
+      "order": 3
     },
     {
       "id": "annexure-a",
@@ -47,7 +57,7 @@
       "description": "Prohibited transactions, AML monitoring, investigation rights, penalties, blacklisting, and immediate suspension events.",
       "roles": ["retailer", "distributor", "master_distributor", "partner"],
       "requiredForOnboarding": true,
-      "order": 3
+      "order": 4
     },
     {
       "id": "annexure-b",
@@ -57,7 +67,7 @@
       "description": "Role-specific obligations for Retailer, Distributor, Master Distributor, and API Partner including downline liability.",
       "roles": ["retailer", "distributor", "master_distributor", "partner"],
       "requiredForOnboarding": true,
-      "order": 4
+      "order": 5
     },
     {
       "id": "annexure-c",
@@ -67,7 +77,7 @@
       "description": "Commercial terms including MDR, commissions, instant settlement fees, cut-off times, and settlement cycles.",
       "roles": ["retailer", "distributor", "master_distributor", "partner"],
       "requiredForOnboarding": true,
-      "order": 5
+      "order": 6
     },
     {
       "id": "annexure-d",
@@ -77,7 +87,7 @@
       "description": "Device custody acknowledgement, return obligations, and ₹16,000 + GST recovery terms.",
       "roles": ["retailer", "distributor", "master_distributor"],
       "requiredForOnboarding": false,
-      "order": 6
+      "order": 7
     },
     {
       "id": "annexure-e",
@@ -87,7 +97,7 @@
       "description": "Personal data processing purposes, retention, sharing, partner obligations, and data subject grievance routing.",
       "roles": ["retailer", "distributor", "master_distributor", "partner"],
       "requiredForOnboarding": true,
-      "order": 7
+      "order": 8
     },
     {
       "id": "annexure-f",
@@ -97,7 +107,7 @@
       "description": "API security, webhooks, rate limits, reconciliation, suspension, and integration liability for B2B/API partners.",
       "roles": ["partner"],
       "requiredForOnboarding": false,
-      "order": 8
+      "order": 9
     }
   ]
 }
