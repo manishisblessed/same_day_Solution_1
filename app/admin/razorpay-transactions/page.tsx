@@ -154,6 +154,7 @@ function RazorpayTransactionsPageContent() {
     { slug: 'teachway', name: 'Teachway Education Private Limited', shortName: 'Teachway' },
     { slug: 'newscenaric', name: 'New Scenaric Travels', shortName: 'New Scenaric' },
     { slug: 'lagoon', name: 'LAGOON CRAFT LABS SOLUTIONS PRIVATE LIMITED', shortName: 'Lagoon' },
+    { slug: 'avika', name: 'Avika Departmental Private Limited', shortName: 'Avika' },
   ]
 
   // Export
@@ -1025,6 +1026,7 @@ function RazorpayTransactionsPageContent() {
                         <option value="teachway">Teachway</option>
                         <option value="newscenaric">New Scenaric</option>
                         <option value="lagoon">Lagoon</option>
+                        <option value="avika">Avika</option>
                       </select>
                     </th>
                     {/* Provider */}
@@ -1159,12 +1161,14 @@ function RazorpayTransactionsPageContent() {
                             txn.merchant_slug === 'ashvam' ? 'ASHVAM LEARNING PRIVATE LIMITED' :
                             txn.merchant_slug === 'teachway' ? 'Teachway Education Private Limited' :
                             txn.merchant_slug === 'newscenaric' ? 'New Scenaric Travels' :
-                            txn.merchant_slug === 'lagoon' ? 'LAGOON CRAFT LABS SOLUTIONS PRIVATE LIMITED' : (txn.merchant_slug || 'ASHVAM')
+                            txn.merchant_slug === 'lagoon' ? 'LAGOON CRAFT LABS SOLUTIONS PRIVATE LIMITED' :
+                            txn.merchant_slug === 'avika' ? 'Avika Departmental Private Limited' : (txn.merchant_slug || 'ASHVAM')
                           }>
                             {txn.merchant_slug === 'ashvam' ? 'ASHVAM' :
                              txn.merchant_slug === 'teachway' ? 'Teachway' :
                              txn.merchant_slug === 'newscenaric' ? 'New Scenaric' :
-                             txn.merchant_slug === 'lagoon' ? 'Lagoon' : (txn.merchant_slug ? String(txn.merchant_slug) : 'ASHVAM')}
+                             txn.merchant_slug === 'lagoon' ? 'Lagoon' :
+                             txn.merchant_slug === 'avika' ? 'Avika' : (txn.merchant_slug ? String(txn.merchant_slug) : 'ASHVAM')}
                           </td>
                           <td className="px-3 py-3 whitespace-nowrap text-xs text-gray-600 dark:text-gray-400">
                             <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300">
@@ -1278,7 +1282,8 @@ function RazorpayTransactionsPageContent() {
                                         txn.merchant_slug === 'ashvam' ? 'ASHVAM LEARNING PRIVATE LIMITED' :
                                         txn.merchant_slug === 'teachway' ? 'Teachway Education Private Limited' :
                                         txn.merchant_slug === 'newscenaric' ? 'New Scenaric Travels' :
-                                        txn.merchant_slug === 'lagoon' ? 'LAGOON CRAFT LABS SOLUTIONS PRIVATE LIMITED' : (txn.merchant_slug || 'ASHVAM LEARNING PRIVATE LIMITED')
+                                        txn.merchant_slug === 'lagoon' ? 'LAGOON CRAFT LABS SOLUTIONS PRIVATE LIMITED' :
+                                        txn.merchant_slug === 'avika' ? 'Avika Departmental Private Limited' : (txn.merchant_slug || 'ASHVAM LEARNING PRIVATE LIMITED')
                                       } />
                                       <DetailItem label="Service Provider" value={txn.service_provider || 'RAZORPAY'} />
                                       

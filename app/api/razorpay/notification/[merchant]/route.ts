@@ -13,6 +13,7 @@ const VALID_MERCHANTS: Record<string, string> = {
   teachway: 'Teachway Education Private Limited',
   newscenaric: 'New Scenaric Travels',
   lagoon: 'LAGOON CRAFT LABS SOLUTIONS PRIVATE LIMITED',
+  avika: 'Avika Departmental Private Limited',
 }
 
 export async function POST(

@@ -264,6 +264,8 @@ export async function POST(request: NextRequest) {
       'newscenaric': 'newscenaric',
       'lagoon craft labs solutions private limited': 'lagoon',
       'lagoon': 'lagoon',
+      'avika departmental private limited': 'avika',
+      'avika': 'avika',
     }
 
     let slugFromCredentials: string | null = null

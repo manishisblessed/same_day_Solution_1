@@ -9,6 +9,7 @@ const MERCHANT_OPTIONS = [
   { value: 'teachway', label: 'Teachway Education' },
   { value: 'newscenaric', label: 'New Scenaric Travels' },
   { value: 'lagoon', label: 'Lagoon Craft Labs' },
+  { value: 'avika', label: 'Avika Departmental' },
 ] as const
 
 const PAY_MODES = ['CASH', 'UPI', 'BHARATQR', 'CARD', 'AMAZONPAY'] as const

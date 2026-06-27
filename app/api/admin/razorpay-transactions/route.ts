@@ -282,7 +282,7 @@ export async function GET(request: NextRequest) {
         status: txn.display_status === 'SUCCESS' ? 'CAPTURED' : (txn.display_status || txn.status || 'PENDING'),
         settlement_status: txn.settlement_status || txn.raw_data?.settlementStatus || null,
         created_time: txn.transaction_time,
-        service_provider: 'RAZORPAY',
+        service_provider: txn.raw_data?._brand || 'RAZORPAY',
         // Company (merchant_slug): ashvam, teachway, newscenaric, lagoon; null = legacy/ashvam
         merchant_slug: txn.merchant_slug || 'ashvam',
         // Partner/Retailer/Distributor/MD assignment info (from POS machine)
