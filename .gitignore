@@ -91,6 +91,8 @@ nginx-config*.txt
 # Ignore ALL .md files except README.md
 *.md
 !README.md
+# Legal agreement documents are runtime-served and MUST be tracked/deployed
+!legal/**/*.md
 
 # SQL files - Keep migration files but exclude temporary fix files
 fix-add-ledger-entry-amount.sql
