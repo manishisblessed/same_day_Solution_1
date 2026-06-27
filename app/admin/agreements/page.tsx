@@ -176,6 +176,28 @@ export default function AdminAgreementsPage() {
   const wrapHtmlForWord = (html: string) =>
     `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"><style>body{font-family:Calibri,sans-serif;font-size:11pt;line-height:1.6;color:#222}h1{font-size:18pt;font-weight:bold}h2{font-size:14pt;font-weight:bold}h3{font-size:12pt;font-weight:bold}table{border-collapse:collapse;width:100%}td,th{border:1px solid #999;padding:4pt 8pt}th{background:#f0f0f0}ol,ul{padding-left:1.5em}@page{size:A4;margin:2cm}</style></head><body>${html}</body></html>`
 
+  const buildPrintHtml = (title: string, html: string) =>
+    `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${title}</title><style>
+      *{box-sizing:border-box}
+      body{font-family:'Segoe UI',Calibri,Arial,sans-serif;font-size:11pt;line-height:1.6;color:#1a1a1a;margin:0;padding:24px}
+      h1{font-size:20pt;font-weight:700;margin:0 0 12px}
+      h2{font-size:14pt;font-weight:700;margin:22px 0 8px}
+      h3{font-size:12pt;font-weight:700;margin:16px 0 6px}
+      h4{font-size:11pt;font-weight:700;margin:12px 0 4px}
+      p{margin:8px 0}
+      strong{font-weight:700}
+      hr{border:none;border-top:1px solid #ccc;margin:16px 0}
+      table{border-collapse:collapse;width:100%;margin:12px 0;font-size:10pt}
+      td,th{border:1px solid #999;padding:5px 8px;text-align:left;vertical-align:top}
+      th{background:#f0f0f0;font-weight:700}
+      ul,ol{padding-left:1.4em;margin:8px 0}
+      li{margin:3px 0}
+      table,tr,td,th,h1,h2,h3{page-break-inside:avoid}
+      @page{size:A4;margin:16mm}
+    </style></head><body>${html}
+    <script>window.onload=function(){setTimeout(function(){window.focus();window.print();},350)};window.onafterprint=function(){window.close()};</script>
+    </body></html>`
+
   const downloadCurrentAs = async (format: 'pdf' | 'doc' | 'md') => {
     setDocMenuOpen(false)
     if (!selectedId) return
@@ -196,27 +218,20 @@ export default function AdminAgreementsPage() {
     }
 
     if (format === 'pdf') {
-      setDownloading('current-pdf')
-      try {
-        const mod = await import('html2pdf.js' as any)
-        const html2pdf = mod.default || mod
-        const el = contentRef.current
-        if (!el) throw new Error('Content not rendered')
-        await html2pdf()
-          .set({
-            margin: [10, 10, 10, 10],
-            filename: `${baseName}.pdf`,
-            html2canvas: { scale: 2, useCORS: true, logging: false },
-            jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-            pagebreak: { mode: ['avoid-all', 'css', 'legacy'] },
-          })
-          .from(el)
-          .save()
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'PDF generation failed')
-      } finally {
-        setDownloading(null)
+      const html = contentRef.current?.innerHTML
+      if (!html) {
+        setError('Content not rendered yet. Please wait for the document to load.')
+        return
       }
+      const title = selectedDoc?.title || baseName
+      const printWindow = window.open('', '_blank', 'width=900,height=1000')
+      if (!printWindow) {
+        setError('Pop-up blocked. Allow pop-ups for this site, or use the Print button and choose "Save as PDF".')
+        return
+      }
+      printWindow.document.open()
+      printWindow.document.write(buildPrintHtml(title, html))
+      printWindow.document.close()
     }
   }
 
