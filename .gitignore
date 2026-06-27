@@ -96,6 +96,7 @@ nginx-config*.txt
 
 # SQL files - Keep migration files but exclude temporary fix files
 fix-add-ledger-entry-amount.sql
+supabase-bbps2-pay2new-migration.sql
 
 # Test files
 src/test/

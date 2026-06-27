@@ -3,7 +3,7 @@ import { createClient } from '@supabase/supabase-js'
 import crypto from 'crypto'
 import { extractClientIpFromHeaders, isIpWhitelisted } from './ip-utils'
 
-export type PartnerApiScope = 'bbps' | 'payout' | 'settlement'
+export type PartnerApiScope = 'bbps' | 'bbps2' | 'payout' | 'settlement'
 
 export interface PartnerAuthResult {
   partner: {
@@ -12,6 +12,7 @@ export interface PartnerAuthResult {
     keyId: string
     permissions: string[]
     bbps_enabled: boolean
+    bbps2_pay2new_enabled: boolean
     settlement_enabled: boolean
     settlement2_enabled: boolean
   }
@@ -44,7 +45,7 @@ export function partnerCanUseApi(
   scope: PartnerApiScope
 ): { allowed: boolean; message: string } {
   const perms = partner.permissions
-  const permName = scope === 'settlement' ? 'settlement' : scope === 'payout' ? 'payout' : 'bbps'
+  const permName = scope === 'settlement' ? 'settlement' : scope === 'payout' ? 'payout' : scope === 'bbps2' ? 'bbps2' : 'bbps'
   if (!perms.includes('all') && !perms.includes(permName)) {
     return { allowed: false, message: `Missing required permission: ${permName}` }
   }
@@ -52,6 +53,12 @@ export function partnerCanUseApi(
     return {
       allowed: false,
       message: 'BBPS Bill Payment is not enabled for this partner account. Contact admin.',
+    }
+  }
+  if (scope === 'bbps2' && !partner.bbps2_pay2new_enabled) {
+    return {
+      allowed: false,
+      message: 'BBPS-2 (Pay2New) is not enabled for this partner account. Contact admin.',
     }
   }
   if (scope === 'payout' && !partner.settlement_enabled) {
@@ -165,6 +172,7 @@ export async function authenticatePartner(
         status,
         ip_whitelist,
         bbps_enabled,
+        bbps2_pay2new_enabled,
         settlement_enabled,
         settlement2_enabled
       )
@@ -275,6 +283,7 @@ export async function authenticatePartner(
       keyId: keyRecord.id,
       permissions: parsePartnerKeyPermissions(keyRecord.permissions),
       bbps_enabled: partner.bbps_enabled === true,
+      bbps2_pay2new_enabled: partner.bbps2_pay2new_enabled === true,
       settlement_enabled: partner.settlement_enabled === true,
       settlement2_enabled: partner.settlement2_enabled === true,
     },

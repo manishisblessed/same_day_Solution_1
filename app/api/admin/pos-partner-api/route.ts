@@ -114,7 +114,7 @@ export async function GET(request: NextRequest) {
 }
 
 /** Permissions accepted on partner API keys (see /api/partner/* routes). */
-const VALID_KEY_PERMISSIONS = ['read', 'export', 'bbps', 'payout', 'settlement', 'all'] as const
+const VALID_KEY_PERMISSIONS = ['read', 'export', 'bbps', 'bbps2', 'payout', 'settlement', 'all'] as const
 const VALID_KEY_PERMISSIONS_SET: Record<string, true> = Object.fromEntries(
   VALID_KEY_PERMISSIONS.map((p) => [p, true])
 ) as any
@@ -122,7 +122,7 @@ const VALID_KEY_PERMISSIONS_SET: Record<string, true> = Object.fromEntries(
 function syncActiveKeyPermissions(
   supabase: any,
   partnerId: string,
-  opts: { bbps?: boolean; settlement?: boolean; settlement2?: boolean }
+  opts: { bbps?: boolean; bbps2?: boolean; settlement?: boolean; settlement2?: boolean }
 ) {
   return (async () => {
     const { data: keys } = await supabase
@@ -137,6 +137,9 @@ function syncActiveKeyPermissions(
 
       if (opts.bbps === true && !perms.includes('bbps')) perms.push('bbps')
       if (opts.bbps === false) perms = perms.filter((p) => p !== 'bbps')
+
+      if (opts.bbps2 === true && !perms.includes('bbps2')) perms.push('bbps2')
+      if (opts.bbps2 === false) perms = perms.filter((p) => p !== 'bbps2')
 
       if (opts.settlement === true && !perms.includes('payout')) perms.push('payout')
       if (opts.settlement === false) perms = perms.filter((p) => p !== 'payout')
@@ -332,19 +335,20 @@ export async function POST(request: NextRequest) {
         if (isPartner) {
           return NextResponse.json({ error: 'Only administrators can change partner services' }, { status: 403 })
         }
-        const { partner_id, bbps_enabled, settlement_enabled, settlement2_enabled } = body
+        const { partner_id, bbps_enabled, bbps2_pay2new_enabled, settlement_enabled, settlement2_enabled } = body
         if (!partner_id) {
           return NextResponse.json({ error: 'partner_id is required' }, { status: 400 })
         }
-        if (bbps_enabled === undefined && settlement_enabled === undefined && settlement2_enabled === undefined) {
+        if (bbps_enabled === undefined && bbps2_pay2new_enabled === undefined && settlement_enabled === undefined && settlement2_enabled === undefined) {
           return NextResponse.json(
-            { error: 'bbps_enabled, settlement_enabled, or settlement2_enabled is required' },
+            { error: 'bbps_enabled, bbps2_pay2new_enabled, settlement_enabled, or settlement2_enabled is required' },
             { status: 400 }
           )
         }
 
         const updates: Record<string, unknown> = { updated_at: new Date().toISOString() }
         if (typeof bbps_enabled === 'boolean') updates.bbps_enabled = bbps_enabled
+        if (typeof bbps2_pay2new_enabled === 'boolean') updates.bbps2_pay2new_enabled = bbps2_pay2new_enabled
         if (typeof settlement_enabled === 'boolean') updates.settlement_enabled = settlement_enabled
         if (typeof settlement2_enabled === 'boolean') updates.settlement2_enabled = settlement2_enabled
 
@@ -353,6 +357,7 @@ export async function POST(request: NextRequest) {
 
         await syncActiveKeyPermissions(supabase, partner_id, {
           bbps: typeof bbps_enabled === 'boolean' ? bbps_enabled : undefined,
+          bbps2: typeof bbps2_pay2new_enabled === 'boolean' ? bbps2_pay2new_enabled : undefined,
           settlement: typeof settlement_enabled === 'boolean' ? settlement_enabled : undefined,
           settlement2: typeof settlement2_enabled === 'boolean' ? settlement2_enabled : undefined,
         })
@@ -360,7 +365,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({
           success: true,
           message: 'Partner API services updated',
-          data: { partner_id, bbps_enabled, settlement_enabled, settlement2_enabled },
+          data: { partner_id, bbps_enabled, bbps2_pay2new_enabled, settlement_enabled, settlement2_enabled },
         })
       }
 

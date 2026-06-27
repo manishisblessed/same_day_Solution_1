@@ -31,6 +31,7 @@ interface Partner {
   ip_whitelist: string[] | null
   webhook_url: string | null
   bbps_enabled?: boolean
+  bbps2_pay2new_enabled?: boolean
   settlement_enabled?: boolean
   settlement2_enabled?: boolean
   created_at: string
@@ -255,14 +256,19 @@ export default function POSPartnerAPIManagement() {
   /** Enable/disable BBPS or Settlement at partner level; syncs active API key permissions. */
   const handleTogglePartnerService = async (
     partner: Partner,
-    service: 'bbps' | 'settlement' | 'settlement2',
+    service: 'bbps' | 'bbps2' | 'settlement' | 'settlement2',
     enabled: boolean
   ) => {
-    const label = service === 'bbps' ? 'BBPS Bill Payment' : service === 'settlement2' ? 'Settlement-2 (SHADVAL Pay)' : 'Settlement / Payout'
+    const label = service === 'bbps' ? 'BBPS Bill Payment' : service === 'bbps2' ? 'BBPS-2 (Pay2New)' : service === 'settlement2' ? 'Settlement-2 (SHADVAL Pay)' : 'Settlement / Payout'
+    const servicePayload =
+      service === 'bbps' ? { bbps_enabled: enabled } :
+      service === 'bbps2' ? { bbps2_pay2new_enabled: enabled } :
+      service === 'settlement2' ? { settlement2_enabled: enabled } :
+      { settlement_enabled: enabled }
     const result = await doAction({
       action: 'update_partner_services',
       partner_id: partner.id,
-      ...(service === 'bbps' ? { bbps_enabled: enabled } : service === 'settlement2' ? { settlement2_enabled: enabled } : { settlement_enabled: enabled }),
+      ...servicePayload,
     })
     if (result) {
       showSuccess(`${label} ${enabled ? 'enabled' : 'disabled'} for ${partner.name}`)
@@ -587,6 +593,30 @@ export default function POSPartnerAPIManagement() {
                               <span
                                 className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ${
                                   partner.bbps_enabled ? 'translate-x-5' : 'translate-x-0'
+                                }`}
+                              />
+                            </button>
+                          </div>
+                          <div className="flex items-center justify-between gap-4 p-3 bg-white dark:bg-gray-800 rounded-lg border border-indigo-100 dark:border-indigo-900/50">
+                            <div>
+                              <p className="text-sm font-medium text-gray-900 dark:text-white">BBPS-2 (Pay2New)</p>
+                              <p className="text-xs text-gray-500 dark:text-gray-400">
+                                Credit card bill payment via Pay2New BBPS-2 API
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              role="switch"
+                              aria-checked={!!partner.bbps2_pay2new_enabled}
+                              disabled={actionLoading}
+                              onClick={() => handleTogglePartnerService(partner, 'bbps2', !partner.bbps2_pay2new_enabled)}
+                              className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 disabled:opacity-50 ${
+                                partner.bbps2_pay2new_enabled ? 'bg-violet-600' : 'bg-gray-300 dark:bg-gray-600'
+                              }`}
+                            >
+                              <span
+                                className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ${
+                                  partner.bbps2_pay2new_enabled ? 'translate-x-5' : 'translate-x-0'
                                 }`}
                               />
                             </button>
