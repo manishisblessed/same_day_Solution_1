@@ -48,14 +48,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const { retailer_id, amount } = body
-
-    if (!retailer_id) {
-      return NextResponse.json(
-        { success: false, error: { code: 'BAD_REQUEST', message: 'retailer_id is required' } },
-        { status: 400 }
-      )
-    }
+    const { amount } = body
 
     const amountNum = parseFloat(amount)
     if (!Number.isFinite(amountNum) || amountNum <= 0) {
@@ -67,46 +60,17 @@ export async function POST(request: NextRequest) {
 
     const supabase = getSupabase()
 
-    // Verify retailer is linked to partner
-    const { data: partnerRetailerLink } = await supabase
-      .from('partner_retailers')
-      .select('id')
-      .eq('partner_id', partner.id)
-      .eq('retailer_code', retailer_id)
-      .maybeSingle()
-
-    if (!partnerRetailerLink) {
-      return NextResponse.json(
-        { success: false, error: { code: 'FORBIDDEN', message: 'Retailer is not linked to your partner account' } },
-        { status: 403 }
-      )
-    }
-
-    let distributorId: string | null = null
-    let mdId: string | null = null
-    try {
-      const { data: retailer } = await supabase
-        .from('retailers')
-        .select('distributor_id, master_distributor_id')
-        .eq('partner_id', retailer_id)
-        .maybeSingle()
-      distributorId = retailer?.distributor_id || null
-      mdId = retailer?.master_distributor_id || null
-    } catch (e) {
-      console.warn('[Partner Pay2New Charges] Retailer lookup failed:', e)
-    }
-
     let charges = null
     let schemeName: string | null = null
     const schemeCategory = 'Credit Card'
 
     try {
       const { data: schemeResult, error: schemeError } = await (supabase as any).rpc('resolve_scheme_for_user', {
-        p_user_id: retailer_id,
-        p_user_role: 'retailer',
+        p_user_id: partner.id,
+        p_user_role: 'partner',
         p_service_type: 'bbps',
-        p_distributor_id: distributorId,
-        p_md_id: mdId,
+        p_distributor_id: null,
+        p_md_id: null,
       })
 
       if (schemeError) {
@@ -125,7 +89,6 @@ export async function POST(request: NextRequest) {
         } else if (chargeResult?.length > 0 && parseFloat(chargeResult[0].retailer_charge) > 0) {
           charges = {
             retailer_charge: parseFloat(chargeResult[0].retailer_charge) || 0,
-            retailer_commission: parseFloat(chargeResult[0].retailer_commission) || 0,
           }
         } else {
           const { data: slabs } = await (supabase as any)
@@ -146,7 +109,6 @@ export async function POST(request: NextRequest) {
               const calc = (v: number, t: string) => t === 'percentage' ? Math.round(amountNum * v / 100 * 100) / 100 : v
               charges = {
                 retailer_charge: calc(parseFloat(bestSlab.retailer_charge) || 0, bestSlab.retailer_charge_type),
-                retailer_commission: calc(parseFloat(bestSlab.retailer_commission) || 0, bestSlab.retailer_commission_type),
               }
             }
           }

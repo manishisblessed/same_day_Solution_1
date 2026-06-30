@@ -260,11 +260,27 @@ export async function verifyAccount(
   }
 }
 
+// ── Helpers ──────────────────────────────────────────────────────
+
+/** Strip characters that payout APIs reject (periods, digits, symbols). Keep letters, spaces, hyphens. */
+function sanitizeName(raw: string): string {
+  return raw
+    .replace(/[^A-Za-z\s\-]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim() || 'NA'
+}
+
 // ── Initiate Bank Transfer ───────────────────────────────────────
 
 export async function initiateBankTransfer(
   request: ShadvalTransferRequest
 ): Promise<ShadvalTransferResponse> {
+  request = {
+    ...request,
+    fund_account: { ...request.fund_account, name: sanitizeName(request.fund_account.name) },
+    contact_details: { ...request.contact_details, name: sanitizeName(request.contact_details.name) },
+  }
+
   const reqId = `SVTXN_${Date.now()}`
 
   if (isShadvalMockMode()) {

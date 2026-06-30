@@ -113,7 +113,7 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
       const res = await apiFetch('/api/settlement-2/accounts')
       const data = await res.json()
       if (data.success) {
-        setAccounts((data.accounts || []).filter((a: VerifiedAccount) => a.is_verified))
+        setAccounts((data.accounts || []).filter((a: VerifiedAccount) => a.is_verified || a.verification_status === 'PENDING'))
       }
     } catch (err) {
       console.error('Failed to fetch accounts:', err)
@@ -655,7 +655,7 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
                 <p className="text-xs text-gray-500 mt-1">Choose a verified account to process settlement</p>
               </div>
               <div className="divide-y divide-gray-100 dark:divide-gray-800">
-                {accounts.map(acct => (
+                {accounts.filter(a => a.is_verified).map(acct => (
                   <button
                     key={acct.id}
                     onClick={() => handleSelectAccount(acct)}
@@ -677,7 +677,7 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
                     <ArrowRight className="w-5 h-5 text-gray-400" />
                   </button>
                 ))}
-                {accounts.length === 0 && (
+                {accounts.filter(a => a.is_verified).length === 0 && (
                   <div className="p-8 text-center text-gray-500">
                     <CreditCard className="w-10 h-10 mx-auto mb-2 opacity-30" />
                     <p className="font-medium">No verified accounts</p>
@@ -1250,9 +1250,27 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
                       <span className="font-semibold text-red-700 dark:text-red-300">Verification Failed</span></>
                     )}
                   </div>
-                  <p className="text-xs mt-1 text-gray-500">{verifyResult.api_message || verifyResult.error}</p>
+                  <p className="text-sm mt-2 text-gray-700 dark:text-gray-300">
+                    {verifyResult.failure_reason || verifyResult.pending_message || verifyResult.api_message || verifyResult.error}
+                  </p>
+                  {verifyResult.verification_status !== 'PENDING' && (
+                    <div className="mt-3 p-3 bg-white/60 dark:bg-gray-900/40 rounded-lg">
+                      <p className="text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1.5">Please check:</p>
+                      <ul className="text-xs text-gray-500 dark:text-gray-400 space-y-1">
+                        <li>• Account number is correct (verify from passbook/cheque)</li>
+                        <li>• IFSC code matches the branch (not the bank code)</li>
+                        <li>• Account is active and not closed/frozen</li>
+                        <li>• Name should match bank records exactly</li>
+                      </ul>
+                    </div>
+                  )}
+                  {verifyResult.verification_status === 'PENDING' && (
+                    <p className="text-xs mt-2 text-amber-600 dark:text-amber-400">
+                      The account will appear in your list with a Re-check button once the bank responds.
+                    </p>
+                  )}
                   {verifyResult.charge_deducted > 0 && (
-                    <p className="text-xs mt-1 text-gray-500">₹{verifyResult.charge_deducted} deducted from wallet</p>
+                    <p className="text-xs mt-2 text-gray-500">₹{verifyResult.charge_deducted} deducted from wallet</p>
                   )}
                 </motion.div>
               )}

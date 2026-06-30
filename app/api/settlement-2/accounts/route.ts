@@ -319,10 +319,32 @@ export async function POST(request: NextRequest) {
 
     // Determine verification result
     const isSuccess = apiResult.status === 'SUCCESS' && apiResult.data?.verification_status === true
-    const isPending = apiResult.status === 'PENDING'
+    const isPending = apiResult.status === 'PENDING' ||
+      (apiResult.status === 'SUCCESS' && apiResult.data?.verification_status === false)
     const verifiedName = apiResult.data?.name_at_bank?.trim() || null
     const resolvedOrderId = apiResult.data?.order_id || null
     const verificationStatus = isSuccess ? 'SUCCESS' : isPending ? 'PENDING' : 'FAILED'
+
+    // Build user-friendly failure detail
+    let failureReason = ''
+    if (!isSuccess && !isPending) {
+      const code = (apiResult.code || '').toUpperCase()
+      const msg = (apiResult.message || '').toLowerCase()
+      if (msg.includes('invalid account') || msg.includes('account not found') || msg.includes('no such account'))
+        failureReason = 'The account number does not exist or is inactive. Please double-check and re-enter.'
+      else if (msg.includes('invalid ifsc') || msg.includes('ifsc not found'))
+        failureReason = 'The IFSC code is invalid. Please verify the branch IFSC from your bank passbook or cheque book.'
+      else if (msg.includes('closed') || msg.includes('frozen') || msg.includes('blocked'))
+        failureReason = 'This bank account appears to be closed, frozen, or blocked. Contact your bank.'
+      else if (msg.includes('name') && msg.includes('mismatch'))
+        failureReason = 'The account holder name does not match bank records. Enter the name exactly as it appears in bank records.'
+      else if (code === 'SP104' || msg.includes('bad request'))
+        failureReason = 'Invalid request. Please check all details (account number, IFSC) and try again.'
+      else if (code === 'SP105' || msg.includes('duplicate'))
+        failureReason = 'A verification for this account was already submitted. Please wait a few minutes and try again.'
+      else
+        failureReason = apiResult.message || 'Verification failed. Please verify your account number and IFSC code are correct.'
+    }
 
     // Try full insert first, fallback to basic columns if schema is stale
     let accountRecord: any = null
@@ -421,6 +443,8 @@ export async function POST(request: NextRequest) {
       api_message: apiResult.message,
       verified_name: verifiedName,
       charge_deducted: VERIFICATION_CHARGE,
+      ...(failureReason ? { failure_reason: failureReason } : {}),
+      ...(isPending ? { pending_message: 'Your verification is being processed. The bank is confirming the account details. Please check back in a few minutes using the Re-check button.' } : {}),
     })
     return addCorsHeaders(request, response)
   } catch (error: any) {
