@@ -113,17 +113,12 @@ export async function POST(request: NextRequest) {
     }
 
     const trimmedName = account_holder_name.trim()
+      .replace(/[^A-Za-z\s\-]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim()
     if (trimmedName.length < 3) {
       const response = NextResponse.json(
-        { success: false, error: 'Beneficiary name must be at least 3 characters' },
-        { status: 400 }
-      )
-      return addCorsHeaders(request, response)
-    }
-
-    if (!/^[A-Za-z\s.]+$/.test(trimmedName)) {
-      const response = NextResponse.json(
-        { success: false, error: 'Beneficiary name must contain only letters, spaces, and dots' },
+        { success: false, error: 'Beneficiary name must be at least 3 characters (only letters, spaces, and hyphens allowed)' },
         { status: 400 }
       )
       return addCorsHeaders(request, response)
@@ -319,15 +314,18 @@ export async function POST(request: NextRequest) {
 
     // Determine verification result
     const isSuccess = apiResult.status === 'SUCCESS' && apiResult.data?.verification_status === true
-    const isPending = apiResult.status === 'PENDING' ||
-      (apiResult.status === 'SUCCESS' && apiResult.data?.verification_status === false)
-    const verifiedName = apiResult.data?.name_at_bank?.trim() || null
+    const isPending = apiResult.status === 'PENDING'
+    const isFailed = !isSuccess && !isPending
+    const rawBankName = apiResult.data?.name_at_bank?.trim() || null
+    const verifiedName = rawBankName
+      ? rawBankName.replace(/[^A-Za-z\s\-]/g, '').replace(/\s+/g, ' ').trim() || rawBankName
+      : null
     const resolvedOrderId = apiResult.data?.order_id || null
     const verificationStatus = isSuccess ? 'SUCCESS' : isPending ? 'PENDING' : 'FAILED'
 
     // Build user-friendly failure detail
     let failureReason = ''
-    if (!isSuccess && !isPending) {
+    if (isFailed) {
       const code = (apiResult.code || '').toUpperCase()
       const msg = (apiResult.message || '').toLowerCase()
       if (msg.includes('invalid account') || msg.includes('account not found') || msg.includes('no such account'))
@@ -342,6 +340,8 @@ export async function POST(request: NextRequest) {
         failureReason = 'Invalid request. Please check all details (account number, IFSC) and try again.'
       else if (code === 'SP105' || msg.includes('duplicate'))
         failureReason = 'A verification for this account was already submitted. Please wait a few minutes and try again.'
+      else if (apiResult.status === 'SUCCESS' && apiResult.data?.verification_status === false && !verifiedName)
+        failureReason = 'The bank could not verify this account. Please check that the account number and IFSC code are correct. Some co-operative/rural banks may not support instant verification.'
       else
         failureReason = apiResult.message || 'Verification failed. Please verify your account number and IFSC code are correct.'
     }
@@ -444,7 +444,7 @@ export async function POST(request: NextRequest) {
       verified_name: verifiedName,
       charge_deducted: VERIFICATION_CHARGE,
       ...(failureReason ? { failure_reason: failureReason } : {}),
-      ...(isPending ? { pending_message: 'Your verification is being processed. The bank is confirming the account details. Please check back in a few minutes using the Re-check button.' } : {}),
+      ...(isPending ? { pending_message: 'Your verification is being processed by the bank. Please check back in a few minutes using the Re-check button.' } : {}),
     })
     return addCorsHeaders(request, response)
   } catch (error: any) {

@@ -113,7 +113,7 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
       const res = await apiFetch('/api/settlement-2/accounts')
       const data = await res.json()
       if (data.success) {
-        setAccounts((data.accounts || []).filter((a: VerifiedAccount) => a.is_verified || a.verification_status === 'PENDING'))
+        setAccounts((data.accounts || []).filter((a: VerifiedAccount) => a.is_verified))
       }
     } catch (err) {
       console.error('Failed to fetch accounts:', err)
@@ -256,8 +256,9 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
       setError('Beneficiary name must be at least 3 characters')
       return
     }
-    if (!/^[A-Za-z\s.]+$/.test(trimmedName)) {
-      setError('Beneficiary name must contain only letters, spaces, and dots')
+    const cleanedName = trimmedName.replace(/[^A-Za-z\s\-]/g, '').replace(/\s+/g, ' ').trim()
+    if (cleanedName.length < 3) {
+      setError('Beneficiary name must be at least 3 letters (dots and special characters are automatically removed)')
       return
     }
     if (!newContactMobile || !/^\d{10}$/.test(newContactMobile)) {
@@ -275,7 +276,7 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
         body: JSON.stringify({
           account_number: newAccNumber,
           ifsc_code: newIfsc.toUpperCase(),
-          account_holder_name: newBeneName.trim(),
+          account_holder_name: cleanedName,
           contact_name: user?.name || '',
           contact_email: user?.email || '',
           contact_mobile: newContactMobile,
@@ -655,7 +656,7 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
                 <p className="text-xs text-gray-500 mt-1">Choose a verified account to process settlement</p>
               </div>
               <div className="divide-y divide-gray-100 dark:divide-gray-800">
-                {accounts.filter(a => a.is_verified).map(acct => (
+                {accounts.map(acct => (
                   <button
                     key={acct.id}
                     onClick={() => handleSelectAccount(acct)}
@@ -677,7 +678,7 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
                     <ArrowRight className="w-5 h-5 text-gray-400" />
                   </button>
                 ))}
-                {accounts.filter(a => a.is_verified).length === 0 && (
+                {accounts.length === 0 && (
                   <div className="p-8 text-center text-gray-500">
                     <CreditCard className="w-10 h-10 mx-auto mb-2 opacity-30" />
                     <p className="font-medium">No verified accounts</p>
@@ -1278,7 +1279,7 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
               {/* Verify Button */}
               <button
                 onClick={handleVerifyAccount}
-                disabled={verifying || !newAccNumber || !newIfsc || !newBeneName || newBeneName.trim().length < 3 || !/^[A-Za-z\s.]+$/.test(newBeneName.trim()) || newAccNumber !== newConfirmAcc || !newContactMobile || !/^\d{10}$/.test(newContactMobile)}
+                disabled={verifying || !newAccNumber || !newIfsc || !newBeneName || newBeneName.trim().length < 3 || !/^[A-Za-z\s\-.]+$/.test(newBeneName.trim()) || newAccNumber !== newConfirmAcc || !newContactMobile || !/^\d{10}$/.test(newContactMobile)}
                 className="w-full py-3.5 rounded-xl bg-gradient-to-r from-emerald-600 via-emerald-600 to-teal-600 text-white font-semibold shadow-lg shadow-emerald-500/20 hover:shadow-xl hover:shadow-emerald-500/30 hover:scale-[1.01] disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 transition-all flex items-center justify-center gap-2"
               >
                 {verifying ? (
