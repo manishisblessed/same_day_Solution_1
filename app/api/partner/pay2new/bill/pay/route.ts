@@ -213,6 +213,12 @@ export async function POST(request: NextRequest) {
       })
     } catch (provErr: any) {
       await refund('provider error')
+      await supabase
+        .from('partner_wallet_ledger')
+        .update({ payout_transaction_id: `FAILED:${request_id}` })
+        .eq('partner_id', partner.id)
+        .eq('reference_id', request_id)
+        .is('payout_transaction_id', null)
       return NextResponse.json(
         { success: false, error: { code: 'PROVIDER_ERROR', message: provErr?.message || 'Bill payment failed' }, request_id },
         { status: 200 }
@@ -221,11 +227,29 @@ export async function POST(request: NextRequest) {
 
     if (!result.success) {
       await refund(result.error || 'payment failed')
+      // Store failed status in ledger for status lookups
+      await supabase
+        .from('partner_wallet_ledger')
+        .update({ payout_transaction_id: `FAILED:${request_id}` })
+        .eq('partner_id', partner.id)
+        .eq('reference_id', request_id)
+        .is('payout_transaction_id', null)
       return NextResponse.json(
         { success: false, error: { code: 'PAYMENT_FAILED', message: result.error || 'Payment failed' }, request_id },
         { status: 200 }
       )
     }
+
+    // Store order_id in ledger for status lookups
+    await supabase
+      .from('partner_wallet_ledger')
+      .update({
+        payout_transaction_id: result.order_id || null,
+        description: `BBPS-2 CC ₹${amountNum} + ₹${totalServiceCharge} charge | ${product_name || product_code} | Card:****${number} | Mob:${customer_number} | OrderID:${result.order_id} | Ref:${result.operator_reference || 'N/A'}`,
+      })
+      .eq('partner_id', partner.id)
+      .eq('reference_id', request_id)
+      .is('payout_transaction_id', null)
 
     return NextResponse.json({
       success: true,
