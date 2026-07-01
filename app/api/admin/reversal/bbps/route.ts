@@ -130,7 +130,7 @@ export async function POST(request: NextRequest) {
       p_tx_type: 'REFUND',
       p_credit: amount,
       p_debit: 0,
-      p_reference_id: `BBPS_REVERSAL_${transaction_id}_${Date.now()}`,
+      p_reference_id: `BBPS_REVERSAL_${transaction_id}_${reversal.id}`,
       p_transaction_id: reversal.id,
       p_status: 'completed',
       p_remarks: `BBPS failure reversal - ${reason} - ${remarks || ''}`

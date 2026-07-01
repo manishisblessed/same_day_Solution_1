@@ -156,9 +156,19 @@ DECLARE
   v_opening_balance DECIMAL(12, 2);
   v_closing_balance DECIMAL(12, 2);
   v_ledger_id UUID;
+  v_existing_id UUID;
 BEGIN
   IF p_amount <= 0 THEN
     RAISE EXCEPTION 'Amount must be positive';
+  END IF;
+
+  -- Idempotency: reject duplicate reference_id for same partner
+  IF p_reference_id IS NOT NULL THEN
+    SELECT id INTO v_existing_id FROM partner_wallet_ledger
+    WHERE reference_id = p_reference_id AND partner_id = p_partner_id LIMIT 1;
+    IF v_existing_id IS NOT NULL THEN
+      RAISE EXCEPTION 'Duplicate: reference_id "%" already exists for partner', p_reference_id;
+    END IF;
   END IF;
 
   -- Ensure wallet exists
@@ -204,9 +214,19 @@ DECLARE
   v_closing_balance DECIMAL(12, 2);
   v_ledger_id UUID;
   v_is_frozen BOOLEAN;
+  v_existing_id UUID;
 BEGIN
   IF p_amount <= 0 THEN
     RAISE EXCEPTION 'Amount must be positive';
+  END IF;
+
+  -- Idempotency: reject duplicate reference_id for same partner
+  IF p_reference_id IS NOT NULL THEN
+    SELECT id INTO v_existing_id FROM partner_wallet_ledger
+    WHERE reference_id = p_reference_id AND partner_id = p_partner_id LIMIT 1;
+    IF v_existing_id IS NOT NULL THEN
+      RAISE EXCEPTION 'Duplicate: reference_id "%" already exists for partner', p_reference_id;
+    END IF;
   END IF;
 
   -- Lock the wallet row for update
@@ -260,9 +280,19 @@ DECLARE
   v_opening_balance DECIMAL(12, 2);
   v_closing_balance DECIMAL(12, 2);
   v_ledger_id UUID;
+  v_existing_id UUID;
 BEGIN
   IF p_amount <= 0 THEN
     RAISE EXCEPTION 'Amount must be positive';
+  END IF;
+
+  -- Idempotency: reject duplicate reference_id for same partner
+  IF p_reference_id IS NOT NULL THEN
+    SELECT id INTO v_existing_id FROM partner_wallet_ledger
+    WHERE reference_id = p_reference_id AND partner_id = p_partner_id LIMIT 1;
+    IF v_existing_id IS NOT NULL THEN
+      RAISE EXCEPTION 'Duplicate: reference_id "%" already exists for partner', p_reference_id;
+    END IF;
   END IF;
 
   -- Lock the wallet row for update

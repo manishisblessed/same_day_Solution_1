@@ -567,7 +567,17 @@ DECLARE
   v_balance_before DECIMAL(12, 2);
   v_balance_after DECIMAL(12, 2);
   v_ledger_id UUID;
+  v_existing_id UUID;
 BEGIN
+  -- Idempotency: reject duplicate reference_id for same user
+  IF p_reference_id IS NOT NULL THEN
+    SELECT id INTO v_existing_id FROM wallet_ledger
+    WHERE reference_id = p_reference_id AND retailer_id = p_retailer_id LIMIT 1;
+    IF v_existing_id IS NOT NULL THEN
+      RAISE EXCEPTION 'Duplicate: reference_id "%" already exists for user "%"', p_reference_id, p_retailer_id;
+    END IF;
+  END IF;
+
   -- Get current balance
   v_balance_before := get_wallet_balance(p_retailer_id);
   v_balance_after := v_balance_before + p_amount;

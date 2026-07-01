@@ -140,36 +140,46 @@ export async function POST(request: NextRequest) {
                 updateData.completed_at = new Date().toISOString()
               }
 
-              await supabaseAdmin
-                .from('payout_transactions')
-                .update(updateData)
-                .eq('id', tx.id)
-
               if (newStatus === 'failed' && tx.wallet_debited) {
-                const totalAmount = parseFloat(String(tx.amount)) + parseFloat(String(tx.charges))
-                await supabaseAdmin.rpc('add_ledger_entry', {
-                  p_user_id: tx.retailer_id,
-                  p_user_role: 'retailer',
-                  p_wallet_type: 'primary',
-                  p_fund_category: 'payout',
-                  p_service_type: 'payout',
-                  p_tx_type: 'REFUND',
-                  p_credit: totalAmount,
-                  p_debit: 0,
-                  p_reference_id: `REFUND_${tx.client_ref_id}`,
-                  p_transaction_id: tx.id,
-                  p_status: 'completed',
-                  p_remarks: `Payout failed - Auto refund (check-pending): ${statusResult.status_message || 'Unknown reason'}`
-                })
-
-                await supabaseAdmin
+                // Atomically claim the failure→refund transition to prevent double-refund
+                const { data: claimed } = await supabaseAdmin
                   .from('payout_transactions')
-                  .update({ status: 'refunded' })
+                  .update({
+                    ...updateData,
+                    status: 'refunded',
+                    failure_reason: statusResult.status_message || 'Transaction failed',
+                    completed_at: new Date().toISOString(),
+                  })
                   .eq('id', tx.id)
+                  .in('status', ['pending', 'processing'])
+                  .select('id')
+
+                if (claimed && claimed.length > 0) {
+                  const totalAmount = parseFloat(String(tx.amount)) + parseFloat(String(tx.charges))
+                  await supabaseAdmin.rpc('add_ledger_entry', {
+                    p_user_id: tx.retailer_id,
+                    p_user_role: 'retailer',
+                    p_wallet_type: 'primary',
+                    p_fund_category: 'payout',
+                    p_service_type: 'payout',
+                    p_tx_type: 'REFUND',
+                    p_credit: totalAmount,
+                    p_debit: 0,
+                    p_reference_id: `REFUND_${tx.client_ref_id}`,
+                    p_transaction_id: tx.id,
+                    p_status: 'completed',
+                    p_remarks: `Payout failed - Auto refund (check-pending): ${statusResult.status_message || 'Unknown reason'}`
+                  })
+                }
 
                 refunded++
                 results.push({ id: tx.id, previous_status: tx.status, new_status: 'refunded', action: 'auto_refund_failed' })
               } else {
+                await supabaseAdmin
+                  .from('payout_transactions')
+                  .update(updateData)
+                  .eq('id', tx.id)
+
                 resolved++
                 results.push({ id: tx.id, previous_status: tx.status, new_status: newStatus, action: 'status_updated' })
               }
@@ -197,22 +207,8 @@ export async function POST(request: NextRequest) {
         const totalAmount = parseFloat(String(tx.amount)) + parseFloat(String(tx.charges))
 
         try {
-          await supabaseAdmin.rpc('add_ledger_entry', {
-            p_user_id: tx.retailer_id,
-            p_user_role: 'retailer',
-            p_wallet_type: 'primary',
-            p_fund_category: 'payout',
-            p_service_type: 'payout',
-            p_tx_type: 'REFUND',
-            p_credit: totalAmount,
-            p_debit: 0,
-            p_reference_id: `REFUND_TIMEOUT_${tx.client_ref_id}`,
-            p_transaction_id: tx.id,
-            p_status: 'completed',
-            p_remarks: `Payout auto-refund: No provider response after ${Math.round(txAgeMinutes)}min (no UTR received)`
-          })
-
-          await supabaseAdmin
+          // Atomically claim the refund transition to prevent double-refund
+          const { data: claimed } = await supabaseAdmin
             .from('payout_transactions')
             .update({
               status: 'refunded',
@@ -221,6 +217,25 @@ export async function POST(request: NextRequest) {
               updated_at: new Date().toISOString(),
             })
             .eq('id', tx.id)
+            .in('status', ['pending', 'processing'])
+            .select('id')
+
+          if (claimed && claimed.length > 0) {
+            await supabaseAdmin.rpc('add_ledger_entry', {
+              p_user_id: tx.retailer_id,
+              p_user_role: 'retailer',
+              p_wallet_type: 'primary',
+              p_fund_category: 'payout',
+              p_service_type: 'payout',
+              p_tx_type: 'REFUND',
+              p_credit: totalAmount,
+              p_debit: 0,
+              p_reference_id: `REFUND_TIMEOUT_${tx.client_ref_id}`,
+              p_transaction_id: tx.id,
+              p_status: 'completed',
+              p_remarks: `Payout auto-refund: No provider response after ${Math.round(txAgeMinutes)}min (no UTR received)`
+            })
+          }
 
           refunded++
           results.push({ id: tx.id, previous_status: tx.status, new_status: 'refunded', action: 'auto_refund_no_reference' })

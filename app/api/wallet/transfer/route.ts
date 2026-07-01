@@ -114,7 +114,7 @@ export async function POST(request: NextRequest) {
       p_tx_type: 'TRANSFER_OUT',
       p_credit: 0,
       p_debit: amountDecimal,
-      p_reference_id: transferRef,
+      p_reference_id: `${transferRef}_OUT`,
       p_status: 'completed',
       p_remarks: `Transfer to Primary Wallet - ₹${amountDecimal}`,
     });
@@ -135,7 +135,7 @@ export async function POST(request: NextRequest) {
       p_tx_type: 'TRANSFER_IN',
       p_credit: amountDecimal,
       p_debit: 0,
-      p_reference_id: transferRef,
+      p_reference_id: `${transferRef}_IN`,
       p_status: 'completed',
       p_remarks: `Transfer from AEPS Wallet - ₹${amountDecimal}`,
     });

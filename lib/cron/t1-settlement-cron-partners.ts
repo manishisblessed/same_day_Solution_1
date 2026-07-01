@@ -155,9 +155,9 @@ async function runPartnerT1Settlement() {
             const settleDate = new Date().toISOString().split('T')[0]
             const referenceId = `PARTNER-T1-${settleDate}-${partnerId}`
 
-            // Idempotency: check if this partner was already settled today
+            // Idempotency: check partner_wallet_ledger (NOT wallet_ledger)
             const { data: existingEntry } = await supabase
-              .from('wallet_ledger')
+              .from('partner_wallet_ledger')
               .select('id')
               .eq('reference_id', referenceId)
               .limit(1)
@@ -176,10 +176,17 @@ async function runPartnerT1Settlement() {
 
             // Mark transactions first to prevent race condition
             const txnIds = processedTxns.map(item => item.id)
-            await supabase
+            const { error: markError } = await supabase
               .from('razorpay_pos_transactions')
               .update({ partner_wallet_credited: true })
               .in('id', txnIds)
+              .eq('partner_wallet_credited', false)
+
+            if (markError) {
+              console.error(`[Partner T1-Cron] Failed to mark txns for partner ${partnerId}:`, markError)
+              totalFailed += partnerSuccessCount
+              continue
+            }
 
             const walletResult = await creditPartnerWallet(
               partnerId,

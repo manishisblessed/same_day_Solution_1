@@ -118,6 +118,24 @@ async function processRetailerSubscription(
     .single()
   const billingDay = subRow?.billing_day || sub.billing_day || 1
   const billingDate = subRow?.next_billing_date ? new Date(subRow.next_billing_date) : new Date()
+
+  // Atomically claim this billing cycle by advancing next_billing_date.
+  // If another process already advanced it, the WHERE won't match → 0 rows → skip.
+  const nextMonth = new Date(billingDate)
+  nextMonth.setMonth(nextMonth.getMonth() + 1)
+  const advancedBillingStr = `${nextMonth.getFullYear()}-${String(nextMonth.getMonth() + 1).padStart(2, '0')}-${String(billingDay).padStart(2, '0')}`
+
+  const { data: claimed } = await supabase
+    .from('subscriptions')
+    .update({ next_billing_date: advancedBillingStr, updated_at: new Date().toISOString() })
+    .eq('id', sub.id)
+    .lte('next_billing_date', new Date().toISOString().slice(0, 10))
+    .select('id')
+
+  if (!claimed || claimed.length === 0) {
+    return { status: 'completed', reason: 'Already processed by another run', commissionsCreated: 0 }
+  }
+
   const periodEnd = new Date(billingDate)
   periodEnd.setMonth(periodEnd.getMonth() + 1)
   periodEnd.setDate(periodEnd.getDate() - 1)
@@ -151,6 +169,20 @@ async function processRetailerSubscription(
   }
 
   console.log(`[AutoDebit] ${sub.user_id}: base=₹${baseAmount.toFixed(2)}, GST=₹${gstAmount.toFixed(2)}, total=₹${totalAmount.toFixed(2)}`)
+
+  // Guard: check if a debit already exists for this billing period
+  const { data: existingDebit } = await supabase
+    .from('subscription_debits')
+    .select('id')
+    .eq('subscription_id', sub.id)
+    .eq('billing_period_start', periodStartStr)
+    .eq('status', 'completed')
+    .maybeSingle()
+
+  if (existingDebit) {
+    console.log(`[AutoDebit] Debit already exists for ${sub.user_id} period ${periodStartStr}, skipping`)
+    return { status: 'completed', reason: 'Debit already exists for this period', commissionsCreated: 0 }
+  }
 
   // Create debit record
   const { data: debitRow, error: insertErr } = await supabase
@@ -245,14 +277,7 @@ async function processRetailerSubscription(
     }
   }
 
-  // 3. Advance retailer next_billing_date
-  const nextMonth = new Date(billingDate)
-  nextMonth.setMonth(nextMonth.getMonth() + 1)
-  const advancedBillingStr = `${nextMonth.getFullYear()}-${String(nextMonth.getMonth() + 1).padStart(2, '0')}-${String(billingDay).padStart(2, '0')}`
-  await supabase
-    .from('subscriptions')
-    .update({ next_billing_date: advancedBillingStr, updated_at: new Date().toISOString() })
-    .eq('id', sub.id)
+  // 3. next_billing_date already advanced atomically above (claim step)
 
   // 4. COMMISSION distribution from the retailer's subscription items
   let commissionsCreated = 0

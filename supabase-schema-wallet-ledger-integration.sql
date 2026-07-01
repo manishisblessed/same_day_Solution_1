@@ -530,7 +530,20 @@ DECLARE
   v_opening_balance DECIMAL(12, 2);
   v_closing_balance DECIMAL(12, 2);
   v_ledger_id UUID;
+  v_existing_id UUID;
 BEGIN
+  -- Idempotency: if reference_id is provided, reject duplicates for the same user
+  IF p_reference_id IS NOT NULL THEN
+    SELECT id INTO v_existing_id
+    FROM wallet_ledger
+    WHERE reference_id = p_reference_id AND retailer_id = p_user_id
+    LIMIT 1;
+
+    IF v_existing_id IS NOT NULL THEN
+      RAISE EXCEPTION 'Duplicate entry: reference_id "%" already exists for user "%"', p_reference_id, p_user_id;
+    END IF;
+  END IF;
+
   -- Ensure wallet exists
   SELECT ensure_wallet(p_user_id, p_user_role, p_wallet_type) INTO v_wallet_id;
   

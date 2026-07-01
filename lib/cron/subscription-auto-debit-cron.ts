@@ -172,7 +172,7 @@ async function syncSchedule() {
     const todayStr = getISTDateStr(getISTNow())
     state.catchUpCheckedToday = todayStr
     console.log(`[Sub-Cron] Catch-up: scheduled time ${String(settings.schedule_hour).padStart(2, '0')}:${String(settings.schedule_minute).padStart(2, '0')} already passed today and no run recorded as success. Running now...`)
-    runSubscriptionAutoDebitJob()
+    await runSubscriptionAutoDebitJob()
   }
 }
 

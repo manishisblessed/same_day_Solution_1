@@ -78,8 +78,12 @@ CREATE TABLE IF NOT EXISTS shadval_settlement (
   company_earning DECIMAL(12, 4) DEFAULT 0,
 
   -- Wallet ledger references
+  transfer_ledger_id TEXT,
   charge_ledger_id TEXT,
   revenue_ledger_id TEXT,
+
+  -- Exact amount debited from wallet (source of truth for refunds)
+  actual_wallet_debit DECIMAL(12, 2),
 
   -- Provider timestamp
   provider_timestamp TEXT,
