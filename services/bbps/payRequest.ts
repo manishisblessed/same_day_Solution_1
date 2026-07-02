@@ -438,9 +438,8 @@ export async function payRequest(
         ]
       }
     } else {
-      // Default to Cash format
       effectivePaymentInfo = [
-        { infoName: 'Payment Account Info', infoValue: 'Cash Payment' }
+        { infoName: 'Payment Account Info', infoValue: `${mode} Payment` }
       ]
     }
     

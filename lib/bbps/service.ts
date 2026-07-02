@@ -677,10 +677,8 @@ export async function payBill(
     // Generate reqId if not provided - MUST match fetchBill reqId for payment to work
     const reqId = paymentRequest.additional_info?.reqId || generateReqId()
 
-    // Determine paymentMode - default to "Cash" (production tested)
     const paymentMode = paymentRequest.additional_info?.paymentMode || 'Cash'
     
-    // Build paymentInfo based on paymentMode - MUST match exact Sparkup API format
     let paymentInfo: Array<{ infoName: string; infoValue: string }> = []
     if (paymentMode === 'Cash') {
       paymentInfo = [{ infoName: 'Payment Account Info', infoValue: 'Cash Payment' }]
@@ -690,8 +688,7 @@ export async function payBill(
         { infoName: 'MobileNo', infoValue: paymentRequest.additional_info?.customerMobileNumber || '' }
       ]
     } else {
-      // Fallback to Cash format
-      paymentInfo = [{ infoName: 'Payment Account Info', infoValue: 'Cash Payment' }]
+      paymentInfo = [{ infoName: 'Payment Account Info', infoValue: `${paymentMode} Payment` }]
     }
 
     // Extract billerResponse from fetchBill data - pass EXACTLY as returned

@@ -118,6 +118,32 @@ export function logBBPSApiError(
 }
 
 /**
+ * Extract the best payment mode from a biller's billerPaymentModes data.
+ * Prefers Cash if available, otherwise falls back to Internet Banking > Wallet > first available.
+ */
+export function extractBillerPaymentMode(billerPaymentModes: any): string {
+  try {
+    const modes: string[] = []
+    if (billerPaymentModes?.paymentModeInfo && Array.isArray(billerPaymentModes.paymentModeInfo)) {
+      for (const m of billerPaymentModes.paymentModeInfo) {
+        if (m?.paymentMode) modes.push(m.paymentMode)
+      }
+    }
+    if (modes.length === 0) return 'Cash'
+
+    const priority = ['Cash', 'Internet Banking', 'Wallet', 'NEFT', 'IMPS', 'Debit Card', 'UPI']
+    for (const preferred of priority) {
+      if (modes.some(m => m.toLowerCase() === preferred.toLowerCase())) {
+        return modes.find(m => m.toLowerCase() === preferred.toLowerCase())!
+      }
+    }
+    return modes[0]
+  } catch {
+    return 'Cash'
+  }
+}
+
+/**
  * Sanitize response for logging (remove sensitive data)
  */
 export function sanitizeForLogging(data: any): any {

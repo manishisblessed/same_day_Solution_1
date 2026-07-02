@@ -188,7 +188,6 @@ export async function POST(request: NextRequest) {
     // Ensure initChannel is set (default to 'AGT' as per working Postman)
     const finalInitChannel = init_channel || 'AGT'
 
-    // Ensure paymentMode is set (default to 'cash' lowercase as per working Postman)
     const finalPaymentMode = payment_mode || 'cash'
 
     console.log('[BBPS API Route] Calling fetchBill with:', {

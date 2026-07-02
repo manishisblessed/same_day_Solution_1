@@ -933,6 +933,10 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
         requestBody.enquiry_id = enq
       }
 
+      if (selectedBiller.paymentMode) {
+        requestBody.payment_mode = selectedBiller.paymentMode
+      }
+
       console.log('Sending fetch bill request:', requestBody)
       
       const data = await apiFetchJson<{ success?: boolean; bill?: BillDetails; reqId?: string; error?: string; message?: string; messageType?: string }>('/api/bbps/bill/fetch', {

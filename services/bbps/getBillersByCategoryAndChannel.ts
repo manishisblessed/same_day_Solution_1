@@ -8,7 +8,7 @@
 import { bbpsClient } from './bbpsClient'
 import { chagansPost } from './chagansClient'
 import { displayCategoryToChagansKey, ensureChagansCategoryCache } from './chagansCategories'
-import { generateReqId, logBBPSApiCall, logBBPSApiError } from './helpers'
+import { generateReqId, logBBPSApiCall, logBBPSApiError, extractBillerPaymentMode } from './helpers'
 import { getBBPSProvider } from './config'
 import { BBPSBiller } from './types'
 
@@ -122,14 +122,14 @@ export async function getBillersByCategoryAndChannel(
 
       const catLabel = cg.data.categoryName || fieldValue.trim()
       const categoryData = cg.data as Required<typeof cg.data>
-      const billers: BBPSBiller[] = categoryData.data.map((b) => ({
+      const billers: BBPSBiller[] = categoryData.data.map((b: any) => ({
         biller_id: b.billerId,
         biller_name: b.billerName,
         category: catLabel,
         category_name: catLabel,
         is_active: true,
         support_bill_fetch: true,
-        paymentMode: 'Cash',
+        paymentMode: extractBillerPaymentMode(b.billerPaymentModes),
         metadata: {
           categoryKey: categoryData.category || categoryKey,
           icon: b.icon,
@@ -182,7 +182,7 @@ export async function getBillersByCategoryAndChannel(
         : undefined,
       support_bill_fetch: biller.billerFetchRequirement === 'MANDATORY' || biller.billerSupportBillValidation === 'SUPPORTED',
       support_partial_payment: biller.billerPaymentExactness?.toLowerCase().includes('below') || false,
-      paymentMode: 'Cash', // Fixed value: "Cash" for now as per requirement
+      paymentMode: extractBillerPaymentMode(biller.billerPaymentModes),
       metadata: {
         _id: biller._id,
         billerAdhoc: biller.billerAdhoc,

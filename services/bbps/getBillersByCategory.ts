@@ -8,7 +8,7 @@
 import { bbpsClient } from './bbpsClient'
 import { chagansPost } from './chagansClient'
 import { displayCategoryToChagansKey, ensureChagansCategoryCache } from './chagansCategories'
-import { generateReqId, logBBPSApiCall, logBBPSApiError } from './helpers'
+import { generateReqId, logBBPSApiCall, logBBPSApiError, extractBillerPaymentMode } from './helpers'
 import { getBBPSProvider, isMockMode } from './config'
 import { BBPSBiller } from './types'
 import { getMockBillersByCategory } from './mocks/getBillersByCategory'
@@ -93,14 +93,14 @@ export async function getBillersByCategory(
     }
     const catLabel = cg.data.categoryName || category.trim()
     const categoryData = cg.data as Required<typeof cg.data>
-    return categoryData.data.map((b) => ({
+    return categoryData.data.map((b: any) => ({
       biller_id: b.billerId,
       biller_name: b.billerName,
       category: catLabel,
       category_name: catLabel,
       is_active: true,
       support_bill_fetch: true,
-      paymentMode: 'Cash',
+      paymentMode: extractBillerPaymentMode(b.billerPaymentModes),
       metadata: { categoryKey: categoryData.category || categoryKey, icon: b.icon, ...b },
     }))
   }
