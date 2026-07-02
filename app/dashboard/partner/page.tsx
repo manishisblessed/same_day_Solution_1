@@ -395,9 +395,9 @@ function PartnerDashboardContent() {
           {activeTab === 'dashboard' && <DashboardTab user={user} stats={stats} chartData={chartData} recentTransactions={recentTransactions} />}
           {activeTab === 'wallet' && <WalletTab user={user} />}
           {activeTab === 'services' && <APIIntegrationsTab />}
-          {activeTab === 'bbps' && <BBPSTab readOnly />}
+          {activeTab === 'bbps' && <BBPSTab />}
           {activeTab === 'bbps-2' && <Pay2NewBBPSTab />}
-          {activeTab === 'payout' && <PayoutTransfer title="Payouts / Settlements" readOnly />}
+          {activeTab === 'payout' && <PayoutTransfer title="Payouts / Settlements" />}
           {activeTab === 'transactions' && <POSTransactionsTable autoPoll={true} pollInterval={15000} />}
           {activeTab === 'ledger' && <PartnerLedgerTab user={user} />}
           {activeTab === 'mdr-schemes' && <MDRSchemesTab user={user} />}

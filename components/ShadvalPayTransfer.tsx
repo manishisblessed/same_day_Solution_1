@@ -333,9 +333,9 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
         setAccounts(prev =>
           prev.map(a => a.id === accountId ? { ...a, is_verified: true, verification_status: 'SUCCESS', verified_name: data.account?.verified_name || a.verified_name } : a)
         )
-      } else if (data.verification_status === 'FAILED') {
+      } else if (data.verification_status) {
         setAccounts(prev =>
-          prev.map(a => a.id === accountId ? { ...a, verification_status: 'FAILED' } : a)
+          prev.map(a => a.id === accountId ? { ...a, verification_status: data.verification_status } : a)
         )
       }
     } catch (err) {
@@ -546,17 +546,18 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
                     <div className="flex items-center gap-2">
                       {acct.is_verified ? (
                         <BadgeCheck className="w-4 h-4 text-emerald-500" />
-                      ) : acct.verification_status === 'PENDING' ? (
-                        <button
-                          onClick={() => handleRecheckVerification(acct.id)}
-                          disabled={recheckingId === acct.id}
-                          className="px-2 py-1 text-xs font-medium text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/20 rounded-lg hover:bg-amber-100 dark:hover:bg-amber-900/40 transition-colors disabled:opacity-50 flex items-center gap-1"
-                        >
-                          {recheckingId === acct.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
-                          Re-check
-                        </button>
                       ) : (
-                        <XCircle className="w-4 h-4 text-red-500" />
+                        <>
+                          {acct.verification_status !== 'PENDING' && <XCircle className="w-4 h-4 text-red-500" />}
+                          <button
+                            onClick={() => handleRecheckVerification(acct.id)}
+                            disabled={recheckingId === acct.id}
+                            className="px-2 py-1 text-xs font-medium text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/20 rounded-lg hover:bg-amber-100 dark:hover:bg-amber-900/40 transition-colors disabled:opacity-50 flex items-center gap-1"
+                          >
+                            {recheckingId === acct.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+                            Re-check
+                          </button>
+                        </>
                       )}
                       <button
                         onClick={() => handleDeleteAccount(acct.id)}

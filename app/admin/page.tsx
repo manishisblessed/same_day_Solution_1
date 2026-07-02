@@ -28,6 +28,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { apiFetch } from '@/lib/api-client'
 import { useToast } from '@/components/Toast'
 import T1SettlementControl from '@/components/T1SettlementControl'
+import PartnerT1SettlementControl from '@/components/PartnerT1SettlementControl'
 import PerformanceTab from '@/components/PerformanceTab'
 import POSMachineHistoryTab from '@/components/POSMachineHistoryTab'
 import POSTrackingReport from '@/components/POSTrackingReport'
@@ -593,7 +594,16 @@ function AdminDashboardContent() {
           ) : activeTab === 'reports' ? (
             <ReportsTab />
           ) : activeTab === 'settlement' ? (
-            <T1SettlementControl />
+            <div className="space-y-8">
+              <T1SettlementControl />
+              <div className="border-t border-gray-200 dark:border-gray-700 pt-6">
+                <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-purple-500" />
+                  Partner T+1 Settlement
+                </h2>
+                <PartnerT1SettlementControl />
+              </div>
+            </div>
           ) : activeTab === 'revenue-wallet' ? (
             <AdminRevenueWalletTab />
           ) : activeTab === 'wallet-ledger' ? (

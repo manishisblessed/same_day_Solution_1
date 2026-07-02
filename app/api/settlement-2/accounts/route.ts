@@ -145,7 +145,7 @@ export async function POST(request: NextRequest) {
 
     const { data: existing } = await supabaseAdmin
       .from('shadval_settlement_accounts')
-      .select('id, is_verified, is_active')
+      .select('id, is_verified, is_active, verification_status')
       .eq('retailer_id', user.partner_id)
       .eq('account_number', account_number)
       .eq('ifsc_code', ifsc_code.toUpperCase())
@@ -154,6 +154,19 @@ export async function POST(request: NextRequest) {
     if (existing?.is_verified && existing?.is_active) {
       const response = NextResponse.json(
         { success: false, error: 'This account is already verified and active' },
+        { status: 400 }
+      )
+      return addCorsHeaders(request, response)
+    }
+
+    // Don't charge again while a verification is already in progress for this account
+    if (existing?.is_active && (existing as any)?.verification_status === 'PENDING') {
+      const response = NextResponse.json(
+        {
+          success: false,
+          error: 'Verification for this account is already in progress. Please use the Re-check button on the account instead of submitting again (no extra charge).',
+          verification_status: 'PENDING',
+        },
         { status: 400 }
       )
       return addCorsHeaders(request, response)
@@ -312,9 +325,17 @@ export async function POST(request: NextRequest) {
       return addCorsHeaders(request, response)
     }
 
-    // Determine verification result
+    // Determine verification result.
+    // ShadvalPay processes verification asynchronously: a SUCCESS/SP100 response with
+    // "Verification Request Submitted Successfully." and verification_status=false means
+    // the request was ACCEPTED and is still processing — NOT that verification failed.
     const isSuccess = apiResult.status === 'SUCCESS' && apiResult.data?.verification_status === true
-    const isPending = apiResult.status === 'PENDING'
+    const apiMsgLower = (apiResult.message || '').toLowerCase()
+    const isAsyncSubmitted = apiResult.status === 'SUCCESS' &&
+      apiResult.data?.verification_status !== true &&
+      !(apiResult.data?.name_at_bank || '').trim() &&
+      (apiMsgLower.includes('submitted') || apiMsgLower.includes('under process') || apiMsgLower.includes('in progress'))
+    const isPending = apiResult.status === 'PENDING' || isAsyncSubmitted
     const isFailed = !isSuccess && !isPending
     const rawBankName = apiResult.data?.name_at_bank?.trim() || null
     const verifiedName = rawBankName
@@ -501,17 +522,26 @@ export async function PATCH(request: NextRequest) {
       accountId: account_id,
     })
 
-    // Re-verify the account using the verification API
+    // Re-verify the account using the verification API (unique ref to avoid SP105 duplicate rejection)
     const recheckResult = await verifyAccount({
       account_number: account.account_number,
       ifsc_code: account.ifsc_code,
-      ref_num: `RECHECK_${account.verification_ref_id}`,
+      ref_num: `RECHECK_${Date.now()}_${account.verification_ref_id}`.substring(0, 60),
       latitude: '28.6139',
       longitude: '77.2090',
     })
 
     const isVerified = recheckResult.status === 'SUCCESS' && recheckResult.data?.verification_status === true
-    const newVerificationStatus = isVerified ? 'SUCCESS' : recheckResult.status === 'PENDING' ? 'PENDING' : 'FAILED'
+    const recheckMsgLower = (recheckResult.message || '').toLowerCase()
+    // Async provider: "submitted"/"under process" responses (or duplicate-ref rejections) mean still pending, not failed
+    const isStillPending = !isVerified && (
+      recheckResult.status === 'PENDING' ||
+      recheckResult.code === 'SP105' ||
+      (recheckResult.status === 'SUCCESS' &&
+        !(recheckResult.data?.name_at_bank || '').trim() &&
+        (recheckMsgLower.includes('submitted') || recheckMsgLower.includes('under process') || recheckMsgLower.includes('in progress')))
+    )
+    const newVerificationStatus = isVerified ? 'SUCCESS' : isStillPending ? 'PENDING' : 'FAILED'
     const verifiedName = recheckResult.data?.name_at_bank?.trim() || null
 
     try {
