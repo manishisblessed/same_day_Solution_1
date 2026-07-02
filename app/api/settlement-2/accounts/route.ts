@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
 import { initiateBankTransfer, checkTransactionStatus, getBalance } from '@/services/shadval-pay'
+import { verifyBankPennyLess, generateOrderId } from '@/services/ekyc'
 import { createClient } from '@supabase/supabase-js'
 
 export const runtime = 'nodejs'
@@ -42,6 +43,24 @@ async function ensureColumns() {
 }
 
 let columnsChecked = false
+
+/**
+ * Fetch the actual account holder name from bank records via eKYC penny-less lookup.
+ * The ShadvalPay payout API only echoes back the name we send, so this is the only
+ * source of the real bank-registered name. Returns null if lookup fails.
+ */
+async function fetchNameAtBank(accountNumber: string, ifscCode: string): Promise<string | null> {
+  try {
+    const result = await verifyBankPennyLess(accountNumber, ifscCode, generateOrderId('SV2NAME'))
+    const name = (result as any)?.nameAtBank?.trim()
+    if (result.status !== 'Failure' && name) {
+      return name.replace(/[^A-Za-z\s\-]/g, '').replace(/\s+/g, ' ').trim() || null
+    }
+  } catch (e: any) {
+    console.warn('[Settlement-2 Accounts] Name-at-bank lookup failed:', e?.message)
+  }
+  return null
+}
 
 export async function OPTIONS(request: NextRequest) {
   const response = handleCorsPreflight(request)
@@ -349,10 +368,12 @@ export async function POST(request: NextRequest) {
     const isSuccess = apiResult.status === 'SUCCESS'
     const isPending = apiResult.status === 'PENDING'
     const isFailed = !isSuccess && !isPending
-    const rawBankName = apiResult.data?.fund_account?.name?.trim() || null
-    const verifiedName = rawBankName
-      ? rawBankName.replace(/[^A-Za-z\s\-]/g, '').replace(/\s+/g, ' ').trim() || rawBankName
-      : null
+    // The payout API echoes back the name we sent — fetch the REAL bank-registered
+    // name via penny-less lookup so "Verified by bank" shows the actual holder name.
+    let verifiedName: string | null = null
+    if (isSuccess) {
+      verifiedName = await fetchNameAtBank(account_number, ifsc_code.toUpperCase())
+    }
     const resolvedOrderId = apiResult.data?.order_id || null
     const resolvedUtr = apiResult.data?.utr || null
     const verificationStatus = isSuccess ? 'SUCCESS' : isPending ? 'PENDING' : 'FAILED'
@@ -550,7 +571,6 @@ export async function PATCH(request: NextRequest) {
       const txnStatus = (statusResult.data?.txn_status || '').toUpperCase()
       if (statusResult.status === 'SUCCESS' && txnStatus.includes('SUCCESS')) {
         isVerified = true
-        verifiedName = statusResult.data?.fund_account?.name?.trim() || null
         resolvedOrderId = statusResult.data?.order_id || null
         resolvedUtr = statusResult.data?.utr || null
       } else if (statusResult.status === 'SUCCESS' && (txnStatus.includes('PENDING') || txnStatus.includes('PROCESS'))) {
@@ -585,12 +605,15 @@ export async function PATCH(request: NextRequest) {
       providerMessage = pennyResult.message || ''
       if (pennyResult.status === 'SUCCESS') {
         isVerified = true
-        verifiedName = pennyResult.data?.fund_account?.name?.trim() || null
         resolvedOrderId = pennyResult.data?.order_id || null
         resolvedUtr = pennyResult.data?.utr || null
       } else if (pennyResult.status === 'PENDING' || pennyResult.code === 'NETWORK_ERROR' || pennyResult.code === 'PROVIDER_ERROR') {
         isStillPending = true
       }
+    }
+
+    if (isVerified) {
+      verifiedName = await fetchNameAtBank(account.account_number, account.ifsc_code)
     }
 
     const newVerificationStatus = isVerified ? 'SUCCESS' : isStillPending ? 'PENDING' : 'FAILED'

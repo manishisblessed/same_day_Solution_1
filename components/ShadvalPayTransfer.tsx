@@ -66,6 +66,7 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
   const [narration, setNarration] = useState('')
   const [charges, setCharges] = useState<number>(0)
   const [loadingCharges, setLoadingCharges] = useState(false)
+  const [amountLimits, setAmountLimits] = useState<{ min_allowed: number; max_allowed: number; within_limit: boolean } | null>(null)
   const [settlementStep, setSettlementStep] = useState<'select-account' | 'enter-amount' | 'confirm' | 'result'>('select-account')
   const [transferring, setTransferring] = useState(false)
   const [tpin, setTpin] = useState('')
@@ -149,6 +150,7 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
         if (data.success && data.charges) {
           setCharges(data.charges.retailer_charge || 0)
         }
+        setAmountLimits(data.limits || null)
       } catch {
         setCharges(0)
       } finally {
@@ -189,6 +191,10 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
     }
     if (amountNum < 1) {
       setError('Minimum transfer amount is ₹1')
+      return
+    }
+    if (amountLimits && !amountLimits.within_limit) {
+      setError(`Amount not allowed for ${transferMode}. Allowed range: ₹${amountLimits.min_allowed.toLocaleString('en-IN')} – ₹${amountLimits.max_allowed.toLocaleString('en-IN')}`)
       return
     }
     setError(null)
@@ -779,6 +785,13 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
                   />
                 </div>
 
+                {/* Amount limit warning */}
+                {amountNum > 0 && amountLimits && !amountLimits.within_limit && !loadingCharges && (
+                  <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl text-sm text-red-700 dark:text-red-300">
+                    Amount not allowed for {transferMode}. Allowed range: ₹{amountLimits.min_allowed.toLocaleString('en-IN')} – ₹{amountLimits.max_allowed.toLocaleString('en-IN')}
+                  </div>
+                )}
+
                 {/* Charges Preview */}
                 {amountNum > 0 && (
                   <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded-xl space-y-1">
@@ -804,7 +817,7 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
 
                 <button
                   onClick={handleProceedToConfirm}
-                  disabled={!amountNum || amountNum <= 0}
+                  disabled={!amountNum || amountNum <= 0 || loadingCharges || (amountLimits ? !amountLimits.within_limit : false)}
                   className="w-full py-3 rounded-xl bg-gradient-to-r from-blue-600 to-blue-700 text-white font-medium shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
                 >
                   Review & Confirm

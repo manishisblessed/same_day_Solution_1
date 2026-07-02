@@ -116,11 +116,32 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    // Slab limits for this mode: used by the UI to block amounts outside the allowed range
+    let limits: { min_allowed: number; max_allowed: number; within_limit: boolean } | null = null
+    try {
+      const { data: slabRows } = await supabaseAdmin
+        .from('scheme_shadval_settlement_charges')
+        .select('min_amount, max_amount')
+        .eq('status', 'active')
+        .eq('transfer_mode', mode)
+      if (slabRows && slabRows.length > 0) {
+        const minAllowed = Math.min(...slabRows.map(s => parseFloat(String(s.min_amount))))
+        const maxAllowed = Math.max(...slabRows.map(s => parseFloat(String(s.max_amount))))
+        const withinLimit = slabRows.some(s =>
+          amount >= parseFloat(String(s.min_amount)) && amount <= parseFloat(String(s.max_amount))
+        )
+        limits = { min_allowed: minAllowed, max_allowed: maxAllowed, within_limit: withinLimit }
+      }
+    } catch (e) {
+      console.warn('[Settlement-2 Charges] Limit lookup failed:', e)
+    }
+
     const response = NextResponse.json({
       success: true,
       amount,
       mode,
       scheme_name: schemeName,
+      limits,
       charges: charges
         ? {
             retailer_charge: Math.round((charges.retailer_charge + charges.retailer_charge * GST_PERCENT / 100) * 100) / 100,

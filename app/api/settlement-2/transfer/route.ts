@@ -196,6 +196,43 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Enforce slab limits: if charge slabs are configured for this mode, the amount
+    // must fall within one of them. Otherwise (e.g. IMPS max slab is 49,999 and the
+    // retailer enters 99,000) no slab matches, charges silently become 0, and the
+    // transfer would go through above the intended limit.
+    try {
+      let slabQuery = supabaseAdmin
+        .from('scheme_shadval_settlement_charges')
+        .select('min_amount, max_amount')
+        .eq('status', 'active')
+        .eq('transfer_mode', mode)
+      if (resolvedSchemeId) slabQuery = slabQuery.eq('scheme_id', resolvedSchemeId)
+      const { data: slabRows } = await slabQuery
+
+      if (slabRows && slabRows.length > 0) {
+        const inSlab = slabRows.some(s =>
+          amountNum >= parseFloat(String(s.min_amount)) && amountNum <= parseFloat(String(s.max_amount))
+        )
+        if (!inSlab) {
+          const minAllowed = Math.min(...slabRows.map(s => parseFloat(String(s.min_amount))))
+          const maxAllowed = Math.max(...slabRows.map(s => parseFloat(String(s.max_amount))))
+          console.log(`[Settlement-2] Amount ₹${amountNum} outside ${mode} slab limits (₹${minAllowed}–₹${maxAllowed})`)
+          const response = NextResponse.json(
+            {
+              success: false,
+              error: `Amount not allowed for ${mode}. Allowed range: ₹${minAllowed.toLocaleString('en-IN')} – ₹${maxAllowed.toLocaleString('en-IN')}. Please split larger settlements into multiple transfers.`,
+              min_allowed: minAllowed,
+              max_allowed: maxAllowed,
+            },
+            { status: 400 }
+          )
+          return addCorsHeaders(request, response)
+        }
+      }
+    } catch (e) {
+      console.warn('[Settlement-2] Slab limit check failed:', e)
+    }
+
     // Check wallet balance (transfer amount + charges must be available)
     const { data: walletBalance, error: balanceError } = await (supabaseAdmin as any).rpc('get_wallet_balance', {
       p_retailer_id: user.partner_id,
