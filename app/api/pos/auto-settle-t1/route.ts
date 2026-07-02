@@ -13,6 +13,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { createHash } from 'crypto'
 import { getSupabaseAdmin } from '@/lib/supabase/server-admin'
 import {
   calculateMDR as calculateSchemeMDR,
@@ -176,48 +177,44 @@ export async function POST(request: NextRequest) {
       // 5. Credit wallet in one batch for this retailer
       if (retailerNet > 0 && processedTxns.length > 0) {
         try {
-          const settleDate = new Date().toISOString().split('T')[0]
-          const referenceId = `AUTO-T1-${settleDate}-${retailerId}`
-
-          // Idempotency: check if this retailer was already settled today
-          const { data: existingEntry } = await supabase
-            .from('wallet_ledger')
-            .select('id')
-            .eq('reference_id', referenceId)
-            .eq('user_id', retailerId)
-            .limit(1)
-            .maybeSingle()
-
-          if (existingEntry) {
-            console.warn(`[AutoT1] Skipping retailer ${retailerId}: already settled today (${referenceId})`)
-            // Still mark txns as settled to prevent re-processing
-            for (const item of processedTxns) {
-              await supabase
-                .from('razorpay_pos_transactions')
-                .update({
-                  wallet_credited: true,
-                  settlement_mode: 'AUTO_T1',
-                  auto_settled_at: new Date().toISOString(),
-                })
-                .eq('id', item.txn.id)
-                .eq('wallet_credited', false)
-            }
-            continue
-          }
-
-          // Mark transactions FIRST to prevent race condition on re-run
+          // STEP 1 — Atomically CLAIM the transactions. Only rows still
+          // wallet_credited=false are claimed; .select() returns exactly the
+          // rows this process won. A concurrent process claims 0 rows and stops.
           const txnIds = processedTxns.map(item => item.txn.id)
-          const { error: markError } = await supabase
+          const { data: claimedRows, error: claimError } = await supabase
             .from('razorpay_pos_transactions')
             .update({ wallet_credited: true, settlement_mode: 'AUTO_T1' })
             .in('id', txnIds)
             .eq('wallet_credited', false)
+            .select('id')
 
-          if (markError) {
-            console.error(`[AutoT1] Failed to mark txns for retailer ${retailerId}:`, markError)
+          if (claimError) {
+            console.error(`[AutoT1] Failed to claim txns for retailer ${retailerId}:`, claimError)
             totalFailed += processedTxns.length
             continue
           }
+
+          const claimedIds = new Set((claimedRows || []).map((r: any) => r.id))
+          if (claimedIds.size === 0) {
+            console.warn(`[AutoT1] Retailer ${retailerId}: all txns already claimed by another process, skipping.`)
+            continue
+          }
+
+          // Credit ONLY what we actually claimed (recompute if we won a subset)
+          const claimedTxns = processedTxns.filter(item => claimedIds.has(item.txn.id))
+          const claimedGross = claimedTxns.reduce((s, i) => s + parseFloat(i.txn.gross_amount || i.txn.amount || '0'), 0)
+          const claimedMdr = claimedTxns.reduce((s, i) => s + i.mdrAmount, 0)
+          const claimedNet = claimedTxns.reduce((s, i) => s + i.netAmount, 0)
+
+          // STEP 2 — Deterministic reference over the claimed txn IDs. The DB
+          // unique index on (reference_id, retailer_id) makes a second credit
+          // of the same batch physically impossible.
+          const settleDate = new Date().toISOString().split('T')[0]
+          const batchHash = createHash('sha256')
+            .update([...claimedIds].sort().join(','))
+            .digest('hex')
+            .slice(0, 12)
+          const referenceId = `AUTO-T1-${settleDate}-${retailerId}-${batchHash}`
 
           const { data: ledgerId, error: ledgerError } = await supabase.rpc('add_ledger_entry', {
             p_user_id: retailerId,
@@ -226,27 +223,33 @@ export async function POST(request: NextRequest) {
             p_fund_category: 'online',
             p_service_type: 'pos',
             p_tx_type: 'POS_CREDIT',
-            p_credit: retailerNet,
+            p_credit: claimedNet,
             p_debit: 0,
             p_reference_id: referenceId,
             p_transaction_id: null,
             p_status: 'completed',
-            p_remarks: `T+1 Auto Settlement - ${retailerSuccessCount} txn(s), Gross: ₹${retailerGross.toFixed(2)}, MDR: ₹${retailerMdr.toFixed(2)}, Net: ₹${retailerNet.toFixed(2)}`
+            p_remarks: `T+1 Auto Settlement - ${claimedTxns.length} txn(s), Gross: ₹${claimedGross.toFixed(2)}, MDR: ₹${claimedMdr.toFixed(2)}, Net: ₹${claimedNet.toFixed(2)}`
           })
 
           if (ledgerError) {
+            const isDuplicate = /duplicate/i.test(ledgerError.message || '')
+            if (isDuplicate) {
+              console.warn(`[AutoT1] Retailer ${retailerId}: batch ${referenceId} already credited, keeping marks.`)
+              continue
+            }
             console.error(`[AutoT1] Wallet credit error for retailer ${retailerId}:`, ledgerError)
-            // Revert: unmark transactions so they can be retried
+            // Release the claim so these txns can be retried next run
             await supabase
               .from('razorpay_pos_transactions')
               .update({ wallet_credited: false, settlement_mode: null })
-              .in('id', txnIds)
-            totalFailed += processedTxns.length
+              .in('id', [...claimedIds])
+              .is('wallet_credit_id', null)
+            totalFailed += claimedTxns.length
             continue
           }
 
           // Update individual txn metadata (MDR details, wallet_credit_id)
-          for (const item of processedTxns) {
+          for (const item of claimedTxns) {
             await supabase
               .from('razorpay_pos_transactions')
               .update({
@@ -261,15 +264,15 @@ export async function POST(request: NextRequest) {
               .eq('id', item.txn.id)
           }
 
-          totalProcessed += retailerSuccessCount
-          console.log(`[AutoT1] Retailer ${retailerId}: ${retailerSuccessCount} settled, net: ₹${retailerNet.toFixed(2)}`)
+          totalProcessed += claimedTxns.length
+          console.log(`[AutoT1] Retailer ${retailerId}: ${claimedTxns.length} settled, net: ₹${claimedNet.toFixed(2)} (ref: ${referenceId})`)
 
           results.push({
             retailer_id: retailerId,
-            settled: retailerSuccessCount,
-            gross: retailerGross,
-            mdr: retailerMdr,
-            net: retailerNet,
+            settled: claimedTxns.length,
+            gross: claimedGross,
+            mdr: claimedMdr,
+            net: claimedNet,
             wallet_credit_id: ledgerId,
           })
         } catch (err: any) {

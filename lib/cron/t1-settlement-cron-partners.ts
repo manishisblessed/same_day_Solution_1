@@ -1,4 +1,5 @@
 import cron, { ScheduledTask } from 'node-cron'
+import { createHash } from 'crypto'
 import { getSupabaseAdmin } from '@/lib/supabase/server-admin'
 
 interface PartnerCronSettings {
@@ -152,65 +153,76 @@ async function runPartnerT1Settlement() {
         // Credit partner wallet with batch amount
         if (partnerSuccessCount > 0) {
           try {
-            const settleDate = new Date().toISOString().split('T')[0]
-            const referenceId = `PARTNER-T1-${settleDate}-${partnerId}`
-
-            // Idempotency: check partner_wallet_ledger (NOT wallet_ledger)
-            const { data: existingEntry } = await supabase
-              .from('partner_wallet_ledger')
-              .select('id')
-              .eq('reference_id', referenceId)
-              .limit(1)
-              .maybeSingle()
-
-            if (existingEntry) {
-              console.warn(`[Partner T1-Cron] Skipping partner ${partnerId}: already settled today (${referenceId})`)
-              for (const item of processedTxns) {
-                await supabase
-                  .from('razorpay_pos_transactions')
-                  .update({ partner_wallet_credited: true, partner_auto_settled_at: new Date().toISOString() })
-                  .eq('id', item.id)
-              }
-              continue
-            }
-
-            // Mark transactions first to prevent race condition
+            // STEP 1 — Atomically CLAIM the transactions. Only rows still
+            // partner_wallet_credited=false are claimed; a concurrent process
+            // claims 0 rows and stops.
             const txnIds = processedTxns.map(item => item.id)
-            const { error: markError } = await supabase
+            const { data: claimedRows, error: claimError } = await supabase
               .from('razorpay_pos_transactions')
               .update({ partner_wallet_credited: true })
               .in('id', txnIds)
               .eq('partner_wallet_credited', false)
+              .select('id')
 
-            if (markError) {
-              console.error(`[Partner T1-Cron] Failed to mark txns for partner ${partnerId}:`, markError)
+            if (claimError) {
+              console.error(`[Partner T1-Cron] Failed to claim txns for partner ${partnerId}:`, claimError)
               totalFailed += partnerSuccessCount
               continue
             }
 
+            const claimedIds = new Set((claimedRows || []).map((r: any) => r.id))
+            if (claimedIds.size === 0) {
+              console.warn(`[Partner T1-Cron] Partner ${partnerId}: all txns already claimed by another process, skipping.`)
+              continue
+            }
+
+            // Credit ONLY what we actually claimed
+            const claimedTxns = processedTxns.filter(item => claimedIds.has(item.id))
+            const claimedGross = claimedTxns.reduce((s, i: any) => {
+              const src = transactions.find(t => t.id === i.id)
+              return s + (src?.amount || 0)
+            }, 0)
+            const claimedMdr = claimedTxns.reduce((s, i) => s + (i.mdrAmount || 0), 0)
+            const claimedNet = claimedTxns.reduce((s, i) => s + (i.netAmount || 0), 0)
+
+            // STEP 2 — Deterministic reference over the claimed txn IDs; the DB
+            // unique index on partner_wallet_ledger blocks any second credit.
+            const settleDate = new Date().toISOString().split('T')[0]
+            const batchHash = createHash('sha256')
+              .update([...claimedIds].sort().join(','))
+              .digest('hex')
+              .slice(0, 12)
+            const referenceId = `PARTNER-T1-${settleDate}-${partnerId}-${batchHash}`
+
             const walletResult = await creditPartnerWallet(
               partnerId,
-              partnerNet,
+              claimedNet,
               referenceId,
-              `T+1 Auto Settlement - ${partnerSuccessCount} txn(s), Gross: ₹${partnerGross.toFixed(2)}, MDR: ₹${partnerMdr.toFixed(2)}, Net: ₹${partnerNet.toFixed(2)}`
+              `T+1 Auto Settlement - ${claimedTxns.length} txn(s), Gross: ₹${claimedGross.toFixed(2)}, MDR: ₹${claimedMdr.toFixed(2)}, Net: ₹${claimedNet.toFixed(2)}`
             )
 
             if (!walletResult.success) {
+              const isDuplicate = /duplicate/i.test(walletResult.error || '')
+              if (isDuplicate) {
+                console.warn(`[Partner T1-Cron] Partner ${partnerId}: batch ${referenceId} already credited, keeping marks.`)
+                continue
+              }
               console.error(
                 `[Partner T1-Cron] Wallet credit failed for partner ${partnerId}:`,
                 walletResult.error
               )
-              // Revert marking
+              // Release the claim so these txns can be retried next run
               await supabase
                 .from('razorpay_pos_transactions')
                 .update({ partner_wallet_credited: false })
-                .in('id', txnIds)
-              totalFailed += partnerSuccessCount
+                .in('id', [...claimedIds])
+                .is('partner_wallet_credit_id', null)
+              totalFailed += claimedTxns.length
               continue
             }
 
             // Update all transactions with settlement metadata
-            for (const item of processedTxns) {
+            for (const item of claimedTxns) {
               await supabase
                 .from('razorpay_pos_transactions')
                 .update({
@@ -222,9 +234,9 @@ async function runPartnerT1Settlement() {
                 .eq('id', item.id)
             }
 
-            totalProcessed += partnerSuccessCount
+            totalProcessed += claimedTxns.length
             console.log(
-              `[Partner T1-Cron] Partner ${partnerId}: ${partnerSuccessCount} settled, net: ₹${partnerNet.toFixed(2)}`
+              `[Partner T1-Cron] Partner ${partnerId}: ${claimedTxns.length} settled, net: ₹${claimedNet.toFixed(2)} (ref: ${referenceId})`
             )
           } catch (err: any) {
             console.error(`[Partner T1-Cron] Error processing partner ${partnerId}:`, err)

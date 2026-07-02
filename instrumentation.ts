@@ -25,6 +25,15 @@ export async function register() {
     } catch (err) {
       console.error('[Instrumentation] Failed to load .env.local:', err)
     }
+    // In PM2 cluster mode every worker runs this file. Only instance 0 may
+    // schedule crons, otherwise each worker fires the settlement at the same
+    // minute and races to credit wallets.
+    const pm2Instance = env['NODE_APP_INSTANCE']
+    if (pm2Instance !== undefined && pm2Instance !== '0') {
+      console.log(`[Instrumentation] PM2 instance ${pm2Instance}: skipping cron initialization (only instance 0 runs crons).`)
+      return
+    }
+
     const { initT1SettlementCron } = await import('@/lib/cron/t1-settlement-cron')
     const { initPartnerT1SettlementCron } = await import('@/lib/cron/t1-settlement-cron-partners')
     const { initSubscriptionAutoDebitCron } = await import('@/lib/cron/subscription-auto-debit-cron')
