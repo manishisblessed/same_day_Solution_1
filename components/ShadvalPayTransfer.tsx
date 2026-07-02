@@ -57,6 +57,7 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
   // Accounts
   const [accounts, setAccounts] = useState<VerifiedAccount[]>([])
   const [loadingAccounts, setLoadingAccounts] = useState(false)
+  const verifiedAccounts = accounts.filter(a => a.is_verified)
 
   // Process settlement state
   const [selectedAccount, setSelectedAccount] = useState<VerifiedAccount | null>(null)
@@ -113,7 +114,9 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
       const res = await apiFetch('/api/settlement-2/accounts')
       const data = await res.json()
       if (data.success) {
-        setAccounts((data.accounts || []).filter((a: VerifiedAccount) => a.is_verified))
+        // Keep ALL accounts (verified + pending + failed) so users can see status and re-check;
+        // settlement flows use verifiedAccounts below.
+        setAccounts(data.accounts || [])
       }
     } catch (err) {
       console.error('Failed to fetch accounts:', err)
@@ -158,7 +161,7 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
 
   // Handle process settlement click
   const handleProcessSettlement = () => {
-    if (accounts.length === 0) {
+    if (verifiedAccounts.length === 0) {
       setShowNoAccountModal(true)
       return
     }
@@ -464,11 +467,11 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
                 <p className="text-sm text-gray-500 dark:text-gray-400">
                   Send money to verified bank accounts via IMPS, NEFT, or RTGS
                 </p>
-                {accounts.length > 0 ? (
+                {verifiedAccounts.length > 0 ? (
                   <div className="mt-4 flex items-center gap-2">
                     <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 text-xs font-semibold">
                       <BadgeCheck className="w-3 h-3" />
-                      {accounts.length} verified
+                      {verifiedAccounts.length} verified
                     </span>
                     <span className="text-xs text-gray-400">Ready to use</span>
                   </div>
@@ -538,8 +541,12 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
                         <p className="text-xs text-gray-500 font-mono">
                           {acct.account_number} | {acct.ifsc_code}
                         </p>
-                        {!acct.is_verified && acct.verification_status === 'PENDING' && (
-                          <p className="text-xs text-amber-600 dark:text-amber-400 mt-0.5">Verification Pending</p>
+                        {!acct.is_verified && (
+                          <p className={`text-xs mt-0.5 ${acct.verification_status === 'PENDING' ? 'text-amber-600 dark:text-amber-400' : 'text-red-500'}`}>
+                            {acct.verification_status === 'PENDING'
+                              ? 'Verification pending at bank — use Re-check'
+                              : 'Verification failed — re-check or delete and re-add'}
+                          </p>
                         )}
                       </div>
                     </div>
@@ -657,7 +664,7 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
                 <p className="text-xs text-gray-500 mt-1">Choose a verified account to process settlement</p>
               </div>
               <div className="divide-y divide-gray-100 dark:divide-gray-800">
-                {accounts.map(acct => (
+                {verifiedAccounts.map(acct => (
                   <button
                     key={acct.id}
                     onClick={() => handleSelectAccount(acct)}
@@ -679,7 +686,7 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
                     <ArrowRight className="w-5 h-5 text-gray-400" />
                   </button>
                 ))}
-                {accounts.length === 0 && (
+                {verifiedAccounts.length === 0 && (
                   <div className="p-8 text-center text-gray-500">
                     <CreditCard className="w-10 h-10 mx-auto mb-2 opacity-30" />
                     <p className="font-medium">No verified accounts</p>

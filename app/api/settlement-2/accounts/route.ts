@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
-import { verifyAccount, getVerificationBalance } from '@/services/shadval-pay'
+import { initiateBankTransfer, checkTransactionStatus, getBalance } from '@/services/shadval-pay'
 import { createClient } from '@supabase/supabase-js'
 
 export const runtime = 'nodejs'
@@ -195,12 +195,14 @@ export async function POST(request: NextRequest) {
       return addCorsHeaders(request, response)
     }
 
-    const refId = `SV2_VERIFY_${user.partner_id}_${Date.now()}`
+    // PENNY prefix distinguishes payout-based penny-drop refs from legacy SV2_VERIFY_ refs
+    // (which used the async verification API and can't be status-checked).
+    const refId = `SV2_PENNY_${user.partner_id}_${Date.now()}`
 
-    // Pre-flight: check verification wallet balance
-    const balanceCheck = await getVerificationBalance()
+    // Pre-flight: check payout wallet balance (penny drop sends Rs.1 via the payout API)
+    const balanceCheck = await getBalance()
     if (balanceCheck.status !== 'SUCCESS') {
-      console.log('[Settlement-2 Accounts] Verification service pre-check failed:', balanceCheck.code, balanceCheck.message)
+      console.log('[Settlement-2 Accounts] Payout service pre-check failed:', balanceCheck.code, balanceCheck.message)
       const response = NextResponse.json({
         success: false,
         error: 'Verification service is currently unavailable. Please try again later. No charge deducted.',
@@ -253,32 +255,47 @@ export async function POST(request: NextRequest) {
       else console.error('[Settlement-2 Accounts] Revenue credit error:', revError)
     }
 
-    // Account Verification via ShadvalPay Verification API
-    console.log('[Settlement-2 Accounts] Initiating account verification:', {
+    // Penny drop: send Rs.1 via the payout API. Unlike the async verification API
+    // (which only ever replies "Request Submitted" with no way to fetch the result),
+    // the payout API returns SUCCESS/FAILED/PENDING synchronously, confirms the
+    // beneficiary name, and PENDING refs can be polled via check_status.
+    console.log('[Settlement-2 Accounts] Initiating penny-drop verification:', {
       ref: refId,
       account: account_number.substring(0, 4) + '****',
       ifsc: ifsc_code,
       retailer: user.partner_id,
     })
 
-    const apiResult = await verifyAccount({
-      account_number,
-      ifsc_code: ifsc_code.toUpperCase(),
-      ref_num: refId,
+    const apiResult = await initiateBankTransfer({
+      amount: 1,
+      mode: 'IMPS',
+      fund_account: {
+        name: trimmedName,
+        ifsc: ifsc_code.toUpperCase(),
+        account_number,
+      },
+      contact_details: {
+        name: contact_name || trimmedName,
+        email: contact_email || user.email || '',
+        mobile: contact_mobile,
+      },
+      reference_id: refId,
       latitude: '28.6139',
       longitude: '77.2090',
+      narration: 'Account Verification',
     })
 
-    console.log('[Settlement-2 Accounts] Verification response:', JSON.stringify({
+    console.log('[Settlement-2 Accounts] Penny-drop response:', JSON.stringify({
       status: apiResult.status,
       code: apiResult.code,
       msg: apiResult.message,
-      verification_status: apiResult.data?.verification_status,
-      name_at_bank: apiResult.data?.name_at_bank,
+      utr: apiResult.data?.utr,
+      name: apiResult.data?.fund_account?.name,
     }))
 
     // Refund if service is unavailable (not user's fault)
     const isServiceUnavailable = apiResult.code === 'NETWORK_ERROR' ||
+      apiResult.code === 'PROVIDER_ERROR' ||
       (!apiResult.status && !apiResult.code)
     if (isServiceUnavailable) {
       console.log('[Settlement-2 Accounts] Verification service unavailable, refunding ₹4 to retailer:', user.partner_id)
@@ -325,23 +342,19 @@ export async function POST(request: NextRequest) {
       return addCorsHeaders(request, response)
     }
 
-    // Determine verification result.
-    // ShadvalPay processes verification asynchronously: a SUCCESS/SP100 response with
-    // "Verification Request Submitted Successfully." and verification_status=false means
-    // the request was ACCEPTED and is still processing — NOT that verification failed.
-    const isSuccess = apiResult.status === 'SUCCESS' && apiResult.data?.verification_status === true
-    const apiMsgLower = (apiResult.message || '').toLowerCase()
-    const isAsyncSubmitted = apiResult.status === 'SUCCESS' &&
-      apiResult.data?.verification_status !== true &&
-      !(apiResult.data?.name_at_bank || '').trim() &&
-      (apiMsgLower.includes('submitted') || apiMsgLower.includes('under process') || apiMsgLower.includes('in progress'))
-    const isPending = apiResult.status === 'PENDING' || isAsyncSubmitted
+    // Determine verification result from the penny-drop transfer.
+    // SUCCESS  -> Rs.1 landed in the account: it exists and is active. Verified.
+    // PENDING  -> bank is processing; poll check_status via Re-check.
+    // FAILED   -> definitive rejection with a reason from the bank.
+    const isSuccess = apiResult.status === 'SUCCESS'
+    const isPending = apiResult.status === 'PENDING'
     const isFailed = !isSuccess && !isPending
-    const rawBankName = apiResult.data?.name_at_bank?.trim() || null
+    const rawBankName = apiResult.data?.fund_account?.name?.trim() || null
     const verifiedName = rawBankName
       ? rawBankName.replace(/[^A-Za-z\s\-]/g, '').replace(/\s+/g, ' ').trim() || rawBankName
       : null
     const resolvedOrderId = apiResult.data?.order_id || null
+    const resolvedUtr = apiResult.data?.utr || null
     const verificationStatus = isSuccess ? 'SUCCESS' : isPending ? 'PENDING' : 'FAILED'
 
     // Build user-friendly failure detail
@@ -359,10 +372,8 @@ export async function POST(request: NextRequest) {
         failureReason = 'The account holder name does not match bank records. Enter the name exactly as it appears in bank records.'
       else if (code === 'SP104' || msg.includes('bad request'))
         failureReason = 'Invalid request. Please check all details (account number, IFSC) and try again.'
-      else if (code === 'SP105' || msg.includes('duplicate'))
+      else if (msg.includes('duplicate'))
         failureReason = 'A verification for this account was already submitted. Please wait a few minutes and try again.'
-      else if (apiResult.status === 'SUCCESS' && apiResult.data?.verification_status === false && !verifiedName)
-        failureReason = 'The bank could not verify this account. Please check that the account number and IFSC code are correct. Some co-operative/rural banks may not support instant verification.'
       else
         failureReason = apiResult.message || 'Verification failed. Please verify your account number and IFSC code are correct.'
     }
@@ -383,7 +394,7 @@ export async function POST(request: NextRequest) {
       is_verified: isSuccess,
       verification_ref_id: refId,
       verification_order_id: resolvedOrderId,
-      verification_utr: null,
+      verification_utr: resolvedUtr,
       verification_status: verificationStatus,
       verification_charges: VERIFICATION_CHARGE,
       verification_ledger_id: chargeLedgerId,
@@ -522,27 +533,67 @@ export async function PATCH(request: NextRequest) {
       accountId: account_id,
     })
 
-    // Re-verify the account using the verification API (unique ref to avoid SP105 duplicate rejection)
-    const recheckResult = await verifyAccount({
-      account_number: account.account_number,
-      ifsc_code: account.ifsc_code,
-      ref_num: `RECHECK_${Date.now()}_${account.verification_ref_id}`.substring(0, 60),
-      latitude: '28.6139',
-      longitude: '77.2090',
-    })
+    const isPennyRef = account.verification_ref_id.startsWith('SV2_PENNY_')
 
-    const isVerified = recheckResult.status === 'SUCCESS' && recheckResult.data?.verification_status === true
-    const recheckMsgLower = (recheckResult.message || '').toLowerCase()
-    // Async provider: "submitted"/"under process" responses (or duplicate-ref rejections) mean still pending, not failed
-    const isStillPending = !isVerified && (
-      recheckResult.status === 'PENDING' ||
-      recheckResult.code === 'SP105' ||
-      (recheckResult.status === 'SUCCESS' &&
-        !(recheckResult.data?.name_at_bank || '').trim() &&
-        (recheckMsgLower.includes('submitted') || recheckMsgLower.includes('under process') || recheckMsgLower.includes('in progress')))
-    )
+    let isVerified = false
+    let isStillPending = false
+    let verifiedName: string | null = null
+    let resolvedOrderId: string | null = null
+    let resolvedUtr: string | null = null
+    let newRefId: string | null = null
+    let providerMessage = ''
+
+    if (isPennyRef) {
+      // Penny-drop refs are real payout transactions: poll the status API
+      const statusResult = await checkTransactionStatus({ reference_id: account.verification_ref_id })
+      providerMessage = statusResult.data?.status_message || statusResult.message || ''
+      const txnStatus = (statusResult.data?.txn_status || '').toUpperCase()
+      if (statusResult.status === 'SUCCESS' && txnStatus.includes('SUCCESS')) {
+        isVerified = true
+        verifiedName = statusResult.data?.fund_account?.name?.trim() || null
+        resolvedOrderId = statusResult.data?.order_id || null
+        resolvedUtr = statusResult.data?.utr || null
+      } else if (statusResult.status === 'SUCCESS' && (txnStatus.includes('PENDING') || txnStatus.includes('PROCESS'))) {
+        isStillPending = true
+      } else if (statusResult.code === 'NETWORK_ERROR') {
+        isStillPending = true
+        providerMessage = 'Could not reach verification service. Please try again.'
+      }
+      // anything else (FAILED / not found) -> FAILED
+    } else {
+      // Legacy ref from the old async verification API — its result can never be fetched.
+      // Run a fresh Rs.1 penny drop at no extra charge to the retailer (they already paid).
+      newRefId = `SV2_PENNY_${user.partner_id}_${Date.now()}`
+      const pennyResult = await initiateBankTransfer({
+        amount: 1,
+        mode: 'IMPS',
+        fund_account: {
+          name: account.account_holder_name || 'NA',
+          ifsc: account.ifsc_code,
+          account_number: account.account_number,
+        },
+        contact_details: {
+          name: account.contact_name || account.account_holder_name || 'NA',
+          email: account.contact_email || user.email || '',
+          mobile: account.contact_mobile || user.phone || '9999999999',
+        },
+        reference_id: newRefId,
+        latitude: '28.6139',
+        longitude: '77.2090',
+        narration: 'Account Verification Re-check',
+      })
+      providerMessage = pennyResult.message || ''
+      if (pennyResult.status === 'SUCCESS') {
+        isVerified = true
+        verifiedName = pennyResult.data?.fund_account?.name?.trim() || null
+        resolvedOrderId = pennyResult.data?.order_id || null
+        resolvedUtr = pennyResult.data?.utr || null
+      } else if (pennyResult.status === 'PENDING' || pennyResult.code === 'NETWORK_ERROR' || pennyResult.code === 'PROVIDER_ERROR') {
+        isStillPending = true
+      }
+    }
+
     const newVerificationStatus = isVerified ? 'SUCCESS' : isStillPending ? 'PENDING' : 'FAILED'
-    const verifiedName = recheckResult.data?.name_at_bank?.trim() || null
 
     try {
       const { error: updateErr } = await supabaseAdmin
@@ -550,7 +601,9 @@ export async function PATCH(request: NextRequest) {
         .update({
           verification_status: newVerificationStatus,
           is_verified: isVerified,
-          verification_order_id: recheckResult.data?.order_id || account.verification_order_id,
+          verification_order_id: resolvedOrderId || account.verification_order_id,
+          verification_utr: resolvedUtr || account.verification_utr,
+          ...(newRefId ? { verification_ref_id: newRefId } : {}),
           ...(isVerified ? {
             verified_name: verifiedName || account.verified_name,
             verified_at: new Date().toISOString(),
@@ -583,7 +636,7 @@ export async function PATCH(request: NextRequest) {
       verification_status: newVerificationStatus,
       account: refreshed || account,
       name_at_bank: verifiedName,
-      message: recheckResult.message,
+      message: providerMessage,
     })
     return addCorsHeaders(request, response)
   } catch (error: any) {
