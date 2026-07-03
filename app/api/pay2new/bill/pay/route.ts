@@ -4,6 +4,8 @@ import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
 import { pay2newPayBill } from '@/services/pay2new'
 import { rateLimit, RATE_LIMITS } from '@/lib/rate-limit'
 import { createClient } from '@supabase/supabase-js'
+import { fetchBillerInfo, fetchBill, payRequest } from '@/services/bbps'
+import { generateAgentTransactionId } from '@/services/bbps/helpers'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -44,7 +46,7 @@ export async function POST(request: NextRequest) {
     const rl = rateLimit(request, { ...RATE_LIMITS.bbpsPay, identifier: user.partner_id })
     if (rl.limited) return addCorsHeaders(request, rl.response!)
 
-    const { number, amount, product_code, product_name, bill_fetch_ref, optional1, optional2, optional3, optional4, customer_number, pincode, tpin } = body
+    const { number, amount, product_code, product_name, bill_fetch_ref, optional1, optional2, optional3, optional4, customer_number, pincode, tpin, use_bbps, biller_id: frontendBillerId } = body
 
     if (!number || !amount || !product_code || !bill_fetch_ref || !customer_number) {
       const response = NextResponse.json(
@@ -240,6 +242,88 @@ export async function POST(request: NextRequest) {
       if (refundErr) console.error('[Pay2New Bill Pay] CRITICAL refund failed:', refundErr)
     }
 
+    // If bill was fetched via BBPS fallback, pay directly through BBPS
+    if (use_bbps && frontendBillerId) {
+      console.log('[Pay2New Bill Pay] Using direct BBPS path for biller:', frontendBillerId)
+      try {
+        const billerInfo = await fetchBillerInfo({ billerId: frontendBillerId, skipCache: true })
+        const enquiryId = (billerInfo as any).enquiryId
+        const billerName = billerInfo.billerName || product_name || ''
+
+        const paramInfo: Array<{ paramName: string }> = billerInfo.billerInputParams?.paramInfo || []
+        const bbpsInputParams: Array<{ paramName: string; paramValue: string }> = []
+        for (const p of paramInfo) {
+          const nameLower = p.paramName.toLowerCase()
+          if (nameLower.includes('mobile') || nameLower.includes('phone')) {
+            bbpsInputParams.push({ paramName: p.paramName, paramValue: optional1 || customer_number })
+          } else {
+            bbpsInputParams.push({ paramName: p.paramName, paramValue: number })
+          }
+        }
+        if (bbpsInputParams.length === 0) {
+          bbpsInputParams.push({ paramName: 'Card Number', paramValue: number })
+        }
+
+        const billResult = await fetchBill({
+          billerId: frontendBillerId,
+          consumerNumber: number,
+          enquiryId,
+          inputParams: bbpsInputParams,
+        })
+
+        const paymentMode =
+          billResult.additional_info?.chagansPaymentMode ||
+          billResult.additional_info?.paymentMode ||
+          'Internet Banking'
+
+        const agentTxnId = generateAgentTransactionId(user.partner_id)
+
+        const bbpsResult = await payRequest({
+          billerId: frontendBillerId,
+          billerName,
+          consumerNumber: number,
+          amount: amountNum,
+          agentTransactionId: agentTxnId,
+          subServiceName: 'Credit Card',
+          paymentMode,
+          reqId: billResult.reqId || enquiryId,
+          billerResponse: billResult.additional_info?.billerResponse,
+          additionalInfo: billResult.additional_info?.additionalInfo,
+          inputParams: bbpsInputParams,
+          customerMobileNumber: optional1 || customer_number,
+        })
+
+        if (bbpsResult.success) {
+          console.log('[Pay2New→BBPS Direct] Payment succeeded:', bbpsResult.transaction_id)
+          const response = NextResponse.json({
+            success: true,
+            order_id: bbpsResult.transaction_id,
+            operator_reference: bbpsResult.transaction_id,
+            amount: amountNum,
+            charge: totalServiceCharge,
+            request_id,
+            fallback: 'bbps',
+          })
+          return addCorsHeaders(request, response)
+        }
+
+        await refund(bbpsResult.error_message || 'BBPS payment failed')
+        const response = NextResponse.json(
+          { success: false, error: bbpsResult.error_message || 'Payment failed', request_id },
+          { status: 200 }
+        )
+        return addCorsHeaders(request, response)
+      } catch (bbpsErr: any) {
+        console.error('[Pay2New→BBPS Direct] Error:', bbpsErr.message)
+        await refund(bbpsErr.message || 'BBPS payment error')
+        const response = NextResponse.json(
+          { success: false, error: bbpsErr.message || 'Payment failed', request_id },
+          { status: 200 }
+        )
+        return addCorsHeaders(request, response)
+      }
+    }
+
     let result
     try {
       result = await pay2newPayBill({
@@ -265,6 +349,69 @@ export async function POST(request: NextRequest) {
     }
 
     if (!result.success) {
+      const isCashDisabled = (result.error || '').toLowerCase().includes('payment mode cash is disable')
+
+      if (isCashDisabled) {
+        console.log('[Pay2New Bill Pay] Cash mode rejected — attempting BBPS Chagans fallback')
+        const billerIdMatch = (result.error || '').match(/biller\s+([A-Z0-9]+)/i)
+        const extractedBillerId = billerIdMatch?.[1]
+
+        if (extractedBillerId) {
+          try {
+            const billerInfo = await fetchBillerInfo({ billerId: extractedBillerId, skipCache: true })
+            const enquiryId = (billerInfo as any).enquiryId
+            const billerName = billerInfo.billerName || product_name || ''
+
+            const billResult = await fetchBill({
+              billerId: extractedBillerId,
+              consumerNumber: number,
+              enquiryId,
+              inputParams: [{ paramName: 'Card Number', paramValue: number }],
+            })
+
+            const paymentMode =
+              billResult.additional_info?.chagansPaymentMode ||
+              billResult.additional_info?.paymentMode ||
+              'Internet Banking'
+
+            const agentTxnId = generateAgentTransactionId(user.partner_id)
+
+            const bbpsResult = await payRequest({
+              billerId: extractedBillerId,
+              billerName,
+              consumerNumber: number,
+              amount: amountNum,
+              agentTransactionId: agentTxnId,
+              subServiceName: 'Credit Card',
+              paymentMode,
+              reqId: billResult.reqId || enquiryId,
+              billerResponse: billResult.additional_info?.billerResponse,
+              additionalInfo: billResult.additional_info?.additionalInfo,
+              inputParams: [{ paramName: 'Card Number', paramValue: number }],
+              customerMobileNumber: customer_number,
+            })
+
+            if (bbpsResult.success) {
+              console.log('[Pay2New→BBPS Fallback] Payment succeeded via BBPS:', bbpsResult.transaction_id)
+              const response = NextResponse.json({
+                success: true,
+                order_id: bbpsResult.transaction_id,
+                operator_reference: bbpsResult.transaction_id,
+                amount: amountNum,
+                charge: totalServiceCharge,
+                request_id,
+                fallback: 'bbps',
+              })
+              return addCorsHeaders(request, response)
+            }
+
+            console.error('[Pay2New→BBPS Fallback] BBPS also failed:', bbpsResult.error_message)
+          } catch (bbpsErr: any) {
+            console.error('[Pay2New→BBPS Fallback] Error:', bbpsErr.message)
+          }
+        }
+      }
+
       await refund(result.error || 'payment failed')
       const response = NextResponse.json(
         { success: false, error: result.error, request_id },

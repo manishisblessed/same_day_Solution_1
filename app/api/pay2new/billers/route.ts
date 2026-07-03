@@ -9,6 +9,21 @@ import {
 
 export const dynamic = 'force-dynamic'
 
+// Billers that don't support Cash payment mode — Pay2New can't process them.
+// These are hidden from the Credit Card tab until BBPS fallback is fully stable.
+const PAY2NEW_CC_BLOCKED_NAMES = new Set([
+  'yes bank credit card',
+  'rbl bank credit card',
+  'kotak mahindra bank credit card',
+  'bank of maharashtra credit card',
+  'bob credit card',
+  'dbs bank credit card',
+  'hsbc credit card',
+  'hdfc bank pixel credit card',
+  'hdfc credit card',
+  'saraswat co-operative bank ltd',
+])
+
 export async function OPTIONS(request: NextRequest) {
   const response = handleCorsPreflight(request)
   return response || new NextResponse(null, { status: 204 })
@@ -39,7 +54,11 @@ export async function GET(request: NextRequest) {
         ? await getPay2NewCreditCardBillers()
         : await getPay2NewProductList(serviceId)
 
-    const billers = (result as any).billers || (result as any).products || []
+    let billers = (result as any).billers || (result as any).products || []
+
+    if (serviceId === PAY2NEW_CC_SERVICE_ID) {
+      billers = billers.filter((b: any) => !PAY2NEW_CC_BLOCKED_NAMES.has((b.product_name || '').toLowerCase()))
+    }
 
     if (!result.success) {
       const response = NextResponse.json(

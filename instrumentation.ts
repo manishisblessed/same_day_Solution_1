@@ -66,5 +66,13 @@ export async function register() {
     } catch (err) {
       console.error('[Instrumentation] Failed to initialize AEPS Settlement Check cron:', err)
     }
+
+    try {
+      const { initPinelabSyncCron } = await import('@/lib/cron/pinelab-sync-cron')
+      await initPinelabSyncCron()
+      console.log('[Instrumentation] Pinelab Sync Cron initialized successfully')
+    } catch (err) {
+      console.error('[Instrumentation] Failed to initialize Pinelab Sync cron:', err)
+    }
   }
 }

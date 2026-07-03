@@ -91,6 +91,7 @@ export default function Pay2NewServiceFlow(props: Pay2NewServiceFlowProps) {
   const [fetchLoading, setFetchLoading] = useState(false)
   const [billData, setBillData] = useState<BillData | null>(null)
   const [orderId, setOrderId] = useState<string | null>(null)
+  const [bbpsFallback, setBbpsFallback] = useState<{ biller_id: string } | null>(null)
   const [fetchError, setFetchError] = useState<string | null>(null)
 
   // Common pay
@@ -172,6 +173,7 @@ export default function Pay2NewServiceFlow(props: Pay2NewServiceFlowProps) {
     setOptional1('')
     setBillData(null)
     setOrderId(null)
+    setBbpsFallback(null)
     setFetchError(null)
     setPayResult(null)
     setPayAmount('')
@@ -207,6 +209,7 @@ export default function Pay2NewServiceFlow(props: Pay2NewServiceFlowProps) {
         body: JSON.stringify({
           number,
           product_code: selectedBiller.product_code,
+          product_name: selectedBiller.product_name,
           optional1: optional1 || '',
           customer_number: optional1 || number,
           user_id: user?.id,
@@ -217,6 +220,7 @@ export default function Pay2NewServiceFlow(props: Pay2NewServiceFlowProps) {
         setBillData(data.data)
         setOrderId(data.order_id)
         setPayAmount(data.data.amount || '')
+        setBbpsFallback(data.fallback === 'bbps' && data.biller_id ? { biller_id: data.biller_id } : null)
         setStep('bill-fetched')
       } else {
         setFetchError(data.error || 'Failed to fetch bill details')
@@ -254,6 +258,7 @@ export default function Pay2NewServiceFlow(props: Pay2NewServiceFlowProps) {
           customer_number: optional1 || number,
           user_id: user?.id,
           tpin,
+          ...(bbpsFallback ? { use_bbps: true, biller_id: bbpsFallback.biller_id } : {}),
         }),
       })
 
