@@ -151,6 +151,17 @@ function cleanNull(val: string | undefined | null): string | null {
   return val
 }
 
+// Pinelab returns datetimes as IST (Asia/Kolkata) wall-clock strings with no
+// timezone, e.g. "2026-07-04 23:46:17.313". Parsing them with `new Date()`
+// uses the server's local timezone (UTC on EC2), which shifts the stored
+// instant by 5h30m. Explicitly interpret them as IST (+05:30) so the true
+// UTC instant is stored regardless of server timezone.
+function parseIstDate(raw: string): Date | null {
+  const normalized = raw.trim().replace(' ', 'T')
+  const parsed = new Date(`${normalized}+05:30`)
+  return isNaN(parsed.getTime()) ? null : parsed
+}
+
 function mapToDbRecord(txn: PinelabTransaction, merchantSlug: string, merchantName: string) {
   const { status, displayStatus } = mapStatus(txn.txnStatus)
   const amount = parseFloat(txn.amount || txn.authTransactionAmount || '0')
@@ -158,8 +169,8 @@ function mapToDbRecord(txn: PinelabTransaction, merchantSlug: string, merchantNa
 
   let transactionTime = new Date()
   if (txn.transactionDate) {
-    const parsed = new Date(txn.transactionDate.replace(' ', 'T'))
-    if (!isNaN(parsed.getTime())) transactionTime = parsed
+    const parsed = parseIstDate(txn.transactionDate)
+    if (parsed) transactionTime = parsed
   }
 
   const paymentMode = (txn.paymentMode || 'CARD').toUpperCase()
@@ -232,7 +243,7 @@ async function syncMerchant(
 
         const { data: existing } = await supabase
           .from('razorpay_pos_transactions')
-          .select('id, status, display_status')
+          .select('id, status, display_status, transaction_time')
           .eq('txn_id', prefixedId)
           .maybeSingle()
 
@@ -243,7 +254,12 @@ async function syncMerchant(
             existing.status !== dbRecord.status ||
             existing.display_status !== dbRecord.display_status
 
-          if (statusChanged) {
+          // Heal rows stored with a wrong timestamp (e.g. pre-IST-fix data)
+          const existingMs = existing.transaction_time ? new Date(existing.transaction_time).getTime() : 0
+          const newMs = new Date(dbRecord.transaction_time).getTime()
+          const timeChanged = Math.abs(existingMs - newMs) > 1000
+
+          if (statusChanged || timeChanged) {
             const { error } = await supabase
               .from('razorpay_pos_transactions')
               .update({ ...dbRecord, updated_at: new Date().toISOString() })
