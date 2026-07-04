@@ -11,6 +11,8 @@ import {
   Fingerprint, Server, TrendingUp, Scale
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
+import { supabase } from '@/lib/supabase/client'
+import { useAuth } from '@/contexts/AuthContext'
 
 interface SidebarItem {
   id: string
@@ -22,6 +24,7 @@ interface SidebarItem {
 
 const sidebarItems: SidebarItem[] = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, href: '/admin?tab=dashboard' },
+  { id: 'pos-transactions', label: 'POS Transactions', icon: Receipt, href: '/admin/razorpay-transactions' },
   { id: 'retailers', label: 'Retailers', icon: Users, href: '/admin?tab=retailers' },
   { id: 'distributors', label: 'Distributors', icon: Package, href: '/admin?tab=distributors' },
   { id: 'master-distributors', label: 'Master Distributors', icon: Crown, href: '/admin?tab=master-distributors' },
@@ -32,7 +35,6 @@ const sidebarItems: SidebarItem[] = [
   { id: 'pos-tracking-report', label: 'POS Tracking Report', icon: FileBarChart, href: '/admin?tab=pos-tracking-report' },
   { id: 'pos-rental-report', label: 'POS Rental Report', icon: TrendingUp, href: '/admin/pos-rental-report' },
   { id: 'pos-partner-api', label: 'POS Partner API', icon: Key, href: '/admin?tab=pos-partner-api' },
-  { id: 'razorpay-transactions', label: 'Razorpay Transactions', icon: Receipt, href: '/admin/razorpay-transactions' },
   { id: 'services', label: 'Services', icon: Activity, href: '/admin?tab=services' },
   { id: 'aeps', label: 'AEPS Management', icon: Fingerprint, href: '/admin?tab=aeps' },
   { id: 'reports', label: 'Reports', icon: FileBarChart, href: '/admin?tab=reports' },
@@ -50,12 +52,38 @@ const sidebarItems: SidebarItem[] = [
 export default function AdminSidebar({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
   const pathname = usePathname()
   const searchParams = useSearchParams()
+  const { user } = useAuth()
   const [hoveredItem, setHoveredItem] = useState<string | null>(null)
   const [mounted, setMounted] = useState(false)
+  const [adminDepartments, setAdminDepartments] = useState<string[]>([])
+  const [adminType, setAdminType] = useState<string>('')
 
   useEffect(() => {
     setMounted(true)
   }, [])
+
+  useEffect(() => {
+    const fetchAdminDepartments = async () => {
+      if (user?.email) {
+        try {
+          const { data } = await supabase
+            .from('admin_users')
+            .select('admin_type, departments, department')
+            .eq('email', user.email)
+            .single()
+          if (data) {
+            setAdminType(data.admin_type || '')
+            setAdminDepartments(data.departments || (data.department ? [data.department] : []))
+          }
+        } catch {}
+      }
+    }
+    fetchAdminDepartments()
+  }, [user])
+
+  const filteredItems = adminType === 'super_admin'
+    ? sidebarItems
+    : sidebarItems.filter(item => adminDepartments.includes(item.id))
 
   const currentTab = searchParams?.get('tab')
 
@@ -98,6 +126,7 @@ export default function AdminSidebar({ isOpen, onClose }: { isOpen: boolean; onC
               className="fixed left-0 top-0 bottom-0 w-64 bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-800 z-50 lg:hidden overflow-y-auto"
             >
               <SidebarContent 
+                items={filteredItems}
                 isActive={isActive} 
                 hoveredItem={hoveredItem}
                 setHoveredItem={setHoveredItem}
@@ -111,6 +140,7 @@ export default function AdminSidebar({ isOpen, onClose }: { isOpen: boolean; onC
       {/* Desktop Sidebar */}
       <aside className="hidden lg:flex flex-col w-56 bg-gradient-to-b from-white to-gray-50 dark:from-gray-900 dark:to-gray-800 border-r border-gray-200 dark:border-gray-800 h-[calc(100vh-4rem)] fixed left-0 top-16 overflow-y-auto">
         <SidebarContent 
+          items={filteredItems}
           isActive={isActive} 
           hoveredItem={hoveredItem}
           setHoveredItem={setHoveredItem}
@@ -121,11 +151,13 @@ export default function AdminSidebar({ isOpen, onClose }: { isOpen: boolean; onC
 }
 
 function SidebarContent({ 
+  items,
   isActive, 
   hoveredItem, 
   setHoveredItem,
   onClose 
 }: { 
+  items: SidebarItem[]
   isActive: (href: string) => boolean
   hoveredItem: string | null
   setHoveredItem: (id: string | null) => void
@@ -153,7 +185,7 @@ function SidebarContent({
 
       {/* Navigation - Compact */}
       <nav className="flex-1 p-2 pb-8 space-y-1 overflow-y-auto">
-        {sidebarItems.map((item) => {
+        {items.map((item) => {
           const active = isActive(item.href)
           const Icon = item.icon
           

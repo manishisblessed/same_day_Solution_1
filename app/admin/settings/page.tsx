@@ -76,17 +76,38 @@ export default function AdminSettings() {
       (adminInfo.departments.includes('users') || adminInfo.departments.includes('all')))
 
   const availableDepartments = [
+    { id: 'dashboard', label: 'Dashboard' },
+    { id: 'retailers', label: 'Retailers' },
+    { id: 'distributors', label: 'Distributors' },
+    { id: 'master-distributors', label: 'Master Distributors' },
+    { id: 'scheme-management', label: 'Scheme Management' },
+    { id: 'partners', label: 'Partners' },
+    { id: 'pos-machines', label: 'POS Machines' },
+    { id: 'pos-history', label: 'POS History' },
+    { id: 'pos-tracking-report', label: 'POS Tracking Report' },
+    { id: 'pos-rental-report', label: 'POS Rental Report' },
+    { id: 'pos-partner-api', label: 'POS Partner API' },
+    { id: 'pos-transactions', label: 'POS Transactions' },
+    { id: 'services', label: 'Services' },
+    { id: 'aeps', label: 'AEPS Management' },
+    { id: 'reports', label: 'Reports' },
+    { id: 'business-report', label: 'Business Report' },
+    { id: 'settlement', label: 'Settlement' },
+    { id: 'revenue-wallet', label: 'Revenue Wallet' },
+    { id: 'wallet-ledger', label: 'Wallet Ledger' },
     { id: 'wallet', label: 'Wallet' },
     { id: 'commission', label: 'Commission' },
     { id: 'mdr', label: 'MDR' },
     { id: 'limits', label: 'Limits' },
-    { id: 'services', label: 'Services' },
     { id: 'reversals', label: 'Reversals' },
     { id: 'disputes', label: 'Disputes' },
-    { id: 'reports', label: 'Reports' },
     { id: 'users', label: 'Users' },
+    { id: 'performance', label: 'Performance' },
+    { id: 'subscriptions', label: 'Subscriptions' },
+    { id: 'portal-management', label: 'Portal Management' },
+    { id: 'legal-agreements', label: 'Legal Agreements' },
     { id: 'settings', label: 'Settings' },
-    { id: 'all', label: 'All Departments' }
+    { id: 'all', label: 'Select All' }
   ]
 
   useEffect(() => {
@@ -1085,21 +1106,23 @@ export default function AdminSettings() {
                           >
                             <input
                               type="checkbox"
-                              checked={subAdminFormData.departments.includes(dept.id)}
+                              checked={dept.id === 'all'
+                                ? subAdminFormData.departments.length === availableDepartments.length - 1
+                                : subAdminFormData.departments.includes(dept.id)}
                               onChange={(e) => {
                                 if (dept.id === 'all') {
-                                  // If "All" is selected, only keep "all"
                                   setSubAdminFormData({
                                     ...subAdminFormData,
-                                    departments: e.target.checked ? ['all'] : []
+                                    departments: e.target.checked
+                                      ? availableDepartments.filter(d => d.id !== 'all').map(d => d.id)
+                                      : []
                                   })
                                 } else {
-                                  // If "All" was selected, remove it when selecting specific departments
-                                  let newDepartments = subAdminFormData.departments.filter(d => d !== 'all')
+                                  let newDepartments: string[]
                                   if (e.target.checked) {
-                                    newDepartments.push(dept.id)
+                                    newDepartments = [...subAdminFormData.departments, dept.id]
                                   } else {
-                                    newDepartments = newDepartments.filter(d => d !== dept.id)
+                                    newDepartments = subAdminFormData.departments.filter(d => d !== dept.id)
                                   }
                                   setSubAdminFormData({
                                     ...subAdminFormData,
@@ -1117,7 +1140,9 @@ export default function AdminSettings() {
                     <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
                       <span className="font-medium">Selected:</span> {subAdminFormData.departments.length === 0 
                         ? <span className="text-gray-400">None</span>
-                        : <span className="text-primary-600 dark:text-primary-400">{subAdminFormData.departments.join(', ')}</span>}
+                        : subAdminFormData.departments.length === availableDepartments.length - 1
+                          ? <span className="text-primary-600 dark:text-primary-400">All</span>
+                          : <span className="text-primary-600 dark:text-primary-400">{subAdminFormData.departments.join(', ')}</span>}
                     </p>
                   </div>
 

@@ -1,47 +1,32 @@
-import cron, { ScheduledTask } from 'node-cron'
-
-let task: ScheduledTask | null = null
+let intervalHandle: ReturnType<typeof setInterval> | null = null
 let isRunning = false
 
 async function runSync() {
   if (isRunning) {
-    console.log('[PinelabCron] Sync already running, skipping...')
+    console.log('[PinelabCron] Skip: already running')
     return
   }
 
   isRunning = true
-  const startedAt = new Date().toISOString()
-  console.log(`[PinelabCron] === Sync started at ${startedAt} ===`)
+  const startMs = Date.now()
 
   try {
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
-    const cronSecret = process.env.CRON_SECRET || ''
+    const { runPinelabSync } = await import('@/lib/pinelab/sync')
+    const data = await runPinelabSync()
 
-    const res = await fetch(`${baseUrl}/api/pinelab/sync-transactions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-cron-secret': cronSecret,
-      },
-      body: JSON.stringify({}),
-      signal: AbortSignal.timeout(120000),
-    })
+    const elapsed = Date.now() - startMs
+    const summary = data.results
+      .map(r => `${r.merchant}: fetched=${r.fetched} +${r.created} new ${r.updated} upd${r.errors.length ? ` ERR=${r.errors.length}` : ''}`)
+      .join(' | ')
+    console.log(`[PinelabCron] ${summary} (${elapsed}ms)`)
 
-    if (!res.ok) {
-      console.error(`[PinelabCron] Sync API returned ${res.status}`)
-      return
+    for (const r of data.results) {
+      if (r.errors.length > 0) {
+        console.error(`[PinelabCron] ${r.merchant} errors:`, r.errors.slice(0, 2))
+      }
     }
-
-    const data = await res.json()
-    console.log(`[PinelabCron] === Sync complete ===`, JSON.stringify(data.results?.map((r: any) => ({
-      merchant: r.merchant,
-      fetched: r.fetched,
-      created: r.created,
-      updated: r.updated,
-      errors: r.errors?.length || 0,
-    }))))
   } catch (err: any) {
-    console.error('[PinelabCron] Sync error:', err.message)
+    console.error(`[PinelabCron] Sync error: ${err.message}`)
   } finally {
     isRunning = false
   }
@@ -50,27 +35,30 @@ async function runSync() {
 export async function initPinelabSyncCron() {
   const config = process.env.PINELAB_MERCHANTS_CONFIG
   if (!config) {
-    console.log('[PinelabCron] PINELAB_MERCHANTS_CONFIG not set, skipping cron init.')
+    console.log('[PinelabCron] PINELAB_MERCHANTS_CONFIG not set, skipping init.')
     return
   }
 
-  // Run every 10 minutes
-  const schedule = process.env.PINELAB_SYNC_SCHEDULE || '*/10 * * * *'
+  const intervalSec = parseInt(process.env.PINELAB_SYNC_INTERVAL_SECONDS || '600', 10)
+  const intervalMs = intervalSec * 1000
 
-  task = cron.schedule(schedule, runSync, {
-    timezone: 'Asia/Kolkata',
-  })
+  // Wrap runSync so unhandled rejections don't kill the interval
+  const safeRun = () => {
+    runSync().catch(err => console.error('[PinelabCron] Unhandled:', err))
+  }
 
-  console.log(`[PinelabCron] Scheduled at: ${schedule} (Asia/Kolkata)`)
+  intervalHandle = setInterval(safeRun, intervalMs)
 
-  // Run once on startup after a short delay
-  setTimeout(runSync, 15000)
+  console.log(`[PinelabCron] Scheduled every ${intervalSec}s`)
+
+  // Delay first run to let Next.js finish initial compilations
+  setTimeout(safeRun, 30000)
 }
 
 export function stopPinelabSyncCron() {
-  if (task) {
-    task.stop()
-    task = null
+  if (intervalHandle) {
+    clearInterval(intervalHandle)
+    intervalHandle = null
   }
   console.log('[PinelabCron] Stopped.')
 }

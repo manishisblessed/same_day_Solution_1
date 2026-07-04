@@ -170,6 +170,9 @@ function RazorpayTransactionsPageContent() {
 
   const [pageSize, setPageSize] = useState(25)
 
+  const [autoRefresh, setAutoRefresh] = useState(true)
+  const [lastRefreshedAt, setLastRefreshedAt] = useState<Date | null>(null)
+
   // Applied filters — only updated when Search button is clicked
   const [appliedFilters, setAppliedFilters] = useState({
     dateFrom: '',
@@ -262,6 +265,7 @@ function RazorpayTransactionsPageContent() {
       setTotalPages(result.pagination?.totalPages || 1)
       setTotal(result.pagination?.total || 0)
       setStats(result.stats || { capturedAmount: 0, avgAmount: 0 })
+      setLastRefreshedAt(new Date())
     } catch (err: any) {
       console.error('Error fetching transactions:', err)
       setError(err.message || 'Failed to load transactions')
@@ -278,6 +282,24 @@ function RazorpayTransactionsPageContent() {
 
     fetchTransactions()
   }, [fetchTransactions, user])
+
+  // Auto-refresh: silently pull the latest transactions on an interval.
+  // Only runs on page 1 (where new transactions land) and pauses while a
+  // detail row / modal is open to avoid disrupting the user.
+  useEffect(() => {
+    if (!autoRefresh) return
+    if (!user || user.role !== 'admin') return
+    if (page !== 1) return
+
+    const intervalMs = 10000
+    const id = setInterval(() => {
+      if (document.hidden) return
+      if (expandedTxn || showRawJson || showEnrichModal || showExportMenu) return
+      fetchTransactions(true)
+    }, intervalMs)
+
+    return () => clearInterval(id)
+  }, [autoRefresh, user, page, expandedTxn, showRawJson, showEnrichModal, showExportMenu, fetchTransactions])
 
   // Set loading and clear old data when applied filters change
   useEffect(() => {
@@ -588,10 +610,10 @@ function RazorpayTransactionsPageContent() {
             <div>
               <h1 className="text-3xl font-bold text-gray-900 dark:text-white flex items-center gap-3">
                 <CreditCard className="w-8 h-8 text-primary-600" />
-                Razorpay Transactions
+                POS Transactions
               </h1>
               <p className="text-gray-600 dark:text-gray-400 mt-1">
-                View all Razorpay POS transaction notifications
+                View all POS transaction notifications
               </p>
             </div>
             <div className="flex items-center gap-2 flex-shrink-0 flex-wrap">
@@ -673,6 +695,19 @@ function RazorpayTransactionsPageContent() {
               >
                 <Upload className="w-4 h-4" />
                 Upload Report
+              </button>
+
+              <button
+                onClick={() => setAutoRefresh(v => !v)}
+                title={autoRefresh ? 'Auto-refresh is ON (every 10s on page 1)' : 'Auto-refresh is OFF'}
+                className={`flex items-center gap-2 px-3 py-2 rounded-lg border transition-colors whitespace-nowrap ${
+                  autoRefresh
+                    ? 'bg-green-50 dark:bg-green-900/20 border-green-300 dark:border-green-700 text-green-700 dark:text-green-400'
+                    : 'bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-500'
+                }`}
+              >
+                <span className={`w-2 h-2 rounded-full ${autoRefresh ? 'bg-green-500 animate-pulse' : 'bg-gray-400'}`} />
+                Auto {autoRefresh ? 'On' : 'Off'}
               </button>
 
               <button
