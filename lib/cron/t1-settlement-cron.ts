@@ -1,6 +1,7 @@
 import cron, { ScheduledTask } from 'node-cron'
 import { createHash } from 'crypto'
 import { getSupabaseAdmin } from '@/lib/supabase/server-admin'
+import { raiseSettlementAlert, resolveSettlementAlerts } from '@/lib/settlement-alerts'
 
 interface CronSettings {
   id: string
@@ -187,6 +188,19 @@ async function runT1Settlement() {
           } else {
             totalFailed++
             console.warn(`[T1-Cron] MDR calc failed for txn ${txn.txn_id}: ${mdrResult.error}`)
+            await raiseSettlementAlert(supabase, {
+              retailerId,
+              txnId: txn.txn_id,
+              amount: grossAmount,
+              reason: mdrResult.error || 'MDR calculation failed',
+              details: {
+                payment_mode: paymentMode,
+                card_type: txn.card_type || null,
+                card_brand: txn.card_brand || null,
+                card_classification: txn.card_classification || null,
+                transaction_time: txn.transaction_time,
+              },
+            })
           }
         }
 
@@ -283,6 +297,7 @@ async function runT1Settlement() {
             }
 
             totalProcessed += claimedTxns.length
+            await resolveSettlementAlerts(supabase, claimedTxns.map(i => i.txn.txn_id))
             console.log(`[T1-Cron] POS: Retailer ${retailerId}: ${claimedTxns.length} settled, net: ₹${claimedNet.toFixed(2)} (ref: ${referenceId})`)
           } catch (err: any) {
             console.error(`[T1-Cron] Error processing retailer ${retailerId}:`, err)

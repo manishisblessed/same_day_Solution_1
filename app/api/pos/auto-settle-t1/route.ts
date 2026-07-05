@@ -18,6 +18,7 @@ import { getSupabaseAdmin } from '@/lib/supabase/server-admin'
 import {
   calculateMDR as calculateSchemeMDR,
 } from '@/lib/mdr-scheme/settlement.service'
+import { raiseSettlementAlert, resolveSettlementAlerts } from '@/lib/settlement-alerts'
 import type { SettlementType } from '@/types/mdr-scheme.types'
 
 export const runtime = 'nodejs'
@@ -171,6 +172,19 @@ export async function POST(request: NextRequest) {
         } else {
           totalFailed++
           console.warn(`[AutoT1] MDR calc failed for txn ${txn.txn_id}: ${mdrResult.error}`)
+          await raiseSettlementAlert(supabase, {
+            retailerId,
+            txnId: txn.txn_id,
+            amount: grossAmount,
+            reason: mdrResult.error || 'MDR calculation failed',
+            details: {
+              payment_mode: paymentMode,
+              card_type: txn.card_type || null,
+              card_brand: txn.card_brand || null,
+              card_classification: txn.card_classification || null,
+              transaction_time: txn.transaction_time,
+            },
+          })
         }
       }
 
@@ -265,6 +279,7 @@ export async function POST(request: NextRequest) {
           }
 
           totalProcessed += claimedTxns.length
+          await resolveSettlementAlerts(supabase, claimedTxns.map(i => i.txn.txn_id))
           console.log(`[AutoT1] Retailer ${retailerId}: ${claimedTxns.length} settled, net: ₹${claimedNet.toFixed(2)} (ref: ${referenceId})`)
 
           results.push({

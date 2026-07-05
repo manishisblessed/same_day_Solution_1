@@ -24,6 +24,25 @@ interface CronSettings {
   updated_at: string
 }
 
+interface SettlementAlert {
+  id: string
+  alert_type: string
+  retailer_id: string
+  txn_id: string
+  amount: number | null
+  reason: string | null
+  details: {
+    payment_mode?: string
+    card_type?: string | null
+    card_brand?: string | null
+    card_classification?: string | null
+    transaction_time?: string
+  } | null
+  status: 'open' | 'resolved'
+  created_at: string
+  last_seen_at: string
+}
+
 interface RetailerRow {
   partner_id: string
   name: string
@@ -49,6 +68,8 @@ export default function T1SettlementControl({ readOnly = false }: { readOnly?: b
   const [editMinute, setEditMinute] = useState(0)
   const [togglingId, setTogglingId] = useState<string | null>(null)
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const [alerts, setAlerts] = useState<SettlementAlert[]>([])
+  const [resolvingAlertId, setResolvingAlertId] = useState<string | null>(null)
 
   const showMessage = (type: 'success' | 'error', text: string) => {
     setMessage({ type, text })
@@ -82,14 +103,45 @@ export default function T1SettlementControl({ readOnly = false }: { readOnly?: b
     }
   }, [])
 
+  const fetchAlerts = useCallback(async () => {
+    try {
+      const res = await apiFetch('/api/admin/settlement/alerts?status=open')
+      const data = await res.json()
+      if (data.success) setAlerts(data.alerts || [])
+    } catch (err: any) {
+      console.error('Failed to fetch settlement alerts:', err)
+    }
+  }, [])
+
+  const handleResolveAlert = async (id: string) => {
+    setResolvingAlertId(id)
+    try {
+      const res = await apiFetch('/api/admin/settlement/alerts', {
+        method: 'PATCH',
+        body: JSON.stringify({ ids: [id] }),
+      })
+      const data = await res.json()
+      if (data.success) {
+        setAlerts(prev => prev.filter(a => a.id !== id))
+        showMessage('success', 'Alert marked resolved')
+      } else {
+        showMessage('error', data.error || 'Failed to resolve alert')
+      }
+    } catch (err: any) {
+      showMessage('error', err.message)
+    } finally {
+      setResolvingAlertId(null)
+    }
+  }
+
   useEffect(() => {
     const loadAll = async () => {
       setLoading(true)
-      await Promise.all([fetchSettings(), fetchEntities()])
+      await Promise.all([fetchSettings(), fetchEntities(), fetchAlerts()])
       setLoading(false)
     }
     loadAll()
-  }, [fetchSettings, fetchEntities])
+  }, [fetchSettings, fetchEntities, fetchAlerts])
 
   const handleToggleEnabled = async () => {
     if (!settings) return
@@ -142,7 +194,7 @@ export default function T1SettlementControl({ readOnly = false }: { readOnly?: b
       const data = await res.json()
       if (data.success) {
         showMessage('success', `Settlement complete — Processed: ${data.processed}, Failed: ${data.failed}`)
-        await fetchSettings()
+        await Promise.all([fetchSettings(), fetchAlerts()])
       } else {
         showMessage('error', data.error || 'Failed to run settlement')
       }
@@ -247,6 +299,62 @@ export default function T1SettlementControl({ readOnly = false }: { readOnly?: b
         >
           {message.type === 'success' ? <CheckCircle2 className="w-4 h-4 inline mr-2" /> : <XCircle className="w-4 h-4 inline mr-2" />}
           {message.text}
+        </motion.div>
+      )}
+
+      {/* Settlement Hold Alerts */}
+      {alerts.length > 0 && (
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl overflow-hidden"
+        >
+          <div className="p-4 border-b border-red-200 dark:border-red-800 flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-red-700 dark:text-red-300 flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4" />
+              {alerts.length} transaction(s) ON HOLD — settlement failed
+            </h3>
+            <span className="text-xs font-medium text-red-600 dark:text-red-400">
+              Total: ₹{alerts.reduce((s, a) => s + (Number(a.amount) || 0), 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+            </span>
+          </div>
+          <div className="divide-y divide-red-100 dark:divide-red-900/40 max-h-72 overflow-y-auto">
+            {alerts.map(alert => (
+              <div key={alert.id} className="px-4 py-2.5 flex items-center gap-3 text-sm">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-mono text-xs text-red-800 dark:text-red-300">{alert.txn_id}</span>
+                    <span className="font-mono text-xs text-gray-500">{alert.retailer_id}</span>
+                    <span className="font-semibold text-red-700 dark:text-red-300">
+                      ₹{Number(alert.amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                    </span>
+                    {alert.details?.card_classification && (
+                      <span className="px-1.5 py-0.5 rounded bg-red-100 dark:bg-red-900/40 text-xs text-red-700 dark:text-red-300">
+                        {alert.details.card_classification}
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-red-600/80 dark:text-red-400/80 truncate mt-0.5">
+                    {alert.reason || 'MDR rate missing'} · first seen {new Date(alert.created_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}
+                  </p>
+                </div>
+                {!readOnly && (
+                  <button
+                    type="button"
+                    onClick={() => handleResolveAlert(alert.id)}
+                    disabled={resolvingAlertId === alert.id}
+                    className="shrink-0 px-2.5 py-1 rounded-lg text-xs font-medium bg-white dark:bg-gray-800 border border-red-300 dark:border-red-700 text-red-700 dark:text-red-300 hover:bg-red-100 dark:hover:bg-red-900/40 disabled:opacity-50 transition-colors"
+                    title="Mark resolved (e.g. after adding the missing MDR rate or settling manually)"
+                  >
+                    {resolvingAlertId === alert.id ? '...' : 'Resolve'}
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+          <p className="px-4 py-2 text-xs text-red-600/70 dark:text-red-400/70 bg-red-100/50 dark:bg-red-900/10">
+            Usually caused by a missing MDR rate in the retailer&apos;s scheme (e.g. unknown card type). Add the rate, then run settlement again — alerts auto-resolve once the transaction settles.
+          </p>
         </motion.div>
       )}
 
