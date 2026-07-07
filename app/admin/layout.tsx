@@ -4,6 +4,7 @@ import { usePathname } from 'next/navigation'
 import { useAuth } from '@/contexts/AuthContext'
 import AdminHeader from '@/components/AdminHeader'
 import SessionTimer from '@/components/SessionTimer'
+import SessionKickedOverlay from '@/components/SessionKickedOverlay'
 
 export default function AdminLayout({
   children,
@@ -19,6 +20,7 @@ export default function AdminLayout({
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-gray-50 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900 overflow-hidden" suppressHydrationWarning>
+      <SessionKickedOverlay loginPath="/admin/login" />
       {showHeader && <AdminHeader />}
       {showHeader && (
         <SessionTimer 

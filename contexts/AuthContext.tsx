@@ -1,19 +1,23 @@
 'use client'
 
-import React, { createContext, useContext, useEffect, useRef, useState } from 'react'
+import React, { createContext, useContext, useEffect, useRef, useState, useCallback } from 'react'
 import { AuthUser } from '@/types/database.types'
-import { getCurrentUser, signIn, signOut as authSignOut } from '@/lib/auth'
+import { getCurrentUser, signIn, signOut as authSignOut, getStoredSessionToken, clearStoredSessionToken, complete2FALogin, TwoFactorRequiredError } from '@/lib/auth'
 import { apiFetch } from '@/lib/api-client'
 import { getGeoLocation, clearGeoCache } from '@/hooks/useGeolocation'
+
+export type LogoutReason = 'manual' | 'inactivity' | 'replaced' | 'expired' | 'ended'
 
 interface AuthContextType {
   user: AuthUser | null
   loading: boolean
   login: (email: string, password: string, role: string, captchaToken?: string) => Promise<void>
-  logout: () => Promise<void>
+  login2FA: (email: string, password: string, role: string, totpCode: string, isBackup?: boolean) => Promise<void>
+  logout: (reason?: LogoutReason) => Promise<void>
   refreshUser: () => Promise<void>
   impersonate: (userId: string, userRole: 'retailer' | 'distributor' | 'master_distributor') => Promise<void>
   endImpersonation: () => Promise<void>
+  sessionKicked: boolean
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -21,20 +25,83 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined)
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null)
   const [loading, setLoading] = useState(true)
+  const [sessionKicked, setSessionKicked] = useState(false)
   const geoRequestedRef = useRef(false)
+  const heartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const kickingRef = useRef(false)
 
   useEffect(() => {
     checkUser()
   }, [])
 
   // Request geolocation once user is authenticated (all roles).
-  // This caches the position in sessionStorage so every subsequent
-  // apiFetch call automatically attaches the X-Geo-Location header.
   useEffect(() => {
     if (!user || geoRequestedRef.current) return
     geoRequestedRef.current = true
     getGeoLocation(10_000).catch(() => {})
   }, [user])
+
+  // Session heartbeat — validates session_token every 30s
+  const startHeartbeat = useCallback(() => {
+    if (heartbeatRef.current) clearInterval(heartbeatRef.current)
+
+    const validate = async () => {
+      const token = getStoredSessionToken()
+      if (!token || kickingRef.current) return
+
+      try {
+        const res = await fetch('/api/auth/validate-session', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ session_token: token }),
+        })
+        const data = await res.json()
+
+        if (!data.valid) {
+          kickingRef.current = true
+          if (heartbeatRef.current) {
+            clearInterval(heartbeatRef.current)
+            heartbeatRef.current = null
+          }
+
+          if (data.reason === 'replaced') {
+            setSessionKicked(true)
+            // Force logout locally without calling end-session again
+            clearStoredSessionToken()
+            try { await authSignOut() } catch {}
+            clearGeoCache()
+            if (typeof window !== 'undefined') {
+              localStorage.removeItem('auth_user')
+              localStorage.removeItem('auth_user_timestamp')
+            }
+            setUser(null)
+          }
+        }
+      } catch {
+        // Network error — don't kick user
+      }
+    }
+
+    validate()
+    heartbeatRef.current = setInterval(validate, 30_000)
+  }, [])
+
+  const stopHeartbeat = useCallback(() => {
+    if (heartbeatRef.current) {
+      clearInterval(heartbeatRef.current)
+      heartbeatRef.current = null
+    }
+  }, [])
+
+  // Start/stop heartbeat based on user state
+  useEffect(() => {
+    if (user && !sessionKicked) {
+      startHeartbeat()
+    } else {
+      stopHeartbeat()
+    }
+    return stopHeartbeat
+  }, [user, sessionKicked, startHeartbeat, stopHeartbeat])
 
   const checkUser = async () => {
     try {
@@ -166,13 +233,56 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         logLogin()
       }
     } catch (error: any) {
+      if (error instanceof TwoFactorRequiredError) {
+        setLoading(false)
+        throw error
+      }
       throw error
     } finally {
       setLoading(false)
     }
   }
 
-  const logout = async () => {
+  const login2FA = async (email: string, password: string, role: string, totpCode: string, isBackup?: boolean) => {
+    setLoading(true)
+    try {
+      const result = await complete2FALogin(email, password, role as any, totpCode, isBackup)
+      setUser(result.user)
+      if (typeof window !== 'undefined' && result.user) {
+        localStorage.setItem('auth_user', JSON.stringify(result.user))
+        localStorage.setItem('auth_user_timestamp', Date.now().toString())
+
+        const logLogin = async () => {
+          try {
+            const quickGeo = await getGeoLocation(3000)
+            const geoBody = quickGeo ? {
+              latitude: quickGeo.latitude,
+              longitude: quickGeo.longitude,
+              accuracy: quickGeo.accuracy,
+              source: quickGeo.source,
+            } : null
+            await apiFetch('/api/activity/log', {
+              method: 'POST',
+              body: JSON.stringify({
+                activity_type: 'login',
+                activity_category: 'auth',
+                activity_description: `${result.user.role} logged in (2FA): ${result.user.email}`,
+                geo: geoBody,
+              }),
+            })
+          } catch {}
+        }
+        logLogin()
+      }
+    } catch (error: any) {
+      throw error
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const logout = async (reason: LogoutReason = 'manual') => {
+    stopHeartbeat()
     setLoading(true)
     try {
       // Log logout activity before clearing session (non-blocking)
@@ -181,11 +291,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         body: JSON.stringify({
           activity_type: 'logout',
           activity_category: 'auth',
-          activity_description: `${user?.role || 'user'} logged out: ${user?.email || 'unknown'}`,
+          activity_description: `${user?.role || 'user'} logged out (${reason}): ${user?.email || 'unknown'}`,
         }),
       }).catch(() => {})
 
-      // Sign out from Supabase first
+      // Sign out from Supabase (also ends session token via lib/auth signOut)
       await authSignOut()
       
       // Clear geo cache so next login requires fresh location permission
@@ -193,11 +303,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       // Clear all auth-related data
       if (typeof window !== 'undefined') {
-        // Clear cached user
         localStorage.removeItem('auth_user')
         localStorage.removeItem('auth_user_timestamp')
         
-        // Clear all Supabase related items from localStorage
         const localStorageKeys: string[] = []
         for (let i = 0; i < localStorage.length; i++) {
           const key = localStorage.key(i)
@@ -207,7 +315,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
         localStorageKeys.forEach(key => localStorage.removeItem(key))
         
-        // Clear all Supabase related items from sessionStorage
         const sessionStorageKeys: string[] = []
         for (let i = 0; i < sessionStorage.length; i++) {
           const key = sessionStorage.key(i)
@@ -217,7 +324,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
         sessionStorageKeys.forEach(key => sessionStorage.removeItem(key))
         
-        // Clear impersonation data if any
         localStorage.removeItem('impersonation_token')
         localStorage.removeItem('impersonation_session_id')
         sessionStorage.removeItem('impersonated_user')
@@ -226,7 +332,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUser(null)
     } catch (error) {
       console.error('Error signing out:', error)
-      // Even if signOut fails, clear local state
       setUser(null)
       if (typeof window !== 'undefined') {
         localStorage.removeItem('auth_user')
@@ -297,7 +402,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout, refreshUser, impersonate, endImpersonation }}>
+    <AuthContext.Provider value={{ user, loading, login, login2FA, logout, refreshUser, impersonate, endImpersonation, sessionKicked }}>
       {children}
     </AuthContext.Provider>
   )

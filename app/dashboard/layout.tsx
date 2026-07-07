@@ -3,6 +3,7 @@
 import { usePathname } from 'next/navigation'
 import { useAuth } from '@/contexts/AuthContext'
 import SessionTimer from '@/components/SessionTimer'
+import SessionKickedOverlay from '@/components/SessionKickedOverlay'
 
 export default function DashboardLayout({
   children,
@@ -19,11 +20,11 @@ export default function DashboardLayout({
     return 'retailer'
   }
 
-  // Don't show timer while loading auth
   const showTimer = !loading && user
 
   return (
     <>
+      <SessionKickedOverlay loginPath="/business-login" />
       {showTimer && (
         <SessionTimer 
           sessionDuration={10} 

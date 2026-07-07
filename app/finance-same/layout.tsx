@@ -6,6 +6,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import FinanceHeader from '@/components/FinanceHeader'
 import FinanceSidebar from '@/components/FinanceSidebar'
 import SessionTimer from '@/components/SessionTimer'
+import SessionKickedOverlay from '@/components/SessionKickedOverlay'
 
 const mobileLinks = [
   { href: '/finance-same', label: 'Home' },
@@ -24,6 +25,7 @@ export default function FinanceLayout({ children }: { children: React.ReactNode 
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-gray-50 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900">
+      <SessionKickedOverlay loginPath="/finance-same/login" />
       {showChrome && <FinanceHeader />}
       {showChrome && (
         <SessionTimer

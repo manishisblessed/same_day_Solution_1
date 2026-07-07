@@ -1,0 +1,41 @@
+{
+    "totalAmount": 62265.0,
+    "totalCount": 1,
+    "transactions": [
+        {
+            "transactionId": "7133439990",
+            "txnStatus": "SUCCESS",
+            "authTransactionAmount": "62265.00",
+            "transactionDate": "2026-07-06 11:35:30.887",
+            "posId": "5055121",
+            "batchStatus": "OPEN",
+            "storeName": "AVIKA DEPARTMENTAL PRIVATE XJM7MIAU",
+            "city": "Delhi",
+            "hardwareModel": "Wiseasy P052",
+            "acquirer": "HDFC",
+            "tid": "43133690",
+            "mid": "JZR025",
+            "batchNo": "10",
+            "paymentMode": "CARD",
+            "txnType": "SALE",
+            "amount": "62265.00",
+            "currency": "Rs.",
+            "authCode": "002752",
+            "rrn": "000000000042",
+            "externalBillingId": "17",
+            "storeId": "1695947",
+            "cloudRefId": 0,
+            "upiPayerName": "HASMUKH BHAI  PATEL",
+            "upiPayerVpa": "************6002",
+            "hardwareId": "WPHK002616007612",
+            "zone": "North",
+            "name": "HASMUKH BHAI  PATEL",
+            "cardColour": "Visa Platinum",
+            "contactlessMode": "INVALID",
+            "cardPanCheckforSaleComplete": "No",
+            "routePreauthtoOtherAcquirer": "No",
+            "billingTransactionId": "0"
+        }
+    ],
+    "totalPages": "1"
+}

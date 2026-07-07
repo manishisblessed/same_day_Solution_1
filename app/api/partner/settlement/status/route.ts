@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { authenticatePartner, PartnerAuthError, partnerCanUseApi } from '@/lib/partner-auth'
 import { checkTransactionStatus } from '@/services/shadval-pay'
+import { sendSettlementCallback } from '@/lib/settlement-callback'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -136,6 +137,19 @@ export async function GET(request: NextRequest) {
                 p_reference_id: `REFUND_${referenceId}`,
               })
             } catch {}
+          }
+
+          // Fire callback when PENDING resolves to terminal state
+          if (newStatus !== 'PENDING') {
+            const cbTx = {
+              ...tx,
+              status: newStatus,
+              utr: apiResult.data.utr || tx.utr,
+              order_id: apiResult.data.order_id || tx.order_id,
+              status_message: apiResult.data.status_message || apiResult.data.txn_status,
+              provider_timestamp: apiResult.data.timestamp,
+            }
+            sendSettlementCallback(partner.id, cbTx).catch(() => {})
           }
 
           tx.status = newStatus

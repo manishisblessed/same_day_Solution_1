@@ -27,10 +27,17 @@ export async function OPTIONS(request: NextRequest) {
  */
 export async function GET(request: NextRequest) {
   try {
-    const { user } = await getCurrentUserWithFallback(request)
+    const { user, method } = await getCurrentUserWithFallback(request)
     
-    if (!user || !user.partner_id) {
-      return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
+    if (!user) {
+      console.error('[TPIN GET] Auth failed: no user found, method:', method)
+      const response = NextResponse.json({ error: 'Session expired. Please login again.' }, { status: 401 })
+      return addCorsHeaders(request, response)
+    }
+    if (!user.partner_id) {
+      console.error('[TPIN GET] Auth failed: user has no partner_id, role:', user.role, 'email:', user.email)
+      const response = NextResponse.json({ error: 'TPIN is only available for retailers' }, { status: 403 })
+      return addCorsHeaders(request, response)
     }
 
     // Get TPIN status from database
@@ -97,10 +104,17 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
     const { tpin, current_tpin } = body
 
-    const { user } = await getCurrentUserWithFallback(request)
+    const { user, method } = await getCurrentUserWithFallback(request)
     
-    if (!user || !user.partner_id) {
-      return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
+    if (!user) {
+      console.error('[TPIN POST] Auth failed: no user found, method:', method)
+      const response = NextResponse.json({ error: 'Session expired. Please login again.' }, { status: 401 })
+      return addCorsHeaders(request, response)
+    }
+    if (!user.partner_id) {
+      console.error('[TPIN POST] Auth failed: user has no partner_id, role:', user.role, 'email:', user.email)
+      const response = NextResponse.json({ error: 'TPIN is only available for retailers' }, { status: 403 })
+      return addCorsHeaders(request, response)
     }
 
     // Validate new TPIN

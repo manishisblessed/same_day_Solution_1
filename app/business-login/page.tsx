@@ -6,12 +6,15 @@ import { useAuth } from '@/contexts/AuthContext'
 import AnimatedSection from '@/components/AnimatedSection'
 import AnimatedCard from '@/components/AnimatedCard'
 import Link from 'next/link'
-import { AlertCircle, Loader2, MapPin, ShieldCheck, ShieldX, Clock, Eye, EyeOff } from 'lucide-react'
-import { getGeoLocationForLogin, isLoginGeoVerified, clearGeoCache } from '@/hooks/useGeolocation'
+import { AlertCircle, Loader2, MapPin, ShieldCheck, Clock, Eye, EyeOff, Monitor, KeyRound } from 'lucide-react'
+import { getGeoLocationForLogin } from '@/hooks/useGeolocation'
 import TurnstileWidget, { TurnstileHandle, isCaptchaEnabled } from '@/components/TurnstileWidget'
+import { TwoFactorRequiredError } from '@/lib/auth'
+
+type BannerType = 'expired' | 'replaced' | null
 
 export default function BusinessLogin() {
-  const { user, login, loading: authLoading } = useAuth()
+  const { user, login, login2FA, loading: authLoading } = useAuth()
   const router = useRouter()
   const [userType, setUserType] = useState<'retailer' | 'distributor' | 'master-distributor' | 'partner' | null>(null)
   const [formData, setFormData] = useState({
@@ -23,30 +26,51 @@ export default function BusinessLogin() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [mounted, setMounted] = useState(false)
-  const [locationVerified, setLocationVerified] = useState(false)
-  const [locationLoading, setLocationLoading] = useState(false)
-  const [showExpiredBanner, setShowExpiredBanner] = useState(false)
+  const [locationStatus, setLocationStatus] = useState<'pending' | 'capturing' | 'done' | 'failed'>('pending')
+  const [banner, setBanner] = useState<BannerType>(null)
   const [captchaToken, setCaptchaToken] = useState('')
   const [captchaError, setCaptchaError] = useState(false)
+  const [show2FA, setShow2FA] = useState(false)
+  const [totpCode, setTotpCode] = useState('')
+  const [useBackupCode, setUseBackupCode] = useState(false)
   const turnstileRef = useRef<TurnstileHandle>(null)
+  const geoTriggered = useRef(false)
 
-  // Wait for component to mount. Clear geo flag so user must verify location for each login.
   useEffect(() => {
     setMounted(true)
-    clearGeoCache()
-    setLocationVerified(false)
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search)
-      if (params.get('session') === 'expired') setShowExpiredBanner(true)
+      if (params.get('reason') === 'replaced') {
+        setBanner('replaced')
+      } else if (params.get('session') === 'expired') {
+        setBanner('expired')
+      }
+      // Clean the URL params after reading
+      if (params.get('session') || params.get('reason')) {
+        const url = new URL(window.location.href)
+        url.searchParams.delete('session')
+        url.searchParams.delete('reason')
+        window.history.replaceState({}, '', url.pathname + (url.search || ''))
+      }
     }
   }, [])
 
+  // Auto-capture geolocation in background
   useEffect(() => {
-    if (showExpiredBanner) {
-      const timer = setTimeout(() => setShowExpiredBanner(false), 8000)
+    if (!mounted || geoTriggered.current) return
+    geoTriggered.current = true
+    setLocationStatus('capturing')
+    getGeoLocationForLogin(15000).then((geo) => {
+      setLocationStatus(geo ? 'done' : 'failed')
+    })
+  }, [mounted])
+
+  useEffect(() => {
+    if (banner) {
+      const timer = setTimeout(() => setBanner(null), 8000)
       return () => clearTimeout(timer)
     }
-  }, [showExpiredBanner])
+  }, [banner])
 
   // Timeout to prevent infinite loading (max 2 seconds wait)
   const [forceShow, setForceShow] = useState(false)
@@ -93,25 +117,12 @@ export default function BusinessLogin() {
     })
   }
 
-  const handleVerifyLocation = async () => {
-    setError('')
-    setLocationLoading(true)
-    const geo = await getGeoLocationForLogin(15000)
-    setLocationLoading(false)
-    if (geo) {
-      setLocationVerified(true)
-    } else {
-      setLocationVerified(false)
-      setError('Location access was denied or unavailable. Please allow location to sign in.')
-    }
-  }
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
 
-    if (!locationVerified) {
-      setError('Please verify your location before signing in.')
+    if (locationStatus === 'failed') {
+      setError('Location access was denied. Please allow location in your browser settings and reload.')
       return
     }
 
@@ -149,9 +160,47 @@ export default function BusinessLogin() {
         setLoading(false)
       }
     } catch (err: any) {
+      if (err instanceof TwoFactorRequiredError) {
+        setShow2FA(true)
+        setLoading(false)
+        return
+      }
       setError(err.message || 'Invalid credentials')
       setCaptchaToken('')
       turnstileRef.current?.reset()
+      setLoading(false)
+    }
+  }
+
+  const handle2FASubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setError('')
+    if (!totpCode.trim()) {
+      setError('Please enter the verification code.')
+      return
+    }
+    setLoading(true)
+    try {
+      let role: string = userType === 'master-distributor' ? 'master_distributor' : userType!
+      await login2FA(formData.email, formData.password, role, totpCode.trim(), useBackupCode)
+
+      await new Promise(resolve => setTimeout(resolve, 500))
+      const params = new URLSearchParams(window.location.search)
+      const redirectTo = params.get('redirect')
+      let dest = ''
+      if (redirectTo?.startsWith('/dashboard/')) dest = redirectTo
+      else if (userType === 'retailer') dest = '/dashboard/retailer'
+      else if (userType === 'distributor') dest = '/dashboard/distributor'
+      else if (userType === 'master-distributor') dest = '/dashboard/master-distributor'
+      else if (userType === 'partner') dest = '/dashboard/partner'
+      if (dest) {
+        router.push(dest)
+        setTimeout(() => setLoading(false), 3000)
+      } else {
+        setLoading(false)
+      }
+    } catch (err: any) {
+      setError(err.message || 'Verification failed')
       setLoading(false)
     }
   }
@@ -234,6 +283,71 @@ export default function BusinessLogin() {
               <AnimatedCard>
                 <div className="max-w-md mx-auto">
                   <div className="card">
+                    {show2FA ? (
+                      <>
+                        <div className="text-center mb-6">
+                          <div className="w-14 h-14 mx-auto mb-3 rounded-full bg-primary-50 flex items-center justify-center">
+                            <KeyRound className="w-7 h-7 text-primary-600" />
+                          </div>
+                          <h2 className="text-2xl font-bold text-gray-900">Two-Factor Authentication</h2>
+                          <p className="text-gray-600 text-sm mt-1">
+                            Enter the 6-digit code from your authenticator app
+                          </p>
+                        </div>
+
+                        {error && (
+                          <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2 text-red-700">
+                            <AlertCircle className="w-5 h-5" />
+                            <span className="text-sm">{error}</span>
+                          </div>
+                        )}
+
+                        <form onSubmit={handle2FASubmit} className="space-y-5">
+                          <div>
+                            <label htmlFor="totp-code" className="block text-sm font-medium text-gray-700 mb-2">
+                              {useBackupCode ? 'Backup Code' : 'Verification Code'}
+                            </label>
+                            <input
+                              type="text"
+                              id="totp-code"
+                              value={totpCode}
+                              onChange={(e) => setTotpCode(e.target.value.replace(/\s/g, ''))}
+                              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none transition-all text-center text-2xl tracking-[0.3em] font-mono"
+                              placeholder={useBackupCode ? 'XXXX-XXXX' : '000000'}
+                              maxLength={useBackupCode ? 9 : 6}
+                              autoFocus
+                              autoComplete="one-time-code"
+                            />
+                          </div>
+
+                          <button
+                            type="submit"
+                            disabled={loading}
+                            className="w-full btn-primary disabled:opacity-60"
+                          >
+                            {loading ? 'Verifying...' : 'Verify & Sign In'}
+                          </button>
+
+                          <div className="flex items-center justify-between text-sm">
+                            <button
+                              type="button"
+                              onClick={() => { setUseBackupCode(!useBackupCode); setTotpCode(''); setError('') }}
+                              className="text-primary-600 hover:text-primary-700"
+                            >
+                              {useBackupCode ? 'Use authenticator code' : 'Use backup code'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => { setShow2FA(false); setTotpCode(''); setError('') }}
+                              className="text-gray-500 hover:text-gray-700"
+                            >
+                              Back to login
+                            </button>
+                          </div>
+                        </form>
+                      </>
+                    ) : (
+                    <>
                     <div className="flex items-center justify-between mb-6">
                       <h2 className="text-2xl font-bold text-gray-900">
                         {userTypes.find(t => t.id === userType)?.title} Login
@@ -249,7 +363,14 @@ export default function BusinessLogin() {
                       </button>
                     </div>
 
-                    {showExpiredBanner && (
+                    {banner === 'replaced' && (
+                      <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2 text-red-700">
+                        <Monitor className="w-5 h-5 flex-shrink-0" />
+                        <span className="text-sm">Your account was signed in from another device. This session was ended for security.</span>
+                      </div>
+                    )}
+
+                    {banner === 'expired' && (
                       <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-center gap-2 text-amber-700">
                         <Clock className="w-5 h-5 flex-shrink-0" />
                         <span className="text-sm">Your session ended due to inactivity. Please sign in again.</span>
@@ -324,51 +445,40 @@ export default function BusinessLogin() {
                         </Link>
                       </div>
 
-                      {/* Location verification step */}
-                      {!locationVerified ? (
-                        <button
-                          type="button"
-                          onClick={handleVerifyLocation}
-                          disabled={locationLoading}
-                          className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg font-semibold text-white bg-amber-500 hover:bg-amber-600 transition-colors disabled:opacity-60"
-                        >
-                          {locationLoading ? (
-                            <>
-                              <Loader2 className="w-4 h-4 animate-spin" />
-                              Verifying location...
-                            </>
-                          ) : (
-                            <>
-                              <MapPin className="w-4 h-4" />
-                              Verify Location to Continue
-                            </>
-                          )}
-                        </button>
-                      ) : (
-                        <>
-                          <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-green-50 border border-green-200 text-green-700 text-sm mb-3">
-                            <ShieldCheck className="w-4 h-4 flex-shrink-0" />
-                            <span>Location verified</span>
-                          </div>
-                          {isCaptchaEnabled() && (
-                            <div className="mb-3 flex flex-col items-center">
-                              <TurnstileWidget
-                                ref={turnstileRef}
-                                onVerify={(t) => { setCaptchaToken(t); setCaptchaError(false) }}
-                                onExpire={() => setCaptchaToken('')}
-                                onError={() => setCaptchaError(true)}
-                              />
-                            </div>
-                          )}
-                          <button
-                            type="submit"
-                            disabled={loading || (isCaptchaEnabled() && !captchaToken && !captchaError)}
-                            className="w-full btn-primary disabled:opacity-60"
-                          >
-                            {loading ? 'Signing in...' : 'Sign In'}
-                          </button>
-                        </>
+                      {/* Location status indicator */}
+                      <div className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm border">
+                        {locationStatus === 'capturing' && (
+                          <><Loader2 className="w-4 h-4 animate-spin text-amber-500" /><span className="text-amber-700">Capturing your location...</span></>
+                        )}
+                        {locationStatus === 'done' && (
+                          <><ShieldCheck className="w-4 h-4 text-green-600" /><span className="text-green-700">Location captured</span></>
+                        )}
+                        {locationStatus === 'failed' && (
+                          <><MapPin className="w-4 h-4 text-red-500" /><span className="text-red-600">Location denied — please allow location access</span></>
+                        )}
+                        {locationStatus === 'pending' && (
+                          <><MapPin className="w-4 h-4 text-gray-400" /><span className="text-gray-500">Preparing location check...</span></>
+                        )}
+                      </div>
+
+                      {isCaptchaEnabled() && (
+                        <div className="flex flex-col items-center">
+                          <TurnstileWidget
+                            ref={turnstileRef}
+                            onVerify={(t) => { setCaptchaToken(t); setCaptchaError(false) }}
+                            onExpire={() => setCaptchaToken('')}
+                            onError={() => setCaptchaError(true)}
+                          />
+                        </div>
                       )}
+
+                      <button
+                        type="submit"
+                        disabled={loading || locationStatus === 'capturing' || (isCaptchaEnabled() && !captchaToken && !captchaError)}
+                        className="w-full btn-primary disabled:opacity-60"
+                      >
+                        {loading ? 'Signing in...' : 'Sign In'}
+                      </button>
                     </form>
 
                     <div className="mt-6 pt-6 border-t border-gray-200">
@@ -379,6 +489,8 @@ export default function BusinessLogin() {
                         </Link>
                       </p>
                     </div>
+                    </>
+                    )}
                   </div>
                 </div>
               </AnimatedCard>

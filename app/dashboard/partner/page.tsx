@@ -20,6 +20,7 @@ import Pay2NewCCPayment from '@/components/Pay2NewCCPayment'
 import { BBPS_CATEGORY_GROUPS } from '@/lib/bbps/category-groups'
 import PayoutTransfer from '@/components/PayoutTransfer'
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
+import TwoFactorSetup from '@/components/TwoFactorSetup'
 
 // Lazy load PartnerSidebar to prevent module loading errors from breaking the page
 const PartnerSidebar = lazy(() => 
@@ -2360,9 +2361,13 @@ function SettingsTab({ user }: { user: any }) {
           locked_until: response.locked_until,
         })
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error fetching TPIN status:', error)
-      showToast('Failed to load TPIN status', 'error')
+      if (error.message?.includes('Session expired') || error.message?.includes('Authentication')) {
+        setMessage({ type: 'error', text: 'Session expired. Please refresh the page or login again.' })
+      } else {
+        showToast('Failed to load TPIN status', 'error')
+      }
     } finally {
       setLoading(false)
     }
@@ -2409,7 +2414,12 @@ function SettingsTab({ user }: { user: any }) {
         setMessage({ type: 'error', text: response.error || 'Failed to set TPIN' })
       }
     } catch (error: any) {
-      setMessage({ type: 'error', text: error.message || 'Failed to set TPIN' })
+      const msg = error.message || 'Failed to set TPIN'
+      if (msg.includes('Session expired') || msg.includes('Authentication')) {
+        setMessage({ type: 'error', text: 'Session expired. Please refresh the page or login again.' })
+      } else {
+        setMessage({ type: 'error', text: msg })
+      }
     } finally {
       setSaving(false)
     }
@@ -2640,6 +2650,16 @@ function SettingsTab({ user }: { user: any }) {
             </div>
           </div>
         </div>
+      </motion.div>
+
+      {/* Two-Factor Authentication */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.2 }}
+        className="bg-white dark:bg-gray-800 rounded-lg shadow-md border border-gray-200 dark:border-gray-700 p-6"
+      >
+        <TwoFactorSetup />
       </motion.div>
     </div>
   )

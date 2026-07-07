@@ -206,11 +206,17 @@ export async function getCurrentUserFromToken(
     const { data: { user }, error } = await supabase.auth.getUser(token)
     
     if (error || !user || !user.email) {
+      console.error('[Auth] Token verification failed:', error?.message || 'No user/email')
       return null
     }
 
-    return await getUserRole(supabase, user.email, user.id)
-  } catch {
+    const roleUser = await getUserRole(supabase, user.email, user.id)
+    if (!roleUser) {
+      console.error('[Auth] getUserRole returned null for:', user.email)
+    }
+    return roleUser
+  } catch (err: any) {
+    console.error('[Auth] getCurrentUserFromToken exception:', err?.message)
     return null
   }
 }
@@ -230,11 +236,19 @@ export async function getCurrentUserWithFallback(
     if (tokenUser) {
       return { user: tokenUser, method: 'token' }
     }
+    console.warn('[Auth] Bearer token present but auth failed, falling back to cookies')
+  } else {
+    console.warn('[Auth] No Authorization header, trying cookies')
   }
 
-  const cookieUser = await getCurrentUserServer()
-  if (cookieUser) {
-    return { user: cookieUser, method: 'cookies' }
+  try {
+    const cookieUser = await getCurrentUserServer()
+    if (cookieUser) {
+      return { user: cookieUser, method: 'cookies' }
+    }
+    console.warn('[Auth] Cookie auth also failed')
+  } catch (err: any) {
+    console.error('[Auth] Cookie auth threw:', err?.message)
   }
 
   return { user: null, method: 'none' }

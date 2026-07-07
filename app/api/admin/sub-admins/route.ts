@@ -229,8 +229,8 @@ export async function POST(request: NextRequest) {
     }
 
     // Create admin user record
-    // Also set single department field for backward compatibility (use first department or 'all')
-    const singleDepartment = departments.includes('all') ? 'all' : departments[0]
+    const legacyDepts = ['wallet', 'commission', 'mdr', 'limits', 'services', 'reversals', 'disputes', 'reports', 'users', 'settings', 'all']
+    const singleDepartment = departments.includes('all') ? 'all' : (legacyDepts.includes(departments[0]) ? departments[0] : 'all')
     
     const { data: newAdmin, error: adminError } = await supabase
       .from('admin_users')
@@ -382,7 +382,8 @@ export async function PUT(request: NextRequest) {
     if (departments !== undefined) {
       updateData.departments = departments
       // Also update single department for backward compatibility
-      updateData.department = departments.includes('all') ? 'all' : departments[0]
+      const legacyDepts = ['wallet', 'commission', 'mdr', 'limits', 'services', 'reversals', 'disputes', 'reports', 'users', 'settings', 'all']
+      updateData.department = departments.includes('all') ? 'all' : (legacyDepts.includes(departments[0]) ? departments[0] : 'all')
     }
     if (permissions !== undefined) updateData.permissions = permissions
     if (is_active !== undefined) updateData.is_active = is_active
@@ -499,8 +500,11 @@ export async function DELETE(request: NextRequest) {
       return addCorsHeaders(request, response)
     }
 
-    // Delete auth user
-    await supabase.auth.admin.deleteUser(id)
+    // Delete auth user (ignore error if user doesn't exist in auth)
+    const { error: authDeleteError } = await supabase.auth.admin.deleteUser(id)
+    if (authDeleteError) {
+      console.warn('Auth user deletion failed:', authDeleteError.message)
+    }
 
     // Delete admin record
     const { error } = await supabase

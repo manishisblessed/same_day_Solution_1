@@ -3,40 +3,61 @@
 import { useState, useEffect, useRef } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useRouter } from 'next/navigation'
-import { Lock, Mail, AlertCircle, Loader2, MapPin, ShieldCheck, Clock, Eye, EyeOff } from 'lucide-react'
+import { Lock, Mail, AlertCircle, Loader2, MapPin, ShieldCheck, Clock, Eye, EyeOff, Monitor, KeyRound } from 'lucide-react'
 import AnimatedSection from '@/components/AnimatedSection'
-import { getGeoLocationForLogin, clearGeoCache } from '@/hooks/useGeolocation'
+import { getGeoLocationForLogin } from '@/hooks/useGeolocation'
 import TurnstileWidget, { TurnstileHandle, isCaptchaEnabled } from '@/components/TurnstileWidget'
+import { TwoFactorRequiredError } from '@/lib/auth'
+
+type BannerType = 'expired' | 'replaced' | null
 
 export default function FinanceLoginPage() {
-  const { user, login } = useAuth()
+  const { user, login, login2FA } = useAuth()
   const router = useRouter()
   const [formData, setFormData] = useState({ email: '', password: '' })
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
-  const [locationVerified, setLocationVerified] = useState(false)
-  const [locationLoading, setLocationLoading] = useState(false)
+  const [locationStatus, setLocationStatus] = useState<'pending' | 'capturing' | 'done' | 'failed'>('pending')
   const [showPassword, setShowPassword] = useState(false)
-  const [showExpiredBanner, setShowExpiredBanner] = useState(false)
+  const [banner, setBanner] = useState<BannerType>(null)
   const [captchaToken, setCaptchaToken] = useState('')
   const [captchaError, setCaptchaError] = useState(false)
+  const [show2FA, setShow2FA] = useState(false)
+  const [totpCode, setTotpCode] = useState('')
+  const [useBackupCode, setUseBackupCode] = useState(false)
   const turnstileRef = useRef<TurnstileHandle>(null)
+  const geoTriggered = useRef(false)
 
   useEffect(() => {
-    clearGeoCache()
-    setLocationVerified(false)
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search)
-      if (params.get('session') === 'expired') setShowExpiredBanner(true)
+      if (params.get('reason') === 'replaced') setBanner('replaced')
+      else if (params.get('session') === 'expired') setBanner('expired')
+      if (params.get('session') || params.get('reason')) {
+        const url = new URL(window.location.href)
+        url.searchParams.delete('session')
+        url.searchParams.delete('reason')
+        window.history.replaceState({}, '', url.pathname + (url.search || ''))
+      }
     }
   }, [])
 
+  // Auto-capture geolocation in background
   useEffect(() => {
-    if (showExpiredBanner) {
-      const timer = setTimeout(() => setShowExpiredBanner(false), 8000)
+    if (geoTriggered.current) return
+    geoTriggered.current = true
+    setLocationStatus('capturing')
+    getGeoLocationForLogin(15000).then((geo) => {
+      setLocationStatus(geo ? 'done' : 'failed')
+    })
+  }, [])
+
+  useEffect(() => {
+    if (banner) {
+      const timer = setTimeout(() => setBanner(null), 8000)
       return () => clearTimeout(timer)
     }
-  }, [showExpiredBanner])
+  }, [banner])
 
   useEffect(() => {
     if (user?.role === 'finance_executive') {
@@ -44,24 +65,11 @@ export default function FinanceLoginPage() {
     }
   }, [user, router])
 
-  const handleVerifyLocation = async () => {
-    setError('')
-    setLocationLoading(true)
-    const geo = await getGeoLocationForLogin(15000)
-    setLocationLoading(false)
-    if (geo) {
-      setLocationVerified(true)
-    } else {
-      setLocationVerified(false)
-      setError('Location access was denied or unavailable. Please allow location to sign in.')
-    }
-  }
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
-    if (!locationVerified) {
-      setError('Please verify your location before signing in.')
+    if (locationStatus === 'failed') {
+      setError('Location access was denied. Please allow location in your browser settings and reload.')
       return
     }
     if (isCaptchaEnabled() && !captchaToken && !captchaError) {
@@ -74,9 +82,30 @@ export default function FinanceLoginPage() {
       const params = new URLSearchParams(window.location.search)
       router.push(params.get('redirect')?.startsWith('/finance-same') ? params.get('redirect')! : '/finance-same')
     } catch (err: any) {
+      if (err instanceof TwoFactorRequiredError) {
+        setShow2FA(true)
+        setLoading(false)
+        return
+      }
       setError(err.message || 'Invalid credentials')
       setCaptchaToken('')
       turnstileRef.current?.reset()
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handle2FASubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setError('')
+    if (!totpCode.trim()) { setError('Please enter the verification code.'); return }
+    setLoading(true)
+    try {
+      await login2FA(formData.email, formData.password, 'finance_executive', totpCode.trim(), useBackupCode)
+      const params = new URLSearchParams(window.location.search)
+      router.push(params.get('redirect')?.startsWith('/finance-same') ? params.get('redirect')! : '/finance-same')
+    } catch (err: any) {
+      setError(err.message || 'Verification failed')
     } finally {
       setLoading(false)
     }
@@ -87,12 +116,67 @@ export default function FinanceLoginPage() {
       <AnimatedSection>
         <div className="max-w-md w-full">
           <div className="card">
+            {show2FA ? (
+              <>
+                <div className="text-center mb-6">
+                  <div className="w-14 h-14 mx-auto mb-3 rounded-full bg-emerald-50 flex items-center justify-center">
+                    <KeyRound className="w-7 h-7 text-emerald-600" />
+                  </div>
+                  <h2 className="text-2xl font-bold text-gray-900">Two-Factor Authentication</h2>
+                  <p className="text-gray-600 text-sm mt-1">Enter the 6-digit code from your authenticator app</p>
+                </div>
+
+                {error && (
+                  <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2 text-red-700">
+                    <AlertCircle className="w-5 h-5" /><span className="text-sm">{error}</span>
+                  </div>
+                )}
+
+                <form onSubmit={handle2FASubmit} className="space-y-5">
+                  <div>
+                    <label htmlFor="totp-code" className="block text-sm font-medium text-gray-700 mb-2">
+                      {useBackupCode ? 'Backup Code' : 'Verification Code'}
+                    </label>
+                    <input
+                      type="text"
+                      id="totp-code"
+                      value={totpCode}
+                      onChange={(e) => setTotpCode(e.target.value.replace(/\s/g, ''))}
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none text-center text-2xl tracking-[0.3em] font-mono"
+                      placeholder={useBackupCode ? 'XXXX-XXXX' : '000000'}
+                      maxLength={useBackupCode ? 9 : 6}
+                      autoFocus
+                      autoComplete="one-time-code"
+                    />
+                  </div>
+                  <button type="submit" disabled={loading} className="w-full btn-primary bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60">
+                    {loading ? 'Verifying...' : 'Verify & Sign In'}
+                  </button>
+                  <div className="flex items-center justify-between text-sm">
+                    <button type="button" onClick={() => { setUseBackupCode(!useBackupCode); setTotpCode(''); setError('') }} className="text-emerald-600 hover:text-emerald-700">
+                      {useBackupCode ? 'Use authenticator code' : 'Use backup code'}
+                    </button>
+                    <button type="button" onClick={() => { setShow2FA(false); setTotpCode(''); setError('') }} className="text-gray-500 hover:text-gray-700">
+                      Back to login
+                    </button>
+                  </div>
+                </form>
+              </>
+            ) : (
+            <>
             <div className="text-center mb-8">
               <h1 className="text-3xl font-bold text-gray-900 mb-2">Finance login</h1>
               <p className="text-gray-600">Reconciliation, reports, and ledger access</p>
             </div>
 
-            {showExpiredBanner && (
+            {banner === 'replaced' && (
+              <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2 text-red-700">
+                <Monitor className="w-5 h-5 flex-shrink-0" />
+                <span className="text-sm">Your account was signed in from another device. This session was ended for security.</span>
+              </div>
+            )}
+
+            {banner === 'expired' && (
               <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-center gap-2 text-amber-700">
                 <Clock className="w-5 h-5 flex-shrink-0" />
                 <span className="text-sm">Your session ended due to inactivity. Please sign in again.</span>
@@ -152,47 +236,39 @@ export default function FinanceLoginPage() {
                 </div>
               </div>
 
-              {!locationVerified ? (
-                <button
-                  type="button"
-                  onClick={handleVerifyLocation}
-                  disabled={locationLoading}
-                  className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg font-semibold text-white bg-amber-500 hover:bg-amber-600 transition-colors disabled:opacity-60"
-                >
-                  {locationLoading ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      Verifying location...
-                    </>
-                  ) : (
-                    <>
-                      <MapPin className="w-4 h-4" />
-                      Verify location to continue
-                    </>
-                  )}
-                </button>
-              ) : (
-                <>
-                  <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-green-50 border border-green-200 text-green-700 text-sm">
-                    <ShieldCheck className="w-4 h-4 flex-shrink-0" />
-                    <span>Location verified</span>
-                  </div>
-                  {isCaptchaEnabled() && (
-                    <div className="flex flex-col items-center">
-                      <TurnstileWidget
-                        ref={turnstileRef}
-                        onVerify={(t) => { setCaptchaToken(t); setCaptchaError(false) }}
-                        onExpire={() => setCaptchaToken('')}
-                        onError={() => setCaptchaError(true)}
-                      />
-                    </div>
-                  )}
-                  <button type="submit" disabled={loading || (isCaptchaEnabled() && !captchaToken && !captchaError)} className="w-full btn-primary bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60">
-                    {loading ? 'Signing in...' : 'Sign in'}
-                  </button>
-                </>
+              {/* Location status indicator */}
+              <div className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm border">
+                {locationStatus === 'capturing' && (
+                  <><Loader2 className="w-4 h-4 animate-spin text-amber-500" /><span className="text-amber-700">Capturing your location...</span></>
+                )}
+                {locationStatus === 'done' && (
+                  <><ShieldCheck className="w-4 h-4 text-green-600" /><span className="text-green-700">Location captured</span></>
+                )}
+                {locationStatus === 'failed' && (
+                  <><MapPin className="w-4 h-4 text-red-500" /><span className="text-red-600">Location denied — please allow location access</span></>
+                )}
+                {locationStatus === 'pending' && (
+                  <><MapPin className="w-4 h-4 text-gray-400" /><span className="text-gray-500">Preparing location check...</span></>
+                )}
+              </div>
+
+              {isCaptchaEnabled() && (
+                <div className="flex flex-col items-center">
+                  <TurnstileWidget
+                    ref={turnstileRef}
+                    onVerify={(t) => { setCaptchaToken(t); setCaptchaError(false) }}
+                    onExpire={() => setCaptchaToken('')}
+                    onError={() => setCaptchaError(true)}
+                  />
+                </div>
               )}
+
+              <button type="submit" disabled={loading || locationStatus === 'capturing' || (isCaptchaEnabled() && !captchaToken && !captchaError)} className="w-full btn-primary bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60">
+                {loading ? 'Signing in...' : 'Sign in'}
+              </button>
             </form>
+            </>
+            )}
           </div>
         </div>
       </AnimatedSection>

@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js'
 import { authenticatePartner, PartnerAuthError, partnerCanUseApi } from '@/lib/partner-auth'
 import { initiateBankTransfer } from '@/services/shadval-pay'
 import type { ShadvalTransferRequest } from '@/services/shadval-pay'
+import { sendSettlementCallback } from '@/lib/settlement-callback'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -260,6 +261,19 @@ export async function POST(request: NextRequest) {
           p_reference_id: `REFUND_${refId}`,
         })
       } catch {}
+    }
+
+    // Fire settlement callback to partner webhook (non-blocking)
+    if (finalStatus !== 'PENDING') {
+      const updatedTx = {
+        ...txRecord,
+        status: finalStatus,
+        order_id: apiResult.data?.order_id || null,
+        utr: apiResult.data?.utr || null,
+        status_message: apiResult.message,
+        provider_timestamp: apiResult.data?.timestamp || null,
+      }
+      sendSettlementCallback(partner.id, updatedTx).catch(() => {})
     }
 
     return NextResponse.json({

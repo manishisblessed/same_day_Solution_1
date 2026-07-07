@@ -106,7 +106,7 @@ export default function SessionTimer({
       }
       sessionKeysToRemove.forEach(key => sessionStorage.removeItem(key))
       
-      await logout()
+      await logout('inactivity')
       await new Promise(resolve => setTimeout(resolve, 100))
     } catch (error) {
       console.error('Logout error:', error)

@@ -128,6 +128,11 @@ function RazorpayTransactionsPageContent() {
   const [paymentModeFilter, setPaymentModeFilter] = useState('')
   const [cardBrandFilter, setCardBrandFilter] = useState('')
 
+  // Archived companies (hidden by default; managed in Settings > Companies)
+  const [archivedSlugs, setArchivedSlugs] = useState<string[]>([])
+  const [companiesLoaded, setCompaniesLoaded] = useState(false)
+  const [showArchivedCompanies, setShowArchivedCompanies] = useState(false)
+
   // Column-level sort
   const [sortCol, setSortCol] = useState<string>('')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
@@ -148,14 +153,19 @@ function RazorpayTransactionsPageContent() {
     setColFilters(prev => ({ ...prev, [col]: val }))
   }
   
-  // Company options
-  const companyOptions = [
+  // Company options (full canonical list)
+  const allCompanyOptions = [
     { slug: 'ashvam', name: 'ASHVAM LEARNING PRIVATE LIMITED', shortName: 'ASHVAM' },
     { slug: 'teachway', name: 'Teachway Education Private Limited', shortName: 'Teachway' },
     { slug: 'newscenaric', name: 'New Scenaric Travels', shortName: 'New Scenaric' },
     { slug: 'lagoon', name: 'LAGOON CRAFT LABS SOLUTIONS PRIVATE LIMITED', shortName: 'Lagoon' },
     { slug: 'avika', name: 'Avika Departmental Private Limited', shortName: 'Avika' },
   ]
+
+  // Companies shown in the filter dropdown: active only, unless "show archived" is on
+  const companyOptions = showArchivedCompanies
+    ? allCompanyOptions
+    : allCompanyOptions.filter(c => !archivedSlugs.includes(c.slug))
 
   // Export
   const [exporting, setExporting] = useState<string | null>(null)
@@ -234,7 +244,12 @@ function RazorpayTransactionsPageContent() {
       if (appliedFilters.dateFrom) params.set('date_from', appliedFilters.dateFrom)
       if (appliedFilters.dateTo) params.set('date_to', appliedFilters.dateTo)
       if (appliedFilters.search) params.set('search', appliedFilters.search)
-      if (appliedFilters.companies.length > 0) params.set('merchant_slug', appliedFilters.companies.join(','))
+      // Restrict to active companies by default so archived data stays hidden.
+      const allSlugs = ['ashvam', 'teachway', 'newscenaric', 'lagoon', 'avika']
+      const effectiveCompanies = appliedFilters.companies.length > 0
+        ? appliedFilters.companies
+        : (archivedSlugs.length > 0 ? allSlugs.filter(s => !archivedSlugs.includes(s)) : [])
+      if (effectiveCompanies.length > 0) params.set('merchant_slug', effectiveCompanies.join(','))
       if (appliedFilters.status) params.set('status', appliedFilters.status)
       if (appliedFilters.paymentMode) params.set('payment_mode', appliedFilters.paymentMode)
       if (appliedFilters.cardBrand) params.set('card_brand', appliedFilters.cardBrand)
@@ -274,14 +289,35 @@ function RazorpayTransactionsPageContent() {
         setLoading(false)
       }
     }
-  }, [user, page, pageSize, appliedFilters])
+  }, [user, page, pageSize, appliedFilters, archivedSlugs])
 
-  // Initial fetch
+  // Load archived companies once so the default view can hide them.
   useEffect(() => {
     if (!user || user.role !== 'admin') return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await apiFetch('/api/admin/pos-companies')
+        const data = await res.json()
+        if (!cancelled && res.ok && data.success) {
+          setArchivedSlugs((data.companies || []).filter((c: any) => c.archived).map((c: any) => c.slug))
+        }
+      } catch {
+        // non-fatal: fall back to showing all
+      } finally {
+        if (!cancelled) setCompaniesLoaded(true)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [user])
+
+  // Initial fetch — wait until archived list is known to avoid flashing archived data
+  useEffect(() => {
+    if (!user || user.role !== 'admin') return
+    if (!companiesLoaded) return
 
     fetchTransactions()
-  }, [fetchTransactions, user])
+  }, [fetchTransactions, user, companiesLoaded])
 
   // Auto-refresh: silently pull the latest transactions on an interval.
   // Only runs on page 1 (where new transactions land) and pauses while a
@@ -318,7 +354,11 @@ function RazorpayTransactionsPageContent() {
       if (appliedFilters.dateFrom) params.set('date_from', appliedFilters.dateFrom)
       if (appliedFilters.dateTo) params.set('date_to', appliedFilters.dateTo)
       if (appliedFilters.search) params.set('search', appliedFilters.search)
-      if (appliedFilters.companies.length > 0) params.set('merchant_slug', appliedFilters.companies.join(','))
+      const allSlugsExport = ['ashvam', 'teachway', 'newscenaric', 'lagoon', 'avika']
+      const effectiveCompaniesExport = appliedFilters.companies.length > 0
+        ? appliedFilters.companies
+        : (archivedSlugs.length > 0 ? allSlugsExport.filter(s => !archivedSlugs.includes(s)) : [])
+      if (effectiveCompaniesExport.length > 0) params.set('merchant_slug', effectiveCompaniesExport.join(','))
       if (appliedFilters.status) params.set('status', appliedFilters.status)
       if (appliedFilters.paymentMode) params.set('payment_mode', appliedFilters.paymentMode)
       if (appliedFilters.cardBrand) params.set('card_brand', appliedFilters.cardBrand)
@@ -883,7 +923,19 @@ function RazorpayTransactionsPageContent() {
                               {pendingCompanies.length === companyOptions.length ? 'Deselect All' : 'Select All'}
                             </button>
                           </div>
-                          
+
+                          {archivedSlugs.length > 0 && (
+                            <button
+                              onClick={() => setShowArchivedCompanies(v => !v)}
+                              className="w-full flex items-center gap-2 px-3 py-2 mb-1 text-xs font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+                            >
+                              <Archive className="w-3.5 h-3.5" />
+                              {showArchivedCompanies
+                                ? 'Hide archived companies'
+                                : `Show archived (${archivedSlugs.length})`}
+                            </button>
+                          )}
+
                           {companyOptions.map((company) => (
                             <label
                               key={company.slug}
@@ -899,7 +951,12 @@ function RazorpayTransactionsPageContent() {
                                 )}
                               </div>
                               <div className="flex-1 min-w-0">
-                                <div className="text-sm font-medium text-gray-900 dark:text-white">{company.shortName}</div>
+                                <div className="text-sm font-medium text-gray-900 dark:text-white flex items-center gap-2">
+                                  {company.shortName}
+                                  {archivedSlugs.includes(company.slug) && (
+                                    <span className="px-1.5 py-0.5 text-[10px] font-semibold rounded bg-gray-200 text-gray-600 dark:bg-gray-700 dark:text-gray-300">Archived</span>
+                                  )}
+                                </div>
                                 <div className="text-xs text-gray-500 dark:text-gray-400 truncate">{company.name}</div>
                               </div>
                               <input

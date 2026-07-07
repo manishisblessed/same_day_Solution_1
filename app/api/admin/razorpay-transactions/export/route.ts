@@ -155,6 +155,7 @@ export async function GET(request: NextRequest) {
         case 'teachway': return 'Teachway Education Private Limited'
         case 'newscenaric': return 'New Scenaric Travels'
         case 'lagoon': return 'LAGOON CRAFT LABS SOLUTIONS PRIVATE LIMITED'
+        case 'avika': return 'Avika Departmental Private Limited'
         default: return 'ASHVAM LEARNING PRIVATE LIMITED'
       }
     }
@@ -180,7 +181,7 @@ export async function GET(request: NextRequest) {
         'Settlement Status': txn.settlement_status || 'PENDING',
         'Consumer Name': txn.customer_name || txn.payer_name || '',
         'Username': txn.username || '',
-        'Company Name': getCompanyName(txn.merchant_slug),
+        'Company Name': txn.merchant_name || getCompanyName(txn.merchant_slug),
         'Partner/Retailer Name': assignedName,
         'TID': txn.tid || '',
         'MID': txn.mid_code || '',

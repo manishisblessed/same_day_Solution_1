@@ -8,16 +8,23 @@ import TurnstileWidget, { TurnstileHandle, isCaptchaEnabled } from '@/components
 import AdminSidebar from '@/components/AdminSidebar'
 import { 
   Lock, Eye, EyeOff, CheckCircle, AlertCircle, 
-  User, Mail, Shield, Save, ArrowLeft, Users, Plus, Edit, Trash2, X, IndianRupee, Key
+  User, Mail, Shield, Save, ArrowLeft, Users, Plus, Edit, Trash2, X, IndianRupee, Key,
+  Building2, Archive, ArchiveRestore
 } from 'lucide-react'
 import { motion } from 'framer-motion'
 import { apiFetch } from '@/lib/api-client'
+import TwoFactorSetup from '@/components/TwoFactorSetup'
 
 export default function AdminSettings() {
   const { user, loading: authLoading } = useAuth()
   const router = useRouter()
   const [sidebarOpen, setSidebarOpen] = useState(false)
-  const [activeTab, setActiveTab] = useState<'profile' | 'password' | 'sub-admins' | 'finance-team'>('profile')
+  const [activeTab, setActiveTab] = useState<'profile' | 'password' | 'security' | 'sub-admins' | 'finance-team' | 'companies'>('profile')
+
+  // POS companies (archive/show) state
+  const [posCompanies, setPosCompanies] = useState<Array<{ slug: string; name: string; shortName: string; archived: boolean }>>([])
+  const [loadingCompanies, setLoadingCompanies] = useState(false)
+  const [savingCompanySlug, setSavingCompanySlug] = useState<string | null>(null)
   
   const [formData, setFormData] = useState({
     currentPassword: '',
@@ -140,6 +147,52 @@ export default function AdminSettings() {
   useEffect(() => {
     if (activeTab === 'sub-admins' && user?.role === 'admin') {
       fetchSubAdmins()
+    }
+  }, [activeTab, user])
+
+  const fetchPosCompanies = async () => {
+    setLoadingCompanies(true)
+    try {
+      const response = await apiFetch('/api/admin/pos-companies')
+      const data = await response.json()
+      if (response.ok && data.success) {
+        setPosCompanies(data.companies || [])
+      } else {
+        setMessage({ type: 'error', text: data.error || 'Failed to load companies' })
+      }
+    } catch (e: any) {
+      setMessage({ type: 'error', text: e?.message || 'Failed to load companies' })
+    } finally {
+      setLoadingCompanies(false)
+    }
+  }
+
+  const toggleCompanyArchived = async (slug: string, archived: boolean) => {
+    setSavingCompanySlug(slug)
+    // optimistic update
+    setPosCompanies(prev => prev.map(c => (c.slug === slug ? { ...c, archived } : c)))
+    try {
+      const response = await apiFetch('/api/admin/pos-companies', {
+        method: 'POST',
+        body: JSON.stringify({ slug, archived }),
+      })
+      const data = await response.json()
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Failed to update company')
+      }
+      setMessage({ type: 'success', text: `${slug} ${archived ? 'archived' : 'activated'}` })
+    } catch (e: any) {
+      // revert on failure
+      setPosCompanies(prev => prev.map(c => (c.slug === slug ? { ...c, archived: !archived } : c)))
+      setMessage({ type: 'error', text: e?.message || 'Failed to update company' })
+    } finally {
+      setSavingCompanySlug(null)
+    }
+  }
+
+  useEffect(() => {
+    if (activeTab === 'companies' && user?.role === 'admin') {
+      fetchPosCompanies()
     }
   }, [activeTab, user])
 
@@ -453,6 +506,8 @@ export default function AdminSettings() {
               {[
                 { id: 'profile' as const, label: 'Profile', icon: User },
                 { id: 'password' as const, label: 'Password', icon: Lock },
+                { id: 'security' as const, label: 'Security', icon: Shield },
+                { id: 'companies' as const, label: 'Companies', icon: Building2 },
                 ...(adminInfo?.admin_type === 'super_admin' ? [{ id: 'sub-admins' as const, label: 'Sub-Admins', icon: Users }] : []),
                 ...(canManageFinanceUsers ? [{ id: 'finance-team' as const, label: 'Finance team', icon: IndianRupee }] : []),
               ].map((tab) => (
@@ -822,6 +877,113 @@ export default function AdminSettings() {
                       )}
                     </tbody>
                   </table>
+                </div>
+              )}
+            </motion.div>
+            )}
+
+            {/* Security (2FA) Card */}
+            {activeTab === 'security' && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6"
+            >
+              <TwoFactorSetup />
+            </motion.div>
+            )}
+
+            {/* POS Companies (archive / show) Card */}
+            {activeTab === 'companies' && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.15 }}
+              className="bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 p-6"
+            >
+              <div className="flex items-center gap-3 mb-6">
+                <div className="p-3 bg-primary-100 dark:bg-primary-900/30 rounded-lg">
+                  <Building2 className="w-6 h-6 text-primary-600 dark:text-primary-400" />
+                </div>
+                <div>
+                  <h2 className="text-xl font-bold text-gray-900 dark:text-white">POS Companies</h2>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">
+                    Archive companies that are not in use to hide them from POS Transactions. Data is never deleted — activate any time to see it again.
+                  </p>
+                </div>
+              </div>
+
+              {message && (
+                <div
+                  className={`mb-4 p-3 rounded-lg flex items-center gap-2 text-sm ${
+                    message.type === 'success'
+                      ? 'bg-green-50 dark:bg-green-900/20 text-green-800 dark:text-green-400'
+                      : 'bg-red-50 dark:bg-red-900/20 text-red-800 dark:text-red-400'
+                  }`}
+                >
+                  {message.type === 'success' ? <CheckCircle className="w-4 h-4 flex-shrink-0" /> : <AlertCircle className="w-4 h-4 flex-shrink-0" />}
+                  <span className="font-medium">{message.text}</span>
+                </div>
+              )}
+
+              {loadingCompanies ? (
+                <div className="text-center py-8">
+                  <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-primary-600 mx-auto mb-2"></div>
+                  <p className="text-gray-600 dark:text-gray-400">Loading companies...</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {posCompanies.map((company) => (
+                    <div
+                      key={company.slug}
+                      className={`flex items-center justify-between gap-4 p-4 rounded-lg border transition-colors ${
+                        company.archived
+                          ? 'border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/40'
+                          : 'border-green-200 dark:border-green-800 bg-green-50/50 dark:bg-green-900/10'
+                      }`}
+                    >
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="font-semibold text-gray-900 dark:text-white truncate">{company.shortName}</span>
+                          <span
+                            className={`px-2 py-0.5 text-xs font-semibold rounded-full ${
+                              company.archived
+                                ? 'bg-gray-200 text-gray-600 dark:bg-gray-700 dark:text-gray-300'
+                                : 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400'
+                            }`}
+                          >
+                            {company.archived ? 'Archived' : 'Active'}
+                          </span>
+                        </div>
+                        <div className="text-xs text-gray-500 dark:text-gray-400 truncate mt-0.5">{company.name}</div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => toggleCompanyArchived(company.slug, !company.archived)}
+                        disabled={savingCompanySlug === company.slug}
+                        className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                          company.archived
+                            ? 'bg-primary-600 text-white hover:bg-primary-700'
+                            : 'border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
+                        }`}
+                      >
+                        {company.archived ? (
+                          <>
+                            <ArchiveRestore className="w-4 h-4" />
+                            {savingCompanySlug === company.slug ? 'Saving...' : 'Activate'}
+                          </>
+                        ) : (
+                          <>
+                            <Archive className="w-4 h-4" />
+                            {savingCompanySlug === company.slug ? 'Saving...' : 'Archive'}
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  ))}
+                  {posCompanies.length === 0 && (
+                    <p className="py-8 text-center text-gray-500 dark:text-gray-400">No companies found.</p>
+                  )}
                 </div>
               )}
             </motion.div>
