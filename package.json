@@ -34,7 +34,6 @@
     "nodemailer": "^6.9.0",
     "otpauth": "^9.5.1",
     "postcss": "^8.4.0",
-    "puppeteer": "^25.3.0",
     "qrcode": "^1.5.4",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
@@ -46,6 +45,7 @@
   "devDependencies": {
     "@jest/globals": "^30.4.1",
     "@types/node-cron": "^3.0.11",
-    "pg": "^8.22.0"
+    "pg": "^8.22.0",
+    "puppeteer": "^25.3.0"
   }
 }
