@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase/client'
+import { apiFetchJson } from '@/lib/api-client'
 import MasterDistributorSidebar from '@/components/MasterDistributorSidebar'
 import { 
   Plus, Edit2, Trash2, ChevronDown, ChevronUp, Search,
@@ -205,25 +206,26 @@ export default function MasterDistributorSchemeManagementPage() {
     if (!user?.partner_id) return
     try {
       if (editingScheme) {
-        const { error } = await supabase.from('schemes').update({
-          name: schemeForm.name,
-          description: schemeForm.description || null,
-          service_scope: schemeForm.service_scope,
-        }).eq('id', editingScheme.id)
-        if (error) throw error
+        await apiFetchJson(`/api/schemes/${editingScheme.id}`, {
+          method: 'PUT',
+          body: JSON.stringify({
+            name: schemeForm.name,
+            description: schemeForm.description || null,
+            service_scope: schemeForm.service_scope,
+          }),
+        })
         setSuccess('Scheme updated successfully')
       } else {
-        const { error } = await supabase.from('schemes').insert({
-          name: schemeForm.name,
-          description: schemeForm.description || null,
-          scheme_type: 'custom',
-          service_scope: schemeForm.service_scope,
-          priority: 100,
-          created_by_id: user.partner_id,
-          created_by_role: 'master_distributor',
-          status: 'active',
+        await apiFetchJson('/api/schemes', {
+          method: 'POST',
+          body: JSON.stringify({
+            name: schemeForm.name,
+            description: schemeForm.description || null,
+            scheme_type: 'custom',
+            service_scope: schemeForm.service_scope,
+            priority: 100,
+          }),
         })
-        if (error) throw error
         setSuccess('Scheme created successfully')
       }
       setShowCreateModal(false)
@@ -255,25 +257,17 @@ export default function MasterDistributorSchemeManagementPage() {
         return
       }
 
-      // Deactivate any existing mapping for this distributor
-      await supabase
-        .from('scheme_mappings')
-        .update({ status: 'inactive' })
-        .eq('entity_id', distributorId)
-        .eq('entity_role', 'distributor')
-
-      // Create new mapping
-      const { error } = await supabase.from('scheme_mappings').insert({
-        scheme_id: mappingSchemeId,
-        entity_id: distributorId,
-        entity_role: 'distributor',
-        assigned_by_id: user?.partner_id,
-        assigned_by_role: 'master_distributor',
-        status: 'active',
-        priority: 100,
+      // The API deactivates any existing active mapping for this distributor and
+      // inserts the new one (service-role, RLS-safe).
+      await apiFetchJson('/api/schemes/mappings', {
+        method: 'POST',
+        body: JSON.stringify({
+          scheme_id: mappingSchemeId,
+          entity_id: distributorId,
+          entity_role: 'distributor',
+        }),
       })
 
-      if (error) throw error
       setSuccess('Scheme mapped successfully')
       setShowMappingModal(false)
       fetchSchemes()

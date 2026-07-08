@@ -2468,7 +2468,7 @@ function ServicesManagementTab() {
   const [allUsers, setAllUsers] = useState<any[]>([])
   const [usersLoading, setUsersLoading] = useState(false)
   const [userSearch, setUserSearch] = useState('')
-  const [roleFilter, setRoleFilter] = useState<'all' | 'retailer' | 'distributor' | 'master_distributor'>('all')
+  const [roleFilter, setRoleFilter] = useState<'all' | 'retailer' | 'distributor' | 'master_distributor' | 'partner'>('all')
   const [serviceFilter, setServiceFilter] = useState<string>('all')
   const [selectedUsers, setSelectedUsers] = useState<Set<string>>(new Set())
   const [userPage, setUserPage] = useState(1)

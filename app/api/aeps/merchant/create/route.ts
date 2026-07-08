@@ -37,7 +37,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Only retailers, distributors, and master distributors can create merchants
-    if (!['retailer', 'distributor', 'master_distributor'].includes(user.role)) {
+    if (!['retailer', 'distributor', 'master_distributor', 'partner'].includes(user.role)) {
       return NextResponse.json(
         { error: 'Forbidden: Invalid user role' },
         { status: 403 }

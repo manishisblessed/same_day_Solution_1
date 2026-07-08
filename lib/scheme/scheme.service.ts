@@ -119,6 +119,7 @@ export async function createScheme(
       effective_from: input.effective_from || new Date().toISOString(),
       effective_to: input.effective_to || null,
       metadata: input.metadata || null,
+      is_partner_plan: input.is_partner_plan ?? false,
       created_by_id: createdById || null,
       created_by_role: createdByRole || null,
       status: 'active',

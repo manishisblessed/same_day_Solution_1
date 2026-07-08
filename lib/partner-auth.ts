@@ -3,7 +3,7 @@ import { createClient } from '@supabase/supabase-js'
 import crypto from 'crypto'
 import { extractClientIpFromHeaders, isIpWhitelisted } from './ip-utils'
 
-export type PartnerApiScope = 'bbps' | 'bbps2' | 'payout' | 'settlement'
+export type PartnerApiScope = 'bbps' | 'bbps2' | 'payout' | 'settlement' | 'aeps'
 
 export interface PartnerAuthResult {
   partner: {
@@ -15,6 +15,7 @@ export interface PartnerAuthResult {
     bbps2_pay2new_enabled: boolean
     settlement_enabled: boolean
     settlement2_enabled: boolean
+    aeps_enabled: boolean
   }
 }
 
@@ -45,7 +46,7 @@ export function partnerCanUseApi(
   scope: PartnerApiScope
 ): { allowed: boolean; message: string } {
   const perms = partner.permissions
-  const permName = scope === 'settlement' ? 'settlement' : scope === 'payout' ? 'payout' : scope === 'bbps2' ? 'bbps2' : 'bbps'
+  const permName = scope === 'settlement' ? 'settlement' : scope === 'payout' ? 'payout' : scope === 'bbps2' ? 'bbps2' : scope === 'aeps' ? 'aeps' : 'bbps'
   if (!perms.includes('all') && !perms.includes(permName)) {
     return { allowed: false, message: `Missing required permission: ${permName}` }
   }
@@ -71,6 +72,12 @@ export function partnerCanUseApi(
     return {
       allowed: false,
       message: 'Settlement-2 (SHADVAL Pay) is not enabled for this partner account. Contact admin.',
+    }
+  }
+  if (scope === 'aeps' && !partner.aeps_enabled) {
+    return {
+      allowed: false,
+      message: 'AEPS is not enabled for this partner account. Contact admin.',
     }
   }
   return { allowed: true, message: '' }
@@ -174,7 +181,8 @@ export async function authenticatePartner(
         bbps_enabled,
         bbps2_pay2new_enabled,
         settlement_enabled,
-        settlement2_enabled
+        settlement2_enabled,
+        aeps_enabled
       )
     `)
     .eq('api_key', apiKey)
@@ -286,6 +294,7 @@ export async function authenticatePartner(
       bbps2_pay2new_enabled: partner.bbps2_pay2new_enabled === true,
       settlement_enabled: partner.settlement_enabled === true,
       settlement2_enabled: partner.settlement2_enabled === true,
+      aeps_enabled: partner.aeps_enabled === true,
     },
   }
 }

@@ -49,7 +49,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Session expired. Please log in again.', code: 'SESSION_EXPIRED' }, { status: 401 });
     }
 
-    if (!['retailer', 'distributor', 'master_distributor'].includes(user.role)) {
+    if (!['retailer', 'distributor', 'master_distributor', 'partner'].includes(user.role)) {
       return NextResponse.json({ error: 'Forbidden: Invalid user role' }, { status: 403 });
     }
 
@@ -151,6 +151,7 @@ export async function POST(request: NextRequest) {
         .maybeSingle();
       mdId = dist?.master_distributor_id || undefined;
     }
+    // Partners don't have hierarchy — distributorId and mdId remain undefined
 
     const chargeBreakdown = await calculateAEPSSettlementCharge(
       user.partner_id, user.role, amountDecimal, distributorId, mdId
@@ -241,12 +242,15 @@ export async function POST(request: NextRequest) {
     let senderName = bank_account_name;
 
     try {
-      const roleTable = user.role === 'retailer' ? 'retailers' : user.role === 'distributor' ? 'distributors' : 'master_distributors';
+      const roleTable = user.role === 'retailer' ? 'retailers' : user.role === 'distributor' ? 'distributors' : user.role === 'partner' ? 'partners' : 'master_distributors';
+      const idCol = user.role === 'partner' ? 'id' : 'partner_id';
+      const selectFields = user.role === 'partner' ? 'phone, name' : 'mobile, name';
       const { data: userInfo } = await supabase
         .from(roleTable)
-        .select('mobile, name')
-        .eq('partner_id', user.partner_id)
+        .select(selectFields)
+        .eq(idCol, user.partner_id)
         .maybeSingle();
+      if (user.role === 'partner' && userInfo?.phone) (userInfo as any).mobile = userInfo.phone;
       if (userInfo?.mobile) senderMobile = userInfo.mobile;
       if (userInfo?.name) senderName = userInfo.name;
     } catch {}

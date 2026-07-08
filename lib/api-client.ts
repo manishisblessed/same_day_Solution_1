@@ -253,6 +253,12 @@ export async function apiFetch(
       } catch {
         // refresh failed — return original response
       }
+
+      // Couldn't recover a 401 → the session is truly dead. Notify the app so it
+      // can show a clean "session ended" overlay instead of a confusing inline error.
+      if (response.status === 401) {
+        window.dispatchEvent(new CustomEvent('session-expired'))
+      }
     }
 
     return response

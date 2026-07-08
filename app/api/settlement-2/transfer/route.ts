@@ -42,7 +42,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const { user } = await getCurrentUserWithFallback(request)
-    if (!user || user.role !== 'retailer') {
+    if (!user || !['retailer', 'partner'].includes(user.role)) {
       const response = NextResponse.json({ success: false, error: 'Access denied' }, { status: 403 })
       return addCorsHeaders(request, response)
     }
@@ -116,23 +116,25 @@ export async function POST(request: NextRequest) {
     // Get retailer hierarchy
     let distributorId: string | null = null
     let mdId: string | null = null
-    try {
-      const { data: retailerData } = await supabaseAdmin
-        .from('retailers')
-        .select('distributor_id, master_distributor_id')
-        .eq('partner_id', user.partner_id)
-        .maybeSingle()
-      distributorId = retailerData?.distributor_id || null
-      mdId = retailerData?.master_distributor_id || null
-    } catch (e) {
-      console.warn('[Settlement-2] Failed to fetch retailer hierarchy:', e)
+    if (user.role === 'retailer') {
+      try {
+        const { data: retailerData } = await supabaseAdmin
+          .from('retailers')
+          .select('distributor_id, master_distributor_id')
+          .eq('partner_id', user.partner_id)
+          .maybeSingle()
+        distributorId = retailerData?.distributor_id || null
+        mdId = retailerData?.master_distributor_id || null
+      } catch (e) {
+        console.warn('[Settlement-2] Failed to fetch retailer hierarchy:', e)
+      }
     }
 
     // Resolve scheme via RPC
     try {
       const { data: schemeResult, error: schemeError } = await (supabaseAdmin as any).rpc('resolve_scheme_for_user', {
         p_user_id: user.partner_id,
-        p_user_role: 'retailer',
+        p_user_role: user.role,
         p_service_type: 'shadval_settlement',
         p_distributor_id: distributorId,
         p_md_id: mdId,
@@ -341,7 +343,7 @@ export async function POST(request: NextRequest) {
 
     const { data: transferLedgerId, error: transferLedgerError } = await (supabaseAdmin as any).rpc('add_ledger_entry', {
       p_user_id: user.partner_id,
-      p_user_role: 'retailer',
+      p_user_role: user.role,
       p_wallet_type: 'primary',
       p_fund_category: 'service',
       p_service_type: 'shadval_settlement',
@@ -492,7 +494,7 @@ export async function POST(request: NextRequest) {
     if (isFailed) {
       const { error: retailerRefundErr } = await (supabaseAdmin as any).rpc('add_ledger_entry', {
         p_user_id: user.partner_id,
-        p_user_role: 'retailer',
+        p_user_role: user.role,
         p_wallet_type: 'primary',
         p_fund_category: 'service',
         p_service_type: 'shadval_settlement',

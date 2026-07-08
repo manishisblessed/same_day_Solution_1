@@ -19,7 +19,7 @@ import {
 import TransactionsTable from '@/components/TransactionsTable'
 import { LineChart, Line, BarChart, Bar, AreaChart, Area, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
 import { motion, AnimatePresence } from 'framer-motion'
-import { apiFetch } from '@/lib/api-client'
+import { apiFetch, apiFetchJson } from '@/lib/api-client'
 import POSMachinesTab from '@/components/POSMachinesTab'
 import MasterDistributorSubscriptionsTab from '@/components/MasterDistributorSubscriptionsTab'
 import TwoFactorSetup from '@/components/TwoFactorSetup'
@@ -2832,25 +2832,26 @@ function SchemeManagementTab({ user }: { user: any }) {
     setSavingScheme(true)
     try {
       if (editingScheme) {
-        const { error } = await supabase.from('schemes').update({
-          name: schemeForm.name,
-          description: schemeForm.description || null,
-          service_scope: schemeForm.service_scope,
-        }).eq('id', editingScheme.id)
-        if (error) throw error
+        await apiFetchJson(`/api/schemes/${editingScheme.id}`, {
+          method: 'PUT',
+          body: JSON.stringify({
+            name: schemeForm.name,
+            description: schemeForm.description || null,
+            service_scope: schemeForm.service_scope,
+          }),
+        })
         setSuccess('Scheme updated successfully')
       } else {
-        const { error } = await supabase.from('schemes').insert({
-          name: schemeForm.name,
-          description: schemeForm.description || null,
-          scheme_type: 'custom',
-          service_scope: schemeForm.service_scope,
-          priority: 100,
-          created_by_id: user.partner_id,
-          created_by_role: 'master_distributor',
-          status: 'active',
+        await apiFetchJson('/api/schemes', {
+          method: 'POST',
+          body: JSON.stringify({
+            name: schemeForm.name,
+            description: schemeForm.description || null,
+            scheme_type: 'custom',
+            service_scope: schemeForm.service_scope,
+            priority: 100,
+          }),
         })
-        if (error) throw error
         setSuccess('Scheme created successfully')
       }
       setShowCreateModal(false)

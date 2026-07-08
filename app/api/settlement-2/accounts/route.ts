@@ -74,7 +74,7 @@ export async function OPTIONS(request: NextRequest) {
 export async function GET(request: NextRequest) {
   try {
     const { user } = await getCurrentUserWithFallback(request)
-    if (!user || user.role !== 'retailer') {
+    if (!user || !['retailer', 'partner'].includes(user.role)) {
       const response = NextResponse.json({ success: false, error: 'Access denied' }, { status: 403 })
       return addCorsHeaders(request, response)
     }
@@ -115,7 +115,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const { user } = await getCurrentUserWithFallback(request)
-    if (!user || user.role !== 'retailer') {
+    if (!user || !['retailer', 'partner'].includes(user.role)) {
       const response = NextResponse.json({ success: false, error: 'Access denied' }, { status: 403 })
       return addCorsHeaders(request, response)
     }
@@ -232,7 +232,7 @@ export async function POST(request: NextRequest) {
     // Debit verification charge
     const { data: chargeLedgerId, error: chargeError } = await (supabaseAdmin as any).rpc('add_ledger_entry', {
       p_user_id: user.partner_id,
-      p_user_role: 'retailer',
+      p_user_role: user.role,
       p_wallet_type: 'primary',
       p_fund_category: 'service',
       p_service_type: 'shadval_settlement',
@@ -320,7 +320,7 @@ export async function POST(request: NextRequest) {
       console.log('[Settlement-2 Accounts] Verification service unavailable, refunding ₹4 to retailer:', user.partner_id)
       const { error: refundErr } = await (supabaseAdmin as any).rpc('add_ledger_entry', {
         p_user_id: user.partner_id,
-        p_user_role: 'retailer',
+        p_user_role: user.role,
         p_wallet_type: 'primary',
         p_fund_category: 'service',
         p_service_type: 'shadval_settlement',
@@ -467,7 +467,7 @@ export async function POST(request: NextRequest) {
       // Refund the ₹4 charge back to retailer
       const { error: dbRefundErr } = await (supabaseAdmin as any).rpc('add_ledger_entry', {
         p_user_id: user.partner_id,
-        p_user_role: 'retailer',
+        p_user_role: user.role,
         p_wallet_type: 'primary',
         p_fund_category: 'service',
         p_service_type: 'shadval_settlement',
@@ -514,7 +514,7 @@ export async function POST(request: NextRequest) {
 export async function PATCH(request: NextRequest) {
   try {
     const { user } = await getCurrentUserWithFallback(request)
-    if (!user || user.role !== 'retailer') {
+    if (!user || !['retailer', 'partner'].includes(user.role)) {
       const response = NextResponse.json({ success: false, error: 'Access denied' }, { status: 403 })
       return addCorsHeaders(request, response)
     }
@@ -676,7 +676,7 @@ export async function PATCH(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   try {
     const { user } = await getCurrentUserWithFallback(request)
-    if (!user || user.role !== 'retailer') {
+    if (!user || !['retailer', 'partner'].includes(user.role)) {
       const response = NextResponse.json({ success: false, error: 'Access denied' }, { status: 403 })
       return addCorsHeaders(request, response)
     }

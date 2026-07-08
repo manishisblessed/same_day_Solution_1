@@ -11,7 +11,7 @@ import {
   TrendingUp, Settings, RefreshCw
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { apiFetch } from '@/lib/api-client'
+import { apiFetchJson } from '@/lib/api-client'
 
 type PaymentMode = 'CARD' | 'UPI'
 type CardType = 'CREDIT' | 'DEBIT' | 'PREPAID' | null
@@ -91,10 +91,6 @@ export default function AdminMDRSchemes() {
       const rt_mdr_t1 = parseFloat(formData.rt_mdr_t1)
       const dt_mdr_t1 = parseFloat(formData.dt_mdr_t1)
 
-      // Auto-calculate T+0 MDR = T+1 + 1%
-      const rt_mdr_t0 = rt_mdr_t1 + 1
-      const dt_mdr_t0 = dt_mdr_t1 + 1
-
       // Validate
       if (rt_mdr_t1 < 0 || rt_mdr_t1 > 100) {
         alert('Retailer MDR T+1 must be between 0 and 100')
@@ -109,34 +105,27 @@ export default function AdminMDRSchemes() {
         return
       }
 
+      // MDR values (incl. T+0 auto-calc) are validated/derived server-side.
       const schemeData = {
         mode: formData.mode,
         card_type: formData.card_type || null,
         brand_type: formData.brand_type || null,
         card_classification: formData.card_classification || null,
         rt_mdr_t1,
-        rt_mdr_t0,
         dt_mdr_t1,
-        dt_mdr_t0,
         status: formData.status,
-        effective_date: new Date().toISOString(),
       }
 
       if (editingScheme) {
-        // Update existing scheme
-        const { error } = await supabase
-          .from('global_schemes')
-          .update(schemeData)
-          .eq('id', editingScheme.id)
-
-        if (error) throw error
+        await apiFetchJson('/api/admin/mdr-schemes', {
+          method: 'PUT',
+          body: JSON.stringify({ id: editingScheme.id, ...schemeData }),
+        })
       } else {
-        // Create new scheme
-        const { error } = await supabase
-          .from('global_schemes')
-          .insert(schemeData)
-
-        if (error) throw error
+        await apiFetchJson('/api/admin/mdr-schemes', {
+          method: 'POST',
+          body: JSON.stringify(schemeData),
+        })
       }
 
       setShowModal(false)
@@ -177,12 +166,7 @@ export default function AdminMDRSchemes() {
     if (!confirm('Are you sure you want to delete this scheme?')) return
 
     try {
-      const { error } = await supabase
-        .from('global_schemes')
-        .delete()
-        .eq('id', id)
-
-      if (error) throw error
+      await apiFetchJson(`/api/admin/mdr-schemes?id=${encodeURIComponent(id)}`, { method: 'DELETE' })
       fetchSchemes()
     } catch (error: any) {
       console.error('Error deleting scheme:', error)

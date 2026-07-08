@@ -35,9 +35,9 @@ export async function POST(request: NextRequest) {
     }
 
     // Only retailers transact Pay2New; the debit lands on the retailer's wallet.
-    if (user.role !== 'retailer' || !user.partner_id) {
+    if (!['retailer', 'partner'].includes(user.role) || !user.partner_id) {
       const response = NextResponse.json(
-        { success: false, error: 'Only retailers can use this service' },
+        { success: false, error: 'Access denied' },
         { status: 403 }
       )
       return addCorsHeaders(request, response)
@@ -116,7 +116,7 @@ export async function POST(request: NextRequest) {
     try {
       const { data: schemeResult, error: schemeError } = await (supabaseAdmin as any).rpc('resolve_scheme_for_user', {
         p_user_id: user.partner_id,
-        p_user_role: 'retailer',
+        p_user_role: user.role,
         p_service_type: 'bbps',
         p_distributor_id: distributorId,
         p_md_id: mdId,
@@ -215,7 +215,7 @@ export async function POST(request: NextRequest) {
     // Debit total (bill + charge) from retailer wallet BEFORE calling provider
     const { error: debitErr } = await (supabaseAdmin as any).rpc('add_ledger_entry', {
       p_user_id: user.partner_id,
-      p_user_role: 'retailer',
+      p_user_role: user.role,
       p_wallet_type: 'primary',
       p_fund_category: 'service',
       p_service_type: 'pay2new',
@@ -233,7 +233,7 @@ export async function POST(request: NextRequest) {
 
     const refund = async (reason: string) => {
       const { error: refundErr } = await (supabaseAdmin as any).rpc('add_ledger_entry', {
-        p_user_id: user.partner_id, p_user_role: 'retailer', p_wallet_type: 'primary',
+        p_user_id: user.partner_id, p_user_role: user.role, p_wallet_type: 'primary',
         p_fund_category: 'service', p_service_type: 'pay2new', p_tx_type: 'PAY2NEW_REFUND',
         p_credit: totalDebit, p_debit: 0,
         p_reference_id: `REFUND_${request_id}`, p_status: 'completed',
@@ -426,7 +426,7 @@ export async function POST(request: NextRequest) {
       try {
         if (commissionSplit.retailer_commission > 0) {
           await (supabaseAdmin as any).rpc('add_ledger_entry', {
-            p_user_id: user.partner_id, p_user_role: 'retailer', p_wallet_type: 'primary',
+            p_user_id: user.partner_id, p_user_role: user.role, p_wallet_type: 'primary',
             p_fund_category: 'commission', p_service_type: 'pay2new', p_tx_type: 'COMMISSION_CREDIT',
             p_credit: commissionSplit.retailer_commission, p_debit: 0,
             p_reference_id: txRef, p_status: 'completed',

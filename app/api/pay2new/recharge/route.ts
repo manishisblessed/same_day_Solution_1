@@ -32,9 +32,9 @@ export async function POST(request: NextRequest) {
       return addCorsHeaders(request, response)
     }
 
-    if (user.role !== 'retailer' || !user.partner_id) {
+    if (!['retailer', 'partner'].includes(user.role) || !user.partner_id) {
       const response = NextResponse.json(
-        { success: false, error: 'Only retailers can use this service' },
+        { success: false, error: 'Access denied' },
         { status: 403 }
       )
       return addCorsHeaders(request, response)
@@ -83,7 +83,7 @@ export async function POST(request: NextRequest) {
 
     const { error: debitErr } = await (supabaseAdmin as any).rpc('add_ledger_entry', {
       p_user_id: user.partner_id,
-      p_user_role: 'retailer',
+      p_user_role: user.role,
       p_wallet_type: 'primary',
       p_fund_category: 'service',
       p_service_type: 'pay2new',
@@ -101,7 +101,7 @@ export async function POST(request: NextRequest) {
 
     const refund = async (reason: string) => {
       const { error: refundErr } = await (supabaseAdmin as any).rpc('add_ledger_entry', {
-        p_user_id: user.partner_id, p_user_role: 'retailer', p_wallet_type: 'primary',
+        p_user_id: user.partner_id, p_user_role: user.role, p_wallet_type: 'primary',
         p_fund_category: 'service', p_service_type: 'pay2new', p_tx_type: 'PAY2NEW_REFUND',
         p_credit: amountNum, p_debit: 0,
         p_reference_id: `REFUND_${request_id}`, p_status: 'completed',

@@ -21,7 +21,7 @@ export async function POST(request: NextRequest) {
   try {
     const { user } = await getCurrentUserWithFallback(request)
     const userRole = user?.role as string | undefined
-    const isRetailer = userRole === 'retailer'
+    const isRetailer = userRole === 'retailer' || userRole === 'partner'
     const isAdmin = userRole === 'admin' || userRole === 'super_admin'
 
     if (!isRetailer && !isAdmin) {

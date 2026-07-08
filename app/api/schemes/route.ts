@@ -95,6 +95,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Only admin can create non-custom schemes' }, { status: 403 });
     }
 
+    // Record the creator's identity from the authenticated session (never trust
+    // the client). This also resolves creators for admins, who have no partner_id.
+    body.metadata = {
+      ...(body.metadata && typeof body.metadata === 'object' ? body.metadata : {}),
+      creator_name: user.name || null,
+      creator_email: user.email || null,
+    };
+
     const { data, error } = await createScheme(body, user.partner_id, user.role);
     if (error) {
       return NextResponse.json({ error }, { status: 400 });

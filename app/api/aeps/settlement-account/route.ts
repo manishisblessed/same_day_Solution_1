@@ -55,7 +55,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Session expired', code: 'SESSION_EXPIRED' }, { status: 401 })
     }
 
-    if (!['retailer', 'distributor', 'master_distributor'].includes(user.role)) {
+    if (!['retailer', 'distributor', 'master_distributor', 'partner'].includes(user.role)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 

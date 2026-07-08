@@ -26,7 +26,7 @@ export async function OPTIONS(request: NextRequest) {
 export async function GET(request: NextRequest) {
   try {
     const { user } = await getCurrentUserWithFallback(request)
-    if (!user || user.role !== 'retailer') {
+    if (!user || !['retailer', 'partner'].includes(user.role)) {
       const response = NextResponse.json({ success: false, error: 'Access denied' }, { status: 403 })
       return addCorsHeaders(request, response)
     }
@@ -42,16 +42,18 @@ export async function GET(request: NextRequest) {
 
     let distributorId: string | null = null
     let mdId: string | null = null
-    try {
-      const { data: retailer } = await supabaseAdmin
-        .from('retailers')
-        .select('distributor_id, master_distributor_id')
-        .eq('partner_id', user.partner_id)
-        .maybeSingle()
-      distributorId = retailer?.distributor_id || null
-      mdId = retailer?.master_distributor_id || null
-    } catch (e) {
-      console.warn('[Settlement-2 Charges] Retailer lookup failed:', e)
+    if (user.role === 'retailer') {
+      try {
+        const { data: retailer } = await supabaseAdmin
+          .from('retailers')
+          .select('distributor_id, master_distributor_id')
+          .eq('partner_id', user.partner_id)
+          .maybeSingle()
+        distributorId = retailer?.distributor_id || null
+        mdId = retailer?.master_distributor_id || null
+      } catch (e) {
+        console.warn('[Settlement-2 Charges] Retailer lookup failed:', e)
+      }
     }
 
     // Resolve scheme
@@ -61,7 +63,7 @@ export async function GET(request: NextRequest) {
     try {
       const { data: schemeResult } = await (supabaseAdmin as any).rpc('resolve_scheme_for_user', {
         p_user_id: user.partner_id,
-        p_user_role: 'retailer',
+        p_user_role: user.role,
         p_service_type: 'shadval_settlement',
         p_distributor_id: distributorId,
         p_md_id: mdId,

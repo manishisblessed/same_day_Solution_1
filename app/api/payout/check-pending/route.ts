@@ -104,6 +104,12 @@ export async function POST(request: NextRequest) {
 
     console.log(`[Check Pending] Found ${pendingTxs.length} stale transactions to check`)
 
+    // Determine user role from retailer_id — partners use UUIDs, retailers use text codes
+    const resolveRole = (retailerId: string): string => {
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+      return uuidRegex.test(retailerId) ? 'partner' : 'retailer'
+    }
+
     let checked = 0
     let resolved = 0
     let refunded = 0
@@ -158,7 +164,7 @@ export async function POST(request: NextRequest) {
                   const totalAmount = parseFloat(String(tx.amount)) + parseFloat(String(tx.charges))
                   await supabaseAdmin.rpc('add_ledger_entry', {
                     p_user_id: tx.retailer_id,
-                    p_user_role: 'retailer',
+                    p_user_role: resolveRole(tx.retailer_id),
                     p_wallet_type: 'primary',
                     p_fund_category: 'payout',
                     p_service_type: 'payout',
@@ -223,7 +229,7 @@ export async function POST(request: NextRequest) {
           if (claimed && claimed.length > 0) {
             await supabaseAdmin.rpc('add_ledger_entry', {
               p_user_id: tx.retailer_id,
-              p_user_role: 'retailer',
+              p_user_role: resolveRole(tx.retailer_id),
               p_wallet_type: 'primary',
               p_fund_category: 'payout',
               p_service_type: 'payout',

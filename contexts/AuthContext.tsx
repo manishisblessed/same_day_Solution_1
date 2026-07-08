@@ -5,8 +5,10 @@ import { AuthUser } from '@/types/database.types'
 import { getCurrentUser, signIn, signOut as authSignOut, getStoredSessionToken, clearStoredSessionToken, complete2FALogin, TwoFactorRequiredError } from '@/lib/auth'
 import { apiFetch } from '@/lib/api-client'
 import { getGeoLocation, clearGeoCache } from '@/hooks/useGeolocation'
+import { supabase } from '@/lib/supabase/client'
 
 export type LogoutReason = 'manual' | 'inactivity' | 'replaced' | 'expired' | 'ended'
+export type KickReason = 'replaced' | 'expired' | null
 
 interface AuthContextType {
   user: AuthUser | null
@@ -18,6 +20,7 @@ interface AuthContextType {
   impersonate: (userId: string, userRole: 'retailer' | 'distributor' | 'master_distributor') => Promise<void>
   endImpersonation: () => Promise<void>
   sessionKicked: boolean
+  kickReason: KickReason
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -26,12 +29,75 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null)
   const [loading, setLoading] = useState(true)
   const [sessionKicked, setSessionKicked] = useState(false)
+  const [kickReason, setKickReason] = useState<KickReason>(null)
   const geoRequestedRef = useRef(false)
   const heartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const kickingRef = useRef(false)
+  const manualLogoutRef = useRef(false)
+  const userRef = useRef<AuthUser | null>(null)
+
+  useEffect(() => { userRef.current = user }, [user])
 
   useEffect(() => {
     checkUser()
+  }, [])
+
+  // Centralized "session is dead" handler. Shows the kicked overlay and
+  // clears local auth WITHOUT re-triggering server-side sign-out (avoids loops).
+  const triggerKick = useCallback((reason: Exclude<KickReason, null>) => {
+    if (kickingRef.current || manualLogoutRef.current) return
+    kickingRef.current = true
+
+    if (heartbeatRef.current) {
+      clearInterval(heartbeatRef.current)
+      heartbeatRef.current = null
+    }
+
+    setKickReason(reason)
+    setSessionKicked(true)
+    clearStoredSessionToken()
+    clearGeoCache()
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('auth_user')
+      localStorage.removeItem('auth_user_timestamp')
+    }
+    setUser(null)
+  }, [])
+
+  const triggerKickRef = useRef(triggerKick)
+  useEffect(() => { triggerKickRef.current = triggerKick }, [triggerKick])
+
+  // Detect session death from any source and react immediately instead of
+  // leaving a stale dashboard that later fails mid-action with a 401.
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+
+    // 1. Supabase auth state — fires on token revocation / sign-out (incl. other tabs)
+    const { data: authSub } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'SIGNED_OUT' && userRef.current && !manualLogoutRef.current) {
+        triggerKickRef.current('expired')
+      }
+    })
+
+    // 2. Hard 401 from an API call (token gone/revoked) dispatches this event
+    const onSessionExpired = () => {
+      if (userRef.current) triggerKickRef.current('expired')
+    }
+    window.addEventListener('session-expired', onSessionExpired)
+
+    // 3. Cross-tab: another tab cleared the shared auth cache (logout elsewhere)
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === 'auth_user' && e.newValue === null && userRef.current && !manualLogoutRef.current) {
+        triggerKickRef.current('expired')
+      }
+    }
+    window.addEventListener('storage', onStorage)
+
+    return () => {
+      authSub?.subscription?.unsubscribe()
+      window.removeEventListener('session-expired', onSessionExpired)
+      window.removeEventListener('storage', onStorage)
+    }
   }, [])
 
   // Request geolocation once user is authenticated (all roles).
@@ -58,24 +124,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const data = await res.json()
 
         if (!data.valid) {
-          kickingRef.current = true
-          if (heartbeatRef.current) {
-            clearInterval(heartbeatRef.current)
-            heartbeatRef.current = null
-          }
-
-          if (data.reason === 'replaced') {
-            setSessionKicked(true)
-            // Force logout locally without calling end-session again
-            clearStoredSessionToken()
-            try { await authSignOut() } catch {}
-            clearGeoCache()
-            if (typeof window !== 'undefined') {
-              localStorage.removeItem('auth_user')
-              localStorage.removeItem('auth_user_timestamp')
-            }
-            setUser(null)
-          }
+          // Any invalid session ends this tab cleanly with the right message.
+          triggerKickRef.current(data.reason === 'replaced' ? 'replaced' : 'expired')
+          try { await authSignOut() } catch {}
         }
       } catch {
         // Network error — don't kick user
@@ -173,6 +224,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const login = async (email: string, password: string, role: string, captchaToken?: string) => {
     setLoading(true)
+    manualLogoutRef.current = false
+    kickingRef.current = false
+    setSessionKicked(false)
+    setKickReason(null)
     try {
       const result = await signIn(email, password, role as any, captchaToken)
       setUser(result.user)
@@ -245,6 +300,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const login2FA = async (email: string, password: string, role: string, totpCode: string, isBackup?: boolean) => {
     setLoading(true)
+    manualLogoutRef.current = false
+    kickingRef.current = false
+    setSessionKicked(false)
+    setKickReason(null)
     try {
       const result = await complete2FALogin(email, password, role as any, totpCode, isBackup)
       setUser(result.user)
@@ -282,6 +341,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   const logout = async (reason: LogoutReason = 'manual') => {
+    manualLogoutRef.current = true
     stopHeartbeat()
     setLoading(true)
     try {
@@ -402,7 +462,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, login2FA, logout, refreshUser, impersonate, endImpersonation, sessionKicked }}>
+    <AuthContext.Provider value={{ user, loading, login, login2FA, logout, refreshUser, impersonate, endImpersonation, sessionKicked, kickReason }}>
       {children}
     </AuthContext.Provider>
   )

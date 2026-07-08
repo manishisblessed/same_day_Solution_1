@@ -335,13 +335,13 @@ export async function POST(request: NextRequest) {
         if (isPartner) {
           return NextResponse.json({ error: 'Only administrators can change partner services' }, { status: 403 })
         }
-        const { partner_id, bbps_enabled, bbps2_pay2new_enabled, settlement_enabled, settlement2_enabled } = body
+        const { partner_id, bbps_enabled, bbps2_pay2new_enabled, settlement_enabled, settlement2_enabled, aeps_enabled } = body
         if (!partner_id) {
           return NextResponse.json({ error: 'partner_id is required' }, { status: 400 })
         }
-        if (bbps_enabled === undefined && bbps2_pay2new_enabled === undefined && settlement_enabled === undefined && settlement2_enabled === undefined) {
+        if (bbps_enabled === undefined && bbps2_pay2new_enabled === undefined && settlement_enabled === undefined && settlement2_enabled === undefined && aeps_enabled === undefined) {
           return NextResponse.json(
-            { error: 'bbps_enabled, bbps2_pay2new_enabled, settlement_enabled, or settlement2_enabled is required' },
+            { error: 'At least one service flag is required (bbps_enabled, bbps2_pay2new_enabled, settlement_enabled, settlement2_enabled, aeps_enabled)' },
             { status: 400 }
           )
         }
@@ -351,6 +351,7 @@ export async function POST(request: NextRequest) {
         if (typeof bbps2_pay2new_enabled === 'boolean') updates.bbps2_pay2new_enabled = bbps2_pay2new_enabled
         if (typeof settlement_enabled === 'boolean') updates.settlement_enabled = settlement_enabled
         if (typeof settlement2_enabled === 'boolean') updates.settlement2_enabled = settlement2_enabled
+        if (typeof aeps_enabled === 'boolean') updates.aeps_enabled = aeps_enabled
 
         const { error: svcErr } = await supabase.from('partners').update(updates).eq('id', partner_id)
         if (svcErr) throw svcErr

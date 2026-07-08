@@ -87,11 +87,10 @@ export async function POST(request: NextRequest) {
       return addCorsHeaders(request, response)
     }
 
-    // Only retailers can initiate transfers
     const userRole = user.role as string | undefined
-    if (userRole !== 'retailer') {
+    if (!['retailer', 'partner'].includes(userRole || '')) {
       const response = NextResponse.json(
-        { success: false, error: 'Only retailers can initiate transfers' },
+        { success: false, error: 'Access denied' },
         { status: 403 }
       )
       return addCorsHeaders(request, response)
@@ -267,16 +266,18 @@ export async function POST(request: NextRequest) {
     // Fetch retailer's distributor chain for proper scheme hierarchy resolution
     let distributorId: string | null = null
     let mdId: string | null = null
-    try {
-      const { data: retailerData } = await supabaseAdmin
-        .from('retailers')
-        .select('distributor_id, master_distributor_id')
-        .eq('partner_id', user.partner_id)
-        .maybeSingle()
-      distributorId = retailerData?.distributor_id || null
-      mdId = retailerData?.master_distributor_id || null
-    } catch (e) {
-      console.warn('[Payout] Failed to fetch retailer hierarchy:', e)
+    if (user.role === 'retailer') {
+      try {
+        const { data: retailerData } = await supabaseAdmin
+          .from('retailers')
+          .select('distributor_id, master_distributor_id')
+          .eq('partner_id', user.partner_id)
+          .maybeSingle()
+        distributorId = retailerData?.distributor_id || null
+        mdId = retailerData?.master_distributor_id || null
+      } catch (e) {
+        console.warn('[Payout] Failed to fetch retailer hierarchy:', e)
+      }
     }
 
     // Calculate charges via Scheme Engine (with direct query fallback)
@@ -291,7 +292,7 @@ export async function POST(request: NextRequest) {
       
       const { data: schemeResult, error: schemeError } = await (supabaseAdmin as any).rpc('resolve_scheme_for_user', {
         p_user_id: user.partner_id,
-        p_user_role: 'retailer',
+        p_user_role: user.role,
         p_service_type: 'payout',
         p_distributor_id: distributorId,
         p_md_id: mdId,
@@ -764,7 +765,7 @@ export async function POST(request: NextRequest) {
         if (commissionSplit.retailer_commission > 0) {
           const { data: rtLedger, error: rtErr } = await (supabaseAdmin as any).rpc('add_ledger_entry', {
             p_user_id: user.partner_id,
-            p_user_role: 'retailer',
+            p_user_role: user.role,
             p_wallet_type: 'primary',
             p_fund_category: 'commission',
             p_service_type: 'payout',

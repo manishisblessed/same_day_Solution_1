@@ -7,6 +7,7 @@ import { Lock, Mail, AlertCircle, Loader2, MapPin, ShieldCheck, Clock, Eye, EyeO
 import AnimatedSection from '@/components/AnimatedSection'
 import { getGeoLocationForLogin } from '@/hooks/useGeolocation'
 import TurnstileWidget, { TurnstileHandle, isCaptchaEnabled } from '@/components/TurnstileWidget'
+import LoginIssueDialog from '@/components/LoginIssueDialog'
 import { TwoFactorRequiredError } from '@/lib/auth'
 
 type BannerType = 'expired' | 'replaced' | null
@@ -25,6 +26,7 @@ export default function FinanceLoginPage() {
   const [show2FA, setShow2FA] = useState(false)
   const [totpCode, setTotpCode] = useState('')
   const [useBackupCode, setUseBackupCode] = useState(false)
+  const [loginIssues, setLoginIssues] = useState<string[]>([])
   const turnstileRef = useRef<TurnstileHandle>(null)
   const geoTriggered = useRef(false)
 
@@ -68,14 +70,19 @@ export default function FinanceLoginPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
+
+    // Collect non-blocking issues: inform the user via popup but sign in anyway.
+    const issues: string[] = []
     if (locationStatus === 'failed') {
-      setError('Location access was denied. Please allow location in your browser settings and reload.')
-      return
+      issues.push('Location access was denied, so your login location will not be recorded.')
+    } else if (locationStatus === 'capturing' || locationStatus === 'pending') {
+      issues.push('Location capture is still in progress; it will be saved if it completes in time.')
     }
-    if (isCaptchaEnabled() && !captchaToken && !captchaError) {
-      setError('Please complete the CAPTCHA verification.')
-      return
+    if (isCaptchaEnabled() && !captchaToken) {
+      issues.push('CAPTCHA verification did not complete; signing in without it.')
     }
+    if (issues.length > 0) setLoginIssues(issues)
+
     setLoading(true)
     try {
       await login(formData.email, formData.password, 'finance_executive', captchaToken)
@@ -90,6 +97,7 @@ export default function FinanceLoginPage() {
       setError(err.message || 'Invalid credentials')
       setCaptchaToken('')
       turnstileRef.current?.reset()
+      setLoginIssues([])
     } finally {
       setLoading(false)
     }
@@ -263,7 +271,7 @@ export default function FinanceLoginPage() {
                 </div>
               )}
 
-              <button type="submit" disabled={loading || locationStatus === 'capturing' || (isCaptchaEnabled() && !captchaToken && !captchaError)} className="w-full btn-primary bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60">
+              <button type="submit" disabled={loading} className="w-full btn-primary bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60">
                 {loading ? 'Signing in...' : 'Sign in'}
               </button>
             </form>
@@ -272,6 +280,7 @@ export default function FinanceLoginPage() {
           </div>
         </div>
       </AnimatedSection>
+      <LoginIssueDialog issues={loginIssues} signingIn={loading} onDismiss={() => setLoginIssues([])} />
     </div>
   )
 }

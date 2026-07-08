@@ -96,7 +96,7 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
     const body = await request.json();
 
     // Input validation: prevent injection of protected fields
-    const allowedFields = ['name', 'description', 'service_scope', 'priority', 'status', 'effective_from', 'effective_to', 'metadata'];
+    const allowedFields = ['name', 'description', 'service_scope', 'priority', 'status', 'effective_from', 'effective_to', 'metadata', 'is_partner_plan'];
     if (user.role === 'admin') {
       allowedFields.push('scheme_type'); // Only admin can change type
     }

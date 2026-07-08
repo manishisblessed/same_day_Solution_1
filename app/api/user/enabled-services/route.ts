@@ -17,6 +17,9 @@ const SERVICE_KEYS = [
   'cash_management',
   'lic',
   'insurance',
+  'government',
+  'doorstep_banking',
+  'settlement',
 ] as const
 
 /**

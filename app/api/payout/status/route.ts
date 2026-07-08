@@ -171,7 +171,7 @@ export async function GET(request: NextRequest) {
               const totalAmount = transaction.amount + transaction.charges
               await supabaseAdmin.rpc('add_ledger_entry', {
                 p_user_id: transaction.retailer_id,
-                p_user_role: 'retailer',
+                p_user_role: user.role,
                 p_wallet_type: 'primary',
                 p_fund_category: 'payout',
                 p_service_type: 'payout',

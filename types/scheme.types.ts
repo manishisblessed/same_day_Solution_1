@@ -295,6 +295,7 @@ export interface CreateSchemeInput {
   effective_from?: string;
   effective_to?: string;
   metadata?: Record<string, any>;
+  is_partner_plan?: boolean;
 }
 
 export interface CreateBBPSCommissionInput {

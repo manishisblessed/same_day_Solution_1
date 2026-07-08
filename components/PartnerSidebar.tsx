@@ -8,7 +8,7 @@ import {
   Settings, TrendingUp, CreditCard, X, Menu,
   Wallet, Receipt, Banknote, Percent, BookOpen,
   Crown, Sparkles, Key, BarChart3, Zap, Repeat,
-  Server, Scale
+  Server, Scale, Fingerprint, Send
 } from 'lucide-react'
 import { apiFetch } from '@/lib/api-client'
 import { useAuth } from '@/contexts/AuthContext'
@@ -27,11 +27,15 @@ const sidebarItems: SidebarItem[] = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, href: '/dashboard/partner?tab=dashboard' },
   { id: 'wallet', label: 'Wallet', icon: Wallet, href: '/dashboard/partner?tab=wallet' },
   { id: 'services', label: 'API Integrations', icon: Activity, href: '/dashboard/partner?tab=services' },
+  { id: 'aeps', label: 'AEPS', icon: Fingerprint, href: '/dashboard/partner?tab=aeps' },
   { id: 'bbps', label: 'BBPS Services', icon: Receipt, href: '/dashboard/partner?tab=bbps' },
   { id: 'bbps-2', label: 'BBPS-2 (Pay2New)', icon: CreditCard, href: '/dashboard/partner?tab=bbps-2' },
+  { id: 'credit-card', label: 'Credit Card', icon: CreditCard, href: '/dashboard/partner?tab=credit-card' },
   { id: 'payout', label: 'Payouts / Settlements', icon: Banknote, href: '/dashboard/partner?tab=payout' },
+  { id: 'settlement-2', label: 'Settlement-2', icon: Send, href: '/dashboard/partner?tab=settlement-2' },
   { id: 'transactions', label: 'Transactions', icon: CreditCard, href: '/dashboard/partner?tab=transactions' },
   { id: 'ledger', label: 'Ledger', icon: BookOpen, href: '/dashboard/partner?tab=ledger' },
+  { id: 'aeps-ledger', label: 'AEPS Ledger', icon: BookOpen, href: '/dashboard/partner?tab=aeps-ledger' },
   { id: 'pos-machines', label: 'My POS Machines', icon: CreditCard, href: '/dashboard/partner?tab=pos-machines' },
   { id: 'subscriptions', label: 'Subscriptions', icon: Repeat, href: '/dashboard/partner?tab=subscriptions' },
   { id: 'mdr-schemes', label: 'MDR Schemes', icon: Percent, href: '/dashboard/partner?tab=mdr-schemes' },
@@ -45,13 +49,18 @@ const sidebarItems: SidebarItem[] = [
 ]
 
 const SERVICE_TAB_MAP: Record<string, string[]> = {
-  services:       [],
-  bbps:           ['bbps'],
-  payout:         ['banking_payments', 'dmt', 'settlement'],
-  transactions:   ['mini_atm_pos'],
-  'pos-machines': ['mini_atm_pos'],
+  services:        [],
+  aeps:            ['aeps'],
+  'aeps-ledger':   ['aeps'],
+  bbps:            ['bbps'],
+  'bbps-2':        ['bbps'],
+  'credit-card':   ['bbps'],
+  payout:          ['banking_payments', 'dmt', 'settlement'],
+  'settlement-2':  ['banking_payments', 'dmt'],
+  transactions:    ['mini_atm_pos'],
+  'pos-machines':  ['mini_atm_pos'],
   'subscriptions': ['mini_atm_pos'],
-  'mdr-schemes':  ['mini_atm_pos'],
+  'mdr-schemes':   ['mini_atm_pos'],
 }
 
 export default function PartnerSidebar({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {

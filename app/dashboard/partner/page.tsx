@@ -1,7 +1,8 @@
 'use client'
 
-import { useState, useEffect, useMemo, useCallback, Suspense, lazy } from 'react'
+import { useState, useEffect, useMemo, useCallback, Suspense, lazy, useRef } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
+import { useGeolocation } from '@/hooks/useGeolocation'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase/client'
 import { apiFetch, apiFetchJson } from '@/lib/api-client'
@@ -11,14 +12,19 @@ import {
   ShoppingCart, CreditCard, ArrowUpRight, Menu,
   RefreshCw, Settings, X, Check, AlertCircle, Eye, Receipt, Wallet, Download,
   Send, Banknote, Lock, EyeOff, Shield, Key, Percent, Smartphone, Globe, Info,
-  Network, Link2, Building2, Phone, Mail, Calendar
+  Network, Link2, Building2, Phone, Mail, Calendar, Fingerprint
 } from 'lucide-react'
 import TransactionsTable from '@/components/TransactionsTable'
 import BBPSTransactionsTable from '@/components/BBPSTransactionsTable'
 import BBPSPayment from '@/components/BBPSPayment'
 import Pay2NewCCPayment from '@/components/Pay2NewCCPayment'
+import Pay2NewServiceFlow from '@/components/Pay2NewServiceFlow'
 import { BBPS_CATEGORY_GROUPS } from '@/lib/bbps/category-groups'
 import PayoutTransfer from '@/components/PayoutTransfer'
+import ShadvalPayTransfer from '@/components/ShadvalPayTransfer'
+import AEPSDashboard from '@/components/AEPSDashboard'
+import AEPSWalletLedger from '@/components/AEPSWalletLedger'
+import AEPSTransactionHistory from '@/components/AEPSTransactionHistory'
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
 import TwoFactorSetup from '@/components/TwoFactorSetup'
 
@@ -47,7 +53,7 @@ import ReconciliationTab from '@/components/partner/ReconciliationTab'
 import { Crown, Sparkles, BarChart3, Zap, Scale, Server } from 'lucide-react'
 import { useToast } from '@/components/Toast'
 
-type TabType = 'dashboard' | 'wallet' | 'services' | 'bbps' | 'bbps-2' | 'payout' | 'transactions' | 'ledger' | 'mdr-schemes' | 'reports' | 'settings' | 'pos-machines' | 'subscriptions' | 'api-management' | 'analytics' | 'api-dashboard' | 'reconciliation'
+type TabType = 'dashboard' | 'wallet' | 'services' | 'aeps' | 'bbps' | 'bbps-2' | 'credit-card' | 'payout' | 'settlement-2' | 'transactions' | 'ledger' | 'aeps-ledger' | 'mdr-schemes' | 'reports' | 'settings' | 'pos-machines' | 'subscriptions' | 'api-management' | 'analytics' | 'api-dashboard' | 'reconciliation'
 
 function PartnerDashboardContent() {
   const { user, loading: authLoading } = useAuth()
@@ -56,10 +62,24 @@ function PartnerDashboardContent() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
   const { showToast } = useToast()
+
+  // Geolocation for AEPS compliance
+  const { location: geoLocation, error: geoError, loading: geoLoading, permissionStatus, requestLocation, isSupported } = useGeolocation()
+  const [geoBannerDismissed, setGeoBannerDismissed] = useState(false)
+  const geoRequestedRef = useRef(false)
+
+  useEffect(() => {
+    if (!authLoading && user && isSupported && !geoRequestedRef.current) {
+      geoRequestedRef.current = true
+      requestLocation()
+    }
+  }, [authLoading, user, isSupported, requestLocation])
+
+  const showGeoBanner = isSupported && !geoBannerDismissed && !geoLocation && (permissionStatus === 'prompt' || permissionStatus === 'denied' || geoError)
   
   const getInitialTab = (): TabType => {
     const tab = searchParams?.get('tab')
-    if (tab && ['dashboard', 'wallet', 'services', 'bbps', 'bbps-2', 'payout', 'transactions', 'ledger', 'mdr-schemes', 'reports', 'settings', 'pos-machines', 'subscriptions', 'api-management', 'analytics', 'api-dashboard', 'reconciliation'].includes(tab)) {
+    if (tab && ['dashboard', 'wallet', 'services', 'aeps', 'bbps', 'bbps-2', 'credit-card', 'payout', 'settlement-2', 'transactions', 'ledger', 'aeps-ledger', 'mdr-schemes', 'reports', 'settings', 'pos-machines', 'subscriptions', 'api-management', 'analytics', 'api-dashboard', 'reconciliation'].includes(tab)) {
       return tab as TabType
     }
     return 'dashboard'
@@ -72,6 +92,7 @@ function PartnerDashboardContent() {
     totalRevenue: 0,
     commissionEarned: 0,
     walletBalance: 0,
+    aepsWalletBalance: 0,
   })
   const [recentTransactions, setRecentTransactions] = useState<any[]>([])
   const [chartData, setChartData] = useState<any[]>([])
@@ -96,7 +117,7 @@ function PartnerDashboardContent() {
 
   useEffect(() => {
     const tab = searchParams?.get('tab')
-    if (tab && ['dashboard', 'wallet', 'services', 'bbps', 'bbps-2', 'payout', 'transactions', 'ledger', 'mdr-schemes', 'reports', 'settings', 'pos-machines', 'subscriptions', 'api-management', 'analytics', 'api-dashboard', 'reconciliation'].includes(tab)) {
+    if (tab && ['dashboard', 'wallet', 'services', 'aeps', 'bbps', 'bbps-2', 'credit-card', 'payout', 'settlement-2', 'transactions', 'ledger', 'aeps-ledger', 'mdr-schemes', 'reports', 'settings', 'pos-machines', 'subscriptions', 'api-management', 'analytics', 'api-dashboard', 'reconciliation'].includes(tab)) {
       if (tab !== activeTab) {
         setActiveTab(tab as TabType)
       }
@@ -157,6 +178,22 @@ function PartnerDashboardContent() {
         }
       }
 
+      // AEPS wallet balance
+      let aepsWalletBalance = 0
+      if (user.partner_id) {
+        try {
+          const aepsResult = await Promise.race([
+            supabase.rpc('get_wallet_balance_v2', { p_user_id: user.partner_id, p_wallet_type: 'aeps' }),
+            new Promise((resolve) => setTimeout(() => resolve({ data: null, error: { message: 'Timeout' } }), 3000)),
+          ]) as any
+          if (aepsResult?.data !== null && aepsResult?.data !== undefined && !aepsResult?.error) {
+            aepsWalletBalance = Number(aepsResult.data) || 0
+          }
+        } catch {
+          aepsWalletBalance = 0
+        }
+      }
+
       // Partner wallet activity (partner_wallet_ledger — do not query wallet_ledger.partner_id; column does not exist)
       const { data: ledgerData } = await supabase
         .from('partner_wallet_ledger')
@@ -202,6 +239,7 @@ function PartnerDashboardContent() {
         totalRevenue,
         commissionEarned,
         walletBalance,
+        aepsWalletBalance,
       })
 
       // Combine recent transactions from both ledger and POS
@@ -299,6 +337,7 @@ function PartnerDashboardContent() {
         totalRevenue: 0,
         commissionEarned: 0,
         walletBalance: 0,
+        aepsWalletBalance: 0,
       })
       setRecentTransactions([])
       setChartData([])
@@ -392,15 +431,61 @@ function PartnerDashboardContent() {
             </div>
           </motion.div>
 
+          {/* Geolocation Banner (required for AEPS) */}
+          {showGeoBanner && (
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className={`mb-4 rounded-xl border p-4 flex items-start gap-3 ${
+                permissionStatus === 'denied'
+                  ? 'bg-red-50 border-red-200 dark:bg-red-900/20 dark:border-red-800'
+                  : 'bg-amber-50 border-amber-200 dark:bg-amber-900/20 dark:border-amber-800'
+              }`}
+            >
+              <Globe className={`w-5 h-5 mt-0.5 flex-shrink-0 ${
+                permissionStatus === 'denied' ? 'text-red-500' : 'text-amber-500'
+              }`} />
+              <div className="flex-1 min-w-0">
+                <p className={`text-sm font-medium ${
+                  permissionStatus === 'denied' ? 'text-red-800 dark:text-red-300' : 'text-amber-800 dark:text-amber-300'
+                }`}>
+                  {permissionStatus === 'denied'
+                    ? 'Location access denied — AEPS transactions require your location.'
+                    : 'Location permission needed for AEPS transactions.'}
+                </p>
+                {permissionStatus !== 'denied' && (
+                  <button
+                    onClick={requestLocation}
+                    className="mt-2 px-3 py-1.5 text-xs font-medium rounded-lg bg-amber-600 text-white hover:bg-amber-700 transition-colors"
+                  >
+                    Allow Location
+                  </button>
+                )}
+              </div>
+              <button onClick={() => setGeoBannerDismissed(true)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
+                <X className="w-4 h-4" />
+              </button>
+            </motion.div>
+          )}
+
           {/* Tab Content */}
           {activeTab === 'dashboard' && <DashboardTab user={user} stats={stats} chartData={chartData} recentTransactions={recentTransactions} />}
           {activeTab === 'wallet' && <WalletTab user={user} />}
           {activeTab === 'services' && <APIIntegrationsTab />}
+          {activeTab === 'aeps' && <AEPSDashboard />}
           {activeTab === 'bbps' && <BBPSTab />}
           {activeTab === 'bbps-2' && <Pay2NewBBPSTab />}
+          {activeTab === 'credit-card' && <PartnerCreditCardTab />}
           {activeTab === 'payout' && <PayoutTransfer title="Payouts / Settlements" />}
+          {activeTab === 'settlement-2' && <ShadvalPayTransfer title="Settlement-2 - Bank Transfer" />}
           {activeTab === 'transactions' && <POSTransactionsTable autoPoll={true} pollInterval={15000} />}
           {activeTab === 'ledger' && <PartnerLedgerTab user={user} />}
+          {activeTab === 'aeps-ledger' && (
+            <div className="space-y-6">
+              <AEPSWalletLedger user={user} />
+              <AEPSTransactionHistory limit={25} showFilters={true} />
+            </div>
+          )}
           {activeTab === 'mdr-schemes' && <MDRSchemesTab user={user} />}
           {activeTab === 'pos-machines' && <POSMachinesTab user={user} accentColor="purple" />}
           {activeTab === 'subscriptions' && <PartnerSubscriptionsTab />}
@@ -613,6 +698,13 @@ function DashboardTab({ user, stats, chartData, recentTransactions }: { user: an
           gradient="from-purple-600 to-pink-600"
           delay={0.4}
         />
+        <StatCard
+          label="AEPS Wallet Balance"
+          value={`₹${(stats.aepsWalletBalance || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+          icon={Fingerprint}
+          gradient="from-teal-500 to-cyan-600"
+          delay={0.5}
+        />
       </motion.div>
 
       {/* Charts */}
@@ -780,6 +872,31 @@ function Pay2NewBBPSTab() {
       className="space-y-4"
     >
       <Pay2NewCCPayment />
+    </motion.div>
+  )
+}
+
+function PartnerCreditCardTab() {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="space-y-4"
+    >
+      <Pay2NewServiceFlow
+        serviceId={34}
+        title="Credit Card"
+        subtitle="Pay any credit card bill"
+        icon={<CreditCard className="w-6 h-6" />}
+        mode="bill"
+        numberLabel="Last 4 Digits of Credit Card"
+        numberPlaceholder="e.g. 1266"
+        numberMaxLength={4}
+        showOptional1={true}
+        optional1Label="Registered Mobile Number (Optional)"
+        optional1Placeholder="e.g. 9876543210"
+        accent="purple"
+      />
     </motion.div>
   )
 }

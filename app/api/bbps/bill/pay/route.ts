@@ -56,7 +56,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Only retailers can pay bills
-    if (user.role !== 'retailer') {
+    if (!['retailer', 'partner'].includes(user.role)) {
       const response = NextResponse.json(
         { error: 'Forbidden: Only retailers can access this endpoint' },
         { status: 403 }
@@ -273,16 +273,18 @@ export async function POST(request: NextRequest) {
     // Fetch retailer's distributor chain for proper scheme hierarchy resolution
     let distributorId: string | null = null
     let mdId: string | null = null
-    try {
-      const { data: retailerData } = await supabase
-        .from('retailers')
-        .select('distributor_id, master_distributor_id')
-        .eq('partner_id', user.partner_id)
-        .maybeSingle()
-      distributorId = retailerData?.distributor_id || null
-      mdId = retailerData?.master_distributor_id || null
-    } catch (e) {
-      console.warn('[BBPS Pay] Failed to fetch retailer hierarchy:', e)
+    if (user.role === 'retailer') {
+      try {
+        const { data: retailerData } = await supabase
+          .from('retailers')
+          .select('distributor_id, master_distributor_id')
+          .eq('partner_id', user.partner_id)
+          .maybeSingle()
+        distributorId = retailerData?.distributor_id || null
+        mdId = retailerData?.master_distributor_id || null
+      } catch (e) {
+        console.warn('[BBPS Pay] Failed to fetch retailer hierarchy:', e)
+      }
     }
 
     // Calculate BBPS charge via Scheme Engine (with direct query fallback)
@@ -298,7 +300,7 @@ export async function POST(request: NextRequest) {
       
       const { data: schemeResult, error: schemeError } = await (supabase as any).rpc('resolve_scheme_for_user', {
         p_user_id: user.partner_id,
-        p_user_role: 'retailer',
+        p_user_role: user.role,
         p_service_type: 'bbps',
         p_distributor_id: distributorId,
         p_md_id: mdId,
@@ -586,7 +588,7 @@ export async function POST(request: NextRequest) {
       
       const { data: ledgerId, error: debitError } = await supabase.rpc('add_ledger_entry', {
         p_user_id: user.partner_id,
-        p_user_role: 'retailer',
+        p_user_role: user.role,
         p_wallet_type: 'primary',
         p_fund_category: 'bbps',
         p_service_type: 'bbps',
@@ -910,7 +912,7 @@ export async function POST(request: NextRequest) {
           if (commissionSplit.retailer_commission > 0) {
             const { data: rtLedger, error: rtErr } = await supabase.rpc('add_ledger_entry', {
               p_user_id: user.partner_id,
-              p_user_role: 'retailer',
+              p_user_role: user.role,
               p_wallet_type: 'primary',
               p_fund_category: 'commission',
               p_service_type: 'bbps',
@@ -1019,7 +1021,7 @@ export async function POST(request: NextRequest) {
           console.log(`[BBPS Pay] 🔄 Refunding retailer wallet: ₹${totalAmountNeeded} (payment failed)`)
           const { data: refundLedgerId, error: refundError } = await supabase.rpc('add_ledger_entry', {
             p_user_id: user.partner_id,
-            p_user_role: 'retailer',
+            p_user_role: user.role,
             p_wallet_type: 'primary',
             p_fund_category: 'bbps',
             p_service_type: 'bbps',

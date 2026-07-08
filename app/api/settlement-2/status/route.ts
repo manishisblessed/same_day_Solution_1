@@ -28,7 +28,7 @@ export async function OPTIONS(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const { user } = await getCurrentUserWithFallback(request)
-    if (!user || user.role !== 'retailer') {
+    if (!user || !['retailer', 'partner'].includes(user.role)) {
       const response = NextResponse.json({ success: false, error: 'Access denied' }, { status: 403 })
       return addCorsHeaders(request, response)
     }
@@ -89,7 +89,7 @@ export async function POST(request: NextRequest) {
           if (refundAmount > 0) {
             const { error: refundErr } = await (supabaseAdmin as any).rpc('add_ledger_entry', {
               p_user_id: txRecord.retailer_id,
-              p_user_role: 'retailer',
+              p_user_role: user.role,
               p_wallet_type: 'primary',
               p_fund_category: 'service',
               p_service_type: 'shadval_settlement',

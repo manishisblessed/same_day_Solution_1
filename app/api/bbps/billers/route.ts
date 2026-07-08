@@ -30,7 +30,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Only retailers can fetch billers
-    if (user.role !== 'retailer') {
+    if (!['retailer', 'partner'].includes(user.role)) {
       const response = NextResponse.json(
         { error: 'Forbidden: Only retailers can access this endpoint' },
         { status: 403 }

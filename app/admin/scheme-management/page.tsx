@@ -11,7 +11,7 @@ import {
   Save, X, AlertCircle, CheckCircle, Globe, Star, Settings, Eye, DollarSign, Loader2
 } from 'lucide-react'
 import { useToast } from '@/components/Toast'
-import { apiFetch } from '@/lib/api-client'
+import { apiFetch, apiFetchJson } from '@/lib/api-client'
 
 // ============================================================================
 // TYPES
@@ -28,6 +28,7 @@ interface Scheme {
   is_partner_plan: boolean
   created_by_id: string | null
   created_by_role: string | null
+  metadata?: { creator_name?: string; creator_email?: string } | null
   effective_from: string
   effective_to: string | null
   created_at: string
@@ -181,7 +182,19 @@ function SchemeManagementPageContent() {
           creator_role_label: s.created_by_id ? creatorMap[s.created_by_id]?.role_label || null : null,
         }))
       }
-      
+
+      // Admin-created schemes have no partner_id; resolve their creator from metadata.
+      filtered = filtered.map(s => (
+        s.created_by_role === 'admin'
+          ? {
+              ...s,
+              creator_name: s.creator_name || s.metadata?.creator_name || null,
+              creator_email: s.creator_email || s.metadata?.creator_email || null,
+              creator_role_label: s.creator_role_label || 'Administrator',
+            }
+          : s
+      ))
+
       setSchemes(filtered)
     } catch (err: any) {
       setError(err.message)
@@ -309,30 +322,31 @@ function SchemeManagementPageContent() {
     setSavingScheme(true)
     try {
       if (editingScheme) {
-        const { error } = await supabase.from('schemes').update({
-          name: schemeForm.name,
-          description: schemeForm.description || null,
-          scheme_type: schemeForm.scheme_type,
-          service_scope: schemeForm.service_scope,
-          priority: schemeForm.priority,
-          is_partner_plan: schemeForm.is_partner_plan,
-        }).eq('id', editingScheme.id)
-        if (error) throw error
+        await apiFetchJson(`/api/schemes/${editingScheme.id}`, {
+          method: 'PUT',
+          body: JSON.stringify({
+            name: schemeForm.name,
+            description: schemeForm.description || null,
+            scheme_type: schemeForm.scheme_type,
+            service_scope: schemeForm.service_scope,
+            priority: schemeForm.priority,
+            is_partner_plan: schemeForm.is_partner_plan,
+          }),
+        })
         setSuccess('Scheme updated successfully')
         showToast('Scheme updated successfully', 'success')
       } else {
-        const { error } = await supabase.from('schemes').insert({
-          name: schemeForm.name,
-          description: schemeForm.description || null,
-          scheme_type: schemeForm.scheme_type,
-          service_scope: schemeForm.service_scope,
-          priority: schemeForm.priority,
-          is_partner_plan: schemeForm.is_partner_plan,
-          created_by_id: user?.partner_id || null,
-          created_by_role: user?.role || 'admin',
-          status: 'active',
+        await apiFetchJson('/api/schemes', {
+          method: 'POST',
+          body: JSON.stringify({
+            name: schemeForm.name,
+            description: schemeForm.description || null,
+            scheme_type: schemeForm.scheme_type,
+            service_scope: schemeForm.service_scope,
+            priority: schemeForm.priority,
+            is_partner_plan: schemeForm.is_partner_plan,
+          }),
         })
-        if (error) throw error
         setSuccess('Scheme created successfully')
         showToast('Scheme created successfully', 'success')
       }
@@ -350,8 +364,7 @@ function SchemeManagementPageContent() {
     if (!confirm('Delete this scheme? All associated configs and mappings will be removed.')) return
     setDeletingScheme(true)
     try {
-      const { error } = await supabase.from('schemes').delete().eq('id', id)
-      if (error) throw error
+      await apiFetchJson(`/api/schemes/${id}`, { method: 'DELETE' })
       setSuccess('Scheme deleted')
       showToast('Scheme deleted', 'success')
       fetchSchemes()
@@ -367,15 +380,14 @@ function SchemeManagementPageContent() {
     const newStatus = scheme.status === 'active' ? 'inactive' : 'active'
     setTogglingStatusId(scheme.id)
     try {
-      const { error } = await supabase.from('schemes').update({ status: newStatus }).eq('id', scheme.id)
-      if (error) {
-        showToast(`Failed to toggle status: ${error.message}`, 'error')
-      } else {
-        showToast(`Scheme ${newStatus === 'active' ? 'activated' : 'deactivated'}`, 'success')
-        fetchSchemes()
-      }
+      await apiFetchJson(`/api/schemes/${scheme.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ status: newStatus }),
+      })
+      showToast(`Scheme ${newStatus === 'active' ? 'activated' : 'deactivated'}`, 'success')
+      fetchSchemes()
     } catch (err: any) {
-      showToast('Failed to toggle status', 'error')
+      showToast(err.message || 'Failed to toggle status', 'error')
     } finally {
       setTogglingStatusId(null)
     }
@@ -682,38 +694,41 @@ function SchemeManagementPageContent() {
   })
 
   const openMappingModal = (schemeId: string) => {
-    const roles = getAssignableRoles(user?.role)
+    const scheme = schemes.find(s => s.id === schemeId)
+    const roles = getMappableRoles(scheme?.is_partner_plan)
     setMappingSchemeId(schemeId)
     setMappingForm({ entity_id: '', entity_role: roles[0]?.value || 'master_distributor', service_type: 'all' })
     setShowMappingModal(true)
   }
 
+  // Roles that a scheme can be assigned to: Partner Plans → partner only; others → non-partner roles.
+  const getMappableRoles = (isPartnerPlan?: boolean) => {
+    const roles = getAssignableRoles(user?.role)
+    if (isPartnerPlan) return roles.filter(r => r.value === 'partner')
+    return roles.filter(r => r.value !== 'partner')
+  }
+
   const handleSaveMapping = async () => {
     setSavingMapping(true)
     try {
-      // Deactivate existing active mapping for this entity
-      await supabase
-        .from('scheme_mappings')
-        .update({ status: 'inactive' })
-        .eq('entity_id', mappingForm.entity_id)
-        .eq('entity_role', mappingForm.entity_role)
-        .eq('status', 'active')
-
-      const { error } = await supabase.from('scheme_mappings').insert({
-        scheme_id: mappingSchemeId,
-        entity_id: mappingForm.entity_id,
-        entity_role: mappingForm.entity_role,
-        service_type: mappingForm.service_type || null,
-        assigned_by_id: user?.partner_id,
-        assigned_by_role: user?.role || 'admin',
-        status: 'active',
-        priority: 100,
+      // The API deactivates any existing active mapping for this entity and
+      // inserts the new one (service-role, RLS-safe).
+      await apiFetchJson('/api/schemes/mappings', {
+        method: 'POST',
+        body: JSON.stringify({
+          scheme_id: mappingSchemeId,
+          entity_id: mappingForm.entity_id,
+          entity_role: mappingForm.entity_role,
+          service_type: mappingForm.service_type || null,
+        }),
       })
-      if (error) throw error
 
       // Auto-set is_partner_plan when mapping to a partner entity
       if (mappingForm.entity_role === 'partner') {
-        await supabase.from('schemes').update({ is_partner_plan: true }).eq('id', mappingSchemeId)
+        await apiFetchJson(`/api/schemes/${mappingSchemeId}`, {
+          method: 'PUT',
+          body: JSON.stringify({ is_partner_plan: true }),
+        })
       }
 
       setSuccess('Scheme mapped successfully')
@@ -733,8 +748,7 @@ function SchemeManagementPageContent() {
     if (!confirm('Remove this mapping?')) return
     setDeletingMappingId(id)
     try {
-      const { error } = await supabase.from('scheme_mappings').update({ status: 'inactive' }).eq('id', id)
-      if (error) throw error
+      await apiFetchJson(`/api/schemes/mappings?id=${encodeURIComponent(id)}`, { method: 'DELETE' })
       setSuccess('Mapping removed')
       showToast('Mapping removed', 'success')
       if (expandedSchemeId) toggleExpand(expandedSchemeId)
@@ -934,9 +948,11 @@ function SchemeManagementPageContent() {
                           </span>
                         )}
                         {scheme.created_by_role && !scheme.creator_name && (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400" title={`Created by: ${scheme.created_by_id || 'Unknown'}`}>
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400" title={scheme.created_by_role === 'admin' ? 'Created by an administrator' : `Created by: ${scheme.created_by_id || 'Unknown'}`}>
                             <Users className="w-3 h-3" />
-                            {scheme.created_by_role === 'master_distributor' ? 'MD' : scheme.created_by_role === 'distributor' ? 'Distributor' : scheme.created_by_role}: {scheme.created_by_id || 'Unknown'}
+                            {scheme.created_by_role === 'admin'
+                              ? 'Admin'
+                              : `${scheme.created_by_role === 'master_distributor' ? 'MD' : scheme.created_by_role === 'distributor' ? 'Distributor' : scheme.created_by_role}: ${scheme.created_by_id || 'Unknown'}`}
                           </span>
                         )}
                       </div>
@@ -1528,32 +1544,52 @@ function SchemeManagementPageContent() {
                         className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
                     </div>
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  {[
-                    { label: 'Retailer Charge', key: 'retailer_charge', typeKey: 'retailer_charge_type' },
-                    { label: 'Retailer Commission', key: 'retailer_commission', typeKey: 'retailer_commission_type' },
-                    { label: 'Distributor Commission', key: 'distributor_commission', typeKey: 'distributor_commission_type' },
-                    { label: 'MD Commission', key: 'md_commission', typeKey: 'md_commission_type' },
-                    { label: 'Company Earning', key: 'company_charge', typeKey: 'company_charge_type' },
-                  ].map(({ label, key, typeKey }) => (
-                    <div key={key} className="grid grid-cols-3 gap-2 items-end">
-                      <div className="col-span-2">
-                        <label className="block text-xs font-medium mb-1">{label}</label>
-                        <input type="number" step="0.01" value={(bbpsForm as any)[key]}
-                          onChange={(e) => setBbpsForm({ ...bbpsForm, [key]: parseFloat(e.target.value) || 0 })}
-                          className="w-full px-3 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
-                      </div>
-                      <div>
-                        <select value={(bbpsForm as any)[typeKey]}
-                          onChange={(e) => setBbpsForm({ ...bbpsForm, [typeKey]: e.target.value })}
-                          className="w-full px-2 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700">
-                          <option value="flat">₹ Flat</option>
-                          <option value="percentage">% Pct</option>
-                        </select>
-                      </div>
-                    </div>
-                  ))}
-                  </div>
+                  {(() => {
+                    const isPartnerPlan = schemes.find(s => s.id === configSchemeId)?.is_partner_plan || false
+                    const fields = isPartnerPlan
+                      ? [
+                          { label: 'Partner Charge', key: 'retailer_charge', typeKey: 'retailer_charge_type' },
+                          { label: 'Partner Commission', key: 'retailer_commission', typeKey: 'retailer_commission_type' },
+                          { label: 'Company Earning', key: 'company_charge', typeKey: 'company_charge_type' },
+                        ]
+                      : [
+                          { label: 'Retailer Charge', key: 'retailer_charge', typeKey: 'retailer_charge_type' },
+                          { label: 'Retailer Commission', key: 'retailer_commission', typeKey: 'retailer_commission_type' },
+                          { label: 'Distributor Commission', key: 'distributor_commission', typeKey: 'distributor_commission_type' },
+                          { label: 'MD Commission', key: 'md_commission', typeKey: 'md_commission_type' },
+                          { label: 'Company Earning', key: 'company_charge', typeKey: 'company_charge_type' },
+                        ]
+                    return (
+                      <>
+                        {isPartnerPlan && (
+                          <div className="flex items-center gap-2 px-3 py-2 bg-orange-50 dark:bg-orange-900/20 rounded-lg border border-orange-200 dark:border-orange-800">
+                            <TrendingUp className="w-4 h-4 text-orange-600" />
+                            <span className="text-xs font-medium text-orange-700 dark:text-orange-400">Partner Plan — single rate (no RT/DT/MD breakdown)</span>
+                          </div>
+                        )}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {fields.map(({ label, key, typeKey }) => (
+                          <div key={key} className="grid grid-cols-3 gap-2 items-end">
+                            <div className="col-span-2">
+                              <label className="block text-xs font-medium mb-1">{label}</label>
+                              <input type="number" step="0.01" value={(bbpsForm as any)[key]}
+                                onChange={(e) => setBbpsForm({ ...bbpsForm, [key]: parseFloat(e.target.value) || 0 })}
+                                className="w-full px-3 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
+                            </div>
+                            <div>
+                              <select value={(bbpsForm as any)[typeKey]}
+                                onChange={(e) => setBbpsForm({ ...bbpsForm, [typeKey]: e.target.value })}
+                                className="w-full px-2 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700">
+                                <option value="flat">₹ Flat</option>
+                                <option value="percentage">% Pct</option>
+                              </select>
+                            </div>
+                          </div>
+                        ))}
+                        </div>
+                      </>
+                    )
+                  })()}
                 </div>
               )}
 
@@ -1590,32 +1626,52 @@ function SchemeManagementPageContent() {
                         className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
                     </div>
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  {[
-                    { label: 'Retailer Charge', key: 'retailer_charge', typeKey: 'retailer_charge_type' },
-                    ...(settlementTypeSelection === 'payout' ? [{ label: 'Retailer Commission', key: 'retailer_commission', typeKey: 'retailer_commission_type' }] : []),
-                    { label: 'Distributor Commission', key: 'distributor_commission', typeKey: 'distributor_commission_type' },
-                    { label: 'MD Commission', key: 'md_commission', typeKey: 'md_commission_type' },
-                    { label: 'Company Earning', key: 'company_charge', typeKey: 'company_charge_type' },
-                  ].map(({ label, key, typeKey }) => (
-                    <div key={key} className="grid grid-cols-3 gap-2 items-end">
-                      <div className="col-span-2">
-                        <label className="block text-xs font-medium mb-1">{label}</label>
-                        <input type="number" step="0.01" value={(payoutForm as any)[key]}
-                          onChange={(e) => setPayoutForm({ ...payoutForm, [key]: parseFloat(e.target.value) || 0 })}
-                          className="w-full px-3 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
-                      </div>
-                      <div>
-                        <select value={(payoutForm as any)[typeKey]}
-                          onChange={(e) => setPayoutForm({ ...payoutForm, [typeKey]: e.target.value })}
-                          className="w-full px-2 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700">
-                          <option value="flat">₹ Flat</option>
-                          <option value="percentage">% Pct</option>
-                        </select>
-                      </div>
-                    </div>
-                  ))}
-                  </div>
+                  {(() => {
+                    const isPartnerPlan = schemes.find(s => s.id === configSchemeId)?.is_partner_plan || false
+                    const fields = isPartnerPlan
+                      ? [
+                          { label: 'Partner Charge', key: 'retailer_charge', typeKey: 'retailer_charge_type' },
+                          ...(settlementTypeSelection === 'payout' ? [{ label: 'Partner Commission', key: 'retailer_commission', typeKey: 'retailer_commission_type' }] : []),
+                          { label: 'Company Earning', key: 'company_charge', typeKey: 'company_charge_type' },
+                        ]
+                      : [
+                          { label: 'Retailer Charge', key: 'retailer_charge', typeKey: 'retailer_charge_type' },
+                          ...(settlementTypeSelection === 'payout' ? [{ label: 'Retailer Commission', key: 'retailer_commission', typeKey: 'retailer_commission_type' }] : []),
+                          { label: 'Distributor Commission', key: 'distributor_commission', typeKey: 'distributor_commission_type' },
+                          { label: 'MD Commission', key: 'md_commission', typeKey: 'md_commission_type' },
+                          { label: 'Company Earning', key: 'company_charge', typeKey: 'company_charge_type' },
+                        ]
+                    return (
+                      <>
+                        {isPartnerPlan && (
+                          <div className="flex items-center gap-2 px-3 py-2 bg-orange-50 dark:bg-orange-900/20 rounded-lg border border-orange-200 dark:border-orange-800">
+                            <TrendingUp className="w-4 h-4 text-orange-600" />
+                            <span className="text-xs font-medium text-orange-700 dark:text-orange-400">Partner Plan — single rate (no RT/DT/MD breakdown)</span>
+                          </div>
+                        )}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {fields.map(({ label, key, typeKey }) => (
+                          <div key={key} className="grid grid-cols-3 gap-2 items-end">
+                            <div className="col-span-2">
+                              <label className="block text-xs font-medium mb-1">{label}</label>
+                              <input type="number" step="0.01" value={(payoutForm as any)[key]}
+                                onChange={(e) => setPayoutForm({ ...payoutForm, [key]: parseFloat(e.target.value) || 0 })}
+                                className="w-full px-3 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
+                            </div>
+                            <div>
+                              <select value={(payoutForm as any)[typeKey]}
+                                onChange={(e) => setPayoutForm({ ...payoutForm, [typeKey]: e.target.value })}
+                                className="w-full px-2 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700">
+                                <option value="flat">₹ Flat</option>
+                                <option value="percentage">% Pct</option>
+                              </select>
+                            </div>
+                          </div>
+                        ))}
+                        </div>
+                      </>
+                    )
+                  })()}
                 </div>
               )}
 
@@ -1822,33 +1878,57 @@ function SchemeManagementPageContent() {
                         className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
                     </div>
                   </div>
-                  <p className="text-xs text-gray-500">Pool = what the API Partner pays the company. Company profit is taken first; remainder cascades MD → DT → RT.</p>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  {[
-                    { label: 'Partner Pool (base)', key: 'base_commission', typeKey: 'base_commission_type' },
-                    { label: 'Company Earning', key: 'company_earning', typeKey: 'company_earning_type' },
-                    { label: 'MD Commission', key: 'md_commission', typeKey: 'md_commission_type' },
-                    { label: 'Distributor Commission', key: 'distributor_commission', typeKey: 'distributor_commission_type' },
-                    { label: 'Retailer Commission', key: 'retailer_commission', typeKey: 'retailer_commission_type' },
-                  ].map(({ label, key, typeKey }) => (
-                    <div key={key} className="grid grid-cols-3 gap-2 items-end">
-                      <div className="col-span-2">
-                        <label className="block text-xs font-medium mb-1">{label}</label>
-                        <input type="number" step="0.0001" value={(aepsForm as any)[key]}
-                          onChange={(e) => setAepsForm({ ...aepsForm, [key]: parseFloat(e.target.value) || 0 })}
-                          className="w-full px-3 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
-                      </div>
-                      <div>
-                        <select value={(aepsForm as any)[typeKey]}
-                          onChange={(e) => setAepsForm({ ...aepsForm, [typeKey]: e.target.value })}
-                          className="w-full px-2 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700">
-                          <option value="flat">₹ Flat</option>
-                          <option value="percentage">% Pct</option>
-                        </select>
-                      </div>
-                    </div>
-                  ))}
-                  </div>
+                  {(() => {
+                    const isPartnerPlan = schemes.find(s => s.id === configSchemeId)?.is_partner_plan || false
+                    const fields = isPartnerPlan
+                      ? [
+                          { label: 'Partner Pool (base)', key: 'base_commission', typeKey: 'base_commission_type' },
+                          { label: 'Company Earning', key: 'company_earning', typeKey: 'company_earning_type' },
+                          { label: 'Partner Commission', key: 'retailer_commission', typeKey: 'retailer_commission_type' },
+                        ]
+                      : [
+                          { label: 'Partner Pool (base)', key: 'base_commission', typeKey: 'base_commission_type' },
+                          { label: 'Company Earning', key: 'company_earning', typeKey: 'company_earning_type' },
+                          { label: 'MD Commission', key: 'md_commission', typeKey: 'md_commission_type' },
+                          { label: 'Distributor Commission', key: 'distributor_commission', typeKey: 'distributor_commission_type' },
+                          { label: 'Retailer Commission', key: 'retailer_commission', typeKey: 'retailer_commission_type' },
+                        ]
+                    return (
+                      <>
+                        <p className="text-xs text-gray-500">
+                          {isPartnerPlan
+                            ? 'Pool = what the API Partner pays the company. Company profit is taken first; remainder goes to Partner.'
+                            : 'Pool = what the API Partner pays the company. Company profit is taken first; remainder cascades MD → DT → RT.'}
+                        </p>
+                        {isPartnerPlan && (
+                          <div className="flex items-center gap-2 px-3 py-2 bg-orange-50 dark:bg-orange-900/20 rounded-lg border border-orange-200 dark:border-orange-800">
+                            <TrendingUp className="w-4 h-4 text-orange-600" />
+                            <span className="text-xs font-medium text-orange-700 dark:text-orange-400">Partner Plan — single rate (no RT/DT/MD breakdown)</span>
+                          </div>
+                        )}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {fields.map(({ label, key, typeKey }) => (
+                          <div key={key} className="grid grid-cols-3 gap-2 items-end">
+                            <div className="col-span-2">
+                              <label className="block text-xs font-medium mb-1">{label}</label>
+                              <input type="number" step="0.0001" value={(aepsForm as any)[key]}
+                                onChange={(e) => setAepsForm({ ...aepsForm, [key]: parseFloat(e.target.value) || 0 })}
+                                className="w-full px-3 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
+                            </div>
+                            <div>
+                              <select value={(aepsForm as any)[typeKey]}
+                                onChange={(e) => setAepsForm({ ...aepsForm, [typeKey]: e.target.value })}
+                                className="w-full px-2 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700">
+                                <option value="flat">₹ Flat</option>
+                                <option value="percentage">% Pct</option>
+                              </select>
+                            </div>
+                          </div>
+                        ))}
+                        </div>
+                      </>
+                    )
+                  })()}
                   <div>
                     <label className="block text-xs font-medium mb-1">TDS (%)</label>
                     <input type="number" step="0.01" value={aepsForm.tds_percentage}
@@ -1988,12 +2068,24 @@ function SchemeManagementPageContent() {
               <div className="space-y-3">
                 <div>
                   <label className="block text-sm font-medium mb-1">User Role</label>
-                  <select value={mappingForm.entity_role} onChange={(e) => setMappingForm({ ...mappingForm, entity_role: e.target.value, entity_id: '' })}
-                    className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700">
-                    {getAssignableRoles(user?.role).map(role => (
-                      <option key={role.value} value={role.value}>{role.label}</option>
-                    ))}
-                  </select>
+                  {(() => {
+                    const isPartnerPlan = schemes.find(s => s.id === mappingSchemeId)?.is_partner_plan
+                    const mappableRoles = getMappableRoles(isPartnerPlan)
+                    return (
+                      <>
+                        <select value={mappingForm.entity_role} onChange={(e) => setMappingForm({ ...mappingForm, entity_role: e.target.value, entity_id: '' })}
+                          disabled={isPartnerPlan}
+                          className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700 disabled:opacity-70 disabled:cursor-not-allowed">
+                          {mappableRoles.map(role => (
+                            <option key={role.value} value={role.value}>{role.label}</option>
+                          ))}
+                        </select>
+                        {isPartnerPlan && (
+                          <p className="mt-1 text-xs text-purple-600 dark:text-purple-400">This is a Partner Plan — it can only be assigned to Partners.</p>
+                        )}
+                      </>
+                    )
+                  })()}
                 </div>
                 <div>
                   <label className="block text-sm font-medium mb-1">Select User</label>

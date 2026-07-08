@@ -27,7 +27,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Only retailers can track complaints
-    if (user.role !== 'retailer') {
+    if (!['retailer', 'partner'].includes(user.role)) {
       const response = NextResponse.json(
         { error: 'Forbidden: Only retailers can access this endpoint' },
         { status: 403 }
