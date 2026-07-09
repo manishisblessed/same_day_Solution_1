@@ -4,10 +4,13 @@ import { authenticatePartner, PartnerAuthError, partnerCanUseApi } from '@/lib/p
 import { initiateBankTransfer } from '@/services/shadval-pay'
 import type { ShadvalTransferRequest } from '@/services/shadval-pay'
 import { sendSettlementCallback } from '@/lib/settlement-callback'
+import { resolveShadvalCharge, getShadvalSlabLimits } from '@/lib/shadval-charge'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 export const fetchCache = 'force-no-store'
+
+const GST_PERCENT = 18
 
 function getSupabase() {
   return createClient(
@@ -123,9 +126,38 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // For partner settlement: charges are 0 (direct debit of transfer amount)
-    const charges = 0
-    const totalRequired = amountNum + charges
+    // Resolve the partner's Settlement-2 (Shadval) scheme charge for this amount + mode.
+    // Charge = base retailer_charge + 18% GST, debited from the partner wallet on top
+    // of the transfer amount. Scoped to schemes the partner is actually mapped to.
+    const { baseCharge } = await resolveShadvalCharge(supabase, partner.id, amountNum, mode)
+
+    // Enforce slab limits: if charge slabs are configured for this mode across the
+    // partner's mapped schemes, the amount must fall within one of them. Otherwise the
+    // charge silently resolves to 0 and a transfer could go through outside the limit.
+    const slabLimits = await getShadvalSlabLimits(supabase, partner.id, mode)
+    if (slabLimits) {
+      const inSlab = slabLimits.rows.some((s: any) =>
+        amountNum >= parseFloat(String(s.min_amount)) && amountNum <= parseFloat(String(s.max_amount))
+      )
+      if (!inSlab) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: {
+              code: 'AMOUNT_NOT_ALLOWED',
+              message: `Amount not allowed for ${mode}. Allowed range: ₹${slabLimits.min.toLocaleString('en-IN')} – ₹${slabLimits.max.toLocaleString('en-IN')}.`,
+            },
+            min_allowed: slabLimits.min,
+            max_allowed: slabLimits.max,
+          },
+          { status: 400 }
+        )
+      }
+    }
+
+    const gstAmount = Math.round((baseCharge * GST_PERCENT) / 100 * 100) / 100
+    const charges = Math.round((baseCharge + gstAmount) * 100) / 100
+    const totalRequired = Math.round((amountNum + charges) * 100) / 100
 
     if (walletBalance < totalRequired) {
       return NextResponse.json(
@@ -199,7 +231,9 @@ export async function POST(request: NextRequest) {
       p_partner_id: partner.id,
       p_amount: totalRequired,
       p_payout_transaction_id: txRecord.id,
-      p_description: `Settlement transfer ₹${amountNum} to ${account.account_number} (${account.account_holder_name})`,
+      p_description: charges > 0
+        ? `Settlement transfer ₹${amountNum} + charge ₹${baseCharge} + GST ₹${gstAmount} = ₹${totalRequired} to ${account.account_number} (${account.account_holder_name})`
+        : `Settlement transfer ₹${amountNum} to ${account.account_number} (${account.account_holder_name})`,
       p_reference_id: refId,
     })
 
