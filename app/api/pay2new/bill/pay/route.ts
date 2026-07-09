@@ -215,34 +215,58 @@ export async function POST(request: NextRequest) {
 
     const request_id = `SDS${Date.now()}`
 
-    // Debit total (bill + charge) from retailer wallet BEFORE calling provider
-    const { error: debitErr } = await (supabaseAdmin as any).rpc('add_ledger_entry', {
-      p_user_id: user.partner_id,
-      p_user_role: user.role,
-      p_wallet_type: 'primary',
-      p_fund_category: 'service',
-      p_service_type: 'pay2new',
-      p_tx_type: 'PAY2NEW_DEBIT',
-      p_credit: 0,
-      p_debit: totalDebit,
-      p_reference_id: request_id,
-      p_status: 'completed',
-      p_remarks: `CC ₹${amountNum} + ₹${totalServiceCharge} GST | ${product_name || product_code} | Card:${number} | Mob:${customer_number}`,
-    })
+    // Debit total (bill + charge) from wallet BEFORE calling provider
+    let debitErr: any = null
+    if (user.role === 'partner') {
+      const { error } = await (supabaseAdmin as any).rpc('debit_partner_wallet', {
+        p_partner_id: user.partner_id,
+        p_amount: totalDebit,
+        p_description: `CC ₹${amountNum} + ₹${totalServiceCharge} charge | ${product_name || product_code} | Card:${number}`,
+        p_reference_id: request_id,
+      })
+      debitErr = error
+    } else {
+      const { error } = await (supabaseAdmin as any).rpc('add_ledger_entry', {
+        p_user_id: user.partner_id,
+        p_user_role: user.role,
+        p_wallet_type: 'primary',
+        p_fund_category: 'service',
+        p_service_type: 'pay2new',
+        p_tx_type: 'PAY2NEW_DEBIT',
+        p_credit: 0,
+        p_debit: totalDebit,
+        p_reference_id: request_id,
+        p_status: 'completed',
+        p_remarks: `CC ₹${amountNum} + ₹${totalServiceCharge} GST | ${product_name || product_code} | Card:${number} | Mob:${customer_number}`,
+      })
+      debitErr = error
+    }
     if (debitErr) {
+      console.error('[Pay2New Bill Pay] Debit error:', debitErr)
       const response = NextResponse.json({ success: false, error: 'Failed to debit wallet' }, { status: 500 })
       return addCorsHeaders(request, response)
     }
 
     const refund = async (reason: string) => {
-      const { error: refundErr } = await (supabaseAdmin as any).rpc('add_ledger_entry', {
-        p_user_id: user.partner_id, p_user_role: user.role, p_wallet_type: 'primary',
-        p_fund_category: 'service', p_service_type: 'pay2new', p_tx_type: 'PAY2NEW_REFUND',
-        p_credit: totalDebit, p_debit: 0,
-        p_reference_id: `REFUND_${request_id}`, p_status: 'completed',
-        p_remarks: `Refund ₹${totalDebit} | ${product_name || product_code} | Card:${number} | Mob:${customer_number} — ${reason}`,
-      })
-      if (refundErr) console.error('[Pay2New Bill Pay] CRITICAL refund failed:', refundErr)
+      if (user.role === 'partner') {
+        const { error: refundErr } = await (supabaseAdmin as any).rpc('credit_partner_wallet', {
+          p_partner_id: user.partner_id,
+          p_amount: totalDebit,
+          p_transaction_type: 'REFUND',
+          p_description: `Refund ₹${totalDebit} | ${product_name || product_code} | Card:${number} — ${reason}`,
+          p_reference_id: `REFUND_${request_id}`,
+        })
+        if (refundErr) console.error('[Pay2New Bill Pay] CRITICAL refund failed:', refundErr)
+      } else {
+        const { error: refundErr } = await (supabaseAdmin as any).rpc('add_ledger_entry', {
+          p_user_id: user.partner_id, p_user_role: user.role, p_wallet_type: 'primary',
+          p_fund_category: 'service', p_service_type: 'pay2new', p_tx_type: 'PAY2NEW_REFUND',
+          p_credit: totalDebit, p_debit: 0,
+          p_reference_id: `REFUND_${request_id}`, p_status: 'completed',
+          p_remarks: `Refund ₹${totalDebit} | ${product_name || product_code} | Card:${number} | Mob:${customer_number} — ${reason}`,
+        })
+        if (refundErr) console.error('[Pay2New Bill Pay] CRITICAL refund failed:', refundErr)
+      }
     }
 
     // If bill was fetched via BBPS fallback, pay directly through BBPS
