@@ -242,7 +242,7 @@ export async function POST(request: NextRequest) {
 
     await supabase.from('payout_transactions').update({ wallet_debited: true, wallet_debit_id: ledgerId, status: 'processing' }).eq('id', payoutTx.id)
 
-    // Call SparkUpTech
+    // Initiate payout transfer
     const transferResult = await initiateTransfer({
       accountNumber, ifscCode, accountHolderName, amount: amountNum,
       transferMode: transferMode as 'IMPS' | 'NEFT',

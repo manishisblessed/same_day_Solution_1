@@ -1,5 +1,5 @@
 /**
- * BBPS Category Groups — aligned to Chagans 27 categories.
+ * BBPS Category Groups
  * Single source of truth for retailer/partner dashboards and BBPSPayment UI.
  */
 

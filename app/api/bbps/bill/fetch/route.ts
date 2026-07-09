@@ -3,7 +3,6 @@ import { getCurrentUserFromRequest } from '@/lib/auth-server-request'
 import { fetchBill } from '@/services/bbps'
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
 import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger'
-import { getBBPSProvider } from '@/services/bbps/config'
 
 export const dynamic = 'force-dynamic'
 
@@ -76,11 +75,6 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       )
       return addCorsHeaders(request, response)
-    }
-
-    // For Chagans BBPS, enquiry_id is preferred but fetchBill will auto-refresh if missing
-    if (getBBPSProvider() === 'chagans' && !enquiry_id) {
-      console.log('[BBPS Bill Fetch] No enquiry_id provided for Chagans — fetchBill will auto-refresh from getBillerField')
     }
 
     // Support both input_params (array format) and additional_params (object format)
@@ -270,7 +264,7 @@ export async function POST(request: NextRequest) {
     // Determine appropriate status code
     // 200 for informational messages (like "no bill due" - this is actually good news!)
     // 400 for business logic errors (like "invalid consumer number", etc.)
-    // 429 for rate limit (e.g. "Too many request for that Biller" from Sparkup)
+    // 429 for rate limit
     // 500 for actual server/network errors
     let statusCode = 500
     let messageType = 'error'

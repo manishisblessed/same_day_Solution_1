@@ -4,7 +4,7 @@
  * BBPS Fetch Bill API returns monetary amounts in paise (smallest currency unit).
  * This module provides utilities to convert between paise and rupees for display purposes.
  * 
- * IMPORTANT: Sparkup Pay Request API expects amounts in RUPEES (not paise).
+ * IMPORTANT: Pay Request API expects amounts in RUPEES (not paise).
  * - Fetch Bill API: Returns amounts in paise (e.g., 20000 = ₹200)
  * - Pay Request API: Expects amounts in rupees (e.g., 200 = ₹200)
  * 

@@ -49,7 +49,7 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
 SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
 
 # BBPS API Configuration
-BBPS_API_BASE_URL=https://api.sparkuptech.in/api/ba
+BBPS_API_BASE_URL=https://your-bbps-provider.com/api
 BBPS_PARTNER_ID=your_partner_id
 BBPS_CONSUMER_KEY=your_consumer_key
 BBPS_CONSUMER_SECRET=your_consumer_secret

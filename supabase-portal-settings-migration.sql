@@ -27,12 +27,12 @@ CREATE INDEX IF NOT EXISTS idx_portal_audit_service_key ON portal_audit_log(serv
 -- Seed default settings for all services
 INSERT INTO portal_settings (service_key, enabled, active_provider) VALUES
   ('__master__',       true, 'system'),
-  ('bbps',             true, 'chagans'),
+  ('bbps',             true, ''),
   ('aeps',             true, 'chagans'),
-  ('payout',           true, 'sparkup'),
+  ('payout',           true, ''),
   ('mini_atm_pos',     true, 'internal'),
   ('aadhaar_pay',      true, 'chagans'),
-  ('recharge',         true, 'sparkup'),
+  ('recharge',         true, ''),
   ('travel',           false, 'internal'),
   ('cash_management',  true, 'internal'),
   ('lic',              true, 'chagans'),

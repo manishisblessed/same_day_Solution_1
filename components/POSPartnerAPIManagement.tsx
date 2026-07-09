@@ -579,7 +579,7 @@ export default function POSPartnerAPIManagement() {
                             <div>
                               <p className="text-sm font-medium text-gray-900 dark:text-white">BBPS Bill Payment</p>
                               <p className="text-xs text-gray-500 dark:text-gray-400">
-                                Pay utility bills via Partner BBPS API (Chagans)
+                                Pay utility bills via Partner BBPS API
                               </p>
                             </div>
                             <button

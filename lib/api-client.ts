@@ -85,7 +85,7 @@ const SAME_ORIGIN_API_PREFIXES = ['/api/admin/legal-agreements']
 /**
  * Check if a path is a route that needs EC2 backend
  * Most /api/ routes go to EC2 because:
- * - Sparkup APIs need whitelisted IP (BBPS/Payout)
+ * - BBPS/Payout APIs need whitelisted IP
  * - Admin APIs need SUPABASE_SERVICE_ROLE_KEY
  * - User management needs Supabase admin access
  * - Payout bank list needs EC2 credentials

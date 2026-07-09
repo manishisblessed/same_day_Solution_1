@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { authenticatePartner, PartnerAuthError, partnerCanUseApi } from '@/lib/partner-auth'
 import { fetchBill } from '@/services/bbps'
-import { getBBPSProvider } from '@/services/bbps/config'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -52,11 +51,6 @@ export async function POST(request: NextRequest) {
         { success: false, error: { code: 'BAD_REQUEST', message: 'consumer_number or input_params is required' } },
         { status: 400 }
       )
-    }
-
-    // For Chagans BBPS, enquiry_id is preferred but fetchBill will auto-refresh if missing
-    if (getBBPSProvider() === 'chagans' && !enquiry_id) {
-      console.log('[Partner BBPS Bill Fetch] No enquiry_id — fetchBill will auto-refresh from getBillerField')
     }
 
     let inputParams: Array<{ paramName: string; paramValue: string | number }> | undefined

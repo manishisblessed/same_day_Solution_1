@@ -191,8 +191,9 @@ export async function POST(request: NextRequest) {
       return addCorsHeaders(request, response)
     }
 
-    const { data: walletBalance, error: balanceError } = await (supabaseAdmin as any).rpc('get_wallet_balance', {
-      p_retailer_id: user.partner_id,
+    const { data: walletBalance, error: balanceError } = await (supabaseAdmin as any).rpc('get_wallet_balance_v2', {
+      p_user_id: user.partner_id,
+      p_wallet_type: 'primary',
     })
 
     if (balanceError || walletBalance === null || walletBalance === undefined) {

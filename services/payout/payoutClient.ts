@@ -48,7 +48,7 @@ function generateReqId(): string {
 
 /**
  * Get Payout API headers
- * SparkUp accepts both camelCase and lowercase for auth headers.
+ * Provider accepts both camelCase and lowercase for auth headers.
  */
 function getPayoutHeaders(): Record<string, string> {
   return {

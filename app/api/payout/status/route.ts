@@ -111,11 +111,11 @@ export async function GET(request: NextRequest) {
     }
 
     // If transaction is still pending/processing, check with provider
-    // Note: We need transaction_id (UTR) from SparkUp to check status
+    // Note: We need transaction_id (UTR) from provider to check status
     // For timeout transactions without UTR, we can't check - they stay as processing
     if (['pending', 'processing'].includes(transaction.status)) {
       if (!transaction.transaction_id) {
-        // No UTR available — can't verify with SparkUp.
+        // No UTR available — can't verify with provider.
         // DO NOT auto-mark as success; wallet was debited but transfer
         // may not have completed. Keep as PENDING for manual review.
         const response = NextResponse.json({

@@ -1,6 +1,5 @@
 /**
  * BBPS Category List
- * Based on SparkUpTech BBPS API documentation
  */
 export const BBPS_CATEGORIES = [
   'Broadband Postpaid',

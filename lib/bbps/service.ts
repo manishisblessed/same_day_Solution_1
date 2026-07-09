@@ -19,7 +19,7 @@ function getSupabase(): SupabaseClient {
 }
 
 // BBPS API Configuration
-const BBPS_API_BASE_URL = process.env.BBPS_API_BASE_URL || 'https://api.sparkuptech.in/api/ba'
+const BBPS_API_BASE_URL = process.env.BBPS_API_BASE_URL || ''
 const BBPS_PARTNER_ID = process.env.BBPS_PARTNER_ID || process.env.BBPS_CLIENT_ID || ''
 const BBPS_CONSUMER_KEY = process.env.BBPS_CONSUMER_KEY || ''
 const BBPS_CONSUMER_SECRET = process.env.BBPS_CONSUMER_SECRET || ''
@@ -164,22 +164,18 @@ export interface BBPSPaymentResponse {
 
 /**
  * Generate authentication headers for BBPS API
- * Based on SparkUpTech BBPS API documentation
- * Headers: partnerid (lowercase), consumerKey, consumerSecret (camelCase)
- * UPDATED Jan 31, 2026: Per Sparkup support - headers must use camelCase for consumerKey/consumerSecret
  */
 function getBBPSHeaders(): Record<string, string> {
   return {
     'Content-Type': 'application/json',
     'partnerid': BBPS_PARTNER_ID,
-    'consumerKey': BBPS_CONSUMER_KEY, // FIXED: camelCase per Sparkup Jan 2026
-    'consumerSecret': BBPS_CONSUMER_SECRET, // FIXED: camelCase per Sparkup Jan 2026
+    'consumerKey': BBPS_CONSUMER_KEY,
+    'consumerSecret': BBPS_CONSUMER_SECRET,
   }
 }
 
 /**
  * Fetch all available billers from BBPS API by category
- * Based on SparkUpTech BBPS API: GET billerId/getList
  * Uses mock data in dev environment
  */
 export async function fetchBBPSBillers(category?: string): Promise<BBPSBiller[]> {
@@ -347,7 +343,6 @@ export async function fetchBBPSBillers(category?: string): Promise<BBPSBiller[]>
 
     const data = await response.json()
     
-    // Transform response based on SparkUpTech API structure
     // Response format: { success, message, status, data: [{ _id, blr_id, blr_name, blr_category_name, ... }], meta: {...} }
     if (!data.success || !data.data || !Array.isArray(data.data)) {
       throw new Error(data.message || 'Failed to fetch billers from BBPS API')
@@ -585,7 +580,6 @@ export async function fetchBillDetails(
 
     const billerResponse = data.data.billerResponse || {}
     
-    // Transform response based on SparkUpTech API structure
     return {
       biller_id: billerId,
       consumer_number: consumerNumber,
@@ -712,7 +706,7 @@ export async function payBill(
       initChannel: paymentRequest.additional_info?.initChannel || 'AGT',
       amount: paymentRequest.amount, // Number in RUPEES (NOT string, NOT paise)
       billerId: paymentRequest.biller_id,
-      billerName: paymentRequest.additional_info?.billerName || '', // REQUIRED per Sparkup API
+      billerName: paymentRequest.additional_info?.billerName || '',
       inputParams: inputParams.length > 0 ? inputParams : [
         {
           paramName: 'Consumer Number',
@@ -792,8 +786,6 @@ export async function payBill(
 /**
  * Generate unique request ID for BBPS API
  * MUST be exactly 35 characters (alphanumeric uppercase)
- * Sparkup API validates: "Request Id must have 35 characters"
- * Example from production-tested Postman: "6B9F2O2NGQ80B68O61DNHEMP11560411430"
  */
 function generateReqId(): string {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'

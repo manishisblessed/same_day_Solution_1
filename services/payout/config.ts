@@ -1,6 +1,6 @@
 /**
  * Express Pay Payout API Configuration
- * Centralized configuration for SparkUpTech Express Pay Payout API
+ * Centralized configuration for Payout API
  */
 
 /**

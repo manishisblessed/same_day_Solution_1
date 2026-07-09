@@ -25,8 +25,7 @@ const SERVICE_CONFIGS: ServiceConfig[] = [
     icon: '📄',
     description: 'Bharat Bill Payment System for utility and bill payments',
     providers: [
-      { id: 'sparkup', name: 'SparkUpTech', description: 'Original BBPS provider' },
-      { id: 'chagans', name: 'Chagans Technologies', description: 'Alternative BBPS provider' },
+      { id: 'internal', name: 'Internal', description: 'BBPS bill payment provider' },
     ],
     category: 'utility',
   },
@@ -46,7 +45,7 @@ const SERVICE_CONFIGS: ServiceConfig[] = [
     icon: '💸',
     description: 'Domestic Money Transfer via IMPS/NEFT',
     providers: [
-      { id: 'sparkup', name: 'SparkUpTech', description: 'Payout via SparkUp' },
+      { id: 'internal', name: 'Internal', description: 'Payout managed internally' },
     ],
     category: 'payment',
   },
@@ -76,7 +75,7 @@ const SERVICE_CONFIGS: ServiceConfig[] = [
     icon: '📱',
     description: 'Prepaid/Postpaid mobile recharge services',
     providers: [
-      { id: 'sparkup', name: 'SparkUpTech', description: 'Recharge via SparkUp' },
+      { id: 'internal', name: 'Internal', description: 'Recharge managed internally' },
     ],
     category: 'value_added',
   },
@@ -106,7 +105,7 @@ const SERVICE_CONFIGS: ServiceConfig[] = [
     icon: '🛡️',
     description: 'LIC premium collection services',
     providers: [
-      { id: 'chagans', name: 'Chagans Technologies', description: 'LIC via Chagans BBPS' },
+      { id: 'chagans', name: 'Chagans Technologies', description: 'LIC premium collection' },
     ],
     category: 'utility',
   },
@@ -412,7 +411,7 @@ export default function PortalManagementTab() {
             </div>
           </div>
           <div className="space-y-2">
-            {['SparkUpTech', 'Chagans Technologies', 'Internal'].map(name => {
+            {['Chagans Technologies', 'Internal'].map(name => {
               const count = Object.entries(settings).filter(([k, v]) => {
                 const cfg = SERVICE_CONFIGS.find(s => s.key === k)
                 const prov = cfg?.providers.find(p => p.id === v.active_provider)

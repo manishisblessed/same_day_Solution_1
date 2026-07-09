@@ -14,7 +14,7 @@ export async function OPTIONS(request: NextRequest) {
 /**
  * GET /api/payout/balance
  * 
- * Returns the SparkUpTech Express Pay Payout wallet balance.
+ * Returns the payout provider wallet balance.
  * This is used for bank payouts (IMPS/NEFT transfers).
  * 
  * - Admin: Full balance details
@@ -70,7 +70,7 @@ export async function GET(request: NextRequest) {
       lien: balanceResult.lien,
       available_balance: balanceResult.available_balance,
       payout_available: (balanceResult.available_balance || 0) > 1000,
-      provider: 'SparkUpTech Express Pay',
+      provider: 'Payout Provider',
       last_checked: new Date().toISOString(),
     })
     

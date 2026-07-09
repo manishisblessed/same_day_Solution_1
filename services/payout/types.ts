@@ -249,7 +249,7 @@ export interface PayoutTransaction {
   charges: number
   transfer_mode: 'IMPS' | 'NEFT'
   client_ref_id: string
-  transaction_id?: string // SparkUp transaction ID
+  transaction_id?: string
   rrn?: string
   status: 'pending' | 'processing' | 'success' | 'failed' | 'refunded'
   failure_reason?: string

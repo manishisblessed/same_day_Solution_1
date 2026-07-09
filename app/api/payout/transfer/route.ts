@@ -622,7 +622,7 @@ export async function POST(request: NextRequest) {
       })
       .eq('id', payoutTx.id)
 
-    // Initiate transfer with SparkUp expressPay2 API
+    // Initiate payout transfer
     const transferResult = await initiateTransfer({
       accountNumber,
       ifscCode,
@@ -734,7 +734,7 @@ export async function POST(request: NextRequest) {
       return addCorsHeaders(request, response)
     }
 
-    // Update transaction with SparkUp response
+    // Update transaction with provider response
     await supabaseAdmin
       .from('payout_transactions')
       .update({ 

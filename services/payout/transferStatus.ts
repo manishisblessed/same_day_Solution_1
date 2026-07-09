@@ -1,6 +1,6 @@
 /**
  * Get Transfer Status
- * SparkUpTech Express Pay Payout API: POST /statusCheck?transaction_id=UTRxxxx
+ * Payout API: POST /statusCheck?transaction_id=UTRxxxx
  * 
  * Checks the status of a payout transfer
  */

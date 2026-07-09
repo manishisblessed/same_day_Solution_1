@@ -1109,7 +1109,7 @@ function SchemeManagementPageContent() {
                     {/* Settlement-1 Charges */}
                     <div>
                       <h4 className="font-semibold text-sm text-green-700 dark:text-green-400 mb-2 flex items-center gap-1">
-                        <Banknote className="w-4 h-4" /> Settlement-1 Charges (Sparkup) ({scheme.payout_charges?.length || 0})
+                        <Banknote className="w-4 h-4" /> Settlement-1 Charges ({scheme.payout_charges?.length || 0})
                       </h4>
                       {scheme.payout_charges && scheme.payout_charges.length > 0 ? (
                         <div className="overflow-x-auto">
@@ -1601,7 +1601,7 @@ function SchemeManagementPageContent() {
                       <label className="block text-sm font-medium mb-1">Settlement Type</label>
                       <select value={settlementTypeSelection} onChange={(e) => setSettlementTypeSelection(e.target.value as 'payout' | 'shadval_settlement')}
                         className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700">
-                        <option value="payout">Settlement-1 (Sparkup)</option>
+                        <option value="payout">Settlement-1</option>
                         <option value="shadval_settlement">Settlement-2 (Shadval)</option>
                       </select>
                     </div>

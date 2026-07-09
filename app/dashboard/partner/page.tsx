@@ -476,7 +476,7 @@ function PartnerDashboardContent() {
           {activeTab === 'bbps' && <BBPSTab />}
           {activeTab === 'bbps-2' && <Pay2NewBBPSTab />}
           {activeTab === 'credit-card' && <PartnerCreditCardTab />}
-          {activeTab === 'payout' && <PayoutTransfer title="Payouts / Settlements" />}
+          {activeTab === 'payout' && <PayoutTransfer title="Settlement-1" />}
           {activeTab === 'settlement-2' && <ShadvalPayTransfer title="Settlement-2 - Bank Transfer" />}
           {activeTab === 'transactions' && <POSTransactionsTable autoPoll={true} pollInterval={15000} />}
           {activeTab === 'ledger' && <PartnerLedgerTab user={user} />}

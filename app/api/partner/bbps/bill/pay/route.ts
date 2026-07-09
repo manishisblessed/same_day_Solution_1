@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { authenticatePartner, PartnerAuthError, partnerCanUseApi } from '@/lib/partner-auth'
 import { payRequest, generateAgentTransactionId, getBBPSWalletBalance } from '@/services/bbps'
-import { getBBPSProvider, getChagansMerchantId } from '@/services/bbps/config'
 import { paiseToRupees } from '@/lib/bbps/currency'
 
 export const runtime = 'nodejs'
@@ -127,43 +126,13 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    if (getBBPSProvider() === 'chagans') {
-      const enquiry = reqId || additional_info?.reqId
-      if (!enquiry || String(enquiry).trim() === '') {
-        return NextResponse.json(
-          {
-            success: false,
-            error: {
-              code: 'CHAGANS_ENQUIRY_REQUIRED',
-              message:
-                'Chagans BBPS requires bill fetch before pay (enquiryId / reqId). Fetch bill again within validity window.',
-            },
-          },
-          { status: 400 }
-        )
-      }
-      if (!getChagansMerchantId()) {
-        return NextResponse.json(
-          {
-            success: false,
-            error: { code: 'CHAGANS_CONFIG', message: 'BBPS_CHAGANS_MERCHANT_ID is not configured on server.' },
-          },
-          { status: 503 }
-        )
-      }
-    }
-
     // Check upstream BBPS provider balance
     const providerBalance = await getBBPSWalletBalance()
     if (!providerBalance.success) {
-      const skipForMissingChagansRoute =
-        getBBPSProvider() === 'chagans' && providerBalance.routeNotFound
-      if (!skipForMissingChagansRoute) {
-        return NextResponse.json(
-          { success: false, error: { code: 'SERVICE_UNAVAILABLE', message: 'BBPS service temporarily unavailable' } },
-          { status: 503 }
-        )
-      }
+      return NextResponse.json(
+        { success: false, error: { code: 'SERVICE_UNAVAILABLE', message: 'BBPS service temporarily unavailable' } },
+        { status: 503 }
+      )
     } else {
       const availableProviderBalance = (providerBalance.balance || 0) - (providerBalance.lien || 0)
       if (availableProviderBalance < billAmountInRupees) {
@@ -267,7 +236,7 @@ export async function POST(request: NextRequest) {
 
     await supabase.from('bbps_transactions').update({ wallet_debited: true, wallet_debit_id: ledgerId }).eq('id', bbpsTx.id)
 
-    // Build inputParams for SparkUpTech
+    // Build inputParams for pay request
     let inputParams: Array<{ paramName: string; paramValue: string }> = []
     const provided = additional_info?.inputParams
     if (Array.isArray(provided)) {
@@ -287,13 +256,13 @@ export async function POST(request: NextRequest) {
       additionalInfoArray = rawAI.info.filter((i: any) => i?.infoName).map((i: any) => ({ infoName: String(i.infoName), infoValue: String(i.infoValue || '') }))
     }
 
-    // Call SparkUpTech payRequest
+    // Call payRequest
     const paymentResponse = await payRequest({
       billerId: biller_id, billerName: biller_name, consumerNumber: consumer_number,
       amount: billAmountInRupees, agentTransactionId, inputParams,
       subServiceName, custConvFee: 1, billerAdhoc: true,
       paymentInfo: [{ infoName: 'Payment Account Info', infoValue: 'Cash Payment' }],
-      paymentMode: payment_mode || additional_info?.chagansPaymentMode || 'Cash', quickPay: 'N',
+      paymentMode: payment_mode || 'Cash', quickPay: 'N',
       reqId: reqId || additional_info?.reqId,
       billerResponse, additionalInfo: additionalInfoArray,
       customerPan: pan_number || undefined,

@@ -25,7 +25,7 @@ export async function OPTIONS(request: NextRequest) {
  * POST /api/payout/check-pending
  * 
  * Automatically resolves stuck pending/processing payout transactions.
- * - Transactions with UTR: checks SparkUpTech status API
+ * - Transactions with UTR: checks provider status API
  * - Transactions without UTR older than 48h: auto-refunds
  * - Can be triggered by cron, admin, or frontend
  * 
@@ -124,7 +124,7 @@ export async function POST(request: NextRequest) {
     for (const tx of pendingTxs) {
       checked++
 
-      // Case 1: Transaction has UTR — check with SparkUpTech
+      // Case 1: Transaction has UTR — check with provider
       if (tx.transaction_id) {
         try {
           const statusResult = await getTransferStatus({
@@ -205,7 +205,7 @@ export async function POST(request: NextRequest) {
         continue
       }
 
-      // Case 2: No UTR — SparkUp never acknowledged, money never left
+      // Case 2: No UTR — provider never acknowledged, money never left
       const txAge = Date.now() - new Date(tx.created_at).getTime()
       const txAgeMinutes = txAge / (1000 * 60)
 

@@ -1,7 +1,7 @@
 /**
  * Verify Bank Account (Account Verification / Penny Drop)
  * 
- * Uses SparkUpTech validate_account API: POST /api/dto/validate_account
+ * Account Verification API: POST /api/dto/validate_account
  * This endpoint validates account details and returns the beneficiary name.
  * 
  * API Documentation: https://documenter.getpostman.com/view/44095803/2sB3BGGVAw#181b2d01-1993-4826-b921-8d32d510a751
@@ -17,7 +17,7 @@ import {
 } from './config'
 
 /**
- * Verify bank account details using SparkUpTech validate_account API
+ * Verify bank account details using validate_account API
  * 
  * This function calls the /api/dto/validate_account endpoint to verify
  * account details and retrieve the beneficiary name before settlement.
@@ -34,7 +34,7 @@ export async function verifyBankAccount(request: VerifyAccountRequest): Promise<
   transaction_id?: string
   charges?: number
   error?: string
-  sparkup_balance?: number
+  provider_balance?: number
   verification_type?: 'local' | 'api'
   message?: string
   reference_id?: string
@@ -99,7 +99,7 @@ export async function verifyBankAccount(request: VerifyAccountRequest): Promise<
       is_valid: true,
       transaction_id: 'MOCK_VERIFY_' + Date.now(),
       charges: 0, // No charges for mock
-      sparkup_balance: 1000,
+      provider_balance: 1000,
       verification_type: 'api',
       reference_id: 'MOCK_REF_' + Date.now(),
       uuid: 'MOCK_UUID_' + Date.now(),

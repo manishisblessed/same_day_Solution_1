@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getBBPSCategories } from '@/lib/bbps/categories'
-import { getBBPSProvider } from '@/services/bbps/config'
-import { getChagansCategoryDisplayNames } from '@/services/bbps/chagansCategories'
 import { BBPS_CATEGORY_GROUPS } from '@/lib/bbps/category-groups'
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
 
@@ -14,26 +12,7 @@ export async function OPTIONS(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   try {
-    let categories: string[]
-    let source: 'chagans' | 'chagans_fallback' | 'static' = 'static'
-
-    if (getBBPSProvider() === 'chagans') {
-      if (process.env.USE_BBPS_MOCK === 'true') {
-        categories = getBBPSCategories()
-        source = 'static'
-      } else {
-        try {
-          categories = await getChagansCategoryDisplayNames()
-          source = 'chagans'
-        } catch (e) {
-          console.error('[BBPS categories] Chagans getCategory failed, using static list:', e)
-          categories = getBBPSCategories()
-          source = 'chagans_fallback'
-        }
-      }
-    } else {
-      categories = getBBPSCategories()
-    }
+    const categories = getBBPSCategories()
 
     const groups = BBPS_CATEGORY_GROUPS.map((g) => ({
       id: g.id,
@@ -47,7 +26,6 @@ export async function GET(request: NextRequest) {
       categories,
       groups,
       count: categories.length,
-      source,
     })
     
     return addCorsHeaders(request, response)

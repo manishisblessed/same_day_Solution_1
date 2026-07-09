@@ -1,6 +1,6 @@
 /**
  * Initiate Bank Transfer
- * SparkUpTech Express Pay Payout API: POST /expressPay2
+ * Payout API: POST /expressPay2
  * 
  * Initiates IMPS/NEFT transfer to bank account
  */
@@ -13,7 +13,7 @@ import { getBankList } from './bankList'
 /**
  * Generate unique API Request ID (numeric, 16 digits).
  * Returns a string to avoid JS integer precision loss beyond 2^53.
- * SparkUpTech treats the field as an opaque numeric identifier.
+ * The provider treats the field as an opaque numeric identifier.
  */
 export function generateAPIRequestId(): string {
   const timestamp = Date.now().toString()
@@ -77,7 +77,7 @@ export async function getBankIdFromBankList(
     let bankListResult = await getBankList(bankListOptions)
     
     // If full IFSC search returned nothing, retry with IFSC prefix (bank code)
-    // SparkUp bankList typically stores parent-level IFSCs, not branch-level
+    // bankList typically stores parent-level IFSCs, not branch-level
     if (
       (!bankListResult.success || !bankListResult.banks || bankListResult.banks.length === 0) &&
       normalizedIfsc
@@ -344,7 +344,7 @@ export async function initiateTransfer(request: TransferRequest): Promise<{
       ifsc: normalizedIfsc,
     })
   } else {
-    // Always resolve from bankList when possible so BankID matches IFSC (SparkUp rejects mismatches)
+    // Always resolve from bankList when possible so BankID matches IFSC (provider rejects mismatches)
     const bankInfo = await getBankIdFromBankList(normalizedIfsc, bankName, transferMode)
     
     if (bankInfo) {
@@ -460,7 +460,7 @@ export async function initiateTransfer(request: TransferRequest): Promise<{
         status: response.status,
       })
       
-      // Check if it's a SparkupX server timeout (504)
+      // Check if it's a server timeout (504)
       // IMPORTANT: For timeouts, we return success=true with status='pending' and is_timeout=true
       // This prevents automatic refunds for transactions that may still be processing
       if (response.status === 504 || (response.error && (response.error.includes('504') || response.error.includes('Gateway Time') || response.error.includes('timeout')))) {

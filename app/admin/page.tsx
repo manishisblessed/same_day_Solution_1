@@ -1754,23 +1754,6 @@ function AdminDashboardOverview({
   const [loading, setLoading] = useState(true)
   const [selectedPeriod, setSelectedPeriod] = useState<'today' | 'week' | 'month' | 'year'>('today')
   
-  // Sparkup Balance State
-  const [sparkupBalance, setSparkupBalance] = useState<{
-    bbps: {
-      balance: number | null
-      lien: number | null
-      available_balance: number | null
-      success: boolean
-      error?: string
-      setup_hint?: string
-      route_not_found?: boolean
-    }
-    payout: { balance: number; lien: number; available_balance: number; success: boolean; error?: string }
-    summary: { total_available: number; all_services_healthy: boolean }
-    last_checked: string
-  } | null>(null)
-  const [sparkupLoading, setSparkupLoading] = useState(false)
-
   // SHADVAL PAY Balance State
   const [shadvalBalance, setShadvalBalance] = useState<{
     success: boolean
@@ -1828,66 +1811,6 @@ function AdminDashboardOverview({
   const getAuthToken = async (): Promise<string | null> => {
     const { data: { session } } = await supabase.auth.getSession()
     return session?.access_token || null
-  }
-
-  // Fetch Sparkup Balance (uses EC2 backend for whitelisted IP access)
-  const fetchSparkupBalance = async () => {
-    setSparkupLoading(true)
-    const checkedAt = new Date().toISOString()
-    const unreachable = (msg: string) => ({
-      bbps: {
-        success: false,
-        error: msg,
-        balance: 0,
-        lien: 0,
-        available_balance: 0,
-      },
-      payout: { success: false, balance: 0, lien: 0, available_balance: 0 },
-      summary: { total_available: 0, all_services_healthy: false },
-      last_checked: checkedAt,
-    })
-
-    try {
-      const response = await apiFetch('/api/admin/sparkup-balance', { timeout: 20000 })
-      let data: any = {}
-      try {
-        data = await response.json()
-      } catch {
-        data = {}
-      }
-
-      if (response.ok && data.success) {
-        setSparkupBalance({
-          bbps: data.bbps,
-          payout: data.payout,
-          summary: data.summary,
-          last_checked: data.last_checked || checkedAt,
-        })
-      } else {
-        const hint =
-          typeof window !== 'undefined' && window.location.hostname.endsWith('samedaysolution.in')
-            ? ' Check that api.samedaysolution.in is reachable (DNS, firewall, EC2).'
-            : ''
-        setSparkupBalance(
-          unreachable(
-            data.error ||
-              data.message ||
-              (!response.ok
-                ? `HTTP ${response.status}${hint}`
-                : `Balance service did not return success.${hint}`)
-          )
-        )
-      }
-    } catch (error: any) {
-      console.error('Error fetching Sparkup balance:', error)
-      const msg =
-        error?.message?.includes('timeout') || error?.name === 'AbortError'
-          ? 'Request timed out — API server may be slow or unreachable.'
-          : error?.message || 'Failed to fetch — API server may be unreachable.'
-      setSparkupBalance(unreachable(msg))
-    } finally {
-      setSparkupLoading(false)
-    }
   }
 
   // Fetch SHADVAL PAY Balance
@@ -1972,16 +1895,13 @@ function AdminDashboardOverview({
   }
 
   const refreshAllProviders = () => {
-    fetchSparkupBalance()
     fetchPay2newBalance()
     fetchShadvalBalance()
   }
 
-  const anyProviderLoading = sparkupLoading || pay2newLoading || shadvalLoading
+  const anyProviderLoading = pay2newLoading || shadvalLoading
 
   const totalAvailableBalance =
-    (sparkupBalance?.bbps?.available_balance ?? 0) +
-    (sparkupBalance?.payout?.available_balance ?? 0) +
     (pay2newBalance?.balance ?? 0) +
     (shadvalBalance?.available_balance ?? 0) +
     (shadvalBalance?.verification_balance ?? 0) +
@@ -1991,9 +1911,7 @@ function AdminDashboardOverview({
     fetchAnalytics()
   }, [selectedPeriod])
   
-  // Fetch Sparkup balance on mount
   useEffect(() => {
-    fetchSparkupBalance()
     fetchShadvalBalance()
     fetchPay2newBalance()
   }, [])
@@ -2334,24 +2252,6 @@ function AdminDashboardOverview({
 
         {/* Grid of provider cards */}
         <div className="relative grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-          {/* Chagans BBPS */}
-          <ProviderWalletCard
-            theme="indigo"
-            icon={<Globe className="w-4 h-4 text-white" />}
-            title="Chagans BBPS"
-            subtitle="Bill Fetch & Pay"
-            status={sparkupBalance?.bbps?.success ? 'active' : sparkupBalance ? 'error' : 'idle'}
-            available={sparkupBalance?.bbps?.available_balance ?? null}
-            total={sparkupBalance?.bbps?.balance ?? null}
-            lien={sparkupBalance?.bbps?.lien ?? null}
-            errorMessage={sparkupBalance?.bbps?.error}
-            lastChecked={sparkupBalance?.last_checked}
-            loading={sparkupLoading}
-            onRefresh={fetchSparkupBalance}
-            globalVisible={balancesVisible}
-            formatINR={formatINR}
-          />
-
           {/* Pay2New */}
           <ProviderWalletCard
             theme="emerald"
@@ -2364,24 +2264,6 @@ function AdminDashboardOverview({
             lastChecked={pay2newBalance?.last_checked}
             loading={pay2newLoading}
             onRefresh={fetchPay2newBalance}
-            globalVisible={balancesVisible}
-            formatINR={formatINR}
-          />
-
-          {/* Sparkup Master Wallet */}
-          <ProviderWalletCard
-            theme="cyan"
-            icon={<Globe className="w-4 h-4 text-white" />}
-            title="Sparkup Master"
-            subtitle="Payout · DMT · IMPS/NEFT"
-            status={sparkupBalance?.payout?.success ? 'active' : sparkupBalance ? 'error' : 'idle'}
-            available={sparkupBalance?.payout?.available_balance ?? null}
-            total={sparkupBalance?.payout?.balance ?? null}
-            lien={sparkupBalance?.payout?.lien ?? null}
-            errorMessage={sparkupBalance?.payout?.error}
-            lastChecked={sparkupBalance?.last_checked}
-            loading={sparkupLoading}
-            onRefresh={fetchSparkupBalance}
             globalVisible={balancesVisible}
             formatINR={formatINR}
           />
@@ -2419,8 +2301,7 @@ function AdminDashboardOverview({
             formatINR={formatINR}
           />
 
-          {/* Placeholder — show empty-state hint when sparkup/pay2new/shadval all idle */}
-          {!sparkupBalance && !pay2newBalance && !shadvalBalance && (
+          {!pay2newBalance && !shadvalBalance && (
             <div className="md:col-span-2 xl:col-span-3 flex flex-col items-center gap-2 py-8 text-slate-400 text-sm">
               <RefreshCw className={`w-5 h-5 ${anyProviderLoading ? 'animate-spin text-indigo-400' : 'text-slate-500'}`} />
               <p>{anyProviderLoading ? 'Fetching provider balances…' : 'No provider data yet. Click "Refresh All" to load.'}</p>
@@ -3317,7 +3198,7 @@ function ServiceOverviewPanel({ services, bbpsProviderBalance, onRefreshBalance 
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-sm font-semibold flex items-center gap-2">
             <Wallet className="w-4 h-4" />
-            BBPS Provider Balance (SparkUpTech)
+            BBPS Provider Balance
           </h3>
           <button onClick={onRefreshBalance} disabled={bbpsProviderBalance.loading}
             className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 transition-colors disabled:opacity-50"

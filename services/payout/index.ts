@@ -1,6 +1,6 @@
 /**
  * Express Pay Payout Service
- * SparkUpTech Express Pay Payout API Integration
+ * Payout API Integration
  * 
  * Provides bank transfer functionality via IMPS/NEFT
  */

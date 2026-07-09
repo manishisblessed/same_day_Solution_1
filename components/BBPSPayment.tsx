@@ -226,7 +226,6 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
   // Derive payment mode from bill fetch response (Cash or UPI)
   const getEffectivePaymentMode = (): string => {
     return (
-      billDetails?.additional_info?.chagansPaymentMode ||
       billDetails?.additional_info?.paymentMode ||
       selectedBiller?.paymentMode ||
       'Cash'
@@ -447,13 +446,12 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
     }
   }, [selectedBiller])
 
-  // Providers like Chagans return billers without paramInfo in the list; load fields + enquiryId from biller-info.
+  // Some providers return billers without paramInfo in the list; load fields + enquiryId from biller-info.
   useEffect(() => {
     if (!selectedBiller || !user?.partner_id) return
 
     const paramInfoLen = getParamInfoFromBiller(selectedBiller).length
     if (paramInfoLen > 0) {
-      // Still refresh enquiryId in background for Chagans session
       fetchBillerInfoDetails(selectedBiller, { silent: true })
       return
     }
@@ -962,40 +960,23 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
           const infoMsg = data.bill.additional_info?.message || 'No bill is currently due for this account'
           setInfoMessage(infoMsg)
         } else {
-          // CRITICAL: Ensure reqId is captured from ALL possible locations
-          // The reqId links the fetched bill to the payment request with SparkUp
-          // Without reqId, payment will fail with "No fetch data found for given ref id"
-          
-          // Check all possible reqId locations with detailed logging
-          console.log('🔍 Searching for reqId in response:')
-          console.log('  - data.reqId:', data.reqId)
-          console.log('  - data.bill.reqId:', data.bill?.reqId)
-          console.log('  - data.bill.additional_info?.reqId:', data.bill?.additional_info?.reqId)
-          console.log('  - data.data?.reqId:', (data as any).data?.reqId)
-          
-          // Extract reqId from all possible locations
           const extractedReqId = 
-            data.reqId || // Top-level reqId from API response
-            data.bill?.reqId || // reqId in bill object
-            data.bill?.additional_info?.reqId || // reqId in additional_info
-            (data as any).data?.reqId || // reqId in nested data object
+            data.reqId ||
+            data.bill?.reqId ||
+            data.bill?.additional_info?.reqId ||
+            (data as any).data?.reqId ||
             null
           
           const billWithReqId = {
             ...data.bill,
             reqId: extractedReqId,
-            // Also store in additional_info as backup
             additional_info: {
               ...data.bill.additional_info,
               reqId: extractedReqId,
             },
           }
           
-          if (extractedReqId) {
-            console.log('✅ reqId successfully captured:', extractedReqId)
-          } else {
-            console.error('❌ CRITICAL: No reqId found in bill response!')
-            console.error('Full response for debugging:', JSON.stringify(data, null, 2))
+          if (!extractedReqId) {
             setError('Bill fetch error: Missing reference ID. Please try again.')
             return
           }
@@ -1011,7 +992,6 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
     } catch (error: any) {
       console.error('Error fetching bill:', error)
       const errorMsg = error.message || 'Failed to fetch bill details'
-      // Rate limit from Sparkup / backend 429
       if (errorMsg.toLowerCase().includes('too many request')) {
         setError('Too many requests for this biller. Please wait 1–2 minutes before fetching the bill again.')
       } else {
@@ -1075,24 +1055,13 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
         ? inputParams[inputParamFields[0].paramName] || ''
         : consumerNumber.trim()
 
-      // CRITICAL: Extract reqId for payment correlation
-      // This links the payment to the previously fetched bill data with SparkUp
       const paymentReqId = billDetails.reqId || billDetails.additional_info?.reqId
       
-      console.log('💳 PAYMENT reqId check:')
-      console.log('  - billDetails.reqId:', billDetails.reqId)
-      console.log('  - billDetails.additional_info?.reqId:', billDetails.additional_info?.reqId)
-      console.log('  - Final paymentReqId:', paymentReqId)
-      
       if (!paymentReqId) {
-        console.error('❌ CRITICAL: No reqId available for payment!')
-        console.error('Bill details for debugging:', JSON.stringify(billDetails, null, 2))
         setError('Payment error: Missing reference ID. Please fetch the bill again.')
         setPaying(false)
         return
       }
-
-      console.log('✅ Using reqId for payment:', paymentReqId)
 
       const data = await apiFetchJson<PaymentResult>('/api/bbps/bill/pay', {
         method: 'POST',
@@ -1107,7 +1076,6 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
           due_date: billDetails.due_date,
           bill_date: billDetails.bill_date,
           bill_number: billDetails.bill_number,
-          // CRITICAL: Pass reqId from fetchBill to correlate with BBPS provider
           reqId: billDetails.reqId || billDetails.additional_info?.reqId,
           payment_mode: getEffectivePaymentMode(),
           ...(isUPIPayment && upiId.trim() ? { upi_id: upiId.trim() } : {}),

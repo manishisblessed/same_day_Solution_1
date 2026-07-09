@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserFromRequest } from '@/lib/auth-server-request'
 import { getBBPSWalletBalance } from '@/services/bbps'
-import { getBBPSProvider } from '@/services/bbps/config'
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
 
 export const runtime = 'nodejs'
@@ -15,7 +14,7 @@ export async function OPTIONS(request: NextRequest) {
 /**
  * GET /api/bbps/wallet-balance
  * 
- * Returns the SparkUpTech BBPS provider wallet balance.
+ * Returns the BBPS provider wallet balance.
  * This is the company's master BBPS account balance with the provider.
  * 
  * - Admin: Full details (balance, lien, available)
@@ -31,7 +30,7 @@ export async function GET(request: NextRequest) {
     const userRole = user?.role as string | undefined
     const isAdmin = userRole === 'admin' || userRole === 'super_admin'
     
-    // Fetch SparkUpTech BBPS wallet balance
+    // Fetch BBPS wallet balance
     const balanceResult = await getBBPSWalletBalance()
     
     if (!balanceResult.success) {
@@ -77,7 +76,7 @@ export async function GET(request: NextRequest) {
       lien: balanceResult.lien,
       available_balance: availableBalance,
       bbps_available: availableBalance > 1000,
-      provider: getBBPSProvider() === 'chagans' ? 'Chagans Technologies' : 'SparkUpTech',
+      provider: 'BBPS Provider',
       last_checked: new Date().toISOString(),
     })
     return addCorsHeaders(request, response)

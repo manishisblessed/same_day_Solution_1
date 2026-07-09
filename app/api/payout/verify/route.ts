@@ -18,14 +18,13 @@ export async function OPTIONS(request: NextRequest) {
  * 
  * Verifies bank account details before making a transfer or settlement.
  * 
- * Uses SparkUpTech validate_account API: POST /api/dto/validate_account
- * This endpoint validates account details and returns the beneficiary name.
+ * Validates account details and returns the beneficiary name.
  * 
  * API Documentation: https://documenter.getpostman.com/view/44095803/2sB3BGGVAw#181b2d01-1993-4826-b921-8d32d510a751
  * 
  * Features:
  * - Validates account number and IFSC code format
- * - Calls SparkUpTech API to verify account exists
+ * - Calls payout API to verify account exists
  * - Returns beneficiary name from bank
  * - No charges (penniless transaction)
  * 

@@ -238,8 +238,9 @@ export async function POST(request: NextRequest) {
     }
 
     // Check wallet balance (transfer amount + charges must be available)
-    const { data: walletBalance, error: balanceError } = await (supabaseAdmin as any).rpc('get_wallet_balance', {
-      p_retailer_id: user.partner_id,
+    const { data: walletBalance, error: balanceError } = await (supabaseAdmin as any).rpc('get_wallet_balance_v2', {
+      p_user_id: user.partner_id,
+      p_wallet_type: 'primary',
     })
 
     if (balanceError || walletBalance === null) {

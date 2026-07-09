@@ -273,7 +273,6 @@ export async function POST(request: NextRequest) {
         })
 
         const paymentMode =
-          billResult.additional_info?.chagansPaymentMode ||
           billResult.additional_info?.paymentMode ||
           'Internet Banking'
 
@@ -353,7 +352,7 @@ export async function POST(request: NextRequest) {
       const isCashDisabled = (result.error || '').toLowerCase().includes('payment mode cash is disable')
 
       if (isCashDisabled) {
-        console.log('[Pay2New Bill Pay] Cash mode rejected — attempting BBPS Chagans fallback')
+        console.log('[Pay2New Bill Pay] Cash mode rejected — attempting BBPS fallback')
         const billerIdMatch = (result.error || '').match(/biller\s+([A-Z0-9]+)/i)
         const extractedBillerId = billerIdMatch?.[1]
 
@@ -371,7 +370,6 @@ export async function POST(request: NextRequest) {
             })
 
             const paymentMode =
-              billResult.additional_info?.chagansPaymentMode ||
               billResult.additional_info?.paymentMode ||
               'Internet Banking'
 

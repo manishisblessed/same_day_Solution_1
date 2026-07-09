@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { createClient } from '@supabase/supabase-js'
 import { payRequest, generateAgentTransactionId, getBBPSWalletBalance } from '@/services/bbps'
-import { getBBPSProvider, getChagansMerchantId } from '@/services/bbps/config'
 import { paiseToRupees } from '@/lib/bbps/currency'
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
 import { rateLimit, RATE_LIMITS } from '@/lib/rate-limit'
@@ -93,7 +92,7 @@ export async function POST(request: NextRequest) {
       return addCorsHeaders(request, response)
     }
 
-    // NEW: billerName is required per Sparkup API update (Jan 2026)
+    // billerName is required
     if (!biller_name || biller_name.trim() === '') {
       const response = NextResponse.json(
         { error: 'billerName is required' },
@@ -181,58 +180,22 @@ export async function POST(request: NextRequest) {
     // Convert paise to rupees for balance checks
     const billAmountInRupees = paiseToRupees(billAmountInPaise)
 
-    if (getBBPSProvider() === 'chagans') {
-      const enquiry = reqId || additional_info?.reqId
-      if (!enquiry || String(enquiry).trim() === '') {
-        const response = NextResponse.json(
-          {
-            error:
-              'Chagans BBPS requires a successful bill fetch before payment (enquiryId / reqId missing). Fetch the bill again, then pay within the enquiry validity window.',
-            code: 'CHAGANS_ENQUIRY_REQUIRED',
-          },
-          { status: 400 }
-        )
-        return addCorsHeaders(request, response)
-      }
-      if (!getChagansMerchantId()) {
-        const response = NextResponse.json(
-          {
-            error: 'Server configuration error: BBPS_CHAGANS_MERCHANT_ID is not set.',
-            code: 'CHAGANS_CONFIG',
-          },
-          { status: 503 }
-        )
-        return addCorsHeaders(request, response)
-      }
-    }
-
     // ========================================
     // STEP 1: Check upstream BBPS provider balance
-    // Chagans: skip when wallet balance route is not deployed yet (pay still works)
     // ========================================
     console.log('Checking BBPS upstream provider balance...')
     const bbpsProviderBalance = await getBBPSWalletBalance()
     
     if (!bbpsProviderBalance.success) {
-      const skipForMissingChagansRoute =
-        getBBPSProvider() === 'chagans' && bbpsProviderBalance.routeNotFound
-
-      if (skipForMissingChagansRoute) {
-        console.warn(
-          'Chagans wallet balance API unavailable; skipping provider pre-check:',
-          bbpsProviderBalance.error
-        )
-      } else {
-        console.error('Failed to check BBPS provider balance:', bbpsProviderBalance.error)
-        const response = NextResponse.json(
-          { 
-            error: 'BBPS service temporarily unavailable. Please try again later.',
-            error_code: 'BBPS_PROVIDER_UNAVAILABLE',
-          },
-          { status: 503 }
-        )
-        return addCorsHeaders(request, response)
-      }
+      console.error('Failed to check BBPS provider balance:', bbpsProviderBalance.error)
+      const response = NextResponse.json(
+        { 
+          error: 'BBPS service temporarily unavailable. Please try again later.',
+          error_code: 'BBPS_PROVIDER_UNAVAILABLE',
+        },
+        { status: 503 }
+      )
+      return addCorsHeaders(request, response)
     } else {
       const availableProviderBalance = (bbpsProviderBalance.balance || 0) - (bbpsProviderBalance.lien || 0)
       console.log(
@@ -653,11 +616,11 @@ export async function POST(request: NextRequest) {
     }
 
     // ========================================
-    // STEP 4: Prepare Sparkup API Request
+    // STEP 4: Prepare API Request
     // ========================================
     
     // Prepare inputParams - ensure each param has valid paramName and paramValue
-    // Sparkup API REQUIRES "paramName" field for each input parameter
+    // API REQUIRES "paramName" field for each input parameter
     // IMPORTANT: Use the exact inputParams from the fetchBill response to ensure consistency
     let inputParams: Array<{ paramName: string; paramValue: string }> = []
     
@@ -696,13 +659,13 @@ export async function POST(request: NextRequest) {
       ]
     }
 
-    // billerAdhoc must be boolean true/false (NOT string) per production-tested format
+    // billerAdhoc must be boolean true/false (NOT string)
     // Get from biller metadata if available, default to true for adhoc billers
     const billerAdhocString = additional_info?.metadata?.billerAdhoc || 
                               additional_info?.billerAdhoc || 
                               true
 
-    // Per Sparkup API documentation, sub_service_name MUST be the category name
+    // Per API documentation, sub_service_name MUST be the category name
     // e.g., "Credit Card", "Electricity", "DTH", etc. (case + spaces must match exactly)
     const subServiceName = biller_category || 
                            additional_info?.metadata?.billerCategory ||
@@ -710,7 +673,7 @@ export async function POST(request: NextRequest) {
                            additional_info?.category ||
                            'Credit Card' // Fallback - should always be provided by frontend
 
-    // Prepare paymentInfo - Sparkup requires items with infoName and infoValue
+    // Prepare paymentInfo - requires items with infoName and infoValue
     // IMPORTANT: Filter out any items without valid infoName to prevent "Additional info name is required" error
     // NOTE: paymentInfo is overridden by payRequest service based on paymentMode (Cash/Wallet)
     // so this is only used as a fallback - the service builds the correct format
@@ -725,7 +688,7 @@ export async function POST(request: NextRequest) {
         }))
     }
     
-    // Default paymentInfo matching production-tested format (Feb 2026)
+    // Default paymentInfo matching production-tested format
     // For Cash mode: { infoName: "Payment Account Info", infoValue: "Cash Payment" }
     if (paymentInfo.length === 0) {
       paymentInfo = [
@@ -747,7 +710,7 @@ export async function POST(request: NextRequest) {
     let billerResponse: any = undefined
     if (additional_info?.billerResponse) {
       // Clean billerResponse to ONLY include required fields
-      // Extra fields (billNumber, billPeriod, amountOptions, etc.) can cause Sparkup to reject
+      // Extra fields (billNumber, billPeriod, amountOptions, etc.) can cause rejection
       const raw = additional_info.billerResponse
       billerResponse = {}
       if (raw.billAmount !== undefined && raw.billAmount !== null && raw.billAmount !== '') {
@@ -806,8 +769,8 @@ export async function POST(request: NextRequest) {
       }
     }
     
-    // Log values being sent to Sparkup
-    console.log('=== BBPS Pay Request — Values for Sparkup ===')
+    // Log values being sent to BBPS provider
+    console.log('=== BBPS Pay Request — Values for Provider ===')
     console.log('reqId:', reqId || additional_info?.reqId || 'NOT PROVIDED!')
     console.log('billerId:', biller_id)
     console.log('billerName:', biller_name)
@@ -821,16 +784,15 @@ export async function POST(request: NextRequest) {
     if (!additionalInfoArray || additionalInfoArray.length === 0) console.warn('⚠️ additionalInfo is missing or empty!')
     console.log('==============================================')
 
-    // Make payment to BBPS API using new service
-    // IMPORTANT: Sparkup Pay Request API expects amount in RUPEES (not paise)
-    // Sparkup confirmed: send actual payable amount directly (e.g., 200 for ₹200, NOT 20000)
+    // Make payment to BBPS API using service
+    // IMPORTANT: Pay Request API expects amount in RUPEES (not paise)
+    // Send actual payable amount directly (e.g., 200 for ₹200, NOT 20000)
     // CRITICAL: Pass reqId from fetchBill to correlate payment with the fetched bill data
     // Determine payment mode - use provided, or from metadata, or default
-    // Per Sparkup API docs (Jan 2026 update), "Cash" is recommended
     const effectivePaymentMode = payment_mode || 
                                   additional_info?.metadata?.paymentMode ||
                                   additional_info?.paymentMode ||
-                                  'Cash' // Per Sparkup API update (Jan 2026) - Cash is widely supported
+                                  'Cash'
     
     console.log('Payment mode:', effectivePaymentMode)
     
@@ -858,7 +820,7 @@ export async function POST(request: NextRequest) {
       billerId: biller_id,
       billerName: biller_name,
       consumerNumber: consumer_number,
-      amount: billAmountInRupees, // Send in RUPEES to Sparkup API (not paise!)
+      amount: billAmountInRupees, // Send in RUPEES (not paise!)
       agentTransactionId: agentTransactionId,
       inputParams,
       subServiceName, // MUST be category name like "Credit Card", "Electricity" (exact match)
@@ -866,7 +828,7 @@ export async function POST(request: NextRequest) {
       billerAdhoc: billerAdhocBoolean, // Boolean (not string) - default true
       paymentInfo, // Will be overridden by payRequest based on paymentMode
       paymentMode: effectivePaymentMode, // "Cash", "Account", "Wallet", "UPI"
-      quickPay: 'N', // "N" for non-quick pay (bill fetch was done) - as per tested API
+      quickPay: 'N', // "N" for non-quick pay (bill fetch was done)
       customerMobileNumber,
       customerPan: pan_number || undefined,
       // CRITICAL: Pass the reqId from fetchBill to correlate payment with BBPS provider

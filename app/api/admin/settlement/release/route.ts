@@ -103,7 +103,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (action === 'approve') {
-      // Process the payout via SparkUpTech Express Pay
+      // Process the payout via provider
       // Get sender details from admin user
       const senderName = admin.name || admin.email?.split('@')[0] || 'Admin'
       const senderEmail = admin.email || 'admin@samedaysolution.in'
@@ -159,7 +159,7 @@ export async function POST(request: NextRequest) {
         console.warn('[Settlement Release] Could not fetch user mobile, using default:', error)
       }
       
-      // If still default, try to use a valid format (SparkUpTech requires 10 digits starting with 6-9)
+      // If still default, try to use a valid format (provider requires 10 digits starting with 6-9)
       if (beneficiaryMobile === '0000000000') {
         beneficiaryMobile = '9999999999' // Use a valid format for API (will be validated by initiateTransfer)
       }
@@ -170,7 +170,7 @@ export async function POST(request: NextRequest) {
       // Generate client reference ID for tracking
       const clientRefId = `SETTLE_${settlement.id}_${Date.now()}`
       
-      console.log('[Settlement Release] Initiating SparkUpTech Express Pay transfer:', {
+      console.log('[Settlement Release] Initiating payout transfer:', {
         settlement_id: settlement.id,
         amount: transferAmount,
         account_number: settlement.bank_account_number?.slice(-4).padStart(settlement.bank_account_number.length, '*'),
@@ -179,7 +179,7 @@ export async function POST(request: NextRequest) {
         sender_name: senderName,
       })
       
-      // Initiate transfer with SparkUpTech Express Pay
+      // Initiate payout transfer
       const transferResult = await initiateTransfer({
         accountNumber: settlement.bank_account_number,
         ifscCode: settlement.bank_ifsc,
@@ -239,7 +239,7 @@ export async function POST(request: NextRequest) {
             metadata: {
               settlement_id: settlement_id,
               settlement_mode: settlement.settlement_mode,
-              provider: 'SparkUpTech Express Pay'
+              provider: 'Payout Provider'
             }
           })
 
@@ -261,7 +261,7 @@ export async function POST(request: NextRequest) {
 
       if (transferResult.success && transferResult.transaction_id) {
         // Payout initiated successfully
-        const payoutReferenceId = transferResult.transaction_id // UTR from SparkUpTech
+        const payoutReferenceId = transferResult.transaction_id
         const payoutStatus = transferResult.status || 'processing'
         
         // Update settlement status
@@ -329,7 +329,7 @@ export async function POST(request: NextRequest) {
               payout_reference_id: payoutReferenceId,
               payout_status: payoutStatus,
               transaction_id: payoutReferenceId,
-              provider: 'SparkUpTech Express Pay'
+              provider: 'Payout Provider'
             }
           })
 
@@ -441,7 +441,7 @@ export async function POST(request: NextRequest) {
               error: transferResult.error,
               failure_reason: failureReason,
               wallet_refunded: !reversalError,
-              provider: 'SparkUpTech Express Pay'
+              provider: 'Payout Provider'
             }
           })
 

@@ -1,6 +1,6 @@
 /**
  * Get Payout Wallet Balance
- * SparkUpTech API: GET /api/wallet/getBalance
+ * Payout API: GET /api/wallet/getBalance
  * 
  * Note: This endpoint uses a different base URL than other payout APIs
  */
@@ -54,13 +54,13 @@ export async function getPayoutBalance(): Promise<{
     const timeoutId = setTimeout(() => controller.abort(), getPayoutTimeout())
 
     // Make GET request to wallet API
-    // UPDATED Jan 31, 2026: Per Sparkup support - headers must use camelCase for consumerKey/consumerSecret
+    // Headers must use camelCase for consumerKey/consumerSecret
     const response = await fetch(`${WALLET_API_URL}/getBalance`, {
       method: 'GET',
       headers: {
         'partnerid': partnerId,
-        'consumerKey': consumerKey, // FIXED: camelCase per Sparkup Jan 2026
-        'consumerSecret': consumerSecret, // FIXED: camelCase per Sparkup Jan 2026
+        'consumerKey': consumerKey,
+        'consumerSecret': consumerSecret,
       },
       signal: controller.signal,
     })

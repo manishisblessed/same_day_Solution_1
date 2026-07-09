@@ -1,6 +1,6 @@
 /**
  * Get Bank List
- * SparkUpTech Express Pay Payout API: POST /bankList
+ * Payout API: POST /bankList
  */
 
 import { payoutClient } from './payoutClient'

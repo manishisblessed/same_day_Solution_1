@@ -510,7 +510,6 @@ export default function PayoutTransfer({ title, readOnly }: PayoutTransferProps 
         setSelectedBank(partialMatch)
       } else {
         // Create a pseudo-bank entry with a fallback ID (use 1 as default for IMPS-enabled bank)
-        // Note: The actual transfer will use bankName for SparkUp API
         setSelectedBank({
           id: beneficiary.bank_id || 1, // Use 1 instead of 0 to pass validation
           bankName: beneficiary.bank_name,
@@ -536,7 +535,6 @@ export default function PayoutTransfer({ title, readOnly }: PayoutTransferProps 
     setStep('verify')
   }
 
-  // Re-verify saved beneficiary account (local validation only - SparkupX not available)
   const handleReVerifyAccount = async () => {
     setError(null)
     
@@ -564,7 +562,6 @@ export default function PayoutTransfer({ title, readOnly }: PayoutTransferProps 
         bank_name?: string
         verification_charges?: number
         transaction_id?: string
-        sparkup_transaction_id?: string
         message?: string
         error?: string
       }>('/api/payout/verify', {
@@ -574,8 +571,8 @@ export default function PayoutTransfer({ title, readOnly }: PayoutTransferProps 
           accountNumber: normalizedAccountNumber,
           ifscCode: normalizedIfsc,
           bankName: selectedBank?.bankName,
-          bankId: selectedBank?.id, // Include bankId for better accuracy
-          user_id: user?.partner_id, // Fallback auth
+          bankId: selectedBank?.id,
+          user_id: user?.partner_id,
         }),
       })
       
@@ -828,7 +825,6 @@ export default function PayoutTransfer({ title, readOnly }: PayoutTransferProps 
       return
     }
 
-    // Require account holder name to be entered manually (since SparkupX verification is not available)
     if (!accountHolderName || accountHolderName.trim().length < 2) {
       setError('Please enter the account holder name (required for transfer)')
       return
@@ -846,7 +842,6 @@ export default function PayoutTransfer({ title, readOnly }: PayoutTransferProps 
         bank_name?: string
         verification_charges?: number
         transaction_id?: string
-        sparkup_transaction_id?: string
         message?: string
         error?: string
       }>('/api/payout/verify', {
@@ -856,8 +851,8 @@ export default function PayoutTransfer({ title, readOnly }: PayoutTransferProps 
           accountNumber: normalizedAccountNumber,
           ifscCode: normalizedIfsc,
           bankName: selectedBank?.bankName,
-          bankId: selectedBank?.id, // Include bankId for SparkupX API
-          user_id: user?.partner_id, // Fallback auth
+          bankId: selectedBank?.id,
+          user_id: user?.partner_id,
         }),
       })
       
@@ -1030,9 +1025,8 @@ export default function PayoutTransfer({ title, readOnly }: PayoutTransferProps 
       console.error('Transfer error:', err)
       const errorMsg = err.message || 'Transfer failed'
       
-      // Handle SparkupX timeout errors specifically
-      if (errorMsg.includes('504') || errorMsg.includes('Gateway Time') || errorMsg.includes('timeout') || errorMsg.includes('SparkupX server timeout')) {
-        setError('Transfer request timed out at SparkupX server. This does NOT mean the transfer failed - it may still be processing. Please check your transaction history in 2-3 minutes before retrying.')
+      if (errorMsg.includes('504') || errorMsg.includes('Gateway Time') || errorMsg.includes('timeout')) {
+        setError('Transfer request timed out. This does NOT mean the transfer failed - it may still be processing. Please check your transaction history in 2-3 minutes before retrying.')
       } else {
         setError(errorMsg)
       }
