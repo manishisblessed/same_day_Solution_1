@@ -1130,6 +1130,35 @@ function NetworkTab({ retailers, user, onRefresh }: { retailers: any[], user: an
     tpin: ''
   })
 
+  // Retailer + distributor balances
+  const [retailerBalances, setRetailerBalances] = useState<Record<string, number>>({})
+  const [distributorBalance, setDistributorBalance] = useState<number>(0)
+  const [balancesLoading, setBalancesLoading] = useState(false)
+
+  const fetchBalances = useCallback(async () => {
+    if (!user?.partner_id || retailers.length === 0) return
+    setBalancesLoading(true)
+    try {
+      const [distBal, ...retailerBals] = await Promise.all([
+        supabase.rpc('get_wallet_balance_v2', { p_user_id: user.partner_id, p_wallet_type: 'primary' }),
+        ...retailers.map(r =>
+          supabase.rpc('get_wallet_balance_v2', { p_user_id: r.partner_id, p_wallet_type: 'primary' })
+            .then(res => ({ partner_id: r.partner_id, balance: res.data || 0 }))
+        )
+      ])
+      setDistributorBalance(distBal.data || 0)
+      const balMap: Record<string, number> = {}
+      retailerBals.forEach((rb: any) => { balMap[rb.partner_id] = rb.balance })
+      setRetailerBalances(balMap)
+    } catch (err) {
+      console.error('Error fetching balances:', err)
+    } finally {
+      setBalancesLoading(false)
+    }
+  }, [user?.partner_id, retailers])
+
+  useEffect(() => { fetchBalances() }, [fetchBalances])
+
   const filteredRetailers = retailers.filter(r =>
     r.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
     r.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -1173,9 +1202,8 @@ function NetworkTab({ retailers, user, onRefresh }: { retailers: any[], user: an
       if (data.success) {
         fundTransferIdemRef.current = null
         showToast(`Fund ${action} successful!`, 'success')
-        setShowFundTransfer(false)
-        setSelectedUser(null)
         setTransferData({ amount: '', fund_category: 'cash', remarks: '', tpin: '' })
+        fetchBalances()
         onRefresh()
       } else {
         showToast(data.error || 'Transfer failed', 'error')
@@ -1220,6 +1248,7 @@ function NetworkTab({ retailers, user, onRefresh }: { retailers: any[], user: an
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Partner ID</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Email</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Balance</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
               </tr>
@@ -1227,7 +1256,7 @@ function NetworkTab({ retailers, user, onRefresh }: { retailers: any[], user: an
             <tbody className="divide-y divide-gray-200">
               {filteredRetailers.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-6 py-8 text-center text-gray-500">
+                  <td colSpan={6} className="px-6 py-8 text-center text-gray-500">
                     No retailers found
                   </td>
                 </tr>
@@ -1237,6 +1266,9 @@ function NetworkTab({ retailers, user, onRefresh }: { retailers: any[], user: an
                     <td className="px-6 py-4 text-sm font-medium text-gray-900">{retailer.partner_id}</td>
                     <td className="px-6 py-4 text-sm text-gray-900">{retailer.name}</td>
                     <td className="px-6 py-4 text-sm text-gray-500">{retailer.email}</td>
+                    <td className="px-6 py-4 text-sm font-semibold text-gray-900">
+                      {balancesLoading ? '...' : `₹${(retailerBalances[retailer.partner_id] ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`}
+                    </td>
                     <td className="px-6 py-4">
                       <span className={`px-2 py-1 text-xs rounded-full ${
                         retailer.status === 'active' ? 'bg-green-100 text-green-800' :
@@ -1299,9 +1331,19 @@ function NetworkTab({ retailers, user, onRefresh }: { retailers: any[], user: an
             className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6"
           >
             <h3 className="text-xl font-bold mb-4">Fund Transfer</h3>
-            <div className="mb-4">
+            <div className="mb-4 space-y-2">
               <p className="text-sm text-gray-600">User: {selectedUser.name}</p>
               <p className="text-sm text-gray-600">Partner ID: {selectedUser.partner_id}</p>
+              <div className="grid grid-cols-2 gap-3 mt-3">
+                <div className="bg-purple-50 border border-purple-200 rounded-lg p-3">
+                  <p className="text-xs text-purple-600 font-medium">Your Balance</p>
+                  <p className="text-lg font-bold text-purple-700">₹{distributorBalance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</p>
+                </div>
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                  <p className="text-xs text-blue-600 font-medium">Retailer Balance</p>
+                  <p className="text-lg font-bold text-blue-700">₹{(retailerBalances[selectedUser.partner_id] ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</p>
+                </div>
+              </div>
             </div>
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-2">
