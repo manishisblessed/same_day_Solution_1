@@ -307,7 +307,7 @@ export async function POST(request: NextRequest) {
         retailer_id: user.partner_id,
         account_number: account.account_number,
         ifsc_code: account.ifsc_code,
-        account_holder_name: account.account_holder_name,
+        account_holder_name: account.verified_name || account.account_holder_name,
         amount: amountNum,
         charges,
         total_debit: amountNum + charges,
@@ -573,7 +573,7 @@ export async function POST(request: NextRequest) {
         status: isSuccess ? 'SUCCESS' : apiResult.status === 'FAILED' ? 'FAILED' : 'PENDING',
         status_message: apiResult.message,
         account_number: account.account_number,
-        account_holder_name: account.account_holder_name,
+        account_holder_name: account.verified_name || account.account_holder_name,
         provider_timestamp: apiResult.data?.timestamp,
       },
     }
