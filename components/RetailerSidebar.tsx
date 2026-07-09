@@ -42,14 +42,14 @@ const sidebarItems: SidebarItem[] = [
 // Map sidebar item id → which admin service key(s) control its visibility.
 // Items not listed here are always visible (dashboard, wallet, ledger, reports).
 const SERVICE_TAB_MAP: Record<string, string[]> = {
-  services:       [], // special: visible when ANY service is enabled
+  services:       [],
   aeps:           ['aeps'],
   'aeps-ledger':  ['aeps'],
   bbps:           ['bbps'],
-  'bbps-2':       ['bbps'],
+  'bbps-2':       ['bbps2'],
   'credit-card':  ['bbps'],
-  payout:         ['banking_payments', 'dmt'],
-  'settlement-2':  ['banking_payments', 'dmt'],
+  payout:         ['banking_payments', 'dmt', 'settlement'],
+  'settlement-2': ['settlement2'],
   transactions:   ['mini_atm_pos'],
   'pos-machines': ['mini_atm_pos'],
   'subscriptions': ['mini_atm_pos'],

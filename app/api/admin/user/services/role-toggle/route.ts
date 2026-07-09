@@ -7,8 +7,8 @@ export const dynamic = 'force-dynamic'
 
 const VALID_SERVICES = [
   'banking_payments', 'mini_atm_pos', 'aeps', 'aadhaar_pay', 'dmt',
-  'bbps', 'recharge', 'travel', 'cash_management', 'lic', 'insurance',
-  'government', 'doorstep_banking', 'settlement'
+  'bbps', 'bbps2', 'recharge', 'travel', 'cash_management', 'lic', 'insurance',
+  'government', 'doorstep_banking', 'settlement', 'settlement2'
 ] as const
 
 export async function POST(request: NextRequest) {

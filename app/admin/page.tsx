@@ -2445,7 +2445,8 @@ const ALL_SERVICES = [
   { key: 'aeps', label: 'AEPS Services', icon: '👆', short: 'AEPS' },
   { key: 'aadhaar_pay', label: 'Aadhaar Pay', icon: '💳', short: 'AadhaarPay' },
   { key: 'dmt', label: 'Domestic Money Transfer', icon: '💸', short: 'DMT' },
-  { key: 'bbps', label: 'Utility Bill Payments (BBPS)', icon: '📄', short: 'BBPS' },
+  { key: 'bbps', label: 'BBPS-1 (Bill Payments)', icon: '📄', short: 'BBPS-1' },
+  { key: 'bbps2', label: 'BBPS-2 (Pay2New)', icon: '📋', short: 'BBPS-2' },
   { key: 'recharge', label: 'Mobile Recharge', icon: '📱', short: 'Recharge' },
   { key: 'travel', label: 'Travel Services', icon: '✈️', short: 'Travel' },
   { key: 'cash_management', label: 'Cash Management', icon: '💰', short: 'Cash' },
@@ -2453,7 +2454,8 @@ const ALL_SERVICES = [
   { key: 'insurance', label: 'Insurance', icon: '🏥', short: 'Insurance' },
   { key: 'government', label: 'Government Services', icon: '🏛️', short: 'Govt' },
   { key: 'doorstep_banking', label: 'Doorstep Banking', icon: '🚪', short: 'Doorstep' },
-  { key: 'settlement', label: 'Settlement / Payout', icon: '🏦', short: 'Settlement' },
+  { key: 'settlement', label: 'Settlement-1 / Payout', icon: '🏦', short: 'Settle-1' },
+  { key: 'settlement2', label: 'Settlement-2', icon: '💱', short: 'Settle-2' },
 ] as const
 
 const SERVICE_FIELDS = ALL_SERVICES.map(s => `${s.key}_enabled`)

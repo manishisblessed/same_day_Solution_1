@@ -7,8 +7,8 @@ export const dynamic = 'force-dynamic'
 
 const VALID_SERVICES = [
   'banking_payments', 'mini_atm_pos', 'aeps', 'aadhaar_pay', 'dmt',
-  'bbps', 'recharge', 'travel', 'cash_management', 'lic', 'insurance',
-  'government', 'doorstep_banking', 'settlement'
+  'bbps', 'bbps2', 'recharge', 'travel', 'cash_management', 'lic', 'insurance',
+  'government', 'doorstep_banking', 'settlement', 'settlement2'
 ] as const
 
 export async function POST(request: NextRequest) {
@@ -52,18 +52,20 @@ export async function POST(request: NextRequest) {
 
     for (const u of users) {
       const { user_id, user_role } = u
-      if (!user_id || !['retailer', 'distributor', 'master_distributor'].includes(user_role)) {
+      if (!user_id || !['retailer', 'distributor', 'master_distributor', 'partner'].includes(user_role)) {
         results.push({ user_id, user_role, success: false, error: 'Invalid user_id or user_role' })
         continue
       }
 
       const tableName = user_role === 'retailer' ? 'retailers' :
-                         user_role === 'distributor' ? 'distributors' : 'master_distributors'
+                         user_role === 'distributor' ? 'distributors' :
+                         user_role === 'partner' ? 'partners' : 'master_distributors'
+      const idColumn = user_role === 'partner' ? 'id' : 'partner_id'
 
       const { error: updateError } = await supabase
         .from(tableName)
         .update({ [fieldName]: enabled, updated_at: new Date().toISOString() })
-        .eq('partner_id', user_id)
+        .eq(idColumn, user_id)
 
       if (updateError) {
         results.push({ user_id, user_role, success: false, error: updateError.message })

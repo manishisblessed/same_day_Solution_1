@@ -32,7 +32,10 @@ const sidebarItems: SidebarItem[] = [
 ]
 
 const SERVICE_TAB_MAP: Record<string, string[]> = {
-  services: [],
+  services:            [],
+  'pos-machines':      ['mini_atm_pos'],
+  'subscriptions':     ['mini_atm_pos'],
+  'scheme-management': ['banking_payments'],
 }
 
 export default function MasterDistributorSidebar({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {

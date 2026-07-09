@@ -137,6 +137,12 @@
 <p><strong>For GET / DELETE requests:</strong></p>
 <pre><code>signature = HMAC_SHA256(api_secret, "" + timestamp)</code></pre>
 
+<div class="danger-box">
+  <strong>IMPORTANT — Compact JSON Required:</strong>
+  <p style="margin-top: 6px;">The signature MUST be computed on the <strong>compact (minified) JSON body</strong> — no extra whitespace, no newlines, no indentation. The server parses and re-serializes your body before verifying the signature.</p>
+  <p style="margin-top: 6px;"><code>JSON.stringify(bodyObject)</code> produces compact JSON. If you sign formatted/indented JSON, the signature <strong>WILL fail</strong> and your partner scheme charges will not be applied correctly.</p>
+</div>
+
 <div class="warning-box">
   <strong>Security:</strong>
   <ul style="margin-top: 6px;">
@@ -167,7 +173,7 @@
   <ul style="margin-top: 6px;">
     <li>All transfers go to <strong>pre-verified accounts</strong> only</li>
     <li>Account verification uses <strong>penny-drop</strong> (₹1 transfer) and costs <strong>₹4</strong></li>
-    <li>Transfer charges for partners: <strong>₹0</strong> (direct wallet debit)</li>
+    <li>Transfer charges are resolved from your <strong>partner scheme</strong> (check via Get Charges endpoint)</li>
     <li>Duplicate prevention: <strong>2-minute cooldown</strong> per account</li>
     <li>If transfer fails, amount is <strong>auto-refunded</strong> to partner wallet</li>
   </ul>
@@ -335,12 +341,15 @@
     <table>
       <tr><th>Field</th><th>Type</th><th>Description</th></tr>
       <tr><td>success</td><td>Boolean</td><td>Request success status</td></tr>
-      <tr><td>charges</td><td>Number</td><td>Additional charges (₹0 for partners)</td></tr>
-      <tr><td>total_debit</td><td>Number</td><td>Total amount that will be debited from wallet</td></tr>
+      <tr><td>scheme_name</td><td>String</td><td>Applied partner commission scheme name</td></tr>
+      <tr><td>charges</td><td>Number</td><td>Additional charges as per your partner scheme</td></tr>
+      <tr><td>gst_amount</td><td>Number</td><td>GST on service charge (18%)</td></tr>
+      <tr><td>total_charge</td><td>Number</td><td>Total charge (charges + GST)</td></tr>
+      <tr><td>total_debit</td><td>Number</td><td>Total amount that will be debited from wallet (amount + total_charge)</td></tr>
     </table>
 
-    <div class="success-box">
-      <strong>Partner benefit:</strong> Settlement transfers have <strong>zero additional charges</strong>. The <code>total_debit</code> equals the transfer <code>amount</code>.
+    <div class="info-box">
+      <strong>Note:</strong> Charges are resolved from your <strong>partner scheme</strong>. The <code>total_debit</code> = transfer <code>amount</code> + <code>total_charge</code>. Use this endpoint to verify charges before initiating a transfer.
     </div>
 
     <h3>Example Response</h3>
@@ -349,8 +358,11 @@
   "success": true,
   "amount": 5000,
   "mode": "IMPS",
-  "charges": 0,
-  "total_debit": 5000
+  "scheme_name": "Default Settlement Scheme",
+  "charges": 10,
+  "gst_amount": 1.80,
+  "total_charge": 11.80,
+  "total_debit": 5011.80
 }</code></pre>
   </div>
 </div>
@@ -393,7 +405,8 @@
       <tr><td>transaction.utr</td><td>String|null</td><td>UTR number (if available immediately)</td></tr>
       <tr><td>transaction.status</td><td>String</td><td><code>SUCCESS</code> | <code>PENDING</code> | <code>FAILED</code></td></tr>
       <tr><td>transaction.amount</td><td>Number</td><td>Transfer amount</td></tr>
-      <tr><td>transaction.total_debited</td><td>Number</td><td>Total debited from wallet</td></tr>
+      <tr><td>transaction.charges</td><td>Number</td><td>Service charge applied (per partner scheme)</td></tr>
+      <tr><td>transaction.total_debited</td><td>Number</td><td>Total debited from wallet (amount + charges + GST)</td></tr>
     </table>
 
     <h3>Example Response</h3>
@@ -407,8 +420,8 @@
     "utr": "HDFC26070812345",
     "status": "SUCCESS",
     "amount": 5000,
-    "charges": 0,
-    "total_debited": 5000
+    "charges": 11.80,
+    "total_debited": 5011.80
   }
 }</code></pre>
 
@@ -467,8 +480,8 @@
     "status": "SUCCESS",
     "utr": "HDFC26070812345",
     "amount": 5000,
-    "charges": 0,
-    "total_debited": 5000,
+    "charges": 11.80,
+    "total_debited": 5011.80,
     "status_message": "Transfer completed successfully"
   }
 }</code></pre>
@@ -525,8 +538,8 @@
       "order_id": "ORD_20260708_001",
       "utr": "HDFC26070812345",
       "amount": 5000,
-      "charges": 0,
-      "total_debited": 5000,
+      "charges": 11.80,
+      "total_debited": 5011.80,
       "mode": "IMPS",
       "status": "SUCCESS",
       "account_number": "50100104420821",

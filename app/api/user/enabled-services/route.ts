@@ -12,6 +12,7 @@ const SERVICE_KEYS = [
   'aadhaar_pay',
   'dmt',
   'bbps',
+  'bbps2',
   'recharge',
   'travel',
   'cash_management',
@@ -20,6 +21,7 @@ const SERVICE_KEYS = [
   'government',
   'doorstep_banking',
   'settlement',
+  'settlement2',
 ] as const
 
 /**
