@@ -1746,7 +1746,11 @@ function AdminDashboardOverview({
     todayCommissionEarned: 0,
     monthlyCommissionEarned: 0,
     activePartners: 0,
+    activeRetailers: 0,
+    activeDistributors: 0,
+    activeMasterDistributors: 0,
     pendingVerifications: 0,
+    totalPosMachines: 0,
     totalWalletBalance: 0,
     aepsTransactions: 0,
     bbpsTransactions: 0
@@ -1920,12 +1924,13 @@ function AdminDashboardOverview({
     setLoading(true)
     try {
       const since = getDateRange(selectedPeriod)
-      // `transactions` in DB is the MDR scheme table (no transaction_type / status columns).
-      // Dashboard volume/counts: BBPS + AEPS only. DMT/recharge are not live yet — do not query
-      // those sources here (avoids errors and extra load); extend this when those services launch.
-      const [bbpsRes, aepsRes] = await Promise.all([
+      const [bbpsRes, aepsRes, retailersRes, distributorsRes, mdRes, posRes] = await Promise.all([
         supabase.from('bbps_transactions').select('bill_amount, created_at, status').gte('created_at', since),
         supabase.from('aeps_transactions').select('amount, created_at, status').gte('created_at', since),
+        supabase.from('retailers').select('status, verification_status'),
+        supabase.from('distributors').select('status, verification_status'),
+        supabase.from('master_distributors').select('status, verification_status'),
+        supabase.from('pos_machines').select('id', { count: 'exact', head: true }).eq('status', 'active'),
       ])
       if (bbpsRes.error) console.error('Analytics BBPS error:', bbpsRes.error)
       if (aepsRes.error) console.error('Analytics AEPS error:', aepsRes.error)
@@ -1936,18 +1941,34 @@ function AdminDashboardOverview({
       const aepsVolume = aepsOk.reduce((sum, t) => sum + parseFloat(String(t.amount ?? 0)), 0)
       const totalVolume = bbpsVolume + aepsVolume
 
+      const allRetailers = retailersRes.data || []
+      const allDistributors = distributorsRes.data || []
+      const allMd = mdRes.data || []
+
+      const activeRetailers = allRetailers.filter(r => r.status === 'active').length
+      const activeDistributors = allDistributors.filter(d => d.status === 'active').length
+      const activeMasterDistributors = allMd.filter(m => m.status === 'active').length
+      const activePartners = activeRetailers + activeDistributors + activeMasterDistributors
+
+      const pendingVerifications =
+        allRetailers.filter(r => r.verification_status === 'pending').length +
+        allDistributors.filter(d => d.verification_status === 'pending').length +
+        allMd.filter(m => m.verification_status === 'pending').length
+
+      const totalPosMachines = posRes.count ?? 0
+
       setAnalyticsData(prev => ({
         ...prev,
         totalTransactionVolume: totalVolume,
         todayTransactionVolume: totalVolume,
         aepsTransactions: aepsOk.length,
         bbpsTransactions: bbpsOk.length,
-        activePartners: retailers.filter(r => r.status === 'active').length +
-          distributors.filter(d => d.status === 'active').length +
-          masterDistributors.filter(m => m.status === 'active').length,
-        pendingVerifications: retailers.filter(r => r.verification_status === 'pending').length +
-          distributors.filter(d => d.verification_status === 'pending').length +
-          masterDistributors.filter(m => m.verification_status === 'pending').length,
+        activePartners,
+        activeRetailers,
+        activeDistributors,
+        activeMasterDistributors,
+        pendingVerifications,
+        totalPosMachines,
       }))
     } catch (err) {
       console.error('Error fetching analytics:', err)
@@ -2134,15 +2155,15 @@ function AdminDashboardOverview({
             </p>
             <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
               <div className="bg-white/10 rounded-lg px-2 py-1 text-center">
-                <p className="font-semibold">{retailers.filter(r => r.status === 'active').length}</p>
+                <p className="font-semibold">{analyticsData.activeRetailers}</p>
                 <p className="text-emerald-200">Retailers</p>
               </div>
               <div className="bg-white/10 rounded-lg px-2 py-1 text-center">
-                <p className="font-semibold">{distributors.filter(d => d.status === 'active').length}</p>
+                <p className="font-semibold">{analyticsData.activeDistributors}</p>
                 <p className="text-emerald-200">Dist.</p>
               </div>
               <div className="bg-white/10 rounded-lg px-2 py-1 text-center">
-                <p className="font-semibold">{masterDistributors.filter(m => m.status === 'active').length}</p>
+                <p className="font-semibold">{analyticsData.activeMasterDistributors}</p>
                 <p className="text-emerald-200">MD</p>
               </div>
             </div>
@@ -2189,7 +2210,7 @@ function AdminDashboardOverview({
             </div>
             <p className="text-sm text-purple-100 mb-1">Total POS Machines</p>
             <p className="text-3xl font-bold tracking-tight">
-              {loading ? '...' : (retailers.length + distributors.length)}
+              {loading ? '...' : analyticsData.totalPosMachines.toLocaleString()}
             </p>
             <div className="mt-3 text-xs text-purple-200">
               <span>Active deployments</span>

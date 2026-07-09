@@ -250,6 +250,7 @@ export default function PartnerHeader() {
                       <button
                         onClick={() => {
                           setIsUserMenuOpen(false)
+                          router.push('/dashboard/partner?tab=settings')
                         }}
                         className="w-full flex items-center space-x-3 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
                       >
@@ -259,6 +260,7 @@ export default function PartnerHeader() {
                       <button
                         onClick={() => {
                           setIsUserMenuOpen(false)
+                          router.push('/dashboard/partner?tab=settings')
                         }}
                         className="w-full flex items-center space-x-3 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
                       >

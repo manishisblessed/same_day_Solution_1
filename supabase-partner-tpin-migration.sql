@@ -43,7 +43,7 @@ BEGIN
     tpin_failed_attempts = 0,
     tpin_locked_until = NULL,
     updated_at = NOW()
-  WHERE id = p_partner_id;
+  WHERE id = p_partner_id::uuid;
 
   IF NOT FOUND THEN
     RAISE EXCEPTION 'Partner not found';
@@ -65,7 +65,7 @@ BEGIN
   SELECT tpin_hash, tpin_enabled, tpin_failed_attempts, tpin_locked_until
   INTO v_partner
   FROM partners
-  WHERE id = p_partner_id;
+  WHERE id = p_partner_id::uuid;
 
   IF NOT FOUND THEN
     RETURN jsonb_build_object('success', FALSE, 'error', 'Partner not found');
@@ -92,7 +92,7 @@ BEGIN
     -- Reset failed attempts on success
     UPDATE partners
     SET tpin_failed_attempts = 0, tpin_locked_until = NULL
-    WHERE id = p_partner_id;
+    WHERE id = p_partner_id::uuid;
 
     RETURN jsonb_build_object('success', TRUE, 'message', 'T-PIN verified successfully');
   ELSE
@@ -103,7 +103,7 @@ BEGIN
         WHEN tpin_failed_attempts >= 4 THEN NOW() + INTERVAL '30 minutes'
         ELSE NULL
       END
-    WHERE id = p_partner_id;
+    WHERE id = p_partner_id::uuid;
 
     IF v_partner.tpin_failed_attempts >= 4 THEN
       RETURN jsonb_build_object(

@@ -196,8 +196,9 @@ export async function POST(request: NextRequest) {
     const totalDebit = amountNum + totalServiceCharge
 
     // Balance check
-    const { data: walletBalance, error: balErr } = await (supabaseAdmin as any).rpc('get_wallet_balance', {
-      p_retailer_id: user.partner_id,
+    const { data: walletBalance, error: balErr } = await (supabaseAdmin as any).rpc('get_wallet_balance_v2', {
+      p_user_id: user.partner_id,
+      p_wallet_type: 'primary',
     })
     if (balErr) {
       const response = NextResponse.json({ success: false, error: 'Failed to check wallet balance' }, { status: 500 })
