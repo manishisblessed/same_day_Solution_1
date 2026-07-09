@@ -27,9 +27,9 @@ export async function GET(request: NextRequest) {
     const userRole = user?.role as string | undefined
     const isAdmin = userRole === 'admin' || userRole === 'super_admin'
     const isRetailer = userRole === 'retailer'
+    const isPartner = userRole === 'partner'
 
-    // Restrict to admin and retailer users only
-    if (!isAdmin && !isRetailer) {
+    if (!isAdmin && !isRetailer && !isPartner) {
       const response = NextResponse.json(
         { success: false, error: 'Access denied.' },
         { status: 403 }

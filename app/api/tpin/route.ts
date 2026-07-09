@@ -8,12 +8,36 @@ import { createClient } from '@supabase/supabase-js'
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-// Create Supabase admin client
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!,
   { auth: { persistSession: false } }
 )
+
+/**
+ * Resolve the DB table, lookup column, and RPC function names
+ * based on user role so retailers and partners share the same API.
+ */
+function tpinConfig(role: string) {
+  if (role === 'partner') {
+    return {
+      table: 'partners' as const,
+      idColumn: 'id' as const,
+      verifyFn: 'verify_partner_tpin' as const,
+      setFn: 'set_partner_tpin' as const,
+      verifyParam: 'p_partner_id' as const,
+      setParam: 'p_partner_id' as const,
+    }
+  }
+  return {
+    table: 'retailers' as const,
+    idColumn: 'partner_id' as const,
+    verifyFn: 'verify_retailer_tpin' as const,
+    setFn: 'set_retailer_tpin' as const,
+    verifyParam: 'p_retailer_id' as const,
+    setParam: 'p_retailer_id' as const,
+  }
+}
 
 export async function OPTIONS(request: NextRequest) {
   const response = handleCorsPreflight(request)
@@ -21,14 +45,12 @@ export async function OPTIONS(request: NextRequest) {
 }
 
 /**
- * GET /api/tpin
- * 
- * Get TPIN status for the current user
+ * GET /api/tpin — Get TPIN status for the current user (retailer or partner)
  */
 export async function GET(request: NextRequest) {
   try {
     const { user, method } = await getCurrentUserWithFallback(request)
-    
+
     if (!user) {
       console.error('[TPIN GET] Auth failed: no user found, method:', method)
       const response = NextResponse.json({ error: 'Session expired. Please login again.' }, { status: 401 })
@@ -36,15 +58,16 @@ export async function GET(request: NextRequest) {
     }
     if (!user.partner_id) {
       console.error('[TPIN GET] Auth failed: user has no partner_id, role:', user.role, 'email:', user.email)
-      const response = NextResponse.json({ error: 'TPIN is only available for retailers' }, { status: 403 })
+      const response = NextResponse.json({ error: 'TPIN is not available for this role' }, { status: 403 })
       return addCorsHeaders(request, response)
     }
 
-    // Get TPIN status from database
-    const { data: retailer, error } = await supabaseAdmin
-      .from('retailers')
+    const cfg = tpinConfig(user.role)
+
+    const { data: record, error } = await supabaseAdmin
+      .from(cfg.table)
       .select('tpin_enabled, tpin_locked_until, tpin_failed_attempts')
-      .eq('partner_id', user.partner_id)
+      .eq(cfg.idColumn, user.partner_id)
       .maybeSingle()
 
     if (error) {
@@ -56,9 +79,9 @@ export async function GET(request: NextRequest) {
       return addCorsHeaders(request, response)
     }
 
-    if (!retailer) {
+    if (!record) {
       const response = NextResponse.json(
-        { success: false, error: 'Retailer not found' },
+        { success: false, error: 'User not found' },
         { status: 404 }
       )
       return addCorsHeaders(request, response)
@@ -69,12 +92,12 @@ export async function GET(request: NextRequest) {
 
     const response = NextResponse.json({
       success: true,
-      tpin_enabled: retailer.tpin_enabled || false,
-      is_locked: retailer.tpin_locked_until ? new Date(retailer.tpin_locked_until) > new Date() : false,
-      locked_until: retailer.tpin_locked_until,
-      failed_attempts: retailer.tpin_failed_attempts || 0,
+      tpin_enabled: record.tpin_enabled || false,
+      is_locked: record.tpin_locked_until ? new Date(record.tpin_locked_until) > new Date() : false,
+      locked_until: record.tpin_locked_until,
+      failed_attempts: record.tpin_failed_attempts || 0,
     })
-    
+
     return addCorsHeaders(request, response)
 
   } catch (error: any) {
@@ -88,13 +111,9 @@ export async function GET(request: NextRequest) {
 }
 
 /**
- * POST /api/tpin
- * 
- * Set or change TPIN for the current user
- * 
- * Request Body:
- * - tpin: New 4-digit TPIN
- * - current_tpin: Current TPIN (required if already set)
+ * POST /api/tpin — Set or change TPIN for the current user (retailer or partner)
+ *
+ * Body: { tpin: string, current_tpin?: string }
  */
 export async function POST(request: NextRequest) {
   const rl = rateLimit(request, RATE_LIMITS.tpin)
@@ -105,7 +124,7 @@ export async function POST(request: NextRequest) {
     const { tpin, current_tpin } = body
 
     const { user, method } = await getCurrentUserWithFallback(request)
-    
+
     if (!user) {
       console.error('[TPIN POST] Auth failed: no user found, method:', method)
       const response = NextResponse.json({ error: 'Session expired. Please login again.' }, { status: 401 })
@@ -113,11 +132,10 @@ export async function POST(request: NextRequest) {
     }
     if (!user.partner_id) {
       console.error('[TPIN POST] Auth failed: user has no partner_id, role:', user.role, 'email:', user.email)
-      const response = NextResponse.json({ error: 'TPIN is only available for retailers' }, { status: 403 })
+      const response = NextResponse.json({ error: 'TPIN is not available for this role' }, { status: 403 })
       return addCorsHeaders(request, response)
     }
 
-    // Validate new TPIN
     if (!tpin || tpin.length !== 4 || !/^\d{4}$/.test(tpin)) {
       const response = NextResponse.json(
         { success: false, error: 'TPIN must be exactly 4 digits' },
@@ -126,36 +144,37 @@ export async function POST(request: NextRequest) {
       return addCorsHeaders(request, response)
     }
 
-    // Check if TPIN is already set
-    const { data: retailer, error: fetchError } = await supabaseAdmin
-      .from('retailers')
+    const cfg = tpinConfig(user.role)
+
+    // Look up current TPIN state
+    const { data: record, error: fetchError } = await supabaseAdmin
+      .from(cfg.table)
       .select('tpin_enabled, tpin_hash, tpin_locked_until')
-      .eq('partner_id', user.partner_id)
+      .eq(cfg.idColumn, user.partner_id)
       .maybeSingle()
 
-    if (fetchError || !retailer) {
+    if (fetchError || !record) {
       const response = NextResponse.json(
-        { success: false, error: 'Retailer not found' },
+        { success: false, error: 'User not found' },
         { status: 404 }
       )
       return addCorsHeaders(request, response)
     }
 
-    // Check if account is locked
-    if (retailer.tpin_locked_until && new Date(retailer.tpin_locked_until) > new Date()) {
+    if (record.tpin_locked_until && new Date(record.tpin_locked_until) > new Date()) {
       const response = NextResponse.json(
-        { 
-          success: false, 
+        {
+          success: false,
           error: 'Account is locked due to too many failed attempts',
-          locked_until: retailer.tpin_locked_until
+          locked_until: record.tpin_locked_until
         },
         { status: 403 }
       )
       return addCorsHeaders(request, response)
     }
 
-    // If TPIN is already set, verify current TPIN
-    if (retailer.tpin_enabled && retailer.tpin_hash) {
+    // If TPIN already set, verify current TPIN first
+    if (record.tpin_enabled && record.tpin_hash) {
       if (!current_tpin) {
         const response = NextResponse.json(
           { success: false, error: 'Current TPIN is required to change TPIN' },
@@ -164,9 +183,8 @@ export async function POST(request: NextRequest) {
         return addCorsHeaders(request, response)
       }
 
-      // Verify current TPIN using the database function
-      const { data: verifyResult, error: verifyError } = await supabaseAdmin.rpc('verify_retailer_tpin', {
-        p_retailer_id: user.partner_id,
+      const { data: verifyResult, error: verifyError } = await supabaseAdmin.rpc(cfg.verifyFn, {
+        [cfg.verifyParam]: user.partner_id,
         p_tpin: current_tpin
       })
 
@@ -181,8 +199,8 @@ export async function POST(request: NextRequest) {
 
       if (!verifyResult?.success) {
         const response = NextResponse.json(
-          { 
-            success: false, 
+          {
+            success: false,
             error: verifyResult?.error || 'Current TPIN is incorrect',
             attempts_remaining: verifyResult?.attempts_remaining
           },
@@ -192,9 +210,9 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Set new TPIN using the database function
-    const { data: setResult, error: setError } = await supabaseAdmin.rpc('set_retailer_tpin', {
-      p_retailer_id: user.partner_id,
+    // Set new TPIN
+    const { error: setError } = await supabaseAdmin.rpc(cfg.setFn, {
+      [cfg.setParam]: user.partner_id,
       p_tpin: tpin
     })
 
@@ -207,16 +225,16 @@ export async function POST(request: NextRequest) {
       return addCorsHeaders(request, response)
     }
 
-    console.log('[TPIN] TPIN set successfully for:', user.partner_id)
+    console.log('[TPIN] TPIN set successfully for:', user.partner_id, 'role:', user.role)
 
     const ctx = getRequestContext(request)
     logActivityFromContext(ctx, user, { activity_type: 'tpin_set', activity_category: 'auth' }).catch(() => {})
 
     const response = NextResponse.json({
       success: true,
-      message: retailer.tpin_enabled ? 'TPIN changed successfully' : 'TPIN set successfully',
+      message: record.tpin_enabled ? 'TPIN changed successfully' : 'TPIN set successfully',
     })
-    
+
     return addCorsHeaders(request, response)
 
   } catch (error: any) {
@@ -228,4 +246,3 @@ export async function POST(request: NextRequest) {
     return addCorsHeaders(request, response)
   }
 }
-

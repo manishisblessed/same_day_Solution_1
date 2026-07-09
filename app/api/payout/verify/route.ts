@@ -52,9 +52,8 @@ export async function POST(request: NextRequest) {
       return addCorsHeaders(request, response)
     }
 
-    // Retailers only (or admin for testing)
     const userRole = user.role as string | undefined
-    if (!['retailer', 'admin', 'super_admin'].includes(userRole || '')) {
+    if (!['retailer', 'partner', 'admin', 'super_admin'].includes(userRole || '')) {
       const response = NextResponse.json(
         { success: false, error: 'Access denied' },
         { status: 403 }

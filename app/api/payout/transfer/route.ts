@@ -165,9 +165,11 @@ export async function POST(request: NextRequest) {
       return addCorsHeaders(request, response)
     }
 
-    // Verify TPIN against stored hash
-    const { data: tpinResult, error: tpinError } = await supabaseAdmin.rpc('verify_retailer_tpin', {
-      p_retailer_id: user.partner_id,
+    // Verify TPIN — partners use verify_partner_tpin, retailers use verify_retailer_tpin
+    const tpinFn = userRole === 'partner' ? 'verify_partner_tpin' : 'verify_retailer_tpin'
+    const tpinParam = userRole === 'partner' ? 'p_partner_id' : 'p_retailer_id'
+    const { data: tpinResult, error: tpinError } = await supabaseAdmin.rpc(tpinFn, {
+      [tpinParam]: user.partner_id,
       p_tpin: tpin,
     })
     if (tpinError || !tpinResult?.success) {

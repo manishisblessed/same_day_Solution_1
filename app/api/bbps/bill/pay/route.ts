@@ -137,8 +137,10 @@ export async function POST(request: NextRequest) {
     }
 
     {
-      const { data: tpinResult, error: tpinError } = await (supabase as any).rpc('verify_retailer_tpin', {
-        p_retailer_id: user.partner_id,
+      const tpinFn = user.role === 'partner' ? 'verify_partner_tpin' : 'verify_retailer_tpin'
+      const tpinParam = user.role === 'partner' ? 'p_partner_id' : 'p_retailer_id'
+      const { data: tpinResult, error: tpinError } = await (supabase as any).rpc(tpinFn, {
+        [tpinParam]: user.partner_id,
         p_tpin: String(tpin).trim()
       })
 
