@@ -657,9 +657,111 @@ function WalletTab({ user }: { user: any }) {
   const [loading, setLoading] = useState(true)
   const [ledgerEntries, setLedgerEntries] = useState<any[]>([])
 
+  // Settlement state
+  const [showSettlement, setShowSettlement] = useState(false)
+  const [settlements, setSettlements] = useState<any[]>([])
+  const [settlementAmount, setSettlementAmount] = useState('')
+  const [settlementMode, setSettlementMode] = useState<'instant' | 't+1'>('instant')
+  const [bankDetails, setBankDetails] = useState({ account_number: '', ifsc: '', account_name: '' })
+  const [settlementCharge, setSettlementCharge] = useState<number | null>(null)
+  const [settlementChargeLoading, setSettlementChargeLoading] = useState(false)
+  const [settlementSchemeName, setSettlementSchemeName] = useState<string | null>(null)
+  const [settlementProcessing, setSettlementProcessing] = useState(false)
+
   useEffect(() => {
     fetchWalletData()
+    fetchSettlements()
   }, [user])
+
+  const fetchSettlements = async () => {
+    try {
+      const res = await apiFetchJson<{ success: boolean; settlements: any[] }>('/api/settlement/history?limit=50')
+      if (res.success) setSettlements(res.settlements || [])
+    } catch (err) {
+      console.error('Error fetching settlements:', err)
+    }
+  }
+
+  const fetchSettlementCharge = async (amt: number) => {
+    if (amt <= 0 || !user?.partner_id) {
+      setSettlementCharge(null)
+      setSettlementSchemeName(null)
+      return
+    }
+    setSettlementChargeLoading(true)
+    try {
+      const res = await apiFetchJson<{ resolved: boolean; charges?: { retailer_charge: number }; scheme?: { name: string } }>(
+        `/api/schemes/resolve-charges?service_type=payout&amount=${amt}&transfer_mode=IMPS&user_id=${user.partner_id}`
+      )
+      setSettlementCharge(res.resolved && res.charges ? res.charges.retailer_charge : 0)
+      setSettlementSchemeName(res.resolved && res.scheme ? res.scheme.name : null)
+    } catch {
+      showToast('Could not fetch settlement charge', 'warning')
+      setSettlementCharge(0)
+      setSettlementSchemeName(null)
+    } finally {
+      setSettlementChargeLoading(false)
+    }
+  }
+
+  const handleSettlementAmountChange = (value: string) => {
+    setSettlementAmount(value)
+    const amt = parseFloat(value)
+    if (!isNaN(amt) && amt > 0) {
+      fetchSettlementCharge(amt)
+    } else {
+      setSettlementCharge(null)
+      setSettlementSchemeName(null)
+    }
+  }
+
+  const handleSettlement = async () => {
+    const amount = parseFloat(settlementAmount)
+    if (!settlementAmount || isNaN(amount) || amount <= 0) {
+      showToast('Please enter a valid settlement amount', 'error')
+      return
+    }
+    if (amount > (walletBalance || 0)) {
+      showToast('Amount exceeds your wallet balance', 'error')
+      return
+    }
+    if (!bankDetails.account_number || !bankDetails.ifsc || !bankDetails.account_name) {
+      showToast('Please fill all bank details', 'error')
+      return
+    }
+
+    setSettlementProcessing(true)
+    try {
+      const data = await apiFetchJson<{ success: boolean; error?: string; message?: string }>('/api/settlement/create', {
+        method: 'POST',
+        body: JSON.stringify({
+          amount,
+          bank_account_number: bankDetails.account_number,
+          bank_ifsc: bankDetails.ifsc,
+          bank_account_name: bankDetails.account_name,
+          settlement_mode: settlementMode
+        })
+      })
+
+      if (data.success) {
+        showToast(data.message || 'Settlement request created successfully!', 'success')
+        setShowSettlement(false)
+        setSettlementAmount('')
+        setSettlementCharge(null)
+        setSettlementSchemeName(null)
+        setBankDetails({ account_number: '', ifsc: '', account_name: '' })
+        fetchWalletData()
+        fetchSettlements()
+      } else {
+        showToast(data.error || 'Settlement failed', 'error')
+      }
+    } catch (error: any) {
+      console.error('Settlement error:', error)
+      showToast(error.message || 'Failed to create settlement request', 'error')
+    } finally {
+      setSettlementProcessing(false)
+    }
+  }
 
   const fetchWalletData = async () => {
     if (!user?.partner_id) return
@@ -732,6 +834,13 @@ function WalletTab({ user }: { user: any }) {
             </div>
             <Wallet className="w-12 h-12 text-purple-200" />
           </div>
+          <button
+            onClick={() => setShowSettlement(true)}
+            className="w-full bg-white/20 hover:bg-white/30 text-white py-2 px-4 rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
+          >
+            <Banknote className="w-4 h-4" />
+            Request Settlement
+          </button>
         </motion.div>
 
         <motion.div
@@ -750,6 +859,192 @@ function WalletTab({ user }: { user: any }) {
           </div>
         </motion.div>
       </div>
+
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="bg-white rounded-xl shadow-lg border border-gray-200 p-6"
+      >
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-semibold">Settlement History</h3>
+          <button
+            onClick={fetchSettlements}
+            className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
+            title="Refresh"
+          >
+            <RefreshCw className="w-4 h-4 text-gray-500" />
+          </button>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">Date</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">Mode</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">Amount</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">Charge</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">Net Amount</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">Bank A/C</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">Status</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-200">
+              {settlements.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="px-4 py-8 text-center text-gray-500">
+                    No settlements yet
+                  </td>
+                </tr>
+              ) : (
+                settlements.map((s) => (
+                  <tr key={s.id} className="hover:bg-gray-50">
+                    <td className="px-4 py-3 text-sm text-gray-900">
+                      {new Date(s.created_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', dateStyle: 'short', timeStyle: 'short' })}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-900 uppercase">{s.settlement_mode}</td>
+                    <td className="px-4 py-3 text-sm text-gray-900">₹{parseFloat(s.amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                    <td className="px-4 py-3 text-sm text-red-600">₹{parseFloat(s.charge).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                    <td className="px-4 py-3 text-sm font-medium text-green-700">₹{parseFloat(s.net_amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                    <td className="px-4 py-3 text-sm text-gray-500">
+                      ****{String(s.bank_account_number || '').slice(-4)}
+                    </td>
+                    <td className="px-4 py-3 text-sm">
+                      <span className={`px-2 py-1 rounded-full text-xs ${
+                        s.status === 'success' ? 'bg-green-100 text-green-800' :
+                        s.status === 'pending' || s.status === 'processing' ? 'bg-yellow-100 text-yellow-800' :
+                        s.status === 'failed' || s.status === 'reversed' ? 'bg-red-100 text-red-800' :
+                        'bg-gray-100 text-gray-800'
+                      }`}>
+                        {s.status}
+                      </span>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </motion.div>
+
+      {/* Settlement Request Modal */}
+      {showSettlement && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6 max-h-[90vh] overflow-y-auto"
+          >
+            <h3 className="text-xl font-bold mb-1">Request Settlement</h3>
+            <p className="text-sm text-gray-500 mb-4">
+              Available balance: ₹{walletBalance?.toLocaleString('en-IN', { minimumFractionDigits: 2 }) || '0.00'}
+            </p>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium mb-1">Amount (₹)</label>
+                <input
+                  type="number"
+                  value={settlementAmount}
+                  onChange={(e) => handleSettlementAmountChange(e.target.value)}
+                  className="w-full px-4 py-2 border rounded-lg"
+                  placeholder="Enter amount"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Settlement Mode</label>
+                <select
+                  value={settlementMode}
+                  onChange={(e) => setSettlementMode(e.target.value as 'instant' | 't+1')}
+                  className="w-full px-4 py-2 border rounded-lg"
+                >
+                  <option value="instant">Instant</option>
+                  <option value="t+1">T+1 (Next Day)</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Account Holder Name</label>
+                <input
+                  type="text"
+                  value={bankDetails.account_name}
+                  onChange={(e) => setBankDetails({ ...bankDetails, account_name: e.target.value })}
+                  className="w-full px-4 py-2 border rounded-lg"
+                  placeholder="Name as per bank records"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Account Number</label>
+                <input
+                  type="text"
+                  value={bankDetails.account_number}
+                  onChange={(e) => setBankDetails({ ...bankDetails, account_number: e.target.value.replace(/\D/g, '') })}
+                  className="w-full px-4 py-2 border rounded-lg"
+                  placeholder="Bank account number"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">IFSC Code</label>
+                <input
+                  type="text"
+                  value={bankDetails.ifsc}
+                  onChange={(e) => setBankDetails({ ...bankDetails, ifsc: e.target.value.toUpperCase() })}
+                  className="w-full px-4 py-2 border rounded-lg"
+                  placeholder="e.g. SBIN0001234"
+                  maxLength={11}
+                />
+              </div>
+
+              {/* Charge preview (from applicable scheme) */}
+              {settlementAmount && parseFloat(settlementAmount) > 0 && (
+                <div className="bg-purple-50 border border-purple-200 rounded-lg p-4 space-y-1">
+                  {settlementChargeLoading ? (
+                    <p className="text-sm text-purple-700 flex items-center gap-2">
+                      <Loader2 className="w-4 h-4 animate-spin" /> Fetching charges...
+                    </p>
+                  ) : (
+                    <>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-600">Settlement Amount</span>
+                        <span className="font-medium">₹{parseFloat(settlementAmount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-600">Charge{settlementSchemeName ? ` (${settlementSchemeName})` : ''}</span>
+                        <span className="font-medium text-red-600">- ₹{(settlementCharge ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                      </div>
+                      <div className="flex justify-between text-sm border-t border-purple-200 pt-1 mt-1">
+                        <span className="text-gray-800 font-semibold">You Receive</span>
+                        <span className="font-bold text-green-700">
+                          ₹{Math.max(parseFloat(settlementAmount) - (settlementCharge ?? 0), 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                        </span>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+
+              <div className="flex gap-3">
+                <button
+                  onClick={handleSettlement}
+                  disabled={settlementProcessing || settlementChargeLoading}
+                  className="flex-1 bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 disabled:opacity-50"
+                >
+                  {settlementProcessing ? 'Processing...' : 'Submit Request'}
+                </button>
+                <button
+                  onClick={() => {
+                    setShowSettlement(false)
+                    setSettlementAmount('')
+                    setSettlementCharge(null)
+                    setSettlementSchemeName(null)
+                  }}
+                  disabled={settlementProcessing}
+                  className="flex-1 bg-gray-200 text-gray-700 py-2 px-4 rounded-lg hover:bg-gray-300 disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        </div>
+      )}
 
       <motion.div
         initial={{ opacity: 0, y: 20 }}
@@ -825,12 +1120,14 @@ function NetworkTab({ retailers, user, onRefresh }: { retailers: any[], user: an
   const [selectedUser, setSelectedUser] = useState<any>(null)
   const [detailRetailer, setDetailRetailer] = useState<any>(null)
   const [transferring, setTransferring] = useState(false)
+  const [transferAction, setTransferAction] = useState<'push' | 'pull'>('push')
   // Stable idempotency key for the in-progress fund transfer (cleared on success)
   const fundTransferIdemRef = useRef<string | null>(null)
   const [transferData, setTransferData] = useState({
     amount: '',
     fund_category: 'cash' as 'cash' | 'online',
-    remarks: ''
+    remarks: '',
+    tpin: ''
   })
 
   const filteredRetailers = retailers.filter(r =>
@@ -851,6 +1148,11 @@ function NetworkTab({ retailers, user, onRefresh }: { retailers: any[], user: an
       return
     }
 
+    if (action === 'pull' && transferData.tpin.length !== 4) {
+      showToast("Retailer's 4-digit TPIN is required for pull transfers", 'error')
+      return
+    }
+
     setTransferring(true)
     if (!fundTransferIdemRef.current) fundTransferIdemRef.current = newIdempotencyKey()
     try {
@@ -862,7 +1164,8 @@ function NetworkTab({ retailers, user, onRefresh }: { retailers: any[], user: an
           action: action,
           amount: amount,
           fund_category: transferData.fund_category,
-          remarks: transferData.remarks || `${action} funds by distributor`
+          remarks: transferData.remarks || `${action} funds by distributor`,
+          ...(action === 'pull' ? { tpin: transferData.tpin } : {})
         })
       })
 
@@ -872,7 +1175,7 @@ function NetworkTab({ retailers, user, onRefresh }: { retailers: any[], user: an
         showToast(`Fund ${action} successful!`, 'success')
         setShowFundTransfer(false)
         setSelectedUser(null)
-        setTransferData({ amount: '', fund_category: 'cash', remarks: '' })
+        setTransferData({ amount: '', fund_category: 'cash', remarks: '', tpin: '' })
         onRefresh()
       } else {
         showToast(data.error || 'Transfer failed', 'error')
@@ -948,6 +1251,7 @@ function NetworkTab({ retailers, user, onRefresh }: { retailers: any[], user: an
                         <button
                           onClick={() => {
                             setSelectedUser(retailer)
+                            setTransferAction('push')
                             setShowFundTransfer(true)
                           }}
                           className="p-2 text-green-600 hover:bg-green-50 rounded"
@@ -958,6 +1262,7 @@ function NetworkTab({ retailers, user, onRefresh }: { retailers: any[], user: an
                         <button
                           onClick={() => {
                             setSelectedUser(retailer)
+                            setTransferAction('pull')
                             setShowFundTransfer(true)
                           }}
                           className="p-2 text-red-600 hover:bg-red-50 rounded"
@@ -999,6 +1304,28 @@ function NetworkTab({ retailers, user, onRefresh }: { retailers: any[], user: an
               <p className="text-sm text-gray-600">Partner ID: {selectedUser.partner_id}</p>
             </div>
             <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => setTransferAction('push')}
+                  className={`py-2 px-4 rounded-lg border text-sm font-medium transition-colors ${
+                    transferAction === 'push'
+                      ? 'bg-green-600 text-white border-green-600'
+                      : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                  }`}
+                >
+                  Push (Send to Retailer)
+                </button>
+                <button
+                  onClick={() => setTransferAction('pull')}
+                  className={`py-2 px-4 rounded-lg border text-sm font-medium transition-colors ${
+                    transferAction === 'pull'
+                      ? 'bg-red-600 text-white border-red-600'
+                      : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                  }`}
+                >
+                  Pull (Take from Retailer)
+                </button>
+              </div>
               <div>
                 <label className="block text-sm font-medium mb-1">Amount (₹)</label>
                 <input
@@ -1030,20 +1357,30 @@ function NetworkTab({ retailers, user, onRefresh }: { retailers: any[], user: an
                   placeholder="Enter remarks..."
                 />
               </div>
+              {transferAction === 'pull' && (
+                <div>
+                  <label className="block text-sm font-medium mb-1">Retailer&apos;s TPIN</label>
+                  <input
+                    type="password"
+                    inputMode="numeric"
+                    maxLength={4}
+                    value={transferData.tpin}
+                    onChange={(e) => setTransferData({ ...transferData, tpin: e.target.value.replace(/\D/g, '') })}
+                    className="w-full px-4 py-2 border rounded-lg"
+                    placeholder="4-digit TPIN"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">Pull transfers must be authorized with the retailer&apos;s 4-digit TPIN.</p>
+                </div>
+              )}
               <div className="flex gap-3">
                 <button
-                  onClick={() => handleFundTransfer('push')}
+                  onClick={() => handleFundTransfer(transferAction)}
                   disabled={transferring}
-                  className="flex-1 bg-green-600 text-white py-2 px-4 rounded-lg hover:bg-green-700 disabled:opacity-50"
+                  className={`flex-1 text-white py-2 px-4 rounded-lg disabled:opacity-50 ${
+                    transferAction === 'push' ? 'bg-green-600 hover:bg-green-700' : 'bg-red-600 hover:bg-red-700'
+                  }`}
                 >
-                  {transferring ? 'Processing...' : 'Push Funds'}
-                </button>
-                <button
-                  onClick={() => handleFundTransfer('pull')}
-                  disabled={transferring}
-                  className="flex-1 bg-red-600 text-white py-2 px-4 rounded-lg hover:bg-red-700 disabled:opacity-50"
-                >
-                  {transferring ? 'Processing...' : 'Pull Funds'}
+                  {transferring ? 'Processing...' : transferAction === 'push' ? 'Push Funds' : 'Pull Funds'}
                 </button>
                 <button
                   onClick={() => {

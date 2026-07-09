@@ -6,7 +6,7 @@ import Link from 'next/link'
 import Image from 'next/image'
 import { 
   LayoutDashboard, Package, Activity, 
-  Settings, TrendingUp, Users, Network, X, Menu, Layers, CreditCard, Repeat
+  Settings, TrendingUp, Users, Network, X, Menu, Layers, CreditCard, Repeat, Wallet
 } from 'lucide-react'
 import { apiFetch } from '@/lib/api-client'
 import { useAuth } from '@/contexts/AuthContext'
@@ -24,6 +24,7 @@ const sidebarItems: SidebarItem[] = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, href: '/dashboard/distributor' },
   { id: 'services', label: 'Services', icon: Activity, href: '/dashboard/distributor?tab=services' },
   { id: 'retailers', label: 'Retailers', icon: Users, href: '/dashboard/distributor?tab=retailers' },
+  { id: 'wallet', label: 'Wallet & Settlement', icon: Wallet, href: '/dashboard/distributor?tab=wallet' },
   { id: 'pos-machines', label: 'POS Machines', icon: CreditCard, href: '/dashboard/distributor?tab=pos-machines' },
   { id: 'subscriptions', label: 'Subscriptions', icon: Repeat, href: '/dashboard/distributor?tab=subscriptions' },
   { id: 'scheme-management', label: 'Scheme Management', icon: Layers, href: '/dashboard/distributor?tab=scheme-management' },
