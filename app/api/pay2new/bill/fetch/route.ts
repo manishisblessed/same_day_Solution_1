@@ -114,7 +114,9 @@ export async function POST(request: NextRequest) {
       const errMsg = (result.error || '').toLowerCase()
       const shouldFallback = errMsg.includes('mandatory input parameter') ||
         errMsg.includes('payment mode cash is disable') ||
-        errMsg.includes('input parameter not present')
+        errMsg.includes('input parameter not present') ||
+        errMsg.includes('per day limit') ||
+        errMsg.includes('limit expired')
 
       if (shouldFallback && product_name) {
         try {

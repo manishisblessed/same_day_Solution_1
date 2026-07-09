@@ -2557,20 +2557,25 @@ function ServicesManagementTab() {
   const fetchAllUsers = async () => {
     setUsersLoading(true)
     try {
-      const kycFields = ', address, city, state, pincode, gst_number, pan_number, aadhar_number, bank_name, account_number, ifsc_code, udhyam_number, commission_rate, pan_verified, pan_registered_name, pan_type, bank_verified, bank_verified_name, bank_utr, bank_branch, bank_city, gst_verified, gst_legal_name, gst_trade_name, gst_status, gst_taxpayer_type, gst_constitution, gst_address, cin_number, cin_verified, cin_company_name, cin_status, cin_incorporation_date, aadhaar_verified, aadhaar_name, aadhaar_dob, aadhaar_gender, aadhaar_address, aadhaar_uid, digilocker_verification_id, ekychub_order_ids, auto_verification_score'
-      const baseFields = 'partner_id, name, email, phone, business_name, status, created_at' + kycFields
-      const partnerBaseFields = 'id, name, email, phone, business_name, status, created_at'
+      const retailerKycFields = ', address, city, state, pincode, gst_number, pan_number, aadhar_number, bank_name, account_number, ifsc_code, udhyam_number, commission_rate, pan_verified, pan_registered_name, pan_type, bank_verified, bank_verified_name, bank_utr, bank_branch, bank_city, gst_verified, gst_legal_name, gst_trade_name, gst_status, gst_taxpayer_type, gst_constitution, gst_address, cin_number, cin_verified, cin_company_name, cin_status, cin_incorporation_date, aadhaar_verified, aadhaar_name, aadhaar_dob, aadhaar_gender, aadhaar_address, aadhaar_uid, digilocker_verification_id, ekychub_order_ids, auto_verification_score'
+      const commonExtra = ', address, city, state, pincode, gst_number, commission_rate'
       const allFieldsList = SERVICE_FIELDS.join(', ')
-      const serviceFields = `${baseFields}, ${allFieldsList}`
-      const partnerServiceFields = `${partnerBaseFields}, ${allFieldsList}`
+
+      const baseFieldsByRole: Record<string, string> = {
+        retailer: 'partner_id, name, email, phone, business_name, status, created_at' + retailerKycFields,
+        distributor: 'partner_id, name, email, phone, business_name, status, created_at, master_distributor_id' + commonExtra,
+        master_distributor: 'partner_id, name, email, phone, business_name, status, created_at' + commonExtra,
+        partner: 'id, name, email, phone, business_name, status, created_at',
+      }
 
       const defaultServices: Record<string, boolean> = {}
       ALL_SERVICES.forEach(s => { defaultServices[`${s.key}_enabled`] = false })
 
       const fetchTable = async (table: string, role: string) => {
         const isPartner = role === 'partner'
-        const fields = isPartner ? partnerServiceFields : serviceFields
-        const fallbackFields = isPartner ? partnerBaseFields : baseFields
+        const roleBase = baseFieldsByRole[role] || baseFieldsByRole.retailer
+        const fields = `${roleBase}, ${allFieldsList}`
+        const fallbackFields = roleBase
         
         const { data, error } = await supabase.from(table).select(fields).order('created_at', { ascending: false })
         if (error) {

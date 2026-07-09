@@ -4,6 +4,7 @@ import { addCorsHeaders } from '@/lib/cors'
 import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger'
 import { requireAdmin } from '@/lib/security/admin-guard'
 import { rateLimit, RATE_LIMITS } from '@/lib/rate-limit'
+import { getWalletOpMaxAmount } from '@/lib/wallet-limit'
 
 export const runtime = 'nodejs' // Force Node.js runtime (Supabase not compatible with Edge Runtime)
 export const dynamic = 'force-dynamic'
@@ -82,10 +83,10 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const MAX_ADMIN_WALLET_OP = 500_000 // ₹5,00,000
-    if (amountDecimal > MAX_ADMIN_WALLET_OP) {
+    const maxAmount = await getWalletOpMaxAmount()
+    if (amountDecimal > maxAmount) {
       return NextResponse.json(
-        { error: `Amount exceeds maximum allowed limit of ₹${MAX_ADMIN_WALLET_OP.toLocaleString('en-IN')}` },
+        { error: `Amount exceeds maximum allowed limit of ₹${maxAmount.toLocaleString('en-IN')}` },
         { status: 400 }
       )
     }

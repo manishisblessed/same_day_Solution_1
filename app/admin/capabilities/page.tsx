@@ -10,7 +10,7 @@ import {
   Snowflake, Sun, Search, Filter, Download, RefreshCw,
   Users, Building2, Crown, DollarSign, TrendingUp, Settings,
   AlertCircle, FileText, RotateCcw, Shield, BarChart3,
-  ToggleLeft, ToggleRight, Sliders, XCircle, CheckCircle
+  ToggleLeft, ToggleRight, Sliders, XCircle, CheckCircle, IndianRupee
 } from 'lucide-react'
 import { motion } from 'framer-motion'
 import { apiFetch } from '@/lib/api-client'
@@ -31,6 +31,51 @@ export default function AdminCapabilities() {
   const [actionLoading, setActionLoading] = useState(false)
   const [downloading, setDownloading] = useState(false)
 
+  const [walletLimit, setWalletLimit] = useState<number>(500000)
+  const [walletLimitInput, setWalletLimitInput] = useState('')
+  const [walletLimitLoading, setWalletLimitLoading] = useState(false)
+  const [walletLimitMeta, setWalletLimitMeta] = useState<{ updated_by?: string; updated_at?: string }>({})
+
+  const fetchWalletLimit = async () => {
+    try {
+      const res = await apiFetch('/api/admin/settings/wallet-limit')
+      const data = await res.json()
+      if (data.success) {
+        setWalletLimit(data.limit)
+        setWalletLimitInput(String(data.limit))
+        setWalletLimitMeta({ updated_by: data.updated_by, updated_at: data.updated_at })
+      }
+    } catch {}
+  }
+
+  const saveWalletLimit = async () => {
+    const parsed = parseInt(walletLimitInput, 10)
+    if (isNaN(parsed) || parsed < 1000) {
+      showToast('Minimum limit is ₹1,000', 'error')
+      return
+    }
+    setWalletLimitLoading(true)
+    try {
+      const res = await apiFetch('/api/admin/settings/wallet-limit', {
+        method: 'POST',
+        body: JSON.stringify({ limit: parsed }),
+      })
+      const data = await res.json()
+      if (data.success) {
+        setWalletLimit(data.limit)
+        setWalletLimitInput(String(data.limit))
+        showToast(`Wallet limit updated to ₹${data.limit.toLocaleString('en-IN')}`, 'success')
+        fetchWalletLimit()
+      } else {
+        showToast(data.error || 'Failed to update', 'error')
+      }
+    } catch {
+      showToast('Failed to update wallet limit', 'error')
+    } finally {
+      setWalletLimitLoading(false)
+    }
+  }
+
   useEffect(() => {
     if (!authLoading && (!user || user.role !== 'admin')) {
       router.push('/admin/login')
@@ -40,6 +85,7 @@ export default function AdminCapabilities() {
   useEffect(() => {
     if (user?.role === 'admin') {
       fetchUsers()
+      fetchWalletLimit()
     }
   }, [user])
 
@@ -343,18 +389,60 @@ export default function AdminCapabilities() {
           )}
 
           {activeTab === 'limits' && (
-            <div className="space-y-4">
-              <h3 className="text-lg font-semibold">Limit Override</h3>
-              <p className="text-gray-600">Override transaction limits for specific users</p>
-              <button
-                onClick={() => {
-                  setShowModal(true)
-                  setModalData({ action: 'limit_override' })
-                }}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-              >
-                Override Limits
-              </button>
+            <div className="space-y-6">
+              {/* Global Wallet Push/Pull Limit */}
+              <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6">
+                <div className="flex items-center gap-2 mb-1">
+                  <IndianRupee className="w-5 h-5 text-blue-600" />
+                  <h3 className="text-lg font-semibold">Wallet Push / Pull Limit</h3>
+                </div>
+                <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+                  Maximum amount an admin can push or pull in a single wallet operation.
+                  Current limit: <span className="font-semibold text-gray-900 dark:text-white">₹{walletLimit.toLocaleString('en-IN')}</span>
+                </p>
+                <div className="flex items-end gap-3">
+                  <div className="flex-1 max-w-xs">
+                    <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">New Limit (₹)</label>
+                    <input
+                      type="number"
+                      min={1000}
+                      max={100000000}
+                      value={walletLimitInput}
+                      onChange={(e) => setWalletLimitInput(e.target.value)}
+                      className="w-full px-4 py-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                      placeholder="e.g. 1000000"
+                    />
+                  </div>
+                  <button
+                    onClick={saveWalletLimit}
+                    disabled={walletLimitLoading || walletLimitInput === String(walletLimit)}
+                    className="px-5 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 whitespace-nowrap"
+                  >
+                    {walletLimitLoading ? 'Saving...' : 'Update Limit'}
+                  </button>
+                </div>
+                {walletLimitMeta.updated_by && (
+                  <p className="text-xs text-gray-400 mt-2">
+                    Last updated by {walletLimitMeta.updated_by}
+                    {walletLimitMeta.updated_at && ` on ${new Date(walletLimitMeta.updated_at).toLocaleString('en-IN')}`}
+                  </p>
+                )}
+              </div>
+
+              {/* Per-user Limit Override */}
+              <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6">
+                <h3 className="text-lg font-semibold mb-1">Per-User Limit Override</h3>
+                <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">Override transaction limits for specific users</p>
+                <button
+                  onClick={() => {
+                    setShowModal(true)
+                    setModalData({ action: 'limit_override' })
+                  }}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                >
+                  Override Limits
+                </button>
+              </div>
             </div>
           )}
 
