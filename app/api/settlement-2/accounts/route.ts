@@ -191,10 +191,17 @@ export async function POST(request: NextRequest) {
       return addCorsHeaders(request, response)
     }
 
-    const { data: walletBalance, error: balanceError } = await (supabaseAdmin as any).rpc('get_wallet_balance_v2', {
-      p_user_id: user.partner_id,
-      p_wallet_type: 'primary',
-    })
+    let walletBalance = 0
+    let balanceError: any = null
+    if (user.role === 'partner') {
+      const { data, error } = await (supabaseAdmin as any).rpc('get_partner_wallet_balance', { p_partner_id: user.partner_id })
+      walletBalance = data || 0
+      balanceError = error
+    } else {
+      const { data, error } = await (supabaseAdmin as any).rpc('get_wallet_balance_v2', { p_user_id: user.partner_id, p_wallet_type: 'primary' })
+      walletBalance = data || 0
+      balanceError = error
+    }
 
     if (balanceError || walletBalance === null || walletBalance === undefined) {
       console.error('[Settlement-2 Accounts] Wallet balance error:', balanceError)
@@ -231,20 +238,35 @@ export async function POST(request: NextRequest) {
     }
 
     // Debit verification charge
-    const { data: chargeLedgerId, error: chargeError } = await (supabaseAdmin as any).rpc('add_ledger_entry', {
-      p_user_id: user.partner_id,
-      p_user_role: user.role,
-      p_wallet_type: 'primary',
-      p_fund_category: 'service',
-      p_service_type: 'shadval_settlement',
-      p_tx_type: 'ACCOUNT_VERIFICATION_CHARGE',
-      p_credit: 0,
-      p_debit: VERIFICATION_CHARGE,
-      p_reference_id: refId,
-      p_transaction_id: null,
-      p_status: 'completed',
-      p_remarks: `Account verification charge ₹${VERIFICATION_CHARGE_BASE} + GST ₹${VERIFICATION_GST} = ₹${VERIFICATION_CHARGE} for ${account_number} (${ifsc_code})`,
-    })
+    let chargeLedgerId: string | null = null
+    let chargeError: any = null
+    if (user.role === 'partner') {
+      const { data, error } = await (supabaseAdmin as any).rpc('debit_partner_wallet', {
+        p_partner_id: user.partner_id,
+        p_amount: VERIFICATION_CHARGE,
+        p_description: `Account verification charge ₹${VERIFICATION_CHARGE} for ${account_number} (${ifsc_code})`,
+        p_reference_id: refId,
+      })
+      chargeLedgerId = data
+      chargeError = error
+    } else {
+      const { data, error } = await (supabaseAdmin as any).rpc('add_ledger_entry', {
+        p_user_id: user.partner_id,
+        p_user_role: user.role,
+        p_wallet_type: 'primary',
+        p_fund_category: 'service',
+        p_service_type: 'shadval_settlement',
+        p_tx_type: 'ACCOUNT_VERIFICATION_CHARGE',
+        p_credit: 0,
+        p_debit: VERIFICATION_CHARGE,
+        p_reference_id: refId,
+        p_transaction_id: null,
+        p_status: 'completed',
+        p_remarks: `Account verification charge ₹${VERIFICATION_CHARGE} for ${account_number} (${ifsc_code})`,
+      })
+      chargeLedgerId = data
+      chargeError = error
+    }
 
     if (chargeError) {
       console.error('[Settlement-2 Accounts] Charge debit error:', chargeError)
@@ -319,20 +341,33 @@ export async function POST(request: NextRequest) {
       (!apiResult.status && !apiResult.code)
     if (isServiceUnavailable) {
       console.log('[Settlement-2 Accounts] Verification service unavailable, refunding ₹4 to retailer:', user.partner_id)
-      const { error: refundErr } = await (supabaseAdmin as any).rpc('add_ledger_entry', {
-        p_user_id: user.partner_id,
-        p_user_role: user.role,
-        p_wallet_type: 'primary',
-        p_fund_category: 'service',
-        p_service_type: 'shadval_settlement',
-        p_tx_type: 'ACCOUNT_VERIFICATION_REFUND',
-        p_credit: VERIFICATION_CHARGE,
-        p_debit: 0,
-        p_reference_id: `REFUND_${refId}`,
-        p_transaction_id: null,
-        p_status: 'completed',
-        p_remarks: `Auto-refund: Verification service unavailable (${apiResult.code || 'NO_RESPONSE'}). ₹${VERIFICATION_CHARGE} returned.`,
-      })
+      let refundErr: any = null
+      if (user.role === 'partner') {
+        const { error } = await (supabaseAdmin as any).rpc('credit_partner_wallet', {
+          p_partner_id: user.partner_id,
+          p_amount: VERIFICATION_CHARGE,
+          p_description: `Auto-refund: Verification service unavailable (${apiResult.code || 'NO_RESPONSE'}). ₹${VERIFICATION_CHARGE} returned.`,
+          p_reference_id: `REFUND_${refId}`,
+          p_transaction_type: 'REFUND',
+        })
+        refundErr = error
+      } else {
+        const { error } = await (supabaseAdmin as any).rpc('add_ledger_entry', {
+          p_user_id: user.partner_id,
+          p_user_role: user.role,
+          p_wallet_type: 'primary',
+          p_fund_category: 'service',
+          p_service_type: 'shadval_settlement',
+          p_tx_type: 'ACCOUNT_VERIFICATION_REFUND',
+          p_credit: VERIFICATION_CHARGE,
+          p_debit: 0,
+          p_reference_id: `REFUND_${refId}`,
+          p_transaction_id: null,
+          p_status: 'completed',
+          p_remarks: `Auto-refund: Verification service unavailable (${apiResult.code || 'NO_RESPONSE'}). ₹${VERIFICATION_CHARGE} returned.`,
+        })
+        refundErr = error
+      }
       if (refundErr) console.error('[Settlement-2 Accounts] Refund failed:', refundErr)
 
       if (revenueLedgerId && revenueUserId) {
@@ -466,20 +501,33 @@ export async function POST(request: NextRequest) {
     if (dbError) {
       console.error('[Settlement-2 Accounts] DB save failed, refunding charge:', dbError)
       // Refund the ₹4 charge back to retailer
-      const { error: dbRefundErr } = await (supabaseAdmin as any).rpc('add_ledger_entry', {
-        p_user_id: user.partner_id,
-        p_user_role: user.role,
-        p_wallet_type: 'primary',
-        p_fund_category: 'service',
-        p_service_type: 'shadval_settlement',
-        p_tx_type: 'ACCOUNT_VERIFICATION_REFUND',
-        p_credit: VERIFICATION_CHARGE,
-        p_debit: 0,
-        p_reference_id: `REFUND_${refId}`,
-        p_transaction_id: null,
-        p_status: 'completed',
-        p_remarks: `Refund: account verification failed for ${account_number} (${ifsc_code}). DB error: ${dbError.message}`,
-      })
+      let dbRefundErr: any = null
+      if (user.role === 'partner') {
+        const { error } = await (supabaseAdmin as any).rpc('credit_partner_wallet', {
+          p_partner_id: user.partner_id,
+          p_amount: VERIFICATION_CHARGE,
+          p_description: `Refund: account verification failed for ${account_number} (${ifsc_code}). DB error.`,
+          p_reference_id: `REFUND_DB_${refId}`,
+          p_transaction_type: 'REFUND',
+        })
+        dbRefundErr = error
+      } else {
+        const { error } = await (supabaseAdmin as any).rpc('add_ledger_entry', {
+          p_user_id: user.partner_id,
+          p_user_role: user.role,
+          p_wallet_type: 'primary',
+          p_fund_category: 'service',
+          p_service_type: 'shadval_settlement',
+          p_tx_type: 'ACCOUNT_VERIFICATION_REFUND',
+          p_credit: VERIFICATION_CHARGE,
+          p_debit: 0,
+          p_reference_id: `REFUND_${refId}`,
+          p_transaction_id: null,
+          p_status: 'completed',
+          p_remarks: `Refund: account verification failed for ${account_number} (${ifsc_code}). DB error: ${dbError.message}`,
+        })
+        dbRefundErr = error
+      }
       if (dbRefundErr) console.error('[Settlement-2 Accounts] Refund failed:', dbRefundErr)
 
       const response = NextResponse.json({

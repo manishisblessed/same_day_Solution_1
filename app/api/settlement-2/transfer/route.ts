@@ -238,10 +238,17 @@ export async function POST(request: NextRequest) {
     }
 
     // Check wallet balance (transfer amount + charges must be available)
-    const { data: walletBalance, error: balanceError } = await (supabaseAdmin as any).rpc('get_wallet_balance_v2', {
-      p_user_id: user.partner_id,
-      p_wallet_type: 'primary',
-    })
+    let walletBalance = 0
+    let balanceError: any = null
+    if (user.role === 'partner') {
+      const { data, error } = await (supabaseAdmin as any).rpc('get_partner_wallet_balance', { p_partner_id: user.partner_id })
+      walletBalance = data || 0
+      balanceError = error
+    } else {
+      const { data, error } = await (supabaseAdmin as any).rpc('get_wallet_balance_v2', { p_user_id: user.partner_id, p_wallet_type: 'primary' })
+      walletBalance = data || 0
+      balanceError = error
+    }
 
     if (balanceError || walletBalance === null) {
       const response = NextResponse.json({ success: false, error: 'Failed to check wallet balance' }, { status: 500 })
@@ -338,26 +345,41 @@ export async function POST(request: NextRequest) {
       return addCorsHeaders(request, response)
     }
 
-    // Debit transfer amount + charges in one entry
+    // Debit transfer amount + charges
     const totalDebit = amountNum + charges
     const debitRemarks = charges > 0
       ? `Settlement-2 transfer ₹${amountNum} + charge ₹${baseCharges} + GST ₹${gstAmount} = ₹${totalDebit.toFixed(2)} to ${account.account_number} (${account.account_holder_name})`
       : `Settlement-2 transfer ₹${amountNum} to ${account.account_number} (${account.account_holder_name})`
 
-    const { data: transferLedgerId, error: transferLedgerError } = await (supabaseAdmin as any).rpc('add_ledger_entry', {
-      p_user_id: user.partner_id,
-      p_user_role: user.role,
-      p_wallet_type: 'primary',
-      p_fund_category: 'service',
-      p_service_type: 'shadval_settlement',
-      p_tx_type: 'SETTLEMENT2_TRANSFER',
-      p_credit: 0,
-      p_debit: totalDebit,
-      p_reference_id: `${refId}_TRANSFER`,
-      p_transaction_id: txRecord.id,
-      p_status: 'completed',
-      p_remarks: debitRemarks,
-    })
+    let transferLedgerId: string | null = null
+    let transferLedgerError: any = null
+    if (user.role === 'partner') {
+      const { data, error } = await (supabaseAdmin as any).rpc('debit_partner_wallet', {
+        p_partner_id: user.partner_id,
+        p_amount: totalDebit,
+        p_description: debitRemarks,
+        p_reference_id: `${refId}_TRANSFER`,
+      })
+      transferLedgerId = data
+      transferLedgerError = error
+    } else {
+      const { data, error } = await (supabaseAdmin as any).rpc('add_ledger_entry', {
+        p_user_id: user.partner_id,
+        p_user_role: user.role,
+        p_wallet_type: 'primary',
+        p_fund_category: 'service',
+        p_service_type: 'shadval_settlement',
+        p_tx_type: 'SETTLEMENT2_TRANSFER',
+        p_credit: 0,
+        p_debit: totalDebit,
+        p_reference_id: `${refId}_TRANSFER`,
+        p_transaction_id: txRecord.id,
+        p_status: 'completed',
+        p_remarks: debitRemarks,
+      })
+      transferLedgerId = data
+      transferLedgerError = error
+    }
 
     if (transferLedgerError) {
       console.error('[Settlement-2] Transfer debit failed:', transferLedgerError)
@@ -495,20 +517,33 @@ export async function POST(request: NextRequest) {
     // Provider hard-failed → make everyone whole: refund the retailer (amount + charges)
     // and reverse the commission/revenue credits that were posted optimistically above.
     if (isFailed) {
-      const { error: retailerRefundErr } = await (supabaseAdmin as any).rpc('add_ledger_entry', {
-        p_user_id: user.partner_id,
-        p_user_role: user.role,
-        p_wallet_type: 'primary',
-        p_fund_category: 'service',
-        p_service_type: 'shadval_settlement',
-        p_tx_type: 'SETTLEMENT2_REFUND',
-        p_credit: totalDebit,
-        p_debit: 0,
-        p_reference_id: `REFUND_${refId}`,
-        p_transaction_id: txRecord.id,
-        p_status: 'completed',
-        p_remarks: `Settlement-2 refund ₹${totalDebit.toFixed(2)} — provider transfer failed: ${apiResult.message || ''}`,
-      })
+      let retailerRefundErr: any = null
+      if (user.role === 'partner') {
+        const { error } = await (supabaseAdmin as any).rpc('credit_partner_wallet', {
+          p_partner_id: user.partner_id,
+          p_amount: totalDebit,
+          p_description: `Settlement-2 refund ₹${totalDebit.toFixed(2)} — provider transfer failed: ${apiResult.message || ''}`,
+          p_reference_id: `REFUND_${refId}`,
+          p_transaction_type: 'REFUND',
+        })
+        retailerRefundErr = error
+      } else {
+        const { error } = await (supabaseAdmin as any).rpc('add_ledger_entry', {
+          p_user_id: user.partner_id,
+          p_user_role: user.role,
+          p_wallet_type: 'primary',
+          p_fund_category: 'service',
+          p_service_type: 'shadval_settlement',
+          p_tx_type: 'SETTLEMENT2_REFUND',
+          p_credit: totalDebit,
+          p_debit: 0,
+          p_reference_id: `REFUND_${refId}`,
+          p_transaction_id: txRecord.id,
+          p_status: 'completed',
+          p_remarks: `Settlement-2 refund ₹${totalDebit.toFixed(2)} — provider transfer failed: ${apiResult.message || ''}`,
+        })
+        retailerRefundErr = error
+      }
       if (retailerRefundErr) console.error('[Settlement-2] CRITICAL retailer refund failed:', retailerRefundErr)
 
       if (charges > 0) {
