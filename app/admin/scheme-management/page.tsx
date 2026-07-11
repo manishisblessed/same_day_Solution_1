@@ -12,6 +12,7 @@ import {
 } from 'lucide-react'
 import { useToast } from '@/components/Toast'
 import { apiFetch, apiFetchJson } from '@/lib/api-client'
+import { getPosCompanies } from '@/lib/merchant-companies'
 
 // ============================================================================
 // TYPES
@@ -437,6 +438,7 @@ function SchemeManagementPageContent() {
     card_type: '' as string,
     brand_type: '',
     card_classification: '',
+    merchant_slug: '',
     retailer_mdr_t1: 0,
     retailer_mdr_t0: 0,
     distributor_mdr_t1: 0,
@@ -510,7 +512,7 @@ function SchemeManagementPageContent() {
       } else if (type === 'payout') {
         setPayoutForm({ transfer_mode: editData.transfer_mode || 'IMPS', min_amount: editData.min_amount || 0, max_amount: editData.max_amount || 100000, retailer_charge: editData.retailer_charge || 0, retailer_charge_type: editData.retailer_charge_type || 'flat', retailer_commission: editData.retailer_commission || 0, retailer_commission_type: editData.retailer_commission_type || 'flat', distributor_commission: editData.distributor_commission || 0, distributor_commission_type: editData.distributor_commission_type || 'flat', md_commission: editData.md_commission || 0, md_commission_type: editData.md_commission_type || 'flat', company_charge: editData.company_charge || 0, company_charge_type: editData.company_charge_type || 'flat' })
       } else if (type === 'mdr') {
-        setMdrForm({ mode: editData.mode || 'CARD', card_type: editData.card_type || '', brand_type: editData.brand_type || '', card_classification: editData.card_classification || '', retailer_mdr_t1: editData.retailer_mdr_t1 || 0, retailer_mdr_t0: editData.retailer_mdr_t0 || 0, distributor_mdr_t1: editData.distributor_mdr_t1 || 0, distributor_mdr_t0: editData.distributor_mdr_t0 || 0, md_mdr_t1: editData.md_mdr_t1 || 0, md_mdr_t0: editData.md_mdr_t0 || 0, partner_mdr: editData.partner_mdr || 0 })
+        setMdrForm({ mode: editData.mode || 'CARD', card_type: editData.card_type || '', brand_type: editData.brand_type || '', card_classification: editData.card_classification || '', merchant_slug: editData.merchant_slug || '', retailer_mdr_t1: editData.retailer_mdr_t1 || 0, retailer_mdr_t0: editData.retailer_mdr_t0 || 0, distributor_mdr_t1: editData.distributor_mdr_t1 || 0, distributor_mdr_t0: editData.distributor_mdr_t0 || 0, md_mdr_t1: editData.md_mdr_t1 || 0, md_mdr_t0: editData.md_mdr_t0 || 0, partner_mdr: editData.partner_mdr || 0 })
       } else if (type === 'aeps') {
         setAepsForm({ transaction_type: editData.transaction_type || 'cash_withdrawal', min_amount: editData.min_amount || 0, max_amount: editData.max_amount || 100000, base_commission: editData.base_commission || 0, base_commission_type: editData.base_commission_type || 'percentage', company_earning: editData.company_earning || 0, company_earning_type: editData.company_earning_type || 'flat', md_commission: editData.md_commission || 0, md_commission_type: editData.md_commission_type || 'flat', distributor_commission: editData.distributor_commission || 0, distributor_commission_type: editData.distributor_commission_type || 'flat', retailer_commission: editData.retailer_commission || 0, retailer_commission_type: editData.retailer_commission_type || 'flat', tds_percentage: editData.tds_percentage ?? 5 })
       } else if (type === 'aeps_settlement') {
@@ -521,7 +523,7 @@ function SchemeManagementPageContent() {
     } else {
       setBbpsForm({ bbps_type: 'bbps_1', category: '', min_amount: 0, max_amount: 100000, retailer_charge: 0, retailer_charge_type: 'flat', retailer_commission: 0, retailer_commission_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat', company_charge: 0, company_charge_type: 'flat' })
       setPayoutForm({ transfer_mode: 'IMPS', min_amount: 0, max_amount: 100000, retailer_charge: 0, retailer_charge_type: 'flat', retailer_commission: 0, retailer_commission_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat', company_charge: 0, company_charge_type: 'flat' })
-      setMdrForm({ mode: 'CARD', card_type: '', brand_type: '', card_classification: '', retailer_mdr_t1: 0, retailer_mdr_t0: 0, distributor_mdr_t1: 0, distributor_mdr_t0: 0, md_mdr_t1: 0, md_mdr_t0: 0, partner_mdr: 0 })
+      setMdrForm({ mode: 'CARD', card_type: '', brand_type: '', card_classification: '', merchant_slug: '', retailer_mdr_t1: 0, retailer_mdr_t0: 0, distributor_mdr_t1: 0, distributor_mdr_t0: 0, md_mdr_t1: 0, md_mdr_t0: 0, partner_mdr: 0 })
       setAepsForm({ transaction_type: 'cash_withdrawal', min_amount: 0, max_amount: 100000, base_commission: 0, base_commission_type: 'percentage', company_earning: 0, company_earning_type: 'flat', md_commission: 0, md_commission_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', retailer_commission: 0, retailer_commission_type: 'flat', tds_percentage: 5 })
       setAepsSettleForm({ min_amount: 0, max_amount: 100000, retailer_charge: 0, retailer_charge_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat', company_charge: 0, company_charge_type: 'flat' })
       setShadvalSettleForm({ transfer_mode: 'IMPS', min_amount: 0, max_amount: 100000, retailer_charge: 0, retailer_charge_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat', company_charge: 0, company_charge_type: 'flat' })
@@ -587,6 +589,7 @@ function SchemeManagementPageContent() {
           card_type: mdrForm.card_type || null,
           brand_type: mdrForm.brand_type || null,
           card_classification: mdrForm.card_classification || null,
+          merchant_slug: mdrForm.merchant_slug || null,
         }
         if (isPartnerPlan) {
           configData.partner_mdr = mdrForm.retailer_mdr_t1
@@ -1167,6 +1170,7 @@ function SchemeManagementPageContent() {
                           <table className="w-full text-xs">
                             <thead>
                               <tr className="bg-orange-50 dark:bg-orange-900/20">
+                                <th className="px-2 py-1.5 text-left">Company</th>
                                 <th className="px-2 py-1.5 text-left">Mode</th>
                                 <th className="px-2 py-1.5 text-left">Card Type</th>
                                 <th className="px-2 py-1.5 text-left">Brand Type</th>
@@ -1191,6 +1195,7 @@ function SchemeManagementPageContent() {
                             <tbody>
                               {scheme.mdr_rates.map((r: any) => (
                                 <tr key={r.id} className="border-b border-gray-100 dark:border-gray-700">
+                                  <td className="px-2 py-1.5">{r.merchant_slug ? (getPosCompanies().find(c => c.slug === r.merchant_slug)?.shortName || r.merchant_slug) : 'All'}</td>
                                   <td className="px-2 py-1.5 font-medium">{r.mode}</td>
                                   <td className="px-2 py-1.5">{r.card_type || '-'}</td>
                                   <td className="px-2 py-1.5">{r.brand_type || '-'}</td>
@@ -1678,7 +1683,20 @@ function SchemeManagementPageContent() {
               {/* MDR Form */}
               {configType === 'mdr' && (
                 <div className="space-y-2">
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Company</label>
+                      <select
+                        value={mdrForm.merchant_slug}
+                        onChange={(e) => setMdrForm({ ...mdrForm, merchant_slug: e.target.value })}
+                        className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700"
+                      >
+                        <option value="">All Companies</option>
+                        {getPosCompanies().map((c) => (
+                          <option key={c.slug} value={c.slug}>{c.shortName}</option>
+                        ))}
+                      </select>
+                    </div>
                     <div>
                       <label className="block text-sm font-medium mb-1">Mode</label>
                       <select value={mdrForm.mode} onChange={(e) => {

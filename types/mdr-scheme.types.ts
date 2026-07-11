@@ -149,6 +149,8 @@ export interface SettlementCalculationInput {
   card_type?: CardType | null;
   brand_type?: string | null;
   card_classification?: string | null;
+  /** POS merchant company slug (ashvam, teachway, …); used for company-wise MDR */
+  merchant_slug?: string | null;
   retailer_id: string;
   distributor_id?: string | null;
 }

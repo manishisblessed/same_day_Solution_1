@@ -152,6 +152,7 @@ export async function POST(request: NextRequest) {
           card_type: txn.card_type?.toUpperCase() || null,
           brand_type: txn.card_brand || null,
           card_classification: txn.card_classification || null,
+          merchant_slug: txn.merchant_slug || null,
           retailer_id: retailerId,
           distributor_id: distributorId,
         })

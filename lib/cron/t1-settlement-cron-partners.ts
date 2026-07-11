@@ -120,7 +120,8 @@ async function runPartnerT1Settlement() {
               'T1',
               txn.payment_mode || 'CARD',
               txn.card_type,
-              txn.card_brand
+              txn.card_brand,
+              txn.merchant_slug || null
             )
 
             if (!mdrResult.success) {

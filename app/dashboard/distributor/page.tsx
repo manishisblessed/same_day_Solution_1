@@ -25,6 +25,7 @@ import POSMachinesTab from '@/components/POSMachinesTab'
 import DistributorSubscriptionsTab from '@/components/DistributorSubscriptionsTab'
 import TwoFactorSetup from '@/components/TwoFactorSetup'
 import ServiceTransactionReport from '@/components/ServiceTransactionReport'
+import { getPosCompanies } from '@/lib/merchant-companies'
 
 type TabType = 'dashboard' | 'services' | 'retailers' | 'wallet' | 'commission' | 'mdr-schemes' | 'analytics' | 'reports' | 'settings' | 'scheme-management' | 'pos-machines' | 'subscriptions'
 
@@ -3473,6 +3474,7 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
     card_type: '' as string,
     brand_type: '',
     card_classification: '',
+    merchant_slug: '',
     retailer_mdr_t1: 0,
     retailer_mdr_t0: 0,
     distributor_mdr_t1: 0,
@@ -3746,7 +3748,7 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
     // Reset forms
     setBbpsForm({ bbps_type: 'bbps_1', category: '', min_amount: 0, max_amount: 100000, retailer_charge: 0, retailer_charge_type: 'flat', retailer_commission: 0, retailer_commission_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat' })
     setPayoutForm({ transfer_mode: 'IMPS', min_amount: 0, max_amount: 100000, retailer_charge: 0, retailer_charge_type: 'flat', retailer_commission: 0, retailer_commission_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat' })
-    setMdrForm({ mode: 'CARD', card_type: '', brand_type: '', card_classification: '', retailer_mdr_t1: 0, retailer_mdr_t0: 0, distributor_mdr_t1: 0, distributor_mdr_t0: 0, md_mdr_t1: 0, md_mdr_t0: 0, partner_mdr: 0 })
+    setMdrForm({ mode: 'CARD', card_type: '', brand_type: '', card_classification: '', merchant_slug: '', retailer_mdr_t1: 0, retailer_mdr_t0: 0, distributor_mdr_t1: 0, distributor_mdr_t0: 0, md_mdr_t1: 0, md_mdr_t0: 0, partner_mdr: 0 })
     setAepsForm({ transaction_type: 'cash_withdrawal', min_amount: 0, max_amount: 100000, base_commission: 0, base_commission_type: 'percentage', company_earning: 0, company_earning_type: 'flat', md_commission: 0, md_commission_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', retailer_commission: 0, retailer_commission_type: 'flat', tds_percentage: 5 })
     setAepsSettleForm({ min_amount: 0, max_amount: 100000, retailer_charge: 0, retailer_charge_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat', company_charge: 0, company_charge_type: 'flat' })
     setShadvalSettleForm({ transfer_mode: 'IMPS', min_amount: 0, max_amount: 100000, retailer_charge: 0, retailer_charge_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat', company_charge: 0, company_charge_type: 'flat' })
@@ -3773,11 +3775,11 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
       } else if (configType === 'mdr') {
         const configScheme = schemes.find(s => s.id === configSchemeId)
         const isPartnerPlan = configScheme?.is_partner_plan || false
-        configData = { mode: mdrForm.mode, card_type: mdrForm.card_type || null, brand_type: mdrForm.brand_type || null, card_classification: mdrForm.card_classification || null }
+        configData = { mode: mdrForm.mode, card_type: mdrForm.card_type || null, brand_type: mdrForm.brand_type || null, card_classification: mdrForm.card_classification || null, merchant_slug: mdrForm.merchant_slug || null }
         if (isPartnerPlan) {
           configData.partner_mdr = mdrForm.partner_mdr; configData.retailer_mdr_t1 = 0; configData.retailer_mdr_t0 = 0; configData.distributor_mdr_t1 = 0; configData.distributor_mdr_t0 = 0; configData.md_mdr_t1 = 0; configData.md_mdr_t0 = 0
         } else {
-          configData.retailer_mdr_t1 = mdrForm.retailer_mdr_t1; configData.retailer_mdr_t0 = mdrForm.retailer_mdr_t0; configData.distributor_mdr_t1 = mdrForm.distributor_mdr_t1; configData.distributor_mdr_t0 = mdrForm.distributor_mdr_t0; configData.md_mdr_t1 = mdrForm.md_mdr_t1; configData.md_mdr_t0 = mdrForm.md_mdr_t0; configData.partner_mdr = null
+          configData.retailer_mdr_t1 = mdrForm.retailer_mdr_t1; configData.retailer_mdr_t0 = mdrForm.retailer_mdr_t0; configData.distributor_mdr_t1 = mdrForm.distributor_mdr_t1; configData.distributor_mdr_t0 = mdrForm.distributor_mdr_t0; configData.md_mdr_t1 = 0; configData.md_mdr_t0 = 0; configData.partner_mdr = null
         }
       } else if (configType === 'aeps') {
         configData = { ...aepsForm }
@@ -4112,6 +4114,7 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
                         <table className="w-full text-xs">
                           <thead>
                             <tr className="bg-orange-50 dark:bg-orange-900/20">
+                              <th className="px-2 py-1.5 text-left">Company</th>
                               <th className="px-2 py-1.5 text-left">Mode</th>
                               <th className="px-2 py-1.5 text-left">Card Type</th>
                               <th className="px-2 py-1.5 text-left">Brand</th>
@@ -4123,8 +4126,6 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
                                   <th className="px-2 py-1.5 text-right">Ret T+0</th>
                                   <th className="px-2 py-1.5 text-right">Dist T+1</th>
                                   <th className="px-2 py-1.5 text-right">Dist T+0</th>
-                                  <th className="px-2 py-1.5 text-right">MD T+1</th>
-                                  <th className="px-2 py-1.5 text-right">MD T+0</th>
                                 </>
                               )}
                               <th className="px-2 py-1.5"></th>
@@ -4133,6 +4134,7 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
                           <tbody>
                             {scheme.mdr_rates.map((c: any) => (
                               <tr key={c.id} className="border-b border-gray-100 dark:border-gray-700">
+                                <td className="px-2 py-1.5">{c.merchant_slug ? (getPosCompanies().find(p => p.slug === c.merchant_slug)?.shortName || c.merchant_slug) : 'All'}</td>
                                 <td className="px-2 py-1.5">{c.mode}</td>
                                 <td className="px-2 py-1.5">{c.card_type || '-'}</td>
                                 <td className="px-2 py-1.5">{c.brand_type || '-'}</td>
@@ -4144,8 +4146,6 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
                                     <td className="px-2 py-1.5 text-right">{c.retailer_mdr_t0}%</td>
                                     <td className="px-2 py-1.5 text-right">{c.distributor_mdr_t1}%</td>
                                     <td className="px-2 py-1.5 text-right">{c.distributor_mdr_t0}%</td>
-                                    <td className="px-2 py-1.5 text-right">{c.md_mdr_t1}%</td>
-                                    <td className="px-2 py-1.5 text-right">{c.md_mdr_t0}%</td>
                                   </>
                                 )}
                                 {!isAssigned && <td className="px-2 py-1.5 text-right">
@@ -4546,7 +4546,20 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
             {/* MDR Form */}
             {configType === 'mdr' && (
               <div className="space-y-2">
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Company</label>
+                    <select
+                      value={mdrForm.merchant_slug}
+                      onChange={(e) => setMdrForm({ ...mdrForm, merchant_slug: e.target.value })}
+                      className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700"
+                    >
+                      <option value="">All Companies</option>
+                      {getPosCompanies().map((c) => (
+                        <option key={c.slug} value={c.slug}>{c.shortName}</option>
+                      ))}
+                    </select>
+                  </div>
                   <div>
                     <label className="block text-sm font-medium mb-1">Mode</label>
                     <select value={mdrForm.mode} onChange={(e) => {
@@ -4681,21 +4694,6 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
                           <label className="block text-xs font-medium mb-1">Distributor MDR T+0 (%)</label>
                           <input type="number" step="0.01" value={mdrForm.distributor_mdr_t0}
                             onChange={(e) => setMdrForm({ ...mdrForm, distributor_mdr_t0: parseFloat(e.target.value) || 0 })}
-                            className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
-                        </div>
-                        <div>
-                          <label className="block text-xs font-medium mb-1">MD MDR T+1 (%)</label>
-                          <input type="number" step="0.01" value={mdrForm.md_mdr_t1}
-                            onChange={(e) => {
-                              const t1 = parseFloat(e.target.value) || 0
-                              setMdrForm({ ...mdrForm, md_mdr_t1: t1, md_mdr_t0: mdrForm.md_mdr_t0 === 0 ? t1 + 1 : mdrForm.md_mdr_t0 })
-                            }}
-                            className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
-                        </div>
-                        <div>
-                          <label className="block text-xs font-medium mb-1">MD MDR T+0 (%)</label>
-                          <input type="number" step="0.01" value={mdrForm.md_mdr_t0}
-                            onChange={(e) => setMdrForm({ ...mdrForm, md_mdr_t0: parseFloat(e.target.value) || 0 })}
                             className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
                         </div>
                       </div>

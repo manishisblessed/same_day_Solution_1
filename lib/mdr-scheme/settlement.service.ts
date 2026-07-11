@@ -33,8 +33,9 @@ export async function calculateMDR(
     const card_type = normalizeCardType(input.card_type || undefined);
     const brand_type = normalizeBrandType(input.brand_type || undefined);
     const card_classification = input.card_classification?.toUpperCase()?.trim() || null;
+    const merchant_slug = input.merchant_slug?.toLowerCase()?.trim() || null;
 
-    console.log(`[MDR] calculateMDR input: mode=${mode}, card_type=${card_type}, brand_type=${brand_type} (raw: ${input.brand_type}), classification=${card_classification}, settlement=${input.settlement_type}, retailer=${input.retailer_id}`);
+    console.log(`[MDR] calculateMDR input: mode=${mode}, card_type=${card_type}, brand_type=${brand_type} (raw: ${input.brand_type}), classification=${card_classification}, company=${merchant_slug || 'ALL'}, settlement=${input.settlement_type}, retailer=${input.retailer_id}`);
 
     let retailer_mdr: number | null = null;
     let distributor_mdr: number | null = null;
@@ -43,11 +44,12 @@ export async function calculateMDR(
 
     // ================================================================
     // Try NEW scheme management system first (scheme_mdr_rates)
-    // Enhanced with card_classification fallback chain:
-    //   1. Exact: mode + card_type + brand_type + card_classification
-    //   2. Without classification: mode + card_type + brand_type + classification=NULL
-    //   3. Without brand: mode + card_type + brand=NULL + classification=NULL
-    //   4. Without card_type: mode + card_type=NULL + brand=NULL + classification=NULL
+    // Enhanced with company + card_classification fallback chain:
+    //   For each company scope (specific company → NULL/all companies):
+    //     1. Exact: mode + card_type + brand_type + card_classification
+    //     2. Without classification: mode + card_type + brand_type
+    //     3. Without brand: mode + card_type
+    //     4. Mode only
     // ================================================================
     try {
       const supabase = getSupabaseAdmin();
@@ -84,7 +86,8 @@ export async function calculateMDR(
           m: string,
           ct: string | null,
           bt: string | null,
-          cc: string | null
+          cc: string | null,
+          company: string | null
         ) => {
           let q = supabase
             .from('scheme_mdr_rates')
@@ -101,38 +104,61 @@ export async function calculateMDR(
           
           if (cc) q = q.ilike('card_classification', cc);
           else q = q.is('card_classification', null);
+
+          if (company) q = q.eq('merchant_slug', company);
+          else q = q.is('merchant_slug', null);
           
           const { data } = await q.limit(1);
           return data && data.length > 0 ? data[0] : null;
         };
 
-        // Fallback chain: most specific → least specific
-        // Step 1: Exact match (mode + card_type + brand_type + card_classification)
-        if (card_type && brand_type && card_classification) {
-          mdrRate = await findMDRRate(resolved.scheme_id, mode, card_type, brand_type, card_classification);
-          if (mdrRate) console.log(`[MDR] Matched: ${mode}/${card_type}/${brand_type}/${card_classification}`);
-        }
+        const tryCardFallback = async (company: string | null) => {
+          // Step 1: Exact match (mode + card_type + brand_type + card_classification)
+          if (card_type && brand_type && card_classification) {
+            const hit = await findMDRRate(resolved.scheme_id, mode, card_type, brand_type, card_classification, company);
+            if (hit) {
+              console.log(`[MDR] Matched: company=${company || 'ALL'} ${mode}/${card_type}/${brand_type}/${card_classification}`);
+              return hit;
+            }
+          }
 
-        // Step 2: Without card_classification
-        if (!mdrRate && card_type && brand_type) {
-          mdrRate = await findMDRRate(resolved.scheme_id, mode, card_type, brand_type, null);
-          if (mdrRate) console.log(`[MDR] Fallback match: ${mode}/${card_type}/${brand_type}/ANY`);
-        }
+          // Step 2: Without card_classification
+          if (card_type && brand_type) {
+            const hit = await findMDRRate(resolved.scheme_id, mode, card_type, brand_type, null, company);
+            if (hit) {
+              console.log(`[MDR] Fallback match: company=${company || 'ALL'} ${mode}/${card_type}/${brand_type}/ANY`);
+              return hit;
+            }
+          }
 
-        // Step 3: Without brand_type (card_type only)
-        if (!mdrRate && card_type) {
-          mdrRate = await findMDRRate(resolved.scheme_id, mode, card_type, null, null);
-          if (mdrRate) console.log(`[MDR] Fallback match: ${mode}/${card_type}/ANY/ANY`);
-        }
+          // Step 3: Without brand_type (card_type only)
+          if (card_type) {
+            const hit = await findMDRRate(resolved.scheme_id, mode, card_type, null, null, company);
+            if (hit) {
+              console.log(`[MDR] Fallback match: company=${company || 'ALL'} ${mode}/${card_type}/ANY/ANY`);
+              return hit;
+            }
+          }
 
-        // Step 4: Mode only (most generic)
+          // Step 4: Mode only (most generic)
+          const hit = await findMDRRate(resolved.scheme_id, mode, null, null, null, company);
+          if (hit) {
+            console.log(`[MDR] Fallback match: company=${company || 'ALL'} ${mode}/ANY/ANY/ANY`);
+            return hit;
+          }
+          return null;
+        };
+
+        // Prefer company-specific rates, then fall back to all-companies (NULL) rows
+        if (merchant_slug) {
+          mdrRate = await tryCardFallback(merchant_slug);
+        }
         if (!mdrRate) {
-          mdrRate = await findMDRRate(resolved.scheme_id, mode, null, null, null);
-          if (mdrRate) console.log(`[MDR] Fallback match: ${mode}/ANY/ANY/ANY`);
+          mdrRate = await tryCardFallback(null);
         }
 
         if (!mdrRate) {
-          console.warn(`[MDR] No rate found in scheme "${resolved.scheme_name}" (${resolved.scheme_id}) for mode=${mode}, card_type=${card_type}, brand_type=${brand_type}, classification=${card_classification}. Falling back to legacy.`);
+          console.warn(`[MDR] No rate found in scheme "${resolved.scheme_name}" (${resolved.scheme_id}) for company=${merchant_slug || 'ALL'}, mode=${mode}, card_type=${card_type}, brand_type=${brand_type}, classification=${card_classification}. Falling back to legacy.`);
         }
 
         if (mdrRate) {
@@ -150,7 +176,7 @@ export async function calculateMDR(
           }
           usedSchemeId = resolved.scheme_id;
           usedSchemeType = (resolved.scheme_type === 'global' ? 'global' : 'custom') as 'global' | 'custom';
-          console.log(`[MDR] Scheme "${resolved.scheme_name}" resolved via ${resolved.resolved_via}, retailer_mdr: ${retailer_mdr}%, distributor_mdr: ${distributor_mdr}%, classification: ${card_classification || 'N/A'}`);
+          console.log(`[MDR] Scheme "${resolved.scheme_name}" resolved via ${resolved.resolved_via}, company=${mdrRate.merchant_slug || 'ALL'}, retailer_mdr: ${retailer_mdr}%, distributor_mdr: ${distributor_mdr}%, classification: ${card_classification || 'N/A'}`);
         }
       }
     } catch (newSchemeErr) {
@@ -558,7 +584,8 @@ export async function calculatePartnerMDR(
   settlementType: SettlementType,
   mode: string,
   cardType?: string,
-  brandType?: string
+  brandType?: string,
+  merchantSlug?: string | null
 ): Promise<{
   success: boolean;
   partner_mdr?: number;
@@ -572,9 +599,10 @@ export async function calculatePartnerMDR(
     const normalizedMode = normalizePaymentMode(mode);
     const normalizedCardType = normalizeCardType(cardType || undefined);
     const normalizedBrandType = normalizeBrandType(brandType || undefined);
+    const merchant_slug = merchantSlug?.toLowerCase()?.trim() || null;
 
     console.log(
-      `[Partner MDR] Calculating for partner=${partnerId}, amount=${amount}, mode=${normalizedMode}, card_type=${normalizedCardType}, brand_type=${normalizedBrandType}, settlement=${settlementType}`
+      `[Partner MDR] Calculating for partner=${partnerId}, amount=${amount}, mode=${normalizedMode}, card_type=${normalizedCardType}, brand_type=${normalizedBrandType}, company=${merchant_slug || 'ALL'}, settlement=${settlementType}`
     );
 
     const supabase = getSupabaseAdmin();
@@ -632,19 +660,27 @@ export async function calculatePartnerMDR(
         });
         if (schemeResult && schemeResult.length > 0) {
           const resolved = schemeResult[0];
-          const { data: mdrRates } = await supabase
-            .from('scheme_mdr_rates')
-            .select('*')
-            .eq('scheme_id', resolved.scheme_id)
-            .eq('status', 'active')
-            .eq('mode', normalizedMode)
-            .not('partner_mdr', 'is', null)
-            .limit(1);
-          if (mdrRates && mdrRates.length > 0) {
-            const rate = mdrRates[0];
+          const findPartnerRate = async (company: string | null) => {
+            let q = supabase
+              .from('scheme_mdr_rates')
+              .select('*')
+              .eq('scheme_id', resolved.scheme_id)
+              .eq('status', 'active')
+              .eq('mode', normalizedMode)
+              .not('partner_mdr', 'is', null);
+            if (company) q = q.eq('merchant_slug', company);
+            else q = q.is('merchant_slug', null);
+            const { data } = await q.limit(1);
+            return data && data.length > 0 ? data[0] : null;
+          };
+
+          let rate = merchant_slug ? await findPartnerRate(merchant_slug) : null;
+          if (!rate) rate = await findPartnerRate(null);
+
+          if (rate) {
             const resolvedMdr = parseFloat(rate.partner_mdr);
             const partnerFee = Number(((amount * resolvedMdr) / 100).toFixed(4));
-            console.log(`[Partner MDR] Resolved from scheme_mdr_rates partner_mdr: ${resolvedMdr}%`);
+            console.log(`[Partner MDR] Resolved from scheme_mdr_rates partner_mdr: ${resolvedMdr}% (company=${rate.merchant_slug || 'ALL'})`);
             return {
               success: true,
               partner_mdr: resolvedMdr,

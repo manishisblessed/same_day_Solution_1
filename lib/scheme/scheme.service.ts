@@ -268,6 +268,8 @@ export async function upsertMDRRate(
       mode: input.mode,
       card_type: input.card_type || null,
       brand_type: input.brand_type || null,
+      card_classification: input.card_classification || null,
+      merchant_slug: input.merchant_slug || null,
       retailer_mdr_t1: input.retailer_mdr_t1,
       retailer_mdr_t0: input.retailer_mdr_t0,
       distributor_mdr_t1: input.distributor_mdr_t1,

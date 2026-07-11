@@ -124,6 +124,8 @@ export interface SchemeMDRRate {
   card_type: CardType | null;
   brand_type: string | null;
   card_classification: string | null; // PLATINUM, GOLD, CLASSIC, BUSINESS, STANDARD, etc.
+  /** POS company slug; null = all companies (legacy default) */
+  merchant_slug: string | null;
   
   retailer_mdr_t1: number;
   retailer_mdr_t0: number;
@@ -339,6 +341,8 @@ export interface CreateMDRRateInput {
   card_type?: CardType;
   brand_type?: string;
   card_classification?: string; // PLATINUM, GOLD, CLASSIC, BUSINESS, etc.
+  /** POS company slug; omit/null = all companies */
+  merchant_slug?: string | null;
   retailer_mdr_t1: number;
   retailer_mdr_t0: number;
   distributor_mdr_t1: number;

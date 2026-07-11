@@ -2725,26 +2725,6 @@ function MDRSchemesTab({ user }: { user: any }) {
                     </div>
                   </div>
 
-                  <div className="bg-gray-100 dark:bg-gray-700 rounded-lg p-3">
-                    <p className="text-xs text-gray-600 dark:text-gray-400 mb-1">Distributor MDR</p>
-                    <div className="flex justify-between text-sm">
-                      <span className="text-gray-700 dark:text-gray-300">
-                        T+1: {scheme.distributor_mdr_t1 !== null && scheme.distributor_mdr_t1 !== undefined 
-                          ? `${scheme.distributor_mdr_t1}%` 
-                          : scheme.dt_mdr_t1 !== null && scheme.dt_mdr_t1 !== undefined 
-                          ? `${scheme.dt_mdr_t1}%` 
-                          : 'N/A'}
-                      </span>
-                      <span className="text-gray-700 dark:text-gray-300">
-                        T+0: {scheme.distributor_mdr_t0 !== null && scheme.distributor_mdr_t0 !== undefined 
-                          ? `${scheme.distributor_mdr_t0}%` 
-                          : scheme.dt_mdr_t0 !== null && scheme.dt_mdr_t0 !== undefined 
-                          ? `${scheme.dt_mdr_t0}%` 
-                          : 'N/A'}
-                      </span>
-                    </div>
-                  </div>
-
                   {/* Additional Details */}
                   {(scheme.effective_date || scheme.card_type || scheme.brand_type) && (
                     <div className="bg-white dark:bg-gray-700 rounded-lg p-3 border border-gray-200 dark:border-gray-600">
