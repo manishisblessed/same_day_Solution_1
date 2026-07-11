@@ -1,4 +1,4 @@
-import type { Browser, PDFOptions } from 'puppeteer'
+import type { Browser, PDFOptions } from 'puppeteer-core'
 
 /**
  * HTML → PDF rendering via Puppeteer (headless Chrome).
@@ -41,7 +41,8 @@ async function launchBrowser(): Promise<Browser> {
   }
 
   // EC2 / local / Docker: full puppeteer with its managed Chrome
-  const puppeteer = (await import('puppeteer')).default
+  // Dynamic require avoids webpack bundling this dev-only dependency (Amplify SSR uses puppeteer-core)
+  const puppeteer = (await import(/* webpackIgnore: true */ 'puppeteer')).default
   return puppeteer.launch({
     headless: true,
     executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
