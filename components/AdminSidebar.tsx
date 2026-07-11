@@ -5,7 +5,7 @@ import { usePathname, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { 
   LayoutDashboard, Users, Package, Crown, 
-  BarChart3, Settings,
+  Settings,
   Activity, X, Menu, CreditCard, Receipt, CheckCircle2,
   Building2, FileBarChart, Layers, Key, Timer, History, Repeat, ScrollText, Wallet,
   Fingerprint, Server, TrendingUp, Scale
@@ -37,8 +37,8 @@ const sidebarItems: SidebarItem[] = [
   { id: 'pos-partner-api', label: 'POS Partner API', icon: Key, href: '/admin?tab=pos-partner-api' },
   { id: 'services', label: 'Services', icon: Activity, href: '/admin?tab=services' },
   { id: 'aeps', label: 'AEPS Management', icon: Fingerprint, href: '/admin?tab=aeps' },
-  { id: 'reports', label: 'Reports', icon: FileBarChart, href: '/admin?tab=reports' },
-  { id: 'business-report', label: 'Business Report', icon: BarChart3, href: '/admin/business-report' },
+  { id: 'reports', label: 'Reports & Analytics', icon: FileBarChart, href: '/admin?tab=reports' },
+  { id: 'service-transaction-report', label: 'Service Transaction Report', icon: FileBarChart, href: '/admin?tab=service-transaction-report' },
   { id: 'settlement', label: 'Settlement', icon: Timer, href: '/admin?tab=settlement' },
   { id: 'revenue-wallet', label: 'Revenue Wallet', icon: Wallet, href: '/admin?tab=revenue-wallet' },
   { id: 'wallet-ledger', label: 'Wallet ledger', icon: ScrollText, href: '/admin?tab=wallet-ledger' },

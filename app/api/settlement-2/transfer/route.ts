@@ -81,6 +81,16 @@ export async function POST(request: NextRequest) {
       return addCorsHeaders(request, response)
     }
 
+    // SameDay hard limit: max ₹1,00,000 per transaction
+    const MAX_PER_TXN = 100000
+    if (amountNum > MAX_PER_TXN) {
+      const response = NextResponse.json(
+        { success: false, error: `Maximum transaction amount is ₹1,00,000. Please split into smaller transfers.` },
+        { status: 400 }
+      )
+      return addCorsHeaders(request, response)
+    }
+
     const validModes = ['IMPS', 'NEFT', 'RTGS']
     if (!validModes.includes(mode)) {
       const response = NextResponse.json({ success: false, error: 'Invalid transfer mode' }, { status: 400 })
@@ -101,6 +111,34 @@ export async function POST(request: NextRequest) {
       const response = NextResponse.json(
         { success: false, error: 'Verified account not found' },
         { status: 404 }
+      )
+      return addCorsHeaders(request, response)
+    }
+
+    // SameDay hard limit: max ₹10,00,000 settled to one account per day
+    const MAX_PER_ACCOUNT_DAILY = 1000000
+    const todayStart = new Date()
+    todayStart.setHours(0, 0, 0, 0)
+    const { data: dailyRows } = await supabaseAdmin
+      .from('shadval_settlement')
+      .select('amount')
+      .eq('account_number', account.account_number)
+      .gte('created_at', todayStart.toISOString())
+      .in('status', ['SUCCESS', 'PENDING'])
+
+    const dailySettled = (dailyRows || []).reduce(
+      (sum, r) => sum + parseFloat(String(r.amount || 0)), 0
+    )
+    if (dailySettled + amountNum > MAX_PER_ACCOUNT_DAILY) {
+      const remaining = MAX_PER_ACCOUNT_DAILY - dailySettled
+      const response = NextResponse.json(
+        {
+          success: false,
+          error: `Daily settlement limit of ₹10,00,000 per account reached. Already settled: ₹${dailySettled.toLocaleString('en-IN')}. Remaining: ₹${Math.max(0, remaining).toLocaleString('en-IN')}.`,
+          daily_settled: dailySettled,
+          daily_remaining: Math.max(0, remaining),
+        },
+        { status: 400 }
       )
       return addCorsHeaders(request, response)
     }

@@ -7,7 +7,7 @@ export const dynamic = 'force-dynamic'
 
 const VALID_SERVICES = [
   'banking_payments', 'mini_atm_pos', 'aeps', 'aadhaar_pay', 'dmt',
-  'bbps', 'bbps2', 'recharge', 'travel', 'cash_management', 'lic', 'insurance',
+  'bbps', 'bbps2', 'credit_card2', 'recharge', 'travel', 'cash_management', 'lic', 'insurance',
   'government', 'doorstep_banking', 'settlement', 'settlement2'
 ] as const
 

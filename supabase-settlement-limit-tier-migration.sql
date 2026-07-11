@@ -2,14 +2,15 @@
 -- SETTLEMENT LIMIT TIER MIGRATION
 -- ============================================================================
 -- Adds settlement_limit_tier column to retailers table
--- Default: 100000 (all retailers can settle up to ₹1,00,000)
--- Admin can enable: 150000 or 200000 for specific retailers
+-- Default: 100000 (all retailers can settle up to ₹1,00,000 per txn)
+-- Admin can set: 50000 or 75000 to restrict specific retailers
+-- Shadval policy: max ₹1,00,000 per txn, max ₹10,00,000 per account/day
 -- ============================================================================
 
 -- Add settlement_limit_tier column to retailers table
 ALTER TABLE retailers 
 ADD COLUMN IF NOT EXISTS settlement_limit_tier DECIMAL(12, 2) DEFAULT 100000 
-CHECK (settlement_limit_tier IN (100000, 150000, 200000));
+CHECK (settlement_limit_tier IN (50000, 75000, 100000));
 
 -- Set default value for existing retailers (if column was just added)
 UPDATE retailers 

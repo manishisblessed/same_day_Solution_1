@@ -169,7 +169,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Validate departments array
-    const validDepartments = ['dashboard', 'pos-transactions', 'retailers', 'distributors', 'master-distributors', 'scheme-management', 'partners', 'pos-machines', 'pos-history', 'pos-tracking-report', 'pos-rental-report', 'pos-partner-api', 'razorpay-transactions', 'services', 'aeps', 'reports', 'business-report', 'settlement', 'revenue-wallet', 'wallet-ledger', 'wallet', 'commission', 'mdr', 'limits', 'reversals', 'disputes', 'users', 'performance', 'subscriptions', 'portal-management', 'legal-agreements', 'settings', 'all']
+    const validDepartments = ['dashboard', 'pos-transactions', 'retailers', 'distributors', 'master-distributors', 'scheme-management', 'partners', 'pos-machines', 'pos-history', 'pos-tracking-report', 'pos-rental-report', 'pos-partner-api', 'razorpay-transactions', 'services', 'aeps', 'reports', 'service-transaction-report', 'business-report', 'settlement', 'revenue-wallet', 'wallet-ledger', 'wallet', 'commission', 'mdr', 'limits', 'reversals', 'disputes', 'users', 'performance', 'subscriptions', 'portal-management', 'legal-agreements', 'settings', 'all']
     if (!departments || !Array.isArray(departments) || departments.length === 0) {
       const response = NextResponse.json(
         { error: 'At least one department must be selected' },
@@ -364,7 +364,7 @@ export async function PUT(request: NextRequest) {
         )
         return addCorsHeaders(request, response)
       }
-      const validDepartments = ['dashboard', 'pos-transactions', 'retailers', 'distributors', 'master-distributors', 'scheme-management', 'partners', 'pos-machines', 'pos-history', 'pos-tracking-report', 'pos-rental-report', 'pos-partner-api', 'razorpay-transactions', 'services', 'aeps', 'reports', 'business-report', 'settlement', 'revenue-wallet', 'wallet-ledger', 'wallet', 'commission', 'mdr', 'limits', 'reversals', 'disputes', 'users', 'performance', 'subscriptions', 'portal-management', 'legal-agreements', 'settings', 'all']
+      const validDepartments = ['dashboard', 'pos-transactions', 'retailers', 'distributors', 'master-distributors', 'scheme-management', 'partners', 'pos-machines', 'pos-history', 'pos-tracking-report', 'pos-rental-report', 'pos-partner-api', 'razorpay-transactions', 'services', 'aeps', 'reports', 'service-transaction-report', 'business-report', 'settlement', 'revenue-wallet', 'wallet-ledger', 'wallet', 'commission', 'mdr', 'limits', 'reversals', 'disputes', 'users', 'performance', 'subscriptions', 'portal-management', 'legal-agreements', 'settings', 'all']
       for (const dept of departments) {
         if (!validDepartments.includes(dept)) {
           const response = NextResponse.json(

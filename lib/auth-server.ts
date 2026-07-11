@@ -6,6 +6,29 @@ import { AuthUser } from '@/types/database.types'
 import { ReadonlyRequestCookies } from 'next/dist/server/web/spec-extension/adapters/request-cookies'
 
 /**
+ * Thrown when auth fails due to a transient network issue (e.g. Supabase timeout).
+ * Routes should catch this and return 503 instead of 401 to avoid triggering
+ * the client-side session-expired logout flow.
+ */
+export class AuthNetworkError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'AuthNetworkError'
+  }
+}
+
+function isNetworkError(err: any): boolean {
+  if (!err) return false
+  const msg = (err.message || err.code || '').toLowerCase()
+  return msg.includes('fetch failed') ||
+    msg.includes('connect timeout') ||
+    msg.includes('und_err_connect_timeout') ||
+    msg.includes('econnrefused') ||
+    msg.includes('enotfound') ||
+    msg.includes('network')
+}
+
+/**
  * Get a service-role Supabase client that bypasses RLS.
  * Used for role lookups so admin_users is always readable.
  */
@@ -35,6 +58,17 @@ async function getUserRole(_supabase: any, email: string, userId: string): Promi
     supabase.from('finance_users').select('*').eq('email', email).eq('is_active', true).maybeSingle(),
     supabase.from('partners').select('*').eq('email', email).eq('status', 'active').maybeSingle(),
   ])
+
+  // If ALL queries returned errors, it's likely a network outage — throw so
+  // the caller can return 500/503 instead of 401.
+  const results = [retailer, distributor, masterDistributor, admin, finance, partner]
+  const allFailed = results.every(r => r.error && !r.data)
+  if (allFailed) {
+    const sampleMsg = results.find(r => r.error)?.error?.message || 'All role lookups failed'
+    if (isNetworkError({ message: sampleMsg })) {
+      throw new AuthNetworkError(sampleMsg)
+    }
+  }
 
   // Check admin_users FIRST — admin is the highest privilege level and must
   // take precedence when the same email exists in multiple tables.
@@ -155,17 +189,25 @@ export async function getCurrentUserServer(
     const { data: { session }, error: sessionError } = await supabase.auth.getSession()
     
     if (sessionError || !session) {
+      if (sessionError && isNetworkError(sessionError)) {
+        throw new AuthNetworkError(sessionError.message)
+      }
       return null
     }
 
     const { data: { user }, error } = await supabase.auth.getUser()
     
     if (error || !user) {
+      if (error && isNetworkError(error)) {
+        throw new AuthNetworkError(error.message)
+      }
       return null
     }
 
     return await getUserRole(supabase, user.email!, user.id)
-  } catch {
+  } catch (err: any) {
+    if (err instanceof AuthNetworkError) throw err
+    if (isNetworkError(err)) throw new AuthNetworkError(err.message)
     return null
   }
 }
@@ -206,6 +248,9 @@ export async function getCurrentUserFromToken(
     const { data: { user }, error } = await supabase.auth.getUser(token)
     
     if (error || !user || !user.email) {
+      if (error && isNetworkError(error)) {
+        throw new AuthNetworkError(error.message)
+      }
       console.error('[Auth] Token verification failed:', error?.message || 'No user/email')
       return null
     }
@@ -216,6 +261,10 @@ export async function getCurrentUserFromToken(
     }
     return roleUser
   } catch (err: any) {
+    if (err instanceof AuthNetworkError) throw err
+    if (isNetworkError(err)) {
+      throw new AuthNetworkError(err.message)
+    }
     console.error('[Auth] getCurrentUserFromToken exception:', err?.message)
     return null
   }
@@ -225,18 +274,32 @@ export async function getCurrentUserFromToken(
  * Get current user with multiple fallback methods
  * 1. Try cookies (standard web flow)
  * 2. Try Authorization header (API/mobile flow)
+ *
+ * Throws AuthNetworkError when auth fails due to network issues so routes
+ * can respond with 503 instead of 401 (avoiding false session-expired logouts).
  */
 export async function getCurrentUserWithFallback(
   request: NextRequest
 ): Promise<{ user: AuthUser | null; method: 'cookies' | 'token' | 'none' }> {
+  let networkError: AuthNetworkError | null = null
+
   // First try Authorization header (more reliable for API routes)
   const authHeader = request.headers.get('authorization')
   if (authHeader && authHeader.startsWith('Bearer ')) {
-    const tokenUser = await getCurrentUserFromToken(authHeader)
-    if (tokenUser) {
-      return { user: tokenUser, method: 'token' }
+    try {
+      const tokenUser = await getCurrentUserFromToken(authHeader)
+      if (tokenUser) {
+        return { user: tokenUser, method: 'token' }
+      }
+      console.warn('[Auth] Bearer token present but auth failed, falling back to cookies')
+    } catch (err: any) {
+      if (err instanceof AuthNetworkError) {
+        networkError = err
+        console.warn('[Auth] Token auth hit network error, falling back to cookies')
+      } else {
+        throw err
+      }
     }
-    console.warn('[Auth] Bearer token present but auth failed, falling back to cookies')
   } else {
     console.warn('[Auth] No Authorization header, trying cookies')
   }
@@ -248,7 +311,17 @@ export async function getCurrentUserWithFallback(
     }
     console.warn('[Auth] Cookie auth also failed')
   } catch (err: any) {
-    console.error('[Auth] Cookie auth threw:', err?.message)
+    if (isNetworkError(err)) {
+      networkError = new AuthNetworkError(err.message)
+    } else {
+      console.error('[Auth] Cookie auth threw:', err?.message)
+    }
+  }
+
+  // If both methods failed due to network issues, throw so the route
+  // returns 503 rather than 401 (which would trigger client logout).
+  if (networkError) {
+    throw networkError
   }
 
   return { user: null, method: 'none' }

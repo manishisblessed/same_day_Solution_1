@@ -42,9 +42,9 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    if (![100000, 150000, 200000].includes(settlement_limit_tier)) {
+    if (![50000, 75000, 100000].includes(settlement_limit_tier)) {
       return NextResponse.json(
-        { error: 'settlement_limit_tier must be 100000, 150000, or 200000' },
+        { error: 'settlement_limit_tier must be 50000, 75000, or 100000 (max ₹1,00,000 per Shadval policy)' },
         { status: 400 }
       )
     }

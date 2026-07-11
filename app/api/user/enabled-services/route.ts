@@ -13,6 +13,7 @@ const SERVICE_KEYS = [
   'dmt',
   'bbps',
   'bbps2',
+  'credit_card2',
   'recharge',
   'travel',
   'cash_management',

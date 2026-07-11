@@ -34,11 +34,12 @@ import POSMachineHistoryTab from '@/components/POSMachineHistoryTab'
 import POSTrackingReport from '@/components/POSTrackingReport'
 import AdminSubscriptionsTab from '@/components/AdminSubscriptionsTab'
 import AdminWalletLedgerTab from '@/components/AdminWalletLedgerTab'
+import AdminCumulativeWalletBalances from '@/components/AdminCumulativeWalletBalances'
 import AdminRevenueWalletTab from '@/components/AdminRevenueWalletTab'
 import AdminAEPSManagement from '@/components/admin/AdminAEPSManagement'
 import PortalManagementTab from '@/components/admin/PortalManagementTab'
 
-type TabType = 'dashboard' | 'retailers' | 'distributors' | 'master-distributors' | 'services' | 'pos-machines' | 'pos-history' | 'pos-tracking-report' | 'transactions' | 'partners' | 'pos-partner-api' | 'reports' | 'settlement' | 'revenue-wallet' | 'performance' | 'subscriptions' | 'wallet-ledger' | 'aeps' | 'portal-management'
+type TabType = 'dashboard' | 'retailers' | 'distributors' | 'master-distributors' | 'services' | 'pos-machines' | 'pos-history' | 'pos-tracking-report' | 'transactions' | 'partners' | 'pos-partner-api' | 'reports' | 'service-transaction-report' | 'settlement' | 'revenue-wallet' | 'performance' | 'subscriptions' | 'wallet-ledger' | 'aeps' | 'portal-management'
 type SortField = 'name' | 'email' | 'partner_id' | 'created_at' | 'status'
 type SortDirection = 'asc' | 'desc'
 
@@ -58,7 +59,7 @@ function AdminDashboardContent() {
   // Initialize activeTab from URL or default to 'dashboard'
   const getInitialTab = (): TabType => {
     const tab = searchParams?.get('tab')
-    if (tab && ['dashboard', 'retailers', 'distributors', 'master-distributors', 'pos-machines', 'pos-history', 'pos-tracking-report', 'pos-partner-api', 'services', 'transactions', 'partners', 'reports', 'settlement', 'revenue-wallet', 'performance', 'subscriptions', 'wallet-ledger', 'aeps', 'portal-management'].includes(tab)) {
+    if (tab && ['dashboard', 'retailers', 'distributors', 'master-distributors', 'pos-machines', 'pos-history', 'pos-tracking-report', 'pos-partner-api', 'services', 'transactions', 'partners', 'reports', 'service-transaction-report', 'settlement', 'revenue-wallet', 'performance', 'subscriptions', 'wallet-ledger', 'aeps', 'portal-management'].includes(tab)) {
       return tab as TabType
     }
     return 'dashboard'
@@ -91,7 +92,7 @@ function AdminDashboardContent() {
   const [updatingLimit, setUpdatingLimit] = useState(false)
   const [showSettlementLimitModal, setShowSettlementLimitModal] = useState(false)
   const [selectedRetailerForSettlementLimit, setSelectedRetailerForSettlementLimit] = useState<any>(null)
-  const [settlementLimitTier, setSettlementLimitTier] = useState<100000 | 150000 | 200000>(100000)
+  const [settlementLimitTier, setSettlementLimitTier] = useState<50000 | 75000 | 100000>(100000)
   const [updatingSettlementLimit, setUpdatingSettlementLimit] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive' | 'suspended'>('all')
@@ -132,7 +133,7 @@ function AdminDashboardContent() {
   // Sync activeTab with URL query params
   useEffect(() => {
     const tab = searchParams?.get('tab')
-    if (tab && ['dashboard', 'retailers', 'distributors', 'master-distributors', 'pos-machines', 'pos-history', 'pos-tracking-report', 'pos-partner-api', 'services', 'transactions', 'partners', 'reports', 'settlement', 'revenue-wallet', 'performance', 'subscriptions', 'wallet-ledger', 'aeps', 'portal-management'].includes(tab)) {
+    if (tab && ['dashboard', 'retailers', 'distributors', 'master-distributors', 'pos-machines', 'pos-history', 'pos-tracking-report', 'pos-partner-api', 'services', 'transactions', 'partners', 'reports', 'service-transaction-report', 'settlement', 'revenue-wallet', 'performance', 'subscriptions', 'wallet-ledger', 'aeps', 'portal-management'].includes(tab)) {
       if (tab !== activeTab) {
         setActiveTab(tab as TabType)
       }
@@ -593,6 +594,8 @@ function AdminDashboardContent() {
             <PartnersTab />
           ) : activeTab === 'reports' ? (
             <ReportsTab />
+          ) : activeTab === 'service-transaction-report' ? (
+            <ServiceTransactionReport userRole="admin" />
           ) : activeTab === 'settlement' ? (
             <div className="space-y-8">
               <T1SettlementControl />
@@ -1604,34 +1607,34 @@ function AdminDashboardContent() {
                     <input
                       type="radio"
                       name="settlement_limit_tier"
-                      value="150000"
-                      checked={settlementLimitTier === 150000}
-                      onChange={() => setSettlementLimitTier(150000)}
+                      value="75000"
+                      checked={settlementLimitTier === 75000}
+                      onChange={() => setSettlementLimitTier(75000)}
                       className="mr-3"
                     />
                     <div className="flex-1">
-                      <div className="font-medium text-gray-900 dark:text-white">₹1,50,000</div>
-                      <div className="text-xs text-gray-500 dark:text-gray-400">Higher limit - ensure scheme charges are configured</div>
+                      <div className="font-medium text-gray-900 dark:text-white">₹75,000</div>
+                      <div className="text-xs text-gray-500 dark:text-gray-400">Intermediate limit for trusted retailers</div>
                     </div>
                   </label>
                   <label className="flex items-center p-3 border rounded-lg cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
                     <input
                       type="radio"
                       name="settlement_limit_tier"
-                      value="200000"
-                      checked={settlementLimitTier === 200000}
-                      onChange={() => setSettlementLimitTier(200000)}
+                      value="50000"
+                      checked={settlementLimitTier === 50000}
+                      onChange={() => setSettlementLimitTier(50000)}
                       className="mr-3"
                     />
                     <div className="flex-1">
-                      <div className="font-medium text-gray-900 dark:text-white">₹2,00,000</div>
-                      <div className="text-xs text-gray-500 dark:text-gray-400">Maximum limit - ensure scheme charges are configured</div>
+                      <div className="font-medium text-gray-900 dark:text-white">₹50,000</div>
+                      <div className="text-xs text-gray-500 dark:text-gray-400">Restricted limit for new retailers</div>
                     </div>
                   </label>
                 </div>
                 <div className="mt-3 p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg">
                   <p className="text-xs text-yellow-800 dark:text-yellow-300">
-                    <strong>Note:</strong> For limits above ₹1,00,000, ensure the retailer's scheme has charges configured for the higher amount ranges.
+                    <strong>SameDay Policy:</strong> Max ₹1,00,000 per transaction. Max ₹10,00,000 per account per day.
                   </p>
                 </div>
               </div>
@@ -2106,118 +2109,8 @@ function AdminDashboardOverview({
         </div>
       </div>
 
-      {/* Financial KPIs - Premium Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="relative overflow-hidden bg-gradient-to-br from-blue-600 via-blue-700 to-indigo-800 rounded-2xl p-6 text-white shadow-xl"
-        >
-          <div className="absolute top-0 right-0 -mt-4 -mr-4 w-24 h-24 bg-white/10 rounded-full blur-2xl"></div>
-          <div className="absolute bottom-0 left-0 -mb-4 -ml-4 w-32 h-32 bg-white/5 rounded-full blur-3xl"></div>
-          <div className="relative z-10">
-            <div className="flex items-center justify-between mb-4">
-              <div className="p-3 bg-white/20 rounded-xl backdrop-blur-sm">
-                <IndianRupee className="w-6 h-6" />
-              </div>
-              <span className="text-xs font-medium bg-white/20 px-2 py-1 rounded-full">
-                {selectedPeriod.toUpperCase()}
-              </span>
-            </div>
-            <p className="text-sm text-blue-100 mb-1">Transaction Volume</p>
-            <p className="text-3xl font-bold tracking-tight">
-              {loading ? '...' : formatCurrency(analyticsData.totalTransactionVolume)}
-            </p>
-            <div className="mt-3 flex items-center gap-1 text-xs text-blue-200">
-              <TrendingUp className="w-3 h-3" />
-              <span>All successful transactions</span>
-            </div>
-          </div>
-        </motion.div>
-
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.1 }}
-          className="relative overflow-hidden bg-gradient-to-br from-emerald-600 via-emerald-700 to-teal-800 rounded-2xl p-6 text-white shadow-xl"
-        >
-          <div className="absolute top-0 right-0 -mt-4 -mr-4 w-24 h-24 bg-white/10 rounded-full blur-2xl"></div>
-          <div className="relative z-10">
-            <div className="flex items-center justify-between mb-4">
-              <div className="p-3 bg-white/20 rounded-xl backdrop-blur-sm">
-                <Users className="w-6 h-6" />
-              </div>
-              <CheckCircle2 className="w-5 h-5 text-emerald-200" />
-            </div>
-            <p className="text-sm text-emerald-100 mb-1">Active Partners</p>
-            <p className="text-3xl font-bold tracking-tight">
-              {loading ? '...' : analyticsData.activePartners.toLocaleString()}
-            </p>
-            <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
-              <div className="bg-white/10 rounded-lg px-2 py-1 text-center">
-                <p className="font-semibold">{analyticsData.activeRetailers}</p>
-                <p className="text-emerald-200">Retailers</p>
-              </div>
-              <div className="bg-white/10 rounded-lg px-2 py-1 text-center">
-                <p className="font-semibold">{analyticsData.activeDistributors}</p>
-                <p className="text-emerald-200">Dist.</p>
-              </div>
-              <div className="bg-white/10 rounded-lg px-2 py-1 text-center">
-                <p className="font-semibold">{analyticsData.activeMasterDistributors}</p>
-                <p className="text-emerald-200">MD</p>
-              </div>
-            </div>
-          </div>
-        </motion.div>
-
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.2 }}
-          className="relative overflow-hidden bg-gradient-to-br from-amber-500 via-orange-600 to-red-600 rounded-2xl p-6 text-white shadow-xl"
-        >
-          <div className="absolute top-0 right-0 -mt-4 -mr-4 w-24 h-24 bg-white/10 rounded-full blur-2xl"></div>
-          <div className="relative z-10">
-            <div className="flex items-center justify-between mb-4">
-              <div className="p-3 bg-white/20 rounded-xl backdrop-blur-sm">
-                <AlertTriangle className="w-6 h-6" />
-              </div>
-              <Clock className="w-5 h-5 text-amber-200" />
-            </div>
-            <p className="text-sm text-amber-100 mb-1">Pending Verifications</p>
-            <p className="text-3xl font-bold tracking-tight">
-              {loading ? '...' : analyticsData.pendingVerifications}
-            </p>
-            <div className="mt-3 text-xs text-amber-200">
-              <span>Requires attention</span>
-            </div>
-          </div>
-        </motion.div>
-
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.3 }}
-          className="relative overflow-hidden bg-gradient-to-br from-purple-600 via-purple-700 to-pink-700 rounded-2xl p-6 text-white shadow-xl"
-        >
-          <div className="absolute top-0 right-0 -mt-4 -mr-4 w-24 h-24 bg-white/10 rounded-full blur-2xl"></div>
-          <div className="relative z-10">
-            <div className="flex items-center justify-between mb-4">
-              <div className="p-3 bg-white/20 rounded-xl backdrop-blur-sm">
-                <CreditCard className="w-6 h-6" />
-              </div>
-              <Zap className="w-5 h-5 text-purple-200" />
-            </div>
-            <p className="text-sm text-purple-100 mb-1">Total POS Machines</p>
-            <p className="text-3xl font-bold tracking-tight">
-              {loading ? '...' : analyticsData.totalPosMachines.toLocaleString()}
-            </p>
-            <div className="mt-3 text-xs text-purple-200">
-              <span>Active deployments</span>
-            </div>
-          </div>
-        </motion.div>
-      </div>
+      {/* Cumulative user wallet balances (Primary / AEPS / Partner API) */}
+      <AdminCumulativeWalletBalances balancesVisible={balancesVisible} onToggleVisible={toggleBalancesVisible} />
 
       {/* Provider Wallets — unified compact grid */}
       <motion.div
@@ -2333,9 +2226,6 @@ function AdminDashboardOverview({
 
       {/* eKYC Hub Balance & API Testing Card */}
       <EkycHubCard balancesVisible={balancesVisible} onToggleBalances={toggleBalancesVisible} onBalanceFetched={setEkycHubBalance} />
-
-      {/* Reports & Analytics */}
-      <ReportsTab />
     </div>
   )
 }
@@ -2349,6 +2239,7 @@ const ALL_SERVICES = [
   { key: 'dmt', label: 'Domestic Money Transfer', icon: '💸', short: 'DMT' },
   { key: 'bbps', label: 'BBPS-1 (Bill Payments)', icon: '📄', short: 'BBPS-1' },
   { key: 'bbps2', label: 'BBPS-2 (Pay2New)', icon: '📋', short: 'BBPS-2' },
+  { key: 'credit_card2', label: 'Credit Card-2 (Rechargekit)', icon: '💳', short: 'CC-2' },
   { key: 'recharge', label: 'Mobile Recharge', icon: '📱', short: 'Recharge' },
   { key: 'travel', label: 'Travel Services', icon: '✈️', short: 'Travel' },
   { key: 'cash_management', label: 'Cash Management', icon: '💰', short: 'Cash' },
@@ -9291,9 +9182,6 @@ function ReportsTab() {
 
   return (
     <div className="space-y-4">
-      {/* Service Transaction Report */}
-      <ServiceTransactionReport userRole="admin" />
-
       {/* Header */}
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md border border-gray-200 dark:border-gray-700 p-4">
         <div className="flex items-center justify-between mb-4">

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { apiFetch } from '@/lib/api-client'
 import {
@@ -9,7 +9,7 @@ import {
   IndianRupee, Receipt, CheckCircle2, XCircle, Clock,
   BarChart3, Eye, X, ChevronLeft, ChevronRight,
   CreditCard, Smartphone, Banknote, Globe, ArrowUpDown,
-  AlertTriangle, Loader2
+  AlertTriangle, Loader2, User
 } from 'lucide-react'
 
 // ============================================================================
@@ -64,6 +64,20 @@ interface Pagination {
 type ServiceFilter = 'all' | 'pos' | 'bbps' | 'aeps' | 'settlement'
 type DatePreset = 'today' | 'yesterday' | 'week' | 'month' | 'quarter' | 'custom'
 
+interface NetworkUser {
+  id: string
+  name: string
+  business_name: string | null
+  role: string
+  status: string | null
+}
+
+const NETWORK_ROLE_LABELS: Record<string, string> = {
+  retailer: 'Retailer',
+  distributor: 'Distributor',
+  master_distributor: 'Master Distributor',
+}
+
 interface ServiceTransactionReportProps {
   userRole: 'admin' | 'finance_executive' | 'master_distributor' | 'distributor' | 'retailer'
   userName?: string
@@ -102,7 +116,57 @@ export default function ServiceTransactionReport({ userRole, userName }: Service
   const [showViewModal, setShowViewModal] = useState(false)
 
   // Export loading
-  const [exporting, setExporting] = useState<'csv' | 'pdf' | null>(null)
+  const [exporting, setExporting] = useState<'csv' | 'excel' | 'pdf' | null>(null)
+
+  // Admin/finance: filter by a specific network user (RT/DT/MD)
+  const isAdminView = userRole === 'admin' || userRole === 'finance_executive'
+  const [selectedNetworkUser, setSelectedNetworkUser] = useState<NetworkUser | null>(null)
+  const [networkUserQuery, setNetworkUserQuery] = useState('')
+  const [networkUserResults, setNetworkUserResults] = useState<NetworkUser[]>([])
+  const [networkUserSearching, setNetworkUserSearching] = useState(false)
+  const [showNetworkUserDropdown, setShowNetworkUserDropdown] = useState(false)
+  const networkPickerRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!isAdminView) return
+    const query = networkUserQuery.trim()
+    if (query.length < 2) {
+      setNetworkUserResults([])
+      return
+    }
+    const t = setTimeout(async () => {
+      setNetworkUserSearching(true)
+      try {
+        const res = await apiFetch(
+          `/api/admin/users/search?q=${encodeURIComponent(query)}&roles=retailer,distributor,master_distributor`
+        )
+        const json = await res.json()
+        if (res.ok) setNetworkUserResults(json.results || [])
+      } catch {
+        setNetworkUserResults([])
+      } finally {
+        setNetworkUserSearching(false)
+      }
+    }, 350)
+    return () => clearTimeout(t)
+  }, [networkUserQuery, isAdminView])
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (networkPickerRef.current && !networkPickerRef.current.contains(e.target as Node)) {
+        setShowNetworkUserDropdown(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  const applyNetworkUserParams = useCallback((params: URLSearchParams) => {
+    if (!isAdminView || !selectedNetworkUser) return
+    if (selectedNetworkUser.role === 'retailer') params.set('user_id', selectedNetworkUser.id)
+    else if (selectedNetworkUser.role === 'distributor') params.set('distributor_id', selectedNetworkUser.id)
+    else if (selectedNetworkUser.role === 'master_distributor') params.set('md_id', selectedNetworkUser.id)
+  }, [isAdminView, selectedNetworkUser])
 
   const serviceOptions: { value: ServiceFilter; label: string; icon: any; color: string }[] = [
     { value: 'all', label: 'All Services', icon: Globe, color: 'gray' },
@@ -173,6 +237,7 @@ export default function ServiceTransactionReport({ userRole, userName }: Service
 
       if (statusFilter) params.set('status', statusFilter)
       if (searchTerm) params.set('search', searchTerm)
+      applyNetworkUserParams(params)
 
       const res = await apiFetch(`/api/reports/service-transactions?${params.toString()}`)
       const json = await res.json()
@@ -195,11 +260,11 @@ export default function ServiceTransactionReport({ userRole, userName }: Service
     } finally {
       setLoading(false)
     }
-  }, [getDateRange, serviceFilter, statusFilter, searchTerm, rowsPerPage])
+  }, [getDateRange, serviceFilter, statusFilter, searchTerm, rowsPerPage, applyNetworkUserParams])
 
   useEffect(() => {
     fetchReport(1)
-  }, [fetchReport, serviceFilter, datePreset, dateFrom, dateTo, statusFilter, rowsPerPage])
+  }, [fetchReport, serviceFilter, datePreset, dateFrom, dateTo, statusFilter, rowsPerPage, selectedNetworkUser])
 
   const handleSearch = () => fetchReport(1)
   const handlePageChange = (page: number) => fetchReport(page)
@@ -208,7 +273,7 @@ export default function ServiceTransactionReport({ userRole, userName }: Service
   // EXPORT
   // ============================================================================
 
-  const handleExport = async (format: 'csv' | 'pdf') => {
+  const handleExport = async (format: 'csv' | 'excel' | 'pdf') => {
     setExporting(format)
     try {
       const { start, end } = getDateRange()
@@ -222,6 +287,7 @@ export default function ServiceTransactionReport({ userRole, userName }: Service
       })
       if (statusFilter) params.set('status', statusFilter)
       if (searchTerm) params.set('search', searchTerm)
+      applyNetworkUserParams(params)
 
       const res = await apiFetch(`/api/reports/service-transactions?${params.toString()}`)
 
@@ -230,11 +296,17 @@ export default function ServiceTransactionReport({ userRole, userName }: Service
         throw new Error(json.error || 'Export failed')
       }
 
+      const contentType = res.headers.get('content-type') || ''
+      const ext =
+        format === 'csv' ? 'csv'
+        : format === 'excel' ? 'xls'
+        : contentType.includes('pdf') ? 'pdf'
+        : 'html'
       const blob = await res.blob()
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = `service_txn_report_${Date.now()}.${format === 'csv' ? 'csv' : 'html'}`
+      a.download = `service_txn_report_${serviceFilter}_${Date.now()}.${ext}`
       document.body.appendChild(a)
       a.click()
       document.body.removeChild(a)
@@ -388,6 +460,63 @@ export default function ServiceTransactionReport({ userRole, userName }: Service
             </>
           )}
 
+          {isAdminView && (
+            <div ref={networkPickerRef} className="relative min-w-[230px]">
+              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">
+                User / Partner (RT, DT, MD)
+              </label>
+              {selectedNetworkUser ? (
+                <div className="flex items-center gap-2 px-3 py-2 text-sm border-2 rounded-lg bg-indigo-50 dark:bg-indigo-900/20 border-indigo-300 dark:border-indigo-700">
+                  <User className="w-4 h-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                  <span className="truncate font-medium text-gray-900 dark:text-white">{selectedNetworkUser.name}</span>
+                  <span className="text-xs text-gray-500 truncate">
+                    {NETWORK_ROLE_LABELS[selectedNetworkUser.role] || selectedNetworkUser.role}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => { setSelectedNetworkUser(null); setNetworkUserQuery('') }}
+                    className="ml-auto p-0.5 rounded hover:bg-indigo-100 dark:hover:bg-indigo-800"
+                  >
+                    <X className="w-4 h-4 text-gray-500" />
+                  </button>
+                </div>
+              ) : (
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                  <input
+                    type="text"
+                    value={networkUserQuery}
+                    onChange={e => { setNetworkUserQuery(e.target.value); setShowNetworkUserDropdown(true) }}
+                    onFocus={() => setShowNetworkUserDropdown(true)}
+                    placeholder="All users — search to filter…"
+                    className="w-full pl-10 pr-8 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 text-sm focus:ring-2 focus:ring-indigo-500"
+                  />
+                  {networkUserSearching && (
+                    <Loader2 className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 animate-spin" />
+                  )}
+                </div>
+              )}
+              {showNetworkUserDropdown && !selectedNetworkUser && networkUserResults.length > 0 && (
+                <div className="absolute z-20 mt-1 w-full max-h-64 overflow-y-auto bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl">
+                  {networkUserResults.map(u => (
+                    <button
+                      key={`${u.role}-${u.id}`}
+                      type="button"
+                      onClick={() => { setSelectedNetworkUser(u); setShowNetworkUserDropdown(false); setNetworkUserResults([]) }}
+                      className="w-full text-left px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-700 border-b border-gray-100 dark:border-gray-700 last:border-0"
+                    >
+                      <div className="text-sm font-medium text-gray-900 dark:text-white truncate">{u.name}</div>
+                      <div className="text-xs text-gray-500 truncate">
+                        {u.id} · {NETWORK_ROLE_LABELS[u.role] || u.role}
+                        {u.status && u.status !== 'active' ? ` · ${u.status}` : ''}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           <div>
             <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">Status</label>
             <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
@@ -455,8 +584,14 @@ export default function ServiceTransactionReport({ userRole, userName }: Service
           <button onClick={() => handleExport('csv')} disabled={!!exporting}
             className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-medium transition-all shadow-md disabled:opacity-50"
           >
-            {exporting === 'csv' ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileSpreadsheet className="w-4 h-4" />}
+            {exporting === 'csv' ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
             Export CSV
+          </button>
+          <button onClick={() => handleExport('excel')} disabled={!!exporting}
+            className="flex items-center gap-2 px-4 py-2 bg-green-700 hover:bg-green-800 text-white rounded-lg text-sm font-medium transition-all shadow-md disabled:opacity-50"
+          >
+            {exporting === 'excel' ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileSpreadsheet className="w-4 h-4" />}
+            Export Excel
           </button>
           <button onClick={() => handleExport('pdf')} disabled={!!exporting}
             className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm font-medium transition-all shadow-md disabled:opacity-50"

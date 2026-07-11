@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Paytm POS Integration - Call Preparation Guide</title>
+<style>
+  @media print {
+    body { margin: 0; }
+    .no-print { display: none; }
+    .page-break { page-break-before: always; }
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; color: #1a1a2e; line-height: 1.6; padding: 40px; max-width: 900px; margin: 0 auto; background: #fff; }
+  .header { text-align: center; border-bottom: 3px solid #00B9F5; padding-bottom: 20px; margin-bottom: 30px; }
+  .header h1 { font-size: 24px; color: #012B72; margin-bottom: 4px; }
+  .header .subtitle { font-size: 14px; color: #666; }
+  .header .company { font-size: 13px; color: #00B9F5; font-weight: 600; margin-top: 6px; }
+  .section { margin-bottom: 28px; }
+  .section-title { font-size: 18px; color: #012B72; border-left: 4px solid #00B9F5; padding-left: 12px; margin-bottom: 14px; }
+  .question-block { background: #f8f9ff; border: 1px solid #e0e4f0; border-radius: 8px; padding: 14px 18px; margin-bottom: 12px; }
+  .question-block .q-num { font-size: 12px; color: #00B9F5; font-weight: 700; text-transform: uppercase; margin-bottom: 4px; }
+  .question-block .q-text { font-size: 14px; font-weight: 600; color: #1a1a2e; margin-bottom: 6px; }
+  .question-block .q-script { font-size: 13px; color: #333; background: #fff; border-left: 3px solid #00B9F5; padding: 8px 12px; border-radius: 4px; font-style: italic; }
+  .answer-block { background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 14px 18px; margin-bottom: 12px; }
+  .answer-block .a-label { font-size: 12px; color: #16a34a; font-weight: 700; text-transform: uppercase; margin-bottom: 4px; }
+  .answer-block .a-question { font-size: 14px; font-weight: 600; color: #1a1a2e; margin-bottom: 6px; }
+  .answer-block .a-script { font-size: 13px; color: #333; background: #fff; border-left: 3px solid #16a34a; padding: 8px 12px; border-radius: 4px; }
+  .note-block { background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 14px 18px; margin-bottom: 12px; }
+  .note-block .n-label { font-size: 12px; color: #d97706; font-weight: 700; margin-bottom: 4px; }
+  .note-block .n-text { font-size: 13px; color: #333; }
+  table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 13px; }
+  th { background: #012B72; color: #fff; padding: 8px 12px; text-align: left; }
+  td { padding: 8px 12px; border-bottom: 1px solid #e5e7eb; }
+  tr:nth-child(even) td { background: #f8f9ff; }
+  code { background: #e0e7ff; padding: 2px 6px; border-radius: 4px; font-size: 12px; font-family: 'Consolas', monospace; }
+  .footer { text-align: center; margin-top: 40px; padding-top: 16px; border-top: 2px solid #e5e7eb; font-size: 11px; color: #999; }
+  .print-btn { display: block; margin: 0 auto 30px; padding: 12px 32px; background: #00B9F5; color: #fff; border: none; border-radius: 8px; font-size: 16px; cursor: pointer; font-weight: 600; }
+  .print-btn:hover { background: #012B72; }
+</style>
+</head>
+<body>
+
+<button class="print-btn no-print" onclick="window.print()">Save as PDF / Print</button>
+
+<div class="header">
+  <h1>Paytm POS Integration - Call Preparation Guide</h1>
+  <div class="subtitle">Questions to Ask & Answers to Give</div>
+  <div class="company">SameDay Solutions Private Limited &bull; Lagoon Craft Labs &bull; July 2026</div>
+</div>
+
+<!-- STAGING CREDENTIALS REFERENCE -->
+<div class="section">
+  <div class="section-title">Staging Credentials (Quick Reference)</div>
+  <table>
+    <tr><th>Parameter</th><th>Value</th></tr>
+    <tr><td>MID</td><td><code>STRATA39311691038144</code></td></tr>
+    <tr><td>Merchant / AES Key</td><td><code>Mkalgkik_9806Y0C</code></td></tr>
+    <tr><td>Device S/N</td><td><code>2841764117</code></td></tr>
+    <tr><td>TID (Activation Code)</td><td><code>70002353</code></td></tr>
+    <tr><td>Channel ID</td><td><code>EDC</code></td></tr>
+    <tr><td>Stage Base URL</td><td><code>https://securegw-stage.paytm.in</code></td></tr>
+    <tr><td>Prod Base URL</td><td><code>https://securegw-edc.paytm.in</code></td></tr>
+    <tr><td>Callback URL</td><td><code>https://samedaysolution.in/api/paytm/notification/lagoon</code></td></tr>
+  </table>
+</div>
+
+<!-- QUESTIONS TO ASK -->
+<div class="section">
+  <div class="section-title">Questions to Ask Paytm</div>
+
+  <div class="question-block">
+    <div class="q-num">Question 1 &mdash; Webhook / Callback Support</div>
+    <div class="q-text">Does Paytm send automatic webhook/callback notifications after every POS transaction?</div>
+    <div class="q-script">"Does Paytm send automatic webhook/callback notifications to our URL after every POS transaction? Or do we need to rely only on the Status Enquiry API polling? We have already configured a callback URL: <strong>https://samedaysolution.in/api/paytm/notification/lagoon</strong> &mdash; can you enable this to receive real-time transaction notifications?"</div>
+  </div>
+
+  <div class="question-block">
+    <div class="q-num">Question 2 &mdash; Channel ID Confirmation</div>
+    <div class="q-text">What exact channelId value should we use?</div>
+    <div class="q-script">"What exact channelId value should we use in our API requests? Your email says EDC, but the documentation example shows RIL. Please confirm."</div>
+  </div>
+
+  <div class="question-block">
+    <div class="q-num">Question 3 &mdash; Checksum Generation</div>
+    <div class="q-text">Confirm the checksum method for POS/ECR integration.</div>
+    <div class="q-script">"For checksum generation &mdash; we use the AES/Merchant Key with the paytmchecksum Node.js library on the body JSON string. Is that correct for POS/ECR integration? Or is there a different method?"</div>
+  </div>
+
+  <div class="question-block">
+    <div class="q-num">Question 4 &mdash; Callback Payload Format</div>
+    <div class="q-text">Request sample webhook payload for success and failure.</div>
+    <div class="q-script">"When a transaction completes on the POS, what is the exact JSON payload format sent in the webhook callback? Can you share a sample success and failure payload via email?"</div>
+  </div>
+
+  <div class="question-block">
+    <div class="q-num">Question 5 &mdash; Transaction Types Coverage</div>
+    <div class="q-text">Do notifications cover Void, Refund, and Settlement?</div>
+    <div class="q-script">"Besides Sale transactions, does the notification also cover Void, Refund, and Settlement events?"</div>
+  </div>
+
+  <div class="question-block">
+    <div class="q-num">Question 6 &mdash; Multiple Devices / MIDs</div>
+    <div class="q-text">How does multi-merchant, multi-device routing work?</div>
+    <div class="q-script">"In production, we will have multiple merchants with multiple POS devices each. Will each store get a separate MID and TID? Can we use the same callback URL for all, with merchant-specific path routing?"</div>
+  </div>
+
+  <div class="question-block">
+    <div class="q-num">Question 7 &mdash; Settlement API</div>
+    <div class="q-text">Is there an API to fetch daily settlement data?</div>
+    <div class="q-script">"Do you provide a settlement API or settlement report API to fetch daily settlement data programmatically? Or is settlement only visible on the Paytm dashboard?"</div>
+  </div>
+
+  <div class="question-block">
+    <div class="q-num">Question 8 &mdash; Status Enquiry Retry Logic</div>
+    <div class="q-text">Max retries and timeout for Status Enquiry polling.</div>
+    <div class="q-script">"For the Status Enquiry API &mdash; your docs say poll after 10 seconds with 10-second intervals. What is the maximum number of retries? After how long should we consider the transaction timed out?"</div>
+  </div>
+
+  <div class="question-block">
+    <div class="q-num">Question 9 &mdash; Void / Abort API</div>
+    <div class="q-text">Is there a server-side Void/Cancel API?</div>
+    <div class="q-script">"Is there a Void API for cancelling a transaction from our server? The email mentioned an Abort API doc was attached &mdash; can you walk us through it?"</div>
+  </div>
+
+  <div class="question-block">
+    <div class="q-num">Question 10 &mdash; Go-Live Checklist</div>
+    <div class="q-text">What test cases are required before production?</div>
+    <div class="q-script">"What exactly is in the production checklist? What test cases do we need to pass before going live?"</div>
+  </div>
+</div>
+
+<div class="page-break"></div>
+
+<!-- BONUS QUESTIONS -->
+<div class="section">
+  <div class="section-title">Bonus Points to Raise</div>
+
+  <div class="note-block">
+    <div class="n-label">Postman Collection</div>
+    <div class="n-text">Ask if they have a Postman collection for the POS APIs &mdash; makes testing much faster.</div>
+  </div>
+  <div class="note-block">
+    <div class="n-label">URL Clarification</div>
+    <div class="n-text">Confirm if <code>securegw-stage.paytm.in</code> and <code>securestage.paytmpayments.com</code> are the same endpoint (docs reference both).</div>
+  </div>
+  <div class="note-block">
+    <div class="n-label">IP Whitelisting</div>
+    <div class="n-text">Ask if your server IP needs to be whitelisted for API access.</div>
+  </div>
+  <div class="note-block">
+    <div class="n-label">Rate Limits</div>
+    <div class="n-text">Ask about rate limits on the Sale API and Status Enquiry API.</div>
+  </div>
+</div>
+
+<!-- ANSWERS TO GIVE -->
+<div class="section">
+  <div class="section-title">If Paytm Asks You &mdash; Answers Ready</div>
+
+  <div class="answer-block">
+    <div class="a-label">If they ask</div>
+    <div class="a-question">"What is your tech stack?"</div>
+    <div class="a-script">"We run a <strong>Next.js</strong> application on <strong>Node.js</strong>, hosted on <strong>Vercel</strong>, with <strong>Supabase (PostgreSQL)</strong> as our database. Our backend uses serverless API routes."</div>
+  </div>
+
+  <div class="answer-block">
+    <div class="a-label">If they ask</div>
+    <div class="a-question">"What is your callback/notification URL?"</div>
+    <div class="a-script"><code>https://samedaysolution.in/api/paytm/notification/lagoon</code><br>It accepts POST requests with JSON body. We return HTTP 200 with a JSON acknowledgment.</div>
+  </div>
+
+  <div class="answer-block">
+    <div class="a-label">If they ask</div>
+    <div class="a-question">"What is your use case / business model?"</div>
+    <div class="a-script">"We are a <strong>POS aggregation platform</strong>. We deploy POS machines to retailers through our distributor network. We need real-time transaction data to credit retailer wallets, track settlements, and provide a transaction dashboard to our merchants."</div>
+  </div>
+
+  <div class="answer-block">
+    <div class="a-label">If they ask</div>
+    <div class="a-question">"Do you need to initiate payments from your server?"</div>
+    <div class="a-script">"Yes, we want both:<br>&bull; <strong>Server-initiated payments</strong> via Sale API (our billing system sends amount to POS)<br>&bull; <strong>Standalone POS transactions</strong> with webhook callbacks (customer pays directly on POS, we get notified)"</div>
+  </div>
+
+  <div class="answer-block">
+    <div class="a-label">If they ask</div>
+    <div class="a-question">"How many devices/merchants will you have?"</div>
+    <div class="a-script">"Currently one device for <strong>Lagoon Craft Labs</strong> on staging. In production, we plan to scale to <strong>multiple merchants</strong> with multiple devices per merchant. Each merchant will have its own MID."</div>
+  </div>
+
+  <div class="answer-block">
+    <div class="a-label">If they ask</div>
+    <div class="a-question">"Are you PCI DSS compliant?"</div>
+    <div class="a-script">"We do not store card numbers or sensitive cardholder data. We only store masked card numbers, RRN, and transaction metadata received from Paytm callbacks. Card processing happens entirely on the Paytm POS terminal."</div>
+  </div>
+
+  <div class="answer-block">
+    <div class="a-label">If they ask</div>
+    <div class="a-question">"What integration mode?"</div>
+    <div class="a-script">"<strong>Wireless (cloud-based ECR)</strong>. Our server communicates with the POS via Paytm's cloud APIs over the internet."</div>
+  </div>
+
+  <div class="answer-block">
+    <div class="a-label">If they ask</div>
+    <div class="a-question">"Have you activated the staging device?"</div>
+    <div class="a-script">If done: "Yes, device S/N <code>2841764117</code> is activated with TID <code>70002353</code> on staging."<br>If not done: "We are in the process. We have the staging credentials and will complete activation today."</div>
+  </div>
+
+  <div class="answer-block">
+    <div class="a-label">If they ask</div>
+    <div class="a-question">"What payment modes do you need?"</div>
+    <div class="a-script">"<strong>All modes</strong> &mdash; Card (Visa, MasterCard, RuPay), UPI/QR, and any other modes supported by the terminal."</div>
+  </div>
+
+  <div class="answer-block">
+    <div class="a-label">If they ask</div>
+    <div class="a-question">"Do you need EMI support?"</div>
+    <div class="a-script">"Not immediately, but we'd like to keep the option open for the future."</div>
+  </div>
+
+</div>
+
+<div class="footer">
+  Prepared for <strong>Manish Kumar Shah, CTO</strong> &bull; SameDay Solutions Private Limited &bull; cto@samedaysolution.in<br>
+  Paytm POS Integration Call &bull; July 2026
+</div>
+
+</body>
+</html>

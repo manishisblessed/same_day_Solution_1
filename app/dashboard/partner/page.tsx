@@ -19,6 +19,7 @@ import BBPSTransactionsTable from '@/components/BBPSTransactionsTable'
 import BBPSPayment from '@/components/BBPSPayment'
 import Pay2NewCCPayment from '@/components/Pay2NewCCPayment'
 import Pay2NewServiceFlow from '@/components/Pay2NewServiceFlow'
+import RechargekitCCPayment from '@/components/RechargekitCCPayment'
 import { BBPS_CATEGORY_GROUPS } from '@/lib/bbps/category-groups'
 import PayoutTransfer from '@/components/PayoutTransfer'
 import ShadvalPayTransfer from '@/components/ShadvalPayTransfer'
@@ -53,7 +54,7 @@ import ReconciliationTab from '@/components/partner/ReconciliationTab'
 import { Crown, Sparkles, BarChart3, Zap, Scale, Server } from 'lucide-react'
 import { useToast } from '@/components/Toast'
 
-type TabType = 'dashboard' | 'wallet' | 'services' | 'aeps' | 'bbps' | 'bbps-2' | 'credit-card' | 'payout' | 'settlement-2' | 'transactions' | 'ledger' | 'aeps-ledger' | 'mdr-schemes' | 'reports' | 'settings' | 'pos-machines' | 'subscriptions' | 'api-management' | 'analytics' | 'api-dashboard' | 'reconciliation'
+type TabType = 'dashboard' | 'wallet' | 'services' | 'aeps' | 'bbps' | 'bbps-2' | 'credit-card' | 'credit-card-2' | 'payout' | 'settlement-2' | 'transactions' | 'ledger' | 'aeps-ledger' | 'mdr-schemes' | 'reports' | 'settings' | 'pos-machines' | 'subscriptions' | 'api-management' | 'analytics' | 'api-dashboard' | 'reconciliation'
 
 function PartnerDashboardContent() {
   const { user, loading: authLoading } = useAuth()
@@ -79,7 +80,7 @@ function PartnerDashboardContent() {
   
   const getInitialTab = (): TabType => {
     const tab = searchParams?.get('tab')
-    if (tab && ['dashboard', 'wallet', 'services', 'aeps', 'bbps', 'bbps-2', 'credit-card', 'payout', 'settlement-2', 'transactions', 'ledger', 'aeps-ledger', 'mdr-schemes', 'reports', 'settings', 'pos-machines', 'subscriptions', 'api-management', 'analytics', 'api-dashboard', 'reconciliation'].includes(tab)) {
+    if (tab && ['dashboard', 'wallet', 'services', 'aeps', 'bbps', 'bbps-2', 'credit-card', 'credit-card-2', 'payout', 'settlement-2', 'transactions', 'ledger', 'aeps-ledger', 'mdr-schemes', 'reports', 'settings', 'pos-machines', 'subscriptions', 'api-management', 'analytics', 'api-dashboard', 'reconciliation'].includes(tab)) {
       return tab as TabType
     }
     return 'dashboard'
@@ -117,7 +118,7 @@ function PartnerDashboardContent() {
 
   useEffect(() => {
     const tab = searchParams?.get('tab')
-    if (tab && ['dashboard', 'wallet', 'services', 'aeps', 'bbps', 'bbps-2', 'credit-card', 'payout', 'settlement-2', 'transactions', 'ledger', 'aeps-ledger', 'mdr-schemes', 'reports', 'settings', 'pos-machines', 'subscriptions', 'api-management', 'analytics', 'api-dashboard', 'reconciliation'].includes(tab)) {
+    if (tab && ['dashboard', 'wallet', 'services', 'aeps', 'bbps', 'bbps-2', 'credit-card', 'credit-card-2', 'payout', 'settlement-2', 'transactions', 'ledger', 'aeps-ledger', 'mdr-schemes', 'reports', 'settings', 'pos-machines', 'subscriptions', 'api-management', 'analytics', 'api-dashboard', 'reconciliation'].includes(tab)) {
       if (tab !== activeTab) {
         setActiveTab(tab as TabType)
       }
@@ -476,6 +477,7 @@ function PartnerDashboardContent() {
           {activeTab === 'bbps' && <BBPSTab />}
           {activeTab === 'bbps-2' && <Pay2NewBBPSTab />}
           {activeTab === 'credit-card' && <PartnerCreditCardTab />}
+          {activeTab === 'credit-card-2' && <PartnerCreditCard2Tab />}
           {activeTab === 'payout' && <PayoutTransfer title="Settlement-1" />}
           {activeTab === 'settlement-2' && <ShadvalPayTransfer title="Settlement-2 - Bank Transfer" />}
           {activeTab === 'transactions' && <POSTransactionsTable autoPoll={true} pollInterval={15000} />}
@@ -897,6 +899,18 @@ function PartnerCreditCardTab() {
         optional1Placeholder="e.g. 9876543210"
         accent="purple"
       />
+    </motion.div>
+  )
+}
+
+function PartnerCreditCard2Tab() {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="space-y-4"
+    >
+      <RechargekitCCPayment />
     </motion.div>
   )
 }
@@ -1370,7 +1384,7 @@ function WalletTab({ user }: { user: any }) {
                   onChange={(e) => setSettlementAmount(e.target.value)}
                   className="w-full px-4 py-2 border rounded-lg"
                   placeholder="Enter amount"
-                  max="200000"
+                  max="100000"
                 />
               </div>
               <div>

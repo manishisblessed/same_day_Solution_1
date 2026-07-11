@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 export default function ServiceTransactionReportRedirect() {
   const router = useRouter()
   useEffect(() => {
-    router.replace('/admin?tab=reports')
+    router.replace('/admin?tab=service-transaction-report')
   }, [router])
   return null
 }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { createClient } from '@supabase/supabase-js'
+import { htmlToPdf } from '@/lib/pdf/html-to-pdf'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -41,14 +42,17 @@ interface NormalizedTransaction {
  * Admin: Full access | MD: Downline | DT: Downline | RT: Own transactions
  * 
  * Query Params:
- *   service    - pos, bbps, aeps, payout, settlement, all (default: all)
- *   date_from  - ISO date string
- *   date_to    - ISO date string
- *   status     - transaction status filter
- *   search     - search by transaction ID
- *   limit      - pagination limit (default: 50)
- *   offset     - pagination offset (default: 0)
- *   format     - json (default), csv, pdf
+ *   service        - pos, bbps, aeps, payout, settlement, all (default: all)
+ *   date_from      - ISO date string
+ *   date_to        - ISO date string
+ *   status         - transaction status filter
+ *   search         - search by transaction ID
+ *   user_id        - (admin/finance) filter by a specific retailer/user id
+ *   distributor_id - (admin/finance) filter by all retailers under a distributor
+ *   md_id          - (admin/finance) filter by all retailers under a master distributor
+ *   limit          - pagination limit (default: 50)
+ *   offset         - pagination offset (default: 0)
+ *   format         - json (default), csv, excel, pdf
  */
 export async function GET(request: NextRequest) {
   try {
@@ -82,9 +86,43 @@ export async function GET(request: NextRequest) {
     const status = searchParams.get('status')
     const search = searchParams.get('search')
     const rawLimit = parseInt(searchParams.get('limit') || '25', 10)
-    const limit = [10, 25, 100].includes(rawLimit) ? rawLimit : 25
+    const isExport = ['csv', 'excel', 'pdf'].includes(searchParams.get('format') || '')
+    const limit = isExport
+      ? Math.min(10000, Math.max(1, rawLimit || 10000))
+      : [10, 25, 100].includes(rawLimit) ? rawLimit : 25
     const offset = parseInt(searchParams.get('offset') || '0')
     const format = searchParams.get('format') || 'json'
+
+    // Admin/finance-only targeted filters (specific user, DT downline, MD downline)
+    let adminUserIds: string[] | null = null
+    if (user.role === 'admin' || user.role === 'finance_executive') {
+      const filterUserId = searchParams.get('user_id')?.trim()
+      const filterDistributorId = searchParams.get('distributor_id')?.trim()
+      const filterMdId = searchParams.get('md_id')?.trim()
+
+      if (filterUserId) {
+        adminUserIds = [filterUserId]
+      } else if (filterDistributorId) {
+        const { data: rets } = await supabase
+          .from('retailers')
+          .select('partner_id')
+          .eq('distributor_id', filterDistributorId)
+        adminUserIds = [filterDistributorId, ...(rets || []).map((r: any) => r.partner_id)]
+      } else if (filterMdId) {
+        const { data: dists } = await supabase
+          .from('distributors')
+          .select('partner_id')
+          .eq('master_distributor_id', filterMdId)
+        const distIds = (dists || []).map((d: any) => d.partner_id)
+        const orParts = [`master_distributor_id.eq.${filterMdId}`]
+        if (distIds.length > 0) orParts.push(`distributor_id.in.(${distIds.join(',')})`)
+        const { data: rets } = await supabase
+          .from('retailers')
+          .select('partner_id')
+          .or(orParts.join(','))
+        adminUserIds = [filterMdId, ...distIds, ...(rets || []).map((r: any) => r.partner_id)]
+      }
+    }
 
     const downline = await resolveDownline(supabase, user)
     const partnerRetailerScope =
@@ -101,7 +139,7 @@ export async function GET(request: NextRequest) {
         supabase,
         user,
         downline,
-        { dateFrom, dateTo, status, search, limit, offset },
+        { dateFrom, dateTo, status, search, limit, offset, adminUserIds },
         partnerRetailerScope
       )
       results = results.concat(data)
@@ -114,7 +152,7 @@ export async function GET(request: NextRequest) {
         supabase,
         user,
         downline,
-        { dateFrom, dateTo, status, search, limit, offset },
+        { dateFrom, dateTo, status, search, limit, offset, adminUserIds },
         partnerRetailerScope
       )
       results = results.concat(data)
@@ -127,7 +165,7 @@ export async function GET(request: NextRequest) {
         supabase,
         user,
         downline,
-        { dateFrom, dateTo, status, search, limit, offset },
+        { dateFrom, dateTo, status, search, limit, offset, adminUserIds },
         partnerRetailerScope
       )
       results = results.concat(data)
@@ -140,7 +178,7 @@ export async function GET(request: NextRequest) {
         supabase,
         user,
         downline,
-        { dateFrom, dateTo, status, search, limit, offset },
+        { dateFrom, dateTo, status, search, limit, offset, adminUserIds },
         partnerRetailerScope
       )
       results = results.concat(data)
@@ -183,6 +221,10 @@ export async function GET(request: NextRequest) {
     // Export formats
     if (format === 'csv') {
       return generateCSV(results, summary, dateFrom, dateTo, service)
+    }
+
+    if (format === 'excel') {
+      return generateExcel(results, dateFrom, dateTo, service)
     }
 
     if (format === 'pdf') {
@@ -284,6 +326,8 @@ interface FetchFilters {
   search: string | null
   limit: number
   offset: number
+  /** Admin/finance-only: restrict to these user ids (specific user or a DT/MD downline) */
+  adminUserIds?: string[] | null
 }
 
 async function fetchPOSTransactions(
@@ -316,6 +360,8 @@ async function fetchPOSTransactions(
     } else {
       return { data: [], count: 0 }
     }
+  } else if (filters.adminUserIds) {
+    query = query.in('retailer_id', filters.adminUserIds)
   }
 
   if (filters.dateFrom) query = query.gte('transaction_time', filters.dateFrom)
@@ -390,6 +436,8 @@ async function fetchBBPSTransactions(
     } else {
       return { data: [], count: 0 }
     }
+  } else if (filters.adminUserIds) {
+    query = query.in('retailer_id', filters.adminUserIds)
   }
 
   if (filters.dateFrom) query = query.gte('created_at', filters.dateFrom)
@@ -464,6 +512,8 @@ async function fetchAEPSTransactions(
     } else {
       return { data: [], count: 0 }
     }
+  } else if (filters.adminUserIds) {
+    query = query.in('user_id', filters.adminUserIds)
   }
 
   if (filters.dateFrom) query = query.gte('created_at', filters.dateFrom)
@@ -564,6 +614,8 @@ async function fetchSettlementTransactions(
       } else {
         sQuery = sQuery.eq('user_id', '__none__')
       }
+    } else if (filters.adminUserIds) {
+      sQuery = sQuery.in('user_id', filters.adminUserIds)
     }
 
     if (filters.dateFrom) sQuery = sQuery.gte('created_at', filters.dateFrom)
@@ -635,6 +687,8 @@ async function fetchSettlementTransactions(
       } else {
         pQuery = pQuery.eq('retailer_id', '__none__')
       }
+    } else if (filters.adminUserIds) {
+      pQuery = pQuery.in('retailer_id', filters.adminUserIds)
     }
 
     if (filters.dateFrom) pQuery = pQuery.gte('created_at', filters.dateFrom)
@@ -784,10 +838,82 @@ function generateCSV(results: NormalizedTransaction[], summary: any, dateFrom: s
 }
 
 // ============================================================================
-// EXPORT - PDF (HTML-based)
+// EXPORT - EXCEL (XML Spreadsheet)
 // ============================================================================
 
-function generatePDF(results: NormalizedTransaction[], summary: any, dateFrom: string | null, dateTo: string | null, service: string, user: any) {
+function generateExcel(results: NormalizedTransaction[], dateFrom: string | null, dateTo: string | null, service: string) {
+  const escapeXml = (str: string) =>
+    String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&apos;')
+
+  const headers = [
+    'Date', 'Service', 'Transaction ID', 'TID', 'Amount (₹)', 'Status',
+    'Commission (₹)', 'MDR (₹)', 'MDR Rate (%)', 'Settlement Type', 'Scheme Name',
+    'Retailer Name', 'Retailer ID', 'Distributor Name', 'Distributor ID',
+    'MD Name', 'MD ID', 'Payment Mode', 'Card Type', 'Device Serial', 'Description',
+  ]
+
+  const headerRow = `<Row>${headers.map(h => `<Cell><Data ss:Type="String">${escapeXml(h)}</Data></Cell>`).join('')}</Row>`
+
+  const xmlRows = results.map(r => {
+    const strCell = (v: string | null | undefined) =>
+      `<Cell><Data ss:Type="String">${escapeXml(v || '-')}</Data></Cell>`
+    const numCell = (v: number) => `<Cell><Data ss:Type="Number">${v}</Data></Cell>`
+    return `<Row>
+      ${strCell(new Date(r.created_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }))}
+      ${strCell(r.service_type)}
+      ${strCell(r.transaction_id)}
+      ${strCell(r.tid)}
+      ${numCell(r.amount)}
+      ${strCell(r.status)}
+      ${numCell(r.commission)}
+      ${numCell(r.mdr)}
+      ${numCell(Math.round(r.mdr_rate * 100000) / 1000)}
+      ${strCell(r.settlement_type)}
+      ${strCell(r.scheme_name)}
+      ${strCell(r.retailer_name)}
+      ${strCell(r.retailer_id)}
+      ${strCell(r.distributor_name)}
+      ${strCell(r.distributor_id)}
+      ${strCell(r.md_name)}
+      ${strCell(r.master_distributor_id)}
+      ${strCell(r.payment_mode)}
+      ${strCell(r.card_type)}
+      ${strCell(r.device_serial)}
+      ${strCell(r.description)}
+    </Row>`
+  }).join('\n')
+
+  const sheetName = service === 'all' ? 'All Services' : service.toUpperCase()
+  const xml = `<?xml version="1.0"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
+  <Worksheet ss:Name="${escapeXml(sheetName)}">
+    <Table>
+      ${headerRow}
+      ${xmlRows}
+    </Table>
+  </Worksheet>
+</Workbook>`
+
+  return new NextResponse(xml, {
+    headers: {
+      'Content-Type': 'application/vnd.ms-excel',
+      'Content-Disposition': `attachment; filename="service_transaction_report_${service}_${Date.now()}.xls"`,
+    },
+  })
+}
+
+// ============================================================================
+// EXPORT - PDF (real PDF via Puppeteer, HTML fallback if Chrome unavailable)
+// ============================================================================
+
+async function generatePDF(results: NormalizedTransaction[], summary: any, dateFrom: string | null, dateTo: string | null, service: string, user: any) {
   const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -915,6 +1041,18 @@ function generatePDF(results: NormalizedTransaction[], summary: any, dateFrom: s
 </body>
 </html>`
 
+  // Render a real PDF with headless Chrome; wide table → landscape A4
+  const pdf = await htmlToPdf(html, { landscape: true })
+  if (pdf) {
+    return new NextResponse(new Uint8Array(pdf), {
+      headers: {
+        'Content-Type': 'application/pdf',
+        'Content-Disposition': `attachment; filename="service_transaction_report_${service}_${Date.now()}.pdf"`,
+      },
+    })
+  }
+
+  // Fallback: printable HTML (open in browser → Ctrl+P) when Chrome is unavailable
   return new NextResponse(html, {
     headers: {
       'Content-Type': 'text/html; charset=utf-8',

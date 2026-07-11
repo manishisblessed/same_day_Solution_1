@@ -31,6 +31,9 @@ const nextConfig = {
   // Enable instrumentation hook for cron jobs (T+1 settlement)
   experimental: {
     instrumentationHook: true,
+    // Keep browser binaries out of the webpack bundle — resolved from
+    // node_modules at runtime (needed for PDF generation on EC2 and Lambda)
+    serverComponentsExternalPackages: ['puppeteer', 'puppeteer-core', '@sparticuz/chromium'],
   },
 
   // Enable React strict mode for better development experience

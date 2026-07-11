@@ -2,7 +2,10 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { apiFetch } from '@/lib/api-client'
-import { RefreshCw, Search, ChevronLeft, ChevronRight, BookOpen } from 'lucide-react'
+import {
+  RefreshCw, Search, ChevronLeft, ChevronRight, BookOpen,
+  FileSpreadsheet, FileText, Loader2,
+} from 'lucide-react'
 import { motion } from 'framer-motion'
 
 type LedgerRow = {
@@ -25,6 +28,39 @@ type LedgerRow = {
   created_at: string
 }
 
+type UserSearchResult = {
+  id: string
+  name: string
+  business_name: string | null
+  role: string
+  status: string | null
+}
+
+const SERVICE_TYPES = [
+  { value: '', label: 'All services' },
+  { value: 'pos', label: 'POS' },
+  { value: 'bbps', label: 'BBPS' },
+  { value: 'pay2new', label: 'Pay2New (BBPS-2)' },
+  { value: 'aeps', label: 'AEPS' },
+  { value: 'payout', label: 'Payout / Settlement-1' },
+  { value: 'shadval_settlement', label: 'Settlement-2' },
+  { value: 'settlement', label: 'Settlement' },
+  { value: 'subscription', label: 'Subscription' },
+  { value: 'admin', label: 'Admin adjustment' },
+]
+
+const COMMON_TX_TYPES = [
+  'CREDIT', 'DEBIT', 'REFUND', 'COMMISSION_CREDIT', 'REVENUE_CREDIT',
+  'BBPS_DEBIT', 'BBPS_REFUND', 'PAY2NEW_REFUND', 'pos',
+]
+
+const ROLE_LABELS: Record<string, string> = {
+  retailer: 'Retailer',
+  distributor: 'Distributor',
+  master_distributor: 'Master Distributor',
+  partner: 'Partner',
+}
+
 export default function AdminWalletLedgerTab() {
   const [entries, setEntries] = useState<LedgerRow[]>([])
   const [total, setTotal] = useState(0)
@@ -33,30 +69,69 @@ export default function AdminWalletLedgerTab() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [scope, setScope] = useState<'all' | 'platform'>('all')
-  const [userId, setUserId] = useState('')
   const [userRole, setUserRole] = useState('')
   const [walletType, setWalletType] = useState('primary')
+  const [serviceType, setServiceType] = useState('')
+  const [transactionType, setTransactionType] = useState('')
+  const [status, setStatus] = useState('')
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo] = useState('')
   const [q, setQ] = useState('')
   const [debouncedQ, setDebouncedQ] = useState('')
+  const [exporting, setExporting] = useState<'csv' | 'excel' | null>(null)
+
+  // Role-driven user picker state
+  const [selectedUser, setSelectedUser] = useState<UserSearchResult | null>(null)
+  const [roleUsers, setRoleUsers] = useState<UserSearchResult[]>([])
+  const [usersLoading, setUsersLoading] = useState(false)
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedQ(q), 400)
     return () => clearTimeout(t)
   }, [q])
 
+  // Load users of the selected role
+  useEffect(() => {
+    setSelectedUser(null)
+    setRoleUsers([])
+    if (!userRole) return
+
+    let cancelled = false
+    setUsersLoading(true)
+    ;(async () => {
+      try {
+        const res = await apiFetch(`/api/admin/users/search?all=1&roles=${encodeURIComponent(userRole)}`)
+        const data = await res.json()
+        if (!cancelled && res.ok) setRoleUsers(data.results || [])
+      } catch {
+        if (!cancelled) setRoleUsers([])
+      } finally {
+        if (!cancelled) setUsersLoading(false)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [userRole])
+
+  const buildParams = useCallback(() => {
+    const params = new URLSearchParams({ scope, wallet_type: walletType })
+    if (scope === 'all' && selectedUser) params.set('user_id', selectedUser.id)
+    if (scope === 'all' && userRole) params.set('user_role', userRole)
+    if (serviceType) params.set('service_type', serviceType)
+    if (transactionType.trim()) params.set('transaction_type', transactionType.trim())
+    if (status) params.set('status', status)
+    if (dateFrom) params.set('date_from', dateFrom)
+    if (dateTo) params.set('date_to', dateTo)
+    if (debouncedQ.trim()) params.set('q', debouncedQ.trim())
+    return params
+  }, [scope, walletType, selectedUser, userRole, serviceType, transactionType, status, dateFrom, dateTo, debouncedQ])
+
   const fetchLedger = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      const params = new URLSearchParams({
-        page: String(page),
-        limit: String(limit),
-        scope,
-        wallet_type: walletType,
-      })
-      if (scope === 'all' && userId.trim()) params.set('user_id', userId.trim())
-      if (scope === 'all' && userRole) params.set('user_role', userRole)
-      if (debouncedQ.trim()) params.set('q', debouncedQ.trim())
+      const params = buildParams()
+      params.set('page', String(page))
+      params.set('limit', String(limit))
 
       const res = await apiFetch(`/api/admin/wallet/ledger?${params}`)
       const data = await res.json()
@@ -70,7 +145,7 @@ export default function AdminWalletLedgerTab() {
     } finally {
       setLoading(false)
     }
-  }, [page, limit, scope, userId, userRole, walletType, debouncedQ])
+  }, [buildParams, page, limit])
 
   useEffect(() => {
     fetchLedger()
@@ -78,9 +153,42 @@ export default function AdminWalletLedgerTab() {
 
   useEffect(() => {
     setPage(1)
-  }, [scope, userId, userRole, walletType, debouncedQ])
+  }, [scope, selectedUser, userRole, walletType, serviceType, transactionType, status, dateFrom, dateTo, debouncedQ])
+
+  const handleExport = async (format: 'csv' | 'excel') => {
+    setExporting(format)
+    try {
+      const params = buildParams()
+      params.set('format', format)
+      params.set('limit', '50000')
+
+      const res = await apiFetch(`/api/admin/wallet/ledger/export?${params}`)
+      if (!res.ok) {
+        let msg = 'Export failed'
+        try { msg = (await res.json()).error || msg } catch {}
+        throw new Error(msg)
+      }
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      const datePart = new Date().toISOString().split('T')[0]
+      const userPart = selectedUser ? `-${selectedUser.id}` : ''
+      a.download = `wallet-ledger${userPart}-${datePart}.${format === 'excel' ? 'xls' : 'csv'}`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    } catch (e: any) {
+      setError(e.message || 'Export failed')
+    } finally {
+      setExporting(null)
+    }
+  }
 
   const totalPages = Math.max(1, Math.ceil(total / limit))
+  const inputCls =
+    'px-3 py-2 text-sm border rounded-lg bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-600'
 
   return (
     <motion.div
@@ -94,71 +202,136 @@ export default function AdminWalletLedgerTab() {
           <div>
             <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Wallet ledger</h2>
             <p className="text-sm text-gray-500 dark:text-gray-400">
-              Credit and debit lines across all wallets. Filter by user or view platform revenue only.
+              Credit and debit lines across all wallets. Pick a user for a user-wise ledger, then export.
             </p>
           </div>
         </div>
-        <button
-          type="button"
-          onClick={() => fetchLedger()}
-          className="flex items-center gap-2 px-3 py-2 rounded-lg bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-sm"
-        >
-          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-          Refresh
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => handleExport('csv')}
+            disabled={!!exporting || loading}
+            className="flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium disabled:opacity-50"
+          >
+            {exporting === 'csv' ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
+            Export CSV
+          </button>
+          <button
+            type="button"
+            onClick={() => handleExport('excel')}
+            disabled={!!exporting || loading}
+            className="flex items-center gap-2 px-3 py-2 rounded-lg bg-green-700 hover:bg-green-800 text-white text-sm font-medium disabled:opacity-50"
+          >
+            {exporting === 'excel' ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileSpreadsheet className="w-4 h-4" />}
+            Export Excel
+          </button>
+          <button
+            type="button"
+            onClick={() => fetchLedger()}
+            className="flex items-center gap-2 px-3 py-2 rounded-lg bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-sm"
+          >
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            Refresh
+          </button>
+        </div>
       </div>
 
       <div className="flex flex-wrap gap-2 items-end bg-white dark:bg-gray-800 rounded-lg p-3 border border-gray-200 dark:border-gray-700">
         <div>
           <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Scope</label>
-          <select
-            value={scope}
-            onChange={(e) => setScope(e.target.value as 'all' | 'platform')}
-            className="px-3 py-2 text-sm border rounded-lg bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-600"
-          >
+          <select value={scope} onChange={(e) => setScope(e.target.value as 'all' | 'platform')} className={inputCls}>
             <option value="all">All users (admin view)</option>
             <option value="platform">Platform revenue wallet only</option>
           </select>
         </div>
+
         {scope === 'all' && (
           <>
-            <div className="flex-1 min-w-[180px]">
-              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">User ID (partner_id)</label>
-              <input
-                value={userId}
-                onChange={(e) => setUserId(e.target.value)}
-                placeholder="Filter by wallet owner id"
-                className="w-full px-3 py-2 text-sm border rounded-lg bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-600"
-              />
-            </div>
             <div>
               <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Role</label>
-              <select
-                value={userRole}
-                onChange={(e) => setUserRole(e.target.value)}
-                className="px-3 py-2 text-sm border rounded-lg bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-600"
-              >
+              <select value={userRole} onChange={(e) => setUserRole(e.target.value)} className={inputCls}>
                 <option value="">Any</option>
                 <option value="retailer">Retailer</option>
                 <option value="distributor">Distributor</option>
                 <option value="master_distributor">Master distributor</option>
+                <option value="partner">Partner</option>
               </select>
             </div>
+            {userRole && (
+              <div className="flex-1 min-w-[220px]">
+                <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                  User {usersLoading ? '(loading…)' : `(${roleUsers.length})`}
+                </label>
+                <select
+                  value={selectedUser?.id || ''}
+                  onChange={(e) => {
+                    const u = roleUsers.find((r) => r.id === e.target.value) || null
+                    setSelectedUser(u)
+                  }}
+                  disabled={usersLoading}
+                  className={`w-full ${inputCls}`}
+                >
+                  <option value="">All {ROLE_LABELS[userRole] || userRole}s</option>
+                  {roleUsers.map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {u.name}
+                      {u.business_name && u.business_name !== u.name ? ` — ${u.business_name}` : ''}
+                      {u.status && u.status !== 'active' ? ` (${u.status})` : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
           </>
         )}
+
         <div>
           <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Wallet</label>
-          <select
-            value={walletType}
-            onChange={(e) => setWalletType(e.target.value)}
-            className="px-3 py-2 text-sm border rounded-lg bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-600"
-          >
+          <select value={walletType} onChange={(e) => setWalletType(e.target.value)} className={inputCls}>
             <option value="primary">Primary</option>
             <option value="aeps">AEPS</option>
             <option value="all">All types</option>
           </select>
         </div>
-        <div className="flex-1 min-w-[200px]">
+        <div>
+          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Service</label>
+          <select value={serviceType} onChange={(e) => setServiceType(e.target.value)} className={inputCls}>
+            {SERVICE_TYPES.map((s) => (
+              <option key={s.value} value={s.value}>{s.label}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Transaction type</label>
+          <input
+            list="ledger-tx-types"
+            value={transactionType}
+            onChange={(e) => setTransactionType(e.target.value)}
+            placeholder="All"
+            className={`w-36 ${inputCls}`}
+          />
+          <datalist id="ledger-tx-types">
+            {COMMON_TX_TYPES.map((t) => <option key={t} value={t} />)}
+          </datalist>
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Status</label>
+          <select value={status} onChange={(e) => setStatus(e.target.value)} className={inputCls}>
+            <option value="">All</option>
+            <option value="completed">Completed</option>
+            <option value="pending">Pending</option>
+            <option value="failed">Failed</option>
+          </select>
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">From</label>
+          <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className={inputCls} />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">To</label>
+          <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className={inputCls} />
+        </div>
+        <div className="flex-1 min-w-[180px]">
           <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Search description</label>
           <div className="relative">
             <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
@@ -166,7 +339,7 @@ export default function AdminWalletLedgerTab() {
               value={q}
               onChange={(e) => setQ(e.target.value)}
               placeholder="Notes / description…"
-              className="w-full pl-8 pr-3 py-2 text-sm border rounded-lg bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-600"
+              className={`w-full pl-8 ${inputCls}`}
             />
           </div>
         </div>
@@ -221,7 +394,7 @@ export default function AdminWalletLedgerTab() {
                           {e.partner_name}
                         </div>
                       )}
-                      <div className="text-gray-400 text-[10px]">{e.user_role || '—'}</div>
+                      <div className="text-gray-400 text-[10px]">{e.user_role || '—'}{e.wallet_type ? ` · ${e.wallet_type}` : ''}</div>
                     </td>
                     <td className="px-3 py-2 text-xs">{e.transaction_type || '—'}</td>
                     <td className="px-3 py-2 text-xs">{e.service_type || '—'}</td>

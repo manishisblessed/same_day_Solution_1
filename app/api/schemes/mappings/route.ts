@@ -119,7 +119,8 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const { user } = await getCurrentUserWithFallback(request);
-    if (!user || !user.partner_id) {
+    // Admins have no partner_id — do not treat that as Unauthorized (triggers client logout).
+    if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -128,6 +129,11 @@ export async function POST(request: NextRequest) {
     // Validate: only admin/MD/distributor can assign schemes
     if (user.role !== 'admin' && user.role !== 'master_distributor' && user.role !== 'distributor') {
       return NextResponse.json({ error: 'Only admin/distributor/MD can assign schemes' }, { status: 403 });
+    }
+
+    // MD/distributor need partner_id for ownership checks
+    if (user.role !== 'admin' && !user.partner_id) {
+      return NextResponse.json({ error: 'Account misconfigured' }, { status: 400 });
     }
 
     // Input validation
@@ -204,7 +210,8 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const { data, error } = await createSchemeMapping(body, user.partner_id, user.role);
+    // Admins have no partner_id — fall back to auth user id for assigned_by
+    const { data, error } = await createSchemeMapping(body, user.partner_id || user.id, user.role);
     if (error) {
       return NextResponse.json({ error }, { status: 400 });
     }
@@ -226,7 +233,8 @@ export async function POST(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   try {
     const { user } = await getCurrentUserWithFallback(request);
-    if (!user || !user.partner_id) {
+    // Admins have no partner_id — do not treat that as Unauthorized (triggers client logout).
+    if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -240,6 +248,10 @@ export async function DELETE(request: NextRequest) {
     // Retailers and partners cannot delete mappings
     if (user.role === 'retailer' || user.role === 'partner') {
       return NextResponse.json({ error: 'Retailers and partners cannot delete scheme mappings' }, { status: 403 });
+    }
+
+    if (user.role !== 'admin' && !user.partner_id) {
+      return NextResponse.json({ error: 'Account misconfigured' }, { status: 400 });
     }
 
     const supabase = getSupabase();

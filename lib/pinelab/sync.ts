@@ -95,10 +95,17 @@ async function fetchTransactions(
   fromDate: string,
   toDate: string,
   page = 0,
-  size = 500
+  size = 500,
+  paymentMode?: string
 ): Promise<{ transactions: PinelabTransaction[]; totalPages: number; totalCount: number }> {
   const url = `${baseUrl}/transactions/summary?page=${page}&size=${size}`
-  const bodyStr = JSON.stringify({ fromDate, toDate })
+  // Pinelab omits `additionalDetails` (cardType/cardNetwork/cardIssuer) unless
+  // paymentMode is set on the request — verified vs their support reply Jul 2026.
+  // Note: txnStatus is NOT a valid request filter (API returns 500); we filter
+  // SUCCESS-only in syncMerchant after fetch.
+  const body: Record<string, string> = { fromDate, toDate }
+  if (paymentMode) body.paymentMode = paymentMode
+  const bodyStr = JSON.stringify(body)
 
   let lastError: Error | null = null
 
@@ -177,6 +184,18 @@ function mapToDbRecord(txn: PinelabTransaction, merchantSlug: string, merchantNa
   const customerName = txn.name || txn.upiPayerName || ad.cardIssuer || null
   const cardNumber = txn.upiPayerVpa || ad.pan || null
 
+  // Prefer additionalDetails; fall back to cardColour (e.g. "Visa Rewards" → VISA)
+  // when Pinelab omits additionalDetails (unfiltered summary responses).
+  let cardBrand = ad.cardNetwork ? String(ad.cardNetwork).trim() : null
+  if (!cardBrand && txn.cardColour) {
+    const colour = String(txn.cardColour).toUpperCase()
+    if (colour.includes('VISA')) cardBrand = 'VISA'
+    else if (colour.includes('MASTER') || colour.includes('MAESTRO')) cardBrand = 'MASTERCARD'
+    else if (colour.includes('RUPAY') || colour.includes('RU PAY')) cardBrand = 'RUPAY'
+    else if (colour.includes('AMEX') || colour.includes('AMERICAN')) cardBrand = 'AMEX'
+    else if (colour.includes('DINERS')) cardBrand = 'DINERS'
+  }
+
   return {
     txn_id: `PL_${txn.transactionId}`,
     status,
@@ -198,8 +217,8 @@ function mapToDbRecord(txn: PinelabTransaction, merchantSlug: string, merchantNa
     issuing_bank: ad.cardIssuer || null,
     card_classification: cleanNull(txn.cardColour),
     mid_code: txn.mid || null,
-    card_brand: ad.cardNetwork || null,
-    card_type: ad.cardType || null,
+    card_brand: cardBrand,
+    card_type: ad.cardType ? String(ad.cardType).trim() : null,
     currency: (txn.currency === 'DCC_INR' || txn.currency === 'Rs.') ? 'INR' : txn.currency || 'INR',
     rrn: txn.rrn || null,
     external_ref: cleanNull(txn.externalBillingId),
@@ -224,93 +243,144 @@ async function syncMerchant(
   const baseUrl = getBaseUrl(config.env)
   const authHeader = buildAuthHeader(config.clientId, config.clientSecret)
 
-  let page = 0
-  let totalPages = 1
+  // Fetch CARD and UPI with paymentMode set so Pinelab returns additionalDetails.
+  // Final catch-all (no paymentMode) picks up any other modes without double-counting.
+  const modes: Array<string | undefined> = ['CARD', 'UPI', undefined]
+  const seenTxnIds = new Set<string>()
 
-  while (page < totalPages) {
-    try {
-      const resp = await fetchTransactions(baseUrl, authHeader, fromDate, toDate, page)
-      totalPages = resp.totalPages
-      result.fetched += resp.transactions.length
+  // Hard cleanup: never keep Pinelab FAILED/CANCELLED/PENDING for this merchant.
+  // Covers rows re-inserted by an older cron process (e.g. EC2 before deploy).
+  {
+    const { error: cleanupErr, count } = await supabase
+      .from('razorpay_pos_transactions')
+      .delete({ count: 'exact' })
+      .eq('merchant_slug', merchantSlug)
+      .like('txn_id', 'PL_%')
+      .in('display_status', ['FAILED', 'PENDING', 'CANCELLED'])
+    if (cleanupErr) {
+      result.errors.push(`failed-cleanup: ${cleanupErr.message}`)
+    } else if (count && count > 0) {
+      console.log(`[PinelabSync] Removed ${count} non-SUCCESS ${merchantSlug} rows`)
+    }
+  }
 
-      for (const txn of resp.transactions) {
-        if (!txn.transactionId) {
-          result.skipped++
-          continue
-        }
+  for (const paymentMode of modes) {
+    let page = 0
+    let totalPages = 1
 
-        const prefixedId = `PL_${txn.transactionId}`
+    while (page < totalPages) {
+      try {
+        const resp = await fetchTransactions(baseUrl, authHeader, fromDate, toDate, page, 500, paymentMode)
+        totalPages = resp.totalPages
+        result.fetched += resp.transactions.length
 
-        const { data: existing } = await supabase
-          .from('razorpay_pos_transactions')
-          .select('id, status, display_status, transaction_time')
-          .eq('txn_id', prefixedId)
-          .maybeSingle()
+        for (const txn of resp.transactions) {
+          if (!txn.transactionId) {
+            result.skipped++
+            continue
+          }
 
-        const dbRecord = mapToDbRecord(txn, merchantSlug, config.merchantName)
+          const prefixedId = `PL_${txn.transactionId}`
 
-        if (existing) {
-          const statusChanged =
-            existing.status !== dbRecord.status ||
-            existing.display_status !== dbRecord.display_status
+          // Catch-all pass: skip rows already processed via CARD/UPI filtered calls
+          if (!paymentMode && seenTxnIds.has(prefixedId)) {
+            result.skipped++
+            continue
+          }
+          seenTxnIds.add(prefixedId)
 
-          // Heal rows stored with a wrong timestamp (e.g. pre-IST-fix data)
-          const existingMs = existing.transaction_time ? new Date(existing.transaction_time).getTime() : 0
-          const newMs = new Date(dbRecord.transaction_time).getTime()
-          const timeChanged = Math.abs(existingMs - newMs) > 1000
-
-          if (statusChanged || timeChanged) {
-            const { error } = await supabase
+          // Razorpay POS only notifies on successful payments. Pinelab Transaction
+          // Summary returns FAILED/CANCELLED too — skip those so they don't inflate reports.
+          const txnStatus = (txn.txnStatus || '').toUpperCase()
+          if (txnStatus !== 'SUCCESS') {
+            // Remove any previously synced non-success rows for this txn
+            const { error: delErr } = await supabase
               .from('razorpay_pos_transactions')
-              .update({ ...dbRecord, updated_at: new Date().toISOString() })
+              .delete()
               .eq('txn_id', prefixedId)
+            if (delErr) {
+              result.errors.push(`Delete non-success ${prefixedId}: ${delErr.message}`)
+            }
+            result.skipped++
+            continue
+          }
 
-            if (error) {
-              result.errors.push(`Update ${prefixedId}: ${error.message}`)
+          const { data: existing } = await supabase
+            .from('razorpay_pos_transactions')
+            .select('id, status, display_status, transaction_time, card_type, card_brand, issuing_bank')
+            .eq('txn_id', prefixedId)
+            .maybeSingle()
+
+          const dbRecord = mapToDbRecord(txn, merchantSlug, config.merchantName)
+
+          if (existing) {
+            const statusChanged =
+              existing.status !== dbRecord.status ||
+              existing.display_status !== dbRecord.display_status
+
+            const existingMs = existing.transaction_time ? new Date(existing.transaction_time).getTime() : 0
+            const newMs = new Date(dbRecord.transaction_time).getTime()
+            const timeChanged = Math.abs(existingMs - newMs) > 1000
+
+            // Heal rows synced before we started requesting paymentMode (missing card fields)
+            const cardEnriched =
+              (!!dbRecord.card_type && dbRecord.card_type !== existing.card_type) ||
+              (!!dbRecord.card_brand && dbRecord.card_brand !== existing.card_brand) ||
+              (!!dbRecord.issuing_bank && dbRecord.issuing_bank !== existing.issuing_bank)
+
+            if (statusChanged || timeChanged || cardEnriched) {
+              const { error } = await supabase
+                .from('razorpay_pos_transactions')
+                .update({ ...dbRecord, updated_at: new Date().toISOString() })
+                .eq('txn_id', prefixedId)
+
+              if (error) {
+                result.errors.push(`Update ${prefixedId}: ${error.message}`)
+              } else {
+                result.updated++
+              }
             } else {
-              result.updated++
+              result.skipped++
             }
           } else {
-            result.skipped++
-          }
-        } else {
-          const { error } = await supabase
-            .from('razorpay_pos_transactions')
-            .insert(dbRecord)
+            const { error } = await supabase
+              .from('razorpay_pos_transactions')
+              .insert(dbRecord)
 
-          if (error) {
-            result.errors.push(`Insert ${prefixedId}: ${error.message}`)
-          } else {
-            result.created++
+            if (error) {
+              result.errors.push(`Insert ${prefixedId}: ${error.message}`)
+            } else {
+              result.created++
 
-            if (dbRecord.display_status === 'SUCCESS' && dbRecord.device_serial && dbRecord.amount > 0) {
-              const { data: deviceMapping } = await supabase
-                .from('pos_device_mapping')
-                .select('retailer_id, distributor_id, master_distributor_id')
-                .eq('device_serial', dbRecord.device_serial)
-                .eq('status', 'ACTIVE')
-                .maybeSingle()
+              if (dbRecord.display_status === 'SUCCESS' && dbRecord.device_serial && dbRecord.amount > 0) {
+                const { data: deviceMapping } = await supabase
+                  .from('pos_device_mapping')
+                  .select('retailer_id, distributor_id, master_distributor_id')
+                  .eq('device_serial', dbRecord.device_serial)
+                  .eq('status', 'ACTIVE')
+                  .maybeSingle()
 
-              if (deviceMapping?.retailer_id) {
-                await supabase
-                  .from('razorpay_pos_transactions')
-                  .update({
-                    retailer_id: deviceMapping.retailer_id,
-                    distributor_id: deviceMapping.distributor_id,
-                    master_distributor_id: deviceMapping.master_distributor_id,
-                    gross_amount: dbRecord.amount,
-                  })
-                  .eq('txn_id', prefixedId)
+                if (deviceMapping?.retailer_id) {
+                  await supabase
+                    .from('razorpay_pos_transactions')
+                    .update({
+                      retailer_id: deviceMapping.retailer_id,
+                      distributor_id: deviceMapping.distributor_id,
+                      master_distributor_id: deviceMapping.master_distributor_id,
+                      gross_amount: dbRecord.amount,
+                    })
+                    .eq('txn_id', prefixedId)
+                }
               }
             }
           }
         }
-      }
 
-      page++
-    } catch (err: any) {
-      result.errors.push(`page ${page}: ${err.message}`)
-      break
+        page++
+      } catch (err: any) {
+        result.errors.push(`${paymentMode || 'ALL'} page ${page}: ${err.message}`)
+        break
+      }
     }
   }
 

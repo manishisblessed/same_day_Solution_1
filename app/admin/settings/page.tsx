@@ -9,7 +9,7 @@ import AdminSidebar from '@/components/AdminSidebar'
 import { 
   Lock, Eye, EyeOff, CheckCircle, AlertCircle, 
   User, Mail, Shield, Save, ArrowLeft, Users, Plus, Edit, Trash2, X, IndianRupee, Key,
-  Building2, Archive, ArchiveRestore
+  Building2, Archive, ArchiveRestore, Gauge
 } from 'lucide-react'
 import { motion } from 'framer-motion'
 import { apiFetch } from '@/lib/api-client'
@@ -19,7 +19,7 @@ export default function AdminSettings() {
   const { user, loading: authLoading } = useAuth()
   const router = useRouter()
   const [sidebarOpen, setSidebarOpen] = useState(false)
-  const [activeTab, setActiveTab] = useState<'profile' | 'password' | 'security' | 'sub-admins' | 'finance-team' | 'companies'>('profile')
+  const [activeTab, setActiveTab] = useState<'profile' | 'password' | 'security' | 'sub-admins' | 'finance-team' | 'companies' | 'limits'>('profile')
 
   // POS companies (archive/show) state
   const [posCompanies, setPosCompanies] = useState<Array<{ slug: string; name: string; shortName: string; archived: boolean }>>([])
@@ -75,6 +75,12 @@ export default function AdminSettings() {
   const [resetPwLoading, setResetPwLoading] = useState(false)
   const [showResetPwText, setShowResetPwText] = useState(false)
 
+  // Wallet limit state
+  const [walletLimit, setWalletLimit] = useState<number>(500000)
+  const [walletLimitInput, setWalletLimitInput] = useState('')
+  const [walletLimitLoading, setWalletLimitLoading] = useState(false)
+  const [walletLimitMeta, setWalletLimitMeta] = useState<{ updated_by?: string; updated_at?: string }>({})
+
   const canManageFinanceUsers =
     adminInfo?.admin_type === 'super_admin' ||
     adminInfo?.department === 'users' ||
@@ -98,6 +104,7 @@ export default function AdminSettings() {
     { id: 'services', label: 'Services' },
     { id: 'aeps', label: 'AEPS Management' },
     { id: 'reports', label: 'Reports' },
+    { id: 'service-transaction-report', label: 'Service Transaction Report' },
     { id: 'business-report', label: 'Business Report' },
     { id: 'settlement', label: 'Settlement' },
     { id: 'revenue-wallet', label: 'Revenue Wallet' },
@@ -218,6 +225,52 @@ export default function AdminSettings() {
       fetchFinanceUsers()
     }
   }, [activeTab, user, canManageFinanceUsers])
+
+  const fetchWalletLimit = async () => {
+    try {
+      const res = await apiFetch('/api/admin/settings/wallet-limit')
+      const data = await res.json()
+      if (data.success) {
+        setWalletLimit(data.limit)
+        setWalletLimitInput(String(data.limit))
+        setWalletLimitMeta({ updated_by: data.updated_by, updated_at: data.updated_at })
+      }
+    } catch {}
+  }
+
+  const saveWalletLimit = async () => {
+    const parsed = parseInt(walletLimitInput, 10)
+    if (isNaN(parsed) || parsed < 1000) {
+      setMessage({ type: 'error', text: 'Minimum limit is ₹1,000' })
+      return
+    }
+    setWalletLimitLoading(true)
+    try {
+      const res = await apiFetch('/api/admin/settings/wallet-limit', {
+        method: 'POST',
+        body: JSON.stringify({ limit: parsed }),
+      })
+      const data = await res.json()
+      if (data.success) {
+        setWalletLimit(data.limit)
+        setWalletLimitInput(String(data.limit))
+        setMessage({ type: 'success', text: `Wallet limit updated to ₹${data.limit.toLocaleString('en-IN')}` })
+        fetchWalletLimit()
+      } else {
+        setMessage({ type: 'error', text: data.error || 'Failed to update' })
+      }
+    } catch {
+      setMessage({ type: 'error', text: 'Failed to update wallet limit' })
+    } finally {
+      setWalletLimitLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    if (activeTab === 'limits' && user?.role === 'admin') {
+      fetchWalletLimit()
+    }
+  }, [activeTab, user])
 
   const fetchSubAdmins = async () => {
     setLoadingSubAdmins(true)
@@ -510,6 +563,7 @@ export default function AdminSettings() {
                 { id: 'companies' as const, label: 'Companies', icon: Building2 },
                 ...(adminInfo?.admin_type === 'super_admin' ? [{ id: 'sub-admins' as const, label: 'Sub-Admins', icon: Users }] : []),
                 ...(canManageFinanceUsers ? [{ id: 'finance-team' as const, label: 'Finance team', icon: IndianRupee }] : []),
+                { id: 'limits' as const, label: 'Limits', icon: Gauge },
               ].map((tab) => (
                 <button
                   key={tab.id}
@@ -1074,6 +1128,54 @@ export default function AdminSettings() {
                     </tbody>
                   </table>
                 </div>
+              )}
+            </motion.div>
+            )}
+
+            {activeTab === 'limits' && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.15 }}
+              className="bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 p-6"
+            >
+              <div className="flex items-center gap-3 mb-6">
+                <div className="p-3 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
+                  <IndianRupee className="w-6 h-6 text-blue-700 dark:text-blue-400" />
+                </div>
+                <div>
+                  <h2 className="text-xl font-bold text-gray-900 dark:text-white">Wallet Push / Pull Limit</h2>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">
+                    Maximum amount an admin can push or pull in a single wallet operation. Current limit: <span className="font-semibold text-gray-900 dark:text-white">₹{walletLimit.toLocaleString('en-IN')}</span>
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-end gap-3">
+                <div className="flex-1 max-w-xs">
+                  <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">New Limit (₹)</label>
+                  <input
+                    type="number"
+                    min={1000}
+                    max={100000000}
+                    value={walletLimitInput}
+                    onChange={(e) => setWalletLimitInput(e.target.value)}
+                    className="w-full px-4 py-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                    placeholder="e.g. 1000000"
+                  />
+                </div>
+                <button
+                  onClick={saveWalletLimit}
+                  disabled={walletLimitLoading || walletLimitInput === String(walletLimit)}
+                  className="px-5 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 whitespace-nowrap"
+                >
+                  {walletLimitLoading ? 'Saving...' : 'Update Limit'}
+                </button>
+              </div>
+              {walletLimitMeta.updated_by && (
+                <p className="text-xs text-gray-400 mt-3">
+                  Last updated by {walletLimitMeta.updated_by}
+                  {walletLimitMeta.updated_at && ` on ${new Date(walletLimitMeta.updated_at).toLocaleString('en-IN')}`}
+                </p>
               )}
             </motion.div>
             )}

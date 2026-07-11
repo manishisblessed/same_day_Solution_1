@@ -906,8 +906,8 @@ export default function PayoutTransfer({ title, readOnly }: PayoutTransferProps 
       return
     }
     
-    if (amountNum > 200000) {
-      setError('Maximum transfer amount is ₹2,00,000')
+    if (amountNum > 100000) {
+      setError('Maximum transfer amount is ₹1,00,000 (SameDay policy)')
       return
     }
     
@@ -1636,7 +1636,7 @@ export default function PayoutTransfer({ title, readOnly }: PayoutTransferProps 
                     className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
                     placeholder="Enter amount (min ₹100)"
                     min="100"
-                    max="200000"
+                    max="100000"
                   />
                 </div>
 
