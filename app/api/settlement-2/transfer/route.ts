@@ -308,14 +308,15 @@ export async function POST(request: NextRequest) {
       return addCorsHeaders(request, response)
     }
 
-    // Duplicate prevention
-    const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000).toISOString()
+    // Duplicate prevention — same account + same amount within 1 min
+    const oneMinuteAgo = new Date(Date.now() - 1 * 60 * 1000).toISOString()
     const { data: recentTx } = await supabaseAdmin
       .from('shadval_settlement')
       .select('id, status, created_at')
       .eq('retailer_id', user.partner_id)
       .eq('account_number', account.account_number)
-      .gte('created_at', twoMinutesAgo)
+      .eq('amount', amountNum)
+      .gte('created_at', oneMinuteAgo)
       .in('status', ['SUCCESS', 'PENDING'])
       .order('created_at', { ascending: false })
       .limit(1)
@@ -323,7 +324,7 @@ export async function POST(request: NextRequest) {
 
     if (recentTx) {
       const response = NextResponse.json(
-        { success: false, error: 'A recent transaction to this account is already processing. Please wait 2 minutes.' },
+        { success: false, error: 'An identical transaction (same account + amount) is already processing. Please wait 1 minute.' },
         { status: 429 }
       )
       return addCorsHeaders(request, response)

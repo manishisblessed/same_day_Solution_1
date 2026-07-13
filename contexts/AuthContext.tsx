@@ -134,7 +134,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     validate()
-    heartbeatRef.current = setInterval(validate, 30_000)
+    heartbeatRef.current = setInterval(validate, 15_000)
   }, [])
 
   const stopHeartbeat = useCallback(() => {

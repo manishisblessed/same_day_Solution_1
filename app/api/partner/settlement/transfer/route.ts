@@ -5,6 +5,11 @@ import { initiateBankTransfer } from '@/services/shadval-pay'
 import type { ShadvalTransferRequest } from '@/services/shadval-pay'
 import { sendSettlementCallback } from '@/lib/settlement-callback'
 import { resolveShadvalCharge, getShadvalSlabLimits } from '@/lib/shadval-charge'
+import {
+  reserveIdempotencyKey,
+  finalizeIdempotencyKey,
+  getIdempotencyKeyFromHeaders,
+} from '@/lib/security/idempotency'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -43,6 +48,23 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { success: false, error: { code: 'FORBIDDEN', message: access.message } },
         { status: 403 }
+      )
+    }
+
+    // Idempotency key support
+    const idempotencyKey = getIdempotencyKeyFromHeaders(request.headers)
+    const idempResult = await reserveIdempotencyKey({
+      scope: `partner_settlement:${partner.id}`,
+      key: idempotencyKey,
+      userId: partner.id,
+    })
+    if (!idempResult.fresh) {
+      if (idempResult.cachedResponse) {
+        return NextResponse.json(idempResult.cachedResponse, { status: idempResult.cachedResponse?.status_code || 200 })
+      }
+      return NextResponse.json(
+        { success: false, error: { code: 'DUPLICATE', message: 'Request with this idempotency key is already being processed.' } },
+        { status: 409 }
       )
     }
 
@@ -173,13 +195,14 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Duplicate prevention
-    const twoMinAgo = new Date(Date.now() - 2 * 60 * 1000).toISOString()
+    // Duplicate prevention — same account + same amount within 1 min
+    const twoMinAgo = new Date(Date.now() - 1 * 60 * 1000).toISOString()
     const { data: recentTx } = await supabase
       .from('shadval_settlement')
       .select('id, status, created_at')
       .eq('retailer_id', partner.id)
       .eq('account_number', account.account_number)
+      .eq('amount', amountNum)
       .gte('created_at', twoMinAgo)
       .in('status', ['SUCCESS', 'PENDING'])
       .order('created_at', { ascending: false })
@@ -189,7 +212,7 @@ export async function POST(request: NextRequest) {
     if (recentTx) {
       const secAgo = Math.round((Date.now() - new Date(recentTx.created_at).getTime()) / 1000)
       return NextResponse.json(
-        { success: false, error: { code: 'DUPLICATE', message: `Transaction to this account initiated ${secAgo}s ago. Wait ${120 - secAgo}s.` }, wait_seconds: 120 - secAgo },
+        { success: false, error: { code: 'DUPLICATE', message: `Identical transaction (same account + amount) initiated ${secAgo}s ago. Wait ${60 - secAgo}s.` }, wait_seconds: 60 - secAgo },
         { status: 429 }
       )
     }
@@ -310,7 +333,7 @@ export async function POST(request: NextRequest) {
       sendSettlementCallback(partner.id, updatedTx).catch(() => {})
     }
 
-    return NextResponse.json({
+    const responseBody = {
       success: !isFailed,
       message: apiResult.message,
       transaction: {
@@ -328,7 +351,17 @@ export async function POST(request: NextRequest) {
         ifsc_code: account.ifsc_code,
       },
       ...(isFailed ? { refunded: true } : {}),
-    })
+    }
+
+    // Finalize idempotency key with the response
+    finalizeIdempotencyKey({
+      scope: `partner_settlement:${partner.id}`,
+      key: idempotencyKey || '',
+      status: isFailed ? 'failed' : 'completed',
+      response: responseBody,
+    }).catch(() => {})
+
+    return NextResponse.json(responseBody)
   } catch (error: any) {
     console.error('[Partner Settlement Transfer] Error:', error)
     return NextResponse.json(

@@ -16,7 +16,7 @@ import {
   AlertCircle, CheckCircle, ShieldCheck, User, Bell, Shield, Sliders,
   CreditCard, Banknote, Loader2
 } from 'lucide-react'
-import TransactionsTable from '@/components/TransactionsTable'
+import POSTransactionsTable from '@/components/POSTransactionsTable'
 import { LineChart, Line, BarChart, Bar, AreaChart, Area, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
 import { motion, AnimatePresence } from 'framer-motion'
 import { apiFetch, apiFetchJson } from '@/lib/api-client'
@@ -522,7 +522,7 @@ function DashboardTab({ stats, chartData, revenueData }: { stats: any, chartData
         className="card"
       >
         <h3 className="text-lg font-semibold text-gray-900 mb-4">Recent Transactions</h3>
-            <TransactionsTable role="master_distributor" autoPoll={true} pollInterval={10000} showFilters={true} />
+            <POSTransactionsTable role="master_distributor" autoPoll={true} pollInterval={15000} />
       </motion.div>
     </>
   )

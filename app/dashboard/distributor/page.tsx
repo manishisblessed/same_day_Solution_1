@@ -17,7 +17,7 @@ import {
   Layers, Banknote, Link2, ChevronDown, ChevronUp,
   User, Bell, Shield, Sliders, CheckCircle, Loader2, Building2, ShieldCheck
 } from 'lucide-react'
-import TransactionsTable from '@/components/TransactionsTable'
+import POSTransactionsTable from '@/components/POSTransactionsTable'
 import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
 import { motion } from 'framer-motion'
 import { apiFetch, apiFetchJson, newIdempotencyKey } from '@/lib/api-client'
@@ -501,7 +501,7 @@ const DashboardTab = memo(function DashboardTab({ stats, chartData, pieData, onT
         className="card"
       >
         <h3 className="text-lg font-semibold text-gray-900 mb-4">POS Transactions</h3>
-        <TransactionsTable role="distributor" autoPoll={true} pollInterval={10000} />
+        <POSTransactionsTable role="distributor" autoPoll={true} pollInterval={15000} />
       </motion.div>
     </>
   )

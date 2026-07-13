@@ -79,6 +79,8 @@ export async function GET(request: NextRequest) {
     const dateTo = rawDateTo ? (rawDateTo.includes('T') ? rawDateTo : `${rawDateTo}T23:59:59+05:30`) : null
     const statusFilter = searchParams.get('status')
     const tidFilter = searchParams.get('tid') || searchParams.get('terminal_id')
+    const retailerIdFilter = searchParams.get('retailer_id')
+    const distributorIdFilter = searchParams.get('distributor_id')
 
     // Resolve machine_id to device_serial if needed
     let targetDeviceSerial = deviceSerial
@@ -440,8 +442,11 @@ export async function GET(request: NextRequest) {
 
     if (user.role === 'master_distributor') {
       mappingQuery = mappingQuery.eq('master_distributor_id', user.partner_id)
+      if (distributorIdFilter) mappingQuery = mappingQuery.eq('distributor_id', distributorIdFilter)
+      if (retailerIdFilter) mappingQuery = mappingQuery.eq('retailer_id', retailerIdFilter)
     } else if (user.role === 'distributor') {
       mappingQuery = mappingQuery.eq('distributor_id', user.partner_id)
+      if (retailerIdFilter) mappingQuery = mappingQuery.eq('retailer_id', retailerIdFilter)
     } else {
       return NextResponse.json({ error: 'Invalid user role' }, { status: 403 })
     }
@@ -464,8 +469,11 @@ export async function GET(request: NextRequest) {
 
     if (user.role === 'master_distributor') {
       posMachineQuery = posMachineQuery.eq('master_distributor_id', user.partner_id)
+      if (distributorIdFilter) posMachineQuery = posMachineQuery.eq('distributor_id', distributorIdFilter)
+      if (retailerIdFilter) posMachineQuery = posMachineQuery.eq('retailer_id', retailerIdFilter)
     } else if (user.role === 'distributor') {
       posMachineQuery = posMachineQuery.eq('distributor_id', user.partner_id)
+      if (retailerIdFilter) posMachineQuery = posMachineQuery.eq('retailer_id', retailerIdFilter)
     }
 
     const { data: posMachines } = await posMachineQuery

@@ -3,6 +3,7 @@ import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
 import { getTransferStatus } from '@/services/payout'
 import { createClient } from '@supabase/supabase-js'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
+import { sendPayoutCallback } from '@/lib/payout-callback'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -66,7 +67,7 @@ export async function POST(request: NextRequest) {
 
     let query = supabaseAdmin
       .from('payout_transactions')
-      .select('id, retailer_id, client_ref_id, transaction_id, status, amount, charges, wallet_debited, created_at, account_holder_name, transfer_mode')
+      .select('id, retailer_id, partner_id, client_ref_id, transaction_id, status, amount, charges, wallet_debited, created_at, account_holder_name, account_number, bank_name, transfer_mode, failure_reason')
       .in('status', ['pending', 'processing'])
       .lt('created_at', staleThreshold)
       .order('created_at', { ascending: true })
@@ -180,6 +181,11 @@ export async function POST(request: NextRequest) {
 
                 refunded++
                 results.push({ id: tx.id, previous_status: tx.status, new_status: 'refunded', action: 'auto_refund_failed' })
+
+                // Fire payout callback to partner if this is a partner transaction
+                if (tx.partner_id) {
+                  sendPayoutCallback(tx.partner_id, { ...tx, status: 'refunded', failure_reason: statusResult.status_message || 'Transaction failed' }).catch(() => {})
+                }
               } else {
                 await supabaseAdmin
                   .from('payout_transactions')
@@ -188,6 +194,11 @@ export async function POST(request: NextRequest) {
 
                 resolved++
                 results.push({ id: tx.id, previous_status: tx.status, new_status: newStatus, action: 'status_updated' })
+
+                // Fire payout callback to partner if this is a partner transaction
+                if (tx.partner_id && (newStatus === 'success' || newStatus === 'failed')) {
+                  sendPayoutCallback(tx.partner_id, { ...tx, status: newStatus }).catch(() => {})
+                }
               }
             } else {
               stillPending++
@@ -245,6 +256,10 @@ export async function POST(request: NextRequest) {
 
           refunded++
           results.push({ id: tx.id, previous_status: tx.status, new_status: 'refunded', action: 'auto_refund_no_reference' })
+
+          if (tx.partner_id) {
+            sendPayoutCallback(tx.partner_id, { ...tx, status: 'refunded', failure_reason: `Auto-refunded: No provider response after ${Math.round(txAgeMinutes)} minutes` }).catch(() => {})
+          }
         } catch (err: any) {
           console.error(`[Check Pending] Error refunding tx ${tx.id}:`, err)
           results.push({ id: tx.id, previous_status: tx.status, new_status: tx.status, action: 'refund_error' })

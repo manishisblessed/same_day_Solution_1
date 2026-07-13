@@ -16,13 +16,16 @@ import { RazorpayPOSTransaction } from '@/types/database.types'
 interface POSTransactionsTableProps {
   autoPoll?: boolean
   pollInterval?: number
+  role?: 'admin' | 'master_distributor' | 'distributor' | 'retailer' | 'partner'
 }
 
 export default function POSTransactionsTable({
   autoPoll = true,
-  pollInterval = 15000
+  pollInterval = 15000,
+  role: roleOverride
 }: POSTransactionsTableProps) {
   const { user } = useAuth()
+  const effectiveRole = roleOverride || user?.role
   const [transactions, setTransactions] = useState<RazorpayPOSTransaction[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -38,6 +41,13 @@ export default function POSTransactionsTable({
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [tidFilter, setTidFilter] = useState('')
+  const [retailerIdFilter, setRetailerIdFilter] = useState('')
+  const [distributorIdFilter, setDistributorIdFilter] = useState('')
+  
+  // Retailer/Distributor options for filter dropdowns
+  const [retailers, setRetailers] = useState<{ id: string, name: string }[]>([])
+  const [distributors, setDistributors] = useState<{ id: string, name: string }[]>([])
+  const [loadingFilters, setLoadingFilters] = useState(false)
   
   // Detail modal
   const [selectedTxn, setSelectedTxn] = useState<RazorpayPOSTransaction | null>(null)
@@ -51,6 +61,23 @@ export default function POSTransactionsTable({
     summary?: any
   } | null>(null)
   const [pulsepayEnabled, setPulsepayEnabled] = useState(false)
+
+  // Fetch retailer/distributor options for filter dropdowns
+  useEffect(() => {
+    if (!user?.partner_id) return
+    if (effectiveRole !== 'distributor' && effectiveRole !== 'master_distributor') return
+    const fetchFilterOptions = async () => {
+      setLoadingFilters(true)
+      try {
+        const res = await apiFetch('/api/pos/filter-options')
+        const data = await res.json()
+        if (data.retailers) setRetailers(data.retailers)
+        if (data.distributors) setDistributors(data.distributors)
+      } catch { /* ignore */ }
+      setLoadingFilters(false)
+    }
+    fetchFilterOptions()
+  }, [user?.partner_id, effectiveRole])
 
   const fetchTransactions = useCallback(async () => {
     // Admin users don't have partner_id, but should still see all transactions
@@ -67,6 +94,8 @@ export default function POSTransactionsTable({
       if (dateTo) params.append('date_to', dateTo)
       if (statusFilter && statusFilter !== 'all') params.append('status', statusFilter)
       if (tidFilter) params.append('device_serial', tidFilter)
+      if (retailerIdFilter) params.append('retailer_id', retailerIdFilter)
+      if (distributorIdFilter) params.append('distributor_id', distributorIdFilter)
 
       const response = await apiFetch(`/api/razorpay/transactions?${params.toString()}`)
       const result = await response.json()
@@ -84,7 +113,7 @@ export default function POSTransactionsTable({
     } finally {
       setLoading(false)
     }
-  }, [user?.partner_id, user?.role, page, limit, statusFilter, dateFrom, dateTo, tidFilter])
+  }, [user?.partner_id, user?.role, page, limit, statusFilter, dateFrom, dateTo, tidFilter, retailerIdFilter, distributorIdFilter])
 
   useEffect(() => {
     fetchTransactions()
@@ -385,10 +414,12 @@ export default function POSTransactionsTable({
     setDateFrom('')
     setDateTo('')
     setTidFilter('')
+    setRetailerIdFilter('')
+    setDistributorIdFilter('')
     setPage(1)
   }
 
-  const hasActiveFilters = statusFilter !== 'all' || settlementFilter !== 'all' || dateFrom || dateTo || tidFilter
+  const hasActiveFilters = statusFilter !== 'all' || settlementFilter !== 'all' || dateFrom || dateTo || tidFilter || retailerIdFilter || distributorIdFilter
 
   // ---- Summary stats ----
   const summaryStats = useMemo(() => {
@@ -636,6 +667,36 @@ export default function POSTransactionsTable({
                   />
                 </div>
               </div>
+              {effectiveRole === 'master_distributor' && distributors.length > 0 && (
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Distributor</label>
+                  <select
+                    value={distributorIdFilter}
+                    onChange={(e) => { setDistributorIdFilter(e.target.value); setRetailerIdFilter(''); setPage(1) }}
+                    className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+                  >
+                    <option value="">All Distributors</option>
+                    {distributors.map(d => (
+                      <option key={d.id} value={d.id}>{d.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              {(effectiveRole === 'master_distributor' || effectiveRole === 'distributor') && retailers.length > 0 && (
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Retailer</label>
+                  <select
+                    value={retailerIdFilter}
+                    onChange={(e) => { setRetailerIdFilter(e.target.value); setPage(1) }}
+                    className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+                  >
+                    <option value="">All Retailers</option>
+                    {retailers.map(r => (
+                      <option key={r.id} value={r.id}>{r.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
             </div>
           </motion.div>
         )}

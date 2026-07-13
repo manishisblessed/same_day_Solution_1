@@ -67,6 +67,8 @@ export default function AdminLogin() {
     }
   }, [user, router])
 
+  const autoSubmittedRef = useRef(false)
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
@@ -119,6 +121,27 @@ export default function AdminLogin() {
       setLoading(false)
     }
   }
+
+  // Auto-submit when credentials filled + location captured + captcha verified
+  useEffect(() => {
+    if (
+      autoSubmittedRef.current ||
+      loading ||
+      show2FA ||
+      !formData.email ||
+      !formData.password
+    ) return
+
+    const locationReady = locationStatus === 'done' || locationStatus === 'failed'
+    const captchaReady = !isCaptchaEnabled() || !!captchaToken
+
+    if (locationReady && captchaReady) {
+      autoSubmittedRef.current = true
+      const syntheticEvent = { preventDefault: () => {} } as React.FormEvent
+      handleSubmit(syntheticEvent)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [locationStatus, captchaToken, formData.email, formData.password, loading, show2FA])
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-primary-50 via-secondary-50 to-accent-50 flex items-center justify-center p-4">
