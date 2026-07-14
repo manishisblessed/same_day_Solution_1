@@ -185,9 +185,11 @@ export async function POST(
     let isNewTransaction = false
 
     if (existingTxn) {
+      // Never reset partner_id on updates (attached separately)
+      const { partner_id: _omitPartnerId, ...posUpdateData } = posTransactionData
       const { data, error } = await supabase
         .from('razorpay_pos_transactions')
-        .update({ ...posTransactionData, updated_at: new Date().toISOString() })
+        .update({ ...posUpdateData, updated_at: new Date().toISOString() })
         .eq('txn_id', prefixedTxnId)
         .select()
         .single()
@@ -233,6 +235,30 @@ export async function POST(
           .eq('txn_id', prefixedTxnId)
 
         console.log(`[Paytm/${merchantSlug}] Mapped retailer ${deviceMapping.retailer_id} for txn ${txnId}`)
+      }
+
+      // Attach owning partner + instant settle if partner mode is INSTANT
+      if (posResult?.id) {
+        try {
+          const { attachPartnerAndMaybeInstantSettle } = await import('@/lib/partner-settlement')
+          await attachPartnerAndMaybeInstantSettle(
+            {
+              id: posResult.id,
+              txn_id: prefixedTxnId,
+              amount,
+              gross_amount: amount,
+              payment_mode: paymentMode,
+              card_type: cardType,
+              card_brand: cardBrand,
+              merchant_slug: merchantSlug,
+              partner_id: posResult.partner_id || null,
+            },
+            deviceSerial,
+            tid
+          )
+        } catch (partnerErr: any) {
+          console.error(`[Paytm/${merchantSlug}] Partner settlement error for txn ${txnId}:`, partnerErr)
+        }
       }
     }
 

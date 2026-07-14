@@ -607,48 +607,47 @@ export async function calculatePartnerMDR(
 
     const supabase = getSupabaseAdmin();
 
-    // Query partner_schemes to find matching scheme
-    let query = supabase
-      .from('partner_schemes')
-      .select('*')
-      .eq('partner_id', partnerId)
-      .eq('status', 'active')
-      .eq('mode', normalizedMode);
-
-    // Fallback chain: most specific to least specific
-    // Try 1: Exact match (card_type + brand_type)
-    let schemeRecord = await query
-      .eq('card_type', normalizedCardType || null)
-      .eq('brand_type', normalizedBrandType || null)
-      .maybeSingle();
-
-    // Try 2: Card type only
-    if (!schemeRecord.data && normalizedCardType) {
-      const q2 = supabase
-        .from('partner_schemes')
-        .select('*')
-        .eq('partner_id', partnerId)
-        .eq('status', 'active')
-        .eq('mode', normalizedMode)
-        .eq('card_type', normalizedCardType)
-        .is('brand_type', null);
-      schemeRecord = await q2.maybeSingle();
+    // Query partner_schemes to find matching scheme.
+    // A brand-specific scheme (merchant_slug set) beats the all-brand scheme
+    // (merchant_slug NULL) at every card specificity level:
+    //   exact card+brand -> card type only -> any card
+    const companyCandidates: (string | null)[] = merchant_slug ? [merchant_slug, null] : [null];
+    const cardLevels: Array<{ card: string | null; brand: string | null }> = [];
+    const seenLevels = new Set<string>();
+    for (const level of [
+      { card: normalizedCardType || null, brand: normalizedBrandType || null },
+      { card: normalizedCardType || null, brand: null },
+      { card: null, brand: null },
+    ]) {
+      const key = `${level.card}|${level.brand}`;
+      if (!seenLevels.has(key)) {
+        seenLevels.add(key);
+        cardLevels.push(level);
+      }
     }
 
-    // Try 3: Fallback - any card type (mode only)
-    if (!schemeRecord.data) {
-      const q3 = supabase
-        .from('partner_schemes')
-        .select('*')
-        .eq('partner_id', partnerId)
-        .eq('status', 'active')
-        .eq('mode', normalizedMode)
-        .is('card_type', null)
-        .is('brand_type', null);
-      schemeRecord = await q3.maybeSingle();
+    let matchedScheme: any = null;
+    outer: for (const level of cardLevels) {
+      for (const company of companyCandidates) {
+        let q = supabase
+          .from('partner_schemes')
+          .select('*')
+          .eq('partner_id', partnerId)
+          .eq('status', 'active')
+          .eq('mode', normalizedMode);
+        q = level.card === null ? q.is('card_type', null) : q.eq('card_type', level.card);
+        q = level.brand === null ? q.is('brand_type', null) : q.eq('brand_type', level.brand);
+        q = company === null ? q.is('merchant_slug', null) : q.eq('merchant_slug', company);
+
+        const { data } = await q.limit(1).maybeSingle();
+        if (data) {
+          matchedScheme = data;
+          break outer;
+        }
+      }
     }
 
-    if (schemeRecord.error || !schemeRecord.data) {
+    if (!matchedScheme) {
       // Fallback: check scheme_mdr_rates via scheme management (partner plan with partner_mdr)
       try {
         const { data: schemeResult } = await supabase.rpc('resolve_scheme_for_user', {
@@ -704,7 +703,7 @@ export async function calculatePartnerMDR(
       };
     }
 
-    const scheme = schemeRecord.data;
+    const scheme = matchedScheme;
     const partner_mdr =
       settlementType === 'T0' ? scheme.partner_mdr_t0 : scheme.partner_mdr_t1;
 
@@ -720,7 +719,7 @@ export async function calculatePartnerMDR(
     );
 
     console.log(
-      `[Partner MDR] Resolved: partner_mdr=${partner_mdr}%, fee=${partner_fee}, settlement=${partner_settlement_amount}, scheme_id=${scheme.id}`
+      `[Partner MDR] Resolved: partner_mdr=${partner_mdr}%, fee=${partner_fee}, settlement=${partner_settlement_amount}, scheme_id=${scheme.id}, company=${scheme.merchant_slug || 'ALL'}`
     );
 
     return {

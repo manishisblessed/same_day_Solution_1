@@ -571,6 +571,13 @@ export interface RazorpayPOSTransaction {
   instacash_requested_at: string | null
   instacash_batch_id: string | null
   auto_settled_at: string | null
+  // Partner settlement tracking (independent of retailer settlement)
+  partner_id?: string | null
+  partner_wallet_credited?: boolean
+  partner_wallet_credit_id?: string | null
+  partner_mdr_amount?: number | null
+  partner_net_amount?: number | null
+  partner_auto_settled_at?: string | null
 }
 
 // Pulse Pay (formerly InstaCash) Batch Types

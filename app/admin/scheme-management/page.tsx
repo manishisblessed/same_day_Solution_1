@@ -13,6 +13,7 @@ import {
 import { useToast } from '@/components/Toast'
 import { apiFetch, apiFetchJson } from '@/lib/api-client'
 import { getPosCompanies } from '@/lib/merchant-companies'
+import PartnerMdrSchemesCard from '@/components/PartnerMdrSchemesCard'
 
 // ============================================================================
 // TYPES
@@ -1416,6 +1417,11 @@ function SchemeManagementPageContent() {
             ))}
           </div>
         )}
+        </div>
+
+        {/* Partner MDR Schemes (B2B partner T+1 auto settlement rates) */}
+        <div className="mt-8">
+          <PartnerMdrSchemesCard partners={partners} />
         </div>
 
         {/* ================================================================ */}

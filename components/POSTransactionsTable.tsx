@@ -124,14 +124,18 @@ export default function POSTransactionsTable({
     }
   }, [fetchTransactions, autoPoll, pollInterval])
 
-  // Fetch retailer's settlement mode setting (T+0 Pulse Pay enabled?)
+  // Fetch settlement mode setting (T+0 Pulse Pay enabled?)
+  // Retailers: enabled when mode is T0_T1.
+  // Partners: enabled when mode is T0_T1 or INSTANT (INSTANT partners can
+  // manually settle transactions that missed the instant credit).
   useEffect(() => {
-    if (user?.role !== 'retailer' || !user?.partner_id) return
+    if ((user?.role !== 'retailer' && user?.role !== 'partner') || !user?.partner_id) return
     const fetchMode = async () => {
       try {
         const res = await apiFetch(`/api/pos/instacash?check_mode=1`)
         const data = await res.json()
-        if (data.settlement_mode_allowed === 'T0_T1') {
+        if (data.settlement_mode_allowed === 'T0_T1' ||
+            (user.role === 'partner' && data.settlement_mode_allowed === 'INSTANT')) {
           setPulsepayEnabled(true)
         }
       } catch { /* ignore - default to hidden */ }
@@ -151,10 +155,43 @@ export default function POSTransactionsTable({
   const isEligibleForPulsePay = (txn: RazorpayPOSTransaction) => {
     const isSuccess = (txn.display_status || txn.status || '').toUpperCase() === 'SUCCESS' ||
                       (txn.display_status || txn.status || '').toUpperCase() === 'CAPTURED'
+    if (user?.role === 'partner') {
+      // Partner settlement is tracked independently via partner_* columns
+      return isSuccess && !txn.partner_wallet_credited
+    }
     return isSuccess && !txn.wallet_credited && !txn.settlement_mode
   }
 
   const getSettlementStatus = (txn: RazorpayPOSTransaction): { label: string; color: string; icon: any } => {
+    if (user?.role === 'partner') {
+      if (txn.partner_wallet_credited) {
+        return {
+          label: 'Settled',
+          color: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400',
+          icon: CheckCircle
+        }
+      }
+      const pStatus = (txn.display_status || txn.status || '').toUpperCase()
+      if (pStatus === 'SUCCESS' || pStatus === 'CAPTURED') {
+        return {
+          label: 'Unsettled',
+          color: 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400',
+          icon: Clock
+        }
+      }
+      if (pStatus === 'FAILED') {
+        return {
+          label: 'N/A',
+          color: 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400',
+          icon: XCircle
+        }
+      }
+      return {
+        label: 'Pending',
+        color: 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400',
+        icon: Clock
+      }
+    }
     if (txn.settlement_mode === 'INSTACASH') {
       return {
         label: 'Pulse Pay',
@@ -211,15 +248,20 @@ export default function POSTransactionsTable({
       return transactions.filter(t => t.settlement_mode === 'AUTO_T1')
     }
     if (settlementFilter === 'settled') {
+      if (user?.role === 'partner') {
+        return transactions.filter(t => t.partner_wallet_credited)
+      }
       return transactions.filter(t => t.wallet_credited)
     }
     return transactions
-  }, [transactions, settlementFilter])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [transactions, settlementFilter, user?.role])
 
   // ---- Selection helpers ----
   const eligibleTransactions = useMemo(
     () => filteredTransactions.filter(isEligibleForPulsePay),
-    [filteredTransactions]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [filteredTransactions, user?.role]
   )
 
   const allEligibleSelected = eligibleTransactions.length > 0 &&

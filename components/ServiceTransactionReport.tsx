@@ -118,6 +118,16 @@ export default function ServiceTransactionReport({ userRole, userName }: Service
   // Export loading
   const [exporting, setExporting] = useState<'csv' | 'excel' | 'pdf' | null>(null)
 
+  // Verify transaction
+  const [verifyingTxnId, setVerifyingTxnId] = useState<string | null>(null)
+  const [verifyResult, setVerifyResult] = useState<{ txnId: string; message: string; type: 'success' | 'error' | 'info' } | null>(null)
+
+  // Admin/finance: critical refund-failure alerts (money not returned after status flip)
+  const [criticalAlerts, setCriticalAlerts] = useState<Array<{
+    id: string; service_type: string; retailer_id: string; reference: string; amount: number; status: string; detail: string
+  }>>([])
+  const [alertsDismissed, setAlertsDismissed] = useState(false)
+
   // Admin/finance: filter by a specific network user (RT/DT/MD)
   const isAdminView = userRole === 'admin' || userRole === 'finance_executive'
   const [selectedNetworkUser, setSelectedNetworkUser] = useState<NetworkUser | null>(null)
@@ -269,6 +279,73 @@ export default function ServiceTransactionReport({ userRole, userName }: Service
   const handleSearch = () => fetchReport(1)
   const handlePageChange = (page: number) => fetchReport(page)
 
+  // Poll critical refund-failure alerts (admin/finance only)
+  const fetchCriticalAlerts = useCallback(async () => {
+    if (!isAdminView) return
+    try {
+      const res = await apiFetch('/api/admin/reports/refund-failures')
+      if (!res.ok) return
+      const json = await res.json()
+      setCriticalAlerts(json.alerts || [])
+    } catch {
+      // silent — banner just won't show
+    }
+  }, [isAdminView])
+
+  useEffect(() => {
+    if (!isAdminView) return
+    fetchCriticalAlerts()
+    const interval = setInterval(fetchCriticalAlerts, 60000)
+    return () => clearInterval(interval)
+  }, [isAdminView, fetchCriticalAlerts])
+
+  // ============================================================================
+  // VERIFY TRANSACTION
+  // ============================================================================
+
+  const handleVerifyTransaction = async (txn: Transaction) => {
+    if (verifyingTxnId) return
+    setVerifyingTxnId(txn.id)
+    setVerifyResult(null)
+
+    try {
+      const res = await apiFetch('/api/reports/service-transactions/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ service_type: txn.service_type, transaction_id: txn.id }),
+      })
+
+      const data = await res.json()
+
+      if (!res.ok) {
+        // Critical refund-failure: surface strongly and refresh the top banner
+        if (data.critical) {
+          setVerifyResult({ txnId: txn.id, message: data.message || 'CRITICAL: refund failed — manual review required', type: 'error' })
+          fetchCriticalAlerts()
+          fetchReport(1)
+          return
+        }
+        setVerifyResult({ txnId: txn.id, message: data.error || 'Verification failed', type: 'error' })
+        return
+      }
+
+      const type = data.action === 'marked_success' || data.action === 'failed_and_refunded' ? 'success' :
+                   data.action === 'provider_error' || data.action === 'already_processed' ? 'error' : 'info'
+
+      setVerifyResult({ txnId: txn.id, message: data.message, type })
+
+      // Refresh data if status changed
+      if (['marked_success', 'failed_and_refunded'].includes(data.action)) {
+        setTimeout(() => fetchReport(1), 1500)
+      }
+    } catch (err: any) {
+      setVerifyResult({ txnId: txn.id, message: err.message || 'Network error', type: 'error' })
+    } finally {
+      setVerifyingTxnId(null)
+      setTimeout(() => setVerifyResult(null), 8000)
+    }
+  }
+
   // ============================================================================
   // EXPORT
   // ============================================================================
@@ -375,6 +452,58 @@ export default function ServiceTransactionReport({ userRole, userName }: Service
 
   return (
     <div className="space-y-6">
+      {/* CRITICAL: refund-failure alerts (admin/finance only) — money marked returned but NOT credited */}
+      {isAdminView && criticalAlerts.length > 0 && !alertsDismissed && (
+        <motion.div
+          initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}
+          className="rounded-xl border-2 border-red-500 bg-red-50 dark:bg-red-950/40 shadow-lg overflow-hidden"
+        >
+          <div className="flex items-start gap-3 p-4">
+            <div className="p-2 bg-red-500 rounded-lg shrink-0">
+              <AlertTriangle className="w-5 h-5 text-white" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center justify-between gap-2">
+                <h3 className="text-sm font-bold text-red-800 dark:text-red-200">
+                  {criticalAlerts.length} transaction{criticalAlerts.length > 1 ? 's' : ''} need manual review — refund did NOT complete
+                </h3>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    onClick={fetchCriticalAlerts}
+                    className="p-1 rounded hover:bg-red-100 dark:hover:bg-red-900/40 text-red-600 dark:text-red-300"
+                    title="Refresh alerts"
+                  >
+                    <RefreshCw className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() => setAlertsDismissed(true)}
+                    className="p-1 rounded hover:bg-red-100 dark:hover:bg-red-900/40 text-red-600 dark:text-red-300"
+                    title="Dismiss (reappears on refresh)"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+              <p className="text-xs text-red-700 dark:text-red-300 mt-0.5">
+                These were marked failed/refunded but the wallet credit failed. Refund the user manually, then clear the marker.
+              </p>
+              <div className="mt-3 space-y-1.5 max-h-52 overflow-y-auto">
+                {criticalAlerts.map(a => (
+                  <div key={a.id} className="flex items-center justify-between gap-3 text-xs bg-white dark:bg-gray-900/60 rounded-lg px-3 py-2 border border-red-200 dark:border-red-800">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="px-1.5 py-0.5 rounded bg-red-100 dark:bg-red-900/50 text-red-700 dark:text-red-300 font-semibold">{a.service_type}</span>
+                      <span className="font-mono text-gray-600 dark:text-gray-400 truncate" title={a.reference}>{a.reference}</span>
+                      <span className="text-gray-400 truncate hidden sm:inline" title={a.retailer_id}>{a.retailer_id}</span>
+                    </div>
+                    <span className="font-bold text-red-700 dark:text-red-300 whitespace-nowrap">{formatCurrency(a.amount)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </motion.div>
+      )}
+
       {/* Header */}
       <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }}>
         <div className="flex items-center justify-between">
@@ -752,13 +881,41 @@ export default function ServiceTransactionReport({ userRole, userName }: Service
                       </td>
                     )}
                     <td className="px-4 py-3 text-center">
-                      <button
-                        onClick={() => { setSelectedTxn(txn); setShowViewModal(true) }}
-                        className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 rounded-lg transition-colors"
-                      >
-                        <Eye className="w-3.5 h-3.5" />
-                        View
-                      </button>
+                      <div className="flex items-center justify-center gap-1.5">
+                        <button
+                          onClick={() => { setSelectedTxn(txn); setShowViewModal(true) }}
+                          className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 rounded-lg transition-colors"
+                        >
+                          <Eye className="w-3.5 h-3.5" />
+                          View
+                        </button>
+                        {['pending', 'processing', 'initiated'].includes(txn.status.toLowerCase()) &&
+                          ['Settlement', 'BBPS'].includes(txn.service_type) &&
+                          ['admin', 'finance_executive', 'retailer'].includes(userRole) && (
+                          <button
+                            onClick={() => handleVerifyTransaction(txn)}
+                            disabled={verifyingTxnId === txn.id}
+                            className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 hover:bg-amber-100 dark:hover:bg-amber-900/40 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                            title="Verify transaction status with provider"
+                          >
+                            {verifyingTxnId === txn.id ? (
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            ) : (
+                              <RefreshCw className="w-3.5 h-3.5" />
+                            )}
+                            Check
+                          </button>
+                        )}
+                      </div>
+                      {verifyResult && verifyResult.txnId === txn.id && (
+                        <div className={`mt-1 text-[10px] px-2 py-0.5 rounded ${
+                          verifyResult.type === 'success' ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300' :
+                          verifyResult.type === 'error' ? 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300' :
+                          'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300'
+                        }`}>
+                          {verifyResult.message}
+                        </div>
+                      )}
                     </td>
                   </tr>
                 ))

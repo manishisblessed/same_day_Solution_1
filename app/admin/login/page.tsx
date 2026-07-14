@@ -69,6 +69,40 @@ export default function AdminLogin() {
 
   const autoSubmittedRef = useRef(false)
 
+  // Browser autofill fills inputs WITHOUT firing React onChange, leaving
+  // formData empty. Poll the DOM for ~10s after mount and sync values in,
+  // so the auto-submit effect and login call see the real credentials.
+  useEffect(() => {
+    let tries = 0
+    const sync = setInterval(() => {
+      tries++
+      const emailEl = document.getElementById('email') as HTMLInputElement | null
+      const passEl = document.getElementById('password') as HTMLInputElement | null
+      const email = emailEl?.value || ''
+      const password = passEl?.value || ''
+      if (email || password) {
+        setFormData(prev =>
+          (email && email !== prev.email) || (password && password !== prev.password)
+            ? { email: email || prev.email, password: password || prev.password }
+            : prev
+        )
+      }
+      if (tries >= 20) clearInterval(sync)
+    }, 500)
+    return () => clearInterval(sync)
+  }, [])
+
+  // Always read credentials with a DOM fallback, in case autofill hasn't
+  // been synced into state yet at the moment of submission.
+  const getCredentials = () => {
+    const emailEl = document.getElementById('email') as HTMLInputElement | null
+    const passEl = document.getElementById('password') as HTMLInputElement | null
+    return {
+      email: formData.email || emailEl?.value || '',
+      password: formData.password || passEl?.value || '',
+    }
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
@@ -87,8 +121,14 @@ export default function AdminLogin() {
 
     setLoading(true)
 
+    const creds = getCredentials()
+    // Persist into state so the 2FA step (which unmounts these inputs) can reuse them
+    if (creds.email !== formData.email || creds.password !== formData.password) {
+      setFormData(creds)
+    }
+
     try {
-      await login(formData.email, formData.password, 'admin', captchaToken)
+      await login(creds.email, creds.password, 'admin', captchaToken)
       const params = new URLSearchParams(window.location.search)
       router.push(params.get('redirect')?.startsWith('/admin') ? params.get('redirect')! : '/admin')
     } catch (err: any) {
@@ -111,8 +151,9 @@ export default function AdminLogin() {
     setError('')
     if (!totpCode.trim()) { setError('Please enter the verification code.'); return }
     setLoading(true)
+    const creds = getCredentials()
     try {
-      await login2FA(formData.email, formData.password, 'admin', totpCode.trim(), useBackupCode)
+      await login2FA(creds.email, creds.password, 'admin', totpCode.trim(), useBackupCode)
       const params = new URLSearchParams(window.location.search)
       router.push(params.get('redirect')?.startsWith('/admin') ? params.get('redirect')! : '/admin')
     } catch (err: any) {

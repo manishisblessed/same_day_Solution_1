@@ -116,10 +116,26 @@ export async function GET(request: NextRequest) {
       .select('partner_id, name, email, phone, t1_settlement_paused, t1_settlement_paused_at, t1_settlement_paused_by, settlement_mode_allowed, status')
       .order('name')
 
+    const { data: partners } = await supabase
+      .from('partners')
+      .select('id, name, business_name, email, phone, t1_settlement_paused, settlement_mode_allowed, status')
+      .order('name')
+
     return NextResponse.json({
       success: true,
       retailers: retailers || [],
       distributors: distributors || [],
+      partners: (partners || []).map((p: any) => ({
+        partner_id: p.id,
+        name: p.business_name || p.name,
+        email: p.email,
+        phone: p.phone,
+        t1_settlement_paused: !!p.t1_settlement_paused,
+        t1_settlement_paused_at: null,
+        t1_settlement_paused_by: null,
+        settlement_mode_allowed: p.settlement_mode_allowed || 'T1',
+        status: p.status,
+      })),
     })
   } catch (err: any) {
     console.error('[T1 Pause] GET error:', err)

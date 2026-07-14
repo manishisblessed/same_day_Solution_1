@@ -46,10 +46,10 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Only retailers can use Pulse Pay
-    if (user.role !== 'retailer' && user.role !== 'admin') {
+    // Only retailers and partners can use Pulse Pay
+    if (user.role !== 'retailer' && user.role !== 'admin' && user.role !== 'partner') {
       return NextResponse.json(
-        { success: false, error: 'Pulse Pay is only available for retailers.' },
+        { success: false, error: 'Pulse Pay is only available for retailers and partners.' },
         { status: 403 }
       )
     }
@@ -73,6 +73,110 @@ export async function POST(request: NextRequest) {
     }
 
     const supabase = getSupabaseAdmin()
+
+    // ========================================================================
+    // PARTNER PULSE PAY: settle selected transactions to the partner wallet
+    // at T+0 MDR. Uses partner_* settlement columns (independent of the
+    // retailer settlement on the same transaction).
+    // ========================================================================
+    if (user.role === 'partner') {
+      const partnerId = user.partner_id
+
+      const { data: partnerRow } = await supabase
+        .from('partners')
+        .select('settlement_mode_allowed, status')
+        .eq('id', partnerId)
+        .maybeSingle()
+
+      const partnerMode = partnerRow?.settlement_mode_allowed || 'T1'
+      if (!partnerRow || partnerRow.status !== 'active' || !['T0_T1', 'INSTANT'].includes(partnerMode)) {
+        return NextResponse.json(
+          { success: false, error: 'Pulse Pay (T+0) is not enabled for your account. Contact admin.' },
+          { status: 403 }
+        )
+      }
+
+      const { data: partnerTxns, error: partnerTxnError } = await supabase
+        .from('razorpay_pos_transactions')
+        .select('*')
+        .in('id', transaction_ids)
+        .or('display_status.ilike.SUCCESS,display_status.ilike.CAPTURED')
+
+      if (partnerTxnError) {
+        console.error('[PulsePay/Partner] Error fetching transactions:', partnerTxnError)
+        return NextResponse.json(
+          { success: false, error: 'Failed to fetch transactions.' },
+          { status: 500 }
+        )
+      }
+
+      const ownedTxns = (partnerTxns || []).filter((t: any) => t.partner_id === partnerId)
+      if (ownedTxns.length === 0) {
+        return NextResponse.json(
+          { success: false, error: 'No valid transactions found. Ensure they belong to you and are captured.' },
+          { status: 400 }
+        )
+      }
+
+      const alreadySettled = ownedTxns.filter((t: any) => t.partner_wallet_credited === true)
+      if (alreadySettled.length > 0) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: `${alreadySettled.length} transaction(s) already settled: ${alreadySettled.map((t: any) => t.txn_id).join(', ')}. Please deselect them.`,
+            already_settled: alreadySettled.map((t: any) => ({ id: t.id, txn_id: t.txn_id })),
+          },
+          { status: 409 }
+        )
+      }
+
+      const { settlePartnerTransactionsT0 } = await import('@/lib/partner-settlement')
+      const result = await settlePartnerTransactionsT0(partnerId, ownedTxns, 'PARTNER-PULSEPAY')
+
+      const ctx = getRequestContext(request)
+      logActivityFromContext(ctx, user, {
+        activity_type: 'pos_instacash',
+        activity_category: 'pos',
+        activity_description: `Partner Pulse Pay T+0 settlement for ${result.settled} transactions`,
+        reference_table: 'razorpay_pos_transactions',
+        reference_id: result.wallet_credit_id || undefined,
+      }).catch(() => {})
+
+      if (!result.success || result.settled === 0) {
+        return NextResponse.json({
+          success: false,
+          error: `Pulse Pay failed. ${result.error || (result.failure_reasons || []).join('; ')}`,
+          summary: {
+            total_transactions: ownedTxns.length,
+            settled: 0,
+            failed: result.failed,
+            total_gross_amount: 0,
+            total_mdr_amount: 0,
+            total_net_amount: 0,
+            wallet_credit_id: null,
+            failure_reasons: result.failure_reasons,
+          },
+        }, { status: 422 })
+      }
+
+      return NextResponse.json({
+        success: true,
+        summary: {
+          total_transactions: ownedTxns.length,
+          settled: result.settled,
+          failed: result.failed,
+          total_gross_amount: result.gross,
+          total_mdr_amount: result.mdr,
+          total_net_amount: result.net,
+          wallet_credit_id: result.wallet_credit_id,
+          failure_reasons: result.failure_reasons,
+        },
+        message: result.failed > 0
+          ? `⚡ Pulse Pay partial: ${result.settled} settled, ${result.failed} failed. ₹${result.net.toFixed(2)} credited to your partner wallet.`
+          : `⚡ Pulse Pay complete! ${result.settled} transaction(s) settled. ₹${result.net.toFixed(2)} credited to your partner wallet.`,
+      })
+    }
+
     const retailerId = user.partner_id
 
     // 3. Resolve retailer's TIDs and device serials (same logic as GET /api/razorpay/transactions)
@@ -508,6 +612,19 @@ export async function GET(request: NextRequest) {
 
     // Quick check for settlement mode (used by POSTransactionsTable)
     if (checkMode) {
+      if (user.role === 'partner') {
+        const { data: partnerEntity } = await supabase
+          .from('partners')
+          .select('settlement_mode_allowed')
+          .eq('id', user.partner_id)
+          .maybeSingle()
+
+        return NextResponse.json({
+          success: true,
+          settlement_mode_allowed: partnerEntity?.settlement_mode_allowed || 'T1',
+        })
+      }
+
       const table = user.role === 'distributor' ? 'distributors' : 'retailers'
       const { data: entity } = await supabase
         .from(table)

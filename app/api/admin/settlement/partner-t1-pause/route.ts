@@ -24,37 +24,61 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json()
-    const { partner_id, paused } = body
+    const { partner_id, paused, settlement_mode } = body
 
-    if (!partner_id || paused === undefined) {
+    if (!partner_id) {
       return NextResponse.json(
-        { error: 'Missing required fields: partner_id, paused' },
+        { error: 'Missing required field: partner_id' },
         { status: 400 }
       )
     }
 
-    // Update partner's T+1 settlement paused flag
+    const updates: Record<string, any> = {}
+    const messages: string[] = []
+
+    if (typeof paused === 'boolean') {
+      updates.t1_settlement_paused = paused
+      messages.push(`T+1 settlement ${paused ? 'paused' : 'resumed'}`)
+    }
+
+    if (settlement_mode && ['T1', 'T0_T1', 'INSTANT'].includes(settlement_mode)) {
+      updates.settlement_mode_allowed = settlement_mode
+      const modeLabel = settlement_mode === 'INSTANT'
+        ? 'Instant (auto credit per transaction)'
+        : settlement_mode === 'T0_T1'
+          ? 'T+0 + T+1 (Pulse Pay enabled)'
+          : 'T+1 only'
+      messages.push(`Settlement mode set to ${modeLabel}`)
+    }
+
+    if (Object.keys(updates).length === 0) {
+      return NextResponse.json(
+        { error: 'Nothing to update. Provide paused or settlement_mode.' },
+        { status: 400 }
+      )
+    }
+
     const { data, error } = await supabase
       .from('partners')
-      .update({ t1_settlement_paused: paused })
+      .update(updates)
       .eq('id', partner_id)
-      .select('id, t1_settlement_paused')
+      .select('id, t1_settlement_paused, settlement_mode_allowed')
       .single()
 
     if (error) {
-      console.error('Error updating partner pause status:', error)
+      console.error('Error updating partner settlement settings:', error)
       return NextResponse.json(
         { error: error.message },
         { status: 400 }
       )
     }
 
-    const action = paused ? 'paused' : 'resumed'
-    console.log(`[Admin] Partner ${partner_id} T+1 settlement ${action}`)
+    console.log(`[Admin] Partner ${partner_id}: ${messages.join(', ')}`)
 
     return NextResponse.json({
+      success: true,
       data,
-      message: `Partner T+1 settlement ${action}`,
+      message: `Partner: ${messages.join('. ')}`,
     })
   } catch (error: any) {
     console.error('API error:', error)

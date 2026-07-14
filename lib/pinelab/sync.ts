@@ -247,6 +247,9 @@ async function syncMerchant(
   // Final catch-all (no paymentMode) picks up any other modes without double-counting.
   const modes: Array<string | undefined> = ['CARD', 'UPI', undefined]
   const seenTxnIds = new Set<string>()
+  // Per-device partner resolution cache (avoids repeated lookups for devices
+  // that have no partner across the whole sync window)
+  const partnerDeviceCache = new Map<string, string | null>()
 
   // Hard cleanup: never keep Pinelab FAILED/CANCELLED/PENDING for this merchant.
   // Covers rows re-inserted by an older cron process (e.g. EC2 before deploy).
@@ -307,11 +310,13 @@ async function syncMerchant(
 
           const { data: existing } = await supabase
             .from('razorpay_pos_transactions')
-            .select('id, status, display_status, transaction_time, card_type, card_brand, issuing_bank')
+            .select('id, status, display_status, transaction_time, card_type, card_brand, issuing_bank, partner_id')
             .eq('txn_id', prefixedId)
             .maybeSingle()
 
           const dbRecord = mapToDbRecord(txn, merchantSlug, config.merchantName)
+          // Row id for partner attach/instant settlement below
+          let rowId: string | null = existing?.id || null
 
           if (existing) {
             const statusChanged =
@@ -329,9 +334,11 @@ async function syncMerchant(
               (!!dbRecord.issuing_bank && dbRecord.issuing_bank !== existing.issuing_bank)
 
             if (statusChanged || timeChanged || cardEnriched) {
+              // Never reset partner_id on updates (attached separately)
+              const { partner_id: _omitPartnerId, ...updateRecord } = dbRecord
               const { error } = await supabase
                 .from('razorpay_pos_transactions')
-                .update({ ...dbRecord, updated_at: new Date().toISOString() })
+                .update({ ...updateRecord, updated_at: new Date().toISOString() })
                 .eq('txn_id', prefixedId)
 
               if (error) {
@@ -343,14 +350,17 @@ async function syncMerchant(
               result.skipped++
             }
           } else {
-            const { error } = await supabase
+            const { data: inserted, error } = await supabase
               .from('razorpay_pos_transactions')
               .insert(dbRecord)
+              .select('id')
+              .single()
 
             if (error) {
               result.errors.push(`Insert ${prefixedId}: ${error.message}`)
             } else {
               result.created++
+              rowId = inserted?.id || null
 
               if (dbRecord.display_status === 'SUCCESS' && dbRecord.device_serial && dbRecord.amount > 0) {
                 const { data: deviceMapping } = await supabase
@@ -372,6 +382,37 @@ async function syncMerchant(
                     .eq('txn_id', prefixedId)
                 }
               }
+            }
+          }
+
+          // Attach owning partner + instant settle if partner mode is INSTANT.
+          // Runs for new rows and heals existing rows without a partner_id.
+          if (
+            rowId &&
+            dbRecord.display_status === 'SUCCESS' &&
+            dbRecord.amount > 0 &&
+            !existing?.partner_id
+          ) {
+            try {
+              const { attachPartnerAndMaybeInstantSettle } = await import('@/lib/partner-settlement')
+              await attachPartnerAndMaybeInstantSettle(
+                {
+                  id: rowId,
+                  txn_id: prefixedId,
+                  amount: dbRecord.amount,
+                  gross_amount: dbRecord.amount,
+                  payment_mode: dbRecord.payment_mode,
+                  card_type: dbRecord.card_type,
+                  card_brand: dbRecord.card_brand,
+                  merchant_slug: merchantSlug,
+                  partner_id: null,
+                },
+                dbRecord.device_serial,
+                dbRecord.tid,
+                partnerDeviceCache
+              )
+            } catch (partnerErr: any) {
+              result.errors.push(`Partner settle ${prefixedId}: ${partnerErr.message}`)
             }
           }
         }

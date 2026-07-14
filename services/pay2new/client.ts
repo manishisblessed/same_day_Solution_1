@@ -3,6 +3,7 @@
  * Auth: secret header
  */
 
+import { maskProviderBalanceError, SERVICE_DOWN_MESSAGE } from '@/lib/provider-error'
 import {
   getPay2NewBaseUrl,
   getPay2NewSecret,
@@ -65,20 +66,25 @@ export async function pay2newRequest<T = unknown>(
     try {
       parsed = text ? JSON.parse(text) : {}
     } catch {
+      console.error('[Pay2New] Non-JSON response:', { path, status: res.status, body: text.slice(0, 300) })
       return {
         ok: false,
         status: res.status,
-        error: text.startsWith('<') ? `Pay2New returned HTML error (HTTP ${res.status})` : text.slice(0, 300),
+        error: text.startsWith('<') ? SERVICE_DOWN_MESSAGE : maskProviderBalanceError(text.slice(0, 300)),
         raw: text,
       }
     }
 
     const isSuccess = parsed.status === 1
     if (!isSuccess) {
+      const rawError = parsed.message || `Pay2New error (status=${parsed.status})`
+      // Provider low-balance errors (Pay2New float exhausted) must not leak to
+      // retailers as "insufficient wallet balance" — mask as service outage.
+      console.error('[Pay2New] Provider error:', { path, status: res.status, message: rawError })
       return {
         ok: false,
         status: res.status,
-        error: parsed.message || `Pay2New error (status=${parsed.status})`,
+        error: maskProviderBalanceError(rawError),
         data: parsed as T,
       }
     }
@@ -86,9 +92,11 @@ export async function pay2newRequest<T = unknown>(
     return { ok: true, status: res.status, data: parsed as T }
   } catch (e: any) {
     if (e?.name === 'AbortError') {
-      return { ok: false, status: 408, error: `Pay2New request timeout after ${timeoutMs}ms` }
+      console.error('[Pay2New] Request timeout:', { path, timeoutMs })
+      return { ok: false, status: 408, error: SERVICE_DOWN_MESSAGE }
     }
-    return { ok: false, status: 0, error: e?.message || 'Pay2New network error' }
+    console.error('[Pay2New] Network error:', { path, message: e?.message })
+    return { ok: false, status: 0, error: SERVICE_DOWN_MESSAGE }
   } finally {
     clearTimeout(timer)
   }

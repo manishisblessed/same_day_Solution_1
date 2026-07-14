@@ -6,7 +6,7 @@ import Link from 'next/link'
 import { 
   LayoutDashboard, Users, Package, Crown, 
   Settings,
-  Activity, X, Menu, CreditCard, Receipt, CheckCircle2,
+  Activity, X, Menu, CreditCard, Receipt, CheckCircle2, ArrowUpCircle,
   Building2, FileBarChart, Layers, Key, Timer, History, Repeat, ScrollText, Wallet,
   Fingerprint, Server, TrendingUp, Scale
 } from 'lucide-react'
@@ -42,6 +42,7 @@ const sidebarItems: SidebarItem[] = [
   { id: 'settlement', label: 'Settlement', icon: Timer, href: '/admin?tab=settlement' },
   { id: 'revenue-wallet', label: 'Revenue Wallet', icon: Wallet, href: '/admin?tab=revenue-wallet' },
   { id: 'wallet-ledger', label: 'Wallet ledger', icon: ScrollText, href: '/admin?tab=wallet-ledger' },
+  { id: 'push-pull-report', label: 'Push/Pull Report', icon: ArrowUpCircle, href: '/admin?tab=push-pull-report' },
   { id: 'performance', label: 'Performance', icon: Activity, href: '/admin?tab=performance' },
   { id: 'subscriptions', label: 'Subscriptions', icon: Repeat, href: '/admin?tab=subscriptions' },
   { id: 'portal-management', label: 'Portal Management', icon: Server, href: '/admin?tab=portal-management' },

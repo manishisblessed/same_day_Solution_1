@@ -85,11 +85,22 @@ export async function POST(request: NextRequest) {
       mode,
       card_type,
       brand_type,
+      merchant_slug,
       partner_mdr_t0,
       partner_mdr_t1,
       partner_mdr,
       status = 'active',
     } = body
+
+    // Brand (merchant company) this scheme applies to; null = all brands
+    const { isValidPOSMerchantSlug } = await import('@/lib/merchant-companies')
+    const normalizedSlug = merchant_slug ? String(merchant_slug).toLowerCase().trim() : null
+    if (normalizedSlug && !isValidPOSMerchantSlug(normalizedSlug)) {
+      return NextResponse.json(
+        { error: `Invalid merchant_slug: ${merchant_slug}` },
+        { status: 400 }
+      )
+    }
 
     // Support both unified partner_mdr and legacy t0/t1
     const resolvedT0 = partner_mdr !== undefined ? partner_mdr : partner_mdr_t0
@@ -109,16 +120,17 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Check if scheme already exists for this partner/mode/card_type/brand_type
-    const { data: existing } = await supabase
+    // Check if scheme already exists for this partner/brand/mode/card_type/brand_type
+    let existingQuery = supabase
       .from('partner_schemes')
       .select('id, status')
       .eq('partner_id', partner_id)
       .eq('mode', mode)
-      .eq('card_type', card_type || null)
-      .eq('brand_type', brand_type || null)
       .eq('status', 'active')
-      .maybeSingle()
+    existingQuery = card_type ? existingQuery.eq('card_type', card_type) : existingQuery.is('card_type', null)
+    existingQuery = brand_type ? existingQuery.eq('brand_type', brand_type) : existingQuery.is('brand_type', null)
+    existingQuery = normalizedSlug ? existingQuery.eq('merchant_slug', normalizedSlug) : existingQuery.is('merchant_slug', null)
+    const { data: existing } = await existingQuery.maybeSingle()
 
     if (existing) {
       // Deactivate existing scheme first
@@ -135,6 +147,7 @@ export async function POST(request: NextRequest) {
         mode,
         card_type: card_type || null,
         brand_type: brand_type || null,
+        merchant_slug: normalizedSlug,
         partner_mdr_t0: resolvedT0,
         partner_mdr_t1: resolvedT1,
         status,

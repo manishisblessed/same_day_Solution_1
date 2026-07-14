@@ -51,7 +51,7 @@ interface RetailerRow {
   t1_settlement_paused: boolean
   t1_settlement_paused_at: string | null
   t1_settlement_paused_by: string | null
-  settlement_mode_allowed: 'T1' | 'T0_T1' | null
+  settlement_mode_allowed: 'T1' | 'T0_T1' | 'INSTANT' | null
   status: string
 }
 
@@ -59,11 +59,12 @@ export default function T1SettlementControl({ readOnly = false }: { readOnly?: b
   const [settings, setSettings] = useState<CronSettings | null>(null)
   const [retailers, setRetailers] = useState<RetailerRow[]>([])
   const [distributors, setDistributors] = useState<RetailerRow[]>([])
+  const [partners, setPartners] = useState<RetailerRow[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [running, setRunning] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
-  const [entityTab, setEntityTab] = useState<'retailers' | 'distributors'>('retailers')
+  const [entityTab, setEntityTab] = useState<'retailers' | 'distributors' | 'partners'>('retailers')
   const [editHour, setEditHour] = useState(7)
   const [editMinute, setEditMinute] = useState(0)
   const [togglingId, setTogglingId] = useState<string | null>(null)
@@ -97,6 +98,7 @@ export default function T1SettlementControl({ readOnly = false }: { readOnly?: b
       if (data.success) {
         setRetailers(data.retailers || [])
         setDistributors(data.distributors || [])
+        setPartners(data.partners || [])
       }
     } catch (err: any) {
       console.error('Failed to fetch entities:', err)
@@ -205,17 +207,22 @@ export default function T1SettlementControl({ readOnly = false }: { readOnly?: b
     }
   }
 
-  const handleToggleSettlementMode = async (partnerId: string, currentMode: string | null, entityType: 'retailer' | 'distributor', targetMode?: 'T1' | 'T0_T1') => {
+  const handleToggleSettlementMode = async (partnerId: string, currentMode: string | null, entityType: 'retailer' | 'distributor' | 'partner', targetMode?: 'T1' | 'T0_T1' | 'INSTANT') => {
     setTogglingId(`mode-${partnerId}`)
     const newMode = targetMode || (currentMode === 'T0_T1' ? 'T1' : 'T0_T1')
     try {
-      const res = await apiFetch('/api/admin/settlement/t1-pause-retailer', {
+      const endpoint = entityType === 'partner'
+        ? '/api/admin/settlement/partner-t1-pause'
+        : '/api/admin/settlement/t1-pause-retailer'
+      const payload: Record<string, any> = {
+        partner_id: partnerId,
+        settlement_mode: newMode,
+      }
+      if (entityType !== 'partner') payload.entity_type = entityType
+
+      const res = await apiFetch(endpoint, {
         method: 'POST',
-        body: JSON.stringify({
-          partner_id: partnerId,
-          settlement_mode: newMode,
-          entity_type: entityType,
-        }),
+        body: JSON.stringify(payload),
       })
       const data = await res.json()
       if (data.success) {
@@ -231,20 +238,31 @@ export default function T1SettlementControl({ readOnly = false }: { readOnly?: b
     }
   }
 
-  const handleTogglePause = async (partnerId: string, currentlyPaused: boolean, entityType: 'retailer' | 'distributor') => {
+  const handleTogglePause = async (partnerId: string, currentlyPaused: boolean, entityType: 'retailer' | 'distributor' | 'partner') => {
     setTogglingId(partnerId)
     try {
-      const res = await apiFetch('/api/admin/settlement/t1-pause-retailer', {
-        method: 'POST',
-        body: JSON.stringify({
-          partner_id: partnerId,
-          paused: !currentlyPaused,
-          entity_type: entityType,
-        }),
-      })
+      let res: Response
+      if (entityType === 'partner') {
+        res = await apiFetch('/api/admin/settlement/partner-t1-pause', {
+          method: 'POST',
+          body: JSON.stringify({
+            partner_id: partnerId,
+            paused: !currentlyPaused,
+          }),
+        })
+      } else {
+        res = await apiFetch('/api/admin/settlement/t1-pause-retailer', {
+          method: 'POST',
+          body: JSON.stringify({
+            partner_id: partnerId,
+            paused: !currentlyPaused,
+            entity_type: entityType,
+          }),
+        })
+      }
       const data = await res.json()
-      if (data.success) {
-        showMessage('success', data.message)
+      if (data.success || data.data) {
+        showMessage('success', data.message || 'Updated')
         await fetchEntities()
       } else {
         showMessage('error', data.error || 'Failed to update')
@@ -258,7 +276,8 @@ export default function T1SettlementControl({ readOnly = false }: { readOnly?: b
 
   const pad = (n: number) => String(n).padStart(2, '0')
 
-  const filteredEntities = (entityTab === 'retailers' ? retailers : distributors).filter(e =>
+  const currentEntities = entityTab === 'retailers' ? retailers : entityTab === 'distributors' ? distributors : partners
+  const filteredEntities = currentEntities.filter(e =>
     !searchTerm ||
     e.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
     e.partner_id?.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -267,7 +286,8 @@ export default function T1SettlementControl({ readOnly = false }: { readOnly?: b
   )
 
   const pausedCount = retailers.filter(r => r.t1_settlement_paused).length +
-    distributors.filter(d => d.t1_settlement_paused).length
+    distributors.filter(d => d.t1_settlement_paused).length +
+    partners.filter(p => p.t1_settlement_paused).length
 
   if (loading) {
     return (
@@ -581,6 +601,16 @@ export default function T1SettlementControl({ readOnly = false }: { readOnly?: b
               >
                 Distributors ({distributors.length})
               </button>
+              <button
+                onClick={() => setEntityTab('partners')}
+                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                  entityTab === 'partners'
+                    ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm'
+                    : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+                }`}
+              >
+                Partners ({partners.length})
+              </button>
             </div>
             <div className="flex-1 relative">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
@@ -641,7 +671,35 @@ export default function T1SettlementControl({ readOnly = false }: { readOnly?: b
                       </span>
                     </td>
                     <td className="px-4 py-2.5 text-center">
-                      {readOnly ? (
+                      {entityTab === 'partners' ? (
+                        readOnly ? (
+                          <span className="text-xs text-gray-700 dark:text-gray-300">
+                            {entity.settlement_mode_allowed === 'INSTANT' ? 'Instant (per txn)' : entity.settlement_mode_allowed === 'T0_T1' ? 'T+0 + T+1' : 'T+1 only'}
+                          </span>
+                        ) : (
+                          <select
+                            value={entity.settlement_mode_allowed || 'T1'}
+                            onChange={(e) => {
+                              const newMode = e.target.value as 'T1' | 'T0_T1' | 'INSTANT'
+                              if (newMode !== (entity.settlement_mode_allowed || 'T1')) {
+                                handleToggleSettlementMode(entity.partner_id, entity.settlement_mode_allowed, 'partner', newMode)
+                              }
+                            }}
+                            disabled={togglingId === `mode-${entity.partner_id}`}
+                            className={`text-xs font-medium rounded-lg border px-2 py-1.5 transition-colors cursor-pointer disabled:opacity-50 focus:ring-2 focus:ring-primary-500 focus:outline-none ${
+                              entity.settlement_mode_allowed === 'INSTANT'
+                                ? 'bg-emerald-50 border-emerald-300 text-emerald-700 dark:bg-emerald-900/20 dark:border-emerald-700 dark:text-emerald-400'
+                                : entity.settlement_mode_allowed === 'T0_T1'
+                                  ? 'bg-amber-50 border-amber-300 text-amber-700 dark:bg-amber-900/20 dark:border-amber-700 dark:text-amber-400'
+                                  : 'bg-white border-gray-300 text-gray-700 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-300'
+                            }`}
+                          >
+                            <option value="T1">T+1 only</option>
+                            <option value="T0_T1">T+0 + T+1 (Pulse Pay)</option>
+                            <option value="INSTANT">Instant (per txn)</option>
+                          </select>
+                        )
+                      ) : readOnly ? (
                         <span className="text-xs text-gray-700 dark:text-gray-300">
                           {entity.settlement_mode_allowed === 'T0_T1' ? 'T+0 + T+1' : 'T+1 only'}
                         </span>
@@ -681,7 +739,7 @@ export default function T1SettlementControl({ readOnly = false }: { readOnly?: b
                       <td className="px-4 py-2.5 text-center">
                         <button
                           type="button"
-                          onClick={() => handleTogglePause(entity.partner_id, entity.t1_settlement_paused, entityTab === 'retailers' ? 'retailer' : 'distributor')}
+                          onClick={() => handleTogglePause(entity.partner_id, entity.t1_settlement_paused, entityTab === 'retailers' ? 'retailer' : entityTab === 'distributors' ? 'distributor' : 'partner')}
                           disabled={togglingId === entity.partner_id}
                           className={`px-3 py-1 rounded-lg text-xs font-medium transition-colors disabled:opacity-50 ${
                             entity.t1_settlement_paused

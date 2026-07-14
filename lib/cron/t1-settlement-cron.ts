@@ -345,6 +345,16 @@ async function runT1Settlement() {
       console.log('[T1-Cron] No pending MDR T+1 transactions found.')
     }
 
+    // --- Part 3: Partner T+1 settlement (opt-in — partners are paused by default) ---
+    try {
+      const { runPartnerT1Settlement } = await import('@/lib/cron/t1-settlement-cron-partners')
+      const partnerResult = await runPartnerT1Settlement()
+      totalProcessed += partnerResult.processed
+      totalFailed += partnerResult.failed
+    } catch (err: any) {
+      console.error('[T1-Cron] Partner settlement pass failed:', err)
+    }
+
     const status = totalFailed === 0 ? 'success' : totalProcessed > 0 ? 'partial' : 'failed'
     const message = `Processed: ${totalProcessed}, Failed: ${totalFailed}`
     await updateRunStatus(status, message, totalProcessed, totalFailed)

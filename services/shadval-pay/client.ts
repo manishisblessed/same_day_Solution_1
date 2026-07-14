@@ -4,6 +4,7 @@
  */
 
 import { createHmac } from 'crypto'
+import { maskProviderBalanceError, SERVICE_DOWN_MESSAGE } from '@/lib/provider-error'
 import {
   getShadvalKey,
   getShadvalVerificationKey,
@@ -248,7 +249,12 @@ export async function verifyAccount(
       code: data.code,
       verification_status: data.data?.verification_status,
       name_at_bank: data.data?.name_at_bank,
+      providerMessage: data.message,
     })
+
+    if (data.status !== 'SUCCESS' && data.message) {
+      data.message = maskProviderBalanceError(data.message)
+    }
     return data
   } catch (error: any) {
     clearTimeout(timeoutId)
@@ -256,7 +262,7 @@ export async function verifyAccount(
       ? `Request timeout after ${getShadvalTimeout()}ms`
       : error.message || 'Network error'
     logError('account_verification', reqId, msg)
-    return { status: 'FAILED', code: 'NETWORK_ERROR', message: msg }
+    return { status: 'FAILED', code: 'NETWORK_ERROR', message: maskProviderBalanceError(msg) }
   }
 }
 
@@ -349,10 +355,16 @@ export async function initiateBankTransfer(
     if (!data.status && !data.code) {
       const errorMsg = (data as any).Message || (data as any).ExceptionMessage || 'Unknown provider error'
       logError('transfer', reqId, `Malformed response: ${errorMsg}`)
-      return { status: 'FAILED', code: 'PROVIDER_ERROR', message: 'Payout service is currently unavailable. Please try again later.' }
+      return { status: 'FAILED', code: 'PROVIDER_ERROR', message: SERVICE_DOWN_MESSAGE }
     }
 
-    log('transfer', reqId, { status: data.status, code: data.code, order_id: data.data?.order_id })
+    log('transfer', reqId, { status: data.status, code: data.code, order_id: data.data?.order_id, providerMessage: data.message })
+
+    // Provider low-balance errors (Shadval float exhausted) must not leak to
+    // retailers as "insufficient wallet balance" — mask as service outage.
+    if (data.status !== 'SUCCESS' && data.message) {
+      data.message = maskProviderBalanceError(data.message)
+    }
     return data
   } catch (error: any) {
     clearTimeout(timeoutId)
@@ -360,7 +372,7 @@ export async function initiateBankTransfer(
       ? `Request timeout after ${getShadvalTimeout()}ms`
       : error.message || 'Network error'
     logError('transfer', reqId, msg)
-    return { status: 'FAILED', code: 'NETWORK_ERROR', message: msg }
+    return { status: 'FAILED', code: 'NETWORK_ERROR', message: maskProviderBalanceError(msg) }
   }
 }
 
@@ -423,7 +435,14 @@ export async function checkTransactionStatus(
     clearTimeout(timeoutId)
 
     const data: ShadvalStatusResponse = await response.json()
-    log('status', reqId, { status: data.status, code: data.code, txn_status: data.data?.txn_status })
+    log('status', reqId, { status: data.status, code: data.code, txn_status: data.data?.txn_status, status_message: data.data?.status_message })
+
+    if (data.data?.status_message) {
+      data.data.status_message = maskProviderBalanceError(data.data.status_message)
+    }
+    if (data.status !== 'SUCCESS' && data.message) {
+      data.message = maskProviderBalanceError(data.message)
+    }
     return data
   } catch (error: any) {
     clearTimeout(timeoutId)
@@ -431,6 +450,6 @@ export async function checkTransactionStatus(
       ? `Request timeout after ${getShadvalTimeout()}ms`
       : error.message || 'Network error'
     logError('status', reqId, msg)
-    return { status: 'FAILED', code: 'NETWORK_ERROR', message: msg }
+    return { status: 'FAILED', code: 'NETWORK_ERROR', message: maskProviderBalanceError(msg) }
   }
 }

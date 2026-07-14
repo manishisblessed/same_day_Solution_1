@@ -333,11 +333,13 @@ export async function POST(request: NextRequest) {
     let isNewTransaction = false
     
     if (existingPosTransaction) {
-      // UPDATE existing record
+      // UPDATE existing record — never reset partner_id (attached separately,
+      // wiping it would orphan partner settlement)
+      const { partner_id: _omitPartnerId, ...posUpdateData } = posTransactionData
       const { data, error } = await supabase
         .from('razorpay_pos_transactions')
         .update({
-          ...posTransactionData,
+          ...posUpdateData,
           updated_at: new Date().toISOString()
         })
         .eq('txn_id', txnId)
@@ -376,7 +378,6 @@ export async function POST(request: NextRequest) {
     //   - Auto T+1: Cron job processes remaining unsettled transactions next day
     // ================================================================
     let retailerMapping: any = null
-    let partnerMapping: any = null
     
     if (mappedStatus === 'CAPTURED' && deviceSerial && amount && amount > 0) {
       // Look up device mapping to get retailer hierarchy
@@ -391,21 +392,6 @@ export async function POST(request: NextRequest) {
         console.error('Error looking up device mapping:', mappingError)
       }
 
-      // Also look up partner_id from pos_machines for partner settlement
-      if (deviceSerial) {
-        const { data: posMachine, error: machineError } = await supabase
-          .from('pos_machines')
-          .select('partner_id')
-          .eq('device_serial', deviceSerial)
-          .or(`serial_number.eq.${deviceSerial}`)
-          .maybeSingle()
-
-        if (!machineError && posMachine?.partner_id) {
-          partnerMapping = posMachine
-          console.log(`[Webhook] Partner found for device_serial ${deviceSerial}: ${posMachine.partner_id}`)
-        }
-      }
-
       if (deviceMapping && deviceMapping.retailer_id) {
         retailerMapping = deviceMapping
         const grossAmount = amount // Amount is already in rupees from Razorpay POS
@@ -418,7 +404,6 @@ export async function POST(request: NextRequest) {
             retailer_id: deviceMapping.retailer_id,
             distributor_id: deviceMapping.distributor_id,
             master_distributor_id: deviceMapping.master_distributor_id,
-            partner_id: partnerMapping?.partner_id || null,
             settlement_type: 'T1',
             gross_amount: grossAmount,
             // wallet_credited: false (default - NOT crediting here)
@@ -428,8 +413,36 @@ export async function POST(request: NextRequest) {
 
         console.log(`[PulsePay] Transaction ${txnId} CAPTURED for retailer ${deviceMapping.retailer_id}, amount: ₹${grossAmount}. Awaiting settlement via Pulse Pay (T+0) or Auto-T+1.`)
       } else {
-        // Device not mapped - log for admin review
-        console.warn(`No device mapping found for device_serial: ${deviceSerial}. Transaction stored but cannot be settled until mapped.`)
+        // Device not mapped to a retailer - may still be a partner device
+        console.warn(`No retailer device mapping found for device_serial: ${deviceSerial}.`)
+      }
+
+      // ================================================================
+      // PARTNER SETTLEMENT: attach the owning partner (pos_machines /
+      // partner_pos_machines) and, if their mode is INSTANT, credit the
+      // partner wallet immediately at T+0 MDR. Idempotent on retries.
+      // ================================================================
+      if (posResult?.id) {
+        try {
+          const { attachPartnerAndMaybeInstantSettle } = await import('@/lib/partner-settlement')
+          await attachPartnerAndMaybeInstantSettle(
+            {
+              id: posResult.id,
+              txn_id: txnId,
+              amount,
+              gross_amount: amount,
+              payment_mode: paymentMode,
+              card_type: cardType,
+              card_brand: cardBrand,
+              merchant_slug: detectedSlug,
+              partner_id: posResult.partner_id || null,
+            },
+            deviceSerial,
+            tid
+          )
+        } catch (partnerErr: any) {
+          console.error(`[Webhook] Partner settlement error for txn ${txnId}:`, partnerErr)
+        }
       }
     }
 
