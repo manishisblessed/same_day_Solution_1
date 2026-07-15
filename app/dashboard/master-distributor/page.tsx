@@ -4429,7 +4429,7 @@ function SettingsTab() {
     setSuccess('')
     
     try {
-      const res = await fetch('/api/auth/change-password', {
+      const res = await apiFetch('/api/auth/change-password', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',

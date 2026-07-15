@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useRouter } from 'next/navigation'
 import { Lock, Eye, EyeOff, Loader2, CheckCircle, AlertCircle, User } from 'lucide-react'
+import { apiFetch } from '@/lib/api-client'
 
 export default function FinanceSettingsPage() {
   const { user, loading: authLoading } = useAuth()
@@ -35,7 +36,7 @@ export default function FinanceSettingsPage() {
     setLoading(true)
     setMessage(null)
     try {
-      const res = await fetch('/api/auth/change-password', {
+      const res = await apiFetch('/api/auth/change-password', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',

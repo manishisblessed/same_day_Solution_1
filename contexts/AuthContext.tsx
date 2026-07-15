@@ -3,7 +3,7 @@
 import React, { createContext, useContext, useEffect, useRef, useState, useCallback } from 'react'
 import { AuthUser } from '@/types/database.types'
 import { getCurrentUser, signIn, signOut as authSignOut, getStoredSessionToken, clearStoredSessionToken, complete2FALogin, TwoFactorRequiredError } from '@/lib/auth'
-import { apiFetch } from '@/lib/api-client'
+import { apiFetch, getApiUrl, getAccessToken } from '@/lib/api-client'
 import { getGeoLocation, clearGeoCache } from '@/hooks/useGeolocation'
 import { supabase } from '@/lib/supabase/client'
 
@@ -119,9 +119,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (!token || kickingRef.current) return
 
       try {
-        const res = await fetch('/api/auth/validate-session', {
+        // Runs on the EC2 backend (getApiUrl), not Amplify SSR — the route uses
+        // the Supabase service-role key, which Amplify's runtime doesn't expose.
+        const accessToken = await getAccessToken()
+        const res = await fetch(getApiUrl('/api/auth/validate-session'), {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+          },
           body: JSON.stringify({ session_token: token }),
         })
         const data = await res.json()

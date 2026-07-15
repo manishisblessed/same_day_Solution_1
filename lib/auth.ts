@@ -1,5 +1,14 @@
 import { supabase } from './supabase/client'
 import { AuthUser, UserRole } from '@/types/database.types'
+import { getApiUrl, getAccessToken } from './api-client'
+
+// Auth/session endpoints that touch the DB with the Supabase SERVICE ROLE key
+// MUST run on the EC2 backend. AWS Amplify's Next.js SSR runtime does not expose
+// non-NEXT_PUBLIC env vars, so getSupabaseAdmin() throws there → 500 → login hangs.
+// getApiUrl() returns the EC2 URL in production and a relative path on localhost.
+function authApiUrl(path: string): string {
+  return getApiUrl(path)
+}
 
 const SESSION_TOKEN_KEY = 'sds_session_token'
 
@@ -33,8 +42,9 @@ export function clearStoredSessionToken(): void {
 async function loginGuardCheck(email: string): Promise<void> {
   if (typeof window === 'undefined') return
   try {
-    const res = await fetch('/api/auth/login-guard', {
+    const res = await fetch(authApiUrl('/api/auth/login-guard'), {
       method: 'POST',
+      credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'check', email }),
     })
@@ -52,8 +62,9 @@ async function loginGuardCheck(email: string): Promise<void> {
 async function loginGuardRecord(email: string, success: boolean): Promise<void> {
   if (typeof window === 'undefined') return
   try {
-    await fetch('/api/auth/login-guard', {
+    await fetch(authApiUrl('/api/auth/login-guard'), {
       method: 'POST',
+      credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'record', email, success }),
     })
@@ -129,8 +140,9 @@ async function completeSignIn(
     const sessionToken = generateSessionToken()
     setStoredSessionToken(sessionToken)
     try {
-      await fetch('/api/auth/register-session', {
+      await fetch(authApiUrl('/api/auth/register-session'), {
         method: 'POST',
+        credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${authData.session.access_token}`,
@@ -156,8 +168,9 @@ export class TwoFactorRequiredError extends Error {
 async function check2FAStatus(email: string): Promise<boolean> {
   if (typeof window === 'undefined') return false
   try {
-    const res = await fetch('/api/auth/2fa/status', {
+    const res = await fetch(authApiUrl('/api/auth/2fa/status'), {
       method: 'POST',
+      credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email }),
     })
@@ -265,8 +278,9 @@ export async function complete2FALogin(
 ) {
   try {
     // Verify TOTP code first
-    const verifyRes = await fetch('/api/auth/2fa/verify', {
+    const verifyRes = await fetch(authApiUrl('/api/auth/2fa/verify'), {
       method: 'POST',
+      credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, code: totpCode, is_backup: isBackup }),
     })
@@ -295,9 +309,14 @@ export async function signOut() {
   const token = getStoredSessionToken()
   if (token) {
     try {
-      await fetch('/api/auth/end-session', {
+      const accessToken = await getAccessToken()
+      await fetch(authApiUrl('/api/auth/end-session'), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+        },
         body: JSON.stringify({ session_token: token, reason: 'logout' }),
       })
     } catch {

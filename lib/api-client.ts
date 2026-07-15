@@ -18,7 +18,7 @@ import { getGeoHeader } from '@/hooks/useGeolocation'
  * Uses getSession() first (reads from cookie/memory, auto-refreshes if expired),
  * then falls back to an explicit refreshSession() if the stored session is gone.
  */
-async function getAccessToken(): Promise<string | null> {
+export async function getAccessToken(): Promise<string | null> {
   if (typeof window === 'undefined') return null
 
   try {

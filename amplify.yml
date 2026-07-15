@@ -9,6 +9,12 @@ frontend:
         - echo "NEXT_PUBLIC_SUPABASE_URL is set = $(if [ -n \"$NEXT_PUBLIC_SUPABASE_URL\" ]; then echo 'YES'; else echo 'NO'; fi)"
         - echo "NEXT_PUBLIC_SUPABASE_ANON_KEY is set = $(if [ -n \"$NEXT_PUBLIC_SUPABASE_ANON_KEY\" ]; then echo 'YES'; else echo 'NO'; fi)"
         - echo "NEXT_PUBLIC_BBPS_BACKEND_URL is set = $(if [ -n \"$NEXT_PUBLIC_BBPS_BACKEND_URL\" ]; then echo 'YES'; else echo 'NO'; fi)"
+        - echo "SUPABASE_SERVICE_ROLE_KEY is set = $(if [ -n \"$SUPABASE_SERVICE_ROLE_KEY\" ]; then echo 'YES'; else echo 'NO'; fi)"
+        # NOTE: service-role auth/session routes (register-session, validate-session,
+        # end-session, login-guard, 2fa, change-password) now run on the EC2 backend,
+        # because Amplify's Next.js SSR runtime does NOT expose non-NEXT_PUBLIC env
+        # vars to server code — getSupabaseAdmin() would throw there. Amplify only
+        # needs the NEXT_PUBLIC_* vars for the frontend + sync-session (anon key).
         - echo "==================================="
     build:
       commands:

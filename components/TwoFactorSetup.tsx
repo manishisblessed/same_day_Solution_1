@@ -24,9 +24,8 @@ export default function TwoFactorSetup() {
   // Check 2FA status on first render
   useState(() => {
     if (!user) return
-    fetch('/api/auth/2fa/status', {
+    apiFetch('/api/auth/2fa/status', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email: user.email }),
     })
       .then(r => r.json())

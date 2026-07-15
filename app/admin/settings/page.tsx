@@ -488,7 +488,7 @@ export default function AdminSettings() {
       pwTurnstileRef.current?.reset()
 
       // Use server-side API route to change password (handles Supabase secure password change)
-      const res = await fetch('/api/auth/change-password', {
+      const res = await apiFetch('/api/auth/change-password', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
