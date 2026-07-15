@@ -64,10 +64,13 @@ export async function POST(
       )
     }
 
-    // Optional signature verification for Pine Labs
     const signature = request.headers.get('x-pinelab-signature') || request.headers.get('x-signature')
     const pinelabSecret = process.env.PINELAB_WEBHOOK_SECRET
-    if (signature && pinelabSecret) {
+    if (pinelabSecret) {
+      if (!signature) {
+        console.error(`[PineLab/${merchantSlug}] Missing signature header — rejecting`)
+        return NextResponse.json({ error: 'Missing signature' }, { status: 401 })
+      }
       const expectedSignature = crypto
         .createHmac('sha256', pinelabSecret)
         .update(rawBody)
@@ -77,12 +80,12 @@ export async function POST(
       const expBuf = Buffer.from(expectedSignature)
       if (sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) {
         console.error(`[PineLab/${merchantSlug}] Invalid signature`)
-        return NextResponse.json(
-          { received: true, processed: false, error: 'Invalid signature' },
-          { status: 200 }
-        )
+        return NextResponse.json({ error: 'Invalid signature' }, { status: 401 })
       }
       console.log(`[PineLab/${merchantSlug}] Signature verified`)
+    } else {
+      // PRODUCTION: configure PINELAB_WEBHOOK_SECRET to enforce signature verification
+      console.warn(`[PineLab/${merchantSlug}] PINELAB_WEBHOOK_SECRET not configured — skipping verification (configure in production!)`)
     }
 
     // Normalize Pine Labs payload to unified format

@@ -50,6 +50,8 @@ export async function runPartnerT1Settlement(): Promise<{ processed: number; fai
     const { getPendingPartnerT1Transactions, calculatePartnerMDR, creditPartnerWallet } = await import(
       '@/lib/mdr-scheme/settlement.service'
     )
+    const { validatePartnerTxnForSettlement } = await import('@/lib/partner-settlement')
+    const { raiseSettlementAlert, resolveSettlementAlerts } = await import('@/lib/settlement-alerts')
 
     const beforeDate = new Date(Date.now() - 24 * 60 * 60 * 1000)
     const pendingTransactions = await getPendingPartnerT1Transactions(beforeDate)
@@ -82,6 +84,18 @@ export async function runPartnerT1Settlement(): Promise<{ processed: number; fai
 
         // Calculate MDR for each transaction
         for (const txn of transactions) {
+          // Status / refund / amount gate before any payout.
+          const gate = validatePartnerTxnForSettlement(txn)
+          if (!gate.ok) {
+            console.warn(`[Partner T1-Cron] Skipping txn ${txn.txn_id} for partner ${partnerId}: ${gate.reason}`)
+            totalFailed++
+            await raiseSettlementAlert(supabase, {
+              partnerId, txnId: txn.txn_id, amount: parseFloat(String(txn.gross_amount ?? txn.amount ?? '0')),
+              reason: gate.reason!, alertType: 'PARTNER_TXN_NOT_SETTLEABLE',
+            })
+            continue
+          }
+
           try {
             const mdrResult = await calculatePartnerMDR(
               partnerId,
@@ -98,6 +112,10 @@ export async function runPartnerT1Settlement(): Promise<{ processed: number; fai
                 `[Partner T1-Cron] MDR calculation failed for partner ${partnerId}, txn ${txn.txn_id}: ${mdrResult.error}`
               )
               totalFailed++
+              await raiseSettlementAlert(supabase, {
+                partnerId, txnId: txn.txn_id, amount: parseFloat(String(txn.amount ?? '0')),
+                reason: mdrResult.error || 'MDR calculation failed', alertType: 'PARTNER_MDR_RATE_MISSING',
+              })
               continue
             }
 
@@ -203,6 +221,8 @@ export async function runPartnerT1Settlement(): Promise<{ processed: number; fai
                 })
                 .eq('id', item.id)
             }
+
+            await resolveSettlementAlerts(supabase, claimedTxns.map((t: any) => t.txn_id), 'partner-t1-settled')
 
             totalProcessed += claimedTxns.length
             console.log(

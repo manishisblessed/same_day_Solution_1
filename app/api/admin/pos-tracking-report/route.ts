@@ -5,6 +5,10 @@ import { createClient } from '@supabase/supabase-js'
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
+function sanitizeFilterValue(value: string): string {
+  return value.replace(/[,()\\*%]/g, '').trim()
+}
+
 /**
  * GET /api/admin/pos-tracking-report
  *
@@ -64,17 +68,19 @@ export async function GET(request: NextRequest) {
       const machineUuid = sp.get('machine_id')
       const machineCode = sp.get('machine_code')
       if (machineUuid) query = query.eq('pos_machine_id', machineUuid)
-      else if (machineCode) query = query.ilike('machine_id', `%${machineCode}%`)
+      else if (machineCode) query = query.ilike('machine_id', `%${sanitizeFilterValue(machineCode)}%`)
     } else if (view === 'merchant') {
       const merchantId = sp.get('merchant_id')
       if (merchantId) {
-        query = query.or(`assigned_to.eq.${merchantId},previous_holder.eq.${merchantId}`)
+        const sMerchantId = sanitizeFilterValue(merchantId)
+        query = query.or(`assigned_to.eq.${sMerchantId},previous_holder.eq.${sMerchantId}`)
       }
     }
 
     if (search) {
+      const ss = sanitizeFilterValue(search)
       query = query.or(
-        `machine_id.ilike.%${search}%,assigned_to.ilike.%${search}%,assigned_by.ilike.%${search}%,previous_holder.ilike.%${search}%,notes.ilike.%${search}%,return_reason.ilike.%${search}%`
+        `machine_id.ilike.%${ss}%,assigned_to.ilike.%${ss}%,assigned_by.ilike.%${ss}%,previous_holder.ilike.%${ss}%,notes.ilike.%${ss}%,return_reason.ilike.%${ss}%`
       )
     }
 
@@ -139,18 +145,22 @@ export async function GET(request: NextRequest) {
       if (dateFrom) q = q.gte('created_at', dateFrom)
       if (dateTo) q = q.lte('created_at', dateTo + 'T23:59:59.999Z')
       if (search) {
+        const ss = sanitizeFilterValue(search)
         q = q.or(
-          `machine_id.ilike.%${search}%,assigned_to.ilike.%${search}%,assigned_by.ilike.%${search}%,previous_holder.ilike.%${search}%,notes.ilike.%${search}%,return_reason.ilike.%${search}%`
+          `machine_id.ilike.%${ss}%,assigned_to.ilike.%${ss}%,assigned_by.ilike.%${ss}%,previous_holder.ilike.%${ss}%,notes.ilike.%${ss}%,return_reason.ilike.%${ss}%`
         )
       }
       if (view === 'device') {
         const machineUuid = sp.get('machine_id')
         const machineCode = sp.get('machine_code')
         if (machineUuid) q = q.eq('pos_machine_id', machineUuid)
-        else if (machineCode) q = q.ilike('machine_id', `%${machineCode}%`)
+        else if (machineCode) q = q.ilike('machine_id', `%${sanitizeFilterValue(machineCode)}%`)
       } else if (view === 'merchant') {
         const merchantId = sp.get('merchant_id')
-        if (merchantId) q = q.or(`assigned_to.eq.${merchantId},previous_holder.eq.${merchantId}`)
+        if (merchantId) {
+          const sMerchantId = sanitizeFilterValue(merchantId)
+          q = q.or(`assigned_to.eq.${sMerchantId},previous_holder.eq.${sMerchantId}`)
+        }
       }
       if (extraFilter) q = extraFilter(q)
       return q

@@ -1,17 +1,30 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server-admin'
+import { getSupabaseAdmin } from '@/lib/supabase/server-admin'
 import type { LeegalityWebhookPayload } from '@/services/leegality/types'
 
 export const dynamic = 'force-dynamic'
 
+const ESIGN_WEBHOOK_SECRET = process.env.ESIGN_WEBHOOK_SECRET
+
 export async function POST(request: NextRequest) {
   try {
+    const authHeader = request.headers.get('x-webhook-secret') || request.headers.get('authorization')
+    if (ESIGN_WEBHOOK_SECRET) {
+      if (!authHeader || authHeader.replace('Bearer ', '') !== ESIGN_WEBHOOK_SECRET) {
+        console.error('[eSign Webhook] Unauthorized — invalid or missing secret')
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      }
+    } else {
+      // PRODUCTION: configure ESIGN_WEBHOOK_SECRET to enforce authentication
+      console.warn('[eSign Webhook] ESIGN_WEBHOOK_SECRET not configured — skipping auth (configure in production!)')
+    }
+
     const payload: LeegalityWebhookPayload = await request.json()
     const { documentId, status, invitee, file, auditTrail } = payload
 
     console.log(`[eSigning Webhook] documentId=${documentId} status=${status}`)
 
-    const supabase = createClient()
+    const supabase = getSupabaseAdmin()
 
     await supabase
       .from('esign_documents')

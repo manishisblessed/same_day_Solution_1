@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { createClient } from '@supabase/supabase-js'
+import { htmlToPdf } from '@/lib/pdf/html-to-pdf'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -232,6 +233,57 @@ export async function GET(request: NextRequest) {
         })
       }
 
+      if (format === 'pdf') {
+        const allRows: any[] = []
+        Object.values(grouped).forEach((machine: any) => {
+          machine.transactions.forEach((tx: any) => {
+            allRows.push({ machineId: machine.machine_id, serial: machine.device_serial, type: machine.machine_type, ...tx })
+          })
+        })
+        const html = `<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><title>POS Transactions Report</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; padding: 30px; color: #333; font-size: 11px; }
+  .header { text-align: center; margin-bottom: 20px; border-bottom: 3px solid #4F46E5; padding-bottom: 12px; }
+  .header h1 { font-size: 20px; color: #4F46E5; }
+  .header p { font-size: 11px; color: #666; }
+  .summary { display: flex; gap: 20px; margin-bottom: 15px; }
+  .summary-card { flex: 1; padding: 10px 14px; border-radius: 8px; border: 1px solid #E5E7EB; }
+  .summary-card .label { font-size: 10px; color: #6B7280; text-transform: uppercase; }
+  .summary-card .value { font-size: 18px; font-weight: 700; }
+  table { width: 100%; border-collapse: collapse; font-size: 10px; }
+  th { background: #4F46E5; color: #fff; padding: 7px 5px; text-align: left; font-weight: 600; }
+  td { padding: 5px; border-bottom: 1px solid #E5E7EB; }
+  tr:nth-child(even) { background: #F9FAFB; }
+  .footer { margin-top: 15px; text-align: center; font-size: 10px; color: #888; border-top: 1px solid #E5E7EB; padding-top: 8px; }
+  @media print { body { padding: 10px; } @page { size: landscape; margin: 8mm; } }
+</style></head><body>
+  <div class="header">
+    <h1>POS Transactions Report</h1>
+    <p>Generated: ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}</p>
+  </div>
+  <div class="summary">
+    <div class="summary-card"><div class="label">Machines</div><div class="value">${summary.total_machines}</div></div>
+    <div class="summary-card"><div class="label">Transactions</div><div class="value">${summary.total_transactions}</div></div>
+    <div class="summary-card"><div class="label">Total Amount</div><div class="value">\u20B9${summary.total_amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</div></div>
+  </div>
+  <table><thead><tr><th>#</th><th>Machine ID</th><th>Serial</th><th>Type</th><th>Txn ID</th><th>Amount</th><th>Status</th><th>Date & Time</th></tr></thead>
+  <tbody>${allRows.map((r: any, i: number) => `<tr><td>${i + 1}</td><td>${r.machineId}</td><td>${r.serial}</td><td>${r.type}</td><td>${r.txn_id || r.id}</td><td>\u20B9${(r.amount || 0).toLocaleString('en-IN')}</td><td>${r.status || ''}</td><td>${r.transaction_time || r.created_at || ''}</td></tr>`).join('')}</tbody></table>
+  <div class="footer">Same Day Solution &mdash; System Generated Report &copy; ${new Date().getFullYear()}</div>
+</body></html>`
+
+        const pdf = await htmlToPdf(html, { landscape: true })
+        if (pdf) {
+          return new NextResponse(new Uint8Array(pdf), {
+            headers: { 'Content-Type': 'application/pdf', 'Content-Disposition': `attachment; filename="pos_transactions_${Date.now()}.pdf"` },
+          })
+        }
+        return new NextResponse(html, {
+          headers: { 'Content-Type': 'text/html; charset=utf-8', 'Content-Disposition': `attachment; filename="pos_transactions_${Date.now()}.html"` },
+        })
+      }
+
       return NextResponse.json({
         success: true,
         data: grouped,
@@ -275,6 +327,43 @@ export async function GET(request: NextRequest) {
           'Content-Type': 'text/csv',
           'Content-Disposition': `attachment; filename="pos_transactions_${Date.now()}.csv"`
         }
+      })
+    }
+
+    if (format === 'pdf') {
+      const totalAmt = enriched.reduce((s, t) => s + (t.amount || 0), 0)
+      const html = `<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><title>POS Transactions Report</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; padding: 30px; color: #333; font-size: 11px; }
+  .header { text-align: center; margin-bottom: 20px; border-bottom: 3px solid #4F46E5; padding-bottom: 12px; }
+  .header h1 { font-size: 20px; color: #4F46E5; }
+  .header p { font-size: 11px; color: #666; }
+  table { width: 100%; border-collapse: collapse; font-size: 10px; }
+  th { background: #4F46E5; color: #fff; padding: 7px 5px; text-align: left; font-weight: 600; }
+  td { padding: 5px; border-bottom: 1px solid #E5E7EB; }
+  tr:nth-child(even) { background: #F9FAFB; }
+  .footer { margin-top: 15px; text-align: center; font-size: 10px; color: #888; border-top: 1px solid #E5E7EB; padding-top: 8px; }
+  @media print { body { padding: 10px; } @page { size: landscape; margin: 8mm; } }
+</style></head><body>
+  <div class="header">
+    <h1>POS Transactions Report</h1>
+    <p>Generated: ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} | Records: ${count || 0} | Total: \u20B9${totalAmt.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</p>
+  </div>
+  <table><thead><tr><th>#</th><th>Machine ID</th><th>Serial</th><th>Type</th><th>Txn ID</th><th>Amount</th><th>Status</th><th>Date & Time</th></tr></thead>
+  <tbody>${enriched.map((tx: any, i: number) => `<tr><td>${i + 1}</td><td>${tx.machine_id || 'N/A'}</td><td>${tx.device_serial || ''}</td><td>${tx.machine_type || 'N/A'}</td><td>${tx.txn_id || tx.id}</td><td>\u20B9${(tx.amount || 0).toLocaleString('en-IN')}</td><td>${tx.status || ''}</td><td>${tx.transaction_time || tx.created_at || ''}</td></tr>`).join('')}</tbody></table>
+  <div class="footer">Same Day Solution &mdash; System Generated Report &copy; ${new Date().getFullYear()}</div>
+</body></html>`
+
+      const pdf = await htmlToPdf(html, { landscape: true })
+      if (pdf) {
+        return new NextResponse(new Uint8Array(pdf), {
+          headers: { 'Content-Type': 'application/pdf', 'Content-Disposition': `attachment; filename="pos_transactions_${Date.now()}.pdf"` },
+        })
+      }
+      return new NextResponse(html, {
+        headers: { 'Content-Type': 'text/html; charset=utf-8', 'Content-Disposition': `attachment; filename="pos_transactions_${Date.now()}.html"` },
       })
     }
 

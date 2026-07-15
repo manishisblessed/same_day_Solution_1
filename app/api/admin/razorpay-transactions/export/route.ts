@@ -2,9 +2,24 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { createClient } from '@supabase/supabase-js'
 import { resolveTransactionAssignments } from '@/lib/pos-assignment-resolver'
+import { htmlToPdf } from '@/lib/pdf/html-to-pdf'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
+
+function sanitizeFilterValue(value: string): string {
+  return value.replace(/[,()\\*%]/g, '').trim()
+}
+
+function escapeHtml(str: string | null | undefined): string {
+  if (!str) return ''
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;')
+}
 
 /**
  * GET /api/admin/razorpay-transactions/export
@@ -104,7 +119,7 @@ export async function GET(request: NextRequest) {
       }
 
       if (searchQuery && searchQuery.trim()) {
-        const s = searchQuery.trim()
+        const s = sanitizeFilterValue(searchQuery.trim())
         q = q.or(`txn_id.ilike.%${s}%,rrn.ilike.%${s}%,tid.ilike.%${s}%,mid_code.ilike.%${s}%,customer_name.ilike.%${s}%,username.ilike.%${s}%,card_number.ilike.%${s}%`)
       }
 
@@ -311,9 +326,9 @@ export async function GET(request: NextRequest) {
         return `<tr>
           <td>${i + 1}</td>
           ${headers.map(h => {
-            if (h === 'Status') return `<td class="${statusClass}">${(row as any)[h]}</td>`
+            if (h === 'Status') return `<td class="${statusClass}">${escapeHtml((row as any)[h])}</td>`
             if (h === 'Amount (₹)') return `<td class="amount">₹${Number((row as any)[h]).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>`
-            return `<td>${String((row as any)[h] || '-')}</td>`
+            return `<td>${escapeHtml(String((row as any)[h] || '-'))}</td>`
           }).join('')}
         </tr>`
       }).join('')}
@@ -325,11 +340,20 @@ export async function GET(request: NextRequest) {
 </body>
 </html>`.trim()
 
+      const pdf = await htmlToPdf(html, { landscape: true })
+      if (pdf) {
+        return new NextResponse(new Uint8Array(pdf), {
+          headers: {
+            'Content-Type': 'application/pdf',
+            'Content-Disposition': `attachment; filename="razorpay_transactions_${timestamp}.pdf"`,
+          },
+        })
+      }
       return new NextResponse(html, {
         headers: {
           'Content-Type': 'text/html; charset=utf-8',
-          'Content-Disposition': `attachment; filename="razorpay_transactions_${timestamp}.html"`
-        }
+          'Content-Disposition': `attachment; filename="razorpay_transactions_${timestamp}.html"`,
+        },
       })
     }
 

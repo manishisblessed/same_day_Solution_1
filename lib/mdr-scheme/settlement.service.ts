@@ -677,9 +677,14 @@ export async function calculatePartnerMDR(
           if (!rate) rate = await findPartnerRate(null);
 
           if (rate) {
-            const resolvedMdr = parseFloat(rate.partner_mdr);
+            // Partner Plan stores the T+1 rate in partner_mdr and the T+0 rate in
+            // retailer_mdr_t0. Use the correct one for the settlement being run.
+            const t0Rate = rate.retailer_mdr_t0 != null ? parseFloat(rate.retailer_mdr_t0) : NaN;
+            const resolvedMdr = settlementType === 'T0' && !Number.isNaN(t0Rate)
+              ? t0Rate
+              : parseFloat(rate.partner_mdr);
             const partnerFee = Number(((amount * resolvedMdr) / 100).toFixed(4));
-            console.log(`[Partner MDR] Resolved from scheme_mdr_rates partner_mdr: ${resolvedMdr}% (company=${rate.merchant_slug || 'ALL'})`);
+            console.log(`[Partner MDR] Resolved from scheme_mdr_rates (${settlementType}): ${resolvedMdr}% (company=${rate.merchant_slug || 'ALL'})`);
             return {
               success: true,
               partner_mdr: resolvedMdr,
@@ -825,10 +830,12 @@ export async function getPendingPartnerT1Transactions(
       `[Partner Settlement] Paused partners: ${pausedPartnerIds.length}`
     );
 
-    // Query pending partner transactions
+    // Query pending partner transactions — only successfully captured payments
+    // are eligible (mirrors the retailer T+1 cron; excludes failed/pending rows).
     let query = supabase
       .from('razorpay_pos_transactions')
       .select('*')
+      .or('display_status.ilike.SUCCESS,display_status.ilike.CAPTURED')
       .eq('settlement_type', 'T1')
       .eq('partner_wallet_credited', false)
       .lte('created_at', cutoffDate.toISOString())
@@ -845,10 +852,28 @@ export async function getPendingPartnerT1Transactions(
       return [];
     }
 
-    // Filter out paused partners
-    const filtered = (data || []).filter(
-      (txn: any) => !pausedPartnerIds.includes(txn.partner_id)
-    );
+    // Per-partner settlement start date: never auto-settle transactions captured
+    // before a partner's settlement was switched on (avoids paying a historical
+    // backlog in one run). NULL start = no restriction.
+    const candidatePartnerIds = [...new Set((data || []).map((t: any) => t.partner_id))];
+    const startAtByPartner = new Map<string, string | null>();
+    if (candidatePartnerIds.length > 0) {
+      const { data: partnerRows } = await supabase
+        .from('partners')
+        .select('id, t1_settlement_start_at')
+        .in('id', candidatePartnerIds);
+      (partnerRows || []).forEach((p: any) =>
+        startAtByPartner.set(p.id, p.t1_settlement_start_at || null)
+      );
+    }
+
+    // Filter out paused partners and pre-start-date transactions
+    const filtered = (data || []).filter((txn: any) => {
+      if (pausedPartnerIds.includes(txn.partner_id)) return false;
+      const startAt = startAtByPartner.get(txn.partner_id);
+      if (startAt && new Date(txn.created_at) < new Date(startAt)) return false;
+      return true;
+    });
 
     console.log(
       `[Partner Settlement] Found ${filtered.length} pending T+1 transactions for partners (before filtering: ${data?.length || 0})`

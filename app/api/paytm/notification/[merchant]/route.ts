@@ -64,10 +64,13 @@ export async function POST(
       )
     }
 
-    // Optional signature verification for Paytm
     const checksumHeader = request.headers.get('x-paytm-checksum') || request.headers.get('x-checksum')
     const paytmSecret = process.env.PAYTM_WEBHOOK_SECRET
-    if (checksumHeader && paytmSecret) {
+    if (paytmSecret) {
+      if (!checksumHeader) {
+        console.error(`[Paytm/${merchantSlug}] Missing checksum header — rejecting`)
+        return NextResponse.json({ error: 'Missing checksum' }, { status: 401 })
+      }
       const expectedChecksum = crypto
         .createHmac('sha256', paytmSecret)
         .update(rawBody)
@@ -77,12 +80,12 @@ export async function POST(
       const expBuf = Buffer.from(expectedChecksum)
       if (sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) {
         console.error(`[Paytm/${merchantSlug}] Invalid checksum`)
-        return NextResponse.json(
-          { received: true, processed: false, error: 'Invalid checksum' },
-          { status: 200 }
-        )
+        return NextResponse.json({ error: 'Invalid checksum' }, { status: 401 })
       }
       console.log(`[Paytm/${merchantSlug}] Checksum verified`)
+    } else {
+      // PRODUCTION: configure PAYTM_WEBHOOK_SECRET to enforce checksum verification
+      console.warn(`[Paytm/${merchantSlug}] PAYTM_WEBHOOK_SECRET not configured — skipping verification (configure in production!)`)
     }
 
     // Extract transaction ID — Paytm uses various field names

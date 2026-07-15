@@ -5,6 +5,10 @@ import { getSupabaseAdmin } from '@/lib/supabase/server-admin'
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
+function sanitizeFilterValue(value: string): string {
+  return value.replace(/[,()\\*%]/g, '').trim()
+}
+
 export async function GET(request: NextRequest) {
   try {
     const { user: admin } = await getCurrentUserWithFallback(request)
@@ -41,7 +45,10 @@ export async function GET(request: NextRequest) {
     if (status && status !== 'all') query = query.eq('status', status)
     if (dateFrom) query = query.gte('created_at', dateFrom)
     if (dateTo) query = query.lte('created_at', dateTo)
-    if (search) query = query.or(`activity_description.ilike.%${search}%,activity_type.ilike.%${search}%,user_id.ilike.%${search}%`)
+    if (search) {
+      const s = sanitizeFilterValue(search)
+      query = query.or(`activity_description.ilike.%${s}%,activity_type.ilike.%${s}%,user_id.ilike.%${s}%`)
+    }
 
     query = query.range(offset, offset + limit - 1)
 

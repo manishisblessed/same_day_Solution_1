@@ -34,6 +34,16 @@ type UserSearchResult = {
 
 type Summary = { totalPush: number; totalPull: number; net: number }
 
+type AppliedFilters = {
+  userId: string
+  userRole: string
+  actionType: string
+  walletType: string
+  fundCategory: string
+  dateFrom: string
+  dateTo: string
+}
+
 const FUND_CATEGORIES = [
   { value: '', label: 'All categories' },
   { value: 'cash', label: 'Cash' },
@@ -50,6 +60,7 @@ const ROLE_LABELS: Record<string, string> = {
   retailer: 'Retailer',
   distributor: 'Distributor',
   master_distributor: 'Master Distributor',
+  partner: 'Partner',
 }
 
 const inr = (v: number) =>
@@ -65,7 +76,7 @@ export default function AdminPushPullReport() {
   const [error, setError] = useState<string | null>(null)
   const [exporting, setExporting] = useState<'csv' | 'excel' | null>(null)
 
-  // Filters
+  // Draft filters (edited by the user, not applied until "Apply" is clicked)
   const [userRole, setUserRole] = useState('')
   const [selectedUser, setSelectedUser] = useState<UserSearchResult | null>(null)
   const [roleUsers, setRoleUsers] = useState<UserSearchResult[]>([])
@@ -75,6 +86,9 @@ export default function AdminPushPullReport() {
   const [fundCategory, setFundCategory] = useState('')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
+
+  // Applied filters — the snapshot the report is actually showing
+  const [applied, setApplied] = useState<AppliedFilters | null>(null)
 
   // Load users of the selected role
   useEffect(() => {
@@ -97,19 +111,20 @@ export default function AdminPushPullReport() {
     return () => { cancelled = true }
   }, [userRole])
 
-  const buildParams = useCallback(() => {
+  const buildParams = useCallback((a: AppliedFilters) => {
     const params = new URLSearchParams()
-    if (selectedUser) params.set('user_id', selectedUser.id)
-    if (actionType) params.set('action_type', actionType)
-    if (walletType) params.set('wallet_type', walletType)
-    if (fundCategory) params.set('fund_category', fundCategory)
-    if (dateFrom) params.set('date_from', dateFrom)
-    if (dateTo) params.set('date_to', dateTo)
+    params.set('user_id', a.userId)
+    if (a.userRole) params.set('user_role', a.userRole)
+    if (a.actionType) params.set('action_type', a.actionType)
+    if (a.walletType) params.set('wallet_type', a.walletType)
+    if (a.fundCategory) params.set('fund_category', a.fundCategory)
+    if (a.dateFrom) params.set('date_from', a.dateFrom)
+    if (a.dateTo) params.set('date_to', a.dateTo)
     return params
-  }, [selectedUser, actionType, walletType, fundCategory, dateFrom, dateTo])
+  }, [])
 
   const fetchReport = useCallback(async () => {
-    if (!selectedUser) {
+    if (!applied) {
       setEntries([])
       setTotal(0)
       setSummary({ totalPush: 0, totalPull: 0, net: 0 })
@@ -118,7 +133,7 @@ export default function AdminPushPullReport() {
     setLoading(true)
     setError(null)
     try {
-      const params = buildParams()
+      const params = buildParams(applied)
       params.set('page', String(page))
       params.set('limit', String(limit))
 
@@ -135,21 +150,35 @@ export default function AdminPushPullReport() {
     } finally {
       setLoading(false)
     }
-  }, [buildParams, page, limit, selectedUser])
+  }, [buildParams, applied, page, limit])
 
   useEffect(() => {
     fetchReport()
   }, [fetchReport])
 
-  useEffect(() => {
+  const handleApply = () => {
+    if (!selectedUser) {
+      setError('Please select a user first')
+      return
+    }
+    setError(null)
     setPage(1)
-  }, [selectedUser, actionType, walletType, fundCategory, dateFrom, dateTo])
+    setApplied({
+      userId: selectedUser.id,
+      userRole,
+      actionType,
+      walletType: userRole === 'partner' ? '' : walletType,
+      fundCategory: userRole === 'partner' ? '' : fundCategory,
+      dateFrom,
+      dateTo,
+    })
+  }
 
   const handleExport = async (format: 'csv' | 'excel') => {
-    if (!selectedUser) return
+    if (!applied) return
     setExporting(format)
     try {
-      const params = buildParams()
+      const params = buildParams(applied)
       params.set('format', format)
       params.set('limit', '50000')
 
@@ -164,7 +193,7 @@ export default function AdminPushPullReport() {
       const a = document.createElement('a')
       a.href = url
       const datePart = new Date().toISOString().split('T')[0]
-      a.download = `push-pull-${selectedUser.id}-${datePart}.${format === 'excel' ? 'xls' : 'csv'}`
+      a.download = `push-pull-${applied.userId}-${datePart}.${format === 'excel' ? 'xls' : 'csv'}`
       document.body.appendChild(a)
       a.click()
       document.body.removeChild(a)
@@ -201,7 +230,7 @@ export default function AdminPushPullReport() {
           <button
             type="button"
             onClick={() => handleExport('csv')}
-            disabled={!!exporting || loading || !selectedUser}
+            disabled={!!exporting || loading || !applied}
             className="flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium disabled:opacity-50"
           >
             {exporting === 'csv' ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
@@ -210,7 +239,7 @@ export default function AdminPushPullReport() {
           <button
             type="button"
             onClick={() => handleExport('excel')}
-            disabled={!!exporting || loading || !selectedUser}
+            disabled={!!exporting || loading || !applied}
             className="flex items-center gap-2 px-3 py-2 rounded-lg bg-green-700 hover:bg-green-800 text-white text-sm font-medium disabled:opacity-50"
           >
             {exporting === 'excel' ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileSpreadsheet className="w-4 h-4" />}
@@ -219,7 +248,7 @@ export default function AdminPushPullReport() {
           <button
             type="button"
             onClick={() => fetchReport()}
-            disabled={!selectedUser}
+            disabled={!applied}
             className="flex items-center gap-2 px-3 py-2 rounded-lg bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-sm disabled:opacity-50"
           >
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
@@ -237,6 +266,7 @@ export default function AdminPushPullReport() {
             <option value="retailer">Retailer</option>
             <option value="distributor">Distributor</option>
             <option value="master_distributor">Master Distributor</option>
+            <option value="partner">Partner</option>
           </select>
         </div>
 
@@ -270,28 +300,32 @@ export default function AdminPushPullReport() {
           <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Action</label>
           <select value={actionType} onChange={(e) => setActionType(e.target.value)} className={inputCls}>
             <option value="">Push &amp; Pull</option>
-            <option value="wallet_push">Push only</option>
-            <option value="wallet_pull">Pull only</option>
+            <option value="push">Push only</option>
+            <option value="pull">Pull only</option>
           </select>
         </div>
 
-        <div>
-          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Wallet</label>
-          <select value={walletType} onChange={(e) => setWalletType(e.target.value)} className={inputCls}>
-            <option value="">All</option>
-            <option value="primary">Primary</option>
-            <option value="aeps">AEPS</option>
-          </select>
-        </div>
+        {userRole !== 'partner' && (
+          <>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Wallet</label>
+              <select value={walletType} onChange={(e) => setWalletType(e.target.value)} className={inputCls}>
+                <option value="">All</option>
+                <option value="primary">Primary</option>
+                <option value="aeps">AEPS</option>
+              </select>
+            </div>
 
-        <div>
-          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Fund category</label>
-          <select value={fundCategory} onChange={(e) => setFundCategory(e.target.value)} className={inputCls}>
-            {FUND_CATEGORIES.map((c) => (
-              <option key={c.value} value={c.value}>{c.label}</option>
-            ))}
-          </select>
-        </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Fund category</label>
+              <select value={fundCategory} onChange={(e) => setFundCategory(e.target.value)} className={inputCls}>
+                {FUND_CATEGORIES.map((c) => (
+                  <option key={c.value} value={c.value}>{c.label}</option>
+                ))}
+              </select>
+            </div>
+          </>
+        )}
 
         <div>
           <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">From</label>
@@ -301,10 +335,22 @@ export default function AdminPushPullReport() {
           <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">To</label>
           <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className={inputCls} />
         </div>
+
+        <div>
+          <button
+            type="button"
+            onClick={handleApply}
+            disabled={!selectedUser || loading}
+            className="flex items-center gap-2 px-5 py-2 rounded-lg bg-primary-600 hover:bg-primary-700 text-white text-sm font-medium disabled:opacity-50"
+          >
+            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
+            Apply Filters
+          </button>
+        </div>
       </div>
 
       {/* Summary cards */}
-      {selectedUser && (total > 0 || loading) && (
+      {applied && (total > 0 || loading) && (
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <div className="rounded-lg border border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-900/20 p-3">
             <p className="text-xs text-green-600 dark:text-green-400 font-medium">Total Pushed</p>
@@ -323,10 +369,10 @@ export default function AdminPushPullReport() {
         </div>
       )}
 
-      {!selectedUser && (
+      {!applied && (
         <div className="p-8 text-center text-gray-500 dark:text-gray-400 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
           <Search className="w-10 h-10 mx-auto mb-2 opacity-40" />
-          <p className="font-medium">Select a role and user above to view their push/pull history</p>
+          <p className="font-medium">Select a role and user, set your filters, then click <span className="text-primary-600 dark:text-primary-400">Apply Filters</span>.</p>
         </div>
       )}
 
@@ -335,7 +381,7 @@ export default function AdminPushPullReport() {
       )}
 
       {/* Table */}
-      {selectedUser && (
+      {applied && (
         <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-sm min-w-[900px]">

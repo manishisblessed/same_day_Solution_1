@@ -77,6 +77,10 @@ export interface SchemeBBPSCommission {
   company_charge: number;
   company_charge_type: ChargeType;
   
+  gst_inclusive: boolean;
+  vendor_rate: number;
+  company_mdr_rate: number;
+
   status: string;
   created_at: string;
   updated_at: string;
@@ -108,6 +112,10 @@ export interface SchemePayoutCharge {
   company_charge: number;
   company_charge_type: ChargeType;
   
+  gst_inclusive: boolean;
+  vendor_rate: number;
+  company_mdr_rate: number;
+
   status: string;
   created_at: string;
   updated_at: string;
@@ -135,6 +143,10 @@ export interface SchemeMDRRate {
   md_mdr_t0: number;
   partner_mdr: number | null;
   
+  gst_inclusive: boolean;
+  vendor_rate: number;
+  company_mdr_rate: number;
+
   status: string;
   created_at: string;
   updated_at: string;
@@ -173,6 +185,10 @@ export interface SchemeAEPSCommission {
 
   tds_percentage: number;
 
+  gst_inclusive: boolean;
+  vendor_rate: number;
+  company_mdr_rate: number;
+
   status: string;
   created_at: string;
   updated_at: string;
@@ -199,6 +215,10 @@ export interface SchemeAEPSSettlementCharge {
 
   company_charge: number;
   company_charge_type: ChargeType;
+
+  gst_inclusive: boolean;
+  vendor_rate: number;
+  company_mdr_rate: number;
 
   status: string;
   created_at: string;
@@ -227,6 +247,10 @@ export interface SchemeShadvalSettlementCharge {
 
   company_charge: number;
   company_charge_type: ChargeType;
+
+  gst_inclusive: boolean;
+  vendor_rate: number;
+  company_mdr_rate: number;
 
   status: string;
   created_at: string;
@@ -316,6 +340,9 @@ export interface CreateBBPSCommissionInput {
   md_commission_type?: ChargeType;
   company_charge?: number;
   company_charge_type?: ChargeType;
+  gst_inclusive?: boolean;
+  vendor_rate?: number;
+  company_mdr_rate?: number;
 }
 
 export interface CreatePayoutChargeInput {
@@ -333,6 +360,9 @@ export interface CreatePayoutChargeInput {
   md_commission_type?: ChargeType;
   company_charge?: number;
   company_charge_type?: ChargeType;
+  gst_inclusive?: boolean;
+  vendor_rate?: number;
+  company_mdr_rate?: number;
 }
 
 export interface CreateMDRRateInput {
@@ -350,6 +380,9 @@ export interface CreateMDRRateInput {
   md_mdr_t1?: number;
   md_mdr_t0?: number;
   partner_mdr?: number | null;
+  gst_inclusive?: boolean;
+  vendor_rate?: number;
+  company_mdr_rate?: number;
 }
 
 export interface CreateSchemeMappingInput {
@@ -374,6 +407,9 @@ export interface CreateAEPSSettlementChargeInput {
   md_commission_type?: ChargeType;
   company_charge?: number;
   company_charge_type?: ChargeType;
+  gst_inclusive?: boolean;
+  vendor_rate?: number;
+  company_mdr_rate?: number;
 }
 
 export interface CreateShadvalSettlementChargeInput {
@@ -389,6 +425,9 @@ export interface CreateShadvalSettlementChargeInput {
   md_commission_type?: ChargeType;
   company_charge?: number;
   company_charge_type?: ChargeType;
+  gst_inclusive?: boolean;
+  vendor_rate?: number;
+  company_mdr_rate?: number;
 }
 
 export interface CreateAEPSCommissionInput {
@@ -407,6 +446,9 @@ export interface CreateAEPSCommissionInput {
   retailer_commission?: number;
   retailer_commission_type?: ChargeType;
   tds_percentage?: number;
+  gst_inclusive?: boolean;
+  vendor_rate?: number;
+  company_mdr_rate?: number;
 }
 
 // ============================================================================

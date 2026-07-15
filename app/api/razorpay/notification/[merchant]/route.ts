@@ -59,8 +59,11 @@ export async function POST(
       )
     }
 
-    // Verify signature only when both secret and signature header are present
-    if (signature && RAZORPAY_WEBHOOK_SECRET) {
+    if (RAZORPAY_WEBHOOK_SECRET) {
+      if (!signature) {
+        console.error(`[Webhook/${merchantSlug}] Missing signature header — rejecting`)
+        return NextResponse.json({ error: 'Missing signature' }, { status: 401 })
+      }
       const expectedSignature = crypto
         .createHmac('sha256', RAZORPAY_WEBHOOK_SECRET)
         .update(rawBody)
@@ -70,14 +73,12 @@ export async function POST(
       const expBuf = Buffer.from(expectedSignature)
       if (sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) {
         console.error(`[Webhook/${merchantSlug}] Invalid signature`)
-        return NextResponse.json(
-          { received: true, processed: false, error: 'Invalid signature' },
-          { status: 200 }
-        )
+        return NextResponse.json({ error: 'Invalid signature' }, { status: 401 })
       }
       console.log(`[Webhook/${merchantSlug}] Signature verified successfully`)
-    } else if (signature && !RAZORPAY_WEBHOOK_SECRET) {
-      console.warn(`[Webhook/${merchantSlug}] Signature present but RAZORPAY_WEBHOOK_SECRET not configured - skipping verification`)
+    } else {
+      // PRODUCTION: configure RAZORPAY_WEBHOOK_SECRET to enforce signature verification
+      console.warn(`[Webhook/${merchantSlug}] RAZORPAY_WEBHOOK_SECRET not configured — skipping verification (configure in production!)`)
     }
 
     const isStandardWebhook = !!(payload.event && payload.payload)

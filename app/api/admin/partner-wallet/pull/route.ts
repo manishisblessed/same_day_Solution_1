@@ -48,9 +48,15 @@ export async function POST(request: NextRequest) {
     }
 
     const amountNum = parseFloat(amount)
-    if (isNaN(amountNum) || amountNum <= 0) {
+    if (!Number.isFinite(amountNum) || amountNum <= 0) {
       return NextResponse.json(
         { success: false, error: 'Amount must be a positive number' },
+        { status: 400 }
+      )
+    }
+    if (amountNum > 10000000) {
+      return NextResponse.json(
+        { success: false, error: 'Amount exceeds maximum limit of ₹1,00,00,000' },
         { status: 400 }
       )
     }

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { createSigningRequest } from '@/services/leegality/client'
 import { getLeegalityWorkflowId } from '@/services/leegality/config'
-import { createClient } from '@/lib/supabase/server-admin'
+import { getSupabaseAdmin } from '@/lib/supabase/server-admin'
 
 export const dynamic = 'force-dynamic'
 
@@ -40,7 +40,7 @@ export async function POST(request: NextRequest) {
       ...(irn && { irn }),
     })
 
-    const supabase = createClient()
+    const supabase = getSupabaseAdmin()
 
     const { data: doc } = await supabase
       .from('esign_documents')

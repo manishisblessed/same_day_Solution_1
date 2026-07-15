@@ -1,15 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { createClient } from '@supabase/supabase-js'
-import { cookies } from 'next/headers'
+import { requireAdmin } from '@/lib/security/admin-guard'
 import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger'
 
-export const runtime = 'nodejs' // Force Node.js runtime (Supabase not compatible with Edge Runtime)
+export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 export async function POST(request: NextRequest) {
   try {
-    // Initialize Supabase client at runtime (not during build)
+    const guard = await requireAdmin(request)
+    if (!guard.ok) return guard.response
+    const admin = guard.user
+
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
     const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
     
@@ -21,26 +23,7 @@ export async function POST(request: NextRequest) {
     }
     
     const supabase = createClient(supabaseUrl, supabaseServiceKey)
-    
-    // Get current admin user with fallback authentication
-    const { user: admin, method } = await getCurrentUserWithFallback(request)
-    console.log('[Impersonate] Auth method:', method, '| User:', admin?.email || 'none')
-    
-    if (!admin) {
-      return NextResponse.json(
-        { error: 'Session expired. Please log out and log back in.', code: 'SESSION_EXPIRED' },
-        { status: 401 }
-      )
-    }
-    
-    if (admin.role !== 'admin') {
-      return NextResponse.json(
-        { error: 'Unauthorized: Admin access required' },
-        { status: 403 }
-      )
-    }
 
-    // Verify admin exists (check if is_active column exists, if not, assume active)
     const { data: adminData, error: adminError } = await supabase
       .from('admin_users')
       .select('id, admin_type, is_active')
@@ -54,12 +37,27 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Check if admin is active (only if column exists and is set)
     if (adminData.is_active === false) {
       return NextResponse.json(
         { error: 'Admin account is inactive' },
         { status: 403 }
       )
+    }
+
+    if (adminData.admin_type !== 'super_admin') {
+      const { data: perm } = await supabase
+        .from('admin_role_permissions')
+        .select('id')
+        .eq('role', adminData.admin_type || admin.role)
+        .eq('permission', 'impersonate')
+        .maybeSingle()
+
+      if (!perm) {
+        return NextResponse.json(
+          { error: 'Impersonation requires super_admin or explicit permission' },
+          { status: 403 }
+        )
+      }
     }
 
     const body = await request.json()

@@ -1623,7 +1623,7 @@ function ReportsTab({ chartData, stats }: { chartData: any[], stats: any }) {
             const url = window.URL.createObjectURL(blob)
             const a = document.createElement('a')
             a.href = url
-            const extension = format === 'pdf' ? 'html' : format
+            const extension = format
             a.download = `${reportType}_report_${dateRange.start}_to_${dateRange.end}.${extension}`
             document.body.appendChild(a)
             a.click()

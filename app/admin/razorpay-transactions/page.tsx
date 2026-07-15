@@ -386,7 +386,7 @@ function RazorpayTransactionsPageContent() {
         const blob = await response.blob()
         const contentDisposition = response.headers.get('Content-Disposition')
         const filenameMatch = contentDisposition?.match(/filename="?(.+?)"?$/)
-        const filename = filenameMatch?.[1] || `razorpay_transactions.${format === 'pdf' ? 'html' : format}`
+        const filename = filenameMatch?.[1] || `razorpay_transactions.${format}`
         
         const url = URL.createObjectURL(blob)
         const a = document.createElement('a')

@@ -46,40 +46,22 @@ export async function GET(request: NextRequest) {
       },
     })
 
-    // Accept partner_id & role as query params (passed from AuthContext).
-    // This is necessary because admin and business users share the same
-    // Supabase session on the same domain — the Bearer token may belong
-    // to whichever user logged in last, which can differ from the
-    // AuthContext-cached user that the sidebar is rendering for.
-    const url = new URL(request.url)
-    const qPartnerId = url.searchParams.get('partner_id')
-    const qRole = url.searchParams.get('role')
+    const { user, method } = await getCurrentUserWithFallback(request)
+    console.log('[enabled-services] Auth:', method, '|', user?.email || 'none', '| role:', user?.role || 'none', '| partner_id:', user?.partner_id || 'none')
 
-    let lookupRole: string | null = null
-    let lookupPartnerId: string | null = null
-
-    if (qPartnerId && qRole && ['retailer', 'distributor', 'master_distributor', 'partner'].includes(qRole)) {
-      lookupRole = qRole
-      lookupPartnerId = qPartnerId
-      console.log('[enabled-services] Using query params: role=', qRole, '| partner_id=', qPartnerId)
-    } else {
-      const { user, method } = await getCurrentUserWithFallback(request)
-      console.log('[enabled-services] Auth:', method, '|', user?.email || 'none', '| role:', user?.role || 'none', '| partner_id:', user?.partner_id || 'none')
-
-      if (!user) {
-        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-      }
-
-      if (!['retailer', 'distributor', 'master_distributor', 'partner'].includes(user.role)) {
-        return NextResponse.json({
-          services: Object.fromEntries(SERVICE_KEYS.map((k) => [k, false])),
-          hasAnyEnabled: false,
-        })
-      }
-
-      lookupRole = user.role
-      lookupPartnerId = user.partner_id ?? null
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
+
+    if (!['retailer', 'distributor', 'master_distributor', 'partner'].includes(user.role)) {
+      return NextResponse.json({
+        services: Object.fromEntries(SERVICE_KEYS.map((k) => [k, false])),
+        hasAnyEnabled: false,
+      })
+    }
+
+    const lookupRole = user.role
+    const lookupPartnerId = user.partner_id ?? null
 
     // Determine table and ID column based on role
     // Partners table uses 'id' as primary key, others use 'partner_id'

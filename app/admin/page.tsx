@@ -39,7 +39,7 @@ import AdminAEPSManagement from '@/components/admin/AdminAEPSManagement'
 import PortalManagementTab from '@/components/admin/PortalManagementTab'
 import AdminPushPullReport from '@/components/AdminPushPullReport'
 
-type TabType = 'dashboard' | 'retailers' | 'distributors' | 'master-distributors' | 'services' | 'pos-machines' | 'pos-history' | 'pos-tracking-report' | 'transactions' | 'partners' | 'pos-partner-api' | 'reports' | 'service-transaction-report' | 'settlement' | 'revenue-wallet' | 'performance' | 'subscriptions' | 'wallet-ledger' | 'push-pull-report' | 'aeps' | 'portal-management'
+type TabType = 'dashboard' | 'retailers' | 'distributors' | 'master-distributors' | 'services' | 'pos-machines' | 'pos-history' | 'pos-tracking-report' | 'transactions' | 'partners' | 'pos-partner-api' | 'reports' | 'service-transaction-report' | 'pos-report' | 'bbps-report' | 'aeps-report' | 'settlement-report' | 'settlement' | 'revenue-wallet' | 'performance' | 'subscriptions' | 'wallet-ledger' | 'push-pull-report' | 'aeps' | 'portal-management'
 type SortField = 'name' | 'email' | 'partner_id' | 'created_at' | 'status'
 type SortDirection = 'asc' | 'desc'
 
@@ -59,7 +59,7 @@ function AdminDashboardContent() {
   // Initialize activeTab from URL or default to 'dashboard'
   const getInitialTab = (): TabType => {
     const tab = searchParams?.get('tab')
-    if (tab && ['dashboard', 'retailers', 'distributors', 'master-distributors', 'pos-machines', 'pos-history', 'pos-tracking-report', 'pos-partner-api', 'services', 'transactions', 'partners', 'reports', 'service-transaction-report', 'settlement', 'revenue-wallet', 'performance', 'subscriptions', 'wallet-ledger', 'push-pull-report', 'aeps', 'portal-management'].includes(tab)) {
+    if (tab && ['dashboard', 'retailers', 'distributors', 'master-distributors', 'pos-machines', 'pos-history', 'pos-tracking-report', 'pos-partner-api', 'services', 'transactions', 'partners', 'reports', 'service-transaction-report', 'pos-report', 'bbps-report', 'aeps-report', 'settlement-report', 'settlement', 'revenue-wallet', 'performance', 'subscriptions', 'wallet-ledger', 'push-pull-report', 'aeps', 'portal-management'].includes(tab)) {
       return tab as TabType
     }
     return 'dashboard'
@@ -133,7 +133,7 @@ function AdminDashboardContent() {
   // Sync activeTab with URL query params
   useEffect(() => {
     const tab = searchParams?.get('tab')
-    if (tab && ['dashboard', 'retailers', 'distributors', 'master-distributors', 'pos-machines', 'pos-history', 'pos-tracking-report', 'pos-partner-api', 'services', 'transactions', 'partners', 'reports', 'service-transaction-report', 'settlement', 'revenue-wallet', 'performance', 'subscriptions', 'wallet-ledger', 'push-pull-report', 'aeps', 'portal-management'].includes(tab)) {
+    if (tab && ['dashboard', 'retailers', 'distributors', 'master-distributors', 'pos-machines', 'pos-history', 'pos-tracking-report', 'pos-partner-api', 'services', 'transactions', 'partners', 'reports', 'service-transaction-report', 'pos-report', 'bbps-report', 'aeps-report', 'settlement-report', 'settlement', 'revenue-wallet', 'performance', 'subscriptions', 'wallet-ledger', 'push-pull-report', 'aeps', 'portal-management'].includes(tab)) {
       if (tab !== activeTab) {
         setActiveTab(tab as TabType)
       }
@@ -596,6 +596,14 @@ function AdminDashboardContent() {
             <ReportsTab />
           ) : activeTab === 'service-transaction-report' ? (
             <ServiceTransactionReport userRole="admin" />
+          ) : activeTab === 'pos-report' ? (
+            <ServiceTransactionReport userRole="admin" userName={user?.name} defaultService="pos" />
+          ) : activeTab === 'bbps-report' ? (
+            <ServiceTransactionReport userRole="admin" userName={user?.name} defaultService="bbps" />
+          ) : activeTab === 'aeps-report' ? (
+            <ServiceTransactionReport userRole="admin" userName={user?.name} defaultService="aeps" />
+          ) : activeTab === 'settlement-report' ? (
+            <ServiceTransactionReport userRole="admin" userName={user?.name} defaultService="settlement" />
           ) : activeTab === 'settlement' ? (
             <T1SettlementControl />
           ) : activeTab === 'revenue-wallet' ? (

@@ -7,14 +7,18 @@ export const dynamic = 'force-dynamic'
  * This endpoint syncs the client-side session to server-side cookies
  * Called after login to ensure API routes can access the session
  */
+const ALLOWED_ORIGINS = [
+  'https://samedaysolution.in',
+  'https://www.samedaysolution.in',
+  'https://api.samedaysolution.in',
+  ...(process.env.NODE_ENV !== 'production' ? ['http://localhost:3000', 'http://127.0.0.1:3000'] : []),
+]
+
 export async function POST(request: NextRequest) {
   try {
-    // Reject cross-origin calls — this endpoint must only be called from our own login pages
-    const origin = request.headers.get('origin')
-    const referer = request.headers.get('referer')
-    const host = request.headers.get('host') || ''
-    if (origin && !origin.includes(host.split(':')[0]) && !origin.includes('localhost') && !origin.includes('127.0.0.1')) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    const origin = request.headers.get('origin') || ''
+    if (!ALLOWED_ORIGINS.some(allowed => origin === allowed)) {
+      return NextResponse.json({ error: 'Forbidden origin' }, { status: 403 })
     }
 
     const body = await request.json()
@@ -40,7 +44,7 @@ export async function POST(request: NextRequest) {
               // Set cookies in the response so they're sent to the browser
               response.cookies.set(name, value, {
                 ...options,
-                httpOnly: false,
+                httpOnly: true,
                 sameSite: 'lax',
                 secure: process.env.NODE_ENV === 'production',
                 path: '/',

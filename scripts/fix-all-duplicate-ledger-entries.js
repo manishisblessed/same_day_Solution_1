@@ -1,5 +1,6 @@
 const { Client } = require('pg')
-const DB_URL = 'postgresql://postgres.ohmvvtnfdvvatgofrzta:Development%400022122025@aws-1-ap-south-1.pooler.supabase.com:5432/postgres'
+const DB_URL = process.env.DATABASE_URL
+if (!DB_URL) { console.error('DATABASE_URL environment variable is required'); process.exit(1) }
 
 async function main() {
   const c = new Client(DB_URL)

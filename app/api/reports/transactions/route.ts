@@ -4,9 +4,20 @@ import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { createClient } from '@supabase/supabase-js'
 import { addCorsHeaders } from '@/lib/cors'
 import { resolveDownline, downlineToIdSet, isPrivilegedRole } from '@/lib/security/downline'
+import { htmlToPdf } from '@/lib/pdf/html-to-pdf'
 
 export const runtime = 'nodejs' // Force Node.js runtime (Supabase not compatible with Edge Runtime)
 export const dynamic = 'force-dynamic'
+
+function escapeHtml(str: string | null | undefined): string {
+  if (!str) return ''
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;')
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -284,53 +295,50 @@ export async function GET(request: NextRequest) {
     }
 
     if (format === 'pdf') {
-      // Generate HTML-based PDF
-      const html = `
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8">
-  <title>Transaction Report</title>
-  <style>
-    body { font-family: Arial, sans-serif; margin: 20px; }
-    h1 { color: #333; }
-    table { width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 10px; }
-    th, td { border: 1px solid #ddd; padding: 6px; text-align: left; }
-    th { background-color: #f2f2f2; font-weight: bold; }
-    tr:nth-child(even) { background-color: #f9f9f9; }
-    .metadata { margin-top: 20px; font-size: 12px; color: #666; }
-    @media print { body { margin: 0; } }
-  </style>
-</head>
-<body>
-  <h1>Transaction Report</h1>
-  <div class="metadata">
-    <strong>Generated:</strong> ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}<br>
-    <strong>Total Records:</strong> ${total}<br>
-    ${dateFrom ? `<strong>From:</strong> ${dateFrom}<br>` : ''}
-    ${dateTo ? `<strong>To:</strong> ${dateTo}` : ''}
+      const html = `<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><title>Transaction Report</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; padding: 30px; color: #333; font-size: 11px; }
+  .header { text-align: center; margin-bottom: 20px; border-bottom: 3px solid #4F46E5; padding-bottom: 12px; }
+  .header h1 { font-size: 20px; color: #4F46E5; }
+  .header p { font-size: 11px; color: #666; }
+  .meta { display: flex; justify-content: space-between; margin-bottom: 15px; background: #F9FAFB; padding: 10px; border-radius: 6px; font-size: 11px; }
+  table { width: 100%; border-collapse: collapse; font-size: 10px; }
+  th { background: #4F46E5; color: #fff; padding: 7px 5px; text-align: left; font-weight: 600; }
+  td { padding: 5px; border-bottom: 1px solid #E5E7EB; }
+  tr:nth-child(even) { background: #F9FAFB; }
+  .footer { margin-top: 15px; text-align: center; font-size: 10px; color: #888; border-top: 1px solid #E5E7EB; padding-top: 8px; }
+  @media print { body { padding: 10px; } @page { size: landscape; margin: 8mm; } }
+</style></head><body>
+  <div class="header">
+    <h1>Transaction Report</h1>
+    <p>Generated: ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} | Records: ${total}</p>
   </div>
-  <table>
-    <thead>
-      <tr>
-        ${headers.map(h => `<th>${h}</th>`).join('')}
-      </tr>
-    </thead>
-    <tbody>
-      ${rows.map(row => 
-        `<tr>${row.map(cell => `<td>${String(cell || '')}</td>`).join('')}</tr>`
-      ).join('')}
-    </tbody>
-  </table>
-</body>
-</html>
-      `.trim()
+  <div class="meta">
+    ${dateFrom ? `<div><strong>From:</strong> ${dateFrom}</div>` : ''}
+    ${dateTo ? `<div><strong>To:</strong> ${dateTo}</div>` : ''}
+    ${service ? `<div><strong>Service:</strong> ${service}</div>` : ''}
+  </div>
+  <table><thead><tr>${headers.map(h => `<th>${h}</th>`).join('')}</tr></thead>
+  <tbody>${rows.map(row => `<tr>${row.map(cell => `<td>${escapeHtml(String(cell || ''))}</td>`).join('')}</tr>`).join('')}</tbody></table>
+  <div class="footer">Same Day Solution &mdash; System Generated Report &copy; ${new Date().getFullYear()}</div>
+</body></html>`
 
+      const pdf = await htmlToPdf(html, { landscape: true })
+      if (pdf) {
+        return new NextResponse(new Uint8Array(pdf), {
+          headers: {
+            'Content-Type': 'application/pdf',
+            'Content-Disposition': `attachment; filename="transactions_${Date.now()}.pdf"`,
+          },
+        })
+      }
       return new NextResponse(html, {
         headers: {
-          'Content-Type': 'text/html',
-          'Content-Disposition': `attachment; filename="transactions_${Date.now()}.html"`
-        }
+          'Content-Type': 'text/html; charset=utf-8',
+          'Content-Disposition': `attachment; filename="transactions_${Date.now()}.html"`,
+        },
       })
     }
 
@@ -379,7 +387,7 @@ export async function GET(request: NextRequest) {
     </thead>
     <tbody>
       ${rows.map(row => 
-        `<tr>${row.map(cell => `<td>${String(cell || '')}</td>`).join('')}</tr>`
+        `<tr>${row.map(cell => `<td>${escapeHtml(String(cell || ''))}</td>`).join('')}</tr>`
       ).join('')}
     </tbody>
   </table>

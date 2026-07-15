@@ -7,22 +7,29 @@ export const dynamic = 'force-dynamic'
 
 /**
  * GET /api/admin/reports/push-pull
- * Push/Pull report for a single user, sourced from wallet_ledger so it
- * captures pushes/pulls performed by admin, master distributor, AND distributor.
+ * Push/Pull report for a single user.
+ *
+ * For RT/DT/MD it reads wallet_ledger (captures pushes/pulls by admin, MD, and DT).
+ * For partners it reads partner_wallet_ledger (admin partner-wallet push/pull).
  *
  * Push/pull rows are identified by reference_id prefixes:
- *   ADMIN_PUSH_ / ADMIN_PULL_  -> admin (or MD via admin route)
+ *   ADMIN_PUSH_ / ADMIN_PULL_  -> admin (or MD via admin route; partner top-up)
  *   DIST_PUSH_  / DIST_PULL_   -> distributor
  * From the selected user's perspective: credit = push (funds in), debit = pull (funds out).
  *
  * Query params:
- *   user_id (required), action_type (push|pull|both),
+ *   user_id (required), user_role, action_type (push|pull|both),
  *   wallet_type, fund_category, date_from, date_to,
  *   page, limit, format (json|csv|excel)
  */
 
 const REF_OR_FILTER =
   'reference_id.ilike.ADMIN_PUSH_%,reference_id.ilike.ADMIN_PULL_%,reference_id.ilike.DIST_PUSH_%,reference_id.ilike.DIST_PULL_%'
+
+const PARTNER_REF_OR_FILTER =
+  'reference_id.ilike.ADMIN_PUSH_%,reference_id.ilike.ADMIN_PULL_%'
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 export async function GET(request: NextRequest) {
   try {
@@ -37,6 +44,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'user_id is required' }, { status: 400 })
     }
 
+    const userRole = sp.get('user_role')?.trim() || ''
     const actionType = sp.get('action_type')?.trim() || '' // push | pull | ''(both)
     const walletType = sp.get('wallet_type')?.trim() || ''
     const fundCategory = sp.get('fund_category')?.trim() || ''
@@ -50,26 +58,44 @@ export async function GET(request: NextRequest) {
 
     const supabase = getSupabaseAdmin()
 
+    // Partner ledger lives in a separate table keyed by the UUID partner_id.
+    let isPartner = userRole === 'partner'
+    if (!isPartner && UUID_RE.test(userId)) {
+      const { data: partnerRow } = await supabase
+        .from('partners')
+        .select('id')
+        .eq('id', userId)
+        .maybeSingle()
+      if (partnerRow) isPartner = true
+    }
+
+    const table = isPartner ? 'partner_wallet_ledger' : 'wallet_ledger'
+    const idColumn = isPartner ? 'partner_id' : 'retailer_id'
+    const refFilter = isPartner ? PARTNER_REF_OR_FILTER : REF_OR_FILTER
+
     const applyFilters = (q: any) => {
-      q = q.eq('retailer_id', userId).or(REF_OR_FILTER)
+      q = q.eq(idColumn, userId).or(refFilter)
       if (actionType === 'push') q = q.gt('credit', 0)
       else if (actionType === 'pull') q = q.gt('debit', 0)
-      if (walletType && walletType !== 'all') q = q.eq('wallet_type', walletType)
-      if (fundCategory) q = q.eq('fund_category', fundCategory)
+      if (!isPartner) {
+        if (walletType && walletType !== 'all') q = q.eq('wallet_type', walletType)
+        if (fundCategory) q = q.eq('fund_category', fundCategory)
+      }
       if (dateFrom) q = q.gte('created_at', `${dateFrom}T00:00:00`)
       if (dateTo) q = q.lte('created_at', `${dateTo}T23:59:59`)
       return q
     }
 
-    const userName = await resolveTargetUserName(supabase, userId)
+    const selectCols = isPartner
+      ? 'id, partner_id, transaction_type, credit, debit, opening_balance, closing_balance, reference_id, description, status, created_at'
+      : 'id, retailer_id, user_role, wallet_type, fund_category, service_type, transaction_type, credit, debit, opening_balance, closing_balance, balance_after, description, reference_id, status, created_at'
+
+    const userName = await resolveTargetUserName(supabase, userId, isPartner)
 
     if (format === 'json') {
       const baseQuery = supabase
-        .from('wallet_ledger')
-        .select(
-          'id, retailer_id, user_role, wallet_type, fund_category, service_type, transaction_type, credit, debit, opening_balance, closing_balance, balance_after, description, reference_id, status, created_at',
-          { count: 'exact' }
-        )
+        .from(table)
+        .select(selectCols, { count: 'exact' })
       const from = (page - 1) * limit
       const { data, error, count } = await applyFilters(baseQuery)
         .order('created_at', { ascending: false })
@@ -81,7 +107,7 @@ export async function GET(request: NextRequest) {
       }
 
       // Totals across full filtered set (not just this page)
-      const totalsQuery = supabase.from('wallet_ledger').select('credit, debit')
+      const totalsQuery = supabase.from(table).select('credit, debit')
       const { data: allRows, error: totalsErr } = await applyFilters(totalsQuery)
       if (totalsErr) {
         console.error('[push-pull report totals]', totalsErr)
@@ -92,7 +118,7 @@ export async function GET(request: NextRequest) {
         totalPull += Number(r.debit) || 0
       }
 
-      const entries = (data || []).map((r) => shapeRow(r, userName))
+      const entries = (data || []).map((r) => shapeRow(r, userName, isPartner))
 
       return NextResponse.json({
         entries,
@@ -105,11 +131,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Export: CSV / Excel
-    const exportQuery = supabase
-      .from('wallet_ledger')
-      .select(
-        'id, retailer_id, user_role, wallet_type, fund_category, credit, debit, opening_balance, closing_balance, balance_after, description, reference_id, created_at'
-      )
+    const exportQuery = supabase.from(table).select(selectCols)
     const { data, error } = await applyFilters(exportQuery)
       .order('created_at', { ascending: false })
       .limit(limit)
@@ -119,7 +141,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 500 })
     }
 
-    const rows = (data || []).map((r) => shapeRow(r, userName))
+    const rows = (data || []).map((r) => shapeRow(r, userName, isPartner))
     const fileDate = new Date().toISOString().split('T')[0]
 
     if (format === 'excel') {
@@ -197,7 +219,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
-function shapeRow(r: any, userName: string) {
+function shapeRow(r: any, userName: string, isPartner: boolean) {
   const credit = Number(r.credit) || 0
   const debit = Number(r.debit) || 0
   const isPush = credit > 0
@@ -207,7 +229,7 @@ function shapeRow(r: any, userName: string) {
     action_type: isPush ? 'wallet_push' : 'wallet_pull',
     amount: isPush ? credit : debit,
     fund_category: r.fund_category || '',
-    wallet_type: r.wallet_type || 'primary',
+    wallet_type: r.wallet_type || (isPartner ? 'partner_api' : 'primary'),
     before_balance: Number(r.opening_balance) || 0,
     after_balance: Number(r.closing_balance ?? r.balance_after ?? 0),
     performed_by: derivePerformer(r.reference_id, r.description),
@@ -228,7 +250,15 @@ function derivePerformer(referenceId: string | null, description: string | null)
   return 'Admin'
 }
 
-async function resolveTargetUserName(supabase: any, userId: string): Promise<string> {
+async function resolveTargetUserName(supabase: any, userId: string, isPartner: boolean): Promise<string> {
+  if (isPartner) {
+    const { data } = await supabase
+      .from('partners')
+      .select('name, business_name')
+      .eq('id', userId)
+      .maybeSingle()
+    return data ? (data.name || data.business_name || userId) : userId
+  }
   const tables = ['retailers', 'distributors', 'master_distributors'] as const
   for (const table of tables) {
     const { data } = await supabase

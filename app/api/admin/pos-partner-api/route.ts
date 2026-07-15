@@ -7,6 +7,39 @@ import { parsePartnerKeyPermissions } from '@/lib/partner-auth'
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
+function isPrivateUrl(urlString: string): boolean {
+  try {
+    const url = new URL(urlString)
+    const hostname = url.hostname.toLowerCase()
+
+    if (
+      hostname === 'localhost' ||
+      hostname === '127.0.0.1' ||
+      hostname === '0.0.0.0' ||
+      hostname === '::1' ||
+      hostname === '[::1]' ||
+      hostname.startsWith('10.') ||
+      hostname.startsWith('192.168.') ||
+      hostname.startsWith('169.254.') ||
+      hostname.startsWith('fd') ||
+      hostname.startsWith('fc') ||
+      hostname.endsWith('.local') ||
+      hostname.endsWith('.internal') ||
+      /^172\.(1[6-9]|2\d|3[01])\./.test(hostname)
+    ) {
+      return true
+    }
+
+    if (process.env.NODE_ENV === 'production' && url.protocol !== 'https:') {
+      return true
+    }
+
+    return false
+  } catch {
+    return true
+  }
+}
+
 function generateApiKey(prefix = 'pk_live_') {
   return prefix + crypto.randomBytes(24).toString('hex')
 }
@@ -467,6 +500,9 @@ export async function POST(request: NextRequest) {
             new URL(webhook_url.trim())
           } catch {
             return NextResponse.json({ error: 'Invalid URL format' }, { status: 400 })
+          }
+          if (isPrivateUrl(webhook_url.trim())) {
+            return NextResponse.json({ error: 'Invalid webhook URL: private/internal addresses are not allowed' }, { status: 400 })
           }
         }
 

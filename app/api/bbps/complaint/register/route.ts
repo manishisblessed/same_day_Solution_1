@@ -7,6 +7,10 @@ import { createClient } from '@supabase/supabase-js'
 
 export const dynamic = 'force-dynamic'
 
+function sanitizeFilterValue(value: string): string {
+  return value.replace(/[,()\\*%]/g, '').trim()
+}
+
 export async function OPTIONS(request: NextRequest) {
   const response = handleCorsPreflight(request)
   return response || new NextResponse(null, { status: 204 })
@@ -54,7 +58,7 @@ export async function POST(request: NextRequest) {
       .from('bbps_transactions')
       .select('id')
       .eq('retailer_id', user.partner_id)
-      .or(`transaction_id.eq.${transaction_id},agent_transaction_id.eq.${transaction_id}`)
+      .or(`transaction_id.eq.${sanitizeFilterValue(transaction_id)},agent_transaction_id.eq.${sanitizeFilterValue(transaction_id)}`)
       .limit(1)
       .maybeSingle()
 

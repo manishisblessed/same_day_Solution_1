@@ -84,7 +84,7 @@ export async function POST(request: NextRequest) {
 
       const { data: partnerRow } = await supabase
         .from('partners')
-        .select('settlement_mode_allowed, status')
+        .select('settlement_mode_allowed, status, t1_settlement_start_at')
         .eq('id', partnerId)
         .maybeSingle()
 
@@ -95,6 +95,9 @@ export async function POST(request: NextRequest) {
           { status: 403 }
         )
       }
+      const settlementStartAt = partnerRow.t1_settlement_start_at
+        ? new Date(partnerRow.t1_settlement_start_at)
+        : null
 
       const { data: partnerTxns, error: partnerTxnError } = await supabase
         .from('razorpay_pos_transactions')
@@ -116,6 +119,22 @@ export async function POST(request: NextRequest) {
           { success: false, error: 'No valid transactions found. Ensure they belong to you and are captured.' },
           { status: 400 }
         )
+      }
+
+      // Block settlement of transactions captured before the partner's
+      // settlement start date (pre-enrollment backlog is never paid out).
+      if (settlementStartAt) {
+        const preStart = ownedTxns.filter((t: any) => new Date(t.created_at) < settlementStartAt)
+        if (preStart.length > 0) {
+          return NextResponse.json(
+            {
+              success: false,
+              error: `${preStart.length} transaction(s) are dated before your settlement start date (${settlementStartAt.toISOString().split('T')[0]}) and are not eligible for settlement. Please deselect them.`,
+              ineligible: preStart.map((t: any) => ({ id: t.id, txn_id: t.txn_id })),
+            },
+            { status: 400 }
+          )
+        }
       }
 
       const alreadySettled = ownedTxns.filter((t: any) => t.partner_wallet_credited === true)

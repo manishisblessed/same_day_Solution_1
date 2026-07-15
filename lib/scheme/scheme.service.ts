@@ -182,6 +182,9 @@ export async function upsertBBPSCommission(
       md_commission_type: input.md_commission_type || 'flat',
       company_charge: input.company_charge || 0,
       company_charge_type: input.company_charge_type || 'flat',
+      gst_inclusive: input.gst_inclusive ?? false,
+      vendor_rate: input.vendor_rate ?? 0,
+      company_mdr_rate: input.company_mdr_rate ?? 0,
       status: 'active',
     })
     .select()
@@ -230,6 +233,9 @@ export async function upsertPayoutCharge(
       md_commission_type: input.md_commission_type || 'flat',
       company_charge: input.company_charge || 0,
       company_charge_type: input.company_charge_type || 'flat',
+      gst_inclusive: input.gst_inclusive ?? false,
+      vendor_rate: input.vendor_rate ?? 0,
+      company_mdr_rate: input.company_mdr_rate ?? 0,
       status: 'active',
     })
     .select()
@@ -277,6 +283,9 @@ export async function upsertMDRRate(
       md_mdr_t1: input.md_mdr_t1 || 0,
       md_mdr_t0: input.md_mdr_t0 || 0,
       partner_mdr: input.partner_mdr ?? null,
+      gst_inclusive: input.gst_inclusive ?? false,
+      vendor_rate: input.vendor_rate ?? 0,
+      company_mdr_rate: input.company_mdr_rate ?? 0,
       status: 'active',
     })
     .select()
@@ -374,6 +383,9 @@ export async function upsertAEPSCommission(
       retailer_commission: input.retailer_commission || 0,
       retailer_commission_type: input.retailer_commission_type || 'flat',
       tds_percentage: input.tds_percentage || 0,
+      gst_inclusive: input.gst_inclusive ?? false,
+      vendor_rate: input.vendor_rate ?? 0,
+      company_mdr_rate: input.company_mdr_rate ?? 0,
       status: 'active',
     }, { onConflict: 'scheme_id,transaction_type,min_amount,max_amount' })
     .select()
@@ -488,6 +500,9 @@ export async function upsertAEPSSettlementCharge(
       md_commission_type: input.md_commission_type || 'flat',
       company_charge: input.company_charge || 0,
       company_charge_type: input.company_charge_type || 'flat',
+      gst_inclusive: input.gst_inclusive ?? false,
+      vendor_rate: input.vendor_rate ?? 0,
+      company_mdr_rate: input.company_mdr_rate ?? 0,
       status: 'active',
     }, { onConflict: 'scheme_id,min_amount,max_amount' })
     .select()
@@ -692,6 +707,9 @@ export async function upsertShadvalSettlementCharge(
       md_commission_type: input.md_commission_type || 'flat',
       company_charge: input.company_charge || 0,
       company_charge_type: input.company_charge_type || 'flat',
+      gst_inclusive: input.gst_inclusive ?? false,
+      vendor_rate: input.vendor_rate ?? 0,
+      company_mdr_rate: input.company_mdr_rate ?? 0,
       status: 'active',
     }, { onConflict: 'scheme_id,transfer_mode,min_amount,max_amount' })
     .select()

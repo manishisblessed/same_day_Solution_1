@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { getSupabaseAdmin } from '@/lib/supabase/server-admin'
 import { getPlatformRevenueWalletConfig } from '@/lib/wallet/platform-revenue-wallet'
+import { htmlToPdf } from '@/lib/pdf/html-to-pdf'
 
 export const dynamic = 'force-dynamic'
 
@@ -140,6 +141,71 @@ export async function GET(request: NextRequest) {
 
     const filePrefix = scope === 'platform' ? 'revenue-wallet-statement' : 'wallet-ledger'
     const fileDate = new Date().toISOString().split('T')[0]
+
+    if (format === 'pdf') {
+      const pdfHeaders = ['Date & Time', 'User ID', 'User Name', 'Role', 'Wallet', 'Txn Type', 'Service', 'Credit', 'Debit', 'Opening', 'Closing', 'Status', 'Ref ID']
+      const html = `<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><title>Wallet Ledger</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; padding: 30px; color: #333; font-size: 11px; }
+  .header { text-align: center; margin-bottom: 20px; border-bottom: 3px solid #4F46E5; padding-bottom: 12px; }
+  .header h1 { font-size: 20px; color: #4F46E5; }
+  .header p { font-size: 11px; color: #666; }
+  table { width: 100%; border-collapse: collapse; font-size: 9px; }
+  th { background: #4F46E5; color: #fff; padding: 6px 4px; text-align: left; font-weight: 600; }
+  td { padding: 4px; border-bottom: 1px solid #E5E7EB; }
+  tr:nth-child(even) { background: #F9FAFB; }
+  .cr { color: #16A34A; font-weight: 600; }
+  .dr { color: #DC2626; font-weight: 600; }
+  .footer { margin-top: 15px; text-align: center; font-size: 10px; color: #888; border-top: 1px solid #E5E7EB; padding-top: 8px; }
+  @media print { body { padding: 10px; } @page { size: landscape; margin: 8mm; } }
+</style></head><body>
+  <div class="header">
+    <h1>${scope === 'platform' ? 'Revenue Wallet Statement' : 'Wallet Ledger Report'}</h1>
+    <p>Generated: ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} | Records: ${entries.length}</p>
+  </div>
+  <table><thead><tr>${pdfHeaders.map(h => `<th>${h}</th>`).join('')}</tr></thead>
+  <tbody>${entries.map((e: any) => {
+        const cr = Number(e.credit) || 0
+        const dr = Number(e.debit) || 0
+        const op = Number(e.opening_balance) || 0
+        const cl = Number(e.closing_balance ?? e.balance_after ?? 0)
+        return `<tr>
+          <td>${formatDate(e.created_at)}</td>
+          <td>${e.retailer_id || ''}</td>
+          <td>${nameMap[e.retailer_id] || ''}</td>
+          <td>${e.user_role || ''}</td>
+          <td>${e.wallet_type || ''}</td>
+          <td>${e.transaction_type || ''}</td>
+          <td>${e.service_type || ''}</td>
+          <td class="cr">${cr ? '\u20B9' + cr.toLocaleString('en-IN', { minimumFractionDigits: 2 }) : ''}</td>
+          <td class="dr">${dr ? '\u20B9' + dr.toLocaleString('en-IN', { minimumFractionDigits: 2 }) : ''}</td>
+          <td>\u20B9${op.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+          <td>\u20B9${cl.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+          <td>${e.status || ''}</td>
+          <td>${e.reference_id || ''}</td>
+        </tr>`
+      }).join('')}</tbody></table>
+  <div class="footer">Same Day Solution &mdash; System Generated Report &copy; ${new Date().getFullYear()}</div>
+</body></html>`
+
+      const pdf = await htmlToPdf(html, { landscape: true })
+      if (pdf) {
+        return new NextResponse(new Uint8Array(pdf), {
+          headers: {
+            'Content-Type': 'application/pdf',
+            'Content-Disposition': `attachment; filename="${filePrefix}-${fileDate}.pdf"`,
+          },
+        })
+      }
+      return new NextResponse(html, {
+        headers: {
+          'Content-Type': 'text/html; charset=utf-8',
+          'Content-Disposition': `attachment; filename="${filePrefix}-${fileDate}.html"`,
+        },
+      })
+    }
 
     if (format === 'excel') {
       // Generate Excel using simple XML spreadsheet format

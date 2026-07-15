@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { deleteDocument, deleteInvitation } from '@/services/leegality/client'
-import { createClient } from '@/lib/supabase/server-admin'
+import { getSupabaseAdmin } from '@/lib/supabase/server-admin'
 
 export const dynamic = 'force-dynamic'
 
@@ -23,7 +23,7 @@ export async function DELETE(request: NextRequest) {
       )
     }
 
-    const supabase = createClient()
+    const supabase = getSupabaseAdmin()
 
     if (signUrl) {
       await deleteInvitation(signUrl)

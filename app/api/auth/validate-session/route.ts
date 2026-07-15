@@ -1,8 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseAdmin } from '@/lib/supabase/server-admin'
+import { getCurrentUserWithFallback } from '@/lib/auth-server'
 
 export async function POST(request: NextRequest) {
   try {
+    const { user } = await getCurrentUserWithFallback(request)
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
     const body = await request.json()
     const { session_token } = body
 
@@ -20,8 +26,7 @@ export async function POST(request: NextRequest) {
 
     if (error) {
       console.error('[validate-session] DB error:', error)
-      // On DB error, don't kick the user — fail open
-      return NextResponse.json({ valid: true })
+      return NextResponse.json({ valid: false, reason: 'validation_error' })
     }
 
     if (!data) {
@@ -54,7 +59,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ valid: true })
   } catch (err: any) {
     console.error('[validate-session] Error:', err?.message || err)
-    // Fail open — don't kick user on server errors
-    return NextResponse.json({ valid: true })
+    return NextResponse.json({ valid: false, reason: 'validation_error' })
   }
 }

@@ -66,9 +66,10 @@ export async function POST(request: NextRequest) {
       return addCorsHeaders(request, response)
     }
 
-    if (amount <= 0) {
+    const amountParsed = parseFloat(amount)
+    if (!Number.isFinite(amountParsed) || isNaN(amountParsed) || amountParsed <= 0) {
       const response = NextResponse.json(
-        { success: false, error: 'Amount must be greater than 0' },
+        { success: false, error: 'Amount must be a valid positive number' },
         { status: 400 }
       )
       return addCorsHeaders(request, response)

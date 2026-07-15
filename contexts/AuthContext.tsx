@@ -8,7 +8,9 @@ import { getGeoLocation, clearGeoCache } from '@/hooks/useGeolocation'
 import { supabase } from '@/lib/supabase/client'
 
 export type LogoutReason = 'manual' | 'inactivity' | 'replaced' | 'expired' | 'ended'
-export type KickReason = 'replaced' | 'expired' | null
+// 'logout' = signed out in another tab of the same browser — handled silently
+// (no scary "session expired" overlay/banner, just a clean redirect to login).
+export type KickReason = 'replaced' | 'expired' | 'logout' | null
 
 interface AuthContextType {
   user: AuthUser | null
@@ -72,10 +74,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (typeof window === 'undefined') return
 
-    // 1. Supabase auth state — fires on token revocation / sign-out (incl. other tabs)
-    const { data: authSub } = supabase.auth.onAuthStateChange((event) => {
+    // 1. Supabase auth state — SIGNED_OUT here means supabase.auth.signOut()
+    // ran (this browser, another tab), i.e. a deliberate logout → silent kick.
+    const { data: authSub } = supabase.auth.onAuthStateChange((event: string) => {
       if (event === 'SIGNED_OUT' && userRef.current && !manualLogoutRef.current) {
-        triggerKickRef.current('expired')
+        triggerKickRef.current('logout')
       }
     })
 
@@ -88,7 +91,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // 3. Cross-tab: another tab cleared the shared auth cache (logout elsewhere)
     const onStorage = (e: StorageEvent) => {
       if (e.key === 'auth_user' && e.newValue === null && userRef.current && !manualLogoutRef.current) {
-        triggerKickRef.current('expired')
+        triggerKickRef.current('logout')
       }
     }
     window.addEventListener('storage', onStorage)
@@ -124,8 +127,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const data = await res.json()
 
         if (!data.valid) {
-          // Any invalid session ends this tab cleanly with the right message.
-          triggerKickRef.current(data.reason === 'replaced' ? 'replaced' : 'expired')
+          // Pass the real reason through: 'logout' (signed out elsewhere) ends
+          // this tab silently; only genuine expiry/replacement shows a message.
+          const reason: Exclude<KickReason, null> =
+            data.reason === 'replaced' ? 'replaced'
+            : data.reason === 'logout' ? 'logout'
+            : 'expired'
+          triggerKickRef.current(reason)
           try { await authSignOut() } catch {}
         }
       } catch {

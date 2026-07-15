@@ -2584,6 +2584,9 @@ function SchemeManagementTab({ user }: { user: any }) {
     distributor_commission_type: 'flat' as 'flat' | 'percentage',
     md_commission: 0,
     md_commission_type: 'flat' as 'flat' | 'percentage',
+    gst_inclusive: false,
+    vendor_rate: 0,
+    company_mdr_rate: 0,
   })
 
   const [payoutForm, setPayoutForm] = useState({
@@ -2598,6 +2601,9 @@ function SchemeManagementTab({ user }: { user: any }) {
     distributor_commission_type: 'flat' as 'flat' | 'percentage',
     md_commission: 0,
     md_commission_type: 'flat' as 'flat' | 'percentage',
+    gst_inclusive: false,
+    vendor_rate: 0,
+    company_mdr_rate: 0,
   })
 
   const [mdrForm, setMdrForm] = useState({
@@ -2613,6 +2619,9 @@ function SchemeManagementTab({ user }: { user: any }) {
     md_mdr_t1: 0,
     md_mdr_t0: 0,
     partner_mdr: 0,
+    gst_inclusive: false,
+    vendor_rate: 0,
+    company_mdr_rate: 0,
   })
 
   const [aepsForm, setAepsForm] = useState({
@@ -2630,6 +2639,9 @@ function SchemeManagementTab({ user }: { user: any }) {
     retailer_commission: 0,
     retailer_commission_type: 'flat' as 'flat' | 'percentage',
     tds_percentage: 5,
+    gst_inclusive: false,
+    vendor_rate: 0,
+    company_mdr_rate: 0,
   })
 
   const [aepsSettleForm, setAepsSettleForm] = useState({
@@ -2643,6 +2655,9 @@ function SchemeManagementTab({ user }: { user: any }) {
     md_commission_type: 'flat' as 'flat' | 'percentage',
     company_charge: 0,
     company_charge_type: 'flat' as 'flat' | 'percentage',
+    gst_inclusive: false,
+    vendor_rate: 0,
+    company_mdr_rate: 0,
   })
 
   const [shadvalSettleForm, setShadvalSettleForm] = useState({
@@ -2657,6 +2672,9 @@ function SchemeManagementTab({ user }: { user: any }) {
     md_commission_type: 'flat' as 'flat' | 'percentage',
     company_charge: 0,
     company_charge_type: 'flat' as 'flat' | 'percentage',
+    gst_inclusive: false,
+    vendor_rate: 0,
+    company_mdr_rate: 0,
   })
 
   const aepsResolve = (value: number, type: string, amount: number) =>
@@ -2876,12 +2894,12 @@ function SchemeManagementTab({ user }: { user: any }) {
     setConfigSchemeId(schemeId)
     setConfigType(type)
     // Reset forms
-    setBbpsForm({ bbps_type: 'bbps_1', category: '', min_amount: 0, max_amount: 100000, retailer_charge: 0, retailer_charge_type: 'flat', retailer_commission: 0, retailer_commission_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat' })
-    setPayoutForm({ transfer_mode: 'IMPS', min_amount: 0, max_amount: 100000, retailer_charge: 0, retailer_charge_type: 'flat', retailer_commission: 0, retailer_commission_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat' })
-    setMdrForm({ mode: 'CARD', card_type: '', brand_type: '', card_classification: '', merchant_slug: '', retailer_mdr_t1: 0, retailer_mdr_t0: 0, distributor_mdr_t1: 0, distributor_mdr_t0: 0, md_mdr_t1: 0, md_mdr_t0: 0, partner_mdr: 0 })
-    setAepsForm({ transaction_type: 'cash_withdrawal', min_amount: 0, max_amount: 100000, base_commission: 0, base_commission_type: 'percentage', company_earning: 0, company_earning_type: 'flat', md_commission: 0, md_commission_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', retailer_commission: 0, retailer_commission_type: 'flat', tds_percentage: 5 })
-    setAepsSettleForm({ min_amount: 0, max_amount: 100000, retailer_charge: 0, retailer_charge_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat', company_charge: 0, company_charge_type: 'flat' })
-    setShadvalSettleForm({ transfer_mode: 'IMPS', min_amount: 0, max_amount: 100000, retailer_charge: 0, retailer_charge_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat', company_charge: 0, company_charge_type: 'flat' })
+    setBbpsForm({ bbps_type: 'bbps_1', category: '', min_amount: 0, max_amount: 100000, retailer_charge: 0, retailer_charge_type: 'flat', retailer_commission: 0, retailer_commission_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat', gst_inclusive: false, vendor_rate: 0, company_mdr_rate: 0 })
+    setPayoutForm({ transfer_mode: 'IMPS', min_amount: 0, max_amount: 100000, retailer_charge: 0, retailer_charge_type: 'flat', retailer_commission: 0, retailer_commission_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat', gst_inclusive: false, vendor_rate: 0, company_mdr_rate: 0 })
+    setMdrForm({ mode: 'CARD', card_type: '', brand_type: '', card_classification: '', merchant_slug: '', retailer_mdr_t1: 0, retailer_mdr_t0: 0, distributor_mdr_t1: 0, distributor_mdr_t0: 0, md_mdr_t1: 0, md_mdr_t0: 0, partner_mdr: 0, gst_inclusive: false, vendor_rate: 0, company_mdr_rate: 0 })
+    setAepsForm({ transaction_type: 'cash_withdrawal', min_amount: 0, max_amount: 100000, base_commission: 0, base_commission_type: 'percentage', company_earning: 0, company_earning_type: 'flat', md_commission: 0, md_commission_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', retailer_commission: 0, retailer_commission_type: 'flat', tds_percentage: 5, gst_inclusive: false, vendor_rate: 0, company_mdr_rate: 0 })
+    setAepsSettleForm({ min_amount: 0, max_amount: 100000, retailer_charge: 0, retailer_charge_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat', company_charge: 0, company_charge_type: 'flat', gst_inclusive: false, vendor_rate: 0, company_mdr_rate: 0 })
+    setShadvalSettleForm({ transfer_mode: 'IMPS', min_amount: 0, max_amount: 100000, retailer_charge: 0, retailer_charge_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat', company_charge: 0, company_charge_type: 'flat', gst_inclusive: false, vendor_rate: 0, company_mdr_rate: 0 })
     setShowConfigModal(true)
   }
 
@@ -2911,6 +2929,9 @@ function SchemeManagementTab({ user }: { user: any }) {
         } else {
           configData.retailer_mdr_t1 = mdrForm.retailer_mdr_t1; configData.retailer_mdr_t0 = mdrForm.retailer_mdr_t0; configData.distributor_mdr_t1 = mdrForm.distributor_mdr_t1; configData.distributor_mdr_t0 = mdrForm.distributor_mdr_t0; configData.md_mdr_t1 = mdrForm.md_mdr_t1; configData.md_mdr_t0 = mdrForm.md_mdr_t0; configData.partner_mdr = null
         }
+        configData.gst_inclusive = mdrForm.gst_inclusive
+        configData.vendor_rate = mdrForm.vendor_rate
+        configData.company_mdr_rate = mdrForm.company_mdr_rate
       } else if (configType === 'aeps') {
         configData = { ...aepsForm }
       } else if (configType === 'aeps_settlement') {
@@ -3158,6 +3179,9 @@ function SchemeManagementTab({ user }: { user: any }) {
                               <th className="px-2 py-1.5 text-right">Dist Comm</th>
                               <th className="px-2 py-1.5 text-right">MD Comm</th>
                               <th className="px-2 py-1.5 text-right">Company</th>
+                              <th className="px-2 py-1.5 text-center">GST</th>
+                              <th className="px-2 py-1.5 text-right">Vendor</th>
+                              <th className="px-2 py-1.5 text-right">Co.MDR</th>
                               <th className="px-2 py-1.5"></th>
                             </tr>
                           </thead>
@@ -3172,6 +3196,9 @@ function SchemeManagementTab({ user }: { user: any }) {
                                 <td className="px-2 py-1.5 text-right">{c.distributor_commission}{c.distributor_commission_type === 'percentage' ? '%' : '₹'}</td>
                                 <td className="px-2 py-1.5 text-right">{c.md_commission}{c.md_commission_type === 'percentage' ? '%' : '₹'}</td>
                                 <td className="px-2 py-1.5 text-right">{c.company_charge}{c.company_charge_type === 'percentage' ? '%' : '₹'}</td>
+                                <td className="px-2 py-1.5 text-center">{c.gst_inclusive ? '✓' : '-'}</td>
+                                <td className="px-2 py-1.5 text-right">{c.vendor_rate || 0}%</td>
+                                <td className="px-2 py-1.5 text-right">{c.company_mdr_rate || 0}%</td>
                                 {!isAssigned && <td className="px-2 py-1.5 text-right">
                                   <button onClick={() => handleDeleteConfig('scheme_bbps_commissions', c.id)} disabled={deletingConfigId === c.id} className="text-red-400 hover:text-red-600 disabled:opacity-50">
                                     {deletingConfigId === c.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
@@ -3204,6 +3231,9 @@ function SchemeManagementTab({ user }: { user: any }) {
                               <th className="px-2 py-1.5 text-right">Dist Comm</th>
                               <th className="px-2 py-1.5 text-right">MD Comm</th>
                               <th className="px-2 py-1.5 text-right">Company</th>
+                              <th className="px-2 py-1.5 text-center">GST</th>
+                              <th className="px-2 py-1.5 text-right">Vendor</th>
+                              <th className="px-2 py-1.5 text-right">Co.MDR</th>
                               <th className="px-2 py-1.5"></th>
                             </tr>
                           </thead>
@@ -3217,6 +3247,9 @@ function SchemeManagementTab({ user }: { user: any }) {
                                 <td className="px-2 py-1.5 text-right">{c.distributor_commission}{c.distributor_commission_type === 'percentage' ? '%' : '₹'}</td>
                                 <td className="px-2 py-1.5 text-right">{c.md_commission}{c.md_commission_type === 'percentage' ? '%' : '₹'}</td>
                                 <td className="px-2 py-1.5 text-right">{c.company_charge}{c.company_charge_type === 'percentage' ? '%' : '₹'}</td>
+                                <td className="px-2 py-1.5 text-center">{c.gst_inclusive ? '✓' : '-'}</td>
+                                <td className="px-2 py-1.5 text-right">{c.vendor_rate || 0}%</td>
+                                <td className="px-2 py-1.5 text-right">{c.company_mdr_rate || 0}%</td>
                                 {!isAssigned && <td className="px-2 py-1.5 text-right">
                                   <button onClick={() => handleDeleteConfig('scheme_payout_charges', c.id)} disabled={deletingConfigId === c.id} className="text-red-400 hover:text-red-600 disabled:opacity-50">
                                     {deletingConfigId === c.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
@@ -3258,6 +3291,9 @@ function SchemeManagementTab({ user }: { user: any }) {
                                   <th className="px-2 py-1.5 text-right">MD T+0</th>
                                 </>
                               )}
+                              <th className="px-2 py-1.5 text-center">GST</th>
+                              <th className="px-2 py-1.5 text-right">Vendor</th>
+                              <th className="px-2 py-1.5 text-right">Co.MDR</th>
                               <th className="px-2 py-1.5"></th>
                             </tr>
                           </thead>
@@ -3280,6 +3316,9 @@ function SchemeManagementTab({ user }: { user: any }) {
                                     <td className="px-2 py-1.5 text-right">{c.md_mdr_t0}%</td>
                                   </>
                                 )}
+                                <td className="px-2 py-1.5 text-center">{c.gst_inclusive ? '✓' : '-'}</td>
+                                <td className="px-2 py-1.5 text-right">{c.vendor_rate || 0}%</td>
+                                <td className="px-2 py-1.5 text-right">{c.company_mdr_rate || 0}%</td>
                                 {!isAssigned && <td className="px-2 py-1.5 text-right">
                                   <button onClick={() => handleDeleteConfig('scheme_mdr_rates', c.id)} disabled={deletingConfigId === c.id} className="text-red-400 hover:text-red-600 disabled:opacity-50">
                                     {deletingConfigId === c.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
@@ -3313,6 +3352,9 @@ function SchemeManagementTab({ user }: { user: any }) {
                               <th className="px-2 py-1.5 text-right">DT</th>
                               <th className="px-2 py-1.5 text-right">RT</th>
                               <th className="px-2 py-1.5 text-right">TDS</th>
+                              <th className="px-2 py-1.5 text-center">GST</th>
+                              <th className="px-2 py-1.5 text-right">Vendor</th>
+                              <th className="px-2 py-1.5 text-right">Co.MDR</th>
                               <th className="px-2 py-1.5"></th>
                             </tr>
                           </thead>
@@ -3329,6 +3371,9 @@ function SchemeManagementTab({ user }: { user: any }) {
                                   <td className="px-2 py-1.5 text-right">{fmt(c.distributor_commission, c.distributor_commission_type)}</td>
                                   <td className="px-2 py-1.5 text-right">{fmt(c.retailer_commission, c.retailer_commission_type)}</td>
                                   <td className="px-2 py-1.5 text-right">{c.tds_percentage}%</td>
+                                  <td className="px-2 py-1.5 text-center">{c.gst_inclusive ? '✓' : '-'}</td>
+                                  <td className="px-2 py-1.5 text-right">{c.vendor_rate || 0}%</td>
+                                  <td className="px-2 py-1.5 text-right">{c.company_mdr_rate || 0}%</td>
                                   <td className="px-2 py-1.5 text-right">
                                     {!isAssigned && <button onClick={() => handleDeleteConfig('scheme_aeps_commissions', c.id)} disabled={deletingConfigId === c.id} className="text-red-400 hover:text-red-600 disabled:opacity-50">
                                       {deletingConfigId === c.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
@@ -3360,6 +3405,9 @@ function SchemeManagementTab({ user }: { user: any }) {
                               <th className="px-2 py-1.5 text-right">DT Margin</th>
                               <th className="px-2 py-1.5 text-right">MD Margin</th>
                               <th className="px-2 py-1.5 text-right">Company</th>
+                              <th className="px-2 py-1.5 text-center">GST</th>
+                              <th className="px-2 py-1.5 text-right">Vendor</th>
+                              <th className="px-2 py-1.5 text-right">Co.MDR</th>
                               <th className="px-2 py-1.5"></th>
                             </tr>
                           </thead>
@@ -3373,6 +3421,9 @@ function SchemeManagementTab({ user }: { user: any }) {
                                   <td className="px-2 py-1.5 text-right">{fmt(c.distributor_commission, c.distributor_commission_type)}</td>
                                   <td className="px-2 py-1.5 text-right">{fmt(c.md_commission, c.md_commission_type)}</td>
                                   <td className="px-2 py-1.5 text-right">{fmt(c.company_charge, c.company_charge_type)}</td>
+                                  <td className="px-2 py-1.5 text-center">{c.gst_inclusive ? '✓' : '-'}</td>
+                                  <td className="px-2 py-1.5 text-right">{c.vendor_rate || 0}%</td>
+                                  <td className="px-2 py-1.5 text-right">{c.company_mdr_rate || 0}%</td>
                                   <td className="px-2 py-1.5 text-right">
                                     {!isAssigned && <button onClick={() => handleDeleteConfig('scheme_aeps_settlement_charges', c.id)} disabled={deletingConfigId === c.id} className="text-red-400 hover:text-red-600 disabled:opacity-50">
                                       {deletingConfigId === c.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
@@ -3405,6 +3456,9 @@ function SchemeManagementTab({ user }: { user: any }) {
                               <th className="px-2 py-1.5 text-right">Dist Comm</th>
                               <th className="px-2 py-1.5 text-right">MD Comm</th>
                               <th className="px-2 py-1.5 text-right">Company</th>
+                              <th className="px-2 py-1.5 text-center">GST</th>
+                              <th className="px-2 py-1.5 text-right">Vendor</th>
+                              <th className="px-2 py-1.5 text-right">Co.MDR</th>
                               <th className="px-2 py-1.5"></th>
                             </tr>
                           </thead>
@@ -3419,6 +3473,9 @@ function SchemeManagementTab({ user }: { user: any }) {
                                   <td className="px-2 py-1.5 text-right">{fmt(c.distributor_commission, c.distributor_commission_type)}</td>
                                   <td className="px-2 py-1.5 text-right">{fmt(c.md_commission, c.md_commission_type)}</td>
                                   <td className="px-2 py-1.5 text-right">{fmt(c.company_charge, c.company_charge_type)}</td>
+                                  <td className="px-2 py-1.5 text-center">{c.gst_inclusive ? '✓' : '-'}</td>
+                                  <td className="px-2 py-1.5 text-right">{c.vendor_rate || 0}%</td>
+                                  <td className="px-2 py-1.5 text-right">{c.company_mdr_rate || 0}%</td>
                                   <td className="px-2 py-1.5 text-right">
                                     {!isAssigned && <button onClick={() => handleDeleteConfig('scheme_shadval_settlement_charges', c.id)} disabled={deletingConfigId === c.id} className="text-red-400 hover:text-red-600 disabled:opacity-50">
                                       {deletingConfigId === c.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
@@ -3614,6 +3671,28 @@ function SchemeManagementTab({ user }: { user: any }) {
                   </div>
                 ))}
                 </div>
+                <div className="border-t border-gray-200 dark:border-gray-700 pt-3 mt-3 space-y-2">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" checked={bbpsForm.gst_inclusive}
+                      onChange={(e) => setBbpsForm({ ...bbpsForm, gst_inclusive: e.target.checked })}
+                      className="w-4 h-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
+                    <span className="text-sm font-medium text-gray-700 dark:text-gray-300">With GST (18% added on top)</span>
+                  </label>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium mb-1">Vendor Rate (%)</label>
+                      <input type="number" step="0.0001" value={bbpsForm.vendor_rate}
+                        onChange={(e) => setBbpsForm({ ...bbpsForm, vendor_rate: parseFloat(e.target.value) || 0 })}
+                        className="w-full px-3 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" placeholder="0" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium mb-1">Company MDR Rate (%)</label>
+                      <input type="number" step="0.0001" value={bbpsForm.company_mdr_rate}
+                        onChange={(e) => setBbpsForm({ ...bbpsForm, company_mdr_rate: parseFloat(e.target.value) || 0 })}
+                        className="w-full px-3 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" placeholder="0" />
+                    </div>
+                  </div>
+                </div>
               </div>
             )}
 
@@ -3665,6 +3744,28 @@ function SchemeManagementTab({ user }: { user: any }) {
                     </div>
                   </div>
                 ))}
+                </div>
+                <div className="border-t border-gray-200 dark:border-gray-700 pt-3 mt-3 space-y-2">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" checked={payoutForm.gst_inclusive}
+                      onChange={(e) => setPayoutForm({ ...payoutForm, gst_inclusive: e.target.checked })}
+                      className="w-4 h-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
+                    <span className="text-sm font-medium text-gray-700 dark:text-gray-300">With GST (18% added on top)</span>
+                  </label>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium mb-1">Vendor Rate (%)</label>
+                      <input type="number" step="0.0001" value={payoutForm.vendor_rate}
+                        onChange={(e) => setPayoutForm({ ...payoutForm, vendor_rate: parseFloat(e.target.value) || 0 })}
+                        className="w-full px-3 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" placeholder="0" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium mb-1">Company MDR Rate (%)</label>
+                      <input type="number" step="0.0001" value={payoutForm.company_mdr_rate}
+                        onChange={(e) => setPayoutForm({ ...payoutForm, company_mdr_rate: parseFloat(e.target.value) || 0 })}
+                        className="w-full px-3 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" placeholder="0" />
+                    </div>
+                  </div>
                 </div>
               </div>
             )}
@@ -3843,6 +3944,28 @@ function SchemeManagementTab({ user }: { user: any }) {
                     </>
                   )
                 })()}
+                <div className="border-t border-gray-200 dark:border-gray-700 pt-3 mt-3 space-y-2">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" checked={mdrForm.gst_inclusive}
+                      onChange={(e) => setMdrForm({ ...mdrForm, gst_inclusive: e.target.checked })}
+                      className="w-4 h-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
+                    <span className="text-sm font-medium text-gray-700 dark:text-gray-300">With GST (18% added on top)</span>
+                  </label>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium mb-1">Vendor Rate (%)</label>
+                      <input type="number" step="0.0001" value={mdrForm.vendor_rate}
+                        onChange={(e) => setMdrForm({ ...mdrForm, vendor_rate: parseFloat(e.target.value) || 0 })}
+                        className="w-full px-3 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" placeholder="0" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium mb-1">Company MDR Rate (%)</label>
+                      <input type="number" step="0.0001" value={mdrForm.company_mdr_rate}
+                        onChange={(e) => setMdrForm({ ...mdrForm, company_mdr_rate: parseFloat(e.target.value) || 0 })}
+                        className="w-full px-3 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" placeholder="0" />
+                    </div>
+                  </div>
+                </div>
               </div>
             )}
 
@@ -3915,6 +4038,28 @@ function SchemeManagementTab({ user }: { user: any }) {
                     </div>
                   )
                 })()}
+                <div className="border-t border-gray-200 dark:border-gray-700 pt-3 mt-3 space-y-2">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" checked={aepsForm.gst_inclusive}
+                      onChange={(e) => setAepsForm({ ...aepsForm, gst_inclusive: e.target.checked })}
+                      className="w-4 h-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
+                    <span className="text-sm font-medium text-gray-700 dark:text-gray-300">With GST (18% added on top)</span>
+                  </label>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium mb-1">Vendor Rate (%)</label>
+                      <input type="number" step="0.0001" value={aepsForm.vendor_rate}
+                        onChange={(e) => setAepsForm({ ...aepsForm, vendor_rate: parseFloat(e.target.value) || 0 })}
+                        className="w-full px-3 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" placeholder="0" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium mb-1">Company MDR Rate (%)</label>
+                      <input type="number" step="0.0001" value={aepsForm.company_mdr_rate}
+                        onChange={(e) => setAepsForm({ ...aepsForm, company_mdr_rate: parseFloat(e.target.value) || 0 })}
+                        className="w-full px-3 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" placeholder="0" />
+                    </div>
+                  </div>
+                </div>
               </div>
             )}
 
@@ -3957,6 +4102,28 @@ function SchemeManagementTab({ user }: { user: any }) {
                     </div>
                   </div>
                 ))}
+                </div>
+                <div className="border-t border-gray-200 dark:border-gray-700 pt-3 mt-3 space-y-2">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" checked={aepsSettleForm.gst_inclusive}
+                      onChange={(e) => setAepsSettleForm({ ...aepsSettleForm, gst_inclusive: e.target.checked })}
+                      className="w-4 h-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
+                    <span className="text-sm font-medium text-gray-700 dark:text-gray-300">With GST (18% added on top)</span>
+                  </label>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium mb-1">Vendor Rate (%)</label>
+                      <input type="number" step="0.0001" value={aepsSettleForm.vendor_rate}
+                        onChange={(e) => setAepsSettleForm({ ...aepsSettleForm, vendor_rate: parseFloat(e.target.value) || 0 })}
+                        className="w-full px-3 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" placeholder="0" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium mb-1">Company MDR Rate (%)</label>
+                      <input type="number" step="0.0001" value={aepsSettleForm.company_mdr_rate}
+                        onChange={(e) => setAepsSettleForm({ ...aepsSettleForm, company_mdr_rate: parseFloat(e.target.value) || 0 })}
+                        className="w-full px-3 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" placeholder="0" />
+                    </div>
+                  </div>
                 </div>
               </div>
             )}
@@ -4009,6 +4176,28 @@ function SchemeManagementTab({ user }: { user: any }) {
                     </div>
                   </div>
                 ))}
+                </div>
+                <div className="border-t border-gray-200 dark:border-gray-700 pt-3 mt-3 space-y-2">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" checked={shadvalSettleForm.gst_inclusive}
+                      onChange={(e) => setShadvalSettleForm({ ...shadvalSettleForm, gst_inclusive: e.target.checked })}
+                      className="w-4 h-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
+                    <span className="text-sm font-medium text-gray-700 dark:text-gray-300">With GST (18% added on top)</span>
+                  </label>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium mb-1">Vendor Rate (%)</label>
+                      <input type="number" step="0.0001" value={shadvalSettleForm.vendor_rate}
+                        onChange={(e) => setShadvalSettleForm({ ...shadvalSettleForm, vendor_rate: parseFloat(e.target.value) || 0 })}
+                        className="w-full px-3 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" placeholder="0" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium mb-1">Company MDR Rate (%)</label>
+                      <input type="number" step="0.0001" value={shadvalSettleForm.company_mdr_rate}
+                        onChange={(e) => setShadvalSettleForm({ ...shadvalSettleForm, company_mdr_rate: parseFloat(e.target.value) || 0 })}
+                        className="w-full px-3 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" placeholder="0" />
+                    </div>
+                  </div>
                 </div>
               </div>
             )}

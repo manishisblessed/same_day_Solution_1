@@ -6,6 +6,20 @@ import { htmlToPdf } from '@/lib/pdf/html-to-pdf'
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
+function sanitizeFilterValue(value: string): string {
+  return value.replace(/[,()\\*%]/g, '').trim()
+}
+
+function escapeHtml(str: string | null | undefined): string {
+  if (!str) return ''
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;')
+}
+
 type ServiceType = 'all' | 'pos' | 'bbps' | 'aeps' | 'settlement'
 
 interface NormalizedTransaction {
@@ -367,7 +381,7 @@ async function fetchPOSTransactions(
   if (filters.dateFrom) query = query.gte('transaction_time', filters.dateFrom)
   if (filters.dateTo) query = query.lte('transaction_time', filters.dateTo)
   if (filters.status) query = query.eq('display_status', filters.status.toUpperCase())
-  if (filters.search) query = query.ilike('txn_id', `%${filters.search}%`)
+  if (filters.search) query = query.ilike('txn_id', `%${sanitizeFilterValue(filters.search)}%`)
 
   query = query.range(filters.offset, filters.offset + filters.limit - 1)
 
@@ -443,7 +457,7 @@ async function fetchBBPSTransactions(
   if (filters.dateFrom) query = query.gte('created_at', filters.dateFrom)
   if (filters.dateTo) query = query.lte('created_at', filters.dateTo)
   if (filters.status) query = query.eq('status', filters.status.toLowerCase())
-  if (filters.search) query = query.ilike('transaction_id', `%${filters.search}%`)
+  if (filters.search) query = query.ilike('transaction_id', `%${sanitizeFilterValue(filters.search)}%`)
 
   query = query.range(filters.offset, filters.offset + filters.limit - 1)
 
@@ -519,7 +533,7 @@ async function fetchAEPSTransactions(
   if (filters.dateFrom) query = query.gte('created_at', filters.dateFrom)
   if (filters.dateTo) query = query.lte('created_at', filters.dateTo)
   if (filters.status) query = query.eq('status', filters.status)
-  if (filters.search) query = query.ilike('id', `%${filters.search}%`)
+  if (filters.search) query = query.ilike('id', `%${sanitizeFilterValue(filters.search)}%`)
 
   query = query.range(filters.offset, filters.offset + filters.limit - 1)
 
@@ -954,7 +968,7 @@ async function generatePDF(results: NormalizedTransaction[], summary: any, dateF
 <body>
   <div class="header">
     <h1>Service-wise Transaction Report</h1>
-    <p>Generated on ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} | User: ${user.name || user.email} (${user.role})</p>
+    <p>Generated on ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} | User: ${escapeHtml(user.name || user.email)} (${escapeHtml(user.role)})</p>
   </div>
 
   <div class="meta">
@@ -1017,20 +1031,20 @@ async function generatePDF(results: NormalizedTransaction[], summary: any, dateF
       <tr>
         <td>${i + 1}</td>
         <td>${new Date(r.created_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: '2-digit', hour: '2-digit', minute: '2-digit' })}</td>
-        <td><span class="badge badge-${r.service_type.toLowerCase()}">${r.service_type}</span></td>
-        <td style="font-family: monospace; font-size: 9px;">${r.transaction_id.length > 16 ? r.transaction_id.slice(0, 16) + '...' : r.transaction_id}${r.tid ? '<br/>TID: ' + r.tid : ''}</td>
+        <td><span class="badge badge-${escapeHtml(r.service_type.toLowerCase())}">${escapeHtml(r.service_type)}</span></td>
+        <td style="font-family: monospace; font-size: 9px;">${escapeHtml(r.transaction_id.length > 16 ? r.transaction_id.slice(0, 16) + '...' : r.transaction_id)}${r.tid ? '<br/>TID: ' + escapeHtml(r.tid) : ''}</td>
         <td class="amount">₹${r.amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
-        <td class="${['success', 'captured', 'SUCCESS', 'CAPTURED'].includes(r.status) ? 'status-success' : ['failed', 'FAILED'].includes(r.status) ? 'status-failed' : 'status-pending'}">${r.status}</td>
+        <td class="${['success', 'captured', 'SUCCESS', 'CAPTURED'].includes(r.status) ? 'status-success' : ['failed', 'FAILED'].includes(r.status) ? 'status-failed' : 'status-pending'}">${escapeHtml(r.status)}</td>
         <td class="amount">₹${r.commission.toFixed(2)}</td>
         <td class="amount">₹${r.mdr.toFixed(2)}</td>
-        <td>${r.settlement_type}</td>
-        <td>${r.scheme_name}</td>
-        <td>${r.retailer_name || '-'}</td>
-        <td style="font-family: monospace; font-size: 8px;">${r.retailer_id || '-'}</td>
-        <td>${r.distributor_name || '-'}</td>
-        <td style="font-family: monospace; font-size: 8px;">${r.distributor_id || '-'}</td>
-        <td>${r.md_name || '-'}</td>
-        <td style="font-family: monospace; font-size: 8px;">${r.master_distributor_id || '-'}</td>
+        <td>${escapeHtml(r.settlement_type)}</td>
+        <td>${escapeHtml(r.scheme_name)}</td>
+        <td>${escapeHtml(r.retailer_name || '-')}</td>
+        <td style="font-family: monospace; font-size: 8px;">${escapeHtml(r.retailer_id || '-')}</td>
+        <td>${escapeHtml(r.distributor_name || '-')}</td>
+        <td style="font-family: monospace; font-size: 8px;">${escapeHtml(r.distributor_id || '-')}</td>
+        <td>${escapeHtml(r.md_name || '-')}</td>
+        <td style="font-family: monospace; font-size: 8px;">${escapeHtml(r.master_distributor_id || '-')}</td>
       </tr>`).join('')}
     </tbody>
   </table>

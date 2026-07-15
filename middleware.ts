@@ -67,6 +67,21 @@ function adminMutationRateLimit(ip: string, max = 30, windowMs = 60_000): boolea
   return entry.count <= max
 }
 
+const apiMutationRlStore = new Map<string, { count: number; resetAt: number }>()
+function apiMutationRateLimit(ip: string, max = 100, windowMs = 60_000): boolean {
+  const now = Date.now()
+  let entry = apiMutationRlStore.get(ip)
+  if (!entry || entry.resetAt < now) {
+    entry = { count: 0, resetAt: now + windowMs }
+    apiMutationRlStore.set(ip, entry)
+  }
+  entry.count++
+  if (apiMutationRlStore.size > 5000) {
+    for (const [k, v] of apiMutationRlStore) if (v.resetAt < now) apiMutationRlStore.delete(k)
+  }
+  return entry.count <= max
+}
+
 // ── Security headers (applied to every page response) ──
 function addSecurityHeaders(response: NextResponse): void {
   response.headers.set('X-Content-Type-Options', 'nosniff')
@@ -152,15 +167,28 @@ export async function middleware(request: NextRequest) {
     }
   }
 
+  // General mutation rate limit for all non-admin API routes (100 req/min/IP)
+  if (isApiRoute && !isAdminApi && ['POST', 'PUT', 'DELETE', 'PATCH'].includes(request.method)) {
+    const ip = getRequestIp(request)
+    if (!apiMutationRateLimit(ip)) {
+      return addCorsHeaders(
+        request,
+        NextResponse.json({ error: 'Too many requests. Please slow down.' }, { status: 429, headers: { 'Retry-After': '60' } })
+      )
+    }
+  }
+
   let response = NextResponse.next({ request: { headers: request.headers } })
 
-  // ── API routes: return early with JSON content type + CORS ──
+  // ── API routes: return early with JSON content type + CORS + security headers ──
   // Skip Supabase session check — API routes handle their own auth
   // and getSession() can hang when refreshing expired tokens.
   if (isApiRoute) {
     if (!isFileUploadRoute) {
       response.headers.set('Content-Type', 'application/json')
     }
+    response.headers.set('X-Content-Type-Options', 'nosniff')
+    response.headers.set('X-Frame-Options', 'DENY')
     return addCorsHeaders(request, response)
   }
 

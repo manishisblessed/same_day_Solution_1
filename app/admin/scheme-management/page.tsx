@@ -414,6 +414,9 @@ function SchemeManagementPageContent() {
     md_commission_type: 'flat' as 'flat' | 'percentage',
     company_charge: 0,
     company_charge_type: 'flat' as 'flat' | 'percentage',
+    gst_inclusive: false,
+    vendor_rate: 0,
+    company_mdr_rate: 0,
   })
 
   const [settlementTypeSelection, setSettlementTypeSelection] = useState<'payout' | 'shadval_settlement'>('payout')
@@ -432,6 +435,9 @@ function SchemeManagementPageContent() {
     md_commission_type: 'flat' as 'flat' | 'percentage',
     company_charge: 0,
     company_charge_type: 'flat' as 'flat' | 'percentage',
+    gst_inclusive: false,
+    vendor_rate: 0,
+    company_mdr_rate: 0,
   })
 
   const [mdrForm, setMdrForm] = useState({
@@ -447,6 +453,9 @@ function SchemeManagementPageContent() {
     md_mdr_t1: 0,
     md_mdr_t0: 0,
     partner_mdr: 0,
+    gst_inclusive: false,
+    vendor_rate: 0,
+    company_mdr_rate: 0,
   })
 
   const [aepsForm, setAepsForm] = useState({
@@ -464,6 +473,9 @@ function SchemeManagementPageContent() {
     retailer_commission: 0,
     retailer_commission_type: 'flat' as 'flat' | 'percentage',
     tds_percentage: 5,
+    gst_inclusive: false,
+    vendor_rate: 0,
+    company_mdr_rate: 0,
   })
 
   const [aepsSettleForm, setAepsSettleForm] = useState({
@@ -477,6 +489,9 @@ function SchemeManagementPageContent() {
     md_commission_type: 'flat' as 'flat' | 'percentage',
     company_charge: 0,
     company_charge_type: 'flat' as 'flat' | 'percentage',
+    gst_inclusive: false,
+    vendor_rate: 0,
+    company_mdr_rate: 0,
   })
 
   const [shadvalSettleForm, setShadvalSettleForm] = useState({
@@ -491,6 +506,9 @@ function SchemeManagementPageContent() {
     md_commission_type: 'flat' as 'flat' | 'percentage',
     company_charge: 0,
     company_charge_type: 'flat' as 'flat' | 'percentage',
+    gst_inclusive: false,
+    vendor_rate: 0,
+    company_mdr_rate: 0,
   })
 
   const openConfigModal = (schemeId: string, type: 'bbps' | 'payout' | 'mdr' | 'aeps' | 'aeps_settlement' | 'shadval_settlement', editData?: any) => {
@@ -509,25 +527,25 @@ function SchemeManagementPageContent() {
     }
     if (editData) {
       if (type === 'bbps') {
-        setBbpsForm({ bbps_type: editData.bbps_type || 'bbps_1', category: editData.category || '', min_amount: editData.min_amount || 0, max_amount: editData.max_amount || 100000, retailer_charge: editData.retailer_charge || 0, retailer_charge_type: editData.retailer_charge_type || 'flat', retailer_commission: editData.retailer_commission || 0, retailer_commission_type: editData.retailer_commission_type || 'flat', distributor_commission: editData.distributor_commission || 0, distributor_commission_type: editData.distributor_commission_type || 'flat', md_commission: editData.md_commission || 0, md_commission_type: editData.md_commission_type || 'flat', company_charge: editData.company_charge || 0, company_charge_type: editData.company_charge_type || 'flat' })
+        setBbpsForm({ bbps_type: editData.bbps_type || 'bbps_1', category: editData.category || '', min_amount: editData.min_amount || 0, max_amount: editData.max_amount || 100000, retailer_charge: editData.retailer_charge || 0, retailer_charge_type: editData.retailer_charge_type || 'flat', retailer_commission: editData.retailer_commission || 0, retailer_commission_type: editData.retailer_commission_type || 'flat', distributor_commission: editData.distributor_commission || 0, distributor_commission_type: editData.distributor_commission_type || 'flat', md_commission: editData.md_commission || 0, md_commission_type: editData.md_commission_type || 'flat', company_charge: editData.company_charge || 0, company_charge_type: editData.company_charge_type || 'flat', gst_inclusive: editData.gst_inclusive || false, vendor_rate: editData.vendor_rate || 0, company_mdr_rate: editData.company_mdr_rate || 0 })
       } else if (type === 'payout') {
-        setPayoutForm({ transfer_mode: editData.transfer_mode || 'IMPS', min_amount: editData.min_amount || 0, max_amount: editData.max_amount || 100000, retailer_charge: editData.retailer_charge || 0, retailer_charge_type: editData.retailer_charge_type || 'flat', retailer_commission: editData.retailer_commission || 0, retailer_commission_type: editData.retailer_commission_type || 'flat', distributor_commission: editData.distributor_commission || 0, distributor_commission_type: editData.distributor_commission_type || 'flat', md_commission: editData.md_commission || 0, md_commission_type: editData.md_commission_type || 'flat', company_charge: editData.company_charge || 0, company_charge_type: editData.company_charge_type || 'flat' })
+        setPayoutForm({ transfer_mode: editData.transfer_mode || 'IMPS', min_amount: editData.min_amount || 0, max_amount: editData.max_amount || 100000, retailer_charge: editData.retailer_charge || 0, retailer_charge_type: editData.retailer_charge_type || 'flat', retailer_commission: editData.retailer_commission || 0, retailer_commission_type: editData.retailer_commission_type || 'flat', distributor_commission: editData.distributor_commission || 0, distributor_commission_type: editData.distributor_commission_type || 'flat', md_commission: editData.md_commission || 0, md_commission_type: editData.md_commission_type || 'flat', company_charge: editData.company_charge || 0, company_charge_type: editData.company_charge_type || 'flat', gst_inclusive: editData.gst_inclusive || false, vendor_rate: editData.vendor_rate || 0, company_mdr_rate: editData.company_mdr_rate || 0 })
       } else if (type === 'mdr') {
-        setMdrForm({ mode: editData.mode || 'CARD', card_type: editData.card_type || '', brand_type: editData.brand_type || '', card_classification: editData.card_classification || '', merchant_slug: editData.merchant_slug || '', retailer_mdr_t1: editData.retailer_mdr_t1 || 0, retailer_mdr_t0: editData.retailer_mdr_t0 || 0, distributor_mdr_t1: editData.distributor_mdr_t1 || 0, distributor_mdr_t0: editData.distributor_mdr_t0 || 0, md_mdr_t1: editData.md_mdr_t1 || 0, md_mdr_t0: editData.md_mdr_t0 || 0, partner_mdr: editData.partner_mdr || 0 })
+        setMdrForm({ mode: editData.mode || 'CARD', card_type: editData.card_type || '', brand_type: editData.brand_type || '', card_classification: editData.card_classification || '', merchant_slug: editData.merchant_slug || '', retailer_mdr_t1: editData.retailer_mdr_t1 || 0, retailer_mdr_t0: editData.retailer_mdr_t0 || 0, distributor_mdr_t1: editData.distributor_mdr_t1 || 0, distributor_mdr_t0: editData.distributor_mdr_t0 || 0, md_mdr_t1: editData.md_mdr_t1 || 0, md_mdr_t0: editData.md_mdr_t0 || 0, partner_mdr: editData.partner_mdr || 0, gst_inclusive: editData.gst_inclusive || false, vendor_rate: editData.vendor_rate || 0, company_mdr_rate: editData.company_mdr_rate || 0 })
       } else if (type === 'aeps') {
-        setAepsForm({ transaction_type: editData.transaction_type || 'cash_withdrawal', min_amount: editData.min_amount || 0, max_amount: editData.max_amount || 100000, base_commission: editData.base_commission || 0, base_commission_type: editData.base_commission_type || 'percentage', company_earning: editData.company_earning || 0, company_earning_type: editData.company_earning_type || 'flat', md_commission: editData.md_commission || 0, md_commission_type: editData.md_commission_type || 'flat', distributor_commission: editData.distributor_commission || 0, distributor_commission_type: editData.distributor_commission_type || 'flat', retailer_commission: editData.retailer_commission || 0, retailer_commission_type: editData.retailer_commission_type || 'flat', tds_percentage: editData.tds_percentage ?? 5 })
+        setAepsForm({ transaction_type: editData.transaction_type || 'cash_withdrawal', min_amount: editData.min_amount || 0, max_amount: editData.max_amount || 100000, base_commission: editData.base_commission || 0, base_commission_type: editData.base_commission_type || 'percentage', company_earning: editData.company_earning || 0, company_earning_type: editData.company_earning_type || 'flat', md_commission: editData.md_commission || 0, md_commission_type: editData.md_commission_type || 'flat', distributor_commission: editData.distributor_commission || 0, distributor_commission_type: editData.distributor_commission_type || 'flat', retailer_commission: editData.retailer_commission || 0, retailer_commission_type: editData.retailer_commission_type || 'flat', tds_percentage: editData.tds_percentage ?? 5, gst_inclusive: editData.gst_inclusive || false, vendor_rate: editData.vendor_rate || 0, company_mdr_rate: editData.company_mdr_rate || 0 })
       } else if (type === 'aeps_settlement') {
-        setAepsSettleForm({ min_amount: editData.min_amount || 0, max_amount: editData.max_amount || 100000, retailer_charge: editData.retailer_charge || 0, retailer_charge_type: editData.retailer_charge_type || 'flat', distributor_commission: editData.distributor_commission || 0, distributor_commission_type: editData.distributor_commission_type || 'flat', md_commission: editData.md_commission || 0, md_commission_type: editData.md_commission_type || 'flat', company_charge: editData.company_charge || 0, company_charge_type: editData.company_charge_type || 'flat' })
+        setAepsSettleForm({ min_amount: editData.min_amount || 0, max_amount: editData.max_amount || 100000, retailer_charge: editData.retailer_charge || 0, retailer_charge_type: editData.retailer_charge_type || 'flat', distributor_commission: editData.distributor_commission || 0, distributor_commission_type: editData.distributor_commission_type || 'flat', md_commission: editData.md_commission || 0, md_commission_type: editData.md_commission_type || 'flat', company_charge: editData.company_charge || 0, company_charge_type: editData.company_charge_type || 'flat', gst_inclusive: editData.gst_inclusive || false, vendor_rate: editData.vendor_rate || 0, company_mdr_rate: editData.company_mdr_rate || 0 })
       } else if (type === 'shadval_settlement') {
-        setShadvalSettleForm({ transfer_mode: editData.transfer_mode || 'IMPS', min_amount: editData.min_amount || 0, max_amount: editData.max_amount || 100000, retailer_charge: editData.retailer_charge || 0, retailer_charge_type: editData.retailer_charge_type || 'flat', distributor_commission: editData.distributor_commission || 0, distributor_commission_type: editData.distributor_commission_type || 'flat', md_commission: editData.md_commission || 0, md_commission_type: editData.md_commission_type || 'flat', company_charge: editData.company_charge || 0, company_charge_type: editData.company_charge_type || 'flat' })
+        setShadvalSettleForm({ transfer_mode: editData.transfer_mode || 'IMPS', min_amount: editData.min_amount || 0, max_amount: editData.max_amount || 100000, retailer_charge: editData.retailer_charge || 0, retailer_charge_type: editData.retailer_charge_type || 'flat', distributor_commission: editData.distributor_commission || 0, distributor_commission_type: editData.distributor_commission_type || 'flat', md_commission: editData.md_commission || 0, md_commission_type: editData.md_commission_type || 'flat', company_charge: editData.company_charge || 0, company_charge_type: editData.company_charge_type || 'flat', gst_inclusive: editData.gst_inclusive || false, vendor_rate: editData.vendor_rate || 0, company_mdr_rate: editData.company_mdr_rate || 0 })
       }
     } else {
-      setBbpsForm({ bbps_type: 'bbps_1', category: '', min_amount: 0, max_amount: 100000, retailer_charge: 0, retailer_charge_type: 'flat', retailer_commission: 0, retailer_commission_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat', company_charge: 0, company_charge_type: 'flat' })
-      setPayoutForm({ transfer_mode: 'IMPS', min_amount: 0, max_amount: 100000, retailer_charge: 0, retailer_charge_type: 'flat', retailer_commission: 0, retailer_commission_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat', company_charge: 0, company_charge_type: 'flat' })
-      setMdrForm({ mode: 'CARD', card_type: '', brand_type: '', card_classification: '', merchant_slug: '', retailer_mdr_t1: 0, retailer_mdr_t0: 0, distributor_mdr_t1: 0, distributor_mdr_t0: 0, md_mdr_t1: 0, md_mdr_t0: 0, partner_mdr: 0 })
-      setAepsForm({ transaction_type: 'cash_withdrawal', min_amount: 0, max_amount: 100000, base_commission: 0, base_commission_type: 'percentage', company_earning: 0, company_earning_type: 'flat', md_commission: 0, md_commission_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', retailer_commission: 0, retailer_commission_type: 'flat', tds_percentage: 5 })
-      setAepsSettleForm({ min_amount: 0, max_amount: 100000, retailer_charge: 0, retailer_charge_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat', company_charge: 0, company_charge_type: 'flat' })
-      setShadvalSettleForm({ transfer_mode: 'IMPS', min_amount: 0, max_amount: 100000, retailer_charge: 0, retailer_charge_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat', company_charge: 0, company_charge_type: 'flat' })
+      setBbpsForm({ bbps_type: 'bbps_1', category: '', min_amount: 0, max_amount: 100000, retailer_charge: 0, retailer_charge_type: 'flat', retailer_commission: 0, retailer_commission_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat', company_charge: 0, company_charge_type: 'flat', gst_inclusive: false, vendor_rate: 0, company_mdr_rate: 0 })
+      setPayoutForm({ transfer_mode: 'IMPS', min_amount: 0, max_amount: 100000, retailer_charge: 0, retailer_charge_type: 'flat', retailer_commission: 0, retailer_commission_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat', company_charge: 0, company_charge_type: 'flat', gst_inclusive: false, vendor_rate: 0, company_mdr_rate: 0 })
+      setMdrForm({ mode: 'CARD', card_type: '', brand_type: '', card_classification: '', merchant_slug: '', retailer_mdr_t1: 0, retailer_mdr_t0: 0, distributor_mdr_t1: 0, distributor_mdr_t0: 0, md_mdr_t1: 0, md_mdr_t0: 0, partner_mdr: 0, gst_inclusive: false, vendor_rate: 0, company_mdr_rate: 0 })
+      setAepsForm({ transaction_type: 'cash_withdrawal', min_amount: 0, max_amount: 100000, base_commission: 0, base_commission_type: 'percentage', company_earning: 0, company_earning_type: 'flat', md_commission: 0, md_commission_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', retailer_commission: 0, retailer_commission_type: 'flat', tds_percentage: 5, gst_inclusive: false, vendor_rate: 0, company_mdr_rate: 0 })
+      setAepsSettleForm({ min_amount: 0, max_amount: 100000, retailer_charge: 0, retailer_charge_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat', company_charge: 0, company_charge_type: 'flat', gst_inclusive: false, vendor_rate: 0, company_mdr_rate: 0 })
+      setShadvalSettleForm({ transfer_mode: 'IMPS', min_amount: 0, max_amount: 100000, retailer_charge: 0, retailer_charge_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat', company_charge: 0, company_charge_type: 'flat', gst_inclusive: false, vendor_rate: 0, company_mdr_rate: 0 })
     }
     setShowConfigModal(true)
   }
@@ -600,6 +618,9 @@ function SchemeManagementPageContent() {
           configData.distributor_mdr_t0 = 0
           configData.md_mdr_t1 = 0
           configData.md_mdr_t0 = 0
+          configData.gst_inclusive = mdrForm.gst_inclusive
+          configData.vendor_rate = mdrForm.vendor_rate
+          configData.company_mdr_rate = mdrForm.company_mdr_rate
         } else {
           configData.retailer_mdr_t1 = mdrForm.retailer_mdr_t1
           configData.retailer_mdr_t0 = mdrForm.retailer_mdr_t0
@@ -608,6 +629,9 @@ function SchemeManagementPageContent() {
           configData.md_mdr_t1 = mdrForm.md_mdr_t1
           configData.md_mdr_t0 = mdrForm.md_mdr_t0
           configData.partner_mdr = null
+          configData.gst_inclusive = mdrForm.gst_inclusive
+          configData.vendor_rate = mdrForm.vendor_rate
+          configData.company_mdr_rate = mdrForm.company_mdr_rate
         }
       } else if (effectiveConfigType === 'aeps') {
         configData = { ...aepsForm }
@@ -627,6 +651,9 @@ function SchemeManagementPageContent() {
             md_commission_type: payoutForm.md_commission_type,
             company_charge: payoutForm.company_charge,
             company_charge_type: payoutForm.company_charge_type,
+            gst_inclusive: payoutForm.gst_inclusive,
+            vendor_rate: payoutForm.vendor_rate,
+            company_mdr_rate: payoutForm.company_mdr_rate,
           }
         } else {
           configData = { ...shadvalSettleForm }
@@ -1078,6 +1105,9 @@ function SchemeManagementPageContent() {
                                 <th className="px-2 py-1.5 text-right">Dist Comm</th>
                                 <th className="px-2 py-1.5 text-right">MD Comm</th>
                                 <th className="px-2 py-1.5 text-right">Company</th>
+                                <th className="px-2 py-1.5 text-center">GST</th>
+                                <th className="px-2 py-1.5 text-right">Vendor</th>
+                                <th className="px-2 py-1.5 text-right">Co. MDR</th>
                                 <th className="px-2 py-1.5"></th>
                               </tr>
                             </thead>
@@ -1092,6 +1122,9 @@ function SchemeManagementPageContent() {
                                   <td className="px-2 py-1.5 text-right">{c.distributor_commission}{c.distributor_commission_type === 'percentage' ? '%' : '₹'}</td>
                                   <td className="px-2 py-1.5 text-right">{c.md_commission}{c.md_commission_type === 'percentage' ? '%' : '₹'}</td>
                                   <td className="px-2 py-1.5 text-right">{c.company_charge}{c.company_charge_type === 'percentage' ? '%' : '₹'}</td>
+                                  <td className="px-2 py-1.5 text-center">{c.gst_inclusive ? '✓' : '-'}</td>
+                                  <td className="px-2 py-1.5 text-right">{c.vendor_rate || '-'}</td>
+                                  <td className="px-2 py-1.5 text-right">{c.company_mdr_rate || '-'}</td>
                                   <td className="px-2 py-1.5 text-right flex gap-1">
                                     <button onClick={() => openConfigModal(scheme.id, 'bbps', c)} className="text-blue-400 hover:text-blue-600" title="Edit">
                                       <Edit2 className="w-3 h-3" />
@@ -1127,6 +1160,9 @@ function SchemeManagementPageContent() {
                                 <th className="px-2 py-1.5 text-right">Dist Comm</th>
                                 <th className="px-2 py-1.5 text-right">MD Comm</th>
                                 <th className="px-2 py-1.5 text-right">Company</th>
+                                <th className="px-2 py-1.5 text-center">GST</th>
+                                <th className="px-2 py-1.5 text-right">Vendor</th>
+                                <th className="px-2 py-1.5 text-right">Co. MDR</th>
                                 <th className="px-2 py-1.5"></th>
                               </tr>
                             </thead>
@@ -1140,6 +1176,9 @@ function SchemeManagementPageContent() {
                                   <td className="px-2 py-1.5 text-right">{c.distributor_commission}{c.distributor_commission_type === 'percentage' ? '%' : '₹'}</td>
                                   <td className="px-2 py-1.5 text-right">{c.md_commission}{c.md_commission_type === 'percentage' ? '%' : '₹'}</td>
                                   <td className="px-2 py-1.5 text-right">{c.company_charge}{c.company_charge_type === 'percentage' ? '%' : '₹'}</td>
+                                  <td className="px-2 py-1.5 text-center">{c.gst_inclusive ? '✓' : '-'}</td>
+                                  <td className="px-2 py-1.5 text-right">{c.vendor_rate || '-'}</td>
+                                  <td className="px-2 py-1.5 text-right">{c.company_mdr_rate || '-'}</td>
                                   <td className="px-2 py-1.5 text-right flex gap-1">
                                     <button onClick={() => openConfigModal(scheme.id, 'payout', c)} className="text-blue-400 hover:text-blue-600" title="Edit">
                                       <Edit2 className="w-3 h-3" />
@@ -1190,6 +1229,9 @@ function SchemeManagementPageContent() {
                                     <th className="px-2 py-1.5 text-right">MD T+0</th>
                                   </>
                                 )}
+                                <th className="px-2 py-1.5 text-center">GST</th>
+                                <th className="px-2 py-1.5 text-right">Vendor</th>
+                                <th className="px-2 py-1.5 text-right">Co. MDR</th>
                                 <th className="px-2 py-1.5"></th>
                               </tr>
                             </thead>
@@ -1215,6 +1257,9 @@ function SchemeManagementPageContent() {
                                       <td className="px-2 py-1.5 text-right">{r.md_mdr_t0}%</td>
                                     </>
                                   )}
+                                  <td className="px-2 py-1.5 text-center">{r.gst_inclusive ? '✓' : '-'}</td>
+                                  <td className="px-2 py-1.5 text-right">{r.vendor_rate ? `${r.vendor_rate}%` : '-'}</td>
+                                  <td className="px-2 py-1.5 text-right">{r.company_mdr_rate ? `${r.company_mdr_rate}%` : '-'}</td>
                                   <td className="px-2 py-1.5 text-right flex gap-1">
                                     <button onClick={() => openConfigModal(scheme.id, 'mdr', r)} className="text-blue-400 hover:text-blue-600" title="Edit">
                                       <Edit2 className="w-3 h-3" />
@@ -1251,6 +1296,9 @@ function SchemeManagementPageContent() {
                                 <th className="px-2 py-1.5 text-right">DT</th>
                                 <th className="px-2 py-1.5 text-right">RT</th>
                                 <th className="px-2 py-1.5 text-right">TDS</th>
+                                <th className="px-2 py-1.5 text-center">GST</th>
+                                <th className="px-2 py-1.5 text-right">Vendor</th>
+                                <th className="px-2 py-1.5 text-right">Co. MDR</th>
                                 <th className="px-2 py-1.5"></th>
                               </tr>
                             </thead>
@@ -1267,6 +1315,9 @@ function SchemeManagementPageContent() {
                                     <td className="px-2 py-1.5 text-right">{fmt(c.distributor_commission, c.distributor_commission_type)}</td>
                                     <td className="px-2 py-1.5 text-right">{fmt(c.retailer_commission, c.retailer_commission_type)}</td>
                                     <td className="px-2 py-1.5 text-right">{c.tds_percentage}%</td>
+                                    <td className="px-2 py-1.5 text-center">{c.gst_inclusive ? '✓' : '-'}</td>
+                                    <td className="px-2 py-1.5 text-right">{c.vendor_rate || '-'}</td>
+                                    <td className="px-2 py-1.5 text-right">{c.company_mdr_rate || '-'}</td>
                                     <td className="px-2 py-1.5 text-right flex gap-1">
                                       <button onClick={() => openConfigModal(scheme.id, 'aeps', c)} className="text-blue-400 hover:text-blue-600" title="Edit">
                                         <Edit2 className="w-3 h-3" />
@@ -1301,6 +1352,9 @@ function SchemeManagementPageContent() {
                                 <th className="px-2 py-1.5 text-right">DT Margin</th>
                                 <th className="px-2 py-1.5 text-right">MD Margin</th>
                                 <th className="px-2 py-1.5 text-right">Company</th>
+                                <th className="px-2 py-1.5 text-center">GST</th>
+                                <th className="px-2 py-1.5 text-right">Vendor</th>
+                                <th className="px-2 py-1.5 text-right">Co. MDR</th>
                                 <th className="px-2 py-1.5"></th>
                               </tr>
                             </thead>
@@ -1314,6 +1368,9 @@ function SchemeManagementPageContent() {
                                     <td className="px-2 py-1.5 text-right">{fmt(c.distributor_commission, c.distributor_commission_type)}</td>
                                     <td className="px-2 py-1.5 text-right">{fmt(c.md_commission, c.md_commission_type)}</td>
                                     <td className="px-2 py-1.5 text-right">{fmt(c.company_charge, c.company_charge_type)}</td>
+                                    <td className="px-2 py-1.5 text-center">{c.gst_inclusive ? '✓' : '-'}</td>
+                                    <td className="px-2 py-1.5 text-right">{c.vendor_rate || '-'}</td>
+                                    <td className="px-2 py-1.5 text-right">{c.company_mdr_rate || '-'}</td>
                                     <td className="px-2 py-1.5 text-right flex gap-1">
                                       <button onClick={() => openConfigModal(scheme.id, 'aeps_settlement', c)} className="text-blue-400 hover:text-blue-600" title="Edit">
                                         <Edit2 className="w-3 h-3" />
@@ -1349,6 +1406,9 @@ function SchemeManagementPageContent() {
                                 <th className="px-2 py-1.5 text-right">Dist Comm</th>
                                 <th className="px-2 py-1.5 text-right">MD Comm</th>
                                 <th className="px-2 py-1.5 text-right">Company</th>
+                                <th className="px-2 py-1.5 text-center">GST</th>
+                                <th className="px-2 py-1.5 text-right">Vendor</th>
+                                <th className="px-2 py-1.5 text-right">Co. MDR</th>
                                 <th className="px-2 py-1.5"></th>
                               </tr>
                             </thead>
@@ -1363,6 +1423,9 @@ function SchemeManagementPageContent() {
                                     <td className="px-2 py-1.5 text-right">{fmt(c.distributor_commission, c.distributor_commission_type)}</td>
                                     <td className="px-2 py-1.5 text-right">{fmt(c.md_commission, c.md_commission_type)}</td>
                                     <td className="px-2 py-1.5 text-right">{fmt(c.company_charge, c.company_charge_type)}</td>
+                                    <td className="px-2 py-1.5 text-center">{c.gst_inclusive ? '✓' : '-'}</td>
+                                    <td className="px-2 py-1.5 text-right">{c.vendor_rate || '-'}</td>
+                                    <td className="px-2 py-1.5 text-right">{c.company_mdr_rate || '-'}</td>
                                     <td className="px-2 py-1.5 text-right flex gap-1">
                                       <button onClick={() => openConfigModal(scheme.id, 'shadval_settlement', c)} className="text-blue-400 hover:text-blue-600" title="Edit">
                                         <Edit2 className="w-3 h-3" />
@@ -1601,6 +1664,28 @@ function SchemeManagementPageContent() {
                       </>
                     )
                   })()}
+                  <div className="border-t border-gray-200 dark:border-gray-700 pt-3 mt-3 space-y-2">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input type="checkbox" checked={bbpsForm.gst_inclusive}
+                        onChange={(e) => setBbpsForm({ ...bbpsForm, gst_inclusive: e.target.checked })}
+                        className="w-4 h-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
+                      <span className="text-sm font-medium text-gray-700 dark:text-gray-300">With GST (18% added on top)</span>
+                    </label>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-medium mb-1">Vendor Rate (%)</label>
+                        <input type="number" step="0.0001" value={bbpsForm.vendor_rate}
+                          onChange={(e) => setBbpsForm({ ...bbpsForm, vendor_rate: parseFloat(e.target.value) || 0 })}
+                          className="w-full px-3 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" placeholder="0" />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium mb-1">Company MDR Rate (%)</label>
+                        <input type="number" step="0.0001" value={bbpsForm.company_mdr_rate}
+                          onChange={(e) => setBbpsForm({ ...bbpsForm, company_mdr_rate: parseFloat(e.target.value) || 0 })}
+                          className="w-full px-3 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" placeholder="0" />
+                      </div>
+                    </div>
+                  </div>
                 </div>
               )}
 
@@ -1683,6 +1768,28 @@ function SchemeManagementPageContent() {
                       </>
                     )
                   })()}
+                  <div className="border-t border-gray-200 dark:border-gray-700 pt-3 mt-3 space-y-2">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input type="checkbox" checked={payoutForm.gst_inclusive}
+                        onChange={(e) => setPayoutForm({ ...payoutForm, gst_inclusive: e.target.checked })}
+                        className="w-4 h-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
+                      <span className="text-sm font-medium text-gray-700 dark:text-gray-300">With GST (18% added on top)</span>
+                    </label>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-medium mb-1">Vendor Rate (%)</label>
+                        <input type="number" step="0.0001" value={payoutForm.vendor_rate}
+                          onChange={(e) => setPayoutForm({ ...payoutForm, vendor_rate: parseFloat(e.target.value) || 0 })}
+                          className="w-full px-3 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" placeholder="0" />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium mb-1">Company MDR Rate (%)</label>
+                        <input type="number" step="0.0001" value={payoutForm.company_mdr_rate}
+                          onChange={(e) => setPayoutForm({ ...payoutForm, company_mdr_rate: parseFloat(e.target.value) || 0 })}
+                          className="w-full px-3 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" placeholder="0" />
+                      </div>
+                    </div>
+                  </div>
                 </div>
               )}
 
@@ -1873,6 +1980,28 @@ function SchemeManagementPageContent() {
                       </>
                     )
                   })()}
+                  <div className="border-t border-gray-200 dark:border-gray-700 pt-3 mt-3 space-y-2">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input type="checkbox" checked={mdrForm.gst_inclusive}
+                        onChange={(e) => setMdrForm({ ...mdrForm, gst_inclusive: e.target.checked })}
+                        className="w-4 h-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
+                      <span className="text-sm font-medium text-gray-700 dark:text-gray-300">With GST (18% added on top)</span>
+                    </label>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-medium mb-1">Vendor Rate (%)</label>
+                        <input type="number" step="0.0001" value={mdrForm.vendor_rate}
+                          onChange={(e) => setMdrForm({ ...mdrForm, vendor_rate: parseFloat(e.target.value) || 0 })}
+                          className="w-full px-3 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" placeholder="0" />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium mb-1">Company MDR Rate (%)</label>
+                        <input type="number" step="0.0001" value={mdrForm.company_mdr_rate}
+                          onChange={(e) => setMdrForm({ ...mdrForm, company_mdr_rate: parseFloat(e.target.value) || 0 })}
+                          className="w-full px-3 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" placeholder="0" />
+                      </div>
+                    </div>
+                  </div>
                 </div>
               )}
 
@@ -1970,6 +2099,28 @@ function SchemeManagementPageContent() {
                       </div>
                     )
                   })()}
+                  <div className="border-t border-gray-200 dark:border-gray-700 pt-3 mt-3 space-y-2">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input type="checkbox" checked={aepsForm.gst_inclusive}
+                        onChange={(e) => setAepsForm({ ...aepsForm, gst_inclusive: e.target.checked })}
+                        className="w-4 h-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
+                      <span className="text-sm font-medium text-gray-700 dark:text-gray-300">With GST (18% added on top)</span>
+                    </label>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-medium mb-1">Vendor Rate (%)</label>
+                        <input type="number" step="0.0001" value={aepsForm.vendor_rate}
+                          onChange={(e) => setAepsForm({ ...aepsForm, vendor_rate: parseFloat(e.target.value) || 0 })}
+                          className="w-full px-3 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" placeholder="0" />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium mb-1">Company MDR Rate (%)</label>
+                        <input type="number" step="0.0001" value={aepsForm.company_mdr_rate}
+                          onChange={(e) => setAepsForm({ ...aepsForm, company_mdr_rate: parseFloat(e.target.value) || 0 })}
+                          className="w-full px-3 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" placeholder="0" />
+                      </div>
+                    </div>
+                  </div>
                 </div>
               )}
 
@@ -2013,6 +2164,28 @@ function SchemeManagementPageContent() {
                       </div>
                     </div>
                   ))}
+                  </div>
+                  <div className="border-t border-gray-200 dark:border-gray-700 pt-3 mt-3 space-y-2">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input type="checkbox" checked={aepsSettleForm.gst_inclusive}
+                        onChange={(e) => setAepsSettleForm({ ...aepsSettleForm, gst_inclusive: e.target.checked })}
+                        className="w-4 h-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
+                      <span className="text-sm font-medium text-gray-700 dark:text-gray-300">With GST (18% added on top)</span>
+                    </label>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-medium mb-1">Vendor Rate (%)</label>
+                        <input type="number" step="0.0001" value={aepsSettleForm.vendor_rate}
+                          onChange={(e) => setAepsSettleForm({ ...aepsSettleForm, vendor_rate: parseFloat(e.target.value) || 0 })}
+                          className="w-full px-3 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" placeholder="0" />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium mb-1">Company MDR Rate (%)</label>
+                        <input type="number" step="0.0001" value={aepsSettleForm.company_mdr_rate}
+                          onChange={(e) => setAepsSettleForm({ ...aepsSettleForm, company_mdr_rate: parseFloat(e.target.value) || 0 })}
+                          className="w-full px-3 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" placeholder="0" />
+                      </div>
+                    </div>
                   </div>
                 </div>
               )}
@@ -2065,6 +2238,28 @@ function SchemeManagementPageContent() {
                       </div>
                     </div>
                   ))}
+                  </div>
+                  <div className="border-t border-gray-200 dark:border-gray-700 pt-3 mt-3 space-y-2">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input type="checkbox" checked={shadvalSettleForm.gst_inclusive}
+                        onChange={(e) => setShadvalSettleForm({ ...shadvalSettleForm, gst_inclusive: e.target.checked })}
+                        className="w-4 h-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
+                      <span className="text-sm font-medium text-gray-700 dark:text-gray-300">With GST (18% added on top)</span>
+                    </label>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-medium mb-1">Vendor Rate (%)</label>
+                        <input type="number" step="0.0001" value={shadvalSettleForm.vendor_rate}
+                          onChange={(e) => setShadvalSettleForm({ ...shadvalSettleForm, vendor_rate: parseFloat(e.target.value) || 0 })}
+                          className="w-full px-3 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" placeholder="0" />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium mb-1">Company MDR Rate (%)</label>
+                        <input type="number" step="0.0001" value={shadvalSettleForm.company_mdr_rate}
+                          onChange={(e) => setShadvalSettleForm({ ...shadvalSettleForm, company_mdr_rate: parseFloat(e.target.value) || 0 })}
+                          className="w-full px-3 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" placeholder="0" />
+                      </div>
+                    </div>
                   </div>
                 </div>
               )}

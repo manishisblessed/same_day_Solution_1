@@ -180,7 +180,7 @@ export async function POST(request: NextRequest) {
     
     // Validate amount
     const amountNum = parseFloat(amount)
-    if (isNaN(amountNum) || amountNum <= 0) {
+    if (!Number.isFinite(amountNum) || amountNum <= 0) {
       const response = NextResponse.json(
         { success: false, error: 'Invalid amount' },
         { status: 400 }

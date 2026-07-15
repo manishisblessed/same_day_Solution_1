@@ -12,22 +12,27 @@ export default function SessionKickedOverlay({ loginPath = '/business-login' }: 
   const { sessionKicked, kickReason } = useAuth()
 
   const isReplaced = kickReason === 'replaced'
-  const query = isReplaced ? 'reason=replaced' : 'session=expired'
+  // Manual logout in another tab: no alarming banner on the login page.
+  const isSilentLogout = kickReason === 'logout'
+  const query = isReplaced ? '?reason=replaced' : isSilentLogout ? '' : '?session=expired'
 
   // Auto-redirect to login shortly after showing the message, so the user
-  // isn't stranded on a dead dashboard.
+  // isn't stranded on a dead dashboard. Silent logouts redirect immediately.
   useEffect(() => {
     if (!sessionKicked) return
     const t = setTimeout(() => {
-      window.location.href = `${loginPath}?${query}`
-    }, 4000)
+      window.location.href = `${loginPath}${query}`
+    }, isSilentLogout ? 0 : 4000)
     return () => clearTimeout(t)
-  }, [sessionKicked, loginPath, query])
+  }, [sessionKicked, loginPath, query, isSilentLogout])
 
   if (!sessionKicked) return null
 
+  // Signed out in another tab — just leave; no "session ended" card.
+  if (isSilentLogout) return null
+
   const handleRedirect = () => {
-    window.location.href = `${loginPath}?${query}`
+    window.location.href = `${loginPath}${query}`
   }
 
   return (
@@ -63,7 +68,7 @@ export default function SessionKickedOverlay({ loginPath = '/business-login' }: 
                 Your session has ended and you&apos;ve been signed out.
               </p>
               <p className="text-sm text-gray-500 mb-6">
-                This can happen after a period of inactivity, or if you signed out in another tab. Please sign in again to continue.
+                This usually happens after a period of inactivity. Please sign in again to continue.
               </p>
             </>
           )}

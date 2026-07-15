@@ -81,13 +81,14 @@ const NETWORK_ROLE_LABELS: Record<string, string> = {
 interface ServiceTransactionReportProps {
   userRole: 'admin' | 'finance_executive' | 'master_distributor' | 'distributor' | 'retailer'
   userName?: string
+  defaultService?: ServiceFilter
 }
 
 // ============================================================================
 // MAIN COMPONENT
 // ============================================================================
 
-export default function ServiceTransactionReport({ userRole, userName }: ServiceTransactionReportProps) {
+export default function ServiceTransactionReport({ userRole, userName, defaultService }: ServiceTransactionReportProps) {
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [summary, setSummary] = useState<Summary>({
     total_transactions: 0, total_amount: 0, total_commission: 0,
@@ -102,7 +103,7 @@ export default function ServiceTransactionReport({ userRole, userName }: Service
   const [error, setError] = useState('')
 
   // Filters
-  const [serviceFilter, setServiceFilter] = useState<ServiceFilter>('all')
+  const [serviceFilter, setServiceFilter] = useState<ServiceFilter>(defaultService || 'all')
   const [datePreset, setDatePreset] = useState<DatePreset>('month')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
@@ -532,6 +533,7 @@ export default function ServiceTransactionReport({ userRole, userName }: Service
       </motion.div>
 
       {/* Service Filter Chips */}
+      {!defaultService && (
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}
         className="flex flex-wrap gap-2"
       >
@@ -554,6 +556,7 @@ export default function ServiceTransactionReport({ userRole, userName }: Service
           )
         })}
       </motion.div>
+      )}
 
       {/* Filters Bar */}
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}

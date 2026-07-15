@@ -38,6 +38,12 @@ lerna-debug.log*
 .env.development.local
 .env.test.local
 .env.production.local
+.env.production
+.env.staging
+.env.uat
+
+# Sensitive summaries
+PRODUCTION-SUMMARY.txt
 
 # vercel
 .vercel

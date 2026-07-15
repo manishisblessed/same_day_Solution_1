@@ -1,16 +1,21 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 export interface SettlementAlertInput {
-  retailerId: string
+  /** Set for retailer settlement failures. */
+  retailerId?: string
+  /** Set for partner settlement failures. */
+  partnerId?: string
   txnId: string
   amount: number
   reason: string
+  alertType?: string
   details?: Record<string, any>
 }
 
 /**
  * Records a settlement failure so admins see it on the T+1 Settlement
  * dashboard instead of the transaction silently staying unsettled.
+ * Works for both retailer and partner settlements (pass retailerId OR partnerId).
  * Repeat failures for the same txn refresh last_seen_at on the open alert.
  * Never throws — alerting must not break the settlement run itself.
  */
@@ -33,8 +38,9 @@ export async function raiseSettlementAlert(
         .eq('id', existing.id)
     } else {
       await supabase.from('settlement_alerts').insert({
-        alert_type: 'MDR_RATE_MISSING',
-        retailer_id: input.retailerId,
+        alert_type: input.alertType || (input.partnerId ? 'PARTNER_SETTLEMENT_FAILED' : 'MDR_RATE_MISSING'),
+        retailer_id: input.retailerId || null,
+        partner_id: input.partnerId || null,
         txn_id: input.txnId,
         amount: input.amount,
         reason: input.reason,

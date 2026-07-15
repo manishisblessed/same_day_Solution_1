@@ -20,7 +20,9 @@ export function getRequiredEnv(key: string): string {
 }
 
 export function getSupabaseUrl(): string {
-  return _env['NEXT_PUBLIC_SUPABASE_URL'] || 'https://ohmvvtnfdvvatgofrzta.supabase.co';
+  const url = _env['NEXT_PUBLIC_SUPABASE_URL']
+  if (!url) throw new Error('NEXT_PUBLIC_SUPABASE_URL is not set')
+  return url
 }
 
 export function getSupabaseServiceKey(): string {

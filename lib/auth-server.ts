@@ -271,6 +271,34 @@ export async function getCurrentUserFromToken(
 }
 
 /**
+ * Verify the user has an active entry in user_sessions.
+ * Returns the user if valid, null if kicked/expired.
+ * On check failure, logs a warning and returns the user (fail-open to avoid lockout).
+ */
+async function checkActiveSession(user: AuthUser): Promise<AuthUser | null> {
+  try {
+    const svc = getServiceClient()
+    if (!svc) return user
+
+    const { data: activeSession } = await svc
+      .from('user_sessions')
+      .select('id')
+      .eq('user_id', user.id)
+      .eq('is_active', true)
+      .gt('expires_at', new Date().toISOString())
+      .limit(1)
+      .maybeSingle()
+
+    if (!activeSession) {
+      return null
+    }
+  } catch {
+    console.warn('[auth-server] user_sessions check failed, allowing request')
+  }
+  return user
+}
+
+/**
  * Get current user with multiple fallback methods
  * 1. Try cookies (standard web flow)
  * 2. Try Authorization header (API/mobile flow)
@@ -289,7 +317,9 @@ export async function getCurrentUserWithFallback(
     try {
       const tokenUser = await getCurrentUserFromToken(authHeader)
       if (tokenUser) {
-        return { user: tokenUser, method: 'token' }
+        const checkedUser = await checkActiveSession(tokenUser)
+        if (!checkedUser) return { user: null, method: 'none' }
+        return { user: checkedUser, method: 'token' }
       }
       console.warn('[Auth] Bearer token present but auth failed, falling back to cookies')
     } catch (err: any) {
@@ -307,7 +337,9 @@ export async function getCurrentUserWithFallback(
   try {
     const cookieUser = await getCurrentUserServer()
     if (cookieUser) {
-      return { user: cookieUser, method: 'cookies' }
+      const checkedUser = await checkActiveSession(cookieUser)
+      if (!checkedUser) return { user: null, method: 'none' }
+      return { user: checkedUser, method: 'cookies' }
     }
     console.warn('[Auth] Cookie auth also failed')
   } catch (err: any) {

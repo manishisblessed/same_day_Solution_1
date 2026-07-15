@@ -78,9 +78,15 @@ export async function POST(request: NextRequest) {
     }
 
     const amountDecimal = parseFloat(amount)
-    if (isNaN(amountDecimal) || amountDecimal <= 0) {
+    if (!Number.isFinite(amountDecimal) || amountDecimal <= 0) {
       return NextResponse.json(
         { error: 'Invalid amount' },
+        { status: 400 }
+      )
+    }
+    if (amountDecimal > 10000000) {
+      return NextResponse.json(
+        { error: 'Amount exceeds maximum limit of ₹1,00,00,000' },
         { status: 400 }
       )
     }

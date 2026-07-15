@@ -6,6 +6,10 @@ import { resolveTransactionAssignments } from '@/lib/pos-assignment-resolver'
 export const runtime = 'nodejs' // Force Node.js runtime (Supabase not compatible with Edge Runtime)
 export const dynamic = 'force-dynamic'
 
+function sanitizeFilterValue(value: string): string {
+  return value.replace(/[,()\\*%]/g, '').trim()
+}
+
 // Helper function to get Supabase client with validation
 function getSupabaseClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
@@ -158,13 +162,13 @@ export async function GET(request: NextRequest) {
 
     // Apply acquiring bank filter (case-insensitive, partial match)
     if (acquiringBank && acquiringBank.trim()) {
-      const b = acquiringBank.trim()
+      const b = sanitizeFilterValue(acquiringBank.trim())
       query = query.ilike('acquiring_bank', `%${b}%`)
     }
 
     // Apply search query (search across multiple fields using OR)
     if (searchQuery && searchQuery.trim()) {
-      const s = searchQuery.trim()
+      const s = sanitizeFilterValue(searchQuery.trim())
       query = query.or(`txn_id.ilike.%${s}%,rrn.ilike.%${s}%,tid.ilike.%${s}%,mid_code.ilike.%${s}%,customer_name.ilike.%${s}%,username.ilike.%${s}%,card_number.ilike.%${s}%,merchant_name.ilike.%${s}%`)
     }
 
@@ -245,9 +249,9 @@ export async function GET(request: NextRequest) {
       if (paymentMode && paymentMode !== 'all') amountQuery = amountQuery.eq('payment_mode', paymentMode.toUpperCase())
       if (settlementFilter && settlementFilter !== 'all') amountQuery = amountQuery.eq('settlement_status', settlementFilter.toUpperCase())
       if (cardBrand && cardBrand !== 'all') amountQuery = amountQuery.eq('card_brand', cardBrand.toUpperCase())
-      if (acquiringBank && acquiringBank.trim()) amountQuery = amountQuery.ilike('acquiring_bank', `%${acquiringBank.trim()}%`)
+      if (acquiringBank && acquiringBank.trim()) amountQuery = amountQuery.ilike('acquiring_bank', `%${sanitizeFilterValue(acquiringBank.trim())}%`)
       if (searchQuery && searchQuery.trim()) {
-        const s = searchQuery.trim()
+        const s = sanitizeFilterValue(searchQuery.trim())
         amountQuery = amountQuery.or(`txn_id.ilike.%${s}%,rrn.ilike.%${s}%,tid.ilike.%${s}%,mid_code.ilike.%${s}%,customer_name.ilike.%${s}%,username.ilike.%${s}%,card_number.ilike.%${s}%`)
       }
 

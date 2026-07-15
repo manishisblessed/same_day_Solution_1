@@ -1,15 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { createClient } from '@supabase/supabase-js'
-import { addCorsHeaders } from '@/lib/cors'
 import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger'
+import { requireAdmin } from '@/lib/security/admin-guard'
 
-export const runtime = 'nodejs' // Force Node.js runtime (Supabase not compatible with Edge Runtime)
+export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 export async function POST(request: NextRequest) {
   try {
-    // Initialize Supabase client at runtime (not during build)
+    const guard = await requireAdmin(request)
+    if (!guard.ok) return guard.response
+    const admin = guard.user
+    const ipAddress = guard.ip
+
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
     const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
     
@@ -21,17 +24,6 @@ export async function POST(request: NextRequest) {
     }
     
     const supabase = createClient(supabaseUrl, supabaseServiceKey)
-    
-    // Get current admin user with fallback
-    const { user: admin, method } = await getCurrentUserWithFallback(request)
-    console.log('[Reversal Create] Auth:', method, '|', admin?.email || 'none')
-    
-    if (!admin) {
-      return NextResponse.json({ error: 'Session expired. Please log in again.', code: 'SESSION_EXPIRED' }, { status: 401 })
-    }
-    if (admin.role !== 'admin') {
-      return NextResponse.json({ error: 'Unauthorized: Admin access required' }, { status: 403 })
-    }
 
     const body = await request.json()
     const {
@@ -56,12 +48,8 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Get IP address
-    const ipAddress = request.headers.get('x-forwarded-for') || 
-                     request.headers.get('x-real-ip') || 
-                     'unknown'
-
-    // Get original transaction based on type
+    // Atomic claim: SET status='reversed' WHERE id=? AND status != 'reversed'
+    // If 0 rows returned, either not found or already reversed — no double-credit possible.
     let originalTransaction: any = null
     let user_id: string = ''
     let user_role: string = ''
@@ -70,31 +58,34 @@ export async function POST(request: NextRequest) {
     let original_ledger_id: string | null = null
 
     if (transaction_type === 'bbps') {
-      const { data: tx } = await supabase
+      // First, check for success status which should not be reversed
+      const { data: check } = await supabase
         .from('bbps_transactions')
-        .select('id, retailer_id, bill_amount, wallet_debit_id, status')
+        .select('status')
         .eq('id', transaction_id)
         .single()
 
-      if (!tx) {
-        return NextResponse.json(
-          { error: 'BBPS transaction not found' },
-          { status: 404 }
-        )
+      if (!check) {
+        return NextResponse.json({ error: 'BBPS transaction not found' }, { status: 404 })
       }
-
-      if (tx.status === 'reversed') {
-        return NextResponse.json(
-          { error: 'Transaction already reversed' },
-          { status: 400 }
-        )
-      }
-
-      if (tx.status === 'success') {
+      if (check.status === 'success') {
         return NextResponse.json(
           { error: 'Cannot reverse a successful BBPS transaction. Successful payments are auto-refunded by the BBPS provider on failure. Manual reversal would cause double-credit.' },
           { status: 400 }
         )
+      }
+
+      // Atomic: claim the row by setting status='reversed' only if not already reversed
+      const { data: tx, error: claimErr } = await supabase
+        .from('bbps_transactions')
+        .update({ status: 'reversed' })
+        .eq('id', transaction_id)
+        .not('status', 'eq', 'reversed')
+        .select('id, retailer_id, bill_amount, wallet_debit_id, status')
+        .maybeSingle()
+
+      if (claimErr || !tx) {
+        return NextResponse.json({ error: 'Transaction already reversed or not found' }, { status: 400 })
       }
 
       originalTransaction = tx
@@ -104,24 +95,16 @@ export async function POST(request: NextRequest) {
       wallet_type = 'primary'
       original_ledger_id = tx.wallet_debit_id
     } else if (transaction_type === 'aeps') {
-      const { data: tx } = await supabase
+      const { data: tx, error: claimErr } = await supabase
         .from('aeps_transactions')
-        .select('id, user_id, user_role, amount, wallet_debit_id, status')
+        .update({ status: 'reversed' })
         .eq('id', transaction_id)
-        .single()
+        .not('status', 'eq', 'reversed')
+        .select('id, user_id, user_role, amount, wallet_debit_id, status')
+        .maybeSingle()
 
-      if (!tx) {
-        return NextResponse.json(
-          { error: 'AEPS transaction not found' },
-          { status: 404 }
-        )
-      }
-
-      if (tx.status === 'reversed') {
-        return NextResponse.json(
-          { error: 'Transaction already reversed' },
-          { status: 400 }
-        )
+      if (claimErr || !tx) {
+        return NextResponse.json({ error: 'AEPS transaction already reversed or not found' }, { status: 400 })
       }
 
       originalTransaction = tx
@@ -131,24 +114,16 @@ export async function POST(request: NextRequest) {
       wallet_type = 'aeps'
       original_ledger_id = tx.wallet_debit_id
     } else if (transaction_type === 'settlement') {
-      const { data: tx } = await supabase
+      const { data: tx, error: claimErr } = await supabase
         .from('settlements')
-        .select('id, user_id, user_role, amount, ledger_entry_id, status')
+        .update({ status: 'reversed' })
         .eq('id', transaction_id)
-        .single()
+        .not('status', 'eq', 'reversed')
+        .select('id, user_id, user_role, amount, ledger_entry_id, status')
+        .maybeSingle()
 
-      if (!tx) {
-        return NextResponse.json(
-          { error: 'Settlement not found' },
-          { status: 404 }
-        )
-      }
-
-      if (tx.status === 'reversed') {
-        return NextResponse.json(
-          { error: 'Settlement already reversed' },
-          { status: 400 }
-        )
+      if (claimErr || !tx) {
+        return NextResponse.json({ error: 'Settlement already reversed or not found' }, { status: 400 })
       }
 
       originalTransaction = tx
@@ -244,23 +219,7 @@ export async function POST(request: NextRequest) {
       })
       .eq('id', reversal.id)
 
-    // Update original transaction status
-    if (transaction_type === 'bbps') {
-      await supabase
-        .from('bbps_transactions')
-        .update({ status: 'reversed' })
-        .eq('id', transaction_id)
-    } else if (transaction_type === 'aeps') {
-      await supabase
-        .from('aeps_transactions')
-        .update({ status: 'reversed' })
-        .eq('id', transaction_id)
-    } else if (transaction_type === 'settlement') {
-      await supabase
-        .from('settlements')
-        .update({ status: 'reversed' })
-        .eq('id', transaction_id)
-    }
+    // Status already set to 'reversed' atomically above — no separate update needed.
 
     // Log admin action
     const { error: auditError } = await supabase

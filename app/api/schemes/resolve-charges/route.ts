@@ -36,9 +36,9 @@ function logStartupDiagnostic() {
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
   console.log(`[resolve-charges] ===== STARTUP DIAGNOSTIC =====`)
-  console.log(`[resolve-charges] NEXT_PUBLIC_SUPABASE_URL: ${url ? 'SET (' + url.substring(0, 30) + '...)' : '** MISSING **'}`)
-  console.log(`[resolve-charges] SUPABASE_SERVICE_ROLE_KEY: ${serviceKey ? 'SET (' + serviceKey.substring(0, 10) + '...)' : '** MISSING **'}`)
-  console.log(`[resolve-charges] NEXT_PUBLIC_SUPABASE_ANON_KEY: ${anonKey ? 'SET (' + anonKey.substring(0, 10) + '...)' : '** MISSING **'}`)
+  console.log(`[resolve-charges] NEXT_PUBLIC_SUPABASE_URL: ${url ? 'SET' : '** MISSING **'}`)
+  console.log(`[resolve-charges] SUPABASE_SERVICE_ROLE_KEY: ${serviceKey ? 'SET' : '** MISSING **'}`)
+  console.log(`[resolve-charges] NEXT_PUBLIC_SUPABASE_ANON_KEY: ${anonKey ? 'SET' : '** MISSING **'}`)
   console.log(`[resolve-charges] Node env: ${process.env.NODE_ENV}`)
   console.log(`[resolve-charges] ==============================`)
 }

@@ -11,6 +11,50 @@ export interface PartnerPOSTxnInput {
   card_brand?: string | null
   merchant_slug?: string | null
   partner_id?: string | null
+  created_at?: string | null
+  display_status?: string | null
+  txn_type?: string | null
+}
+
+/** POS statuses that represent a successfully captured, settleable payment. */
+const SETTLEABLE_STATUSES = ['SUCCESS', 'CAPTURED', 'AUTHORIZED', 'COMPLETED']
+/** Non-settleable transaction shapes (refunds/reversals must never pay out). */
+const NON_SETTLEABLE_TYPES = ['REFUND', 'REVERSAL', 'REVERSED', 'VOID', 'VOIDED', 'CHARGEBACK']
+const NON_SETTLEABLE_STATUSES = ['REFUND', 'REFUNDED', 'REVERSED', 'FAILED', 'FAILURE', 'VOID', 'VOIDED', 'CHARGEBACK', 'PENDING', 'INITIATED']
+
+/**
+ * Transaction-level settlement gate shared by the T+1 cron, Pulse Pay and
+ * Instant paths. A transaction only pays out to a partner wallet after it
+ * passes every check here.
+ */
+export function validatePartnerTxnForSettlement(txn: {
+  display_status?: string | null
+  txn_type?: string | null
+  gross_amount?: number | null
+  amount?: number | null
+}): { ok: boolean; reason?: string } {
+  const status = (txn.display_status || '').trim().toUpperCase()
+  const type = (txn.txn_type || 'CHARGE').trim().toUpperCase()
+
+  if (NON_SETTLEABLE_TYPES.includes(type)) {
+    return { ok: false, reason: `non-settleable txn_type '${type}'` }
+  }
+  if (status && NON_SETTLEABLE_STATUSES.includes(status)) {
+    return { ok: false, reason: `non-settleable status '${status}'` }
+  }
+  if (status && !SETTLEABLE_STATUSES.includes(status)) {
+    return { ok: false, reason: `unrecognized status '${status}'` }
+  }
+  if (!status) {
+    return { ok: false, reason: 'missing transaction status' }
+  }
+
+  const amount = parseFloat(String(txn.gross_amount ?? txn.amount ?? '0'))
+  if (!(amount > 0)) {
+    return { ok: false, reason: 'zero or negative amount' }
+  }
+
+  return { ok: true }
 }
 
 /**
@@ -28,7 +72,7 @@ export async function resolvePartnerIdForDevice(
     const { data } = await supabase
       .from('pos_machines')
       .select('partner_id')
-      .or(`device_serial.eq.${deviceSerial},serial_number.eq.${deviceSerial}`)
+      .eq('serial_number', deviceSerial)
       .not('partner_id', 'is', null)
       .limit(1)
       .maybeSingle()
@@ -105,14 +149,22 @@ export async function attachPartnerAndMaybeInstantSettle(
   try {
     const { data: partnerRow } = await supabase
       .from('partners')
-      .select('settlement_mode_allowed, t1_settlement_paused, status')
+      .select('settlement_mode_allowed, t1_settlement_paused, status, t1_settlement_start_at')
       .eq('id', partnerId)
       .maybeSingle()
+
+    // Never instant-settle transactions captured before the partner's
+    // settlement start date (protects against paying a historical backlog).
+    const beforeStart =
+      partnerRow?.t1_settlement_start_at &&
+      txn.created_at &&
+      new Date(txn.created_at) < new Date(partnerRow.t1_settlement_start_at)
 
     if (
       partnerRow?.settlement_mode_allowed === 'INSTANT' &&
       !partnerRow.t1_settlement_paused &&
-      partnerRow.status === 'active'
+      partnerRow.status === 'active' &&
+      !beforeStart
     ) {
       const result = await settlePartnerTransactionsT0(partnerId, [txn], 'PARTNER-INSTANT')
       if (result.success) {
@@ -174,15 +226,69 @@ export async function settlePartnerTransactionsT0(
 
   const supabase = getSupabaseAdmin()
   const { calculatePartnerMDR, creditPartnerWallet } = await import('@/lib/mdr-scheme/settlement.service')
+  const { raiseSettlementAlert } = await import('@/lib/settlement-alerts')
+
+  // Partner-level gate: never settle for an inactive/paused partner, and only
+  // for a settlement mode that permits this path.
+  const { data: partnerRow } = await supabase
+    .from('partners')
+    .select('settlement_mode_allowed, t1_settlement_paused, status, t1_settlement_start_at')
+    .eq('id', partnerId)
+    .maybeSingle()
+
+  if (!partnerRow) {
+    result.error = 'Partner not found'
+    return result
+  }
+  if (partnerRow.status !== 'active') {
+    result.error = `Partner is not active (status: ${partnerRow.status})`
+    return result
+  }
+  if (partnerRow.t1_settlement_paused) {
+    result.error = 'Partner settlement is paused'
+    return result
+  }
+  const mode = partnerRow.settlement_mode_allowed || 'T1'
+  const modeAllowed =
+    referencePrefix === 'PARTNER-INSTANT' ? mode === 'INSTANT' : ['T0_T1', 'INSTANT'].includes(mode)
+  if (!modeAllowed) {
+    result.error = `Settlement mode '${mode}' does not permit this settlement`
+    return result
+  }
+  const startAt = partnerRow.t1_settlement_start_at ? new Date(partnerRow.t1_settlement_start_at) : null
 
   const failureReasons: string[] = []
   const processedTxns: Array<{ id: string; txn_id: string; amount: number; mdrAmount: number; netAmount: number }> = []
 
   for (const txn of transactions) {
     const grossAmount = parseFloat(txn.gross_amount || txn.amount || '0')
-    if (grossAmount <= 0) {
+
+    // Ownership: the transaction must belong to this partner.
+    if (txn.partner_id && txn.partner_id !== partnerId) {
       result.failed++
-      failureReasons.push(`${txn.txn_id}: zero or negative amount`)
+      const reason = 'transaction belongs to a different partner'
+      failureReasons.push(`${txn.txn_id}: ${reason}`)
+      await raiseSettlementAlert(supabase, {
+        partnerId, txnId: txn.txn_id, amount: grossAmount, reason, alertType: 'PARTNER_OWNERSHIP_MISMATCH',
+      })
+      continue
+    }
+
+    // Status / refund / amount gate.
+    const gate = validatePartnerTxnForSettlement(txn)
+    if (!gate.ok) {
+      result.failed++
+      failureReasons.push(`${txn.txn_id}: ${gate.reason}`)
+      await raiseSettlementAlert(supabase, {
+        partnerId, txnId: txn.txn_id, amount: grossAmount, reason: gate.reason!, alertType: 'PARTNER_TXN_NOT_SETTLEABLE',
+      })
+      continue
+    }
+
+    // Start-date guard: expected skip for historical backlog — no alert.
+    if (startAt && txn.created_at && new Date(txn.created_at) < startAt) {
+      result.failed++
+      failureReasons.push(`${txn.txn_id}: before partner settlement start date`)
       continue
     }
 
@@ -199,8 +305,12 @@ export async function settlePartnerTransactionsT0(
 
       if (!mdrResult.success) {
         result.failed++
-        failureReasons.push(`${txn.txn_id}: ${mdrResult.error || 'MDR calculation failed'}`)
-        console.warn(`[Partner T0] MDR calc failed for partner ${partnerId}, txn ${txn.txn_id}: ${mdrResult.error}`)
+        const reason = mdrResult.error || 'MDR calculation failed'
+        failureReasons.push(`${txn.txn_id}: ${reason}`)
+        console.warn(`[Partner T0] MDR calc failed for partner ${partnerId}, txn ${txn.txn_id}: ${reason}`)
+        await raiseSettlementAlert(supabase, {
+          partnerId, txnId: txn.txn_id, amount: grossAmount, reason, alertType: 'PARTNER_MDR_RATE_MISSING',
+        })
         continue
       }
 
@@ -308,6 +418,12 @@ export async function settlePartnerTransactionsT0(
       })
       .eq('id', item.id)
   }
+
+  // Clear any open alerts for transactions that just settled.
+  try {
+    const { resolveSettlementAlerts } = await import('@/lib/settlement-alerts')
+    await resolveSettlementAlerts(supabase, claimedTxns.map(t => t.txn_id), 'partner-settled')
+  } catch { /* alerting must not break settlement */ }
 
   console.log(
     `[Partner T0] Partner ${partnerId}: ${claimedTxns.length} settled via ${referencePrefix}, net: ₹${claimedNet.toFixed(2)} (ref: ${referenceId})`
