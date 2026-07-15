@@ -35,9 +35,6 @@ export async function OPTIONS(request: NextRequest) {
  * Auth protections (CAPTCHA + leaked-password protection) for full coverage.
  */
 export async function POST(request: NextRequest) {
-  const rl = rateLimit(request, RATE_LIMITS.login)
-  if (rl.limited) return addCorsHeaders(request, rl.response!)
-
   try {
     const body = await request.json().catch(() => ({}))
     const action = body?.action
@@ -45,6 +42,15 @@ export async function POST(request: NextRequest) {
 
     if (!email) {
       return addCorsHeaders(request, NextResponse.json({ error: 'email is required' }, { status: 400 }))
+    }
+
+    // Only throttle the write path (recording attempts). The read-only 'check'
+    // runs on page load / auto-submit and must NEVER 429 — otherwise users get
+    // "too many attempts" before they've even submitted a password. Real
+    // brute-force protection is the failed-attempt lockout (MAX_FAILED / window).
+    if (action === 'record') {
+      const rl = rateLimit(request, RATE_LIMITS.login)
+      if (rl.limited) return addCorsHeaders(request, rl.response!)
     }
 
     const admin = getAdmin()

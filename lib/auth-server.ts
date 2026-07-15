@@ -307,9 +307,13 @@ async function checkActiveSession(user: AuthUser): Promise<AuthUser | null> {
  * can respond with 503 instead of 401 (avoiding false session-expired logouts).
  */
 export async function getCurrentUserWithFallback(
-  request: NextRequest
+  request: NextRequest,
+  opts?: { skipSessionCheck?: boolean }
 ): Promise<{ user: AuthUser | null; method: 'cookies' | 'token' | 'none' }> {
   let networkError: AuthNetworkError | null = null
+  // register-session bootstraps the very first user_sessions row, so it must
+  // authenticate WITHOUT requiring a pre-existing active session (chicken-and-egg).
+  const skipSessionCheck = opts?.skipSessionCheck === true
 
   // First try Authorization header (more reliable for API routes)
   const authHeader = request.headers.get('authorization')
@@ -317,6 +321,7 @@ export async function getCurrentUserWithFallback(
     try {
       const tokenUser = await getCurrentUserFromToken(authHeader)
       if (tokenUser) {
+        if (skipSessionCheck) return { user: tokenUser, method: 'token' }
         const checkedUser = await checkActiveSession(tokenUser)
         if (!checkedUser) return { user: null, method: 'none' }
         return { user: checkedUser, method: 'token' }
@@ -337,6 +342,7 @@ export async function getCurrentUserWithFallback(
   try {
     const cookieUser = await getCurrentUserServer()
     if (cookieUser) {
+      if (skipSessionCheck) return { user: cookieUser, method: 'cookies' }
       const checkedUser = await checkActiveSession(cookieUser)
       if (!checkedUser) return { user: null, method: 'none' }
       return { user: checkedUser, method: 'cookies' }

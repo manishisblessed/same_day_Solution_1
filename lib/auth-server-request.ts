@@ -13,10 +13,11 @@ import { getCurrentUserWithFallback, AuthNetworkError } from '@/lib/auth-server'
 export { AuthNetworkError }
 
 export async function getCurrentUserFromRequest(
-  request: NextRequest
+  request: NextRequest,
+  opts?: { skipSessionCheck?: boolean }
 ): Promise<AuthUser | null> {
   // AuthNetworkError propagates to caller (route returns 503, not 401)
-  const { user, method } = await getCurrentUserWithFallback(request)
+  const { user, method } = await getCurrentUserWithFallback(request, opts)
   if (!user) {
     console.warn('[Auth] getCurrentUserFromRequest: no user (method:', method, ')')
   }

@@ -73,9 +73,16 @@ export function rateLimit(
       p_window_ms: windowMs,
     }).then(({ data }: { data: any }) => {
       if (data?.limited) {
-        // Mark in memory so next sync call also blocks
-        const now = Date.now()
-        memStore.set(key, { count: maxRequests + 1, resetAt: now + windowMs })
+        // Mark in memory so next sync call also blocks — but DON'T keep pushing
+        // resetAt forward on every hit, or the lockout never expires while the
+        // client keeps polling. Preserve the existing window if one is active.
+        const nowTs = Date.now()
+        const existing = memStore.get(key)
+        if (!existing || existing.resetAt < nowTs) {
+          memStore.set(key, { count: maxRequests + 1, resetAt: nowTs + windowMs })
+        } else {
+          existing.count = Math.max(existing.count, maxRequests + 1)
+        }
       }
     }).catch(() => { /* DB unavailable, rely on memory */ })
   }

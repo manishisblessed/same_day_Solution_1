@@ -9,7 +9,6 @@ import Link from 'next/link'
 import { AlertCircle, Loader2, MapPin, ShieldCheck, Clock, Eye, EyeOff, Monitor, KeyRound } from 'lucide-react'
 import { getGeoLocationForLogin } from '@/hooks/useGeolocation'
 import TurnstileWidget, { TurnstileHandle, isCaptchaEnabled } from '@/components/TurnstileWidget'
-import LoginIssueDialog from '@/components/LoginIssueDialog'
 import { TwoFactorRequiredError } from '@/lib/auth'
 
 type BannerType = 'expired' | 'replaced' | null
@@ -34,7 +33,6 @@ export default function BusinessLogin() {
   const [show2FA, setShow2FA] = useState(false)
   const [totpCode, setTotpCode] = useState('')
   const [useBackupCode, setUseBackupCode] = useState(false)
-  const [loginIssues, setLoginIssues] = useState<string[]>([])
   const turnstileRef = useRef<TurnstileHandle>(null)
   const geoTriggered = useRef(false)
 
@@ -57,14 +55,19 @@ export default function BusinessLogin() {
     }
   }, [])
 
-  // Auto-capture geolocation in background
-  useEffect(() => {
-    if (!mounted || geoTriggered.current) return
-    geoTriggered.current = true
+  const captureLocation = () => {
     setLocationStatus('capturing')
     getGeoLocationForLogin(15000).then((geo) => {
       setLocationStatus(geo ? 'done' : 'failed')
     })
+  }
+
+  // Auto-capture geolocation on mount (location is required to sign in)
+  useEffect(() => {
+    if (!mounted || geoTriggered.current) return
+    geoTriggered.current = true
+    captureLocation()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mounted])
 
   useEffect(() => {
@@ -123,17 +126,20 @@ export default function BusinessLogin() {
     e.preventDefault()
     setError('')
 
-    // Collect non-blocking issues: inform the user via popup but sign in anyway.
-    const issues: string[] = []
-    if (locationStatus === 'failed') {
-      issues.push('Location access was denied, so your login location will not be recorded.')
-    } else if (locationStatus === 'capturing' || locationStatus === 'pending') {
-      issues.push('Location capture is still in progress; it will be saved if it completes in time.')
+    // Location and CAPTCHA are REQUIRED — block sign-in until both succeed.
+    if (locationStatus !== 'done') {
+      if (locationStatus === 'failed') {
+        setError('Location access is required to sign in. Please allow location access, then try again.')
+        captureLocation()
+      } else {
+        setError('Please wait — capturing your location…')
+      }
+      return
     }
     if (isCaptchaEnabled() && !captchaToken) {
-      issues.push('CAPTCHA verification did not complete; signing in without it.')
+      setError('Please complete the CAPTCHA verification before signing in.')
+      return
     }
-    if (issues.length > 0) setLoginIssues(issues)
 
     setLoading(true)
 
@@ -172,7 +178,6 @@ export default function BusinessLogin() {
       setError(err.message || 'Invalid credentials')
       setCaptchaToken('')
       turnstileRef.current?.reset()
-      setLoginIssues([])
       setLoading(false)
     }
   }
@@ -459,7 +464,13 @@ export default function BusinessLogin() {
                           <><ShieldCheck className="w-4 h-4 text-green-600" /><span className="text-green-700">Location captured</span></>
                         )}
                         {locationStatus === 'failed' && (
-                          <><MapPin className="w-4 h-4 text-red-500" /><span className="text-red-600">Location denied — please allow location access</span></>
+                          <>
+                            <MapPin className="w-4 h-4 text-red-500" />
+                            <span className="text-red-600">Location required — please allow access.</span>
+                            <button type="button" onClick={captureLocation} className="ml-auto text-red-700 underline font-medium">
+                              Retry
+                            </button>
+                          </>
                         )}
                         {locationStatus === 'pending' && (
                           <><MapPin className="w-4 h-4 text-gray-400" /><span className="text-gray-500">Preparing location check...</span></>
@@ -479,10 +490,16 @@ export default function BusinessLogin() {
 
                       <button
                         type="submit"
-                        disabled={loading}
-                        className="w-full btn-primary disabled:opacity-60"
+                        disabled={loading || locationStatus !== 'done' || (isCaptchaEnabled() && !captchaToken)}
+                        className="w-full btn-primary disabled:opacity-60 disabled:cursor-not-allowed"
                       >
-                        {loading ? 'Signing in...' : 'Sign In'}
+                        {loading
+                          ? 'Signing in...'
+                          : locationStatus !== 'done'
+                            ? 'Waiting for location...'
+                            : isCaptchaEnabled() && !captchaToken
+                              ? 'Complete CAPTCHA to continue'
+                              : 'Sign In'}
                       </button>
                     </form>
 
@@ -524,7 +541,6 @@ export default function BusinessLogin() {
           </div>
         </section>
       </AnimatedSection>
-      <LoginIssueDialog issues={loginIssues} signingIn={loading} onDismiss={() => setLoginIssues([])} />
     </div>
   )
 }

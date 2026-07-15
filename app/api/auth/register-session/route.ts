@@ -4,7 +4,9 @@ import { getCurrentUserFromRequest } from '@/lib/auth-server-request'
 
 export async function POST(request: NextRequest) {
   try {
-    const user = await getCurrentUserFromRequest(request)
+    // Bootstrapping the session row itself — must NOT require a pre-existing
+    // active session, otherwise login can never register the first session.
+    const user = await getCurrentUserFromRequest(request, { skipSessionCheck: true })
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
