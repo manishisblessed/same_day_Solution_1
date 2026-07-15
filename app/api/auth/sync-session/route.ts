@@ -41,10 +41,16 @@ export async function POST(request: NextRequest) {
           },
           setAll(cookiesToSet: Array<{ name: string; value: string; options?: any }>) {
             cookiesToSet.forEach(({ name, value, options }) => {
-              // Set cookies in the response so they're sent to the browser
+              // Set cookies in the response so they're sent to the browser.
+              // CRITICAL: httpOnly must be FALSE. The Supabase browser client
+              // stores/reads its session in these same sb-* cookies via
+              // document.cookie. Marking them httpOnly here overwrote the
+              // client's cookies with JS-unreadable ones, so getSession()
+              // returned null after login → no Bearer token on API calls →
+              // 401s from the EC2 backend → "Session Ended" loop.
               response.cookies.set(name, value, {
                 ...options,
-                httpOnly: true,
+                httpOnly: false,
                 sameSite: 'lax',
                 secure: process.env.NODE_ENV === 'production',
                 path: '/',
