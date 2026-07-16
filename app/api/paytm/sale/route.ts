@@ -40,8 +40,8 @@ export async function POST(request: NextRequest) {
     if (merchantReferenceNo) body.merchantReferenceNo = merchantReferenceNo
 
     const extendedInfo: Record<string, string> = {}
-    if (paymentMode) extendedInfo.paymentMode = paymentMode
-    else extendedInfo.paymentMode = 'ALL'
+    if (paymentMode) extendedInfo.PaymentMode = paymentMode
+    else extendedInfo.PaymentMode = 'All'
     if (autoAccept) extendedInfo.autoAccept = 'True'
     if (Object.keys(extendedInfo).length > 0) body.merchantExtendedInfo = extendedInfo
 
@@ -50,8 +50,9 @@ export async function POST(request: NextRequest) {
       body,
     })
 
-    const resultStatus = data?.body?.resultInfo?.resultStatus || data?.body?.resultStatus
-    const accepted = resultStatus === 'A'
+    const resultInfo = data?.body?.resultInfo || {}
+    // resultCode "A" = Accepted, "F" = Failed
+    const accepted = resultInfo.resultCode === 'A' || resultInfo.resultStatus === 'ACCEPTED_SUCCESS'
 
     return NextResponse.json({
       success: accepted,
@@ -60,9 +61,10 @@ export async function POST(request: NextRequest) {
       paytmTid,
       amountInPaise,
       amountInRupees: Number(amount),
-      resultStatus,
-      resultCode: data?.body?.resultInfo?.resultCode,
-      resultMsg: data?.body?.resultInfo?.resultMsg,
+      resultStatus: resultInfo.resultStatus,
+      resultCode: resultInfo.resultCode,
+      resultCodeId: resultInfo.resultCodeId,
+      resultMsg: resultInfo.resultMsg,
       raw: data,
     })
   } catch (error: any) {

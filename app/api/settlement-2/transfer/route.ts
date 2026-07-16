@@ -309,22 +309,39 @@ export async function POST(request: NextRequest) {
     }
 
     // Duplicate prevention — same account + same amount within 1 min
-    const oneMinuteAgo = new Date(Date.now() - 1 * 60 * 1000).toISOString()
-    const { data: recentTx } = await supabaseAdmin
+    // SUCCESS txns: block for full 60s (prevents double credit/debit)
+    // PENDING txns: block only for 15s (allows retry after stale timeouts)
+    const oneMinuteAgo = new Date(Date.now() - 60 * 1000).toISOString()
+    const fifteenSecAgo = new Date(Date.now() - 15 * 1000).toISOString()
+
+    const { data: recentSuccessTx } = await supabaseAdmin
       .from('shadval_settlement')
       .select('id, status, created_at')
       .eq('retailer_id', user.partner_id)
       .eq('account_number', account.account_number)
       .eq('amount', amountNum)
       .gte('created_at', oneMinuteAgo)
-      .in('status', ['SUCCESS', 'PENDING'])
+      .eq('status', 'SUCCESS')
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle()
 
+    const { data: recentPendingTx } = await supabaseAdmin
+      .from('shadval_settlement')
+      .select('id, status, created_at')
+      .eq('retailer_id', user.partner_id)
+      .eq('account_number', account.account_number)
+      .eq('amount', amountNum)
+      .gte('created_at', fifteenSecAgo)
+      .eq('status', 'PENDING')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    const recentTx = recentSuccessTx || recentPendingTx
     if (recentTx) {
       const response = NextResponse.json(
-        { success: false, error: 'An identical transaction (same account + amount) is already processing. Please wait 1 minute.' },
+        { success: false, error: 'An identical transaction (same account + amount) is already processing. Please wait.' },
         { status: 429 }
       )
       return addCorsHeaders(request, response)

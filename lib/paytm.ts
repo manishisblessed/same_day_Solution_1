@@ -1,7 +1,7 @@
 import PaytmChecksum from 'paytmchecksum'
 
 const PAYTM_URLS = {
-  staging: 'https://securegw-stage.paytm.in',
+  staging: 'https://securestage.paytmpayments.com',
   production: 'https://securegw-edc.paytm.in',
 } as const
 

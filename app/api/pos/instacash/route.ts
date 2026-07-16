@@ -99,6 +99,25 @@ export async function POST(request: NextRequest) {
         ? new Date(partnerRow.t1_settlement_start_at)
         : null
 
+      // Resolve partner's TIDs/serials for ownership matching (same logic as dashboard)
+      const { data: partnerMachines } = await supabase
+        .from('pos_machines')
+        .select('tid, serial_number')
+        .eq('partner_id', partnerId)
+      const { data: partnerPosMachines } = await supabase
+        .from('partner_pos_machines')
+        .select('terminal_id')
+        .eq('partner_id', partnerId)
+        .eq('status', 'active')
+
+      const partnerTids = new Set([
+        ...(partnerMachines || []).map((m: any) => m.tid).filter(Boolean),
+        ...(partnerPosMachines || []).map((m: any) => m.terminal_id).filter(Boolean),
+      ])
+      const partnerSerials = new Set(
+        (partnerMachines || []).map((m: any) => m.serial_number).filter(Boolean)
+      )
+
       const { data: partnerTxns, error: partnerTxnError } = await supabase
         .from('razorpay_pos_transactions')
         .select('*')
@@ -113,7 +132,12 @@ export async function POST(request: NextRequest) {
         )
       }
 
-      const ownedTxns = (partnerTxns || []).filter((t: any) => t.partner_id === partnerId)
+      // Ownership: accept if partner_id matches OR TID/serial belongs to partner
+      const ownedTxns = (partnerTxns || []).filter((t: any) =>
+        t.partner_id === partnerId ||
+        (t.tid && partnerTids.has(t.tid)) ||
+        (t.device_serial && partnerSerials.has(t.device_serial))
+      )
       if (ownedTxns.length === 0) {
         return NextResponse.json(
           { success: false, error: 'No valid transactions found. Ensure they belong to you and are captured.' },
@@ -147,6 +171,18 @@ export async function POST(request: NextRequest) {
           },
           { status: 409 }
         )
+      }
+
+      // Attach partner_id on transactions matched by TID/serial (not already set)
+      const unattached = ownedTxns.filter((t: any) => !t.partner_id || t.partner_id !== partnerId)
+      if (unattached.length > 0) {
+        await supabase
+          .from('razorpay_pos_transactions')
+          .update({ partner_id: partnerId })
+          .in('id', unattached.map((t: any) => t.id))
+          .is('partner_id', null)
+        // Also set partner_id in-memory for downstream settlement
+        unattached.forEach((t: any) => { t.partner_id = partnerId })
       }
 
       const { settlePartnerTransactionsT0 } = await import('@/lib/partner-settlement')

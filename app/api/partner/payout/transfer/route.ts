@@ -194,23 +194,41 @@ export async function POST(request: NextRequest) {
     }
 
     // Duplicate prevention — same account + same amount within 1 min
-    const oneMinAgo = new Date(Date.now() - 1 * 60 * 1000).toISOString()
-    const { data: recentTx } = await supabase
+    // success/processing txns: block for full 60s (prevents double credit/debit)
+    // pending txns: block only for 15s (allows retry after stale timeouts)
+    const oneMinAgo = new Date(Date.now() - 60 * 1000).toISOString()
+    const fifteenSecAgo = new Date(Date.now() - 15 * 1000).toISOString()
+
+    const { data: recentCompletedTx } = await supabase
       .from('payout_transactions')
       .select('id, status, created_at, amount')
       .eq('partner_id', partner.id)
       .eq('account_number', accountNumber)
       .eq('amount', amountNum)
       .gte('created_at', oneMinAgo)
-      .in('status', ['pending', 'processing', 'success'])
+      .in('status', ['processing', 'success'])
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle()
 
+    const { data: recentPendingTx } = await supabase
+      .from('payout_transactions')
+      .select('id, status, created_at, amount')
+      .eq('partner_id', partner.id)
+      .eq('account_number', accountNumber)
+      .eq('amount', amountNum)
+      .gte('created_at', fifteenSecAgo)
+      .eq('status', 'pending')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    const recentTx = recentCompletedTx || recentPendingTx
     if (recentTx) {
       const secAgo = Math.round((Date.now() - new Date(recentTx.created_at).getTime()) / 1000)
+      const waitSec = recentTx.status === 'pending' ? 15 - secAgo : 60 - secAgo
       return NextResponse.json(
-        { success: false, error: { code: 'DUPLICATE', message: `Identical transaction (same account + amount) initiated ${secAgo}s ago. Wait ${60 - secAgo}s.` }, duplicate_prevention: true, wait_seconds: 60 - secAgo },
+        { success: false, error: { code: 'DUPLICATE', message: `Identical transaction (same account + amount) initiated ${secAgo}s ago. Wait ${Math.max(waitSec, 1)}s.` }, duplicate_prevention: true, wait_seconds: Math.max(waitSec, 1) },
         { status: 429 }
       )
     }

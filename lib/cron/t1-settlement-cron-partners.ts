@@ -53,7 +53,7 @@ export async function runPartnerT1Settlement(): Promise<{ processed: number; fai
     const { validatePartnerTxnForSettlement } = await import('@/lib/partner-settlement')
     const { raiseSettlementAlert, resolveSettlementAlerts } = await import('@/lib/settlement-alerts')
 
-    const beforeDate = new Date(Date.now() - 24 * 60 * 60 * 1000)
+    const beforeDate = new Date(new Date().setHours(0, 0, 0, 0))
     const pendingTransactions = await getPendingPartnerT1Transactions(beforeDate)
 
     if (pendingTransactions.length > 0) {
