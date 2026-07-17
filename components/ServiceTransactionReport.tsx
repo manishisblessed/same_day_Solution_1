@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { apiFetch } from '@/lib/api-client'
+import NetworkUserFilter, { NetworkFilterValue } from '@/components/reports/NetworkUserFilter'
 import {
   FileBarChart, Download, Calendar, Filter, Search,
   FileSpreadsheet, FileText, RefreshCw,
@@ -64,20 +65,6 @@ interface Pagination {
 type ServiceFilter = 'all' | 'pos' | 'bbps' | 'aeps' | 'settlement'
 type DatePreset = 'today' | 'yesterday' | 'week' | 'month' | 'quarter' | 'custom'
 
-interface NetworkUser {
-  id: string
-  name: string
-  business_name: string | null
-  role: string
-  status: string | null
-}
-
-const NETWORK_ROLE_LABELS: Record<string, string> = {
-  retailer: 'Retailer',
-  distributor: 'Distributor',
-  master_distributor: 'Master Distributor',
-}
-
 interface ServiceTransactionReportProps {
   userRole: 'admin' | 'finance_executive' | 'master_distributor' | 'distributor' | 'retailer'
   userName?: string
@@ -103,7 +90,7 @@ export default function ServiceTransactionReport({ userRole, userName, defaultSe
   const [error, setError] = useState('')
 
   // Filters
-  const [serviceFilter, setServiceFilter] = useState<ServiceFilter>(defaultService || 'all')
+  const [serviceFilter] = useState<ServiceFilter>(defaultService || 'all')
   const [datePreset, setDatePreset] = useState<DatePreset>('month')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
@@ -131,61 +118,15 @@ export default function ServiceTransactionReport({ userRole, userName, defaultSe
 
   // Admin/finance: filter by a specific network user (RT/DT/MD)
   const isAdminView = userRole === 'admin' || userRole === 'finance_executive'
-  const [selectedNetworkUser, setSelectedNetworkUser] = useState<NetworkUser | null>(null)
-  const [networkUserQuery, setNetworkUserQuery] = useState('')
-  const [networkUserResults, setNetworkUserResults] = useState<NetworkUser[]>([])
-  const [networkUserSearching, setNetworkUserSearching] = useState(false)
-  const [showNetworkUserDropdown, setShowNetworkUserDropdown] = useState(false)
-  const networkPickerRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!isAdminView) return
-    const query = networkUserQuery.trim()
-    if (query.length < 2) {
-      setNetworkUserResults([])
-      return
-    }
-    const t = setTimeout(async () => {
-      setNetworkUserSearching(true)
-      try {
-        const res = await apiFetch(
-          `/api/admin/users/search?q=${encodeURIComponent(query)}&roles=retailer,distributor,master_distributor`
-        )
-        const json = await res.json()
-        if (res.ok) setNetworkUserResults(json.results || [])
-      } catch {
-        setNetworkUserResults([])
-      } finally {
-        setNetworkUserSearching(false)
-      }
-    }, 350)
-    return () => clearTimeout(t)
-  }, [networkUserQuery, isAdminView])
-
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (networkPickerRef.current && !networkPickerRef.current.contains(e.target as Node)) {
-        setShowNetworkUserDropdown(false)
-      }
-    }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [])
+  const [networkFilter, setNetworkFilter] = useState<NetworkFilterValue | null>(null)
 
   const applyNetworkUserParams = useCallback((params: URLSearchParams) => {
-    if (!isAdminView || !selectedNetworkUser) return
-    if (selectedNetworkUser.role === 'retailer') params.set('user_id', selectedNetworkUser.id)
-    else if (selectedNetworkUser.role === 'distributor') params.set('distributor_id', selectedNetworkUser.id)
-    else if (selectedNetworkUser.role === 'master_distributor') params.set('md_id', selectedNetworkUser.id)
-  }, [isAdminView, selectedNetworkUser])
-
-  const serviceOptions: { value: ServiceFilter; label: string; icon: any; color: string }[] = [
-    { value: 'all', label: 'All Services', icon: Globe, color: 'gray' },
-    { value: 'pos', label: 'POS', icon: CreditCard, color: 'blue' },
-    { value: 'bbps', label: 'BBPS', icon: Receipt, color: 'green' },
-    { value: 'aeps', label: 'AEPS', icon: Smartphone, color: 'amber' },
-    { value: 'settlement', label: 'Settlement', icon: Banknote, color: 'purple' },
-  ]
+    if (!networkFilter) return
+    if (networkFilter.user_id) params.set('user_id', networkFilter.user_id)
+    if (networkFilter.distributor_id) params.set('distributor_id', networkFilter.distributor_id)
+    if (networkFilter.md_id) params.set('md_id', networkFilter.md_id)
+    if (networkFilter.partner_id) params.set('partner_id', networkFilter.partner_id)
+  }, [networkFilter])
 
   // ============================================================================
   // DATE HELPERS
@@ -213,7 +154,7 @@ export default function ServiceTransactionReport({ userRole, userName, defaultSe
         start = new Date(now.getFullYear(), now.getMonth(), 1).toISOString()
         break
       case 'quarter':
-        start = new Date(now.getFullYear(), Math.floor(now.getMonth() / 3) * 3, 1).toISOString()
+        start = new Date(now.getFullYear(), now.getMonth() - 2, 1).toISOString()
         break
       case 'custom':
         start = dateFrom ? new Date(dateFrom).toISOString() : new Date(now.getFullYear(), now.getMonth(), 1).toISOString()
@@ -275,7 +216,7 @@ export default function ServiceTransactionReport({ userRole, userName, defaultSe
 
   useEffect(() => {
     fetchReport(1)
-  }, [fetchReport, serviceFilter, datePreset, dateFrom, dateTo, statusFilter, rowsPerPage, selectedNetworkUser])
+  }, [fetchReport, serviceFilter, datePreset, dateFrom, dateTo, statusFilter, rowsPerPage, networkFilter])
 
   const handleSearch = () => fetchReport(1)
   const handlePageChange = (page: number) => fetchReport(page)
@@ -532,32 +473,6 @@ export default function ServiceTransactionReport({ userRole, userName, defaultSe
         </div>
       </motion.div>
 
-      {/* Service Filter Chips */}
-      {!defaultService && (
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}
-        className="flex flex-wrap gap-2"
-      >
-        {serviceOptions.map(opt => {
-          const Icon = opt.icon
-          const active = serviceFilter === opt.value
-          return (
-            <button
-              key={opt.value}
-              onClick={() => setServiceFilter(opt.value)}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg border-2 text-sm font-medium transition-all ${
-                active
-                  ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300'
-                  : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:border-gray-300'
-              }`}
-            >
-              <Icon className="w-4 h-4" />
-              {opt.label}
-            </button>
-          )
-        })}
-      </motion.div>
-      )}
-
       {/* Filters Bar */}
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}
         className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-lg border border-gray-100 dark:border-gray-700"
@@ -572,7 +487,6 @@ export default function ServiceTransactionReport({ userRole, userName, defaultSe
               <option value="yesterday">Yesterday</option>
               <option value="week">Last 7 Days</option>
               <option value="month">This Month</option>
-              <option value="quarter">This Quarter</option>
               <option value="custom">Custom Range</option>
             </select>
           </div>
@@ -592,60 +506,9 @@ export default function ServiceTransactionReport({ userRole, userName, defaultSe
             </>
           )}
 
-          {isAdminView && (
-            <div ref={networkPickerRef} className="relative min-w-[230px]">
-              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">
-                User / Partner (RT, DT, MD)
-              </label>
-              {selectedNetworkUser ? (
-                <div className="flex items-center gap-2 px-3 py-2 text-sm border-2 rounded-lg bg-indigo-50 dark:bg-indigo-900/20 border-indigo-300 dark:border-indigo-700">
-                  <User className="w-4 h-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
-                  <span className="truncate font-medium text-gray-900 dark:text-white">{selectedNetworkUser.name}</span>
-                  <span className="text-xs text-gray-500 truncate">
-                    {NETWORK_ROLE_LABELS[selectedNetworkUser.role] || selectedNetworkUser.role}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => { setSelectedNetworkUser(null); setNetworkUserQuery('') }}
-                    className="ml-auto p-0.5 rounded hover:bg-indigo-100 dark:hover:bg-indigo-800"
-                  >
-                    <X className="w-4 h-4 text-gray-500" />
-                  </button>
-                </div>
-              ) : (
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                  <input
-                    type="text"
-                    value={networkUserQuery}
-                    onChange={e => { setNetworkUserQuery(e.target.value); setShowNetworkUserDropdown(true) }}
-                    onFocus={() => setShowNetworkUserDropdown(true)}
-                    placeholder="All users — search to filter…"
-                    className="w-full pl-10 pr-8 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 text-sm focus:ring-2 focus:ring-indigo-500"
-                  />
-                  {networkUserSearching && (
-                    <Loader2 className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 animate-spin" />
-                  )}
-                </div>
-              )}
-              {showNetworkUserDropdown && !selectedNetworkUser && networkUserResults.length > 0 && (
-                <div className="absolute z-20 mt-1 w-full max-h-64 overflow-y-auto bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl">
-                  {networkUserResults.map(u => (
-                    <button
-                      key={`${u.role}-${u.id}`}
-                      type="button"
-                      onClick={() => { setSelectedNetworkUser(u); setShowNetworkUserDropdown(false); setNetworkUserResults([]) }}
-                      className="w-full text-left px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-700 border-b border-gray-100 dark:border-gray-700 last:border-0"
-                    >
-                      <div className="text-sm font-medium text-gray-900 dark:text-white truncate">{u.name}</div>
-                      <div className="text-xs text-gray-500 truncate">
-                        {u.id} · {NETWORK_ROLE_LABELS[u.role] || u.role}
-                        {u.status && u.status !== 'active' ? ` · ${u.status}` : ''}
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              )}
+          {userRole !== 'retailer' && userRole !== 'partner' && (
+            <div className="min-w-[230px]">
+              <NetworkUserFilter userRole={userRole} onChange={setNetworkFilter} />
             </div>
           )}
 

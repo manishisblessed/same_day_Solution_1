@@ -113,8 +113,12 @@ export async function GET(request: NextRequest) {
       const filterUserId = searchParams.get('user_id')?.trim()
       const filterDistributorId = searchParams.get('distributor_id')?.trim()
       const filterMdId = searchParams.get('md_id')?.trim()
+      const filterPartnerId = searchParams.get('partner_id')?.trim()
 
-      if (filterUserId) {
+      if (filterPartnerId) {
+        // Partner uuid + linked merchant ids (partner txns are keyed by partner uuid in most tables)
+        adminUserIds = await resolvePartnerRetailerScope(supabase, filterPartnerId)
+      } else if (filterUserId) {
         adminUserIds = [filterUserId]
       } else if (filterDistributorId) {
         const { data: rets } = await supabase
@@ -139,6 +143,23 @@ export async function GET(request: NextRequest) {
     }
 
     const downline = await resolveDownline(supabase, user)
+
+    // DT/MD sub-filter: narrow downline to a selected retailer (DT/MD) or distributor (MD)
+    if (user.role === 'distributor') {
+      const fUser = searchParams.get('user_id')?.trim()
+      if (fUser && downline.retailerIds.includes(fUser)) downline.retailerIds = [fUser]
+    } else if (user.role === 'master_distributor') {
+      const fUser = searchParams.get('user_id')?.trim()
+      const fDist = searchParams.get('distributor_id')?.trim()
+      if (fUser && downline.retailerIds.includes(fUser)) {
+        downline.retailerIds = [fUser]
+      } else if (fDist) {
+        const { data: rets } = await supabase.from('retailers').select('partner_id').eq('distributor_id', fDist)
+        const ids = (rets || []).map((r: any) => r.partner_id).filter((id: string) => downline.retailerIds.includes(id))
+        downline.retailerIds = ids.length ? ids : ['__none__']
+      }
+    }
+
     const partnerRetailerScope =
       user.role === 'partner' && user.partner_id
         ? await resolvePartnerRetailerScope(supabase, user.partner_id)
@@ -494,7 +515,74 @@ async function fetchBBPSTransactions(
     raw: tx,
   }))
 
-  return { data: normalized, count: count || 0 }
+  let totalCount = count || 0
+
+  // Also include BBPS-2 (Pay2New) and Credit Card (Rechargekit) from wallet_ledger
+  try {
+    let lq = supabase
+      .from('wallet_ledger')
+      .select('*', { count: 'exact' })
+      .in('service_type', ['pay2new', 'rechargekit'])
+      .in('transaction_type', ['PAY2NEW_DEBIT', 'RECHARGEKIT_CC_DEBIT'])
+      .order('created_at', { ascending: false })
+
+    if (user.role === 'partner') {
+      if (partnerRetailerScope?.length) lq = lq.in('retailer_id', partnerRetailerScope)
+      else lq = lq.eq('retailer_id', '__none__')
+    } else if (user.role === 'retailer') {
+      lq = lq.eq('retailer_id', user.partner_id)
+    } else if (user.role === 'distributor' || user.role === 'master_distributor') {
+      if (downline.retailerIds.length > 0) lq = lq.in('retailer_id', downline.retailerIds)
+      else lq = lq.eq('retailer_id', '__none__')
+    } else if (filters.adminUserIds) {
+      lq = lq.in('retailer_id', filters.adminUserIds)
+    }
+
+    if (filters.dateFrom) lq = lq.gte('created_at', filters.dateFrom)
+    if (filters.dateTo) lq = lq.lte('created_at', filters.dateTo)
+    if (filters.status) lq = lq.eq('status', filters.status.toLowerCase())
+    if (filters.search) lq = lq.ilike('reference_id', `%${sanitizeFilterValue(filters.search)}%`)
+
+    lq = lq.range(filters.offset, filters.offset + filters.limit - 1)
+
+    const { data: ledgerData, count: ledgerCount } = await lq
+    if (ledgerData) {
+      totalCount += ledgerCount || 0
+      for (const tx of ledgerData) {
+        const label = tx.service_type === 'rechargekit' ? 'Credit Card' : 'BBPS-2'
+        normalized.push({
+          id: tx.id,
+          service_type: 'BBPS',
+          transaction_id: tx.reference_id || tx.id,
+          tid: null,
+          amount: Number(tx.debit) || 0,
+          status: tx.status || 'completed',
+          commission: 0,
+          mdr: 0,
+          mdr_rate: 0,
+          settlement_type: '-',
+          scheme_name: '-',
+          scheme_id: null,
+          retailer_id: tx.retailer_id,
+          retailer_name: null,
+          distributor_id: null,
+          distributor_name: null,
+          master_distributor_id: null,
+          md_name: null,
+          payment_mode: label,
+          card_type: null,
+          device_serial: null,
+          description: tx.description || `${label} Payment`,
+          created_at: tx.created_at,
+          raw: tx,
+        })
+      }
+    }
+  } catch (err) {
+    console.error('[BBPS-2/CC ledger fetch error]', err)
+  }
+
+  return { data: normalized, count: totalCount }
 }
 
 async function fetchAEPSTransactions(
@@ -747,6 +835,76 @@ async function fetchSettlementTransactions(
     }
   } catch (err) {
     console.error('[Payout transactions error]', err)
+  }
+
+  // 3. Query `shadval_settlement` table (Settlement-2 bank transfers)
+  try {
+    let svQuery = supabase
+      .from('shadval_settlement')
+      .select('*', { count: 'exact' })
+      .order('created_at', { ascending: false })
+
+    if (user.role === 'partner') {
+      if (!partnerRetailerScope?.length) {
+        svQuery = svQuery.eq('retailer_id', '__none__')
+      } else {
+        svQuery = svQuery.in('retailer_id', partnerRetailerScope)
+      }
+    } else if (user.role === 'retailer') {
+      svQuery = svQuery.eq('retailer_id', user.partner_id)
+    } else if (user.role === 'distributor' || user.role === 'master_distributor') {
+      if (downline.retailerIds.length > 0) {
+        svQuery = svQuery.in('retailer_id', downline.retailerIds)
+      } else {
+        svQuery = svQuery.eq('retailer_id', '__none__')
+      }
+    } else if (filters.adminUserIds) {
+      svQuery = svQuery.in('retailer_id', filters.adminUserIds)
+    }
+
+    if (filters.dateFrom) svQuery = svQuery.gte('created_at', filters.dateFrom)
+    if (filters.dateTo) svQuery = svQuery.lte('created_at', filters.dateTo)
+    if (filters.status) svQuery = svQuery.eq('status', filters.status.toUpperCase())
+    if (filters.search) svQuery = svQuery.ilike('reference_id', `%${sanitizeFilterValue(filters.search)}%`)
+
+    svQuery = svQuery.range(filters.offset, filters.offset + filters.limit - 1)
+
+    const { data: svData, count: svCount, error: svError } = await svQuery
+    if (svError) {
+      console.error('[Shadval settlement fetch error]', svError)
+    } else if (svData) {
+      totalCount += svCount || 0
+      allResults = allResults.concat(svData.map((tx: any) => ({
+        id: tx.id,
+        service_type: 'Settlement',
+        transaction_id: tx.reference_id || tx.order_id || tx.id,
+        tid: null,
+        amount: Number(tx.amount) || 0,
+        status: tx.status || 'PENDING',
+        commission: 0,
+        mdr: Number(tx.charges) || 0,
+        mdr_rate: 0,
+        settlement_type: tx.mode || 'IMPS',
+        scheme_name: tx.scheme_name || '-',
+        scheme_id: tx.scheme_id || null,
+        retailer_id: tx.retailer_id,
+        retailer_name: null,
+        distributor_id: null,
+        distributor_name: null,
+        master_distributor_id: null,
+        md_name: null,
+        payment_mode: tx.mode || 'IMPS',
+        card_type: null,
+        device_serial: null,
+        description: tx.account_holder_name
+          ? `Settlement-2 to ${tx.account_holder_name} (${tx.mode || 'IMPS'})`
+          : `Settlement-2 - ${tx.mode || 'Bank Transfer'}`,
+        created_at: tx.created_at,
+        raw: tx,
+      })))
+    }
+  } catch (err) {
+    console.error('[Shadval settlement error]', err)
   }
 
   return { data: allResults, count: totalCount }

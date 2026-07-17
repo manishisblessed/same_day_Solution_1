@@ -24,6 +24,9 @@ import TransactionsTable from '@/components/TransactionsTable'
 import POSTransactionsTable from '@/components/POSTransactionsTable'
 import POSPartnerAPIManagement from '@/components/POSPartnerAPIManagement'
 import ServiceTransactionReport from '@/components/ServiceTransactionReport'
+import POSTransactionReport from '@/components/reports/POSTransactionReport'
+import PayoutTransactionReport from '@/components/reports/PayoutTransactionReport'
+import BillPaymentTransactionReport from '@/components/reports/BillPaymentTransactionReport'
 import { motion, AnimatePresence } from 'framer-motion'
 import { apiFetch } from '@/lib/api-client'
 import { useToast } from '@/components/Toast'
@@ -39,7 +42,7 @@ import AdminAEPSManagement from '@/components/admin/AdminAEPSManagement'
 import PortalManagementTab from '@/components/admin/PortalManagementTab'
 import AdminPushPullReport from '@/components/AdminPushPullReport'
 
-type TabType = 'dashboard' | 'retailers' | 'distributors' | 'master-distributors' | 'services' | 'pos-machines' | 'pos-history' | 'pos-tracking-report' | 'transactions' | 'partners' | 'pos-partner-api' | 'reports' | 'service-transaction-report' | 'pos-report' | 'bbps-report' | 'aeps-report' | 'settlement-report' | 'settlement' | 'revenue-wallet' | 'performance' | 'subscriptions' | 'wallet-ledger' | 'push-pull-report' | 'aeps' | 'portal-management'
+type TabType = 'dashboard' | 'retailers' | 'distributors' | 'master-distributors' | 'services' | 'pos-machines' | 'pos-history' | 'pos-tracking-report' | 'transactions' | 'partners' | 'pos-partner-api' | 'reports' | 'service-transaction-report' | 'pos-report' | 'bbps-report' | 'aeps-report' | 'settlement-report' | 'payout-report' | 'bill-payment-report' | 'settlement' | 'revenue-wallet' | 'performance' | 'subscriptions' | 'wallet-ledger' | 'push-pull-report' | 'aeps' | 'portal-management'
 type SortField = 'name' | 'email' | 'partner_id' | 'created_at' | 'status'
 type SortDirection = 'asc' | 'desc'
 
@@ -59,7 +62,7 @@ function AdminDashboardContent() {
   // Initialize activeTab from URL or default to 'dashboard'
   const getInitialTab = (): TabType => {
     const tab = searchParams?.get('tab')
-    if (tab && ['dashboard', 'retailers', 'distributors', 'master-distributors', 'pos-machines', 'pos-history', 'pos-tracking-report', 'pos-partner-api', 'services', 'transactions', 'partners', 'reports', 'service-transaction-report', 'pos-report', 'bbps-report', 'aeps-report', 'settlement-report', 'settlement', 'revenue-wallet', 'performance', 'subscriptions', 'wallet-ledger', 'push-pull-report', 'aeps', 'portal-management'].includes(tab)) {
+    if (tab && ['dashboard', 'retailers', 'distributors', 'master-distributors', 'pos-machines', 'pos-history', 'pos-tracking-report', 'pos-partner-api', 'services', 'transactions', 'partners', 'reports', 'service-transaction-report', 'pos-report', 'bbps-report', 'aeps-report', 'settlement-report', 'payout-report', 'bill-payment-report', 'settlement', 'revenue-wallet', 'performance', 'subscriptions', 'wallet-ledger', 'push-pull-report', 'aeps', 'portal-management'].includes(tab)) {
       return tab as TabType
     }
     return 'dashboard'
@@ -133,7 +136,7 @@ function AdminDashboardContent() {
   // Sync activeTab with URL query params
   useEffect(() => {
     const tab = searchParams?.get('tab')
-    if (tab && ['dashboard', 'retailers', 'distributors', 'master-distributors', 'pos-machines', 'pos-history', 'pos-tracking-report', 'pos-partner-api', 'services', 'transactions', 'partners', 'reports', 'service-transaction-report', 'pos-report', 'bbps-report', 'aeps-report', 'settlement-report', 'settlement', 'revenue-wallet', 'performance', 'subscriptions', 'wallet-ledger', 'push-pull-report', 'aeps', 'portal-management'].includes(tab)) {
+    if (tab && ['dashboard', 'retailers', 'distributors', 'master-distributors', 'pos-machines', 'pos-history', 'pos-tracking-report', 'pos-partner-api', 'services', 'transactions', 'partners', 'reports', 'service-transaction-report', 'pos-report', 'bbps-report', 'aeps-report', 'settlement-report', 'payout-report', 'bill-payment-report', 'settlement', 'revenue-wallet', 'performance', 'subscriptions', 'wallet-ledger', 'push-pull-report', 'aeps', 'portal-management'].includes(tab)) {
       if (tab !== activeTab) {
         setActiveTab(tab as TabType)
       }
@@ -597,13 +600,15 @@ function AdminDashboardContent() {
           ) : activeTab === 'service-transaction-report' ? (
             <ServiceTransactionReport userRole="admin" />
           ) : activeTab === 'pos-report' ? (
-            <ServiceTransactionReport userRole="admin" userName={user?.name} defaultService="pos" />
+            <POSTransactionReport userRole="admin" userName={user?.name} />
+          ) : activeTab === 'bill-payment-report' ? (
+            <BillPaymentTransactionReport userRole="admin" userName={user?.name} />
           ) : activeTab === 'bbps-report' ? (
             <ServiceTransactionReport userRole="admin" userName={user?.name} defaultService="bbps" />
           ) : activeTab === 'aeps-report' ? (
             <ServiceTransactionReport userRole="admin" userName={user?.name} defaultService="aeps" />
-          ) : activeTab === 'settlement-report' ? (
-            <ServiceTransactionReport userRole="admin" userName={user?.name} defaultService="settlement" />
+          ) : activeTab === 'settlement-report' || activeTab === 'payout-report' ? (
+            <PayoutTransactionReport userRole="admin" userName={user?.name} />
           ) : activeTab === 'settlement' ? (
             <T1SettlementControl />
           ) : activeTab === 'revenue-wallet' ? (

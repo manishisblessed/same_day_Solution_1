@@ -48,6 +48,9 @@ import PartnerSubscriptionsTab from '@/components/PartnerSubscriptionsTab'
 import POSTransactionsTable from '@/components/POSTransactionsTable'
 import POSPartnerAPIManagement from '@/components/POSPartnerAPIManagement'
 import ServiceTransactionReport from '@/components/ServiceTransactionReport'
+import POSTransactionReport from '@/components/reports/POSTransactionReport'
+import PayoutTransactionReport from '@/components/reports/PayoutTransactionReport'
+import BillPaymentTransactionReport from '@/components/reports/BillPaymentTransactionReport'
 import APIDashboardTab from '@/components/partner/APIDashboardTab'
 import BusinessAnalyticsTab from '@/components/partner/BusinessAnalyticsTab'
 import ReconciliationTab from '@/components/partner/ReconciliationTab'
@@ -1506,298 +1509,41 @@ function WalletTab({ user }: { user: any }) {
 
 function ReportsTab({ chartData, stats }: { chartData: any[], stats: any }) {
   const { user } = useAuth()
-  const { showToast } = useToast()
-  const [reportType, setReportType] = useState<'ledger' | 'transactions' | 'commission'>('ledger')
-  const [serviceFilter, setServiceFilter] = useState('all')
-  const [dateRange, setDateRange] = useState({ start: '', end: '' })
-  const [format, setFormat] = useState<'csv' | 'pdf' | 'xlsx' | 'zip'>('csv')
-  const [downloading, setDownloading] = useState(false)
-  const [statusBreakdown, setStatusBreakdown] = useState<{ success: number; failed: number; pending: number; total: number } | null>(null)
-  const [breakdownLoading, setBreakdownLoading] = useState(false)
+  const [activeReport, setActiveReport] = useState<'all' | 'pos' | 'payout' | 'bill-payment'>('all')
 
-  const SERVICE_TYPES = [
-    { value: 'all', label: 'All Services' },
-    { value: 'bbps', label: 'BBPS' },
-    { value: 'aeps', label: 'AEPS' },
-    { value: 'pos', label: 'POS' },
-    { value: 'settlement', label: 'Settlement' },
-    { value: 'credit', label: 'Credits' },
-    { value: 'debit', label: 'Debits' },
-    { value: 'commission', label: 'Commission' },
-    { value: 'dmt', label: 'DMT' },
+  const reportTabs = [
+    { id: 'all' as const, label: 'All Services', icon: Activity },
+    { id: 'pos' as const, label: 'POS Report', icon: CreditCard },
+    { id: 'payout' as const, label: 'Settlement Report', icon: Banknote },
+    { id: 'bill-payment' as const, label: 'Bill Payment Report', icon: Receipt },
   ]
 
-  useEffect(() => {
-    if (!user?.partner_id || !dateRange.start || !dateRange.end) {
-      setStatusBreakdown(null)
-      return
-    }
-    const fetchBreakdown = async () => {
-      setBreakdownLoading(true)
-      try {
-        let query = supabase
-          .from('partner_wallet_ledger')
-          .select('status')
-          .eq('partner_id', user.partner_id)
-          .gte('created_at', dateRange.start)
-          .lte('created_at', dateRange.end + 'T23:59:59')
-
-        if (serviceFilter !== 'all') {
-          query = query.eq('transaction_type', serviceFilter)
-        }
-
-        const { data } = await query
-        if (data) {
-          const success = data.filter(r => r.status === 'completed' || r.status === 'success').length
-          const failed = data.filter(r => r.status === 'failed').length
-          const pending = data.filter(r => r.status === 'pending' || r.status === 'processing').length
-          setStatusBreakdown({ success, failed, pending, total: data.length })
-        }
-      } catch {
-        setStatusBreakdown(null)
-      } finally {
-        setBreakdownLoading(false)
-      }
-    }
-    fetchBreakdown()
-  }, [user?.partner_id, dateRange.start, dateRange.end, serviceFilter])
-
-  const handleDownload = async () => {
-    if (!dateRange.start || !dateRange.end) {
-      showToast('Please select date range', 'warning')
-      return
-    }
-
-    setDownloading(true)
-    try {
-      const serviceParam = serviceFilter !== 'all' ? `&service=${serviceFilter}` : ''
-
-      if (format === 'xlsx') {
-        const response = await apiFetch(
-          `/api/reports/${reportType}?start=${dateRange.start}&end=${dateRange.end}&format=csv${serviceParam}`
-        )
-        if (!response.ok) throw new Error('Download failed')
-        const csvText = await response.text()
-        const rows = csvText.split('\n').map(row => row.split(','))
-        const header = rows[0]
-        const dataRows = rows.slice(1).filter(r => r.length > 1)
-
-        let xlsContent = '<html><head><meta charset="UTF-8"></head><body><table border="1">'
-        xlsContent += '<tr>' + header.map(h => `<th>${h}</th>`).join('') + '</tr>'
-        dataRows.forEach(row => {
-          xlsContent += '<tr>' + row.map(c => `<td>${c}</td>`).join('') + '</tr>'
-        })
-        xlsContent += '</table></body></html>'
-
-        const blob = new Blob([xlsContent], { type: 'application/vnd.ms-excel' })
-        const url = window.URL.createObjectURL(blob)
-        const a = document.createElement('a')
-        a.href = url
-        a.download = `${reportType}_report_${dateRange.start}_to_${dateRange.end}.xls`
-        document.body.appendChild(a)
-        a.click()
-        window.URL.revokeObjectURL(url)
-        document.body.removeChild(a)
-        showToast('Report downloaded successfully!', 'success')
-      } else {
-        const response = await apiFetch(
-          `/api/reports/${reportType}?start=${dateRange.start}&end=${dateRange.end}&format=${format}${serviceParam}`
-        )
-        if (response.ok) {
-          if (format === 'zip') {
-            const data = await response.json()
-            if (data.files) {
-              const fileList = Object.keys(data.files).join('\n')
-              const blob = new Blob([fileList], { type: 'text/plain' })
-              const url = window.URL.createObjectURL(blob)
-              const a = document.createElement('a')
-              a.href = url
-              a.download = `${reportType}_report_${dateRange.start}_to_${dateRange.end}.txt`
-              document.body.appendChild(a)
-              a.click()
-              window.URL.revokeObjectURL(url)
-              document.body.removeChild(a)
-            }
-          } else {
-            const blob = await response.blob()
-            const url = window.URL.createObjectURL(blob)
-            const a = document.createElement('a')
-            a.href = url
-            const extension = format
-            a.download = `${reportType}_report_${dateRange.start}_to_${dateRange.end}.${extension}`
-            document.body.appendChild(a)
-            a.click()
-            window.URL.revokeObjectURL(url)
-            document.body.removeChild(a)
-          }
-          showToast('Report downloaded successfully!', 'success')
-        } else {
-          const errorData = await response.json()
-          showToast(errorData.error || 'Failed to download report', 'error')
-        }
-      }
-    } catch (error) {
-      console.error('Download error:', error)
-      showToast('Failed to download report', 'error')
-    } finally {
-      setDownloading(false)
-    }
-  }
-
-  const successRate = statusBreakdown && statusBreakdown.total > 0
-    ? ((statusBreakdown.success / statusBreakdown.total) * 100).toFixed(1)
-    : null
-
   return (
-    <div className="space-y-6">
-      {/* Service Transaction Report */}
-      <ServiceTransactionReport userRole="retailer" userName={user?.name || user?.email} />
-
-      {/* Success vs Failure Breakdown */}
-      {breakdownLoading && (
-        <div className="flex items-center justify-center py-6">
-          <RefreshCw className="w-5 h-5 animate-spin text-purple-500 mr-2" />
-          <span className="text-sm text-gray-500">Loading breakdown...</span>
-        </div>
-      )}
-      {!breakdownLoading && statusBreakdown && (
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="grid grid-cols-2 lg:grid-cols-4 gap-3"
-        >
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md border border-gray-200 dark:border-gray-700 p-4">
-            <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Total Transactions</p>
-            <p className="text-2xl font-bold text-gray-900 dark:text-white">{statusBreakdown.total.toLocaleString()}</p>
-          </div>
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md border border-green-200 dark:border-green-800 p-4">
-            <p className="text-xs text-green-600 dark:text-green-400 mb-1">Successful</p>
-            <p className="text-2xl font-bold text-green-600 dark:text-green-400">{statusBreakdown.success.toLocaleString()}</p>
-          </div>
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md border border-red-200 dark:border-red-800 p-4">
-            <p className="text-xs text-red-600 dark:text-red-400 mb-1">Failed</p>
-            <p className="text-2xl font-bold text-red-600 dark:text-red-400">{statusBreakdown.failed.toLocaleString()}</p>
-          </div>
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md border border-blue-200 dark:border-blue-800 p-4">
-            <p className="text-xs text-blue-600 dark:text-blue-400 mb-1">Success Rate</p>
-            <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">{successRate || '—'}%</p>
-          </div>
-        </motion.div>
-      )}
-
-      {/* Performance Charts */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="bg-white dark:bg-gray-800 rounded-lg shadow-md border border-gray-200 dark:border-gray-700 p-4"
-      >
-        <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Performance Report</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">Weekly Transaction Trend</p>
-            <ResponsiveContainer width="100%" height={200}>
-              <LineChart data={chartData}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="name" />
-                <YAxis />
-                <Tooltip />
-                <Line type="monotone" dataKey="transactions" stroke="#3b82f6" strokeWidth={2} />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-          <div>
-            <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">Revenue Breakdown</p>
-            <ResponsiveContainer width="100%" height={200}>
-              <BarChart data={chartData}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="name" />
-                <YAxis />
-                <Tooltip />
-                <Bar dataKey="revenue" fill="#22c55e" />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-      </motion.div>
-
-      {/* Download Reports Section */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.1 }}
-        className="bg-white dark:bg-gray-800 rounded-lg shadow-md border border-gray-200 dark:border-gray-700 p-6"
-      >
-        <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Download Reports</h3>
-        <div className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Report Type</label>
-              <select
-                value={reportType}
-                onChange={(e) => setReportType(e.target.value as 'ledger' | 'transactions' | 'commission')}
-                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-              >
-                <option value="ledger">Ledger Report</option>
-                <option value="transactions">Transaction Report</option>
-                <option value="commission">Commission Report</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Filter by API / Service</label>
-              <select
-                value={serviceFilter}
-                onChange={(e) => setServiceFilter(e.target.value)}
-                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-              >
-                {SERVICE_TYPES.map(s => (
-                  <option key={s.value} value={s.value}>{s.label}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Start Date</label>
-              <input
-                type="date"
-                value={dateRange.start}
-                onChange={(e) => setDateRange({ ...dateRange, start: e.target.value })}
-                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">End Date</label>
-              <input
-                type="date"
-                value={dateRange.end}
-                onChange={(e) => setDateRange({ ...dateRange, end: e.target.value })}
-                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-              />
-            </div>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Format</label>
-            <select
-              value={format}
-              onChange={(e) => setFormat(e.target.value as 'csv' | 'pdf' | 'xlsx' | 'zip')}
-              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+    <div className="space-y-4">
+      <div className="flex flex-wrap gap-2 bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-2">
+        {reportTabs.map(tab => {
+          const Icon = tab.icon
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setActiveReport(tab.id)}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                activeReport === tab.id
+                  ? 'bg-purple-600 text-white shadow-md'
+                  : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
+              }`}
             >
-              <option value="csv">CSV</option>
-              <option value="xlsx">Excel (.xls)</option>
-              <option value="pdf">PDF (HTML)</option>
-              <option value="zip">ZIP (Bulk Export)</option>
-            </select>
-          </div>
-          <button
-            onClick={handleDownload}
-            disabled={downloading}
-            className="w-full bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <Download className="w-5 h-5" />
-            {downloading ? 'Downloading...' : 'Download Report'}
-          </button>
-        </div>
-      </motion.div>
+              <Icon className="w-4 h-4" />
+              {tab.label}
+            </button>
+          )
+        })}
+      </div>
+
+      {activeReport === 'all' && <ServiceTransactionReport userRole="retailer" userName={user?.name || user?.email} />}
+      {activeReport === 'pos' && <POSTransactionReport userRole="retailer" userName={user?.name || user?.email} />}
+      {activeReport === 'payout' && <PayoutTransactionReport userRole="retailer" userName={user?.name || user?.email} />}
+      {activeReport === 'bill-payment' && <BillPaymentTransactionReport userRole="retailer" userName={user?.name || user?.email} />}
     </div>
   )
 }

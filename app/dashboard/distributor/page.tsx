@@ -25,6 +25,9 @@ import POSMachinesTab from '@/components/POSMachinesTab'
 import DistributorSubscriptionsTab from '@/components/DistributorSubscriptionsTab'
 import TwoFactorSetup from '@/components/TwoFactorSetup'
 import ServiceTransactionReport from '@/components/ServiceTransactionReport'
+import POSTransactionReport from '@/components/reports/POSTransactionReport'
+import PayoutTransactionReport from '@/components/reports/PayoutTransactionReport'
+import BillPaymentTransactionReport from '@/components/reports/BillPaymentTransactionReport'
 import { getPosCompanies } from '@/lib/merchant-companies'
 
 type TabType = 'dashboard' | 'services' | 'retailers' | 'wallet' | 'commission' | 'mdr-schemes' | 'analytics' | 'reports' | 'settings' | 'scheme-management' | 'pos-machines' | 'subscriptions'
@@ -2842,108 +2845,41 @@ function AnalyticsTab({ categoryData }: { categoryData: any[] }) {
 
 // Reports Tab
 function ReportsTab({ user }: { user: any }) {
-  const { showToast } = useToast()
-  const [reportType, setReportType] = useState<'ledger' | 'transactions' | 'commission'>('ledger')
-  const [dateRange, setDateRange] = useState({ start: '', end: '' })
-  const [format, setFormat] = useState<'csv' | 'pdf' | 'zip'>('csv')
-  const [downloading, setDownloading] = useState(false)
+  const [activeReport, setActiveReport] = useState<'all' | 'pos' | 'payout' | 'bill-payment'>('all')
 
-  const handleDownload = async () => {
-    if (!dateRange.start || !dateRange.end) {
-      showToast('Please select date range', 'error')
-      return
-    }
-
-    setDownloading(true)
-    try {
-      const response = await apiFetch(`/api/reports/${reportType}?start=${dateRange.start}&end=${dateRange.end}&format=${format}`, {
-        method: 'GET',
-      })
-
-      if (response.ok) {
-        const blob = await response.blob()
-        const url = window.URL.createObjectURL(blob)
-        const a = document.createElement('a')
-        a.href = url
-        a.download = `${reportType}_report_${dateRange.start}_to_${dateRange.end}.${format}`
-        document.body.appendChild(a)
-        a.click()
-        window.URL.revokeObjectURL(url)
-        document.body.removeChild(a)
-        showToast('Report downloaded successfully!', 'success')
-      } else {
-        showToast('Failed to download report', 'error')
-      }
-    } catch (error) {
-      console.error('Download error:', error)
-      showToast('Failed to download report', 'error')
-    } finally {
-      setDownloading(false)
-    }
-  }
+  const reportTabs = [
+    { id: 'all' as const, label: 'All Services', icon: Activity },
+    { id: 'pos' as const, label: 'POS Report', icon: CreditCard },
+    { id: 'payout' as const, label: 'Settlement Report', icon: Banknote },
+    { id: 'bill-payment' as const, label: 'Bill Payment Report', icon: Receipt },
+  ]
 
   return (
-    <div className="space-y-6">
-      {/* Service Transaction Report */}
-      <ServiceTransactionReport userRole="distributor" userName={user?.name || user?.email} />
-
-      <div className="bg-white rounded-xl shadow-lg border border-gray-200 p-6">
-        <h3 className="text-lg font-semibold mb-4">Download Reports</h3>
-        <div className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium mb-1">Report Type</label>
-            <select
-              value={reportType}
-              onChange={(e) => setReportType(e.target.value as 'ledger' | 'transactions' | 'commission')}
-              className="w-full px-4 py-2 border rounded-lg"
+    <div className="space-y-4">
+      <div className="flex flex-wrap gap-2 bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-2">
+        {reportTabs.map(tab => {
+          const Icon = tab.icon
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setActiveReport(tab.id)}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                activeReport === tab.id
+                  ? 'bg-purple-600 text-white shadow-md'
+                  : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
+              }`}
             >
-              <option value="ledger">Ledger Report</option>
-              <option value="transactions">Transaction Report</option>
-              <option value="commission">Commission Report</option>
-            </select>
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium mb-1">Start Date</label>
-              <input
-                type="date"
-                value={dateRange.start}
-                onChange={(e) => setDateRange({ ...dateRange, start: e.target.value })}
-                className="w-full px-4 py-2 border rounded-lg"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1">End Date</label>
-              <input
-                type="date"
-                value={dateRange.end}
-                onChange={(e) => setDateRange({ ...dateRange, end: e.target.value })}
-                className="w-full px-4 py-2 border rounded-lg"
-              />
-            </div>
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-1">Format</label>
-            <select
-              value={format}
-              onChange={(e) => setFormat(e.target.value as 'csv' | 'pdf' | 'zip')}
-              className="w-full px-4 py-2 border rounded-lg"
-            >
-              <option value="csv">CSV</option>
-              <option value="pdf">PDF</option>
-              <option value="zip">ZIP (Bulk Export)</option>
-            </select>
-          </div>
-          <button
-            onClick={handleDownload}
-            disabled={downloading}
-            className="w-full bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 flex items-center justify-center gap-2 disabled:opacity-50"
-          >
-            <Download className="w-5 h-5" />
-            {downloading ? 'Downloading...' : 'Download Report'}
-          </button>
-        </div>
+              <Icon className="w-4 h-4" />
+              {tab.label}
+            </button>
+          )
+        })}
       </div>
+
+      {activeReport === 'all' && <ServiceTransactionReport userRole="distributor" userName={user?.name || user?.email} />}
+      {activeReport === 'pos' && <POSTransactionReport userRole="distributor" userName={user?.name || user?.email} />}
+      {activeReport === 'payout' && <PayoutTransactionReport userRole="distributor" userName={user?.name || user?.email} />}
+      {activeReport === 'bill-payment' && <BillPaymentTransactionReport userRole="distributor" userName={user?.name || user?.email} />}
     </div>
   )
 }

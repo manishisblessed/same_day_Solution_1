@@ -46,6 +46,9 @@ import POSMachinesTab from '@/components/POSMachinesTab'
 import POSTransactionsTable from '@/components/POSTransactionsTable'
 import PosBridgePanel from '@/components/PosBridgePanel'
 import ServiceTransactionReport from '@/components/ServiceTransactionReport'
+import POSTransactionReport from '@/components/reports/POSTransactionReport'
+import PayoutTransactionReport from '@/components/reports/PayoutTransactionReport'
+import BillPaymentTransactionReport from '@/components/reports/BillPaymentTransactionReport'
 import PartnerSubscriptionsTab from '@/components/PartnerSubscriptionsTab'
 import AEPSDashboard from '@/components/AEPSDashboard'
 import AEPSWalletLedger from '@/components/AEPSWalletLedger'
@@ -2258,168 +2261,41 @@ function WalletTab({ user }: { user: any }) {
 
 function ReportsTab({ chartData, stats }: { chartData: any[], stats: any }) {
   const { user } = useAuth()
-  const [reportType, setReportType] = useState<'ledger' | 'transactions' | 'commission'>('ledger')
-  const [dateRange, setDateRange] = useState({ start: '', end: '' })
-  const [format, setFormat] = useState<'csv' | 'pdf' | 'zip'>('csv')
-  const [downloading, setDownloading] = useState(false)
+  const [activeReport, setActiveReport] = useState<'all' | 'pos' | 'payout' | 'bill-payment'>('all')
 
-  const handleDownload = async () => {
-    if (!dateRange.start || !dateRange.end) {
-      alert('Please select date range')
-      return
-    }
-
-    setDownloading(true)
-    try {
-      const response = await apiFetch(`/api/reports/${reportType}?start=${dateRange.start}&end=${dateRange.end}&format=${format}`, {
-        method: 'GET',
-      })
-
-      if (response.ok) {
-        if (format === 'zip') {
-          // For ZIP, handle JSON response
-          const data = await response.json()
-          if (data.files) {
-            // Create a simple text file listing (in production, use JSZip)
-            const fileList = Object.keys(data.files).join('\n')
-            const blob = new Blob([fileList], { type: 'text/plain' })
-            const url = window.URL.createObjectURL(blob)
-            const a = document.createElement('a')
-            a.href = url
-            a.download = `${reportType}_report_${dateRange.start}_to_${dateRange.end}.txt`
-            document.body.appendChild(a)
-            a.click()
-            window.URL.revokeObjectURL(url)
-            document.body.removeChild(a)
-          }
-        } else {
-          const blob = await response.blob()
-          const url = window.URL.createObjectURL(blob)
-          const a = document.createElement('a')
-          a.href = url
-          const extension = format
-          a.download = `${reportType}_report_${dateRange.start}_to_${dateRange.end}.${extension}`
-          document.body.appendChild(a)
-          a.click()
-          window.URL.revokeObjectURL(url)
-          document.body.removeChild(a)
-        }
-        alert('Report downloaded successfully!')
-      } else {
-        const error = await response.json()
-        alert(error.error || 'Failed to download report')
-      }
-    } catch (error) {
-      console.error('Download error:', error)
-      alert('Failed to download report')
-    } finally {
-      setDownloading(false)
-    }
-  }
+  const reportTabs = [
+    { id: 'all' as const, label: 'All Services', icon: Activity },
+    { id: 'pos' as const, label: 'POS Report', icon: CreditCard },
+    { id: 'payout' as const, label: 'Settlement Report', icon: Banknote },
+    { id: 'bill-payment' as const, label: 'Bill Payment Report', icon: Receipt },
+  ]
 
   return (
-    <div className="space-y-6">
-      {/* Service Transaction Report */}
-      <ServiceTransactionReport userRole="retailer" userName={user?.name || user?.email} />
-
-      {/* Performance Charts */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="bg-white dark:bg-gray-800 rounded-lg shadow-md border border-gray-200 dark:border-gray-700 p-4"
-      >
-        <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Performance Report</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">Weekly Transaction Trend</p>
-            <ResponsiveContainer width="100%" height={200}>
-              <LineChart data={chartData}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="name" />
-                <YAxis />
-                <Tooltip />
-                <Line type="monotone" dataKey="transactions" stroke="#3b82f6" strokeWidth={2} />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-          <div>
-            <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">Revenue Breakdown</p>
-            <ResponsiveContainer width="100%" height={200}>
-              <BarChart data={chartData}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="name" />
-                <YAxis />
-                <Tooltip />
-                <Bar dataKey="revenue" fill="#22c55e" />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-      </motion.div>
-
-      {/* Download Reports Section */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.1 }}
-        className="bg-white dark:bg-gray-800 rounded-lg shadow-md border border-gray-200 dark:border-gray-700 p-6"
-      >
-        <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Download Reports</h3>
-        <div className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Report Type</label>
-            <select
-              value={reportType}
-              onChange={(e) => setReportType(e.target.value as 'ledger' | 'transactions' | 'commission')}
-              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+    <div className="space-y-4">
+      <div className="flex flex-wrap gap-2 bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-2">
+        {reportTabs.map(tab => {
+          const Icon = tab.icon
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setActiveReport(tab.id)}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                activeReport === tab.id
+                  ? 'bg-blue-600 text-white shadow-md'
+                  : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
+              }`}
             >
-              <option value="ledger">Ledger Report</option>
-              <option value="transactions">Transaction Report</option>
-              <option value="commission">Commission Report</option>
-            </select>
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Start Date</label>
-              <input
-                type="date"
-                value={dateRange.start}
-                onChange={(e) => setDateRange({ ...dateRange, start: e.target.value })}
-                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">End Date</label>
-              <input
-                type="date"
-                value={dateRange.end}
-                onChange={(e) => setDateRange({ ...dateRange, end: e.target.value })}
-                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-              />
-            </div>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Format</label>
-            <select
-              value={format}
-              onChange={(e) => setFormat(e.target.value as 'csv' | 'pdf' | 'zip')}
-              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-            >
-              <option value="csv">CSV</option>
-              <option value="pdf">PDF (HTML)</option>
-              <option value="zip">ZIP (Bulk Export)</option>
-            </select>
-          </div>
-          <button
-            onClick={handleDownload}
-            disabled={downloading}
-            className="w-full bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <Download className="w-5 h-5" />
-            {downloading ? 'Downloading...' : 'Download Report'}
-          </button>
-        </div>
-      </motion.div>
+              <Icon className="w-4 h-4" />
+              {tab.label}
+            </button>
+          )
+        })}
+      </div>
+
+      {activeReport === 'all' && <ServiceTransactionReport userRole="retailer" userName={user?.name || user?.email} />}
+      {activeReport === 'pos' && <POSTransactionReport userRole="retailer" userName={user?.name || user?.email} />}
+      {activeReport === 'payout' && <PayoutTransactionReport userRole="retailer" userName={user?.name || user?.email} />}
+      {activeReport === 'bill-payment' && <BillPaymentTransactionReport userRole="retailer" userName={user?.name || user?.email} />}
     </div>
   )
 }
