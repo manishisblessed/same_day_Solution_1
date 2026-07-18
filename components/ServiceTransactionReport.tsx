@@ -41,6 +41,7 @@ interface Transaction {
   device_serial: string | null
   description: string | null
   created_at: string
+  settlement_source?: 'settlements' | 'payout' | 'shadval'
   raw: Record<string, any>
 }
 
@@ -254,7 +255,7 @@ export default function ServiceTransactionReport({ userRole, userName, defaultSe
       const res = await apiFetch('/api/reports/service-transactions/verify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ service_type: txn.service_type, transaction_id: txn.id }),
+        body: JSON.stringify({ service_type: txn.service_type, transaction_id: txn.id, settlement_source: txn.settlement_source }),
       })
 
       const data = await res.json()

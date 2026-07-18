@@ -46,6 +46,9 @@ interface NormalizedTransaction {
   device_serial: string | null
   description: string | null
   created_at: string
+  // For Settlement rows: which underlying table the row came from, so the
+  // verify/Check endpoint knows which provider + refund path to use.
+  settlement_source?: 'settlements' | 'payout' | 'shadval'
   raw: Record<string, any>
 }
 
@@ -755,6 +758,7 @@ async function fetchSettlementTransactions(
         device_serial: null,
         description: `Settlement - ${tx.settlement_mode || 'Bank Transfer'} (${tx.bank_account_name || 'N/A'})`,
         created_at: tx.created_at,
+        settlement_source: 'settlements',
         raw: tx,
       })))
     }
@@ -830,6 +834,7 @@ async function fetchSettlementTransactions(
           ? `Settlement to ${tx.account_holder_name} (${tx.transfer_mode || 'IMPS'})`
           : `Settlement - ${tx.transfer_mode || 'Bank Transfer'}`,
         created_at: tx.created_at,
+        settlement_source: 'payout',
         raw: tx,
       })))
     }
@@ -900,6 +905,7 @@ async function fetchSettlementTransactions(
           ? `Settlement-2 to ${tx.account_holder_name} (${tx.mode || 'IMPS'})`
           : `Settlement-2 - ${tx.mode || 'Bank Transfer'}`,
         created_at: tx.created_at,
+        settlement_source: 'shadval',
         raw: tx,
       })))
     }
