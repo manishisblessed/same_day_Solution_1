@@ -9,7 +9,7 @@ import AdminSidebar from '@/components/AdminSidebar'
 import { 
   Lock, Eye, EyeOff, CheckCircle, AlertCircle, 
   User, Mail, Shield, Save, ArrowLeft, Users, Plus, Edit, Trash2, X, IndianRupee, Key,
-  Building2, Archive, ArchiveRestore, Gauge
+  Building2, Archive, ArchiveRestore, Gauge, ShieldCheck
 } from 'lucide-react'
 import { motion } from 'framer-motion'
 import { apiFetch } from '@/lib/api-client'
@@ -19,7 +19,7 @@ export default function AdminSettings() {
   const { user, loading: authLoading } = useAuth()
   const router = useRouter()
   const [sidebarOpen, setSidebarOpen] = useState(false)
-  const [activeTab, setActiveTab] = useState<'profile' | 'password' | 'security' | 'sub-admins' | 'finance-team' | 'companies' | 'limits'>('profile')
+  const [activeTab, setActiveTab] = useState<'profile' | 'password' | 'security' | 'sub-admins' | 'finance-team' | 'companies' | 'limits' | 'services'>('profile')
 
   // POS companies (archive/show) state
   const [posCompanies, setPosCompanies] = useState<Array<{ slug: string; name: string; shortName: string; archived: boolean }>>([])
@@ -81,12 +81,27 @@ export default function AdminSettings() {
   const [walletLimitLoading, setWalletLimitLoading] = useState(false)
   const [walletLimitMeta, setWalletLimitMeta] = useState<{ updated_by?: string; updated_at?: string }>({})
 
+  // Account verification toggle state
+  const [verificationEnabled, setVerificationEnabled] = useState(true)
+  const [verificationLoading, setVerificationLoading] = useState(false)
+  const [verificationSaving, setVerificationSaving] = useState(false)
+  const [verificationMeta, setVerificationMeta] = useState<{ updated_by?: string; updated_at?: string }>({})
+
   const canManageFinanceUsers =
     adminInfo?.admin_type === 'super_admin' ||
     adminInfo?.department === 'users' ||
     adminInfo?.department === 'all' ||
     (Array.isArray(adminInfo?.departments) &&
       (adminInfo.departments.includes('users') || adminInfo.departments.includes('all')))
+
+  // Having the "settings" department grants full admin power (incl. managing
+  // sub-admins), i.e. treated as an admin rather than a limited sub-admin.
+  const isSuperLike =
+    adminInfo?.admin_type === 'super_admin' ||
+    adminInfo?.department === 'settings' ||
+    adminInfo?.department === 'all' ||
+    (Array.isArray(adminInfo?.departments) &&
+      (adminInfo.departments.includes('settings') || adminInfo.departments.includes('all')))
 
   const availableDepartments = [
     { id: 'dashboard', label: 'Dashboard' },
@@ -270,6 +285,51 @@ export default function AdminSettings() {
   useEffect(() => {
     if (activeTab === 'limits' && user?.role === 'admin') {
       fetchWalletLimit()
+    }
+  }, [activeTab, user])
+
+  const fetchVerificationSetting = async () => {
+    setVerificationLoading(true)
+    try {
+      const res = await apiFetch('/api/admin/settings/account-verification')
+      const data = await res.json()
+      if (data.success) {
+        setVerificationEnabled(data.enabled !== false)
+        setVerificationMeta({ updated_by: data.updated_by, updated_at: data.updated_at })
+      }
+    } catch {} finally {
+      setVerificationLoading(false)
+    }
+  }
+
+  const saveVerificationSetting = async (enabled: boolean) => {
+    setVerificationSaving(true)
+    const previous = verificationEnabled
+    setVerificationEnabled(enabled)
+    try {
+      const res = await apiFetch('/api/admin/settings/account-verification', {
+        method: 'POST',
+        body: JSON.stringify({ enabled }),
+      })
+      const data = await res.json()
+      if (data.success) {
+        setMessage({ type: 'success', text: `Account verification ${enabled ? 'enabled' : 'disabled'}` })
+        fetchVerificationSetting()
+      } else {
+        setVerificationEnabled(previous)
+        setMessage({ type: 'error', text: data.error || 'Failed to update' })
+      }
+    } catch {
+      setVerificationEnabled(previous)
+      setMessage({ type: 'error', text: 'Failed to update verification setting' })
+    } finally {
+      setVerificationSaving(false)
+    }
+  }
+
+  useEffect(() => {
+    if (activeTab === 'services' && user?.role === 'admin') {
+      fetchVerificationSetting()
     }
   }, [activeTab, user])
 
@@ -562,9 +622,10 @@ export default function AdminSettings() {
                 { id: 'password' as const, label: 'Password', icon: Lock },
                 { id: 'security' as const, label: 'Security', icon: Shield },
                 { id: 'companies' as const, label: 'Companies', icon: Building2 },
-                ...(adminInfo?.admin_type === 'super_admin' ? [{ id: 'sub-admins' as const, label: 'Sub-Admins', icon: Users }] : []),
+                ...(isSuperLike ? [{ id: 'sub-admins' as const, label: 'Sub-Admins', icon: Users }] : []),
                 ...(canManageFinanceUsers ? [{ id: 'finance-team' as const, label: 'Finance team', icon: IndianRupee }] : []),
                 { id: 'limits' as const, label: 'Limits', icon: Gauge },
+                { id: 'services' as const, label: 'Services', icon: ShieldCheck },
               ].map((tab) => (
                 <button
                   key={tab.id}
@@ -874,13 +935,18 @@ export default function AdminSettings() {
                             </span>
                           </td>
                           <td className="py-3 px-4">
-                            <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
-                              admin.admin_type === 'super_admin'
+                            {(() => {
+                              const rowSuperLike = admin.admin_type === 'super_admin' || admin.department === 'settings' || admin.department === 'all' || (Array.isArray(admin.departments) && (admin.departments.includes('settings') || admin.departments.includes('all')))
+                              const label = admin.admin_type === 'super_admin' ? 'Super Admin' : rowSuperLike ? 'Admin' : 'Sub-Admin'
+                              const cls = rowSuperLike
                                 ? 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400'
                                 : 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400'
-                            }`}>
-                              {admin.admin_type === 'super_admin' ? 'Super Admin' : 'Sub-Admin'}
-                            </span>
+                              return (
+                                <span className={`px-2 py-1 text-xs font-semibold rounded-full ${cls}`}>
+                                  {label}
+                                </span>
+                              )
+                            })()}
                           </td>
                           <td className="py-3 px-4 text-right">
                             {admin.admin_type !== 'super_admin' && (
@@ -1177,6 +1243,93 @@ export default function AdminSettings() {
                   Last updated by {walletLimitMeta.updated_by}
                   {walletLimitMeta.updated_at && ` on ${new Date(walletLimitMeta.updated_at).toLocaleString('en-IN')}`}
                 </p>
+              )}
+            </motion.div>
+            )}
+
+            {activeTab === 'services' && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.15 }}
+              className="bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 p-6"
+            >
+              <div className="flex items-center gap-3 mb-6">
+                <div className="p-3 bg-primary-100 dark:bg-primary-900/30 rounded-lg">
+                  <ShieldCheck className="w-6 h-6 text-primary-600 dark:text-primary-400" />
+                </div>
+                <div>
+                  <h2 className="text-xl font-bold text-gray-900 dark:text-white">Service Controls</h2>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Temporarily enable or disable services during provider outages</p>
+                </div>
+              </div>
+
+              {message && (
+                <div
+                  className={`mb-4 p-3 rounded-lg flex items-center gap-2 text-sm ${
+                    message.type === 'success'
+                      ? 'bg-green-50 dark:bg-green-900/20 text-green-800 dark:text-green-400'
+                      : 'bg-red-50 dark:bg-red-900/20 text-red-800 dark:text-red-400'
+                  }`}
+                >
+                  {message.type === 'success' ? <CheckCircle className="w-4 h-4 flex-shrink-0" /> : <AlertCircle className="w-4 h-4 flex-shrink-0" />}
+                  <span className="font-medium">{message.text}</span>
+                </div>
+              )}
+
+              {verificationLoading ? (
+                <div className="text-center py-8">
+                  <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-primary-600 mx-auto mb-2"></div>
+                  <p className="text-gray-600 dark:text-gray-400">Loading…</p>
+                </div>
+              ) : (
+                <div
+                  className={`flex items-center justify-between gap-4 p-4 rounded-lg border transition-colors ${
+                    verificationEnabled
+                      ? 'border-green-200 dark:border-green-800 bg-green-50/50 dark:bg-green-900/10'
+                      : 'border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-900/10'
+                  }`}
+                >
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-gray-900 dark:text-white">Bank Account Verification (Penny-drop)</span>
+                      <span
+                        className={`px-2 py-0.5 text-xs font-semibold rounded-full ${
+                          verificationEnabled
+                            ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400'
+                            : 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400'
+                        }`}
+                      >
+                        {verificationEnabled ? 'Enabled' : 'Disabled'}
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                      When disabled, add-account/verify requests are rejected instantly with no charge — across both Partner API and the Retailer portal. Use during upstream verification provider outages.
+                    </p>
+                    {verificationMeta.updated_by && (
+                      <p className="text-xs text-gray-400 mt-1">
+                        Last updated by {verificationMeta.updated_by}
+                        {verificationMeta.updated_at && ` on ${new Date(verificationMeta.updated_at).toLocaleString('en-IN')}`}
+                      </p>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => saveVerificationSetting(!verificationEnabled)}
+                    disabled={verificationSaving}
+                    role="switch"
+                    aria-checked={verificationEnabled}
+                    className={`relative inline-flex h-7 w-12 flex-shrink-0 items-center rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                      verificationEnabled ? 'bg-green-500' : 'bg-gray-300 dark:bg-gray-600'
+                    }`}
+                  >
+                    <span
+                      className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${
+                        verificationEnabled ? 'translate-x-6' : 'translate-x-1'
+                      }`}
+                    />
+                  </button>
+                </div>
               )}
             </motion.div>
             )}

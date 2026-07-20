@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { authenticatePartner, PartnerAuthError, partnerCanUseApi } from '@/lib/partner-auth'
 import { verifyAccount, getVerificationBalance } from '@/services/shadval-pay'
+import { isAccountVerificationEnabled, ACCOUNT_VERIFICATION_DISABLED_MESSAGE } from '@/lib/settings/account-verification'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -108,6 +109,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { success: false, error: { code: 'FORBIDDEN', message: access.message } },
         { status: 403 }
+      )
+    }
+
+    // Globally disabled by admin (e.g. upstream verification provider outage).
+    // Returned before any wallet debit so the partner is never charged.
+    if (!(await isAccountVerificationEnabled())) {
+      return NextResponse.json(
+        { success: false, error: { code: 'VERIFICATION_DISABLED', message: ACCOUNT_VERIFICATION_DISABLED_MESSAGE } },
+        { status: 503 }
       )
     }
 

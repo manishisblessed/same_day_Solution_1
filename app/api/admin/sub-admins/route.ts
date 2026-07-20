@@ -7,6 +7,17 @@ import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
 export const runtime = 'nodejs' // Force Node.js runtime (Supabase not compatible with Edge Runtime)
 export const dynamic = 'force-dynamic'
 
+// A real super_admin OR a sub-admin granted the "settings" (or "all") department
+// is treated as a full admin able to manage sub-admins. We use effective
+// privilege (not a DB admin_type change) so access stays revocable by removing
+// the department, and so such users remain editable/deletable by super admins.
+function isEffectiveSuperAdmin(a: { admin_type?: string; department?: string; departments?: string[] } | null | undefined): boolean {
+  if (!a) return false
+  if (a.admin_type === 'super_admin') return true
+  const depts = Array.isArray(a.departments) ? a.departments : []
+  return a.department === 'settings' || a.department === 'all' || depts.includes('settings') || depts.includes('all')
+}
+
 // Handle CORS preflight requests
 export async function OPTIONS(request: NextRequest) {
   const response = handleCorsPreflight(request)
@@ -49,14 +60,14 @@ export async function GET(request: NextRequest) {
       return addCorsHeaders(request, response)
     }
 
-    // Verify admin is super_admin
+    // Verify admin is super_admin (or effective super-admin via "settings" dept)
     const { data: adminData } = await supabase
       .from('admin_users')
-      .select('admin_type')
+      .select('admin_type, department, departments')
       .eq('email', admin.email)
       .single()
 
-    if (adminData?.admin_type !== 'super_admin') {
+    if (!isEffectiveSuperAdmin(adminData)) {
       const response = NextResponse.json(
         { error: 'Only super admins can manage sub-admins' },
         { status: 403 }
@@ -141,14 +152,14 @@ export async function POST(request: NextRequest) {
       return addCorsHeaders(request, response)
     }
 
-    // Verify admin is super_admin
+    // Verify admin is super_admin (or effective super-admin via "settings" dept)
     const { data: adminData } = await supabase
       .from('admin_users')
-      .select('id, admin_type')
+      .select('id, admin_type, department, departments')
       .eq('email', admin.email)
       .single()
 
-    if (adminData?.admin_type !== 'super_admin') {
+    if (!isEffectiveSuperAdmin(adminData)) {
       const response = NextResponse.json(
         { error: 'Only super admins can create sub-admins' },
         { status: 403 }
@@ -314,14 +325,14 @@ export async function PUT(request: NextRequest) {
       return addCorsHeaders(request, response)
     }
 
-    // Verify admin is super_admin
+    // Verify admin is super_admin (or effective super-admin via "settings" dept)
     const { data: adminData } = await supabase
       .from('admin_users')
-      .select('id, admin_type')
+      .select('id, admin_type, department, departments')
       .eq('email', admin.email)
       .single()
 
-    if (adminData?.admin_type !== 'super_admin') {
+    if (!isEffectiveSuperAdmin(adminData)) {
       const response = NextResponse.json(
         { error: 'Only super admins can update sub-admins' },
         { status: 403 }
@@ -459,14 +470,14 @@ export async function DELETE(request: NextRequest) {
       return addCorsHeaders(request, response)
     }
 
-    // Verify admin is super_admin
+    // Verify admin is super_admin (or effective super-admin via "settings" dept)
     const { data: adminData } = await supabase
       .from('admin_users')
-      .select('id, admin_type')
+      .select('id, admin_type, department, departments')
       .eq('email', admin.email)
       .single()
 
-    if (adminData?.admin_type !== 'super_admin') {
+    if (!isEffectiveSuperAdmin(adminData)) {
       const response = NextResponse.json(
         { error: 'Only super admins can delete sub-admins' },
         { status: 403 }

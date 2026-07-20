@@ -4,6 +4,7 @@ import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
 import { initiateBankTransfer, checkTransactionStatus, getBalance } from '@/services/shadval-pay'
 import { verifyBankPennyLess, generateOrderId } from '@/services/ekyc'
 import { createClient } from '@supabase/supabase-js'
+import { isAccountVerificationEnabled, ACCOUNT_VERIFICATION_DISABLED_MESSAGE } from '@/lib/settings/account-verification'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -117,6 +118,16 @@ export async function POST(request: NextRequest) {
     const { user } = await getCurrentUserWithFallback(request)
     if (!user || !['retailer', 'partner'].includes(user.role)) {
       const response = NextResponse.json({ success: false, error: 'Access denied' }, { status: 403 })
+      return addCorsHeaders(request, response)
+    }
+
+    // Globally disabled by admin (e.g. upstream verification provider outage).
+    // Returned before any wallet debit so the retailer is never charged.
+    if (!(await isAccountVerificationEnabled())) {
+      const response = NextResponse.json(
+        { success: false, error: ACCOUNT_VERIFICATION_DISABLED_MESSAGE, code: 'VERIFICATION_DISABLED' },
+        { status: 503 }
+      )
       return addCorsHeaders(request, response)
     }
 
