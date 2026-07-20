@@ -10,6 +10,7 @@ interface Operator {
   operator_id: string
   operator_name: string
   operator_code?: string
+  operator_ifsc?: string
 }
 
 type Step = 'select-operator' | 'enter-details' | 'payment-result'
@@ -109,11 +110,11 @@ export default function RechargekitCCPayment() {
   const handleSelectOperator = (op: Operator) => {
     setSelectedOperator(op)
     setBankName(op.operator_name)
+    setIfsc(op.operator_ifsc?.trim() || '')
     setStep('enter-details')
     setAccountNo('')
     setMobileNo('')
     setBeneficiaryName('')
-    setIfsc('')
     setPayAmount('')
     setTpin('')
     setPayResult(null)

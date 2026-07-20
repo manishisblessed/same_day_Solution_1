@@ -12,6 +12,7 @@ export interface RechargekitOperator {
   operator_id: string
   operator_name: string
   operator_code?: string
+  operator_ifsc?: string
   [key: string]: unknown
 }
 

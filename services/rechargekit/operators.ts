@@ -39,6 +39,7 @@ function extractList(data: any): any[] {
   if (!data || typeof data !== 'object') return []
   if (Array.isArray(data.data)) return data.data
   if (Array.isArray(data.operators)) return data.operators
+  if (Array.isArray(data.operatorList)) return data.operatorList
   if (Array.isArray(data.operator_list)) return data.operator_list
   if (Array.isArray(data.result)) return data.result
   if (Array.isArray(data.list)) return data.list
