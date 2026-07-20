@@ -36,6 +36,7 @@ export async function OPTIONS(request: NextRequest) {
 /**
  * POST /api/rechargekit/pay
  * Credit Card-2 payment via Rechargekit
+ * Records transaction in bbps_transactions for full reporting parity with BBPS-1/Pay2New.
  */
 export async function POST(request: NextRequest) {
   try {
@@ -77,11 +78,7 @@ export async function POST(request: NextRequest) {
 
     if (!mobile_no || !account_no || !ifsc || !bank_name || !beneficiary_name || !amount || !operator_code) {
       const response = NextResponse.json(
-        {
-          success: false,
-          error:
-            'Missing required fields: mobile_no, account_no, ifsc, bank_name, beneficiary_name, amount, operator_code',
-        },
+        { success: false, error: 'Missing required fields: mobile_no, account_no, ifsc, bank_name, beneficiary_name, amount, operator_code' },
         { status: 400 }
       )
       return addCorsHeaders(request, response)
@@ -135,6 +132,7 @@ export async function POST(request: NextRequest) {
     const cardMasked = maskCard(cardDigits)
     const bankLabel = operator_name || bank_name || operator_code
 
+    // ─── TPIN Verification ───
     const tpinFn = user.role === 'partner' ? 'verify_partner_tpin' : 'verify_retailer_tpin'
     const tpinParam = user.role === 'partner' ? 'p_partner_id' : 'p_retailer_id'
     const { data: tpinResult, error: tpinError } = await (supabaseAdmin as any).rpc(tpinFn, {
@@ -144,18 +142,13 @@ export async function POST(request: NextRequest) {
     if (tpinError || !tpinResult?.success) {
       const msg = tpinResult?.error || tpinError?.message || 'TPIN verification failed'
       const response = NextResponse.json(
-        {
-          success: false,
-          error: msg,
-          tpin_error: true,
-          attempts_remaining: tpinResult?.attempts_remaining,
-          locked_until: tpinResult?.locked_until,
-        },
+        { success: false, error: msg, tpin_error: true, attempts_remaining: tpinResult?.attempts_remaining, locked_until: tpinResult?.locked_until },
         { status: 401 }
       )
       return addCorsHeaders(request, response)
     }
 
+    // ─── Retailer hierarchy ───
     let distributorId: string | null = null
     let mdId: string | null = null
     try {
@@ -170,8 +163,10 @@ export async function POST(request: NextRequest) {
       console.warn('[Rechargekit Pay] Failed to fetch retailer hierarchy:', e)
     }
 
+    // ─── Scheme resolution ───
     let serviceCharge = 0
     let resolvedSchemeId: string | null = null
+    let resolvedSchemeName: string | null = null
     let resolvedVia: string | null = null
     let commissionSplit = { retailer_commission: 0, distributor_commission: 0, md_commission: 0 }
     const schemeCategory = 'Credit Card'
@@ -179,13 +174,7 @@ export async function POST(request: NextRequest) {
     try {
       const { data: schemeResult, error: schemeError } = await (supabaseAdmin as any).rpc(
         'resolve_scheme_for_user',
-        {
-          p_user_id: user.partner_id,
-          p_user_role: user.role,
-          p_service_type: 'bbps',
-          p_distributor_id: distributorId,
-          p_md_id: mdId,
-        }
+        { p_user_id: user.partner_id, p_user_role: user.role, p_service_type: 'bbps', p_distributor_id: distributorId, p_md_id: mdId }
       )
 
       if (schemeError) {
@@ -193,15 +182,12 @@ export async function POST(request: NextRequest) {
       } else if (schemeResult && schemeResult.length > 0) {
         const resolved = schemeResult[0]
         resolvedSchemeId = resolved.scheme_id
+        resolvedSchemeName = resolved.scheme_name
         resolvedVia = resolved.resolved_via
 
         const { data: chargeResult, error: chargeError } = await (supabaseAdmin as any).rpc(
           'calculate_bbps_charge_from_scheme',
-          {
-            p_scheme_id: resolved.scheme_id,
-            p_amount: amountNum,
-            p_category: schemeCategory,
-          }
+          { p_scheme_id: resolved.scheme_id, p_amount: amountNum, p_category: schemeCategory }
         )
 
         if (!chargeError && chargeResult?.length > 0 && parseFloat(chargeResult[0].retailer_charge) > 0) {
@@ -224,35 +210,19 @@ export async function POST(request: NextRequest) {
           if (slabs?.length > 0) {
             const bestSlab = slabs.find((s: any) => {
               const sc = s.category
-              return (
-                !sc ||
-                sc === '' ||
-                sc.toLowerCase() === 'all' ||
-                sc.toLowerCase() === 'all categories' ||
-                sc === schemeCategory
-              )
+              return !sc || sc === '' || sc.toLowerCase() === 'all' || sc.toLowerCase() === 'all categories' || sc === schemeCategory
             })
             if (bestSlab) {
               const rc = parseFloat(bestSlab.retailer_charge) || 0
-              serviceCharge =
-                bestSlab.retailer_charge_type === 'percentage'
-                  ? Math.round((amountNum * rc) / 100 * 100) / 100
-                  : rc
+              serviceCharge = bestSlab.retailer_charge_type === 'percentage'
+                ? Math.round((amountNum * rc) / 100 * 100) / 100
+                : rc
               const calcComm = (val: number, type: string) =>
                 type === 'percentage' ? Math.round((amountNum * val) / 100 * 100) / 100 : val
               commissionSplit = {
-                retailer_commission: calcComm(
-                  parseFloat(bestSlab.retailer_commission) || 0,
-                  bestSlab.retailer_commission_type
-                ),
-                distributor_commission: calcComm(
-                  parseFloat(bestSlab.distributor_commission) || 0,
-                  bestSlab.distributor_commission_type
-                ),
-                md_commission: calcComm(
-                  parseFloat(bestSlab.md_commission) || 0,
-                  bestSlab.md_commission_type
-                ),
+                retailer_commission: calcComm(parseFloat(bestSlab.retailer_commission) || 0, bestSlab.retailer_commission_type),
+                distributor_commission: calcComm(parseFloat(bestSlab.distributor_commission) || 0, bestSlab.distributor_commission_type),
+                md_commission: calcComm(parseFloat(bestSlab.md_commission) || 0, bestSlab.md_commission_type),
               }
             }
           }
@@ -265,9 +235,7 @@ export async function POST(request: NextRequest) {
     if (!serviceCharge || serviceCharge <= 0) {
       serviceCharge = RECHARGEKIT_DEFAULT_BASE_CHARGE
       if (!resolvedSchemeId) {
-        console.warn(
-          `[Rechargekit Pay] No scheme charge — using commercial fallback ₹${RECHARGEKIT_DEFAULT_BASE_CHARGE}`
-        )
+        console.warn(`[Rechargekit Pay] No scheme charge — using commercial fallback ₹${RECHARGEKIT_DEFAULT_BASE_CHARGE}`)
       }
     }
 
@@ -275,32 +243,19 @@ export async function POST(request: NextRequest) {
     const totalServiceCharge = Math.round((serviceCharge + gstAmount) * 100) / 100
     const totalDebit = amountNum + totalServiceCharge
 
+    // ─── Balance check ───
     const balanceFn = user.role === 'partner' ? 'get_partner_wallet_balance' : 'get_wallet_balance'
-    const balanceParams =
-      user.role === 'partner'
-        ? { p_partner_id: user.partner_id }
-        : { p_retailer_id: user.partner_id }
-    const { data: walletBalance, error: balErr } = await (supabaseAdmin as any).rpc(
-      balanceFn,
-      balanceParams
-    )
+    const balanceParams = user.role === 'partner'
+      ? { p_partner_id: user.partner_id }
+      : { p_retailer_id: user.partner_id }
+    const { data: walletBalance, error: balErr } = await (supabaseAdmin as any).rpc(balanceFn, balanceParams)
     if (balErr) {
-      const response = NextResponse.json(
-        { success: false, error: 'Failed to check wallet balance' },
-        { status: 500 }
-      )
+      const response = NextResponse.json({ success: false, error: 'Failed to check wallet balance' }, { status: 500 })
       return addCorsHeaders(request, response)
     }
     if ((walletBalance || 0) < totalDebit) {
       const response = NextResponse.json(
-        {
-          success: false,
-          error: 'Insufficient wallet balance',
-          wallet_balance: walletBalance || 0,
-          bill_amount: amountNum,
-          charge: totalServiceCharge,
-          required_amount: totalDebit,
-        },
+        { success: false, error: 'Insufficient wallet balance', wallet_balance: walletBalance || 0, bill_amount: amountNum, charge: totalServiceCharge, required_amount: totalDebit },
         { status: 400 }
       )
       return addCorsHeaders(request, response)
@@ -308,6 +263,60 @@ export async function POST(request: NextRequest) {
 
     const request_id = `RKCC${Date.now()}`
 
+    // ─── Duplicate detection (5-min window) ───
+    const idempotencyWindow = new Date(Date.now() - 5 * 60 * 1000).toISOString()
+    const { data: existingTx } = await (supabaseAdmin as any)
+      .from('bbps_transactions')
+      .select('id, status, created_at')
+      .eq('retailer_id', user.partner_id)
+      .eq('consumer_number', cardMasked)
+      .eq('bill_amount', amountNum)
+      .neq('status', 'failed')
+      .gte('created_at', idempotencyWindow)
+      .limit(1)
+      .maybeSingle()
+
+    if (existingTx) {
+      const response = NextResponse.json(
+        { success: false, error: 'Duplicate payment detected. A payment for this card/amount was already submitted recently.', duplicate_transaction_id: existingTx.id },
+        { status: 409 }
+      )
+      return addCorsHeaders(request, response)
+    }
+
+    // ─── Create transaction record in bbps_transactions ───
+    const { data: txRecord, error: txInsertErr } = await (supabaseAdmin as any)
+      .from('bbps_transactions')
+      .insert({
+        retailer_id: user.partner_id,
+        biller_id: `RKCC_${operator_code}`,
+        biller_name: bankLabel,
+        consumer_number: cardMasked,
+        consumer_name: beneficiary_name,
+        bill_amount: amountNum,
+        amount_paid: amountNum,
+        agent_transaction_id: request_id,
+        status: 'pending',
+        additional_info: {
+          provider: 'rechargekit',
+          operator_code,
+          ifsc: ifscCode,
+          mobile: mobile,
+          card_last4: cardDigits.slice(-4),
+        },
+        commission_amount: serviceCharge,
+        ...(resolvedSchemeId ? { scheme_id: resolvedSchemeId, scheme_name: resolvedSchemeName, retailer_charge: serviceCharge } : {}),
+      })
+      .select()
+      .single()
+
+    if (txInsertErr || !txRecord) {
+      console.error('[Rechargekit Pay] Failed to create transaction record:', txInsertErr)
+      const response = NextResponse.json({ success: false, error: 'Failed to create transaction record' }, { status: 500 })
+      return addCorsHeaders(request, response)
+    }
+
+    // ─── Wallet debit ───
     let debitErr: any = null
     if (user.role === 'partner') {
       const { error } = await (supabaseAdmin as any).rpc('debit_partner_wallet', {
@@ -328,6 +337,7 @@ export async function POST(request: NextRequest) {
         p_credit: 0,
         p_debit: totalDebit,
         p_reference_id: request_id,
+        p_transaction_id: txRecord.id,
         p_status: 'completed',
         p_remarks: `CC-2 ₹${amountNum} + ₹${totalServiceCharge} GST | ${bankLabel} | Card:${cardMasked} | Mob:${mobile}`,
       })
@@ -335,14 +345,19 @@ export async function POST(request: NextRequest) {
     }
     if (debitErr) {
       console.error('[Rechargekit Pay] Debit error:', debitErr)
-      const response = NextResponse.json(
-        { success: false, error: 'Failed to debit wallet' },
-        { status: 500 }
-      )
+      await (supabaseAdmin as any).from('bbps_transactions').update({ status: 'failed', error_message: 'Wallet debit failed: ' + (debitErr.message || 'unknown') }).eq('id', txRecord.id)
+      const response = NextResponse.json({ success: false, error: 'Failed to debit wallet' }, { status: 500 })
       return addCorsHeaders(request, response)
     }
 
+    // Mark wallet debited
+    await (supabaseAdmin as any).from('bbps_transactions').update({ wallet_debited: true }).eq('id', txRecord.id)
+
+    // ─── Refund helper ───
     const refund = async (reason: string) => {
+      // Update transaction status
+      await (supabaseAdmin as any).from('bbps_transactions').update({ status: 'failed', error_message: reason, completed_at: new Date().toISOString() }).eq('id', txRecord.id)
+
       if (user.role === 'partner') {
         const { error: refundErr } = await (supabaseAdmin as any).rpc('credit_partner_wallet', {
           p_partner_id: user.partner_id,
@@ -363,6 +378,7 @@ export async function POST(request: NextRequest) {
           p_credit: totalDebit,
           p_debit: 0,
           p_reference_id: `REFUND_${request_id}`,
+          p_transaction_id: txRecord.id,
           p_status: 'completed',
           p_remarks: `Refund ₹${totalDebit} | CC-2 ${bankLabel} | Card:${cardMasked} | Mob:${mobile} — ${reason}`,
         })
@@ -370,6 +386,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // ─── Call Rechargekit provider ───
     let result
     try {
       result = await rechargekitCcPayment({
@@ -400,8 +417,20 @@ export async function POST(request: NextRequest) {
       return addCorsHeaders(request, response)
     }
 
-    // Pending: keep debit, no commission yet
+    // ─── Pending: keep debit, update transaction status ───
     if (result.pending) {
+      await (supabaseAdmin as any).from('bbps_transactions').update({
+        status: 'pending',
+        transaction_id: result.txn_id,
+        payment_status: 'pending',
+        additional_info: {
+          ...(txRecord.additional_info || {}),
+          provider_txn_id: result.txn_id,
+          operator_reference: result.operator_reference,
+          provider_message: result.message,
+        },
+      }).eq('id', txRecord.id)
+
       const response = NextResponse.json({
         success: true,
         pending: true,
@@ -414,6 +443,20 @@ export async function POST(request: NextRequest) {
       })
       return addCorsHeaders(request, response)
     }
+
+    // ─── Success: update transaction + distribute commissions ───
+    await (supabaseAdmin as any).from('bbps_transactions').update({
+      status: 'success',
+      transaction_id: result.txn_id,
+      payment_status: 'success',
+      completed_at: new Date().toISOString(),
+      additional_info: {
+        ...(txRecord.additional_info || {}),
+        provider_txn_id: result.txn_id,
+        operator_reference: result.operator_reference,
+        provider_message: result.message,
+      },
+    }).eq('id', txRecord.id)
 
     if (serviceCharge > 0) {
       const txRef = `RKCC_COMM_${request_id}`
@@ -429,6 +472,7 @@ export async function POST(request: NextRequest) {
             p_credit: commissionSplit.retailer_commission,
             p_debit: 0,
             p_reference_id: txRef,
+            p_transaction_id: txRecord.id,
             p_status: 'completed',
             p_remarks: `Commission on CC-2 Bill ₹${amountNum} - ${bankLabel}`,
           })
@@ -506,6 +550,7 @@ export async function POST(request: NextRequest) {
       amount: amountNum,
       charge: totalServiceCharge,
       request_id,
+      bbps_transaction_id: txRecord.id,
       message: result.message,
     })
     return addCorsHeaders(request, response)
