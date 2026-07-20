@@ -2245,6 +2245,7 @@ const ALL_SERVICES = [
   { key: 'dmt', label: 'Domestic Money Transfer', icon: '💸', short: 'DMT' },
   { key: 'bbps', label: 'BBPS-1 (Bill Payments)', icon: '📄', short: 'BBPS-1' },
   { key: 'bbps2', label: 'BBPS-2 (Pay2New)', icon: '📋', short: 'BBPS-2' },
+  { key: 'credit_card1', label: 'Credit Card-1 (Pay2New)', icon: '💳', short: 'CC-1' },
   { key: 'credit_card2', label: 'Credit Card-2 (Rechargekit)', icon: '💳', short: 'CC-2' },
   { key: 'recharge', label: 'Mobile Recharge', icon: '📱', short: 'Recharge' },
   { key: 'travel', label: 'Travel Services', icon: '✈️', short: 'Travel' },

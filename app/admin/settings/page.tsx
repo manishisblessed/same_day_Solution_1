@@ -114,6 +114,7 @@ export default function AdminSettings() {
     { id: 'mdr', label: 'MDR' },
     { id: 'limits', label: 'Limits' },
     { id: 'reversals', label: 'Reversals' },
+    { id: 'capabilities', label: 'Capabilities' },
     { id: 'disputes', label: 'Disputes' },
     { id: 'users', label: 'Users' },
     { id: 'performance', label: 'Performance' },

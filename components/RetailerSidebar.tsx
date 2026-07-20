@@ -48,7 +48,7 @@ const SERVICE_TAB_MAP: Record<string, string[]> = {
   'aeps-ledger':  ['aeps'],
   bbps:           ['bbps'],
   'bbps-2':       ['bbps2'],
-  'credit-card':  ['bbps'],
+  'credit-card':  ['credit_card1'],
   'credit-card-2': ['credit_card2'],
   payout:         ['settlement'],
   'settlement-2': ['settlement2'],

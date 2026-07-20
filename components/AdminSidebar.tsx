@@ -8,7 +8,7 @@ import {
   Settings,
   Activity, X, Menu, CreditCard, Receipt, CheckCircle2, ArrowUpCircle,
   Building2, FileBarChart, Layers, Key, Timer, History, Repeat, ScrollText, Wallet,
-  Fingerprint, Server, TrendingUp, Scale
+  Fingerprint, Server, TrendingUp, Scale, ShieldCheck
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { supabase } from '@/lib/supabase/client'
@@ -51,6 +51,7 @@ const sidebarItems: SidebarItem[] = [
   { id: 'subscriptions', label: 'Subscriptions', icon: Repeat, href: '/admin?tab=subscriptions' },
   { id: 'portal-management', label: 'Portal Management', icon: Server, href: '/admin?tab=portal-management' },
   { id: 'legal-agreements', label: 'Legal Agreements', icon: Scale, href: '/admin/agreements' },
+  { id: 'capabilities', label: 'Capabilities', icon: ShieldCheck, href: '/admin/capabilities' },
   { id: 'settings', label: 'Settings', icon: Settings, href: '/admin/settings' },
 ]
 
