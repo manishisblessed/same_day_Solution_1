@@ -201,19 +201,23 @@ export async function POST(request: NextRequest) {
         is_active: true,
       }
 
+      // Retry with basic columns when either a column is missing (PGRST204) or a
+      // stale CHECK constraint still rejects 'SKIPPED' (23514).
+      const needsBasicFallback = (e: any) => e && (e.code === 'PGRST204' || e.code === '23514')
+
       let skipRecord: any = null
       let skipErr: any = null
       if (existing) {
         const { data, error } = await supabase
           .from('shadval_settlement_accounts').update(skipData).eq('id', existing.id).select().single()
-        if (error?.code === 'PGRST204') {
+        if (needsBasicFallback(error)) {
           const r = await supabase.from('shadval_settlement_accounts').update(skipBasicData).eq('id', existing.id).select().single()
           skipRecord = r.data; skipErr = r.error
         } else { skipRecord = data; skipErr = error }
       } else {
         const { data, error } = await supabase
           .from('shadval_settlement_accounts').insert(skipData).select().single()
-        if (error?.code === 'PGRST204') {
+        if (needsBasicFallback(error)) {
           const r = await supabase.from('shadval_settlement_accounts').insert(skipBasicData).select().single()
           skipRecord = r.data; skipErr = r.error
         } else { skipRecord = data; skipErr = error }
@@ -230,7 +234,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({
         success: true,
         verified: false,
-        verification_status: 'SKIPPED',
+        verification_status: skipRecord.verification_status || 'SKIPPED',
+        verification_label: 'Account not verified',
         account: {
           id: skipRecord.id,
           account_number: skipRecord.account_number,

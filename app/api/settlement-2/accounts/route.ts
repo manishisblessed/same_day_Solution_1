@@ -36,10 +36,23 @@ async function ensureColumns() {
         ADD COLUMN IF NOT EXISTS contact_name TEXT,
         ADD COLUMN IF NOT EXISTS contact_email TEXT,
         ADD COLUMN IF NOT EXISTS contact_mobile TEXT;
+        DO $$
+        DECLARE v_constraint_name TEXT;
+        BEGIN
+          SELECT conname INTO v_constraint_name FROM pg_constraint
+          WHERE conrelid = 'shadval_settlement_accounts'::regclass AND contype = 'c'
+            AND pg_get_constraintdef(oid) ILIKE '%verification_status%';
+          IF v_constraint_name IS NOT NULL THEN
+            EXECUTE format('ALTER TABLE shadval_settlement_accounts DROP CONSTRAINT %I', v_constraint_name);
+          END IF;
+          ALTER TABLE shadval_settlement_accounts
+            ADD CONSTRAINT shadval_settlement_accounts_verification_status_check
+            CHECK (verification_status IN ('SUCCESS', 'FAILED', 'PENDING', 'SKIPPED'));
+        END $$;
         NOTIFY pgrst, 'reload schema';`
     })
   } catch {
-    // exec_sql RPC may not exist — that's fine, columns may already be there
+    // exec_sql RPC may not exist — that's fine, columns/constraint may already be correct
   }
 }
 
@@ -241,10 +254,16 @@ export async function POST(request: NextRequest) {
       let accountRecord: any = null
       let dbError: any = null
 
+      // Retry with basic columns when either a column is missing (PGRST204) or a
+      // stale CHECK constraint still rejects 'SKIPPED' (23514). The basic insert
+      // omits verification_status (saved as NULL); the GET/UI treat is_verified=false
+      // with no SUCCESS/PENDING/FAILED status as a trusted (skip-verified) account.
+      const needsBasicFallback = (e: any) => e && (e.code === 'PGRST204' || e.code === '23514')
+
       if (existing) {
         const { data, error } = await supabaseAdmin
           .from('shadval_settlement_accounts').update(skipData).eq('id', existing.id).select().single()
-        if (error?.code === 'PGRST204') {
+        if (needsBasicFallback(error)) {
           const { data: d2, error: e2 } = await supabaseAdmin
             .from('shadval_settlement_accounts').update(skipBasicData).eq('id', existing.id).select().single()
           accountRecord = d2; dbError = e2
@@ -254,7 +273,7 @@ export async function POST(request: NextRequest) {
       } else {
         const { data, error } = await supabaseAdmin
           .from('shadval_settlement_accounts').insert(skipData).select().single()
-        if (error?.code === 'PGRST204') {
+        if (needsBasicFallback(error)) {
           const { data: d2, error: e2 } = await supabaseAdmin
             .from('shadval_settlement_accounts').insert(skipBasicData).select().single()
           accountRecord = d2; dbError = e2
@@ -272,7 +291,7 @@ export async function POST(request: NextRequest) {
       const response = NextResponse.json({
         success: true,
         verified: false,
-        verification_status: 'SKIPPED',
+        verification_status: accountRecord?.verification_status || 'SKIPPED',
         account: accountRecord,
         charge_deducted: 0,
         skip_verification: true,

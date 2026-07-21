@@ -57,8 +57,12 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
   // Accounts
   const [accounts, setAccounts] = useState<VerifiedAccount[]>([])
   const [loadingAccounts, setLoadingAccounts] = useState(false)
-  // Accounts usable for settlement (verified + skipped unverified)
-  const settlementAccounts = accounts.filter(a => a.is_verified || a.verification_status === 'SKIPPED')
+  // Accounts usable for settlement: verified, or intentionally skip-verified
+  // (status 'SKIPPED'; or null/empty when a stale DB constraint forced the
+  // basic-columns fallback). Genuine FAILED/PENDING verifications are excluded.
+  const isTrustedUnverified = (a: VerifiedAccount) =>
+    !a.is_verified && (a.verification_status === 'SKIPPED' || a.verification_status === 'NOT_VERIFIED' || !a.verification_status)
+  const settlementAccounts = accounts.filter(a => a.is_verified || isTrustedUnverified(a))
   const verifiedAccounts = accounts.filter(a => a.is_verified)
 
   // Process settlement state
@@ -627,13 +631,13 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
                         </p>
                         {!acct.is_verified && (
                           <p className={`text-xs mt-0.5 ${
-                            acct.verification_status === 'SKIPPED'
+                            isTrustedUnverified(acct)
                               ? 'text-amber-600 dark:text-amber-400'
                               : acct.verification_status === 'PENDING'
                               ? 'text-amber-600 dark:text-amber-400'
                               : 'text-red-500'
                           }`}>
-                            {acct.verification_status === 'SKIPPED'
+                            {isTrustedUnverified(acct)
                               ? 'Not verified — transfers at your own risk'
                               : acct.verification_status === 'PENDING'
                               ? 'Verification pending at bank — use Re-check'
@@ -645,7 +649,7 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
                     <div className="flex items-center gap-2">
                       {acct.is_verified ? (
                         <BadgeCheck className="w-4 h-4 text-emerald-500" />
-                      ) : acct.verification_status === 'SKIPPED' ? (
+                      ) : isTrustedUnverified(acct) ? (
                         <ShieldAlert className="w-4 h-4 text-amber-500" />
                       ) : (
                         <>
