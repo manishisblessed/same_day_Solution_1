@@ -97,20 +97,30 @@ export async function POST(request: NextRequest) {
 
     const supabase = getSupabase()
 
-    let query = supabase
+    // reference_id (text) holds our request_id. We echo txn_id === request_id in the pay response,
+    // and also store the provider TxnID inside the description, so we can look up by either.
+    const lookup = String(request_id || txn_id)
+
+    const baseSelect = () => supabase
       .from('partner_wallet_ledger')
-      .select('id, transaction_type, credit, debit, reference_id, payout_transaction_id, description, status, created_at')
+      .select('id, transaction_type, credit, debit, reference_id, description, status, created_at')
       .eq('partner_id', partner.id)
+      .eq('transaction_type', 'DEBIT')
 
-    if (txn_id) {
-      query = query.eq('payout_transaction_id', txn_id)
-    } else {
-      query = query.eq('reference_id', request_id)
-    }
-
-    const { data: ledgerEntries, error: ledgerErr } = await query
+    let { data: ledgerEntries, error: ledgerErr } = await baseSelect()
+      .eq('reference_id', lookup)
       .order('created_at', { ascending: false })
       .limit(5)
+
+    // Fallback: provider txn_id differs from request_id — match it inside the description
+    if (!ledgerErr && (!ledgerEntries || ledgerEntries.length === 0) && txn_id) {
+      const res2 = await baseSelect()
+        .ilike('description', `%TxnID:${txn_id}%`)
+        .order('created_at', { ascending: false })
+        .limit(5)
+      ledgerEntries = res2.data
+      ledgerErr = res2.error
+    }
 
     if (ledgerErr) {
       console.error('[Partner Rechargekit Status] Ledger query error:', ledgerErr)
@@ -153,7 +163,6 @@ export async function POST(request: NextRequest) {
     }
 
     const txRequestId = debitEntry.reference_id
-    const txTxnId = debitEntry.payout_transaction_id
 
     // Check for refund entry
     const { data: refundEntries } = await supabase
@@ -165,27 +174,25 @@ export async function POST(request: NextRequest) {
 
     const wasRefunded = refundEntries && refundEntries.length > 0
 
-    let txStatus: 'SUCCESS' | 'FAILED' | 'PENDING' | 'REFUNDED' = 'SUCCESS'
-    let operatorReference: string | null = null
-
-    if (wasRefunded) {
-      txStatus = 'REFUNDED'
-    } else if (txTxnId?.startsWith('FAILED:')) {
-      txStatus = 'FAILED'
-    } else if (!txTxnId) {
-      txStatus = 'PENDING'
-    }
-
-    // Parse operator_reference from description
+    // Parse provider TxnID + operator_reference from description
+    const txnMatch = debitEntry.description?.match(/TxnID:([^\s|]+)/)
+    let resolvedTxnId: string | null = txnMatch ? txnMatch[1] : null
     const descMatch = debitEntry.description?.match(/Ref:([^\s|]+)/)
-    if (descMatch && descMatch[1] !== 'N/A') {
-      operatorReference = descMatch[1]
-    }
+    let operatorReference: string | null = descMatch && descMatch[1] !== 'N/A' ? descMatch[1] : null
 
     // Extract amounts from description
     const amountMatch = debitEntry.description?.match(/₹([\d.]+)\s*\+\s*₹([\d.]+)\s*charge/)
     const billAmount = amountMatch ? parseFloat(amountMatch[1]) : null
     const chargeAmount = amountMatch ? parseFloat(amountMatch[2]) : null
+
+    // Derive status from the ledger `status` column (set by pay route: SUCCESS/PENDING/FAILED),
+    // falling back to 'completed' (debit persisted but provider result not yet recorded) => PENDING.
+    const ledgerStatus = (debitEntry.status || '').toUpperCase()
+    let txStatus: 'SUCCESS' | 'FAILED' | 'PENDING' | 'REFUNDED' =
+      wasRefunded ? 'REFUNDED'
+      : ledgerStatus === 'SUCCESS' ? 'SUCCESS'
+      : ledgerStatus === 'FAILED' ? 'FAILED'
+      : 'PENDING'
 
     // For PENDING, check upstream provider status
     if (txStatus === 'PENDING' && txRequestId) {
@@ -193,11 +200,12 @@ export async function POST(request: NextRequest) {
       if (upstream.success && upstream.status) {
         txStatus = upstream.status
         if (upstream.operator_reference) operatorReference = upstream.operator_reference
+        if (upstream.txn_id) resolvedTxnId = upstream.txn_id
 
-        if (txStatus === 'SUCCESS' && upstream.txn_id) {
+        if (txStatus === 'SUCCESS') {
           await supabase
             .from('partner_wallet_ledger')
-            .update({ payout_transaction_id: upstream.txn_id })
+            .update({ status: 'SUCCESS' })
             .eq('id', debitEntry.id)
         }
 
@@ -218,17 +226,15 @@ export async function POST(request: NextRequest) {
           }
           await supabase
             .from('partner_wallet_ledger')
-            .update({ payout_transaction_id: `FAILED:${txRequestId}` })
+            .update({ status: 'FAILED' })
             .eq('id', debitEntry.id)
         }
       }
     }
 
-    const resolvedTxnId = txTxnId?.startsWith('FAILED:') ? null : txTxnId
-
     return NextResponse.json({
       success: true,
-      txn_id: resolvedTxnId || null,
+      txn_id: txStatus === 'FAILED' ? null : resolvedTxnId,
       status: txStatus,
       amount: billAmount,
       charge: chargeAmount,

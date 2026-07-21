@@ -229,10 +229,10 @@ export async function POST(request: NextRequest) {
       await refund('provider error')
       await supabase
         .from('partner_wallet_ledger')
-        .update({ payout_transaction_id: `FAILED:${request_id}` })
+        .update({ status: 'FAILED' })
         .eq('partner_id', partner.id)
         .eq('reference_id', request_id)
-        .is('payout_transaction_id', null)
+        .eq('transaction_type', 'DEBIT')
       return NextResponse.json(
         { success: false, error: { code: 'PROVIDER_ERROR', message: provErr?.message || 'CC payment failed' }, request_id },
         { status: 200 }
@@ -243,10 +243,10 @@ export async function POST(request: NextRequest) {
       await refund(result.error || 'payment failed')
       await supabase
         .from('partner_wallet_ledger')
-        .update({ payout_transaction_id: `FAILED:${request_id}` })
+        .update({ status: 'FAILED' })
         .eq('partner_id', partner.id)
         .eq('reference_id', request_id)
-        .is('payout_transaction_id', null)
+        .eq('transaction_type', 'DEBIT')
       return NextResponse.json(
         {
           success: false,
@@ -263,16 +263,16 @@ export async function POST(request: NextRequest) {
     const status = result.pending ? 'PENDING' : 'SUCCESS'
     const txnId = result.txn_id || request_id
 
-    // Store txn_id in ledger for status lookups
+    // Persist provider refs in description (payout_transaction_id is a uuid column — cannot hold provider strings)
     await supabase
       .from('partner_wallet_ledger')
       .update({
-        payout_transaction_id: txnId,
+        status,
         description: `CC-2 (RechargeKit) ₹${amountNum} + ₹${totalServiceCharge} charge | ${bank_name} | Card:${maskedCard} | Mob:${mobile_no} | TxnID:${txnId} | Ref:${result.operator_reference || 'N/A'}`,
       })
       .eq('partner_id', partner.id)
       .eq('reference_id', request_id)
-      .is('payout_transaction_id', null)
+      .eq('transaction_type', 'DEBIT')
 
     return NextResponse.json({
       success: true,
