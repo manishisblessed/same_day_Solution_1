@@ -105,19 +105,18 @@ export async function POST(request: NextRequest) {
 
     const supabase = getSupabase()
 
-    // Fetch verified account
+    // Fetch account (verified or unverified — risk is on the user)
     const { data: account, error: acctError } = await supabase
       .from('shadval_settlement_accounts')
       .select('*')
       .eq('id', account_id)
       .eq('retailer_id', partner.id)
-      .eq('is_verified', true)
       .eq('is_active', true)
       .maybeSingle()
 
     if (acctError || !account) {
       return NextResponse.json(
-        { success: false, error: { code: 'NOT_FOUND', message: 'Verified account not found' } },
+        { success: false, error: { code: 'NOT_FOUND', message: 'Account not found or inactive' } },
         { status: 404 }
       )
     }

@@ -97,19 +97,18 @@ export async function POST(request: NextRequest) {
       return addCorsHeaders(request, response)
     }
 
-    // Fetch verified account
+    // Fetch account (verified or unverified — risk is on the user)
     const { data: account, error: acctError } = await supabaseAdmin
       .from('shadval_settlement_accounts')
       .select('*')
       .eq('id', account_id)
       .eq('retailer_id', user.partner_id)
-      .eq('is_verified', true)
       .eq('is_active', true)
       .maybeSingle()
 
     if (acctError || !account) {
       const response = NextResponse.json(
-        { success: false, error: 'Verified account not found' },
+        { success: false, error: 'Account not found or inactive' },
         { status: 404 }
       )
       return addCorsHeaders(request, response)

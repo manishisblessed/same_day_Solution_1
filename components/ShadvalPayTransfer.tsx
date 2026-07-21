@@ -11,7 +11,7 @@ import {
   Wallet, Send, Search, Copy, ArrowLeft,
   Plus, CreditCard, Trash2, ShieldCheck, BadgeCheck,
   Sparkles, Star, TrendingUp, ChevronRight, Banknote,
-  Download, Share2, MessageCircle, Printer,
+  Download, Share2, MessageCircle, Printer, ShieldAlert,
 } from 'lucide-react'
 
 interface VerifiedAccount {
@@ -57,6 +57,8 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
   // Accounts
   const [accounts, setAccounts] = useState<VerifiedAccount[]>([])
   const [loadingAccounts, setLoadingAccounts] = useState(false)
+  // Accounts usable for settlement (verified + skipped unverified)
+  const settlementAccounts = accounts.filter(a => a.is_verified || a.verification_status === 'SKIPPED')
   const verifiedAccounts = accounts.filter(a => a.is_verified)
 
   // Process settlement state
@@ -163,7 +165,7 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
 
   // Handle process settlement click
   const handleProcessSettlement = () => {
-    if (verifiedAccounts.length === 0) {
+    if (settlementAccounts.length === 0) {
       setShowNoAccountModal(true)
       return
     }
@@ -328,6 +330,74 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
     return () => clearTimeout(t)
   }, [showCelebration, celebrationCountdown])
 
+  // Add account without verification (at user's risk)
+  const [addingWithoutVerify, setAddingWithoutVerify] = useState(false)
+  const handleAddWithoutVerification = async () => {
+    if (!newAccNumber || newAccNumber.length < 9) {
+      setError('Enter a valid account number (min 9 digits)')
+      return
+    }
+    if (newAccNumber !== newConfirmAcc) {
+      setError('Account numbers do not match')
+      return
+    }
+    if (!newIfsc || !/^[A-Z]{4}0[A-Z0-9]{6}$/i.test(newIfsc)) {
+      setError('Enter a valid IFSC code')
+      return
+    }
+    const trimmedName = newBeneName.trim()
+    if (!trimmedName || trimmedName.length < 3) {
+      setError('Beneficiary name must be at least 3 characters')
+      return
+    }
+    const cleanedName = trimmedName.replace(/[^A-Za-z\s\-]/g, '').replace(/\s+/g, ' ').trim()
+    if (cleanedName.length < 3) {
+      setError('Beneficiary name must be at least 3 letters')
+      return
+    }
+    if (!newContactMobile || !/^\d{10}$/.test(newContactMobile)) {
+      setError('Enter a valid 10-digit mobile number')
+      return
+    }
+
+    setError(null)
+    setAddingWithoutVerify(true)
+    setVerifyResult(null)
+
+    try {
+      const res = await apiFetch('/api/settlement-2/accounts', {
+        method: 'POST',
+        body: JSON.stringify({
+          account_number: newAccNumber,
+          ifsc_code: newIfsc.toUpperCase(),
+          account_holder_name: cleanedName,
+          contact_name: user?.name || '',
+          contact_email: user?.email || '',
+          contact_mobile: newContactMobile,
+          skip_verification: true,
+        }),
+      })
+
+      const data = await res.json()
+      if (data.success) {
+        fetchAccounts()
+        setNewAccNumber('')
+        setNewConfirmAcc('')
+        setNewIfsc('')
+        setNewBeneName('')
+        setNewContactMobile('')
+        setVerifyResult(data)
+        setActiveView('home')
+      } else {
+        setError(data.error || 'Failed to add account')
+      }
+    } catch (err: any) {
+      setError(err.message || 'Network error')
+    } finally {
+      setAddingWithoutVerify(false)
+    }
+  }
+
   // Re-check pending verification
   const [recheckingId, setRecheckingId] = useState<string | null>(null)
   const handleRecheckVerification = async (accountId: string) => {
@@ -410,7 +480,7 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
             {title || 'Settlement-2 - Bank Transfer'}
           </h2>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-            Send money to verified bank accounts via IMPS, NEFT, or RTGS
+            Send money to bank accounts via IMPS, NEFT, or RTGS
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -473,12 +543,20 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
                 <p className="text-sm text-gray-500 dark:text-gray-400">
                   Send money to verified bank accounts via IMPS, NEFT, or RTGS
                 </p>
-                {verifiedAccounts.length > 0 ? (
-                  <div className="mt-4 flex items-center gap-2">
-                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 text-xs font-semibold">
-                      <BadgeCheck className="w-3 h-3" />
-                      {verifiedAccounts.length} verified
-                    </span>
+                {settlementAccounts.length > 0 ? (
+                  <div className="mt-4 flex items-center gap-2 flex-wrap">
+                    {verifiedAccounts.length > 0 && (
+                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 text-xs font-semibold">
+                        <BadgeCheck className="w-3 h-3" />
+                        {verifiedAccounts.length} verified
+                      </span>
+                    )}
+                    {settlementAccounts.filter(a => !a.is_verified).length > 0 && (
+                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 text-xs font-semibold">
+                        <ShieldAlert className="w-3 h-3" />
+                        {settlementAccounts.filter(a => !a.is_verified).length} unverified
+                      </span>
+                    )}
                     <span className="text-xs text-gray-400">Ready to use</span>
                   </div>
                 ) : (
@@ -548,8 +626,16 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
                           {acct.account_number} | {acct.ifsc_code}
                         </p>
                         {!acct.is_verified && (
-                          <p className={`text-xs mt-0.5 ${acct.verification_status === 'PENDING' ? 'text-amber-600 dark:text-amber-400' : 'text-red-500'}`}>
-                            {acct.verification_status === 'PENDING'
+                          <p className={`text-xs mt-0.5 ${
+                            acct.verification_status === 'SKIPPED'
+                              ? 'text-amber-600 dark:text-amber-400'
+                              : acct.verification_status === 'PENDING'
+                              ? 'text-amber-600 dark:text-amber-400'
+                              : 'text-red-500'
+                          }`}>
+                            {acct.verification_status === 'SKIPPED'
+                              ? 'Not verified — transfers at your own risk'
+                              : acct.verification_status === 'PENDING'
                               ? 'Verification pending at bank — use Re-check'
                               : 'Verification failed — re-check or delete and re-add'}
                           </p>
@@ -559,6 +645,8 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
                     <div className="flex items-center gap-2">
                       {acct.is_verified ? (
                         <BadgeCheck className="w-4 h-4 text-emerald-500" />
+                      ) : acct.verification_status === 'SKIPPED' ? (
+                        <ShieldAlert className="w-4 h-4 text-amber-500" />
                       ) : (
                         <>
                           {acct.verification_status !== 'PENDING' && <XCircle className="w-4 h-4 text-red-500" />}
@@ -621,7 +709,7 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
                 </div>
                 <h3 className="text-lg font-bold text-gray-900 dark:text-white">No Bank Account Added</h3>
                 <p className="text-sm text-gray-500 dark:text-gray-400">
-                  You need to add and verify a bank account before processing settlements. A verification charge of ₹4 + GST will apply.
+                  You need to add a bank account before processing settlements. You can verify with penny drop (₹4 + GST) or add without verification at your own risk.
                 </p>
                 <div className="flex gap-3">
                   <button
@@ -667,35 +755,45 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
                   <CreditCard className="w-5 h-5 text-blue-600" />
                   Select Bank Account
                 </h3>
-                <p className="text-xs text-gray-500 mt-1">Choose a verified account to process settlement</p>
+                <p className="text-xs text-gray-500 mt-1">Choose an account to process settlement</p>
               </div>
               <div className="divide-y divide-gray-100 dark:divide-gray-800">
-                {verifiedAccounts.map(acct => (
+                {settlementAccounts.map(acct => (
                   <button
                     key={acct.id}
                     onClick={() => handleSelectAccount(acct)}
                     className="w-full p-4 flex items-center justify-between hover:bg-blue-50 dark:hover:bg-blue-900/10 transition-colors text-left"
                   >
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-xl bg-blue-50 dark:bg-blue-900/20 flex items-center justify-center">
-                        <Building2 className="w-5 h-5 text-blue-600" />
+                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+                        acct.is_verified ? 'bg-blue-50 dark:bg-blue-900/20' : 'bg-amber-50 dark:bg-amber-900/20'
+                      }`}>
+                        <Building2 className={`w-5 h-5 ${acct.is_verified ? 'text-blue-600' : 'text-amber-600'}`} />
                       </div>
                       <div>
-                        <p className="font-medium text-gray-900 dark:text-white text-sm">
+                        <p className="font-medium text-gray-900 dark:text-white text-sm flex items-center gap-1.5">
                           {acct.verified_name || acct.account_holder_name}
+                          {acct.is_verified ? (
+                            <BadgeCheck className="w-3.5 h-3.5 text-emerald-500" />
+                          ) : (
+                            <ShieldAlert className="w-3.5 h-3.5 text-amber-500" />
+                          )}
                         </p>
                         <p className="text-xs text-gray-500 font-mono">
                           {acct.account_number} | {acct.ifsc_code}
                         </p>
+                        {!acct.is_verified && (
+                          <p className="text-[10px] text-amber-600 dark:text-amber-400 mt-0.5">Unverified — transfer at your own risk</p>
+                        )}
                       </div>
                     </div>
                     <ArrowRight className="w-5 h-5 text-gray-400" />
                   </button>
                 ))}
-                {verifiedAccounts.length === 0 && (
+                {settlementAccounts.length === 0 && (
                   <div className="p-8 text-center text-gray-500">
                     <CreditCard className="w-10 h-10 mx-auto mb-2 opacity-30" />
-                    <p className="font-medium">No verified accounts</p>
+                    <p className="font-medium">No accounts available</p>
                     <button
                       onClick={() => { setActiveView('add-account'); setError(null); setVerifyResult(null) }}
                       className="mt-2 text-sm text-blue-600 hover:underline"
@@ -719,17 +817,28 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
               </div>
               <div className="p-5 space-y-4">
                 {/* Selected account info */}
-                <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-xl flex items-center gap-3">
-                  <Building2 className="w-5 h-5 text-blue-600" />
+                <div className={`p-3 rounded-xl flex items-center gap-3 ${
+                  selectedAccount.is_verified
+                    ? 'bg-blue-50 dark:bg-blue-900/20'
+                    : 'bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800'
+                }`}>
+                  <Building2 className={`w-5 h-5 ${selectedAccount.is_verified ? 'text-blue-600' : 'text-amber-600'}`} />
                   <div>
-                    <p className="font-medium text-blue-900 dark:text-blue-100 text-sm">
+                    <p className={`font-medium text-sm flex items-center gap-1.5 ${
+                      selectedAccount.is_verified ? 'text-blue-900 dark:text-blue-100' : 'text-amber-900 dark:text-amber-100'
+                    }`}>
                       {selectedAccount.verified_name || selectedAccount.account_holder_name}
+                      {selectedAccount.is_verified ? (
+                        <BadgeCheck className="w-3.5 h-3.5 text-emerald-500" />
+                      ) : (
+                        <ShieldAlert className="w-3.5 h-3.5 text-amber-500" />
+                      )}
                     </p>
-                    <p className="text-xs text-blue-700 dark:text-blue-300 font-mono">
+                    <p className={`text-xs font-mono ${selectedAccount.is_verified ? 'text-blue-700 dark:text-blue-300' : 'text-amber-700 dark:text-amber-300'}`}>
                       {selectedAccount.account_number} | {selectedAccount.ifsc_code}
                     </p>
                   </div>
-                  <button onClick={() => setSettlementStep('select-account')} className="ml-auto text-xs text-blue-600 hover:underline">
+                  <button onClick={() => setSettlementStep('select-account')} className={`ml-auto text-xs hover:underline ${selectedAccount.is_verified ? 'text-blue-600' : 'text-amber-600'}`}>
                     Change
                   </button>
                 </div>
@@ -837,6 +946,18 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
                 </h3>
               </div>
               <div className="p-5 space-y-4">
+                {/* Warning for unverified accounts */}
+                {!selectedAccount.is_verified && (
+                  <div className="p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl flex items-start gap-2">
+                    <ShieldAlert className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <p className="text-sm font-medium text-amber-800 dark:text-amber-200">Unverified Account</p>
+                      <p className="text-xs text-amber-700 dark:text-amber-300 mt-0.5">
+                        This account has not been verified via penny drop. If account details are incorrect, funds may be sent to the wrong recipient. Proceed at your own risk.
+                      </p>
+                    </div>
+                  </div>
+                )}
                 <div className="grid grid-cols-2 gap-3 text-sm">
                   <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded-xl">
                     <p className="text-gray-500 dark:text-gray-400 text-xs mb-1">Beneficiary</p>
@@ -1300,7 +1421,7 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
               {/* Verify Button */}
               <button
                 onClick={handleVerifyAccount}
-                disabled={verifying || !newAccNumber || !newIfsc || !newBeneName || newBeneName.trim().length < 3 || !/^[A-Za-z\s\-.]+$/.test(newBeneName.trim()) || newAccNumber !== newConfirmAcc || !newContactMobile || !/^\d{10}$/.test(newContactMobile)}
+                disabled={verifying || addingWithoutVerify || !newAccNumber || !newIfsc || !newBeneName || newBeneName.trim().length < 3 || !/^[A-Za-z\s\-.]+$/.test(newBeneName.trim()) || newAccNumber !== newConfirmAcc || !newContactMobile || !/^\d{10}$/.test(newContactMobile)}
                 className="w-full py-3.5 rounded-xl bg-gradient-to-r from-emerald-600 via-emerald-600 to-teal-600 text-white font-semibold shadow-lg shadow-emerald-500/20 hover:shadow-xl hover:shadow-emerald-500/30 hover:scale-[1.01] disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 transition-all flex items-center justify-center gap-2"
               >
                 {verifying ? (
@@ -1309,6 +1430,28 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
                   <><ShieldCheck className="w-5 h-5" /> Verify & Add Account (₹4 + GST)</>
                 )}
               </button>
+
+              {/* Divider */}
+              <div className="relative">
+                <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-gray-200 dark:border-gray-700" /></div>
+                <div className="relative flex justify-center"><span className="px-3 bg-white dark:bg-gray-900 text-xs text-gray-400 uppercase">or</span></div>
+              </div>
+
+              {/* Add Without Verification Button */}
+              <button
+                onClick={handleAddWithoutVerification}
+                disabled={verifying || addingWithoutVerify || !newAccNumber || !newIfsc || !newBeneName || newBeneName.trim().length < 3 || newAccNumber !== newConfirmAcc || !newContactMobile || !/^\d{10}$/.test(newContactMobile)}
+                className="w-full py-3 rounded-xl border-2 border-dashed border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-300 font-medium hover:bg-amber-50 dark:hover:bg-amber-900/20 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
+              >
+                {addingWithoutVerify ? (
+                  <><Loader2 className="w-4 h-4 animate-spin" /> Adding...</>
+                ) : (
+                  <><ShieldAlert className="w-4 h-4" /> Add Without Verification (Free — at your own risk)</>
+                )}
+              </button>
+              <p className="text-[11px] text-amber-600 dark:text-amber-400 text-center -mt-2">
+                No penny drop. No charge. If details are wrong, funds may go to the wrong account.
+              </p>
             </div>
             </div>
 

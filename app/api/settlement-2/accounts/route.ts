@@ -132,7 +132,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { account_number, ifsc_code, account_holder_name, contact_name, contact_email, contact_mobile } = body
+    const { account_number, ifsc_code, account_holder_name, contact_name, contact_email, contact_mobile, skip_verification } = body
 
     if (!account_number || !ifsc_code || !account_holder_name) {
       const response = NextResponse.json(
@@ -199,6 +199,85 @@ export async function POST(request: NextRequest) {
         },
         { status: 400 }
       )
+      return addCorsHeaders(request, response)
+    }
+
+    // ─── SKIP VERIFICATION: Add account without penny drop ───────────────
+    if (skip_verification) {
+      if (!contact_mobile || !/^\d{10}$/.test(contact_mobile)) {
+        const response = NextResponse.json(
+          { success: false, error: 'A valid 10-digit mobile number is required' },
+          { status: 400 }
+        )
+        return addCorsHeaders(request, response)
+      }
+
+      if (!columnsChecked) { await ensureColumns(); columnsChecked = true }
+
+      const skipData = {
+        retailer_id: user.partner_id,
+        account_number,
+        ifsc_code: ifsc_code.toUpperCase(),
+        account_holder_name: account_holder_name.trim(),
+        is_verified: false,
+        verification_status: 'SKIPPED',
+        verification_charges: 0,
+        contact_name: contact_name || null,
+        contact_email: contact_email || null,
+        contact_mobile: contact_mobile || null,
+        is_active: true,
+      }
+
+      // Basic columns guaranteed to exist from original table creation (stale-schema fallback)
+      const skipBasicData: Record<string, any> = {
+        retailer_id: user.partner_id,
+        account_number,
+        ifsc_code: ifsc_code.toUpperCase(),
+        account_holder_name: account_holder_name.trim(),
+        is_verified: false,
+        is_active: true,
+      }
+
+      let accountRecord: any = null
+      let dbError: any = null
+
+      if (existing) {
+        const { data, error } = await supabaseAdmin
+          .from('shadval_settlement_accounts').update(skipData).eq('id', existing.id).select().single()
+        if (error?.code === 'PGRST204') {
+          const { data: d2, error: e2 } = await supabaseAdmin
+            .from('shadval_settlement_accounts').update(skipBasicData).eq('id', existing.id).select().single()
+          accountRecord = d2; dbError = e2
+        } else {
+          accountRecord = data; dbError = error
+        }
+      } else {
+        const { data, error } = await supabaseAdmin
+          .from('shadval_settlement_accounts').insert(skipData).select().single()
+        if (error?.code === 'PGRST204') {
+          const { data: d2, error: e2 } = await supabaseAdmin
+            .from('shadval_settlement_accounts').insert(skipBasicData).select().single()
+          accountRecord = d2; dbError = e2
+        } else {
+          accountRecord = data; dbError = error
+        }
+      }
+
+      if (dbError) {
+        console.error('[Settlement-2 Accounts] Skip-verification DB error:', dbError)
+        const response = NextResponse.json({ success: false, error: 'Failed to save account' }, { status: 500 })
+        return addCorsHeaders(request, response)
+      }
+
+      const response = NextResponse.json({
+        success: true,
+        verified: false,
+        verification_status: 'SKIPPED',
+        account: accountRecord,
+        charge_deducted: 0,
+        skip_verification: true,
+        message: 'Account added without verification. Transfers to this account are at your own risk.',
+      })
       return addCorsHeaders(request, response)
     }
 
