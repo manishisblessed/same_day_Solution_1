@@ -1789,6 +1789,15 @@ function AdminDashboardOverview({
   } | null>(null)
   const [pay2newLoading, setPay2newLoading] = useState(false)
 
+  // Rechargekit Balance State
+  const [rechargekitBalance, setRechargekitBalance] = useState<{
+    success: boolean
+    balance: number | null
+    error?: string
+    last_checked: string
+  } | null>(null)
+  const [rechargekitLoading, setRechargekitLoading] = useState(false)
+
   // eKYC Hub balance (reported up from child component for the total)
   const [ekycHubBalance, setEkycHubBalance] = useState<number | null>(null)
 
@@ -1907,18 +1916,53 @@ function AdminDashboardOverview({
     }
   }
 
+  // Fetch Rechargekit Balance
+  const fetchRechargekitBalance = async () => {
+    setRechargekitLoading(true)
+    const checkedAt = new Date().toISOString()
+    try {
+      const response = await apiFetch('/api/admin/rechargekit-balance', { timeout: 20000 })
+      const data = await response.json()
+      if (data.success) {
+        setRechargekitBalance({
+          success: true,
+          balance: data.balance,
+          last_checked: data.last_checked || checkedAt,
+        })
+      } else {
+        setRechargekitBalance({
+          success: false,
+          balance: null,
+          error: data.error || 'Failed to fetch Rechargekit balance',
+          last_checked: checkedAt,
+        })
+      }
+    } catch (error: any) {
+      setRechargekitBalance({
+        success: false,
+        balance: null,
+        error: error?.message || 'Failed to fetch Rechargekit balance',
+        last_checked: checkedAt,
+      })
+    } finally {
+      setRechargekitLoading(false)
+    }
+  }
+
   const refreshAllProviders = () => {
     fetchPay2newBalance()
     fetchShadvalBalance()
+    fetchRechargekitBalance()
   }
 
-  const anyProviderLoading = pay2newLoading || shadvalLoading
+  const anyProviderLoading = pay2newLoading || shadvalLoading || rechargekitLoading
 
   const totalAvailableBalance =
     (pay2newBalance?.balance ?? 0) +
     (shadvalBalance?.available_balance ?? 0) +
     (shadvalBalance?.verification_balance ?? 0) +
-    (ekycHubBalance ?? 0)
+    (ekycHubBalance ?? 0) +
+    (rechargekitBalance?.balance ?? 0)
 
   useEffect(() => {
     fetchAnalytics()
@@ -2188,6 +2232,22 @@ function AdminDashboardOverview({
             formatINR={formatINR}
           />
 
+          {/* Rechargekit */}
+          <ProviderWalletCard
+            theme="cyan"
+            icon={<CreditCard className="w-4 h-4 text-white" />}
+            title="Rechargekit"
+            subtitle="Credit Card-2 Bill Pay"
+            status={rechargekitBalance?.success ? 'active' : rechargekitBalance ? 'error' : 'idle'}
+            available={rechargekitBalance?.balance ?? null}
+            errorMessage={rechargekitBalance?.error}
+            lastChecked={rechargekitBalance?.last_checked}
+            loading={rechargekitLoading}
+            onRefresh={fetchRechargekitBalance}
+            globalVisible={balancesVisible}
+            formatINR={formatINR}
+          />
+
           {/* SHADVAL PAY Main */}
           <ProviderWalletCard
             theme="violet"
@@ -2221,7 +2281,7 @@ function AdminDashboardOverview({
             formatINR={formatINR}
           />
 
-          {!pay2newBalance && !shadvalBalance && (
+          {!pay2newBalance && !shadvalBalance && !rechargekitBalance && (
             <div className="md:col-span-2 xl:col-span-3 flex flex-col items-center gap-2 py-8 text-slate-400 text-sm">
               <RefreshCw className={`w-5 h-5 ${anyProviderLoading ? 'animate-spin text-indigo-400' : 'text-slate-500'}`} />
               <p>{anyProviderLoading ? 'Fetching provider balances…' : 'No provider data yet. Click "Refresh All" to load.'}</p>

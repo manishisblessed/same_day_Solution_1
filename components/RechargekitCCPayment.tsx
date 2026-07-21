@@ -495,6 +495,28 @@ export default function RechargekitCCPayment() {
                 </div>
               )}
 
+              {payResult.pending && payResult.request_id && (
+                <button
+                  onClick={async () => {
+                    try {
+                      const data = await apiFetchJson(`/api/rechargekit/status?request_id=${payResult.request_id}`)
+                      if (data.status === 'success') {
+                        setPayResult({ ...payResult, pending: false, success: true, message: 'Payment successful' })
+                      } else if (data.status === 'failed') {
+                        setPayResult({ ...payResult, pending: false, success: false, error: data.message || 'Payment failed — wallet refunded' })
+                      } else {
+                        setPayResult({ ...payResult, message: data.message || 'Still pending...' })
+                      }
+                    } catch (e: any) {
+                      setPayResult({ ...payResult, message: e?.message || 'Failed to check status' })
+                    }
+                  }}
+                  className="w-full py-2.5 rounded-lg bg-yellow-500 hover:bg-yellow-600 text-white text-sm font-medium transition-colors"
+                >
+                  Check Status
+                </button>
+              )}
+
               <button
                 onClick={resetFlow}
                 className="w-full py-2.5 rounded-lg border border-gray-300 dark:border-gray-600 text-sm font-medium hover:bg-gray-50 dark:hover:bg-gray-700"

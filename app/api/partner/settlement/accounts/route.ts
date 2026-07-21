@@ -48,7 +48,7 @@ export async function GET(request: NextRequest) {
 
     const { data: accounts, error } = await supabase
       .from('shadval_settlement_accounts')
-      .select('id, account_number, ifsc_code, account_holder_name, is_verified, verified_name, contact_name, contact_email, contact_mobile, created_at')
+      .select('id, account_number, ifsc_code, account_holder_name, is_verified, verification_status, verified_name, contact_name, contact_email, contact_mobile, created_at')
       .eq('retailer_id', partner.id)
       .eq('is_active', true)
       .order('created_at', { ascending: false })
@@ -68,6 +68,8 @@ export async function GET(request: NextRequest) {
         ifsc_code: a.ifsc_code,
         account_holder_name: a.account_holder_name,
         is_verified: a.is_verified,
+        verification_status: a.is_verified ? 'VERIFIED' : (a.verification_status || 'NOT_VERIFIED'),
+        verification_label: a.is_verified ? 'Verified' : 'Account not verified',
         verified_name: a.verified_name,
         contact_name: a.contact_name,
         contact_email: a.contact_email,
@@ -112,15 +114,6 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Globally disabled by admin (e.g. upstream verification provider outage).
-    // Returned before any wallet debit so the partner is never charged.
-    if (!(await isAccountVerificationEnabled())) {
-      return NextResponse.json(
-        { success: false, error: { code: 'VERIFICATION_DISABLED', message: ACCOUNT_VERIFICATION_DISABLED_MESSAGE } },
-        { status: 503 }
-      )
-    }
-
     let body: any
     try {
       body = await request.json()
@@ -131,7 +124,17 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const { account_number, ifsc_code, account_holder_name, contact_name, contact_email, contact_mobile } = body
+    const { account_number, ifsc_code, account_holder_name, contact_name, contact_email, contact_mobile, skip_verification } = body
+
+    // Globally disabled by admin (e.g. upstream verification provider outage).
+    // Returned before any wallet debit so the partner is never charged.
+    // The skip_verification path does not use the verification provider, so it is exempt.
+    if (skip_verification !== true && !(await isAccountVerificationEnabled())) {
+      return NextResponse.json(
+        { success: false, error: { code: 'VERIFICATION_DISABLED', message: ACCOUNT_VERIFICATION_DISABLED_MESSAGE } },
+        { status: 503 }
+      )
+    }
 
     if (!account_number || !ifsc_code || !account_holder_name) {
       return NextResponse.json(
@@ -163,6 +166,83 @@ export async function POST(request: NextRequest) {
         { success: false, error: { code: 'DUPLICATE', message: 'This account is already verified and active' } },
         { status: 400 }
       )
+    }
+
+    // ─── SKIP VERIFICATION: Add a trusted account without penny drop ──────
+    // Opt-in via skip_verification:true. No penny drop, no ₹4 charge. The account
+    // is saved as unverified; transfers to it are at the partner's own risk.
+    if (skip_verification === true) {
+      if (!contact_mobile || !/^\d{10}$/.test(contact_mobile)) {
+        return NextResponse.json(
+          { success: false, error: { code: 'BAD_REQUEST', message: 'A valid 10-digit contact_mobile is required' } },
+          { status: 400 }
+        )
+      }
+
+      const skipData = {
+        retailer_id: partner.id,
+        account_number,
+        ifsc_code: ifsc_code.toUpperCase(),
+        account_holder_name: account_holder_name.trim(),
+        is_verified: false,
+        verification_status: 'SKIPPED',
+        verification_charges: 0,
+        contact_name: contact_name || null,
+        contact_email: contact_email || null,
+        contact_mobile,
+        is_active: true,
+      }
+      const skipBasicData: Record<string, any> = {
+        retailer_id: partner.id,
+        account_number,
+        ifsc_code: ifsc_code.toUpperCase(),
+        account_holder_name: account_holder_name.trim(),
+        is_verified: false,
+        is_active: true,
+      }
+
+      let skipRecord: any = null
+      let skipErr: any = null
+      if (existing) {
+        const { data, error } = await supabase
+          .from('shadval_settlement_accounts').update(skipData).eq('id', existing.id).select().single()
+        if (error?.code === 'PGRST204') {
+          const r = await supabase.from('shadval_settlement_accounts').update(skipBasicData).eq('id', existing.id).select().single()
+          skipRecord = r.data; skipErr = r.error
+        } else { skipRecord = data; skipErr = error }
+      } else {
+        const { data, error } = await supabase
+          .from('shadval_settlement_accounts').insert(skipData).select().single()
+        if (error?.code === 'PGRST204') {
+          const r = await supabase.from('shadval_settlement_accounts').insert(skipBasicData).select().single()
+          skipRecord = r.data; skipErr = r.error
+        } else { skipRecord = data; skipErr = error }
+      }
+
+      if (skipErr || !skipRecord) {
+        console.error('[Partner Settlement Accounts POST] Skip-verification DB error:', skipErr)
+        return NextResponse.json(
+          { success: false, error: { code: 'INTERNAL_ERROR', message: 'Failed to save account' } },
+          { status: 500 }
+        )
+      }
+
+      return NextResponse.json({
+        success: true,
+        verified: false,
+        verification_status: 'SKIPPED',
+        account: {
+          id: skipRecord.id,
+          account_number: skipRecord.account_number,
+          ifsc_code: skipRecord.ifsc_code,
+          account_holder_name: skipRecord.account_holder_name,
+          is_verified: false,
+          verified_name: null,
+        },
+        charge_deducted: 0,
+        skip_verification: true,
+        message: 'Account added without verification. Transfers to this account are at your own risk.',
+      })
     }
 
     // Check partner wallet balance
