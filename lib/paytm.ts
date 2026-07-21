@@ -19,8 +19,22 @@ export function getPaytmConfig() {
 }
 
 export function formatTimestamp(date = new Date()): string {
-  const pad = (n: number) => n.toString().padStart(2, '0')
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
+  // Paytm expects IST (Asia/Kolkata). Generate it explicitly so the value is
+  // correct regardless of the host server's timezone (EC2 runs in UTC).
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Kolkata',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).formatToParts(date)
+  const p: Record<string, string> = {}
+  for (const { type, value } of parts) p[type] = value
+  const hour = p.hour === '24' ? '00' : p.hour
+  return `${p.year}-${p.month}-${p.day} ${hour}:${p.minute}:${p.second}`
 }
 
 export async function generateChecksum(body: Record<string, any>): Promise<string> {
