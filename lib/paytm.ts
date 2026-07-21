@@ -1,7 +1,7 @@
 import PaytmChecksum from 'paytmchecksum'
 
 const PAYTM_URLS = {
-  staging: 'https://securestage.paytmpayments.com',
+  staging: 'https://securegw-stage.paytm.in',
   production: 'https://securegw-edc.paytm.in',
 } as const
 
@@ -12,7 +12,8 @@ export function getPaytmConfig() {
     merchantKey: process.env.PAYTM_MERCHANT_KEY!,
     tid: process.env.PAYTM_TID!,
     channelId: process.env.PAYTM_CHANNEL_ID || 'EDC',
-    baseUrl: PAYTM_URLS[env] || PAYTM_URLS.staging,
+    callbackUrl: process.env.PAYTM_CALLBACK_URL || '',
+    baseUrl: process.env.PAYTM_BASE_URL || PAYTM_URLS[env] || PAYTM_URLS.staging,
     env,
   }
 }

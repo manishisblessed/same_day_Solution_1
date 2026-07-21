@@ -40,10 +40,10 @@ export async function POST(request: NextRequest) {
     if (merchantReferenceNo) body.merchantReferenceNo = merchantReferenceNo
 
     const extendedInfo: Record<string, string> = {}
-    if (paymentMode) extendedInfo.PaymentMode = paymentMode
-    else extendedInfo.PaymentMode = 'All'
+    extendedInfo.PaymentMode = paymentMode || 'All'
+    extendedInfo.callbackUrl = payload.callbackUrl || config.callbackUrl || 'https://samedaysolution.in/api/paytm/notification/lagoon'
     if (autoAccept) extendedInfo.autoAccept = 'True'
-    if (Object.keys(extendedInfo).length > 0) body.merchantExtendedInfo = extendedInfo
+    body.merchantExtendedInfo = extendedInfo
 
     const data = await callPaytmApi({
       endpoint: '/ecr/payment/request',
