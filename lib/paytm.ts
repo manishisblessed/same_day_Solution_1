@@ -37,14 +37,39 @@ export function formatTimestamp(date = new Date()): string {
   return `${p.year}-${p.month}-${p.day} ${hour}:${p.minute}:${p.second}`
 }
 
+/**
+ * Paytm ECR computes the checksum by recursively flattening the body: keys are
+ * sorted (case-sensitive) and the *values* are joined with "|". Nested objects
+ * (e.g. merchantExtendedInfo) are flattened the same way. This mirrors the
+ * paytmchecksum library's getStringByParams applied recursively, and is what the
+ * Paytm server validates against — passing JSON.stringify(body) fails checksum.
+ */
+function flattenForChecksum(value: any): string {
+  if (value !== null && typeof value === 'object') {
+    return Object.keys(value)
+      .sort()
+      .map((k) => flattenForChecksum(value[k]))
+      .join('|')
+  }
+  return value === null || value === undefined ? '' : String(value)
+}
+
+function toChecksumParams(body: Record<string, any>): Record<string, string> {
+  const params: Record<string, string> = {}
+  for (const key of Object.keys(body)) {
+    params[key] = flattenForChecksum(body[key])
+  }
+  return params
+}
+
 export async function generateChecksum(body: Record<string, any>): Promise<string> {
   const { merchantKey } = getPaytmConfig()
-  return PaytmChecksum.generateSignature(JSON.stringify(body), merchantKey)
+  return PaytmChecksum.generateSignature(toChecksumParams(body), merchantKey)
 }
 
 export async function verifyChecksum(body: Record<string, any>, checksum: string): Promise<boolean> {
   const { merchantKey } = getPaytmConfig()
-  return PaytmChecksum.verifySignature(JSON.stringify(body), merchantKey, checksum)
+  return PaytmChecksum.verifySignature(toChecksumParams(body), merchantKey, checksum)
 }
 
 interface PaytmApiOptions {
