@@ -97,7 +97,7 @@ export default function BusinessLogin() {
       } else if (user.role === 'retailer') dest = '/dashboard/retailer'
       else if (user.role === 'distributor') dest = '/dashboard/distributor'
       else if (user.role === 'master_distributor') dest = '/dashboard/master-distributor'
-      else if (user.role === 'partner') dest = '/dashboard/partner'
+      else if (user.role === 'partner' || user.role === 'sub_partner') dest = '/dashboard/partner'
       if (dest) router.push(dest)
     }
   }, [user, authLoading])

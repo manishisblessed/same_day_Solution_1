@@ -50,18 +50,17 @@ function getServiceClient() {
  */
 async function getUserRole(_supabase: any, email: string, userId: string): Promise<AuthUser | null> {
   const supabase = getServiceClient() || _supabase
-  const [retailer, distributor, masterDistributor, admin, finance, partner] = await Promise.all([
+  const [retailer, distributor, masterDistributor, admin, finance, partner, subPartner] = await Promise.all([
     supabase.from('retailers').select('*').eq('email', email).eq('status', 'active').maybeSingle(),
     supabase.from('distributors').select('*').eq('email', email).eq('status', 'active').maybeSingle(),
     supabase.from('master_distributors').select('*').eq('email', email).eq('status', 'active').maybeSingle(),
     supabase.from('admin_users').select('*').eq('email', email).maybeSingle(),
     supabase.from('finance_users').select('*').eq('email', email).eq('is_active', true).maybeSingle(),
     supabase.from('partners').select('*').eq('email', email).eq('status', 'active').maybeSingle(),
+    supabase.from('sub_partners').select('*').eq('email', email).eq('status', 'active').maybeSingle(),
   ])
 
-  // If ALL queries returned errors, it's likely a network outage — throw so
-  // the caller can return 500/503 instead of 401.
-  const results = [retailer, distributor, masterDistributor, admin, finance, partner]
+  const results = [retailer, distributor, masterDistributor, admin, finance, partner, subPartner]
   const allFailed = results.every(r => r.error && !r.data)
   if (allFailed) {
     const sampleMsg = results.find(r => r.error)?.error?.message || 'All role lookups failed'
@@ -123,6 +122,17 @@ async function getUserRole(_supabase: any, email: string, userId: string): Promi
       role: 'partner',
       partner_id: partner.data.id,
       name: partner.data.name,
+    }
+  }
+  if (subPartner.data && !subPartner.error) {
+    return {
+      id: userId,
+      email: email,
+      role: 'sub_partner',
+      partner_id: subPartner.data.parent_partner_id,
+      sub_partner_id: subPartner.data.id,
+      name: subPartner.data.name,
+      permissions: subPartner.data.permissions || {},
     }
   }
 

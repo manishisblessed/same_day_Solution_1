@@ -35,6 +35,7 @@ interface Partner {
   settlement_enabled?: boolean
   settlement2_enabled?: boolean
   aeps_enabled?: boolean
+  rechargekit_cc_enabled?: boolean
   created_at: string
   api_keys: PartnerKey[]
   export_limit: number
@@ -257,15 +258,16 @@ export default function POSPartnerAPIManagement() {
   /** Enable/disable BBPS or Settlement at partner level; syncs active API key permissions. */
   const handleTogglePartnerService = async (
     partner: Partner,
-    service: 'bbps' | 'bbps2' | 'settlement' | 'settlement2' | 'aeps',
+    service: 'bbps' | 'bbps2' | 'settlement' | 'settlement2' | 'aeps' | 'rechargekit',
     enabled: boolean
   ) => {
-    const label = service === 'bbps' ? 'BBPS Bill Payment' : service === 'bbps2' ? 'BBPS-2 (Pay2New)' : service === 'settlement2' ? 'Settlement-2 (SHADVAL Pay)' : service === 'aeps' ? 'AEPS Services' : 'Settlement / Payout'
+    const label = service === 'bbps' ? 'BBPS Bill Payment' : service === 'bbps2' ? 'BBPS-2 (Pay2New)' : service === 'settlement2' ? 'Settlement-2 (SHADVAL Pay)' : service === 'aeps' ? 'AEPS Services' : service === 'rechargekit' ? 'Credit Card-2 (RechargeKit)' : 'Settlement / Payout'
     const servicePayload =
       service === 'bbps' ? { bbps_enabled: enabled } :
       service === 'bbps2' ? { bbps2_pay2new_enabled: enabled } :
       service === 'settlement2' ? { settlement2_enabled: enabled } :
       service === 'aeps' ? { aeps_enabled: enabled } :
+      service === 'rechargekit' ? { rechargekit_cc_enabled: enabled } :
       { settlement_enabled: enabled }
     const result = await doAction({
       action: 'update_partner_services',
@@ -691,6 +693,30 @@ export default function POSPartnerAPIManagement() {
                               <span
                                 className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ${
                                   partner.aeps_enabled ? 'translate-x-5' : 'translate-x-0'
+                                }`}
+                              />
+                            </button>
+                          </div>
+                          <div className="flex items-center justify-between gap-4 p-3 bg-white dark:bg-gray-800 rounded-lg border border-indigo-100 dark:border-indigo-900/50">
+                            <div>
+                              <p className="text-sm font-medium text-gray-900 dark:text-white">Credit Card-2 (RechargeKit)</p>
+                              <p className="text-xs text-gray-500 dark:text-gray-400">
+                                Credit card payment via RechargeKit CC Partner API (debits partner wallet)
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              role="switch"
+                              aria-checked={!!partner.rechargekit_cc_enabled}
+                              disabled={actionLoading}
+                              onClick={() => handleTogglePartnerService(partner, 'rechargekit', !partner.rechargekit_cc_enabled)}
+                              className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 disabled:opacity-50 ${
+                                partner.rechargekit_cc_enabled ? 'bg-orange-600' : 'bg-gray-300 dark:bg-gray-600'
+                              }`}
+                            >
+                              <span
+                                className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ${
+                                  partner.rechargekit_cc_enabled ? 'translate-x-5' : 'translate-x-0'
                                 }`}
                               />
                             </button>

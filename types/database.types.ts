@@ -4,6 +4,7 @@ export type UserRole =
   | 'master_distributor'
   | 'admin'
   | 'partner'
+  | 'sub_partner'
   | 'finance_executive'
 
 export interface Retailer {
@@ -255,6 +256,19 @@ export interface Partner {
   updated_at: string
 }
 
+export interface SubPartner {
+  id: string
+  parent_partner_id: string
+  name: string
+  email: string
+  phone: string
+  designation?: string
+  status: 'active' | 'inactive' | 'suspended'
+  permissions: Record<string, boolean>
+  created_at: string
+  updated_at: string
+}
+
 export interface AuthUser {
   id: string
   email: string
@@ -266,6 +280,10 @@ export interface AuthUser {
   is_impersonated?: boolean
   original_admin_id?: string
   impersonation_session_id?: string
+  /** Set when role is sub_partner — the sub_partner record's own ID */
+  sub_partner_id?: string
+  /** Sub-partner tab permissions */
+  permissions?: Record<string, boolean>
 }
 
 export interface FinanceUser {

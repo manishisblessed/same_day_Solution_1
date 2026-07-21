@@ -155,7 +155,7 @@ const VALID_KEY_PERMISSIONS_SET: Record<string, true> = Object.fromEntries(
 function syncActiveKeyPermissions(
   supabase: any,
   partnerId: string,
-  opts: { bbps?: boolean; bbps2?: boolean; settlement?: boolean; settlement2?: boolean }
+  opts: { bbps?: boolean; bbps2?: boolean; settlement?: boolean; settlement2?: boolean; rechargekit?: boolean }
 ) {
   return (async () => {
     const { data: keys } = await supabase
@@ -179,6 +179,9 @@ function syncActiveKeyPermissions(
 
       if (opts.settlement2 === true && !perms.includes('settlement')) perms.push('settlement')
       if (opts.settlement2 === false) perms = perms.filter((p) => p !== 'settlement')
+
+      if (opts.rechargekit === true && !perms.includes('rechargekit')) perms.push('rechargekit')
+      if (opts.rechargekit === false) perms = perms.filter((p) => p !== 'rechargekit')
 
       if (!perms.includes('read')) perms.unshift('read')
       perms = Array.from(new Set(perms))
@@ -368,13 +371,13 @@ export async function POST(request: NextRequest) {
         if (isPartner) {
           return NextResponse.json({ error: 'Only administrators can change partner services' }, { status: 403 })
         }
-        const { partner_id, bbps_enabled, bbps2_pay2new_enabled, settlement_enabled, settlement2_enabled, aeps_enabled } = body
+        const { partner_id, bbps_enabled, bbps2_pay2new_enabled, settlement_enabled, settlement2_enabled, aeps_enabled, rechargekit_cc_enabled } = body
         if (!partner_id) {
           return NextResponse.json({ error: 'partner_id is required' }, { status: 400 })
         }
-        if (bbps_enabled === undefined && bbps2_pay2new_enabled === undefined && settlement_enabled === undefined && settlement2_enabled === undefined && aeps_enabled === undefined) {
+        if (bbps_enabled === undefined && bbps2_pay2new_enabled === undefined && settlement_enabled === undefined && settlement2_enabled === undefined && aeps_enabled === undefined && rechargekit_cc_enabled === undefined) {
           return NextResponse.json(
-            { error: 'At least one service flag is required (bbps_enabled, bbps2_pay2new_enabled, settlement_enabled, settlement2_enabled, aeps_enabled)' },
+            { error: 'At least one service flag is required (bbps_enabled, bbps2_pay2new_enabled, settlement_enabled, settlement2_enabled, aeps_enabled, rechargekit_cc_enabled)' },
             { status: 400 }
           )
         }
@@ -385,6 +388,7 @@ export async function POST(request: NextRequest) {
         if (typeof settlement_enabled === 'boolean') updates.settlement_enabled = settlement_enabled
         if (typeof settlement2_enabled === 'boolean') updates.settlement2_enabled = settlement2_enabled
         if (typeof aeps_enabled === 'boolean') updates.aeps_enabled = aeps_enabled
+        if (typeof rechargekit_cc_enabled === 'boolean') updates.rechargekit_cc_enabled = rechargekit_cc_enabled
 
         const { error: svcErr } = await supabase.from('partners').update(updates).eq('id', partner_id)
         if (svcErr) throw svcErr
@@ -394,12 +398,13 @@ export async function POST(request: NextRequest) {
           bbps2: typeof bbps2_pay2new_enabled === 'boolean' ? bbps2_pay2new_enabled : undefined,
           settlement: typeof settlement_enabled === 'boolean' ? settlement_enabled : undefined,
           settlement2: typeof settlement2_enabled === 'boolean' ? settlement2_enabled : undefined,
+          rechargekit: typeof rechargekit_cc_enabled === 'boolean' ? rechargekit_cc_enabled : undefined,
         })
 
         return NextResponse.json({
           success: true,
           message: 'Partner API services updated',
-          data: { partner_id, bbps_enabled, bbps2_pay2new_enabled, settlement_enabled, settlement2_enabled },
+          data: { partner_id, bbps_enabled, bbps2_pay2new_enabled, settlement_enabled, settlement2_enabled, rechargekit_cc_enabled },
         })
       }
 

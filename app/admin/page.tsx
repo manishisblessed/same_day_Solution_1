@@ -1971,6 +1971,7 @@ function AdminDashboardOverview({
   useEffect(() => {
     fetchShadvalBalance()
     fetchPay2newBalance()
+    fetchRechargekitBalance()
   }, [])
 
   const fetchAnalytics = async () => {

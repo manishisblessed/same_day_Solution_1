@@ -3,7 +3,7 @@ import { createClient } from '@supabase/supabase-js'
 import crypto from 'crypto'
 import { extractClientIpFromHeaders, isIpWhitelisted } from './ip-utils'
 
-export type PartnerApiScope = 'bbps' | 'bbps2' | 'payout' | 'settlement' | 'aeps'
+export type PartnerApiScope = 'bbps' | 'bbps2' | 'payout' | 'settlement' | 'aeps' | 'rechargekit'
 
 export interface PartnerAuthResult {
   partner: {
@@ -16,6 +16,7 @@ export interface PartnerAuthResult {
     settlement_enabled: boolean
     settlement2_enabled: boolean
     aeps_enabled: boolean
+    rechargekit_cc_enabled: boolean
   }
 }
 
@@ -46,7 +47,7 @@ export function partnerCanUseApi(
   scope: PartnerApiScope
 ): { allowed: boolean; message: string } {
   const perms = partner.permissions
-  const permName = scope === 'settlement' ? 'settlement' : scope === 'payout' ? 'payout' : scope === 'bbps2' ? 'bbps2' : scope === 'aeps' ? 'aeps' : 'bbps'
+  const permName = scope === 'settlement' ? 'settlement' : scope === 'payout' ? 'payout' : scope === 'bbps2' ? 'bbps2' : scope === 'aeps' ? 'aeps' : scope === 'rechargekit' ? 'rechargekit' : 'bbps'
   if (!perms.includes('all') && !perms.includes(permName)) {
     return { allowed: false, message: `Missing required permission: ${permName}` }
   }
@@ -78,6 +79,12 @@ export function partnerCanUseApi(
     return {
       allowed: false,
       message: 'AEPS is not enabled for this partner account. Contact admin.',
+    }
+  }
+  if (scope === 'rechargekit' && !partner.rechargekit_cc_enabled) {
+    return {
+      allowed: false,
+      message: 'Credit Card-2 (RechargeKit) is not enabled for this partner account. Contact admin.',
     }
   }
   return { allowed: true, message: '' }
@@ -182,7 +189,8 @@ export async function authenticatePartner(
         bbps2_pay2new_enabled,
         settlement_enabled,
         settlement2_enabled,
-        aeps_enabled
+        aeps_enabled,
+        rechargekit_cc_enabled
       )
     `)
     .eq('api_key', apiKey)
@@ -295,6 +303,7 @@ export async function authenticatePartner(
       settlement_enabled: partner.settlement_enabled === true,
       settlement2_enabled: partner.settlement2_enabled === true,
       aeps_enabled: partner.aeps_enabled === true,
+      rechargekit_cc_enabled: partner.rechargekit_cc_enabled === true,
     },
   }
 }

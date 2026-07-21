@@ -8,7 +8,7 @@ import {
   Settings, TrendingUp, CreditCard, X, Menu,
   Wallet, Receipt, Banknote, Percent, BookOpen,
   Crown, Sparkles, Key, BarChart3, Zap, Repeat,
-  Server, Scale, Fingerprint, Send
+  Server, Scale, Fingerprint, Send, Users2
 } from 'lucide-react'
 import { apiFetch } from '@/lib/api-client'
 import { useAuth } from '@/contexts/AuthContext'
@@ -46,6 +46,7 @@ const sidebarItems: SidebarItem[] = [
   { id: 'reconciliation', label: 'Reconciliation', icon: Scale, href: '/dashboard/partner?tab=reconciliation' },
   // VIP Features
   { id: 'api-management', label: 'API Management', icon: Key, href: '/dashboard/partner?tab=api-management', vip: true },
+  { id: 'sub-partners', label: 'Team', icon: Users2, href: '/dashboard/partner?tab=sub-partners', vip: true },
   { id: 'settings', label: 'Settings', icon: Settings, href: '/dashboard/partner?tab=settings' },
 ]
 
@@ -102,17 +103,30 @@ export default function PartnerSidebar({ isOpen, onClose }: { isOpen: boolean; o
   }, [enabledServices, fetchServices, user?.partner_id, user?.role])
 
   const visibleItems = useMemo(() => {
+    let items = sidebarItems
     if (!enabledServices) {
-      return sidebarItems.filter((item) => !(item.id in SERVICE_TAB_MAP))
+      items = items.filter((item) => !(item.id in SERVICE_TAB_MAP))
+    } else {
+      const hasAny = Object.values(enabledServices).some(Boolean)
+      items = items.filter((item) => {
+        const requiredKeys = SERVICE_TAB_MAP[item.id]
+        if (requiredKeys === undefined) return true
+        if (requiredKeys.length === 0) return hasAny
+        return requiredKeys.some((k) => enabledServices[k])
+      })
     }
-    const hasAny = Object.values(enabledServices).some(Boolean)
-    return sidebarItems.filter((item) => {
-      const requiredKeys = SERVICE_TAB_MAP[item.id]
-      if (requiredKeys === undefined) return true
-      if (requiredKeys.length === 0) return hasAny
-      return requiredKeys.some((k) => enabledServices[k])
-    })
-  }, [enabledServices])
+
+    // Sub-partners: filter by their permissions
+    if (user?.role === 'sub_partner' && user.permissions) {
+      const perms = user.permissions
+      items = items.filter((item) => {
+        if (item.id === 'dashboard') return true // always show dashboard
+        return perms[item.id] === true
+      })
+    }
+
+    return items
+  }, [enabledServices, user?.role, user?.permissions])
 
   const isActive = (item: SidebarItem) => {
     const currentTab = searchParams?.get('tab')

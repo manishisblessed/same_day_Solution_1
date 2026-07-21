@@ -22,6 +22,33 @@ export interface RechargekitRequestResult<T = unknown> {
   providerStatus?: number
 }
 
+/**
+ * Build a human-readable error message from a Rechargekit error body.
+ * Rechargekit (Laravel-style) returns validation errors under `errors`,
+ * and some endpoints use `error`/`msg`/`data`. We surface field-level detail
+ * so a 422 tells us *which* field failed instead of a generic HTTP code.
+ */
+function extractErrorMessage(parsed: any, status: number): string {
+  if (parsed && typeof parsed === 'object') {
+    // Laravel validation: { message, errors: { field: [msg, ...] } }
+    if (parsed.errors && typeof parsed.errors === 'object') {
+      const parts: string[] = []
+      for (const [field, msgs] of Object.entries(parsed.errors)) {
+        const text = Array.isArray(msgs) ? msgs.join(', ') : String(msgs)
+        parts.push(`${field}: ${text}`)
+      }
+      if (parts.length > 0) {
+        return `${parsed.message ? parsed.message + ' — ' : ''}${parts.join(' | ')}`
+      }
+    }
+    const candidate =
+      parsed.message ?? parsed.error ?? parsed.msg ?? parsed.error_message ?? parsed.description
+    if (candidate) return String(candidate)
+    if (typeof parsed.data === 'string' && parsed.data.trim()) return parsed.data
+  }
+  return `Rechargekit HTTP error ${status}`
+}
+
 export async function rechargekitRequest<T = unknown>(
   path: string,
   options: {
@@ -94,20 +121,30 @@ export async function rechargekitRequest<T = unknown>(
         providerStatus === RECHARGEKIT_STATUS.PENDING
 
       if (!isSuccessOrPending) {
+        console.error(
+          `[Rechargekit] Business failure on ${path} (HTTP ${res.status}, status=${parsed.status}):`,
+          text.slice(0, 1000)
+        )
         return {
           ok: false,
           status: res.status,
-          error: parsed.message || `Rechargekit error (status=${parsed.status})`,
+          error: extractErrorMessage(parsed, res.status),
           data: parsed as T,
           providerStatus,
+          raw: text,
         }
       }
     } else if (!res.ok) {
+      console.error(
+        `[Rechargekit] HTTP ${res.status} error on ${path}:`,
+        text.slice(0, 1000)
+      )
       return {
         ok: false,
         status: res.status,
-        error: parsed.message || `Rechargekit HTTP error ${res.status}`,
+        error: extractErrorMessage(parsed, res.status),
         data: parsed as T,
+        raw: text,
       }
     }
 

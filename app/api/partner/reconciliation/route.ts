@@ -28,7 +28,7 @@ function formatGroupKey(dateStr: string, groupBy: string): string {
 export async function GET(request: NextRequest) {
   try {
     const { user } = await getCurrentUserWithFallback(request)
-    if (!user?.partner_id || user.role !== 'partner') {
+    if (!user?.partner_id || (user.role !== 'partner' && user.role !== 'sub_partner')) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 

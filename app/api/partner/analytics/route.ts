@@ -14,7 +14,7 @@ const PERIOD_DAYS: Record<string, number> = {
 export async function GET(request: NextRequest) {
   try {
     const { user } = await getCurrentUserWithFallback(request)
-    if (!user || user.role !== 'partner' || !user.partner_id) {
+    if (!user || (user.role !== 'partner' && user.role !== 'sub_partner') || !user.partner_id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 

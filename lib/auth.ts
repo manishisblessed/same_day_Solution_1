@@ -104,6 +104,7 @@ async function completeSignIn(
     case 'master_distributor': tableName = 'master_distributors'; break
     case 'admin': tableName = 'admin_users'; break
     case 'partner': tableName = 'partners'; break
+    case 'sub_partner': tableName = 'sub_partners'; break
     case 'finance_executive': tableName = 'finance_users'; break
   }
 
@@ -114,7 +115,25 @@ async function completeSignIn(
     query = query.eq('status', 'active')
   }
 
-  const { data, error } = await query.single()
+  let { data, error } = await query.single()
+
+  // If user selected 'partner' but wasn't found in partners table,
+  // check sub_partners table (sub-partners login via the Partner option)
+  let resolvedRole: UserRole = role
+  if ((error || !data) && role === 'partner') {
+    const subQuery = await supabase
+      .from('sub_partners')
+      .select('*')
+      .eq('email', email)
+      .eq('status', 'active')
+      .single()
+    if (subQuery.data && !subQuery.error) {
+      data = subQuery.data
+      error = null
+      resolvedRole = 'sub_partner'
+    }
+  }
+
   if (error || !data) {
     await supabase.auth.signOut()
     const roleLabel = role.replace('_', ' ')
@@ -127,12 +146,18 @@ async function completeSignIn(
   const user: AuthUser = {
     id: authData.user.id,
     email: authData.user.email!,
-    role,
-    partner_id: role === 'partner' ? data.id : data.partner_id,
+    role: resolvedRole,
+    partner_id: resolvedRole === 'partner' ? data.id
+      : resolvedRole === 'sub_partner' ? data.parent_partner_id
+      : data.partner_id,
     name: data.name,
-    ...(role === 'finance_executive' && 'phone' in data
+    ...(resolvedRole === 'finance_executive' && 'phone' in data
       ? { phone: (data as { phone?: string }).phone }
       : {}),
+    ...(resolvedRole === 'sub_partner' ? {
+      sub_partner_id: data.id,
+      permissions: data.permissions || {},
+    } : {}),
   }
 
   // Register single-session token (invalidates any previous session for this user)
@@ -333,15 +358,14 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
     
     if (error || !user) return null
 
-    // Check which table the user belongs to
-    // Use maybeSingle() instead of single() to avoid 406 errors when user doesn't belong to a table
-    const [retailer, distributor, masterDistributor, admin, finance, partner] = await Promise.all([
+    const [retailer, distributor, masterDistributor, admin, finance, partner, subPartner] = await Promise.all([
       supabase.from('retailers').select('*').eq('email', user.email!).eq('status', 'active').maybeSingle(),
       supabase.from('distributors').select('*').eq('email', user.email!).eq('status', 'active').maybeSingle(),
       supabase.from('master_distributors').select('*').eq('email', user.email!).eq('status', 'active').maybeSingle(),
       supabase.from('admin_users').select('*').eq('email', user.email!).maybeSingle(),
       supabase.from('finance_users').select('*').eq('email', user.email!).eq('is_active', true).maybeSingle(),
       supabase.from('partners').select('*').eq('email', user.email!).eq('status', 'active').maybeSingle(),
+      supabase.from('sub_partners').select('*').eq('email', user.email!).eq('status', 'active').maybeSingle(),
     ])
 
     // Precedence: admin and finance before hierarchy users (matches server-side auth).
@@ -396,6 +420,17 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
         role: 'partner',
         partner_id: partner.data.id,
         name: partner.data.name,
+      }
+    }
+    if (subPartner.data && !subPartner.error) {
+      return {
+        id: user.id,
+        email: user.email!,
+        role: 'sub_partner',
+        partner_id: subPartner.data.parent_partner_id,
+        sub_partner_id: subPartner.data.id,
+        name: subPartner.data.name,
+        permissions: subPartner.data.permissions || {},
       }
     }
 

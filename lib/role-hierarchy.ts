@@ -5,12 +5,15 @@
  * - Distributor → can assign to Retailer
  */
 
-export type UserRole = 'admin' | 'master_distributor' | 'distributor' | 'retailer' | 'partner'
+export type UserRole = 'admin' | 'master_distributor' | 'distributor' | 'retailer' | 'partner' | 'sub_partner'
 
 export const ASSIGNABLE_ROLES: Record<string, { value: string; label: string }[]> = {
   admin: [
     { value: 'master_distributor', label: 'Master Distributor' },
     { value: 'partner', label: 'Partner' },
+  ],
+  partner: [
+    { value: 'sub_partner', label: 'Sub-Partner' },
   ],
   master_distributor: [
     { value: 'distributor', label: 'Distributor' },

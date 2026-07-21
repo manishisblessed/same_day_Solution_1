@@ -54,18 +54,17 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    if (!['retailer', 'distributor', 'master_distributor', 'partner'].includes(user.role)) {
+    if (!['retailer', 'distributor', 'master_distributor', 'partner', 'sub_partner'].includes(user.role)) {
       return NextResponse.json({
         services: Object.fromEntries(SERVICE_KEYS.map((k) => [k, false])),
         hasAnyEnabled: false,
       })
     }
 
-    const lookupRole = user.role
+    // Sub-partners inherit their parent partner's service flags
+    const lookupRole = user.role === 'sub_partner' ? 'partner' : user.role
     const lookupPartnerId = user.partner_id ?? null
 
-    // Determine table and ID column based on role
-    // Partners table uses 'id' as primary key, others use 'partner_id'
     const tableName =
       lookupRole === 'retailer'
         ? 'retailers'
