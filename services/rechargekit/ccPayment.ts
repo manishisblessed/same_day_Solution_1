@@ -4,6 +4,7 @@
  */
 
 import { rechargekitPost } from './client'
+import { getRechargekitCcTransferType } from './config'
 import { RECHARGEKIT_STATUS, type RechargekitCcPaymentRequest, type RechargekitCcPaymentResponse } from './types'
 
 export interface CcPaymentParams {
@@ -15,6 +16,8 @@ export interface CcPaymentParams {
   amount: number
   partner_request_id: string
   operator_code: string
+  /** '5' = IMPS (default), '6' = NEFT. Defaults to env/IMPS when omitted. */
+  transfer_type?: string
 }
 
 export async function rechargekitCcPayment(params: CcPaymentParams): Promise<{
@@ -37,6 +40,7 @@ export async function rechargekitCcPayment(params: CcPaymentParams): Promise<{
     amount: params.amount,
     partner_request_id: params.partner_request_id,
     operator_code: params.operator_code,
+    transfer_type: params.transfer_type || getRechargekitCcTransferType(),
   }
 
   const maskedCard =

@@ -22,6 +22,14 @@ export function isRechargekitMockMode(): boolean {
 /** Commercial fallback when scheme charge is ₹0: ₹8 + GST */
 export const RECHARGEKIT_DEFAULT_BASE_CHARGE = 8
 
+/**
+ * Default bank transfer rail for CC payments. Rechargekit requires
+ * transfer_type (5=IMPS, 6=NEFT). Defaults to IMPS; override via env.
+ */
+export function getRechargekitCcTransferType(): string {
+  return process.env.RECHARGEKIT_CC_TRANSFER_TYPE || '5'
+}
+
 export function validateRechargekitCredentials(): void {
   const token = getRechargekitApiToken()
   if (!token) {

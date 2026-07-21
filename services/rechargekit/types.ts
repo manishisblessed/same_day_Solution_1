@@ -25,7 +25,15 @@ export interface RechargekitCcPaymentRequest {
   amount: number | string
   partner_request_id: string
   operator_code: string
+  /** Bank transfer rail. '5' = IMPS, '6' = NEFT (CC endpoint also allows 15/16) */
+  transfer_type: string
 }
+
+/** Rechargekit transfer rails. Value is sent as a string in the payload. */
+export const RECHARGEKIT_TRANSFER_TYPE = {
+  IMPS: '5',
+  NEFT: '6',
+} as const
 
 export interface RechargekitCcPaymentResponse {
   status: number

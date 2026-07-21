@@ -74,6 +74,7 @@ export async function POST(request: NextRequest) {
       operator_code,
       operator_name,
       tpin,
+      transfer_type,
     } = body
 
     if (!mobile_no || !account_no || !ifsc || !bank_name || !beneficiary_name || !amount || !operator_code) {
@@ -398,6 +399,7 @@ export async function POST(request: NextRequest) {
         amount: amountNum,
         partner_request_id: request_id,
         operator_code: String(operator_code),
+        transfer_type: transfer_type ? String(transfer_type) : undefined,
       })
     } catch (provErr: any) {
       await refund('provider error')
