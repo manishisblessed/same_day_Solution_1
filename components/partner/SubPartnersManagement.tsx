@@ -52,6 +52,7 @@ interface Props {
 export default function SubPartnersManagement({ user }: Props) {
   const [subPartners, setSubPartners] = useState<SubPartner[]>([])
   const [limit, setLimit] = useState(5)
+  const [enabled, setEnabled] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
@@ -71,6 +72,7 @@ export default function SubPartnersManagement({ user }: Props) {
       if (data.success) {
         setSubPartners(data.data || [])
         setLimit(data.limit || 5)
+        setEnabled(data.enabled === true)
       } else {
         setError(data.error || 'Failed to load team members')
       }
@@ -142,6 +144,27 @@ export default function SubPartnersManagement({ user }: Props) {
     return (
       <div className="flex items-center justify-center py-20">
         <Loader2 className="w-8 h-8 animate-spin text-purple-500" />
+      </div>
+    )
+  }
+
+  if (!enabled) {
+    return (
+      <div className="space-y-6">
+        <div className="text-center py-16 bg-gray-50 rounded-xl border border-dashed border-gray-300">
+          <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-gray-100 flex items-center justify-center">
+            <Shield className="w-8 h-8 text-gray-400" />
+          </div>
+          <h3 className="text-lg font-semibold text-gray-700 mb-2">Team Members Not Enabled</h3>
+          <p className="text-gray-500 text-sm max-w-md mx-auto mb-4">
+            The team members (sub-partners) feature is not enabled for your account.
+            Please contact your administrator to enable this feature.
+          </p>
+          <div className="inline-flex items-center gap-2 px-4 py-2 bg-gray-100 rounded-lg text-sm text-gray-600">
+            <AlertCircle className="w-4 h-4" />
+            Admin must enable this from the Partners Management panel
+          </div>
+        </div>
       </div>
     )
   }

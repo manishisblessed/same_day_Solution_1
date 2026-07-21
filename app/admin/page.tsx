@@ -7596,6 +7596,14 @@ function PartnersTab() {
               {partner.email && (
                 <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">{partner.email}</p>
               )}
+              {partner.sub_partners_enabled && (
+                <div className="flex items-center gap-1.5 mb-2">
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-full bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400">
+                    <Users className="w-3 h-3" />
+                    Team: {partner.sub_partner_limit || 5} max
+                  </span>
+                </div>
+              )}
               <div className="mt-3 flex gap-2">
                 <button
                   type="button"
@@ -8501,7 +8509,9 @@ function EditPartnerModal({
     secondary_color: metadata.secondary_color || '#10B981',
     logo_url: metadata.logo_url || '',
     status: (partner.status || 'pending') as 'active' | 'pending' | 'suspended',
-    notes: metadata.notes || ''
+    notes: metadata.notes || '',
+    sub_partners_enabled: partner.sub_partners_enabled === true,
+    sub_partner_limit: partner.sub_partner_limit || 5,
   })
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -8526,6 +8536,8 @@ function EditPartnerModal({
         pincode: formData.pincode || null,
         gst_number: formData.gst_number || null,
         status: formData.status,
+        sub_partners_enabled: formData.sub_partners_enabled,
+        sub_partner_limit: formData.sub_partner_limit,
         updated_at: new Date().toISOString()
       }
 
@@ -8814,6 +8826,53 @@ function EditPartnerModal({
                   placeholder="29ABCDE1234F1Z5"
                 />
               </div>
+            </div>
+          </div>
+
+          {/* Sub-Partners / Team Access */}
+          <div>
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+              <Users className="w-5 h-5 text-primary-600" />
+              Team Members (Sub-Partners)
+            </h3>
+            <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg border border-gray-200 dark:border-gray-700 p-4 space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="font-medium text-gray-900 dark:text-white text-sm">Allow Sub-Partners</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                    Enable this partner to create team member logins with role-based permissions
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setFormData({ ...formData, sub_partners_enabled: !formData.sub_partners_enabled })}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                    formData.sub_partners_enabled ? 'bg-primary-600' : 'bg-gray-300 dark:bg-gray-600'
+                  }`}
+                >
+                  <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                    formData.sub_partners_enabled ? 'translate-x-6' : 'translate-x-1'
+                  }`} />
+                </button>
+              </div>
+              {formData.sub_partners_enabled && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Max Team Members
+                  </label>
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="number"
+                      min={1}
+                      max={50}
+                      value={formData.sub_partner_limit}
+                      onChange={(e) => setFormData({ ...formData, sub_partner_limit: Math.max(1, Math.min(50, parseInt(e.target.value) || 1)) })}
+                      className="w-24 px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white text-center"
+                    />
+                    <span className="text-xs text-gray-500 dark:text-gray-400">members allowed (1–50)</span>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 

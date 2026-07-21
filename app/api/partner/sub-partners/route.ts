@@ -44,10 +44,9 @@ export async function GET(request: NextRequest) {
 
     if (error) return NextResponse.json({ error: error.message }, { status: 400 })
 
-    // Also get the partner's sub_partner_limit
     const { data: partner } = await supabase
       .from('partners')
-      .select('sub_partner_limit')
+      .select('sub_partner_limit, sub_partners_enabled')
       .eq('id', partnerId)
       .single()
 
@@ -55,6 +54,7 @@ export async function GET(request: NextRequest) {
       success: true,
       data,
       limit: partner?.sub_partner_limit || 5,
+      enabled: partner?.sub_partners_enabled === true,
     })
   } catch (err: any) {
     console.error('[Sub-Partners API] GET error:', err)
@@ -88,11 +88,17 @@ export async function POST(request: NextRequest) {
     const supabase = getSupabaseAdmin()
     const partnerId = user.partner_id!
 
-    // Check sub-partner limit
+    // Check if sub-partners feature is enabled for this partner
     const [{ count }, { data: partner }] = await Promise.all([
       supabase.from('sub_partners').select('id', { count: 'exact', head: true }).eq('parent_partner_id', partnerId),
-      supabase.from('partners').select('sub_partner_limit').eq('id', partnerId).single(),
+      supabase.from('partners').select('sub_partner_limit, sub_partners_enabled').eq('id', partnerId).single(),
     ])
+
+    if (!partner?.sub_partners_enabled) {
+      return NextResponse.json({
+        error: 'Team members feature is not enabled for your account. Please contact admin to enable it.',
+      }, { status: 403 })
+    }
 
     const limit = partner?.sub_partner_limit || 5
     if ((count || 0) >= limit) {

@@ -46,8 +46,9 @@ CREATE INDEX IF NOT EXISTS idx_sub_partners_parent ON sub_partners(parent_partne
 CREATE INDEX IF NOT EXISTS idx_sub_partners_email ON sub_partners(email);
 CREATE INDEX IF NOT EXISTS idx_sub_partners_status ON sub_partners(status);
 
--- 3. Add sub_partner_limit column to partners table (max sub-partners allowed)
+-- 3. Add sub_partner columns to partners table
 ALTER TABLE partners ADD COLUMN IF NOT EXISTS sub_partner_limit INTEGER DEFAULT 5;
+ALTER TABLE partners ADD COLUMN IF NOT EXISTS sub_partners_enabled BOOLEAN DEFAULT false;
 
 -- 4. Auto-update updated_at trigger
 CREATE OR REPLACE FUNCTION update_sub_partners_updated_at()

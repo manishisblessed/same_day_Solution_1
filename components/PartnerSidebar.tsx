@@ -71,6 +71,7 @@ export default function PartnerSidebar({ isOpen, onClose }: { isOpen: boolean; o
   const searchParams = useSearchParams()
   const [hoveredItem, setHoveredItem] = useState<string | null>(null)
   const [enabledServices, setEnabledServices] = useState<Record<string, boolean> | null>(null)
+  const [subPartnersEnabled, setSubPartnersEnabled] = useState(false)
   const { user } = useAuth()
   const retryCount = useRef(0)
 
@@ -91,6 +92,13 @@ export default function PartnerSidebar({ isOpen, onClose }: { isOpen: boolean; o
     if (!user?.partner_id) return
     fetchServices(user.partner_id, user.role)
     retryCount.current = 0
+    // Check if sub-partners feature is enabled for this partner
+    if (user.role === 'partner' || user.role === 'sub_partner') {
+      apiFetch('/api/partner/sub-partners')
+        .then(r => r.json())
+        .then(d => { if (d.success) setSubPartnersEnabled(d.enabled === true) })
+        .catch(() => {})
+    }
   }, [user?.id, user?.partner_id, fetchServices])
 
   useEffect(() => {
@@ -116,17 +124,22 @@ export default function PartnerSidebar({ isOpen, onClose }: { isOpen: boolean; o
       })
     }
 
+    // Hide Team tab if sub-partners feature is not enabled for this partner
+    if (!subPartnersEnabled) {
+      items = items.filter((item) => item.id !== 'sub-partners')
+    }
+
     // Sub-partners: filter by their permissions
     if (user?.role === 'sub_partner' && user.permissions) {
       const perms = user.permissions
       items = items.filter((item) => {
-        if (item.id === 'dashboard') return true // always show dashboard
+        if (item.id === 'dashboard') return true
         return perms[item.id] === true
       })
     }
 
     return items
-  }, [enabledServices, user?.role, user?.permissions])
+  }, [enabledServices, user?.role, user?.permissions, subPartnersEnabled])
 
   const isActive = (item: SidebarItem) => {
     const currentTab = searchParams?.get('tab')
