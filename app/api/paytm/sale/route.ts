@@ -39,11 +39,15 @@ export async function POST(request: NextRequest) {
 
     if (merchantReferenceNo) body.merchantReferenceNo = merchantReferenceNo
 
-    const extendedInfo: Record<string, string> = {}
-    extendedInfo.PaymentMode = paymentMode || 'All'
-    extendedInfo.callbackUrl = payload.callbackUrl || config.callbackUrl || 'https://api.samedaysolution.in/api/paytm/notification/lagoon'
-    if (autoAccept) extendedInfo.autoAccept = 'True'
-    body.merchantExtendedInfo = extendedInfo
+    // Per Paytm (23 Jul 2026): callbackUrl must be passed at the TOP LEVEL of the
+    // body (not inside merchantExtendedInfo) to trigger S2S callbacks. paymentMode
+    // and autoAccept are also sent at top level, mirroring Paytm's accepted sample.
+    const mode = paymentMode || 'All'
+    body.paymentMode = mode
+    if (autoAccept) body.autoAccept = 'True'
+    body.callbackUrl =
+      payload.callbackUrl || config.callbackUrl || 'https://api.samedaysolution.in/api/paytm/notification/lagoon'
+    body.merchantExtendedInfo = { paymentMode: mode, ...(autoAccept ? { autoAccept: 'True' } : {}) }
 
     const data = await callPaytmApi({
       endpoint: '/ecr/payment/request',
