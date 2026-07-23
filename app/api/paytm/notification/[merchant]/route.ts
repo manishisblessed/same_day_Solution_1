@@ -84,13 +84,18 @@ export async function POST(
       console.warn(`[Paytm/${merchantSlug}] No signature present in callback head`)
     }
 
-    // Extract transaction ID — Paytm uses various field names (from unwrapped body)
+    // resultInfo is nested in the ECR S2S callback: { resultStatus, resultCode, resultCodeId, resultMsg }
+    const resultInfo: any = data.resultInfo || {}
+
+    // Extract transaction ID. The real ECR S2S callback uses merchantTransactionId
+    // (our generated id) + acquirementId (Paytm's txn id). Older/soundbox payloads
+    // may use txnId/orderId — support all.
     const txnId =
+      data.merchantTransactionId ||
       data.txnId ||
       data.transactionId ||
-      data.TXNID ||
+      data.acquirementId ||
       data.orderId ||
-      data.ORDER_ID ||
       data.id
     if (!txnId) {
       console.error(`[Paytm/${merchantSlug}] Missing transaction ID`, payload)
@@ -100,41 +105,57 @@ export async function POST(
       )
     }
 
-    // Parse amount (S2S callback sends amount in rupees, e.g. "1.00")
+    // Parse amount. ECR S2S callback sends transactionAmount in PAISE (e.g. "100" = ₹1).
+    // Soundbox-style callbacks send txnAmount in rupees (e.g. "1.00").
     let amount = 0
-    const rawAmount = data.txnAmount || data.TXNAMOUNT || data.amount || data.TXN_AMOUNT || 0
-    if (typeof rawAmount === 'string') {
-      amount = parseFloat(rawAmount)
+    if (data.transactionAmount != null && data.transactionAmount !== '') {
+      amount = Number(data.transactionAmount) / 100
     } else {
-      amount = rawAmount
+      const rawAmount = data.txnAmount ?? data.TXNAMOUNT ?? data.amount ?? 0
+      amount = typeof rawAmount === 'string' ? parseFloat(rawAmount) : Number(rawAmount)
     }
+    if (!isFinite(amount)) amount = 0
 
-    // Map Paytm status to unified status
-    const paytmStatus = (data.status || data.STATUS || data.resultStatus || '').toString().toUpperCase()
+    // Map Paytm status to unified status. ECR success = resultInfo.resultStatus "SUCCESS"
+    // with resultCodeId "0000"; soundbox success = respCode "01"; older = "TXN_SUCCESS".
+    const paytmStatus = (data.status || data.resultStatus || resultInfo.resultStatus || '')
+      .toString()
+      .toUpperCase()
+    const resultCodeId = data.resultCodeId || resultInfo.resultCodeId
+    const isSuccess =
+      paytmStatus === 'TXN_SUCCESS' ||
+      paytmStatus === 'SUCCESS' ||
+      paytmStatus === 'CAPTURED' ||
+      resultCodeId === '0000' ||
+      data.respCode === '01'
     let mappedStatus = 'PENDING'
-    if (paytmStatus === 'TXN_SUCCESS' || paytmStatus === 'SUCCESS' || paytmStatus === 'CAPTURED') {
+    if (isSuccess) {
       mappedStatus = 'CAPTURED'
-    } else if (paytmStatus === 'TXN_FAILURE' || paytmStatus === 'FAILED' || paytmStatus === 'DECLINED') {
+    } else if (paytmStatus.includes('FAIL') || paytmStatus === 'DECLINED') {
       mappedStatus = 'FAILED'
-    } else if (paytmStatus === 'PENDING' || paytmStatus === 'OPEN') {
-      mappedStatus = 'PENDING'
     }
 
-    const tid = data.terminalId || data.TERMINAL_ID || data.posId || data.tid || data.paytmTid || null
-    const mid = data.mid || data.MID || data.merchantId || data.paytmMid || null
-    const deviceSerial = data.deviceSerial || data.terminalId || tid || null
-    const rrn = data.rrn || data.RRN || data.bankTxnId || data.BANKTXNID || null
-    const paymentMode = data.paymentMode || data.PAYMENTMODE || data.payment_mode || 'CARD'
-    const cardNumber = data.maskedCardNumber || data.cardNumber || data.CARD_NUMBER || null
+    const tid = data.paytmTid || data.terminalId || data.TERMINAL_ID || data.posId || data.tid || null
+    const mid = data.paytmMid || data.mid || data.MID || data.merchantId || null
+    const deviceSerial = data.deviceSerial || tid || null
+    const rrn =
+      data.retrievalReferenceNo || data.rrn || data.RRN || data.bankTxnId || data.BANKTXNID || null
+    const cardNumber = data.issuerMaskCardNo || data.maskedCardNumber || data.cardNumber || null
     const cardType = data.cardType || data.CARD_TYPE || null
     const cardBrand = data.cardScheme || data.cardBrand || data.CARD_BRAND || null
-    const bankName = data.bankName || data.BANKNAME || data.issuingBankName || data.gatewayName || null
+    const bankName = data.issuingBankName || data.bankName || data.acquiringBank || data.gatewayName || null
+    // No paymentMode field on ECR UPI callbacks — infer: card present => CARD, else QR/UPI.
+    const paymentMode = data.paymentMode || data.PAYMENTMODE || data.payment_mode || (cardNumber ? 'CARD' : 'QR')
 
     let createdTime = new Date()
     const dtStr =
-      data.txnDateTime || data.txnDate || data.TXNDATE || data.transactionDateTime || data.transactionDate
+      data.transactionDateTime || data.txnDateTime || data.txnDate || data.TXNDATE || data.transactionDate
     if (dtStr) {
-      const parsed = new Date(dtStr)
+      // Paytm timestamps are IST without a timezone marker; anchor them to +05:30.
+      const iso = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(dtStr)
+        ? dtStr.replace(' ', 'T') + '+05:30'
+        : dtStr
+      const parsed = new Date(iso)
       if (!isNaN(parsed.getTime())) createdTime = parsed
     }
 
@@ -148,7 +169,7 @@ export async function POST(
 
     const posTransactionData: any = {
       txn_id: prefixedTxnId,
-      status: paytmStatus || 'PENDING',
+      status: paytmStatus || (mappedStatus === 'CAPTURED' ? 'SUCCESS' : 'PENDING'),
       display_status: mappedStatus === 'CAPTURED' ? 'SUCCESS' : mappedStatus === 'FAILED' ? 'FAILED' : 'PENDING',
       amount: amount || 0,
       payment_mode: paymentMode.toUpperCase(),
@@ -171,7 +192,7 @@ export async function POST(
       card_type: cardType,
       currency: data.currency || data.CURRENCY || 'INR',
       rrn: rrn,
-      external_ref: data.orderId || data.ORDER_ID || data.merchantTransactionId || null,
+      external_ref: data.acquirementId || data.orderId || data.merchantTransactionId || null,
       settlement_status: mappedStatus === 'CAPTURED' ? 'PENDING' : null,
       receipt_url: data.receiptUrl || null,
       posting_date: createdTime.toISOString(),
