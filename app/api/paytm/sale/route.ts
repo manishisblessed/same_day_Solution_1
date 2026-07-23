@@ -41,7 +41,7 @@ export async function POST(request: NextRequest) {
 
     const extendedInfo: Record<string, string> = {}
     extendedInfo.PaymentMode = paymentMode || 'All'
-    extendedInfo.callbackUrl = payload.callbackUrl || config.callbackUrl || 'https://samedaysolution.in/api/paytm/notification/lagoon'
+    extendedInfo.callbackUrl = payload.callbackUrl || config.callbackUrl || 'https://api.samedaysolution.in/api/paytm/notification/lagoon'
     if (autoAccept) extendedInfo.autoAccept = 'True'
     body.merchantExtendedInfo = extendedInfo
 

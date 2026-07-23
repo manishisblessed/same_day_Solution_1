@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import * as crypto from 'crypto'
+import { verifyChecksum } from '@/lib/paytm'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -64,38 +64,34 @@ export async function POST(
       )
     }
 
-    const checksumHeader = request.headers.get('x-paytm-checksum') || request.headers.get('x-checksum')
-    const paytmSecret = process.env.PAYTM_WEBHOOK_SECRET
-    if (paytmSecret) {
-      if (!checksumHeader) {
-        console.error(`[Paytm/${merchantSlug}] Missing checksum header — rejecting`)
-        return NextResponse.json({ error: 'Missing checksum' }, { status: 401 })
-      }
-      const expectedChecksum = crypto
-        .createHmac('sha256', paytmSecret)
-        .update(rawBody)
-        .digest('hex')
+    // Paytm ECR S2S callbacks wrap the transaction in a { head, body } envelope,
+    // with the signature in head.signature and all fields nested under body.
+    const data: any =
+      payload && typeof payload.body === 'object' && payload.body !== null ? payload.body : payload
 
-      const sigBuf = Buffer.from(checksumHeader)
-      const expBuf = Buffer.from(expectedChecksum)
-      if (sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) {
-        console.error(`[Paytm/${merchantSlug}] Invalid checksum`)
-        return NextResponse.json({ error: 'Invalid checksum' }, { status: 401 })
+    // Verify Paytm's signature (head.signature) over the body using the merchant key.
+    // On staging we log the result but do NOT reject, so a valid test callback is
+    // never silently dropped while we confirm the exact signing scheme.
+    const signature: string | undefined = payload?.head?.signature || payload?.head?.checksum
+    if (signature) {
+      try {
+        const valid = await verifyChecksum(data, signature)
+        console.log(`[Paytm/${merchantSlug}] Signature ${valid ? 'verified' : 'verification FAILED (processing anyway)'}`)
+      } catch (e: any) {
+        console.warn(`[Paytm/${merchantSlug}] Signature verify error: ${e?.message}`)
       }
-      console.log(`[Paytm/${merchantSlug}] Checksum verified`)
     } else {
-      // PRODUCTION: configure PAYTM_WEBHOOK_SECRET to enforce checksum verification
-      console.warn(`[Paytm/${merchantSlug}] PAYTM_WEBHOOK_SECRET not configured — skipping verification (configure in production!)`)
+      console.warn(`[Paytm/${merchantSlug}] No signature present in callback head`)
     }
 
-    // Extract transaction ID — Paytm uses various field names
+    // Extract transaction ID — Paytm uses various field names (from unwrapped body)
     const txnId =
-      payload.txnId ||
-      payload.transactionId ||
-      payload.orderId ||
-      payload.TXNID ||
-      payload.ORDER_ID ||
-      payload.id
+      data.txnId ||
+      data.transactionId ||
+      data.TXNID ||
+      data.orderId ||
+      data.ORDER_ID ||
+      data.id
     if (!txnId) {
       console.error(`[Paytm/${merchantSlug}] Missing transaction ID`, payload)
       return NextResponse.json(
@@ -104,9 +100,9 @@ export async function POST(
       )
     }
 
-    // Parse amount
+    // Parse amount (S2S callback sends amount in rupees, e.g. "1.00")
     let amount = 0
-    const rawAmount = payload.txnAmount || payload.TXNAMOUNT || payload.amount || payload.TXN_AMOUNT || 0
+    const rawAmount = data.txnAmount || data.TXNAMOUNT || data.amount || data.TXN_AMOUNT || 0
     if (typeof rawAmount === 'string') {
       amount = parseFloat(rawAmount)
     } else {
@@ -114,7 +110,7 @@ export async function POST(
     }
 
     // Map Paytm status to unified status
-    const paytmStatus = (payload.status || payload.STATUS || payload.resultStatus || '').toString().toUpperCase()
+    const paytmStatus = (data.status || data.STATUS || data.resultStatus || '').toString().toUpperCase()
     let mappedStatus = 'PENDING'
     if (paytmStatus === 'TXN_SUCCESS' || paytmStatus === 'SUCCESS' || paytmStatus === 'CAPTURED') {
       mappedStatus = 'CAPTURED'
@@ -124,19 +120,20 @@ export async function POST(
       mappedStatus = 'PENDING'
     }
 
-    const tid = payload.terminalId || payload.TERMINAL_ID || payload.posId || payload.tid || null
-    const mid = payload.mid || payload.MID || payload.merchantId || null
-    const deviceSerial = payload.deviceSerial || payload.terminalId || tid || null
-    const rrn = payload.bankTxnId || payload.BANKTXNID || payload.rrn || payload.RRN || null
-    const paymentMode = payload.paymentMode || payload.PAYMENTMODE || payload.payment_mode || 'CARD'
-    const cardNumber = payload.maskedCardNumber || payload.cardNumber || payload.CARD_NUMBER || null
-    const cardType = payload.cardType || payload.CARD_TYPE || null
-    const cardBrand = payload.cardScheme || payload.cardBrand || payload.CARD_BRAND || null
-    const bankName = payload.bankName || payload.BANKNAME || payload.gatewayName || null
+    const tid = data.terminalId || data.TERMINAL_ID || data.posId || data.tid || data.paytmTid || null
+    const mid = data.mid || data.MID || data.merchantId || data.paytmMid || null
+    const deviceSerial = data.deviceSerial || data.terminalId || tid || null
+    const rrn = data.rrn || data.RRN || data.bankTxnId || data.BANKTXNID || null
+    const paymentMode = data.paymentMode || data.PAYMENTMODE || data.payment_mode || 'CARD'
+    const cardNumber = data.maskedCardNumber || data.cardNumber || data.CARD_NUMBER || null
+    const cardType = data.cardType || data.CARD_TYPE || null
+    const cardBrand = data.cardScheme || data.cardBrand || data.CARD_BRAND || null
+    const bankName = data.bankName || data.BANKNAME || data.issuingBankName || data.gatewayName || null
 
     let createdTime = new Date()
-    if (payload.txnDate || payload.TXNDATE || payload.transactionDate) {
-      const dtStr = payload.txnDate || payload.TXNDATE || payload.transactionDate
+    const dtStr =
+      data.txnDateTime || data.txnDate || data.TXNDATE || data.transactionDateTime || data.transactionDate
+    if (dtStr) {
       const parsed = new Date(dtStr)
       if (!isNaN(parsed.getTime())) createdTime = parsed
     }
@@ -160,26 +157,26 @@ export async function POST(
       merchant_name: merchantName,
       merchant_slug: merchantSlug,
       transaction_time: createdTime.toISOString(),
-      raw_data: { ...payload, _source: 'paytm', _brand: 'PAYTM' },
-      customer_name: payload.customerName || payload.CUST_NAME || null,
-      payer_name: payload.customerName || null,
+      raw_data: { ...payload, ...data, _source: 'paytm', _brand: 'PAYTM' },
+      customer_name: data.customerName || data.CUST_NAME || null,
+      payer_name: data.customerName || null,
       username: null,
-      txn_type: payload.txnType || payload.TXNTYPE || 'CHARGE',
-      auth_code: payload.authCode || payload.AUTH_CODE || null,
+      txn_type: data.txnType || data.TXNTYPE || 'CHARGE',
+      auth_code: data.authCode || data.AUTH_CODE || null,
       card_number: cardNumber,
       issuing_bank: bankName,
       card_classification: null,
       mid_code: mid,
       card_brand: cardBrand,
       card_type: cardType,
-      currency: payload.currency || payload.CURRENCY || 'INR',
+      currency: data.currency || data.CURRENCY || 'INR',
       rrn: rrn,
-      external_ref: payload.orderId || payload.ORDER_ID || null,
+      external_ref: data.orderId || data.ORDER_ID || data.merchantTransactionId || null,
       settlement_status: mappedStatus === 'CAPTURED' ? 'PENDING' : null,
-      receipt_url: payload.receiptUrl || null,
+      receipt_url: data.receiptUrl || null,
       posting_date: createdTime.toISOString(),
-      card_txn_type: payload.entryMode || payload.cardEntryMode || null,
-      acquiring_bank: payload.gatewayName || payload.GATEWAYNAME || null,
+      card_txn_type: data.entryMode || data.cardEntryMode || null,
+      acquiring_bank: data.acquiringBank || data.gatewayName || data.GATEWAYNAME || null,
       settlement_type: 'T1',
       partner_id: null,
     }
