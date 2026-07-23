@@ -38,26 +38,19 @@ export function formatTimestamp(date = new Date()): string {
 }
 
 /**
- * Paytm ECR computes the checksum by recursively flattening the body: keys are
- * sorted (case-sensitive) and the *values* are joined with "|". Nested objects
- * (e.g. merchantExtendedInfo) are flattened the same way. This mirrors the
- * paytmchecksum library's getStringByParams applied recursively, and is what the
- * Paytm server validates against — passing JSON.stringify(body) fails checksum.
+ * Paytm ECR computes the checksum only over the TOP-LEVEL SCALAR fields of the
+ * body (keys sorted case-sensitive, values joined with "|"). Object-valued fields
+ * such as merchantExtendedInfo/splitInfo/displayInfo are sent in the payload but
+ * are NOT part of the signed body — confirmed against Paytm's staging server:
+ * signing the body without merchantExtendedInfo passes checksum validation, while
+ * including it returns 0330. (Paytm's own guidance: "disregard merchantExtendedInfo".)
  */
-function flattenForChecksum(value: any): string {
-  if (value !== null && typeof value === 'object') {
-    return Object.keys(value)
-      .sort()
-      .map((k) => flattenForChecksum(value[k]))
-      .join('|')
-  }
-  return value === null || value === undefined ? '' : String(value)
-}
-
 function toChecksumParams(body: Record<string, any>): Record<string, string> {
   const params: Record<string, string> = {}
   for (const key of Object.keys(body)) {
-    params[key] = flattenForChecksum(body[key])
+    const value = body[key]
+    if (value !== null && typeof value === 'object') continue
+    params[key] = value === undefined ? '' : String(value)
   }
   return params
 }
