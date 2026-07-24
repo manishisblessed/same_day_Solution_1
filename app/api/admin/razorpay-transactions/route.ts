@@ -129,10 +129,15 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // Apply status filter if provided (filter on display_status: SUCCESS, FAILED, PENDING)
+    // Apply status filter if provided (filter on display_status: SUCCESS, FAILED, PENDING).
+    // By default (no explicit status filter) FAILED transactions are hidden from the tab;
+    // selecting the "Failed" filter still shows them for inspection.
     if (statusFilter && ['CAPTURED', 'FAILED', 'PENDING'].includes(statusFilter.toUpperCase())) {
       const displayStatus = statusFilter.toUpperCase() === 'CAPTURED' ? 'SUCCESS' : statusFilter.toUpperCase()
       query = query.eq('display_status', displayStatus)
+    } else {
+      // Null-safe: keep rows where display_status is NULL or not FAILED
+      query = query.or('display_status.is.null,display_status.neq.FAILED')
     }
 
     // Apply date range filter (IST boundaries — +05:30 offset)

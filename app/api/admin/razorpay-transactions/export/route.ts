@@ -91,10 +91,14 @@ export async function GET(request: NextRequest) {
         }
       }
 
-      // Apply filters
+      // Apply filters. By default FAILED transactions are excluded from exports too;
+      // selecting the "Failed" status filter still includes them.
       if (statusFilter && ['CAPTURED', 'FAILED', 'PENDING'].includes(statusFilter.toUpperCase())) {
         const displayStatus = statusFilter.toUpperCase() === 'CAPTURED' ? 'SUCCESS' : statusFilter.toUpperCase()
         q = q.eq('display_status', displayStatus)
+      } else {
+        // Null-safe: keep rows where display_status is NULL or not FAILED
+        q = q.or('display_status.is.null,display_status.neq.FAILED')
       }
 
       if (dateFrom) {
