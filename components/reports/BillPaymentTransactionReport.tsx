@@ -9,6 +9,7 @@ import {
   RefreshCw, IndianRupee, CheckCircle2, XCircle, Clock,
   ChevronLeft, ChevronRight, Receipt, Loader2
 } from 'lucide-react'
+import ExportDropdown, { type ExportFormat, downloadBlob, getExportExtension } from '@/components/ExportDropdown'
 
 interface Transaction {
   date: string
@@ -69,7 +70,7 @@ export default function BillPaymentTransactionReport({ userRole, userName }: Bil
   const [dateTo, setDateTo] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
   const [searchTerm, setSearchTerm] = useState('')
-  const [exporting, setExporting] = useState(false)
+  const [exporting, setExporting] = useState<ExportFormat | null>(null)
 
   const [networkFilter, setNetworkFilter] = useState<NetworkFilterValue | null>(null)
 
@@ -147,13 +148,13 @@ export default function BillPaymentTransactionReport({ userRole, userName }: Bil
   const handleSearch = () => fetchReport(1)
   const handlePageChange = (page: number) => fetchReport(page)
 
-  const handleExport = async () => {
-    setExporting(true)
+  const handleExport = async (format: ExportFormat) => {
+    setExporting(format)
     try {
       const { start, end } = getDateRange()
       const params = new URLSearchParams({
         date_from: start, date_to: end,
-        limit: '10000', offset: '0', format: 'excel',
+        limit: '10000', offset: '0', format,
       })
       if (statusFilter) params.set('status', statusFilter)
       if (searchTerm) params.set('search', searchTerm)
@@ -162,19 +163,14 @@ export default function BillPaymentTransactionReport({ userRole, userName }: Bil
       const res = await apiFetch(`/api/reports/bill-payment-report?${params.toString()}`)
       if (!res.ok) { const json = await res.json(); throw new Error(json.error || 'Export failed') }
 
+      const contentType = res.headers.get('content-type') || ''
+      const ext = getExportExtension(format, contentType)
       const blob = await res.blob()
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `bill_payment_report_${Date.now()}.xlsx`
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      URL.revokeObjectURL(url)
+      downloadBlob(blob, `bill_payment_report_${Date.now()}.${ext}`)
     } catch (err: any) {
       alert(err.message || 'Export failed')
     } finally {
-      setExporting(false)
+      setExporting(null)
     }
   }
 
@@ -319,12 +315,7 @@ export default function BillPaymentTransactionReport({ userRole, userName }: Bil
           <span className="font-semibold text-red-600">{summary.failed_count}</span> failed &middot;{' '}
           <span className="font-semibold text-yellow-600">{summary.pending_count}</span> pending
         </div>
-        <button onClick={handleExport} disabled={exporting}
-          className="flex items-center gap-2 px-4 py-2 bg-green-700 hover:bg-green-800 text-white rounded-lg text-sm font-medium transition-all shadow-md disabled:opacity-50"
-        >
-          {exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-          Export Excel
-        </button>
+        <ExportDropdown onExport={handleExport} exporting={exporting} disabled={false} />
       </motion.div>
 
       {/* Error */}

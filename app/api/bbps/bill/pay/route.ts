@@ -11,6 +11,7 @@ import {
   getIdempotencyKeyFromHeaders,
 } from '@/lib/security/idempotency'
 import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger'
+import { distributeServiceCommission } from '@/lib/commission/distribute-service-commission'
 
 export const runtime = 'nodejs' // Force Node.js runtime (Supabase not compatible with Edge Runtime)
 export const dynamic = 'force-dynamic'
@@ -859,117 +860,31 @@ export async function POST(request: NextRequest) {
       updateData.status = 'success'
       updateData.completed_at = new Date().toISOString()
 
-      // Distribute commissions ONLY after successful payment
-      // MARGIN LOGIC: When scheme is resolved via distributor_mapping or md_mapping,
-      // the owning entity's margin is already built into retailer_charge.
-      // The scheme owner should NOT receive commission — that would double-count their earnings.
-      // - distributor_mapping: DT owns the scheme → skip DT commission (margin is their earning)
-      // - md_mapping: MD owns the scheme → skip MD commission (margin is their earning)
-      // - global/retailer_mapping: Credit all commissions as defined in scheme
-      const skipDtCommission = resolvedVia === 'distributor_mapping'
-      const skipMdCommission = resolvedVia === 'md_mapping'
-      
-      console.log(`[BBPS Pay] 💰 Commission distribution check: bbpsCharge=₹${bbpsCharge}, split=RT:₹${commissionSplit.retailer_commission}/DT:₹${commissionSplit.distributor_commission}/MD:₹${commissionSplit.md_commission}, distributorId=${distributorId}, mdId=${mdId}, resolvedVia=${resolvedVia}, skipDt=${skipDtCommission}, skipMd=${skipMdCommission}`)
+      // Per-transaction commission: retailer + distributor only (no MD).
+      // MD's former slice folds into company revenue. Distributor is paid per the
+      // resolved scheme slab regardless of who owns the scheme (no margin-skip).
+      // Idempotent via deterministic per-transaction references.
       if (bbpsCharge > 0) {
-        const txRef = `BBPS_COMM_${agentTransactionId}`
-        try {
-          if (commissionSplit.retailer_commission > 0) {
-            const { data: rtLedger, error: rtErr } = await supabase.rpc('add_ledger_entry', {
-              p_user_id: user.partner_id,
-              p_user_role: user.role,
-              p_wallet_type: 'primary',
-              p_fund_category: 'commission',
-              p_service_type: 'bbps',
-              p_tx_type: 'COMMISSION_CREDIT',
-              p_credit: commissionSplit.retailer_commission,
-              p_debit: 0,
-              p_reference_id: txRef,
-              p_transaction_id: bbpsTransaction.id,
-              p_status: 'completed',
-              p_remarks: `BBPS commission earned on ₹${billAmountInRupees} bill payment`,
-            })
-            if (rtErr) console.error(`[BBPS Pay] ❌ Retailer commission RPC error:`, rtErr)
-            else console.log(`[BBPS Pay] ✅ Commission credited to retailer ${user.partner_id}: ₹${commissionSplit.retailer_commission}, ledger=${rtLedger}`)
-          } else {
-            console.log(`[BBPS Pay] ⚠️ Retailer commission is 0, skipping`)
-          }
-          // Skip DT commission if scheme was resolved via distributor_mapping or md_mapping (margin model)
-          if (commissionSplit.distributor_commission > 0 && distributorId && !skipDtCommission) {
-            const { data: dtLedger, error: dtErr } = await supabase.rpc('add_ledger_entry', {
-              p_user_id: distributorId,
-              p_user_role: 'distributor',
-              p_wallet_type: 'primary',
-              p_fund_category: 'commission',
-              p_service_type: 'bbps',
-              p_tx_type: 'COMMISSION_CREDIT',
-              p_credit: commissionSplit.distributor_commission,
-              p_debit: 0,
-              p_reference_id: txRef,
-              p_transaction_id: bbpsTransaction.id,
-              p_status: 'completed',
-              p_remarks: `BBPS commission on retailer ${user.partner_id} transaction`,
-            })
-            if (dtErr) console.error(`[BBPS Pay] ❌ Distributor commission RPC error:`, dtErr)
-            else console.log(`[BBPS Pay] ✅ Commission credited to distributor ${distributorId}: ₹${commissionSplit.distributor_commission}, ledger=${dtLedger}`)
-          } else if (skipDtCommission && commissionSplit.distributor_commission > 0) {
-            console.log(`[BBPS Pay] ⚠️ Distributor commission skipped (margin model): resolvedVia=${resolvedVia}, DT owns scheme margin`)
-          } else {
-            console.log(`[BBPS Pay] ⚠️ Distributor commission skipped: amount=₹${commissionSplit.distributor_commission}, distributorId=${distributorId}`)
-          }
-          // Skip MD commission if scheme was resolved via md_mapping (margin model)
-          if (commissionSplit.md_commission > 0 && mdId && !skipMdCommission) {
-            const { data: mdLedger, error: mdErr } = await supabase.rpc('add_ledger_entry', {
-              p_user_id: mdId,
-              p_user_role: 'master_distributor',
-              p_wallet_type: 'primary',
-              p_fund_category: 'commission',
-              p_service_type: 'bbps',
-              p_tx_type: 'COMMISSION_CREDIT',
-              p_credit: commissionSplit.md_commission,
-              p_debit: 0,
-              p_reference_id: txRef,
-              p_transaction_id: bbpsTransaction.id,
-              p_status: 'completed',
-              p_remarks: `BBPS commission on retailer ${user.partner_id} transaction`,
-            })
-            if (mdErr) console.error(`[BBPS Pay] ❌ MD commission RPC error:`, mdErr)
-            else console.log(`[BBPS Pay] ✅ Commission credited to MD ${mdId}: ₹${commissionSplit.md_commission}, ledger=${mdLedger}`)
-          } else if (skipMdCommission && commissionSplit.md_commission > 0) {
-            console.log(`[BBPS Pay] ⚠️ MD commission skipped (margin model): resolvedVia=${resolvedVia}, MD owns scheme margin`)
-          } else {
-            console.log(`[BBPS Pay] ⚠️ MD commission skipped: amount=₹${commissionSplit.md_commission}, mdId=${mdId}`)
-          }
-          // Credit company revenue wallet (charge minus all commissions distributed)
-          const companyEarning = bbpsCharge - commissionSplit.retailer_commission - commissionSplit.distributor_commission - commissionSplit.md_commission
-          if (companyEarning > 0) {
-            const revenueUserId = process.env.SUBSCRIPTION_REVENUE_USER_ID
-            const revenueUserRole = process.env.SUBSCRIPTION_REVENUE_USER_ROLE || 'master_distributor'
-            if (revenueUserId) {
-              const { error: companyErr } = await supabase.rpc('add_ledger_entry', {
-                p_user_id: revenueUserId,
-                p_user_role: revenueUserRole,
-                p_wallet_type: 'primary',
-                p_fund_category: 'revenue',
-                p_service_type: 'bbps',
-                p_tx_type: 'COMPANY_REVENUE',
-                p_credit: companyEarning,
-                p_debit: 0,
-                p_reference_id: txRef,
-                p_transaction_id: bbpsTransaction.id,
-                p_status: 'completed',
-                p_remarks: `Company revenue from BBPS charge ₹${bbpsCharge} on ₹${billAmountInRupees} bill (RT:${user.partner_id})`,
-              })
-              if (companyErr) console.error(`[BBPS Pay] ❌ Company revenue credit error:`, companyErr)
-              else console.log(`[BBPS Pay] ✅ Company revenue credited: ₹${companyEarning}`)
-            } else {
-              console.warn(`[BBPS Pay] ⚠️ SUBSCRIPTION_REVENUE_USER_ID not set — company revenue ₹${companyEarning} not credited`)
-            }
-          } else {
-            console.log(`[BBPS Pay] ⚠️ Company earning is ₹${companyEarning} (<=0), skipping`)
-          }
-        } catch (commErr: any) {
-          console.error('[BBPS Pay] ❌ Commission distribution error (non-fatal):', commErr.message, commErr.stack)
-        }
+        const commResult = await distributeServiceCommission({
+          supabase,
+          service: 'bbps',
+          refPrefix: 'BBPS',
+          refKey: agentTransactionId,
+          transactionUuid: bbpsTransaction.id,
+          totalCharge: bbpsCharge,
+          retailer: { id: user.partner_id, role: user.role, commission: commissionSplit.retailer_commission },
+          distributor: { id: distributorId, commission: commissionSplit.distributor_commission },
+          remarksSuffix: `on ₹${billAmountInRupees} bill`,
+          auditWriteback: {
+            table: 'bbps_transactions',
+            txnId: bbpsTransaction.id,
+            retailerCol: 'retailer_commission_earned',
+            distributorCol: 'distributor_commission_earned',
+            companyCol: 'company_earning',
+          },
+        })
+        if (commResult.errors.length) console.error('[BBPS Pay] ❌ Commission errors:', commResult.errors)
+        else console.log(`[BBPS Pay] ✅ Commission distributed: RT ₹${commResult.retailerCredited}, DT ₹${commResult.distributorCredited}, Company ₹${commResult.companyCredited}`)
       } else {
         console.log(`[BBPS Pay] ⚠️ bbpsCharge is 0, skipping all commission distribution`)
       }

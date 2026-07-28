@@ -8,6 +8,7 @@ import {
   BarChart3, Search, Download, Filter, Users, TrendingUp,
   CreditCard, Banknote, Fingerprint, Loader2, ChevronDown, ChevronUp
 } from 'lucide-react'
+import ExportDropdown, { type ExportFormat, downloadBlob } from '@/components/ExportDropdown'
 
 interface BusinessSummary {
   user_id: string
@@ -243,28 +244,29 @@ function BusinessReportContent() {
 
   const fmt = (n: number) => `₹${n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 
-  const handleExportCSV = () => {
-    const rows = [['User ID', 'User Name', 'Role', 'Service', 'Transactions', 'Volume', 'Commission', 'Charges']]
-    for (const row of summaryData) {
-      rows.push([
-        row.user_id,
-        nameCache[row.user_id] || '',
-        row.user_role,
-        serviceLabel(row.service_type),
-        String(row.total_transactions),
-        row.total_volume.toFixed(2),
-        row.total_commission.toFixed(2),
-        row.total_charges.toFixed(2),
-      ])
+  const handleExport = (fmt: ExportFormat) => {
+    const headers = ['User ID', 'User Name', 'Role', 'Service', 'Transactions', 'Volume', 'Commission', 'Charges']
+    const rows = summaryData.map(row => [
+      row.user_id, nameCache[row.user_id] || '', row.user_role, serviceLabel(row.service_type),
+      String(row.total_transactions), row.total_volume.toFixed(2), row.total_commission.toFixed(2), row.total_charges.toFixed(2),
+    ])
+    const fn = `business-report-${dateFrom}-to-${dateTo}`
+    const escapeCSV = (v: string) => v.includes(',') || v.includes('"') ? `"${v.replace(/"/g, '""')}"` : v
+    const esc = (s: string) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+
+    if (fmt === 'csv') {
+      const csv = [headers.join(','), ...rows.map(r => r.map(escapeCSV).join(','))].join('\n')
+      downloadBlob(new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' }), `${fn}.csv`)
+    } else if (fmt === 'excel') {
+      const hdr = `<Row>${headers.map(h => `<Cell><Data ss:Type="String">${esc(h)}</Data></Cell>`).join('')}</Row>`
+      const xr = rows.map(r => `<Row>${r.map(c => `<Cell><Data ss:Type="String">${esc(c)}</Data></Cell>`).join('')}</Row>`).join('\n')
+      const xml = `<?xml version="1.0"?><?mso-application progid="Excel.Sheet"?><Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"><Worksheet ss:Name="Business Report"><Table>${hdr}${xr}</Table></Worksheet></Workbook>`
+      downloadBlob(new Blob([xml], { type: 'application/vnd.ms-excel' }), `${fn}.xls`)
+    } else {
+      const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Business Report</title><style>body{font-family:Arial,sans-serif;padding:20px;font-size:11px}h1{color:#333;font-size:18px}table{width:100%;border-collapse:collapse;margin-top:15px}th{background:#4F46E5;color:white;padding:6px;text-align:left;font-size:10px}td{padding:5px;border-bottom:1px solid #E5E7EB;font-size:10px}tr:nth-child(even){background:#F9FAFB}.footer{margin-top:15px;text-align:center;font-size:9px;color:#888}</style></head><body><h1>Business Report</h1><p style="color:#666;font-size:11px">Period: ${dateFrom} to ${dateTo} | Generated: ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}</p><table><thead><tr>${headers.map(h => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${rows.map(r => `<tr>${r.map(c => `<td>${esc(c)}</td>`).join('')}</tr>`).join('')}</tbody></table><div class="footer">System-generated report &copy; ${new Date().getFullYear()} Same Day Solution</div></body></html>`
+      const w = window.open('', '_blank')
+      if (w) { w.document.write(html); w.document.close(); w.print() }
     }
-    const csv = rows.map(r => r.map(c => `"${c}"`).join(',')).join('\n')
-    const blob = new Blob([csv], { type: 'text/csv' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `business-report-${dateFrom}-to-${dateTo}.csv`
-    a.click()
-    URL.revokeObjectURL(url)
   }
 
   return (
@@ -282,10 +284,7 @@ function BusinessReportContent() {
               </h1>
               <p className="text-sm text-gray-500 mt-1">User business activity, volume &amp; commission breakdown by category</p>
             </div>
-            <button onClick={handleExportCSV} disabled={summaryData.length === 0}
-              className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm font-medium disabled:opacity-50">
-              <Download className="w-4 h-4" /> Export CSV
-            </button>
+            <ExportDropdown onExport={handleExport} disabled={summaryData.length === 0} />
           </div>
 
           {/* Filters */}

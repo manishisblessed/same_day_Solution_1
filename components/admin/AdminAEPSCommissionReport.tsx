@@ -9,6 +9,7 @@ import {
   IndianRupee, FileBarChart
 } from 'lucide-react'
 import { motion } from 'framer-motion'
+import ExportDropdown, { type ExportFormat, downloadBlob } from '@/components/ExportDropdown'
 
 interface CommissionSummary {
   totalCommission: number
@@ -100,50 +101,44 @@ export default function AdminAEPSCommissionReport() {
     return dt.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
   }
 
-  const exportCSV = () => {
+  const handleExportCommission = (fmt: ExportFormat) => {
     const headers = ['Date', 'Transaction ID', 'Service', 'Retailer', 'Gross Commission', 'RT Amount', 'DT Amount', 'MD Amount', 'Admin Amount', 'TDS Amount', 'Status']
     const rows = entries.map(e => [
-      formatDate(e.created_at),
-      e.transaction_id,
-      e.service_type,
-      e.rt_user_name,
-      e.total_commission.toFixed(2),
-      e.rt_amount.toFixed(2),
-      (e.dt_amount || 0).toFixed(2),
-      (e.md_amount || 0).toFixed(2),
-      e.admin_amount.toFixed(2),
-      e.tds_amount.toFixed(2),
-      e.status,
+      formatDate(e.created_at), e.transaction_id, e.service_type, e.rt_user_name,
+      e.total_commission.toFixed(2), e.rt_amount.toFixed(2), (e.dt_amount || 0).toFixed(2),
+      (e.md_amount || 0).toFixed(2), e.admin_amount.toFixed(2), e.tds_amount.toFixed(2), e.status,
     ])
-    const csv = [headers, ...rows].map(r => r.join(',')).join('\n')
-    const blob = new Blob([csv], { type: 'text/csv' })
-    const url = window.URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `aeps-commission-tds-report-${new Date().toISOString().split('T')[0]}.csv`
-    a.click()
-    window.URL.revokeObjectURL(url)
+    const datePart = new Date().toISOString().split('T')[0]
+    exportClientSide(fmt, headers, rows, `aeps-commission-tds-report-${datePart}`, 'AEPS Commission & TDS Report')
   }
 
-  const exportTdsCSV = () => {
+  const handleExportTds = (fmt: ExportFormat) => {
     const headers = ['Retailer ID', 'Retailer Name', 'Gross Commission (₹)', 'TDS Deducted (₹)', 'Net Credited (₹)', 'Transaction Count', 'Effective TDS %']
     const rows = perUserBreakdown.map(u => [
-      u.userId,
-      u.userName,
-      u.grossCommission.toFixed(2),
-      u.tdsDeducted.toFixed(2),
-      u.netCredited.toFixed(2),
-      u.txnCount,
+      u.userId, u.userName, u.grossCommission.toFixed(2), u.tdsDeducted.toFixed(2),
+      u.netCredited.toFixed(2), String(u.txnCount),
       u.grossCommission > 0 ? ((u.tdsDeducted / u.grossCommission) * 100).toFixed(2) : '0.00',
     ])
-    const csv = [headers, ...rows].map(r => r.join(',')).join('\n')
-    const blob = new Blob([csv], { type: 'text/csv' })
-    const url = window.URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `aeps-tds-per-retailer-${new Date().toISOString().split('T')[0]}.csv`
-    a.click()
-    window.URL.revokeObjectURL(url)
+    const datePart = new Date().toISOString().split('T')[0]
+    exportClientSide(fmt, headers, rows, `aeps-tds-per-retailer-${datePart}`, 'AEPS TDS Per Retailer Report')
+  }
+
+  function exportClientSide(fmt: ExportFormat, headers: string[], rows: string[][], filename: string, title: string) {
+    const escapeCSV = (v: string) => v.includes(',') || v.includes('"') ? `"${v.replace(/"/g, '""')}"` : v
+    const esc = (s: string) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    if (fmt === 'csv') {
+      const csv = [headers.join(','), ...rows.map(r => r.map(escapeCSV).join(','))].join('\n')
+      downloadBlob(new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' }), `${filename}.csv`)
+    } else if (fmt === 'excel') {
+      const hdr = `<Row>${headers.map(h => `<Cell><Data ss:Type="String">${esc(h)}</Data></Cell>`).join('')}</Row>`
+      const xr = rows.map(r => `<Row>${r.map(c => `<Cell><Data ss:Type="String">${esc(c)}</Data></Cell>`).join('')}</Row>`).join('\n')
+      const xml = `<?xml version="1.0"?><?mso-application progid="Excel.Sheet"?><Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"><Worksheet ss:Name="Report"><Table>${hdr}${xr}</Table></Worksheet></Workbook>`
+      downloadBlob(new Blob([xml], { type: 'application/vnd.ms-excel' }), `${filename}.xls`)
+    } else {
+      const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${esc(title)}</title><style>body{font-family:Arial,sans-serif;padding:20px;font-size:11px}h1{color:#333;font-size:18px}table{width:100%;border-collapse:collapse;margin-top:15px}th{background:#1E40AF;color:white;padding:6px;text-align:left;font-size:9px}td{padding:5px;border-bottom:1px solid #E5E7EB;font-size:9px}tr:nth-child(even){background:#F9FAFB}.footer{margin-top:15px;text-align:center;font-size:9px;color:#888}</style></head><body><h1>${esc(title)}</h1><p style="color:#666;font-size:11px">Generated: ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}</p><table><thead><tr>${headers.map(h => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${rows.map(r => `<tr>${r.map(c => `<td>${esc(c)}</td>`).join('')}</tr>`).join('')}</tbody></table><div class="footer">System-generated report &copy; ${new Date().getFullYear()} Same Day Solution</div></body></html>`
+      const w = window.open('', '_blank')
+      if (w) { w.document.write(html); w.document.close(); w.print() }
+    }
   }
 
   return (
@@ -215,10 +210,7 @@ export default function AdminAEPSCommissionReport() {
                   <Shield className="w-4 h-4 text-amber-600" />
                   TDS Collected Per Retailer
                 </h3>
-                <button onClick={exportTdsCSV}
-                  className="px-3 py-1.5 bg-amber-600 text-white rounded-lg hover:bg-amber-700 flex items-center gap-1.5 text-xs">
-                  <Download className="w-3.5 h-3.5" /> Export TDS Report
-                </button>
+                <ExportDropdown onExport={handleExportTds} size="sm" />
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full">
@@ -260,10 +252,7 @@ export default function AdminAEPSCommissionReport() {
                 <DollarSign className="w-4 h-4 text-blue-600" />
                 Commission Distribution Log ({summary.totalEntries} entries)
               </h3>
-              <button onClick={exportCSV}
-                className="px-3 py-1.5 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center gap-1.5 text-xs">
-                <Download className="w-3.5 h-3.5" /> Export All
-              </button>
+              <ExportDropdown onExport={handleExportCommission} size="sm" />
             </div>
             <div className="overflow-x-auto">
               <table className="w-full">

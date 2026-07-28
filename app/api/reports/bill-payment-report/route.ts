@@ -1,21 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { createClient } from '@supabase/supabase-js'
+import { generateCSVResponse, generateExcelResponse, generatePDFResponse, type ReportColumn } from '@/lib/reports/generator'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 function sanitize(value: string): string {
   return value.replace(/[,()\\*%]/g, '').trim()
-}
-
-function escapeXml(str: string) {
-  return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&apos;')
 }
 
 const GST_RATE = 0.18
@@ -126,7 +118,7 @@ export async function GET(request: NextRequest) {
     const search = searchParams.get('search')
     const rawLimit = parseInt(searchParams.get('limit') || '25', 10)
     const format = searchParams.get('format') || 'json'
-    const isExport = ['csv', 'excel'].includes(format)
+    const isExport = ['csv', 'excel', 'pdf'].includes(format)
     const limit = isExport ? Math.min(10000, Math.max(1, rawLimit || 10000)) : [10, 25, 100].includes(rawLimit) ? rawLimit : 25
     const offset = parseInt(searchParams.get('offset') || '0')
 
@@ -323,8 +315,38 @@ export async function GET(request: NextRequest) {
       pending_count: allRows.filter(r => ['pending', 'initiated', 'processing'].includes(r.status)).length,
     }
 
+    const billColumns: ReportColumn[] = [
+      { header: 'Date', key: 'date', type: 'date' },
+      { header: 'Transaction ID', key: 'transaction_id' },
+      { header: 'Operator/Provider', key: 'operator' },
+      { header: 'Customer Number', key: 'customer_number' },
+      { header: 'Bill Amount (₹)', key: 'bill_amount', type: 'currency' },
+      { header: 'Charge (₹)', key: 'charge', type: 'currency' },
+      { header: 'GST (₹)', key: 'gst', type: 'currency' },
+      { header: 'Total Debit (₹)', key: 'total_debit', type: 'currency' },
+      { header: 'Reference Number', key: 'reference_number' },
+      { header: 'Status', key: 'status' },
+    ]
+    const reportFilename = `bill_payment_report_${Date.now()}`
+    const reportMeta = {
+      title: 'Bill Payment Transaction Report',
+      dateRange: { from: dateFrom, to: dateTo },
+      summaryCards: [
+        { label: 'Total Transactions', value: String(summary.total_transactions) },
+        { label: 'Total Bill Amount', value: `₹${summary.total_bill_amount.toFixed(2)}` },
+        { label: 'Total Charges', value: `₹${summary.total_charges.toFixed(2)}` },
+        { label: 'Success / Failed / Pending', value: `${summary.success_count} / ${summary.failed_count} / ${summary.pending_count}` },
+      ],
+    }
+
+    if (format === 'csv') {
+      return generateCSVResponse(allRows, billColumns, reportFilename, reportMeta)
+    }
     if (format === 'excel') {
-      return generateExcel(allRows, dateFrom, dateTo)
+      return generateExcelResponse(allRows, billColumns, reportFilename, 'Bill Payment Transactions')
+    }
+    if (format === 'pdf') {
+      return await generatePDFResponse(allRows, billColumns, reportFilename, reportMeta, { accentColor: '#059669' })
     }
 
     const total = allRows.length
@@ -356,48 +378,3 @@ function emptyPagination(limit: number, offset: number) {
   return { total: 0, limit, offset, page: 1, totalPages: 0 }
 }
 
-function generateExcel(rows: any[], dateFrom: string | null, dateTo: string | null) {
-  const headers = [
-    'Date', 'Transaction ID', 'Operator/Provider', 'Customer Number',
-    'Bill Amount (₹)', 'Charge (₹)', 'GST (₹)', 'Total Debit Amount (₹)',
-    'Reference Number', 'Status',
-  ]
-
-  const headerRow = `<Row>${headers.map(h => `<Cell><Data ss:Type="String">${escapeXml(h)}</Data></Cell>`).join('')}</Row>`
-
-  const xmlRows = rows.map(r => {
-    const strCell = (v: string) => `<Cell><Data ss:Type="String">${escapeXml(v || '-')}</Data></Cell>`
-    const numCell = (v: number) => `<Cell><Data ss:Type="Number">${v}</Data></Cell>`
-    return `<Row>
-      ${strCell(new Date(r.date).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }))}
-      ${strCell(r.transaction_id)}
-      ${strCell(r.operator)}
-      ${strCell(r.customer_number)}
-      ${numCell(r.bill_amount)}
-      ${numCell(r.charge)}
-      ${numCell(r.gst)}
-      ${numCell(r.total_debit)}
-      ${strCell(r.reference_number)}
-      ${strCell(r.status)}
-    </Row>`
-  }).join('\n')
-
-  const xml = `<?xml version="1.0"?>
-<?mso-application progid="Excel.Sheet"?>
-<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
- xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
-  <Worksheet ss:Name="Bill Payment Transactions">
-    <Table>
-      ${headerRow}
-      ${xmlRows}
-    </Table>
-  </Worksheet>
-</Workbook>`
-
-  return new NextResponse(xml, {
-    headers: {
-      'Content-Type': 'application/vnd.ms-excel',
-      'Content-Disposition': `attachment; filename="bill_payment_report_${Date.now()}.xls"`,
-    },
-  })
-}

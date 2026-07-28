@@ -9,6 +9,7 @@ import {
   RefreshCw, IndianRupee, CheckCircle2, XCircle, Clock,
   ChevronLeft, ChevronRight, Banknote, Loader2
 } from 'lucide-react'
+import ExportDropdown, { type ExportFormat, downloadBlob, getExportExtension } from '@/components/ExportDropdown'
 
 type DatePreset = 'today' | 'yesterday' | 'week' | 'month' | 'quarter' | 'custom'
 
@@ -153,20 +154,22 @@ export default function PayoutTransactionReport({ userRole, userName }: Props) {
 
   useEffect(() => { setPage(1) }, [datePreset, dateFrom, dateTo, searchTxn, statusFilter, networkFilter, rowsPerPage])
 
-  const handleExport = async () => {
-    const params = buildParams()
-    params.set('format', 'excel')
+  const [exporting, setExporting] = useState<ExportFormat | null>(null)
+
+  const handleExport = async (format: ExportFormat) => {
+    setExporting(format)
     try {
+      const params = buildParams()
+      params.set('format', format)
+      params.set('limit', '10000')
       const res = await apiFetch(`/api/reports/payout-report?${params.toString()}`)
       if (!res.ok) throw new Error('Export failed')
+      const contentType = res.headers.get('content-type') || ''
+      const ext = getExportExtension(format, contentType)
       const blob = await res.blob()
-      const url = window.URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `settlement-report-${new Date().toISOString().split('T')[0]}.xlsx`
-      a.click()
-      window.URL.revokeObjectURL(url)
+      downloadBlob(blob, `settlement_report_${Date.now()}.${ext}`)
     } catch { /* silently handle */ }
+    finally { setExporting(null) }
   }
 
   const statCards = summary ? [
@@ -192,13 +195,7 @@ export default function PayoutTransactionReport({ userRole, userName }: Props) {
             {userName && <p className="text-sm text-gray-500 dark:text-gray-400">{userName}</p>}
           </div>
         </div>
-        <button
-          onClick={handleExport}
-          className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-medium transition-colors"
-        >
-          <Download className="w-4 h-4" />
-          Export Excel
-        </button>
+        <ExportDropdown onExport={handleExport} exporting={exporting} disabled={loading} />
       </div>
 
       {summary && (

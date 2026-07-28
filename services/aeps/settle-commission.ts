@@ -166,50 +166,8 @@ export async function settleAEPSCommission(params: SettleAEPSParams): Promise<Se
       }
     }
 
-    // --- MD: Credit gross + TDS deduction ---
-    if (mdUserId && breakdown.md_commission > 0) {
-      const mdTds = round2(breakdown.md_commission - breakdown.md_net);
-
-      const { error: mdErr } = await supabase.rpc('add_ledger_entry', {
-        p_user_id: mdUserId,
-        p_user_role: 'master_distributor',
-        p_wallet_type: 'primary',
-        p_fund_category: 'commission',
-        p_service_type: 'aeps',
-        p_tx_type: 'COMMISSION_CREDIT',
-        p_credit: breakdown.md_commission,
-        p_debit: 0,
-        p_reference_id: `AEPS_COMM_${transactionId}_MD`,
-        p_transaction_id: transactionId,
-        p_status: 'completed',
-        p_remarks: `AEPS MD commission (gross): ₹${breakdown.md_commission}`,
-      });
-
-      if (mdErr) {
-        console.error('[AEPS Settle] MD COMMISSION_CREDIT failed:', mdErr.message);
-      }
-
-      if (mdTds > 0) {
-        const { error: mdTdsErr } = await supabase.rpc('add_ledger_entry', {
-          p_user_id: mdUserId,
-          p_user_role: 'master_distributor',
-          p_wallet_type: 'primary',
-          p_fund_category: 'tds',
-          p_service_type: 'aeps',
-          p_tx_type: 'TDS_DEDUCTION',
-          p_credit: 0,
-          p_debit: mdTds,
-          p_reference_id: `AEPS_TDS_${transactionId}_MD`,
-          p_transaction_id: transactionId,
-          p_status: 'completed',
-          p_remarks: `TDS @${breakdown.tds_percentage}% on AEPS MD commission ₹${breakdown.md_commission}`,
-        });
-
-        if (mdTdsErr) {
-          console.error('[AEPS Settle] MD TDS_DEDUCTION failed:', mdTdsErr.message);
-        }
-      }
-    }
+    // MD commission removed: Master Distributor is no longer credited.
+    // MD's former slice remains with the company (not distributed downward).
 
     await supabase
       .from('commission_ledger')

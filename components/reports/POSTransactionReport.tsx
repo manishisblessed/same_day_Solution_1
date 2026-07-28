@@ -9,6 +9,7 @@ import {
   RefreshCw, IndianRupee, CheckCircle2, XCircle, Clock,
   ChevronLeft, ChevronRight, CreditCard, Loader2
 } from 'lucide-react'
+import ExportDropdown, { type ExportFormat, downloadBlob, getExportExtension } from '@/components/ExportDropdown'
 
 interface POSTransaction {
   date: string
@@ -62,7 +63,7 @@ export default function POSTransactionReport({ userRole, userName }: POSTransact
   const [rowsPerPage, setRowsPerPage] = useState<10 | 25 | 100>(25)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const [exporting, setExporting] = useState(false)
+  const [exporting, setExporting] = useState<ExportFormat | null>(null)
 
   const [datePreset, setDatePreset] = useState<DatePreset>('month')
   const [dateFrom, setDateFrom] = useState('')
@@ -156,8 +157,8 @@ export default function POSTransactionReport({ userRole, userName }: POSTransact
   const handleSearch = () => fetchReport(1)
   const handlePageChange = (page: number) => fetchReport(page)
 
-  const handleExport = async () => {
-    setExporting(true)
+  const handleExport = async (format: ExportFormat) => {
+    setExporting(format)
     try {
       const { start, end } = getDateRange()
       const params = new URLSearchParams({
@@ -165,7 +166,7 @@ export default function POSTransactionReport({ userRole, userName }: POSTransact
         date_to: end,
         limit: '10000',
         offset: '0',
-        format: 'excel',
+        format,
       })
       if (statusFilter) params.set('status', statusFilter)
       if (searchTerm) params.set('search', searchTerm)
@@ -177,19 +178,14 @@ export default function POSTransactionReport({ userRole, userName }: POSTransact
         throw new Error(json.error || 'Export failed')
       }
 
+      const contentType = res.headers.get('content-type') || ''
+      const ext = getExportExtension(format, contentType)
       const blob = await res.blob()
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `pos_transactions_${Date.now()}.xlsx`
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      URL.revokeObjectURL(url)
+      downloadBlob(blob, `pos_transactions_${Date.now()}.${ext}`)
     } catch (err: any) {
       alert(err.message || 'Export failed')
     } finally {
-      setExporting(false)
+      setExporting(null)
     }
   }
 
@@ -237,14 +233,7 @@ export default function POSTransactionReport({ userRole, userName }: POSTransact
             </div>
           </div>
           <div className="flex items-center gap-3">
-            <button
-              onClick={handleExport}
-              disabled={exporting || loading}
-              className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-medium transition-colors shadow-md disabled:opacity-50"
-            >
-              {exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-              Export Excel
-            </button>
+            <ExportDropdown onExport={handleExport} exporting={exporting} disabled={loading} />
             <button
               onClick={() => fetchReport(pagination.page)}
               disabled={loading}

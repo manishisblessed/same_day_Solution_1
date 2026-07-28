@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js'
 import { authenticatePartner, PartnerAuthError, partnerCanUseApi } from '@/lib/partner-auth'
 import { payRequest, generateAgentTransactionId, getBBPSWalletBalance } from '@/services/bbps'
 import { paiseToRupees } from '@/lib/bbps/currency'
+import { distributeServiceCommission } from '@/lib/commission/distribute-service-commission'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -158,6 +159,7 @@ export async function POST(request: NextRequest) {
     let bbpsCharge = 20
     let resolvedSchemeId: string | null = null
     let resolvedSchemeName: string | null = null
+    let commissionSplit = { retailer_commission: 0, distributor_commission: 0, md_commission: 0 }
     try {
       const { data: schemeResult } = await (supabase as any).rpc('resolve_scheme_for_user', {
         p_user_id: retailer_id,
@@ -176,6 +178,11 @@ export async function POST(request: NextRequest) {
         })
         if (chargeResult?.[0] && parseFloat(chargeResult[0].retailer_charge) > 0) {
           bbpsCharge = parseFloat(chargeResult[0].retailer_charge)
+          commissionSplit = {
+            retailer_commission: parseFloat(chargeResult[0].retailer_commission) || 0,
+            distributor_commission: parseFloat(chargeResult[0].distributor_commission) || 0,
+            md_commission: parseFloat(chargeResult[0].md_commission) || 0,
+          }
         }
       }
     } catch { /* use default charge */ }
@@ -278,6 +285,22 @@ export async function POST(request: NextRequest) {
       updateData.transaction_id = paymentResponse.transaction_id
       updateData.status = 'success'
       updateData.completed_at = new Date().toISOString()
+
+      // Per-transaction commission: retailer + distributor only (no MD).
+      if (bbpsCharge > 0) {
+        const commResult = await distributeServiceCommission({
+          supabase,
+          service: 'bbps',
+          refPrefix: 'BBPS',
+          refKey: agentTransactionId,
+          transactionUuid: bbpsTx.id,
+          totalCharge: bbpsCharge,
+          retailer: { id: retailer_id, role: 'retailer', commission: commissionSplit.retailer_commission },
+          distributor: { id: retailer.distributor_id || null, commission: commissionSplit.distributor_commission },
+          remarksSuffix: `on ₹${billAmountInRupees} bill (partner API)`,
+        })
+        if (commResult.errors.length) console.error('[Partner BBPS Pay] Commission errors:', commResult.errors)
+      }
     } else {
       updateData.status = 'failed'
       updateData.error_code = paymentResponse.error_code

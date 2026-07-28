@@ -9,6 +9,7 @@ import {
 import { motion } from 'framer-motion';
 import { apiFetchJson } from '@/lib/api-client';
 import type { AEPSTransactionType, AEPSStatus } from '@/types/aeps.types';
+import ExportDropdown, { type ExportFormat, downloadBlob } from '@/components/ExportDropdown';
 
 interface Transaction {
   id: string;
@@ -120,11 +121,14 @@ export default function AEPSTransactionHistory({
     }).format(amount);
   };
 
-  const handleExport = async () => {
+  const [exportingFmt, setExportingFmt] = useState<ExportFormat | null>(null);
+
+  const handleExport = async (fmt: ExportFormat) => {
+    setExportingFmt(fmt);
     try {
       const params = new URLSearchParams();
       params.set('service', 'aeps');
-      params.set('format', 'csv');
+      params.set('format', fmt === 'excel' ? 'excel' : fmt);
       if (statusFilter) params.set('status', statusFilter);
       if (typeFilter) params.set('type', typeFilter);
       if (dateFrom) params.set('dateFrom', dateFrom);
@@ -132,13 +136,13 @@ export default function AEPSTransactionHistory({
 
       const response = await fetch(`/api/reports/transactions/export?${params.toString()}`);
       const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `aeps-transactions-${new Date().toISOString().split('T')[0]}.csv`;
-      a.click();
+      const datePart = new Date().toISOString().split('T')[0];
+      const ext = fmt === 'csv' ? 'csv' : fmt === 'excel' ? 'xls' : 'pdf';
+      downloadBlob(blob, `aeps-transactions-${datePart}.${ext}`);
     } catch (err) {
       console.error('Export failed:', err);
+    } finally {
+      setExportingFmt(null);
     }
   };
 
@@ -159,13 +163,7 @@ export default function AEPSTransactionHistory({
             >
               <RefreshCw className={`w-5 h-5 ${isLoading ? 'animate-spin' : ''}`} />
             </button>
-            <button
-              onClick={handleExport}
-              className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
-            >
-              <Download className="w-4 h-4" />
-              Export
-            </button>
+            <ExportDropdown onExport={handleExport} exporting={exportingFmt} size="sm" />
           </div>
         </div>
       </div>

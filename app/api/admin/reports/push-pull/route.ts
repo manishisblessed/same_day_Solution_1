@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { isAdminOrFinance } from '@/lib/auth-roles'
 import { getSupabaseAdmin } from '@/lib/supabase/server-admin'
+import { generatePDFResponse, type ReportColumn } from '@/lib/reports/generator'
 
 export const dynamic = 'force-dynamic'
 
@@ -143,6 +144,41 @@ export async function GET(request: NextRequest) {
 
     const rows = (data || []).map((r) => shapeRow(r, userName, isPartner))
     const fileDate = new Date().toISOString().split('T')[0]
+
+    if (format === 'pdf') {
+      const pdfRows = rows.map(e => ({
+        date: e.created_at,
+        action: e.action_type === 'wallet_push' ? 'Push' : 'Pull',
+        push_amount: e.action_type === 'wallet_push' ? e.amount : 0,
+        pull_amount: e.action_type === 'wallet_pull' ? e.amount : 0,
+        fund_category: e.fund_category || '-',
+        wallet_type: e.wallet_type || 'primary',
+        before_balance: e.before_balance,
+        after_balance: e.after_balance,
+        performed_by: e.performed_by,
+        remarks: e.remarks || '',
+      }))
+      const pdfColumns: ReportColumn[] = [
+        { header: 'Date & Time', key: 'date', type: 'date' },
+        { header: 'Action', key: 'action' },
+        { header: 'Push Amount (₹)', key: 'push_amount', type: 'currency' },
+        { header: 'Pull Amount (₹)', key: 'pull_amount', type: 'currency' },
+        { header: 'Fund Category', key: 'fund_category' },
+        { header: 'Wallet', key: 'wallet_type' },
+        { header: 'Before Balance (₹)', key: 'before_balance', type: 'currency' },
+        { header: 'After Balance (₹)', key: 'after_balance', type: 'currency' },
+        { header: 'Performed By', key: 'performed_by' },
+        { header: 'Remarks', key: 'remarks' },
+      ]
+      return await generatePDFResponse(pdfRows, pdfColumns, `push-pull-${userId}-${fileDate}`, {
+        title: 'Push / Pull Report',
+        dateRange: { from: null, to: null },
+        summaryCards: [
+          { label: 'User', value: userName },
+          { label: 'Total Records', value: String(rows.length) },
+        ],
+      }, { accentColor: '#7C3AED' })
+    }
 
     if (format === 'excel') {
       const xmlRows = rows.map((e) => `<Row>

@@ -63,6 +63,25 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Nothing to update. Provide paused or settlement_mode.' }, { status: 400 })
     }
 
+    // When T+1 is being (re)enabled for a retailer, stamp the settlement start
+    // date the FIRST time only, so we never sweep the whole historical backlog.
+    // start_at is intentionally never moved forward on later resumes.
+    const enablingRetailer = table === 'retailers' && updates.t1_settlement_paused === false
+    let stampedStartAt: string | null = null
+    if (enablingRetailer) {
+      const { data: cur } = await supabase
+        .from('retailers')
+        .select('t1_settlement_start_at')
+        .eq('partner_id', partner_id)
+        .maybeSingle()
+      if (!cur?.t1_settlement_start_at) {
+        // Start of today: everything captured today onwards settles (tomorrow),
+        // while the prior backlog (before today) is excluded.
+        stampedStartAt = new Date(new Date().setHours(0, 0, 0, 0)).toISOString()
+        updates.t1_settlement_start_at = stampedStartAt
+      }
+    }
+
     const { error: updateError } = await supabase
       .from(table)
       .update(updates)
@@ -71,6 +90,25 @@ export async function POST(request: NextRequest) {
     if (updateError) {
       console.error('[T1 Pause] Update error:', updateError)
       return NextResponse.json({ error: 'Failed to update' }, { status: 500 })
+    }
+
+    // Exclude the pre-enablement backlog: transactions captured before T+1 was
+    // first switched on are permanently marked so they never auto-settle and
+    // never clog the settlement queue.
+    if (stampedStartAt) {
+      const { error: excludeError, count } = await supabase
+        .from('razorpay_pos_transactions')
+        .update({ t1_excluded_pre_start: true }, { count: 'exact' })
+        .eq('retailer_id', partner_id)
+        .eq('wallet_credited', false)
+        .eq('t1_excluded_pre_start', false)
+        .is('settlement_mode', null)
+        .lt('transaction_time', stampedStartAt)
+      if (excludeError) {
+        console.error('[T1 Pause] Failed to exclude pre-start backlog:', excludeError)
+      } else {
+        console.log(`[T1 Pause] Excluded ${count ?? 0} pre-enablement txns for retailer ${partner_id}`)
+      }
     }
 
     const messages: string[] = []

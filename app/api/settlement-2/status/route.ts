@@ -3,6 +3,7 @@ import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
 import { checkTransactionStatus } from '@/services/shadval-pay'
 import { createClient } from '@supabase/supabase-js'
+import { reverseServiceCommission } from '@/lib/commission/distribute-service-commission'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -105,51 +106,16 @@ export async function POST(request: NextRequest) {
             else console.log(`[Settlement-2 Status] Refunded ₹${refundAmount} to ${txRecord.retailer_id} for ${reference_id}`)
           }
 
-          // Reverse commission/revenue if charges were involved
+          // Reverse commission/revenue if charges were involved (DT + company; no MD)
           const chargesNum = parseFloat(String(txRecord.charges || 0))
           if (chargesNum > 0) {
-            const revenueUserId = process.env.SUBSCRIPTION_REVENUE_USER_ID
-            const revenueUserRole = process.env.SUBSCRIPTION_REVENUE_USER_ROLE || 'master_distributor'
-            const companyEarning = parseFloat(String(txRecord.company_earning || 0)) || chargesNum
-
-            if (revenueUserId) {
-              await (supabaseAdmin as any).rpc('add_ledger_entry', {
-                p_user_id: revenueUserId, p_user_role: revenueUserRole, p_wallet_type: 'primary',
-                p_fund_category: 'revenue', p_service_type: 'shadval_settlement', p_tx_type: 'COMPANY_REVENUE_REVERSAL',
-                p_credit: 0, p_debit: companyEarning,
-                p_reference_id: `REVREV_${txRecord.reference_id}`, p_transaction_id: txRecord.id, p_status: 'completed',
-                p_remarks: `Reversal of Settlement-2 revenue ₹${companyEarning} — status check: FAILED`,
-              }).catch((e: any) => console.error('[Settlement-2 Status] Revenue reversal failed:', e))
-            }
-
-            // Fetch hierarchy for commission reversals
-            const { data: retailerData } = await supabaseAdmin
-              .from('retailers')
-              .select('distributor_id, master_distributor_id')
-              .eq('partner_id', txRecord.retailer_id)
-              .maybeSingle()
-
-            const dtComm = parseFloat(String(txRecord.distributor_commission || 0))
-            if (dtComm > 0 && retailerData?.distributor_id) {
-              await (supabaseAdmin as any).rpc('add_ledger_entry', {
-                p_user_id: retailerData.distributor_id, p_user_role: 'distributor', p_wallet_type: 'primary',
-                p_fund_category: 'commission', p_service_type: 'shadval_settlement', p_tx_type: 'COMMISSION_REVERSAL',
-                p_credit: 0, p_debit: dtComm,
-                p_reference_id: `DTCOMMREV_${txRecord.reference_id}`, p_transaction_id: txRecord.id, p_status: 'completed',
-                p_remarks: `Reversal of Settlement-2 DT commission — status check: FAILED`,
-              }).catch((e: any) => console.error('[Settlement-2 Status] DT commission reversal failed:', e))
-            }
-
-            const mdComm = parseFloat(String(txRecord.md_commission || 0))
-            if (mdComm > 0 && retailerData?.master_distributor_id) {
-              await (supabaseAdmin as any).rpc('add_ledger_entry', {
-                p_user_id: retailerData.master_distributor_id, p_user_role: 'master_distributor', p_wallet_type: 'primary',
-                p_fund_category: 'commission', p_service_type: 'shadval_settlement', p_tx_type: 'COMMISSION_REVERSAL',
-                p_credit: 0, p_debit: mdComm,
-                p_reference_id: `MDCOMMREV_${txRecord.reference_id}`, p_transaction_id: txRecord.id, p_status: 'completed',
-                p_remarks: `Reversal of Settlement-2 MD commission — status check: FAILED`,
-              }).catch((e: any) => console.error('[Settlement-2 Status] MD commission reversal failed:', e))
-            }
+            await reverseServiceCommission({
+              supabase: supabaseAdmin,
+              service: 'shadval_settlement',
+              refPrefix: 'SHADVAL',
+              refKey: txRecord.reference_id,
+              transactionUuid: txRecord.id,
+            })
           }
         }
       } else {

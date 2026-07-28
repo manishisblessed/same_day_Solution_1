@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { createClient } from '@supabase/supabase-js'
+import { generateCSVResponse, generateExcelResponse, generatePDFResponse, type ReportColumn } from '@/lib/reports/generator'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -9,14 +10,6 @@ function sanitize(value: string): string {
   return value.replace(/[,()\\*%]/g, '').trim()
 }
 
-function escapeXml(str: string) {
-  return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&apos;')
-}
 
 interface DownlineInfo {
   retailerIds: string[]
@@ -255,9 +248,33 @@ export async function GET(request: NextRequest) {
       pending_count: allRows.filter(r => ['PENDING', 'pending'].includes(r.status)).length,
     }
 
-    if (format === 'excel') {
-      return generateExcel(allRows, dateFrom, dateTo)
+    const posColumns: ReportColumn[] = [
+      { header: 'Date & Time', key: 'date', type: 'date' },
+      { header: 'Transaction ID', key: 'transaction_id' },
+      { header: 'Terminal ID (TID)', key: 'tid' },
+      { header: 'Merchant Name', key: 'merchant_name' },
+      { header: 'Card Type', key: 'card_type' },
+      { header: 'Amount (₹)', key: 'amount', type: 'currency' },
+      { header: 'MDR Rate (%)', key: 'mdr_rate', type: 'number' },
+      { header: 'MDR Amount (₹)', key: 'mdr_amount', type: 'currency' },
+      { header: 'Settlement (₹)', key: 'settlement_amount', type: 'currency' },
+      { header: 'Status', key: 'status' },
+    ]
+    const fn = `pos_transactions_${Date.now()}`
+    const meta = {
+      title: 'POS Transaction Report',
+      dateRange: { from: dateFrom, to: dateTo },
+      summaryCards: [
+        { label: 'Total Transactions', value: String(summary.total_transactions) },
+        { label: 'Total Amount', value: `₹${summary.total_amount.toFixed(2)}` },
+        { label: 'Total MDR', value: `₹${summary.total_mdr.toFixed(2)}` },
+        { label: 'Success / Failed / Pending', value: `${summary.success_count} / ${summary.failed_count} / ${summary.pending_count}` },
+      ],
     }
+
+    if (format === 'csv') return generateCSVResponse(allRows, posColumns, fn, meta)
+    if (format === 'excel') return generateExcelResponse(allRows, posColumns, fn, 'POS Transactions')
+    if (format === 'pdf') return await generatePDFResponse(allRows, posColumns, fn, meta, { accentColor: '#4F46E5' })
 
     const total = allRows.length
     const rows = allRows.slice(offset, offset + limit)
@@ -288,48 +305,3 @@ function emptyPagination(limit: number, offset: number) {
   return { total: 0, limit, offset, page: 1, totalPages: 0 }
 }
 
-function generateExcel(rows: any[], dateFrom: string | null, dateTo: string | null) {
-  const headers = [
-    'Date & Time', 'Transaction ID', 'Terminal ID (TID)', 'Merchant Name',
-    'Card Type', 'Transaction Amount (₹)', 'MDR Rate (%)', 'MDR Amount (₹)',
-    'Settlement Amount (₹)', 'Status',
-  ]
-
-  const headerRow = `<Row>${headers.map(h => `<Cell><Data ss:Type="String">${escapeXml(h)}</Data></Cell>`).join('')}</Row>`
-
-  const xmlRows = rows.map(r => {
-    const strCell = (v: string) => `<Cell><Data ss:Type="String">${escapeXml(v || '-')}</Data></Cell>`
-    const numCell = (v: number) => `<Cell><Data ss:Type="Number">${v}</Data></Cell>`
-    return `<Row>
-      ${strCell(new Date(r.date).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }))}
-      ${strCell(r.transaction_id)}
-      ${strCell(r.tid)}
-      ${strCell(r.merchant_name)}
-      ${strCell(r.card_type)}
-      ${numCell(r.amount)}
-      ${numCell(Math.round(r.mdr_rate * 100000) / 1000)}
-      ${numCell(r.mdr_amount)}
-      ${numCell(r.settlement_amount)}
-      ${strCell(r.status)}
-    </Row>`
-  }).join('\n')
-
-  const xml = `<?xml version="1.0"?>
-<?mso-application progid="Excel.Sheet"?>
-<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
- xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
-  <Worksheet ss:Name="POS Transactions">
-    <Table>
-      ${headerRow}
-      ${xmlRows}
-    </Table>
-  </Worksheet>
-</Workbook>`
-
-  return new NextResponse(xml, {
-    headers: {
-      'Content-Type': 'application/vnd.ms-excel',
-      'Content-Disposition': `attachment; filename="pos_transaction_report_${Date.now()}.xls"`,
-    },
-  })
-}

@@ -304,51 +304,8 @@ export async function distributeCommission(params: DistributeParams): Promise<{
       }
     }
 
-    // Credit MD wallet (gross) + TDS deduction
-    if (mdUserId && breakdown.mdAmount > 0) {
-      const mdNet = Math.round((breakdown.mdAmount * (1 - rtTdsPct / 100)) * 100) / 100;
-      const mdTds = Math.round((breakdown.mdAmount - mdNet) * 100) / 100;
-
-      const { error: mdErr } = await supabase.rpc('add_ledger_entry', {
-        p_user_id: mdUserId,
-        p_user_role: 'master_distributor',
-        p_wallet_type: config.md_wallet_type,
-        p_fund_category: 'commission',
-        p_service_type: 'aeps',
-        p_tx_type: 'COMMISSION_CREDIT',
-        p_credit: breakdown.mdAmount,
-        p_debit: 0,
-        p_reference_id: `COMM_MD_${transactionId}`,
-        p_transaction_id: transactionId,
-        p_status: 'completed',
-        p_remarks: `AEPS MD commission (gross): ₹${breakdown.mdAmount}`,
-      });
-
-      if (mdErr) {
-        console.error('[Commission] MD COMMISSION_CREDIT failed:', mdErr.message);
-      }
-
-      if (mdTds > 0) {
-        const { error: mdTdsErr } = await supabase.rpc('add_ledger_entry', {
-          p_user_id: mdUserId,
-          p_user_role: 'master_distributor',
-          p_wallet_type: config.md_wallet_type,
-          p_fund_category: 'tds',
-          p_service_type: 'aeps',
-          p_tx_type: 'TDS_DEDUCTION',
-          p_credit: 0,
-          p_debit: mdTds,
-          p_reference_id: `TDS_MD_${transactionId}`,
-          p_transaction_id: transactionId,
-          p_status: 'completed',
-          p_remarks: `TDS @${rtTdsPct}% on AEPS MD commission ₹${breakdown.mdAmount}`,
-        });
-
-        if (mdTdsErr) {
-          console.error('[Commission] MD TDS_DEDUCTION failed:', mdTdsErr.message);
-        }
-      }
-    }
+    // MD commission removed: Master Distributor is no longer credited.
+    // MD's former slice remains with the company (not distributed downward).
 
     // Mark commission as distributed
     await supabase

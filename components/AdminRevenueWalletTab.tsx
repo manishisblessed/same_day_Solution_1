@@ -175,7 +175,7 @@ export default function AdminRevenueWalletTab() {
       const url = window.URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = `revenue-wallet-statement-${new Date().toISOString().split('T')[0]}.${format === 'excel' ? 'xlsx' : 'csv'}`
+      a.download = `revenue-wallet-statement-${new Date().toISOString().split('T')[0]}.${format === 'excel' ? 'xls' : format === 'pdf' ? 'pdf' : 'csv'}`
       document.body.appendChild(a)
       a.click()
       window.URL.revokeObjectURL(url)

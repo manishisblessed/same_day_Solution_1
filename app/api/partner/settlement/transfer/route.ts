@@ -5,6 +5,7 @@ import { initiateBankTransfer } from '@/services/shadval-pay'
 import type { ShadvalTransferRequest } from '@/services/shadval-pay'
 import { sendSettlementCallback } from '@/lib/settlement-callback'
 import { resolveShadvalCharge, getShadvalSlabLimits } from '@/lib/shadval-charge'
+import { distributeServiceCommission } from '@/lib/commission/distribute-service-commission'
 import {
   reserveIdempotencyKey,
   finalizeIdempotencyKey,
@@ -335,6 +336,23 @@ export async function POST(request: NextRequest) {
           p_reference_id: `REFUND_${refId}`,
         })
       } catch {}
+    }
+
+    // On success, record the collected charge as company revenue. Partners have no
+    // downstream retailer/distributor, so the full charge folds into company revenue.
+    if (isSuccess && charges > 0) {
+      const commResult = await distributeServiceCommission({
+        supabase,
+        service: 'shadval_settlement',
+        refPrefix: 'SHADVAL',
+        refKey: refId,
+        transactionUuid: txRecord.id,
+        totalCharge: charges,
+        retailer: { id: partner.id, role: 'partner', commission: 0 },
+        distributor: null,
+        remarksSuffix: `on ₹${amountNum} partner transfer`,
+      })
+      if (commResult.errors.length) console.error('[Partner Settlement Transfer] Commission errors:', commResult.errors)
     }
 
     // Fire settlement callback to partner webhook (non-blocking)

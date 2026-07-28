@@ -6,6 +6,7 @@ import { getTransferStatus } from '@/services/payout'
 import { transactionStatus } from '@/services/bbps'
 import { checkTransactionStatus as shadvalCheckStatus } from '@/services/shadval-pay'
 import { creditSettlementFeeToPlatformWallet } from '@/lib/wallet/platform-revenue-wallet'
+import { reverseServiceCommission } from '@/lib/commission/distribute-service-commission'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -735,55 +736,17 @@ async function verifyShadval(
 }
 
 async function reverseShadvalCommissions(supabase: ReturnType<typeof createClient>, tx: any) {
-  try {
-    const chargesNum = parseFloat(String(tx.charges || 0))
-    if (chargesNum <= 0) return
-
-    // Company revenue reversal
-    const revenueUserId = process.env.SUBSCRIPTION_REVENUE_USER_ID
-    const revenueUserRole = process.env.SUBSCRIPTION_REVENUE_USER_ROLE || 'master_distributor'
-    const companyEarning = parseFloat(String(tx.company_earning || 0)) || chargesNum
-    if (revenueUserId && companyEarning > 0) {
-      await supabase.rpc('add_ledger_entry', {
-        p_user_id: revenueUserId, p_user_role: revenueUserRole, p_wallet_type: 'primary',
-        p_fund_category: 'revenue', p_service_type: 'shadval_settlement', p_tx_type: 'COMPANY_REVENUE_REVERSAL',
-        p_credit: 0, p_debit: companyEarning,
-        p_reference_id: `REVREV_${tx.reference_id}`, p_transaction_id: tx.id, p_status: 'completed',
-        p_remarks: `Reversal of Settlement-2 revenue ₹${companyEarning} — verification: FAILED`,
-      }).catch((e: any) => console.error('[Verify Shadval] Revenue reversal failed:', e?.message))
-    }
-
-    // Hierarchy for commission reversals
-    const { data: retailerData } = await supabase
-      .from('retailers')
-      .select('distributor_id, master_distributor_id')
-      .eq('partner_id', tx.retailer_id)
-      .maybeSingle()
-
-    const dtComm = parseFloat(String(tx.distributor_commission || 0))
-    if (dtComm > 0 && retailerData?.distributor_id) {
-      await supabase.rpc('add_ledger_entry', {
-        p_user_id: retailerData.distributor_id, p_user_role: 'distributor', p_wallet_type: 'primary',
-        p_fund_category: 'commission', p_service_type: 'shadval_settlement', p_tx_type: 'COMMISSION_REVERSAL',
-        p_credit: 0, p_debit: dtComm,
-        p_reference_id: `DTCOMMREV_${tx.reference_id}`, p_transaction_id: tx.id, p_status: 'completed',
-        p_remarks: `Reversal of Settlement-2 DT commission — verification: FAILED`,
-      }).catch((e: any) => console.error('[Verify Shadval] DT commission reversal failed:', e?.message))
-    }
-
-    const mdComm = parseFloat(String(tx.md_commission || 0))
-    if (mdComm > 0 && retailerData?.master_distributor_id) {
-      await supabase.rpc('add_ledger_entry', {
-        p_user_id: retailerData.master_distributor_id, p_user_role: 'master_distributor', p_wallet_type: 'primary',
-        p_fund_category: 'commission', p_service_type: 'shadval_settlement', p_tx_type: 'COMMISSION_REVERSAL',
-        p_credit: 0, p_debit: mdComm,
-        p_reference_id: `MDCOMMREV_${tx.reference_id}`, p_transaction_id: tx.id, p_status: 'completed',
-        p_remarks: `Reversal of Settlement-2 MD commission — verification: FAILED`,
-      }).catch((e: any) => console.error('[Verify Shadval] MD commission reversal failed:', e?.message))
-    }
-  } catch (err: any) {
-    console.error('[Verify Shadval] Commission reversal error (non-fatal):', err?.message)
-  }
+  const chargesNum = parseFloat(String(tx.charges || 0))
+  if (chargesNum <= 0) return
+  // Reverses DT commission + company revenue (no MD) using the shared helper's
+  // deterministic references.
+  await reverseServiceCommission({
+    supabase,
+    service: 'shadval_settlement',
+    refPrefix: 'SHADVAL',
+    refKey: tx.reference_id,
+    transactionUuid: tx.id,
+  })
 }
 
 // ============================================================================

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { createClient } from '@supabase/supabase-js'
+import { generateCSVResponse, generateExcelResponse, generatePDFResponse, type ReportColumn } from '@/lib/reports/generator'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -9,14 +10,6 @@ function sanitize(value: string): string {
   return value.replace(/[,()\\*%]/g, '').trim()
 }
 
-function escapeXml(str: string) {
-  return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&apos;')
-}
 
 const GST_RATE = 0.18
 
@@ -275,9 +268,35 @@ export async function GET(request: NextRequest) {
       pending_count: allRows.filter(r => ['pending', 'processing', 'PENDING'].includes(r.status)).length,
     }
 
-    if (format === 'excel') {
-      return generateExcel(allRows, dateFrom, dateTo)
+    const payoutColumns: ReportColumn[] = [
+      { header: 'Date', key: 'date', type: 'date' },
+      { header: 'Transaction ID', key: 'transaction_id' },
+      { header: 'Beneficiary Name', key: 'beneficiary_name' },
+      { header: 'Account No.', key: 'beneficiary_account' },
+      { header: 'Bank Name', key: 'bank_name' },
+      { header: 'IFSC Code', key: 'ifsc_code' },
+      { header: 'Amount (₹)', key: 'amount', type: 'currency' },
+      { header: 'Charge (₹)', key: 'charge', type: 'currency' },
+      { header: 'GST (₹)', key: 'gst', type: 'currency' },
+      { header: 'Total Debit (₹)', key: 'total_debit', type: 'currency' },
+      { header: 'Reference No.', key: 'reference_number' },
+      { header: 'Status', key: 'status' },
+    ]
+    const fn = `settlement_report_${Date.now()}`
+    const rptMeta = {
+      title: 'Settlement / Payout Transaction Report',
+      dateRange: { from: dateFrom, to: dateTo },
+      summaryCards: [
+        { label: 'Total Transactions', value: String(summary.total_transactions) },
+        { label: 'Total Amount', value: `₹${summary.total_amount.toFixed(2)}` },
+        { label: 'Total Charges', value: `₹${summary.total_charges.toFixed(2)}` },
+        { label: 'Success / Failed / Pending', value: `${summary.success_count} / ${summary.failed_count} / ${summary.pending_count}` },
+      ],
     }
+
+    if (format === 'csv') return generateCSVResponse(allRows, payoutColumns, fn, rptMeta)
+    if (format === 'excel') return generateExcelResponse(allRows, payoutColumns, fn, 'Payout Transactions')
+    if (format === 'pdf') return await generatePDFResponse(allRows, payoutColumns, fn, rptMeta, { accentColor: '#6366F1' })
 
     const total = allRows.length
     const rows = allRows.slice(offset, offset + limit)
@@ -308,50 +327,3 @@ function emptyPagination(limit: number, offset: number) {
   return { total: 0, limit, offset, page: 1, totalPages: 0 }
 }
 
-function generateExcel(rows: any[], dateFrom: string | null, dateTo: string | null) {
-  const headers = [
-    'Date', 'Transaction ID', 'Beneficiary Name', 'Beneficiary Account No.',
-    'Bank Name', 'IFSC Code', 'Amount (₹)', 'Charge (₹)', 'GST (₹)',
-    'Total Debit Amount (₹)', 'Reference Number', 'Status',
-  ]
-
-  const headerRow = `<Row>${headers.map(h => `<Cell><Data ss:Type="String">${escapeXml(h)}</Data></Cell>`).join('')}</Row>`
-
-  const xmlRows = rows.map(r => {
-    const strCell = (v: string) => `<Cell><Data ss:Type="String">${escapeXml(v || '-')}</Data></Cell>`
-    const numCell = (v: number) => `<Cell><Data ss:Type="Number">${v}</Data></Cell>`
-    return `<Row>
-      ${strCell(new Date(r.date).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }))}
-      ${strCell(r.transaction_id)}
-      ${strCell(r.beneficiary_name)}
-      ${strCell(r.beneficiary_account)}
-      ${strCell(r.bank_name)}
-      ${strCell(r.ifsc_code)}
-      ${numCell(r.amount)}
-      ${numCell(r.charge)}
-      ${numCell(r.gst)}
-      ${numCell(r.total_debit)}
-      ${strCell(r.reference_number)}
-      ${strCell(r.status)}
-    </Row>`
-  }).join('\n')
-
-  const xml = `<?xml version="1.0"?>
-<?mso-application progid="Excel.Sheet"?>
-<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
- xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
-  <Worksheet ss:Name="Payout Transactions">
-    <Table>
-      ${headerRow}
-      ${xmlRows}
-    </Table>
-  </Worksheet>
-</Workbook>`
-
-  return new NextResponse(xml, {
-    headers: {
-      'Content-Type': 'application/vnd.ms-excel',
-      'Content-Disposition': `attachment; filename="payout_transaction_report_${Date.now()}.xls"`,
-    },
-  })
-}

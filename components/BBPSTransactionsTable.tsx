@@ -12,6 +12,7 @@ import {
 import { motion } from 'framer-motion'
 import { format } from 'date-fns'
 import { apiFetchJson } from '@/lib/api-client'
+import ExportDropdown, { type ExportFormat, downloadBlob } from '@/components/ExportDropdown'
 
 interface BBPSTransactionsTableProps {
   autoPoll?: boolean
@@ -138,29 +139,44 @@ export default function BBPSTransactionsTable({
     )
   })
 
-  const handleExport = () => {
+  const [exportingFmt, setExportingFmt] = useState<ExportFormat | null>(null)
+
+  const handleExport = async (fmt: ExportFormat) => {
     if (filteredTransactions.length === 0) return
-    
-    const headers = ['Date', 'Biller', 'Consumer No.', 'Consumer Name', 'Bill Amount', 'Status', 'Transaction ID', 'Wallet Debited']
-    const rows = filteredTransactions.map(tx => [
-      format(new Date(tx.created_at), 'dd MMM yyyy HH:mm'),
-      tx.biller_name || tx.biller_id,
-      tx.consumer_number,
-      tx.consumer_name || '-',
-      `₹${tx.bill_amount?.toFixed(2)}`,
-      tx.status,
-      tx.transaction_id || tx.agent_transaction_id || '-',
-      tx.wallet_debited ? 'Yes' : 'No'
-    ])
-    
-    const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n')
-    const blob = new Blob([csv], { type: 'text/csv' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `bbps-transactions-${format(new Date(), 'yyyyMMdd')}.csv`
-    a.click()
-    URL.revokeObjectURL(url)
+    setExportingFmt(fmt)
+    try {
+      const headers = ['Date', 'Biller', 'Consumer No.', 'Consumer Name', 'Bill Amount', 'Status', 'Transaction ID', 'Wallet Debited']
+      const rows = filteredTransactions.map(tx => [
+        format(new Date(tx.created_at), 'dd MMM yyyy HH:mm'),
+        tx.biller_name || tx.biller_id,
+        tx.consumer_number,
+        tx.consumer_name || '-',
+        tx.bill_amount?.toFixed(2) || '0.00',
+        tx.status,
+        tx.transaction_id || tx.agent_transaction_id || '-',
+        tx.wallet_debited ? 'Yes' : 'No'
+      ])
+      const datePart = format(new Date(), 'yyyyMMdd')
+
+      if (fmt === 'csv') {
+        const escapeCSV = (v: string) => v.includes(',') || v.includes('"') ? `"${v.replace(/"/g, '""')}"` : v
+        const csv = [headers.join(','), ...rows.map(r => r.map(escapeCSV).join(','))].join('\n')
+        downloadBlob(new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' }), `bbps-transactions-${datePart}.csv`)
+      } else if (fmt === 'excel') {
+        const escapeXml = (s: string) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        const headerRow = `<Row>${headers.map(h => `<Cell><Data ss:Type="String">${escapeXml(h)}</Data></Cell>`).join('')}</Row>`
+        const xmlRows = rows.map(r => `<Row>${r.map(c => `<Cell><Data ss:Type="String">${escapeXml(c)}</Data></Cell>`).join('')}</Row>`).join('\n')
+        const xml = `<?xml version="1.0"?><?mso-application progid="Excel.Sheet"?><Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"><Worksheet ss:Name="BBPS Transactions"><Table>${headerRow}${xmlRows}</Table></Worksheet></Workbook>`
+        downloadBlob(new Blob([xml], { type: 'application/vnd.ms-excel' }), `bbps-transactions-${datePart}.xls`)
+      } else if (fmt === 'pdf') {
+        const escapeHtml = (s: string) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>BBPS Transactions</title><style>body{font-family:Arial,sans-serif;padding:20px;font-size:11px}h1{color:#333;font-size:18px}table{width:100%;border-collapse:collapse;margin-top:15px}th{background:#2563EB;color:white;padding:6px;text-align:left;font-size:10px}td{padding:5px;border-bottom:1px solid #E5E7EB;font-size:10px}tr:nth-child(even){background:#F9FAFB}.footer{margin-top:15px;text-align:center;font-size:9px;color:#888}</style></head><body><h1>BBPS Transaction Report</h1><p style="color:#666;font-size:11px">Generated: ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} | ${filteredTransactions.length} transactions</p><table><thead><tr>${headers.map(h => `<th>${escapeHtml(h)}</th>`).join('')}</tr></thead><tbody>${rows.map(r => `<tr>${r.map(c => `<td>${escapeHtml(c)}</td>`).join('')}</tr>`).join('')}</tbody></table><div class="footer">System-generated report &copy; ${new Date().getFullYear()} Same Day Solution</div></body></html>`
+        const w = window.open('', '_blank')
+        if (w) { w.document.write(html); w.document.close(); w.print() }
+      }
+    } finally {
+      setExportingFmt(null)
+    }
   }
 
   return (
@@ -196,14 +212,7 @@ export default function BBPSTransactionsTable({
               <Filter className="w-4 h-4" />
               Filters
             </button>
-            <button
-              onClick={handleExport}
-              disabled={filteredTransactions.length === 0}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-600 dark:text-gray-400 rounded-lg border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors disabled:opacity-50"
-            >
-              <Download className="w-4 h-4" />
-              Export
-            </button>
+            <ExportDropdown onExport={handleExport} exporting={exportingFmt} disabled={filteredTransactions.length === 0} size="sm" />
           </div>
         </div>
 

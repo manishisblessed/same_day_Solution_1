@@ -8,6 +8,7 @@ import {
   RECHARGEKIT_DEFAULT_BASE_CHARGE,
   isCreditCard2Enabled,
 } from '@/services/rechargekit'
+import { distributeServiceCommission } from '@/lib/commission/distribute-service-commission'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -460,88 +461,21 @@ export async function POST(request: NextRequest) {
       },
     }).eq('id', txRecord.id)
 
-    if (serviceCharge > 0) {
-      const txRef = `RKCC_COMM_${request_id}`
-      try {
-        if (commissionSplit.retailer_commission > 0) {
-          await (supabaseAdmin as any).rpc('add_ledger_entry', {
-            p_user_id: user.partner_id,
-            p_user_role: user.role,
-            p_wallet_type: 'primary',
-            p_fund_category: 'commission',
-            p_service_type: 'rechargekit',
-            p_tx_type: 'COMMISSION_CREDIT',
-            p_credit: commissionSplit.retailer_commission,
-            p_debit: 0,
-            p_reference_id: txRef,
-            p_transaction_id: txRecord.id,
-            p_status: 'completed',
-            p_remarks: `Commission on CC-2 Bill ₹${amountNum} - ${bankLabel}`,
-          })
-        }
-
-        const skipDtCommission = resolvedVia === 'distributor_mapping'
-        const skipMdCommission = resolvedVia === 'md_mapping'
-
-        if (commissionSplit.distributor_commission > 0 && distributorId && !skipDtCommission) {
-          await (supabaseAdmin as any).rpc('add_ledger_entry', {
-            p_user_id: distributorId,
-            p_user_role: 'distributor',
-            p_wallet_type: 'primary',
-            p_fund_category: 'commission',
-            p_service_type: 'rechargekit',
-            p_tx_type: 'COMMISSION_CREDIT',
-            p_credit: commissionSplit.distributor_commission,
-            p_debit: 0,
-            p_reference_id: txRef,
-            p_status: 'completed',
-            p_remarks: `DT commission on CC-2 Bill ₹${amountNum} - ${bankLabel} (RT:${user.partner_id})`,
-          })
-        }
-
-        if (commissionSplit.md_commission > 0 && mdId && !skipMdCommission) {
-          await (supabaseAdmin as any).rpc('add_ledger_entry', {
-            p_user_id: mdId,
-            p_user_role: 'master_distributor',
-            p_wallet_type: 'primary',
-            p_fund_category: 'commission',
-            p_service_type: 'rechargekit',
-            p_tx_type: 'COMMISSION_CREDIT',
-            p_credit: commissionSplit.md_commission,
-            p_debit: 0,
-            p_reference_id: txRef,
-            p_status: 'completed',
-            p_remarks: `MD commission on CC-2 Bill ₹${amountNum} - ${bankLabel} (RT:${user.partner_id})`,
-          })
-        }
-
-        const companyEarning =
-          totalServiceCharge -
-          commissionSplit.retailer_commission -
-          (!skipDtCommission && distributorId ? commissionSplit.distributor_commission : 0) -
-          (!skipMdCommission && mdId ? commissionSplit.md_commission : 0)
-        if (companyEarning > 0) {
-          const revenueUserId = process.env.SUBSCRIPTION_REVENUE_USER_ID
-          const revenueUserRole = process.env.SUBSCRIPTION_REVENUE_USER_ROLE || 'master_distributor'
-          if (revenueUserId) {
-            await (supabaseAdmin as any).rpc('add_ledger_entry', {
-              p_user_id: revenueUserId,
-              p_user_role: revenueUserRole,
-              p_wallet_type: 'primary',
-              p_fund_category: 'revenue',
-              p_service_type: 'rechargekit',
-              p_tx_type: 'REVENUE_CREDIT',
-              p_credit: companyEarning,
-              p_debit: 0,
-              p_reference_id: txRef,
-              p_status: 'completed',
-              p_remarks: `Revenue from CC-2 Bill charge ₹${totalServiceCharge} on ₹${amountNum} - ${bankLabel} (RT:${user.partner_id})`,
-            })
-          }
-        }
-      } catch (commErr: any) {
-        console.error('[Rechargekit Pay] Commission distribution error (non-fatal):', commErr.message)
-      }
+    if (totalServiceCharge > 0) {
+      // Per-transaction commission: retailer + distributor only (no MD).
+      // MD's former slice folds into company revenue. Idempotent references.
+      const commResult = await distributeServiceCommission({
+        supabase: supabaseAdmin,
+        service: 'rechargekit',
+        refPrefix: 'RKCC',
+        refKey: request_id,
+        transactionUuid: txRecord.id,
+        totalCharge: totalServiceCharge,
+        retailer: { id: user.partner_id, role: user.role, commission: commissionSplit.retailer_commission },
+        distributor: { id: distributorId, commission: commissionSplit.distributor_commission },
+        remarksSuffix: `on CC-2 Bill ₹${amountNum} - ${bankLabel}`,
+      })
+      if (commResult.errors.length) console.error('[Rechargekit Pay] Commission errors:', commResult.errors)
     }
 
     const response = NextResponse.json({

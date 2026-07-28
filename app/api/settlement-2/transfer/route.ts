@@ -10,6 +10,7 @@ import {
   finalizeIdempotencyKey,
   getIdempotencyKeyFromHeaders,
 } from '@/lib/security/idempotency'
+import { distributeServiceCommission, reverseServiceCommission } from '@/lib/commission/distribute-service-commission'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -455,74 +456,30 @@ export async function POST(request: NextRequest) {
 
     const chargeLedgerId: string | null = null
 
-    // Credit charges to company revenue
-    let revenueLedgerId: string | null = null
+    // Per-transaction commission: distributor + company only (no MD; S2 has no
+    // retailer slab). MD's former slice folds into company revenue. The company
+    // remainder = charge - distributor_commission. Idempotent references.
+    const revenueLedgerId: string | null = null
     if (charges > 0) {
-      const companyEarning = commissionSplit.company_earning > 0 ? commissionSplit.company_earning : charges
-      const revenueUserId = process.env.SUBSCRIPTION_REVENUE_USER_ID
-      const revenueUserRole = process.env.SUBSCRIPTION_REVENUE_USER_ROLE || 'master_distributor'
-      if (revenueUserId) {
-        const { data: revId, error: revError } = await (supabaseAdmin as any).rpc('add_ledger_entry', {
-          p_user_id: revenueUserId,
-          p_user_role: revenueUserRole,
-          p_wallet_type: 'primary',
-          p_fund_category: 'revenue',
-          p_service_type: 'shadval_settlement',
-          p_tx_type: 'COMPANY_REVENUE',
-          p_credit: companyEarning,
-          p_debit: 0,
-          p_reference_id: `REV_${refId}`,
-          p_transaction_id: txRecord.id,
-          p_status: 'completed',
-          p_remarks: `Settlement-2 revenue ₹${companyEarning} from charge ₹${charges} on ₹${amountNum} transfer (RT:${user.partner_id})`,
-        })
-        if (!revError) revenueLedgerId = revId
-        else console.error('[Settlement-2] Revenue credit error:', revError)
-      }
-
-      // Distributor commission
-      if (commissionSplit.distributor_commission > 0 && distributorId) {
-        try {
-          await (supabaseAdmin as any).rpc('add_ledger_entry', {
-            p_user_id: distributorId,
-            p_user_role: 'distributor',
-            p_wallet_type: 'primary',
-            p_fund_category: 'commission',
-            p_service_type: 'shadval_settlement',
-            p_tx_type: 'COMMISSION',
-            p_credit: commissionSplit.distributor_commission,
-            p_debit: 0,
-            p_reference_id: `DTCOMM_${refId}`,
-            p_transaction_id: txRecord.id,
-            p_status: 'completed',
-            p_remarks: `Settlement-2 commission ₹${commissionSplit.distributor_commission} from RT:${user.partner_id}`,
-          })
-        } catch (e) {
-          console.error('[Settlement-2] Distributor commission error:', e)
-        }
-      }
-
-      // MD commission
-      if (commissionSplit.md_commission > 0 && mdId) {
-        try {
-          await (supabaseAdmin as any).rpc('add_ledger_entry', {
-            p_user_id: mdId,
-            p_user_role: 'master_distributor',
-            p_wallet_type: 'primary',
-            p_fund_category: 'commission',
-            p_service_type: 'shadval_settlement',
-            p_tx_type: 'COMMISSION',
-            p_credit: commissionSplit.md_commission,
-            p_debit: 0,
-            p_reference_id: `MDCOMM_${refId}`,
-            p_transaction_id: txRecord.id,
-            p_status: 'completed',
-            p_remarks: `Settlement-2 MD commission ₹${commissionSplit.md_commission} from RT:${user.partner_id}`,
-          })
-        } catch (e) {
-          console.error('[Settlement-2] MD commission error:', e)
-        }
-      }
+      const commResult = await distributeServiceCommission({
+        supabase: supabaseAdmin,
+        service: 'shadval_settlement',
+        refPrefix: 'SHADVAL',
+        refKey: refId,
+        transactionUuid: txRecord.id,
+        totalCharge: charges,
+        retailer: { id: user.partner_id, role: user.role, commission: 0 },
+        distributor: { id: distributorId, commission: commissionSplit.distributor_commission },
+        remarksSuffix: `on ₹${amountNum} transfer`,
+        auditWriteback: {
+          table: 'shadval_settlement',
+          txnId: txRecord.id,
+          distributorCol: 'distributor_commission',
+          companyCol: 'company_earning',
+        },
+      })
+      if (commResult.errors.length) console.error('[Settlement-2] Commission errors:', commResult.errors)
+      else console.log(`[Settlement-2] ✅ Commission distributed: DT ₹${commResult.distributorCredited}, Company ₹${commResult.companyCredited}`)
     }
 
     // Initiate bank transfer via Shadval Pay
@@ -602,39 +559,13 @@ export async function POST(request: NextRequest) {
       if (retailerRefundErr) console.error('[Settlement-2] CRITICAL retailer refund failed:', retailerRefundErr)
 
       if (charges > 0) {
-        const companyEarning = commissionSplit.company_earning > 0 ? commissionSplit.company_earning : charges
-        const revenueUserId = process.env.SUBSCRIPTION_REVENUE_USER_ID
-        const revenueUserRole = process.env.SUBSCRIPTION_REVENUE_USER_ROLE || 'master_distributor'
-        if (revenueLedgerId && revenueUserId) {
-          const { error: revRevErr } = await (supabaseAdmin as any).rpc('add_ledger_entry', {
-            p_user_id: revenueUserId, p_user_role: revenueUserRole, p_wallet_type: 'primary',
-            p_fund_category: 'revenue', p_service_type: 'shadval_settlement', p_tx_type: 'COMPANY_REVENUE_REVERSAL',
-            p_credit: 0, p_debit: companyEarning,
-            p_reference_id: `REVREV_${refId}`, p_transaction_id: txRecord.id, p_status: 'completed',
-            p_remarks: `Reversal of Settlement-2 revenue ₹${companyEarning} — transfer failed`,
-          })
-          if (revRevErr) console.error('[Settlement-2] Revenue reversal failed:', revRevErr)
-        }
-        if (commissionSplit.distributor_commission > 0 && distributorId) {
-          const { error: dtCommRevErr } = await (supabaseAdmin as any).rpc('add_ledger_entry', {
-            p_user_id: distributorId, p_user_role: 'distributor', p_wallet_type: 'primary',
-            p_fund_category: 'commission', p_service_type: 'shadval_settlement', p_tx_type: 'COMMISSION_REVERSAL',
-            p_credit: 0, p_debit: commissionSplit.distributor_commission,
-            p_reference_id: `DTCOMMREV_${refId}`, p_transaction_id: txRecord.id, p_status: 'completed',
-            p_remarks: `Reversal of Settlement-2 DT commission — transfer failed`,
-          })
-          if (dtCommRevErr) console.error('[Settlement-2] DT commission reversal failed:', dtCommRevErr)
-        }
-        if (commissionSplit.md_commission > 0 && mdId) {
-          const { error: mdCommRevErr } = await (supabaseAdmin as any).rpc('add_ledger_entry', {
-            p_user_id: mdId, p_user_role: 'master_distributor', p_wallet_type: 'primary',
-            p_fund_category: 'commission', p_service_type: 'shadval_settlement', p_tx_type: 'COMMISSION_REVERSAL',
-            p_credit: 0, p_debit: commissionSplit.md_commission,
-            p_reference_id: `MDCOMMREV_${refId}`, p_transaction_id: txRecord.id, p_status: 'completed',
-            p_remarks: `Reversal of Settlement-2 MD commission — transfer failed`,
-          })
-          if (mdCommRevErr) console.error('[Settlement-2] MD commission reversal failed:', mdCommRevErr)
-        }
+        await reverseServiceCommission({
+          supabase: supabaseAdmin,
+          service: 'shadval_settlement',
+          refPrefix: 'SHADVAL',
+          refKey: refId,
+          transactionUuid: txRecord.id,
+        })
       }
     }
 

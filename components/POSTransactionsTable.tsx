@@ -12,6 +12,7 @@ import {
 import { motion, AnimatePresence } from 'framer-motion'
 import { apiFetch } from '@/lib/api-client'
 import { RazorpayPOSTransaction } from '@/types/database.types'
+import ExportDropdown, { type ExportFormat, downloadBlob } from '@/components/ExportDropdown'
 
 interface POSTransactionsTableProps {
   autoPoll?: boolean
@@ -394,13 +395,12 @@ export default function POSTransactionsTable({
     return `\u20B9${Number(amount).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
   }
 
-  const [exporting, setExporting] = useState(false)
+  const [exporting, setExporting] = useState<ExportFormat | null>(null)
 
-  const handleExport = async () => {
+  const handleExport = async (fmt: ExportFormat) => {
     try {
-      setExporting(true)
+      setExporting(fmt)
 
-      // Fetch ALL transactions matching current filters (no pagination limit)
       const params = new URLSearchParams()
       params.append('page', '1')
       params.append('limit', '100')
@@ -414,39 +414,44 @@ export default function POSTransactionsTable({
       const result = await response.json()
 
       const allData: RazorpayPOSTransaction[] = result.success && result.data ? result.data : filteredTransactions
+      const headers = ['Date/Time', 'TID', 'Device Serial', 'Amount', 'Status', 'Settlement', 'Payment Mode', 'Card Brand', 'Card Classification', 'MDR Rate', 'Net Amount', 'Transaction ID']
+      const rows = allData.map(t => [
+        t.transaction_time ? new Date(t.transaction_time).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }) : '',
+        t.tid || '',
+        t.device_serial || '',
+        String(t.amount || 0),
+        t.display_status || t.status || '',
+        getSettlementStatus(t).label,
+        t.payment_mode || '',
+        t.card_brand || '',
+        t.card_classification || '',
+        t.mdr_rate != null ? `${t.mdr_rate}%` : '',
+        String(t.net_amount || ''),
+        t.txn_id || ''
+      ])
+      const datePart = new Date().toISOString().split('T')[0]
 
-      const escapeCsv = (val: string) => val.includes(',') || val.includes('"') ? `"${val.replace(/"/g, '""')}"` : val
-
-      const csv = [
-        ['Date/Time', 'TID', 'Device Serial', 'Amount', 'Status', 'Settlement', 'Payment Mode', 'Card Brand', 'Card Classification', 'MDR Rate', 'Net Amount', 'Transaction ID'].join(','),
-        ...allData.map(t => [
-          t.transaction_time ? new Date(t.transaction_time).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }) : '',
-          escapeCsv(t.tid || ''),
-          escapeCsv(t.device_serial || ''),
-          t.amount || 0,
-          t.display_status || t.status || '',
-          getSettlementStatus(t).label,
-          t.payment_mode || '',
-          t.card_brand || '',
-          t.card_classification || '',
-          t.mdr_rate != null ? `${t.mdr_rate}%` : '',
-          t.net_amount || '',
-          escapeCsv(t.txn_id || '')
-        ].join(','))
-      ].join('\n')
-
-      const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' })
-      const url = window.URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `pos-transactions-${new Date().toISOString().split('T')[0]}.csv`
-      a.click()
-      window.URL.revokeObjectURL(url)
+      if (fmt === 'csv') {
+        const escapeCsv = (val: string) => val.includes(',') || val.includes('"') ? `"${val.replace(/"/g, '""')}"` : val
+        const csv = [headers.join(','), ...rows.map(r => r.map(escapeCsv).join(','))].join('\n')
+        downloadBlob(new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' }), `pos-transactions-${datePart}.csv`)
+      } else if (fmt === 'excel') {
+        const escapeXml = (s: string) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        const headerRow = `<Row>${headers.map(h => `<Cell><Data ss:Type="String">${escapeXml(h)}</Data></Cell>`).join('')}</Row>`
+        const xmlRows = rows.map(r => `<Row>${r.map(c => `<Cell><Data ss:Type="String">${escapeXml(c)}</Data></Cell>`).join('')}</Row>`).join('\n')
+        const xml = `<?xml version="1.0"?><?mso-application progid="Excel.Sheet"?><Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"><Worksheet ss:Name="POS Transactions"><Table>${headerRow}${xmlRows}</Table></Worksheet></Workbook>`
+        downloadBlob(new Blob([xml], { type: 'application/vnd.ms-excel' }), `pos-transactions-${datePart}.xls`)
+      } else if (fmt === 'pdf') {
+        const esc = (s: string) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>POS Transactions</title><style>body{font-family:Arial,sans-serif;padding:20px;font-size:11px}h1{color:#333;font-size:18px}table{width:100%;border-collapse:collapse;margin-top:15px}th{background:#4F46E5;color:white;padding:6px;text-align:left;font-size:9px}td{padding:5px;border-bottom:1px solid #E5E7EB;font-size:9px}tr:nth-child(even){background:#F9FAFB}.footer{margin-top:15px;text-align:center;font-size:9px;color:#888}</style></head><body><h1>POS Transaction Report</h1><p style="color:#666;font-size:11px">Generated: ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} | ${allData.length} transactions</p><table><thead><tr>${headers.map(h => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${rows.map(r => `<tr>${r.map(c => `<td>${esc(c)}</td>`).join('')}</tr>`).join('')}</tbody></table><div class="footer">System-generated report &copy; ${new Date().getFullYear()} Same Day Solution</div></body></html>`
+        const w = window.open('', '_blank')
+        if (w) { w.document.write(html); w.document.close(); w.print() }
+      }
     } catch (err) {
       console.error('Export failed:', err)
       setError('Export failed. Please try again.')
     } finally {
-      setExporting(false)
+      setExporting(null)
     }
   }
 
@@ -542,14 +547,7 @@ export default function POSTransactionsTable({
               <span className="w-2 h-2 rounded-full bg-blue-500"></span>
             )}
           </button>
-          <button
-            onClick={handleExport}
-            disabled={filteredTransactions.length === 0 || exporting}
-            className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors text-sm disabled:opacity-50"
-          >
-            {exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-            {exporting ? 'Exporting...' : 'Export'}
-          </button>
+          <ExportDropdown onExport={handleExport} exporting={exporting} disabled={filteredTransactions.length === 0} size="sm" />
         </div>
       </div>
 

@@ -9,6 +9,7 @@ import {
   Filter, ChevronDown
 } from 'lucide-react'
 import { apiFetch } from '@/lib/api-client'
+import ExportDropdown, { type ExportFormat, downloadBlob, getExportExtension } from '@/components/ExportDropdown'
 
 type ViewMode = 'movement' | 'device' | 'merchant'
 
@@ -111,12 +112,12 @@ export default function POSTrackingReport() {
   useEffect(() => { fetchData() }, [fetchData])
   useEffect(() => { setPage(1) }, [viewMode, search, dateFrom, dateTo, merchantId, machineCode, pageSize])
 
-  const handleExportCSV = async () => {
+  const handleExport = async (fmt: ExportFormat) => {
     setExporting(true)
     try {
       const params = new URLSearchParams()
       params.set('view', viewMode)
-      params.set('format', 'csv')
+      params.set('format', fmt === 'excel' ? 'excel' : fmt)
       params.set('limit', '999999')
       params.set('page', '1')
       if (dateFrom) params.set('date_from', dateFrom)
@@ -128,13 +129,10 @@ export default function POSTrackingReport() {
       const res = await apiFetch(`/api/admin/pos-tracking-report?${params.toString()}`)
       if (!res.ok) throw new Error('Export failed')
 
+      const contentType = res.headers.get('content-type') || ''
+      const ext = getExportExtension(fmt, contentType)
       const blob = await res.blob()
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `pos_tracking_report_${viewMode}_${new Date().toISOString().slice(0, 10)}.csv`
-      a.click()
-      URL.revokeObjectURL(url)
+      downloadBlob(blob, `pos_tracking_report_${viewMode}_${new Date().toISOString().slice(0, 10)}.${ext}`)
     } catch (err: any) {
       setError(err.message)
     } finally {
@@ -180,14 +178,7 @@ export default function POSTrackingReport() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <button
-            onClick={handleExportCSV}
-            disabled={exporting || loading || data.length === 0}
-            className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 transition-colors"
-          >
-            {exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-            Export CSV
-          </button>
+          <ExportDropdown onExport={handleExport} disabled={loading || data.length === 0} size="sm" />
           <button
             onClick={fetchData}
             disabled={loading}

@@ -19,6 +19,7 @@ import {
 } from 'lucide-react'
 import { apiFetch } from '@/lib/api-client'
 import { motion, AnimatePresence } from 'framer-motion'
+import ExportDropdown, { type ExportFormat, downloadBlob, getExportExtension } from '@/components/ExportDropdown'
 
 type TabType = 'current_month' | 'last_month' | 'all_history'
 
@@ -268,10 +269,14 @@ function POSRentalReportContent() {
     }
   }
 
-  const handleExport = async () => {
+  const [exportingFmt, setExportingFmt] = useState<ExportFormat | null>(null)
+
+  const handleExport = async (fmt: ExportFormat) => {
+    setExportingFmt(fmt)
     try {
       const params = new URLSearchParams()
       params.append('period', activeTab)
+      params.append('format', fmt)
       if (globalSearch) params.append('search', globalSearch)
       if (activeTab === 'all_history') {
         if (filters.dateFrom) params.append('dateFrom', filters.dateFrom)
@@ -284,17 +289,14 @@ function POSRentalReportContent() {
       const response = await apiFetch(`/api/admin/pos-rental-report/export?${params}`)
       if (!response.ok) throw new Error('Export failed')
 
+      const contentType = response.headers.get('content-type') || ''
+      const ext = getExportExtension(fmt, contentType)
       const blob = await response.blob()
-      const url = window.URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `POS_Rental_Report_${activeTab}_${new Date().toISOString().split('T')[0]}.xlsx`
-      document.body.appendChild(a)
-      a.click()
-      window.URL.revokeObjectURL(url)
-      document.body.removeChild(a)
+      downloadBlob(blob, `POS_Rental_Report_${activeTab}_${new Date().toISOString().split('T')[0]}.${ext}`)
     } catch (err: any) {
       console.error('Export error:', err)
+    } finally {
+      setExportingFmt(null)
     }
   }
 
@@ -446,14 +448,7 @@ function POSRentalReportContent() {
                   Refresh
                 </button>
 
-                <button
-                  onClick={handleExport}
-                  disabled={loading || records.length === 0}
-                  className="flex items-center gap-2 px-4 py-2 text-sm bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50 transition-colors"
-                >
-                  <Download className="w-4 h-4" />
-                  Export Excel
-                </button>
+                <ExportDropdown onExport={handleExport} exporting={exportingFmt} disabled={loading || records.length === 0} size="sm" />
               </div>
 
               {/* Advanced filters panel */}

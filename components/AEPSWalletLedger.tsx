@@ -11,6 +11,7 @@ import {
   Calculator, FileText, Shield
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
+import ExportDropdown, { type ExportFormat, downloadBlob } from '@/components/ExportDropdown'
 
 interface LedgerEntry {
   id: string
@@ -191,7 +192,7 @@ export default function AEPSWalletLedger({ user }: AEPSWalletLedgerProps) {
     }
   }
 
-  const exportToCSV = () => {
+  const handleExport = (fmt: ExportFormat) => {
     const headers = ['Date', 'Time', 'Type', 'Description', 'Credit (₹)', 'Debit (₹)', 'Balance After', 'Reference ID', 'Status']
     const rows = filteredEntries.map(e => {
       const { date, time } = formatDate(e.created_at)
@@ -202,14 +203,23 @@ export default function AEPSWalletLedger({ user }: AEPSWalletLedgerProps) {
         (e.balance_after || e.closing_balance || 0).toFixed(2),
         e.reference_id || '-', e.status]
     })
-    const csv = [headers, ...rows].map(r => r.join(',')).join('\n')
-    const blob = new Blob([csv], { type: 'text/csv' })
-    const url = window.URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `aeps-wallet-ledger-${new Date().toISOString().split('T')[0]}.csv`
-    a.click()
-    window.URL.revokeObjectURL(url)
+    const datePart = new Date().toISOString().split('T')[0]
+    const escapeCSV = (v: string) => v.includes(',') || v.includes('"') ? `"${v.replace(/"/g, '""')}"` : v
+    const esc = (s: string) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+
+    if (fmt === 'csv') {
+      const csv = [headers.join(','), ...rows.map(r => r.map(escapeCSV).join(','))].join('\n')
+      downloadBlob(new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' }), `aeps-wallet-ledger-${datePart}.csv`)
+    } else if (fmt === 'excel') {
+      const hdr = `<Row>${headers.map(h => `<Cell><Data ss:Type="String">${esc(h)}</Data></Cell>`).join('')}</Row>`
+      const xr = rows.map(r => `<Row>${r.map(c => `<Cell><Data ss:Type="String">${esc(c)}</Data></Cell>`).join('')}</Row>`).join('\n')
+      const xml = `<?xml version="1.0"?><?mso-application progid="Excel.Sheet"?><Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"><Worksheet ss:Name="AEPS Ledger"><Table>${hdr}${xr}</Table></Worksheet></Workbook>`
+      downloadBlob(new Blob([xml], { type: 'application/vnd.ms-excel' }), `aeps-wallet-ledger-${datePart}.xls`)
+    } else {
+      const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>AEPS Wallet Ledger</title><style>body{font-family:Arial,sans-serif;padding:20px;font-size:11px}h1{color:#333;font-size:18px}table{width:100%;border-collapse:collapse;margin-top:15px}th{background:#7C3AED;color:white;padding:6px;text-align:left;font-size:9px}td{padding:5px;border-bottom:1px solid #E5E7EB;font-size:9px}tr:nth-child(even){background:#F9FAFB}.footer{margin-top:15px;text-align:center;font-size:9px;color:#888}</style></head><body><h1>AEPS Wallet Ledger</h1><p style="color:#666;font-size:11px">Generated: ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} | ${filteredEntries.length} entries</p><table><thead><tr>${headers.map(h => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${rows.map(r => `<tr>${r.map(c => `<td>${esc(c)}</td>`).join('')}</tr>`).join('')}</tbody></table><div class="footer">System-generated report &copy; ${new Date().getFullYear()} Same Day Solution</div></body></html>`
+      const w = window.open('', '_blank')
+      if (w) { w.document.write(html); w.document.close(); w.print() }
+    }
   }
 
   return (
@@ -381,10 +391,7 @@ export default function AEPSWalletLedger({ user }: AEPSWalletLedgerProps) {
               className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 flex items-center gap-2 text-sm">
               <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /> Refresh
             </button>
-            <button onClick={exportToCSV}
-              className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center gap-2 text-sm">
-              <Download className="w-4 h-4" /> Export
-            </button>
+            <ExportDropdown onExport={handleExport} size="sm" />
           </div>
         </div>
       </div>

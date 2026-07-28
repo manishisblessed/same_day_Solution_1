@@ -8,6 +8,7 @@ import {
   Pencil, Check, X
 } from 'lucide-react'
 import { apiFetch } from '@/lib/api-client'
+import ExportDropdown, { type ExportFormat, downloadBlob, getExportExtension } from '@/components/ExportDropdown'
 
 interface HistoryEntry {
   id: string
@@ -118,10 +119,10 @@ export default function POSMachineHistoryTab() {
     }
   }
 
-  const handleExportCSV = async () => {
+  const handleExport = async (fmt: ExportFormat) => {
     setExporting(true)
     try {
-      let url = `/api/admin/pos-machines/history?format=csv&limit=999999&page=1`
+      let url = `/api/admin/pos-machines/history?format=${fmt === 'excel' ? 'excel' : fmt}&limit=999999&page=1`
       if (actionFilter !== 'all') url += `&action=${actionFilter}`
       if (statusFilter !== 'all') url += `&assignment_status=${statusFilter}`
       if (search) url += `&search=${encodeURIComponent(search)}`
@@ -129,13 +130,10 @@ export default function POSMachineHistoryTab() {
       const res = await apiFetch(url)
       if (!res.ok) throw new Error('Export failed')
 
+      const contentType = res.headers.get('content-type') || ''
+      const ext = getExportExtension(fmt, contentType)
       const blob = await res.blob()
-      const blobUrl = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = blobUrl
-      a.download = `pos_history_${new Date().toISOString().slice(0, 10)}.csv`
-      a.click()
-      URL.revokeObjectURL(blobUrl)
+      downloadBlob(blob, `pos_history_${new Date().toISOString().slice(0, 10)}.${ext}`)
     } catch (err: any) {
       setError(err.message)
     } finally {
@@ -204,14 +202,7 @@ export default function POSMachineHistoryTab() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <button
-            onClick={handleExportCSV}
-            disabled={exporting || loading || total === 0}
-            className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 transition-colors"
-          >
-            {exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-            Export CSV
-          </button>
+          <ExportDropdown onExport={handleExport} disabled={loading || total === 0} size="sm" />
           <button
             onClick={fetchHistory}
             disabled={loading}

@@ -22,6 +22,7 @@ import {
   Trash2,
   Shield
 } from 'lucide-react'
+import ExportDropdown, { type ExportFormat, downloadBlob } from '@/components/ExportDropdown'
 import AdminAEPSCommissionReport from './AdminAEPSCommissionReport'
 
 interface AEPSTransaction {
@@ -436,27 +437,23 @@ export function AdminAEPSManagement() {
     }
   }
 
-  // Export transactions
-  const handleExport = () => {
-    const csv = [
-      ['ID', 'Order ID', 'Type', 'Amount', 'Status', 'User ID', 'Created At'].join(','),
-      ...transactions.map(t => [
-        t.id,
-        t.order_id || '',
-        t.transaction_type,
-        t.amount || 0,
-        t.status,
-        t.user_id,
-        t.created_at,
-      ].join(','))
-    ].join('\n')
-
-    const blob = new Blob([csv], { type: 'text/csv' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `aeps-transactions-${new Date().toISOString().split('T')[0]}.csv`
-    a.click()
+  const handleExport = (fmt: ExportFormat) => {
+    const headers = ['ID', 'Order ID', 'Type', 'Amount', 'Status', 'User ID', 'Created At']
+    const rows = transactions.map(t => [t.id, t.order_id || '', t.transaction_type, String(t.amount || 0), t.status, t.user_id, t.created_at])
+    const datePart = new Date().toISOString().split('T')[0]
+    const escapeCSV = (v: string) => v.includes(',') || v.includes('"') ? `"${v.replace(/"/g, '""')}"` : v
+    const esc = (s: string) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    if (fmt === 'csv') {
+      const csv = [headers.join(','), ...rows.map(r => r.map(escapeCSV).join(','))].join('\n')
+      downloadBlob(new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' }), `aeps-transactions-${datePart}.csv`)
+    } else if (fmt === 'excel') {
+      const hdr = `<Row>${headers.map(h => `<Cell><Data ss:Type="String">${esc(h)}</Data></Cell>`).join('')}</Row>`
+      const xr = rows.map(r => `<Row>${r.map(c => `<Cell><Data ss:Type="String">${esc(c)}</Data></Cell>`).join('')}</Row>`).join('\n')
+      downloadBlob(new Blob([`<?xml version="1.0"?><?mso-application progid="Excel.Sheet"?><Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"><Worksheet ss:Name="AEPS Transactions"><Table>${hdr}${xr}</Table></Worksheet></Workbook>`], { type: 'application/vnd.ms-excel' }), `aeps-transactions-${datePart}.xls`)
+    } else {
+      const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>AEPS Transactions</title><style>body{font-family:Arial,sans-serif;padding:20px;font-size:11px}h1{color:#333;font-size:18px}table{width:100%;border-collapse:collapse;margin-top:15px}th{background:#4F46E5;color:white;padding:6px;text-align:left;font-size:10px}td{padding:5px;border-bottom:1px solid #E5E7EB;font-size:10px}tr:nth-child(even){background:#F9FAFB}</style></head><body><h1>AEPS Transactions</h1><table><thead><tr>${headers.map(h => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${rows.map(r => `<tr>${r.map(c => `<td>${esc(c)}</td>`).join('')}</tr>`).join('')}</tbody></table></body></html>`
+      const w = window.open('', '_blank'); if (w) { w.document.write(html); w.document.close(); w.print() }
+    }
   }
 
   const getStatusBadge = (status: string) => {
@@ -674,13 +671,7 @@ export function AdminAEPSManagement() {
                   <option value="under_reconciliation">Under Reconciliation</option>
                   <option value="reversed">Reversed</option>
                 </select>
-                <button
-                  onClick={handleExport}
-                  className="flex items-center gap-2 px-4 py-2 border rounded-lg hover:bg-gray-50"
-                >
-                  <Download className="w-4 h-4" />
-                  Export CSV
-                </button>
+                <ExportDropdown onExport={handleExport} size="sm" />
               </div>
 
               {/* Transactions Table */}

@@ -8,6 +8,7 @@ import {
   Scale, Download, RefreshCw, CheckCircle, XCircle,
   AlertTriangle, Calendar, FileSpreadsheet, Search
 } from 'lucide-react'
+import ExportDropdown, { type ExportFormat, downloadBlob } from '@/components/ExportDropdown'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   Legend, ResponsiveContainer
@@ -51,7 +52,7 @@ export default function ReconciliationTab() {
   const [endDate, setEndDate] = useState('')
   const [groupBy, setGroupBy] = useState<'daily' | 'monthly'>('daily')
   const [error, setError] = useState<string | null>(null)
-  const [exporting, setExporting] = useState(false)
+  const [exporting, setExporting] = useState<ExportFormat | null>(null)
 
   const fetchReconciliation = useCallback(async () => {
     if (!startDate || !endDate) {
@@ -75,20 +76,14 @@ export default function ReconciliationTab() {
     }
   }, [startDate, endDate, groupBy])
 
-  const exportCSV = async () => {
+  const handleExport = async (fmt: ExportFormat) => {
     if (!data) return
-    setExporting(true)
+    setExporting(fmt)
     try {
       const headers = ['Date', 'Transaction Total', 'Settlement Total', 'Difference', 'Status']
-      const rows = data.comparison.map(r => [
-        r.date,
-        r.transactionTotal.toFixed(2),
-        r.settlementTotal.toFixed(2),
-        r.difference.toFixed(2),
-        r.status,
+      const rows: string[][] = data.comparison.map(r => [
+        r.date, r.transactionTotal.toFixed(2), r.settlementTotal.toFixed(2), r.difference.toFixed(2), r.status,
       ])
-
-      // Add MDR summary section
       if (data.mdrSummary && data.mdrSummary.transactionCount > 0) {
         rows.push([])
         rows.push(['--- MDR Summary ---', '', '', '', ''])
@@ -97,25 +92,29 @@ export default function ReconciliationTab() {
         rows.push(['Net Pay Amount', data.mdrSummary.totalNetPayAmount.toFixed(2), '', '', ''])
         rows.push(['POS Transactions', data.mdrSummary.transactionCount.toString(), '', '', ''])
         const effectiveRate = data.mdrSummary.totalGrossAmount > 0
-          ? ((data.mdrSummary.totalMdrAmount / data.mdrSummary.totalGrossAmount) * 100).toFixed(2)
-          : '0.00'
+          ? ((data.mdrSummary.totalMdrAmount / data.mdrSummary.totalGrossAmount) * 100).toFixed(2) : '0.00'
         rows.push(['Effective MDR Rate', `${effectiveRate}%`, '', '', ''])
       }
 
-      const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n')
-      const blob = new Blob([csv], { type: 'text/csv' })
-      const url = window.URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `reconciliation_${startDate}_to_${endDate}.csv`
-      document.body.appendChild(a)
-      a.click()
-      window.URL.revokeObjectURL(url)
-      document.body.removeChild(a)
+      const escapeCSV = (v: string) => v.includes(',') || v.includes('"') ? `"${v.replace(/"/g, '""')}"` : v
+      const esc = (s: string) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      const fn = `reconciliation_${startDate}_to_${endDate}`
+
+      if (fmt === 'csv') {
+        const csv = [headers.join(','), ...rows.map(r => r.map(escapeCSV).join(','))].join('\n')
+        downloadBlob(new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' }), `${fn}.csv`)
+      } else if (fmt === 'excel') {
+        const hdr = `<Row>${headers.map(h => `<Cell><Data ss:Type="String">${esc(h)}</Data></Cell>`).join('')}</Row>`
+        const xr = rows.map(r => `<Row>${r.map(c => `<Cell><Data ss:Type="String">${esc(c)}</Data></Cell>`).join('')}</Row>`).join('\n')
+        downloadBlob(new Blob([`<?xml version="1.0"?><?mso-application progid="Excel.Sheet"?><Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"><Worksheet ss:Name="Reconciliation"><Table>${hdr}${xr}</Table></Worksheet></Workbook>`], { type: 'application/vnd.ms-excel' }), `${fn}.xls`)
+      } else {
+        const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Reconciliation Report</title><style>body{font-family:Arial,sans-serif;padding:20px;font-size:11px}h1{color:#333;font-size:18px}table{width:100%;border-collapse:collapse;margin-top:15px}th{background:#4F46E5;color:white;padding:6px;text-align:left;font-size:10px}td{padding:5px;border-bottom:1px solid #E5E7EB;font-size:10px}tr:nth-child(even){background:#F9FAFB}</style></head><body><h1>Reconciliation Report</h1><p style="color:#666">Period: ${startDate} to ${endDate}</p><table><thead><tr>${headers.map(h => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${rows.map(r => `<tr>${r.map(c => `<td>${esc(c)}</td>`).join('')}</tr>`).join('')}</tbody></table></body></html>`
+        const w = window.open('', '_blank'); if (w) { w.document.write(html); w.document.close(); w.print() }
+      }
     } catch {
       setError('Failed to export report')
     } finally {
-      setExporting(false)
+      setExporting(null)
     }
   }
 
@@ -178,14 +177,7 @@ export default function ReconciliationTab() {
             Generate Report
           </button>
           {data && (
-            <button
-              onClick={exportCSV}
-              disabled={exporting}
-              className="flex items-center gap-2 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm hover:bg-gray-50 dark:hover:bg-gray-700"
-            >
-              <Download className="w-4 h-4" />
-              Export CSV
-            </button>
+            <ExportDropdown onExport={handleExport} exporting={exporting} size="sm" />
           )}
         </div>
         {error && (

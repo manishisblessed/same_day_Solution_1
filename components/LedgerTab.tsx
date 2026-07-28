@@ -10,6 +10,7 @@ import {
   Calendar, ChevronLeft, ChevronRight
 } from 'lucide-react'
 import { motion } from 'framer-motion'
+import ExportDropdown, { type ExportFormat, downloadBlob } from '@/components/ExportDropdown'
 
 interface LedgerEntry {
   id: string
@@ -169,34 +170,42 @@ export default function LedgerTab({ user }: LedgerTabProps) {
     return { credits, debits, net: credits - debits }
   }, [filteredEntries])
 
-  // Export to CSV
-  const exportToCSV = () => {
-    const headers = ['Date', 'Time', 'Type', 'Service', 'Description', 'Credit', 'Debit', 'Balance After', 'Reference ID', 'Status']
-    const rows = filteredEntries.map(e => {
-      const { date, time } = formatDate(e.created_at)
-      const info = getTransactionInfo(e)
-      return [
-        date,
-        time,
-        info.label,
-        e.service_type || '-',
-        e.description || '-',
-        e.credit > 0 ? e.credit.toFixed(2) : '',
-        e.debit > 0 ? e.debit.toFixed(2) : '',
-        (e.balance_after || e.closing_balance || 0).toFixed(2),
-        e.reference_id || '-',
-        e.status
-      ]
-    })
+  const [exportingFmt, setExportingFmt] = useState<ExportFormat | null>(null)
 
-    const csv = [headers, ...rows].map(row => row.join(',')).join('\n')
-    const blob = new Blob([csv], { type: 'text/csv' })
-    const url = window.URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `wallet-ledger-${new Date().toISOString().split('T')[0]}.csv`
-    a.click()
-    window.URL.revokeObjectURL(url)
+  const handleExport = async (fmt: ExportFormat) => {
+    setExportingFmt(fmt)
+    try {
+      const headers = ['Date', 'Time', 'Type', 'Service', 'Description', 'Credit', 'Debit', 'Balance After', 'Reference ID', 'Status']
+      const rows = filteredEntries.map(e => {
+        const { date, time } = formatDate(e.created_at)
+        const info = getTransactionInfo(e)
+        return [
+          date, time, info.label, e.service_type || '-', e.description || '-',
+          e.credit > 0 ? e.credit.toFixed(2) : '', e.debit > 0 ? e.debit.toFixed(2) : '',
+          (e.balance_after || e.closing_balance || 0).toFixed(2), e.reference_id || '-', e.status
+        ]
+      })
+      const datePart = new Date().toISOString().split('T')[0]
+
+      if (fmt === 'csv') {
+        const escapeCSV = (v: string) => v.includes(',') || v.includes('"') ? `"${v.replace(/"/g, '""')}"` : v
+        const csv = [headers.join(','), ...rows.map(r => r.map(escapeCSV).join(','))].join('\n')
+        downloadBlob(new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' }), `wallet-ledger-${datePart}.csv`)
+      } else if (fmt === 'excel') {
+        const esc = (s: string) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        const hdr = `<Row>${headers.map(h => `<Cell><Data ss:Type="String">${esc(h)}</Data></Cell>`).join('')}</Row>`
+        const xr = rows.map(r => `<Row>${r.map(c => `<Cell><Data ss:Type="String">${esc(c)}</Data></Cell>`).join('')}</Row>`).join('\n')
+        const xml = `<?xml version="1.0"?><?mso-application progid="Excel.Sheet"?><Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"><Worksheet ss:Name="Wallet Ledger"><Table>${hdr}${xr}</Table></Worksheet></Workbook>`
+        downloadBlob(new Blob([xml], { type: 'application/vnd.ms-excel' }), `wallet-ledger-${datePart}.xls`)
+      } else if (fmt === 'pdf') {
+        const esc = (s: string) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Wallet Ledger</title><style>body{font-family:Arial,sans-serif;padding:20px;font-size:11px}h1{color:#333;font-size:18px}table{width:100%;border-collapse:collapse;margin-top:15px}th{background:#059669;color:white;padding:6px;text-align:left;font-size:9px}td{padding:5px;border-bottom:1px solid #E5E7EB;font-size:9px}tr:nth-child(even){background:#F9FAFB}.footer{margin-top:15px;text-align:center;font-size:9px;color:#888}</style></head><body><h1>Wallet Ledger Report</h1><p style="color:#666;font-size:11px">Generated: ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} | ${filteredEntries.length} entries</p><table><thead><tr>${headers.map(h => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${rows.map(r => `<tr>${r.map(c => `<td>${esc(c)}</td>`).join('')}</tr>`).join('')}</tbody></table><div class="footer">System-generated report &copy; ${new Date().getFullYear()} Same Day Solution</div></body></html>`
+        const w = window.open('', '_blank')
+        if (w) { w.document.write(html); w.document.close(); w.print() }
+      }
+    } finally {
+      setExportingFmt(null)
+    }
   }
 
   // Get unique service types
@@ -338,13 +347,7 @@ export default function LedgerTab({ user }: LedgerTabProps) {
               <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
               Refresh
             </button>
-            <button
-              onClick={exportToCSV}
-              className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center gap-2"
-            >
-              <Download className="w-4 h-4" />
-              Export
-            </button>
+            <ExportDropdown onExport={handleExport} exporting={exportingFmt} size="sm" />
           </div>
         </div>
       </div>

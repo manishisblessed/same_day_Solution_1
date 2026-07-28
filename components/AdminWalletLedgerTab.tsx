@@ -7,6 +7,7 @@ import {
   FileSpreadsheet, FileText, Loader2,
 } from 'lucide-react'
 import { motion } from 'framer-motion'
+import ExportDropdown, { type ExportFormat, downloadBlob, getExportExtension } from '@/components/ExportDropdown'
 
 type LedgerRow = {
   id: string
@@ -155,7 +156,7 @@ export default function AdminWalletLedgerTab() {
     setPage(1)
   }, [scope, selectedUser, userRole, walletType, serviceType, transactionType, status, dateFrom, dateTo, debouncedQ])
 
-  const handleExport = async (format: 'csv' | 'excel') => {
+  const handleExport = async (format: ExportFormat) => {
     setExporting(format)
     try {
       const params = buildParams()
@@ -168,17 +169,12 @@ export default function AdminWalletLedgerTab() {
         try { msg = (await res.json()).error || msg } catch {}
         throw new Error(msg)
       }
+      const contentType = res.headers.get('content-type') || ''
+      const ext = getExportExtension(format, contentType)
       const blob = await res.blob()
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
       const datePart = new Date().toISOString().split('T')[0]
       const userPart = selectedUser ? `-${selectedUser.id}` : ''
-      a.download = `wallet-ledger${userPart}-${datePart}.${format === 'excel' ? 'xls' : 'csv'}`
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      URL.revokeObjectURL(url)
+      downloadBlob(blob, `wallet-ledger${userPart}-${datePart}.${ext}`)
     } catch (e: any) {
       setError(e.message || 'Export failed')
     } finally {
@@ -207,24 +203,7 @@ export default function AdminWalletLedgerTab() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => handleExport('csv')}
-            disabled={!!exporting || loading}
-            className="flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium disabled:opacity-50"
-          >
-            {exporting === 'csv' ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
-            Export CSV
-          </button>
-          <button
-            type="button"
-            onClick={() => handleExport('excel')}
-            disabled={!!exporting || loading}
-            className="flex items-center gap-2 px-3 py-2 rounded-lg bg-green-700 hover:bg-green-800 text-white text-sm font-medium disabled:opacity-50"
-          >
-            {exporting === 'excel' ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileSpreadsheet className="w-4 h-4" />}
-            Export Excel
-          </button>
+          <ExportDropdown onExport={handleExport} exporting={exporting} disabled={loading} size="sm" />
           <button
             type="button"
             onClick={() => fetchLedger()}

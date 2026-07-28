@@ -10,6 +10,7 @@ import {
 } from 'lucide-react'
 import { motion } from 'framer-motion'
 import { format } from 'date-fns'
+import ExportDropdown, { type ExportFormat, downloadBlob } from '@/components/ExportDropdown'
 
 interface TransactionsTableProps {
   role?: 'admin' | 'master_distributor' | 'distributor' | 'retailer'
@@ -78,28 +79,22 @@ export default function TransactionsTable({
     )
   }
 
-  const handleExport = () => {
-    // Export logic here
-    const csv = [
-      ['TID', 'RRN', 'Amount', 'Net Amount', 'MDR', 'Status', 'Payment Mode', 'Date'].join(','),
-      ...transactions.map(t => [
-        t.tid,
-        t.rrn || '',
-        t.gross_amount,
-        t.net_amount,
-        t.mdr,
-        t.status,
-        t.payment_mode || '',
-        t.created_at
-      ].join(','))
-    ].join('\n')
-
-    const blob = new Blob([csv], { type: 'text/csv' })
-    const url = window.URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `transactions-${new Date().toISOString().split('T')[0]}.csv`
-    a.click()
+  const handleExport = (fmt: ExportFormat) => {
+    const headers = ['TID', 'RRN', 'Amount', 'Net Amount', 'MDR', 'Status', 'Payment Mode', 'Date']
+    const rows = transactions.map(t => [t.tid, t.rrn || '', String(t.gross_amount), String(t.net_amount), String(t.mdr), t.status, t.payment_mode || '', t.created_at])
+    const datePart = new Date().toISOString().split('T')[0]
+    const escapeCSV = (v: string) => v.includes(',') || v.includes('"') ? `"${v.replace(/"/g, '""')}"` : v
+    const esc = (s: string) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    if (fmt === 'csv') {
+      downloadBlob(new Blob(['\uFEFF' + [headers.join(','), ...rows.map(r => r.map(escapeCSV).join(','))].join('\n')], { type: 'text/csv;charset=utf-8' }), `transactions-${datePart}.csv`)
+    } else if (fmt === 'excel') {
+      const hdr = `<Row>${headers.map(h => `<Cell><Data ss:Type="String">${esc(h)}</Data></Cell>`).join('')}</Row>`
+      const xr = rows.map(r => `<Row>${r.map(c => `<Cell><Data ss:Type="String">${esc(c)}</Data></Cell>`).join('')}</Row>`).join('\n')
+      downloadBlob(new Blob([`<?xml version="1.0"?><?mso-application progid="Excel.Sheet"?><Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"><Worksheet ss:Name="Transactions"><Table>${hdr}${xr}</Table></Worksheet></Workbook>`], { type: 'application/vnd.ms-excel' }), `transactions-${datePart}.xls`)
+    } else {
+      const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Transactions</title><style>body{font-family:Arial,sans-serif;padding:20px;font-size:11px}h1{color:#333;font-size:18px}table{width:100%;border-collapse:collapse;margin-top:15px}th{background:#4F46E5;color:white;padding:6px;text-align:left;font-size:10px}td{padding:5px;border-bottom:1px solid #E5E7EB;font-size:10px}tr:nth-child(even){background:#F9FAFB}</style></head><body><h1>POS Transactions</h1><table><thead><tr>${headers.map(h => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${rows.map(r => `<tr>${r.map(c => `<td>${esc(c)}</td>`).join('')}</tr>`).join('')}</tbody></table></body></html>`
+      const w = window.open('', '_blank'); if (w) { w.document.write(html); w.document.close(); w.print() }
+    }
   }
 
   return (
@@ -130,13 +125,7 @@ export default function TransactionsTable({
               <span className="text-sm">Filters</span>
             </button>
           )}
-          <button
-            onClick={handleExport}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-          >
-            <Download className="w-4 h-4" />
-            <span className="text-sm">Export</span>
-          </button>
+          <ExportDropdown onExport={handleExport} size="sm" />
         </div>
       </div>
 
