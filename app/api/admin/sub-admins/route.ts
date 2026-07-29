@@ -180,7 +180,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Validate departments array
-    const validDepartments = ['dashboard', 'pos-transactions', 'retailers', 'distributors', 'master-distributors', 'scheme-management', 'partners', 'pos-machines', 'pos-history', 'pos-tracking-report', 'pos-rental-report', 'pos-partner-api', 'razorpay-transactions', 'services', 'aeps', 'reports', 'service-transaction-report', 'business-report', 'settlement', 'revenue-wallet', 'wallet-ledger', 'wallet', 'commission', 'mdr', 'limits', 'reversals', 'disputes', 'users', 'performance', 'subscriptions', 'portal-management', 'legal-agreements', 'settings', 'all']
+    const validDepartments = ['dashboard', 'pos-transactions', 'retailers', 'distributors', 'master-distributors', 'scheme-management', 'partners', 'pos-machines', 'pos-history', 'pos-tracking-report', 'pos-rental-report', 'pos-partner-api', 'razorpay-transactions', 'services', 'aeps', 'reports', 'service-transaction-report', 'pos-report', 'bill-payment-report', 'aeps-report', 'settlement-report', 'business-report', 'settlement', 'revenue-wallet', 'wallet-ledger', 'push-pull-report', 'wallet', 'commission', 'mdr', 'limits', 'reversals', 'capabilities', 'disputes', 'users', 'performance', 'subscriptions', 'portal-management', 'legal-agreements', 'settings', 'all']
     if (!departments || !Array.isArray(departments) || departments.length === 0) {
       const response = NextResponse.json(
         { error: 'At least one department must be selected' },
@@ -375,7 +375,7 @@ export async function PUT(request: NextRequest) {
         )
         return addCorsHeaders(request, response)
       }
-      const validDepartments = ['dashboard', 'pos-transactions', 'retailers', 'distributors', 'master-distributors', 'scheme-management', 'partners', 'pos-machines', 'pos-history', 'pos-tracking-report', 'pos-rental-report', 'pos-partner-api', 'razorpay-transactions', 'services', 'aeps', 'reports', 'service-transaction-report', 'business-report', 'settlement', 'revenue-wallet', 'wallet-ledger', 'wallet', 'commission', 'mdr', 'limits', 'reversals', 'disputes', 'users', 'performance', 'subscriptions', 'portal-management', 'legal-agreements', 'settings', 'all']
+      const validDepartments = ['dashboard', 'pos-transactions', 'retailers', 'distributors', 'master-distributors', 'scheme-management', 'partners', 'pos-machines', 'pos-history', 'pos-tracking-report', 'pos-rental-report', 'pos-partner-api', 'razorpay-transactions', 'services', 'aeps', 'reports', 'service-transaction-report', 'pos-report', 'bill-payment-report', 'aeps-report', 'settlement-report', 'business-report', 'settlement', 'revenue-wallet', 'wallet-ledger', 'push-pull-report', 'wallet', 'commission', 'mdr', 'limits', 'reversals', 'capabilities', 'disputes', 'users', 'performance', 'subscriptions', 'portal-management', 'legal-agreements', 'settings', 'all']
       for (const dept of departments) {
         if (!validDepartments.includes(dept)) {
           const response = NextResponse.json(
@@ -511,6 +511,12 @@ export async function DELETE(request: NextRequest) {
       return addCorsHeaders(request, response)
     }
 
+    // Nullify created_by references pointing to this admin (avoid FK violation)
+    await supabase
+      .from('admin_users')
+      .update({ created_by: null })
+      .eq('created_by', id)
+
     // Delete auth user (ignore error if user doesn't exist in auth)
     const { error: authDeleteError } = await supabase.auth.admin.deleteUser(id)
     if (authDeleteError) {
@@ -524,9 +530,9 @@ export async function DELETE(request: NextRequest) {
       .eq('id', id)
 
     if (error) {
-      console.error('Error deleting sub-admin:', error)
+      console.error('Error deleting sub-admin:', error.message, error.code, error.details)
       const response = NextResponse.json(
-        { error: 'Failed to delete sub-admin' },
+        { error: `Failed to delete sub-admin: ${error.message}` },
         { status: 500 }
       )
       return addCorsHeaders(request, response)

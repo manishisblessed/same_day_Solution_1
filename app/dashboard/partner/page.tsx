@@ -57,6 +57,8 @@ import ReconciliationTab from '@/components/partner/ReconciliationTab'
 import { Crown, Sparkles, BarChart3, Zap, Scale, Server, Users2 } from 'lucide-react'
 import { useToast } from '@/components/Toast'
 import SubPartnersManagement from '@/components/partner/SubPartnersManagement'
+import ExportDropdown, { type ExportFormat } from '@/components/ExportDropdown'
+import { exportTable } from '@/lib/export/table-export'
 
 type TabType = 'dashboard' | 'wallet' | 'services' | 'aeps' | 'bbps' | 'bbps-2' | 'credit-card' | 'credit-card-2' | 'payout' | 'settlement-2' | 'transactions' | 'ledger' | 'aeps-ledger' | 'mdr-schemes' | 'reports' | 'settings' | 'pos-machines' | 'subscriptions' | 'api-management' | 'analytics' | 'api-dashboard' | 'reconciliation' | 'sub-partners'
 
@@ -2623,6 +2625,44 @@ function PartnerLedgerTab({ user }: { user: any }) {
     setPage(1)
   }, [dateFilter, typeFilter])
 
+  const [exportingFmt, setExportingFmt] = useState<ExportFormat | null>(null)
+
+  const handleExport = async (fmt: ExportFormat) => {
+    if (!user?.partner_id) return
+    setExportingFmt(fmt)
+    try {
+      let q = supabase
+        .from('partner_wallet_ledger')
+        .select('*')
+        .eq('partner_id', user.partner_id)
+        .order('created_at', { ascending: false })
+        .limit(50000)
+      if (dateFilter.start) q = q.gte('created_at', dateFilter.start)
+      if (dateFilter.end) q = q.lte('created_at', dateFilter.end + 'T23:59:59')
+      if (typeFilter !== 'all') q = q.eq('transaction_type', typeFilter)
+
+      const { data, error } = await q
+      if (error) throw error
+
+      const headers = ['Date & Time', 'Type', 'Description', 'Credit', 'Debit', 'Balance', 'Status']
+      const rows = (data || []).map((e: any) => [
+        new Date(e.created_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }),
+        (e.transaction_type || '-').replace(/_/g, ' '),
+        e.description || e.reference_id || '-',
+        Number(e.credit) > 0 ? Number(e.credit).toFixed(2) : '',
+        Number(e.debit) > 0 ? Number(e.debit).toFixed(2) : '',
+        Number(e.closing_balance || 0).toFixed(2),
+        e.status || 'completed',
+      ])
+      exportTable({ format: fmt, title: 'Partner Wallet Ledger', filename: 'partner-wallet-ledger', headers, rows, themeColor: '#7C3AED' })
+    } catch (err) {
+      console.error('Error exporting ledger:', err)
+      showToast('Failed to export ledger', 'error')
+    } finally {
+      setExportingFmt(null)
+    }
+  }
+
   const transactionTypes = ['all', 'credit', 'debit', 'pos_settlement', 'withdrawal', 'commission', 'adjustment']
 
   return (
@@ -2640,14 +2680,17 @@ function PartnerLedgerTab({ user }: { user: any }) {
           </h2>
           <p className="text-sm text-gray-500 dark:text-gray-400">{total} total transactions</p>
         </div>
-        <button
-          onClick={fetchLedger}
-          disabled={loading}
-          className="flex items-center gap-2 px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 text-sm"
-        >
-          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-          Refresh
-        </button>
+        <div className="flex items-center gap-2">
+          <ExportDropdown onExport={handleExport} exporting={exportingFmt} disabled={loading || total === 0} size="sm" />
+          <button
+            onClick={fetchLedger}
+            disabled={loading}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 text-sm"
+          >
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            Refresh
+          </button>
+        </div>
       </div>
 
       {/* Filters */}

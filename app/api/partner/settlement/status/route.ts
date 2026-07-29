@@ -135,6 +135,7 @@ export async function GET(request: NextRequest) {
                 p_payout_transaction_id: tx.id,
                 p_description: `Settlement failed - Auto refund: ${apiResult.data.txn_status}`,
                 p_reference_id: `REFUND_${referenceId}`,
+                p_service_type: 'shadval_settlement',
               })
             } catch {}
           }

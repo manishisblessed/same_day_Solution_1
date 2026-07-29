@@ -4,6 +4,7 @@ import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
 import { checkTransactionStatus } from '@/services/shadval-pay'
 import { createClient } from '@supabase/supabase-js'
 import { reverseServiceCommission } from '@/lib/commission/distribute-service-commission'
+import { refundShadvalSettlement } from '@/lib/settlement-2/shadval-refund'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -83,31 +84,24 @@ export async function POST(request: NextRequest) {
           .select('id')
 
         if (claimed && claimed.length > 0) {
-          // Refund exactly what was debited — prefer actual_wallet_debit, fallback to total_debit
-          const refundAmount = parseFloat(String(txRecord.actual_wallet_debit || txRecord.total_debit || 0))
-            || (parseFloat(String(txRecord.amount)) + parseFloat(String(txRecord.charges || 0)))
-
-          if (refundAmount > 0) {
-            const { error: refundErr } = await (supabaseAdmin as any).rpc('add_ledger_entry', {
-              p_user_id: txRecord.retailer_id,
-              p_user_role: user.role,
-              p_wallet_type: 'primary',
-              p_fund_category: 'service',
-              p_service_type: 'shadval_settlement',
-              p_tx_type: 'SETTLEMENT2_REFUND',
-              p_credit: refundAmount,
-              p_debit: 0,
-              p_reference_id: `REFUND_${txRecord.reference_id}`,
-              p_transaction_id: txRecord.id,
-              p_status: 'completed',
-              p_remarks: `Settlement-2 refund ₹${refundAmount.toFixed(2)} — provider status: ${apiResult.data.txn_status || 'FAILED'}`,
-            })
-            if (refundErr) console.error('[Settlement-2 Status] CRITICAL refund failed:', refundErr)
-            else console.log(`[Settlement-2 Status] Refunded ₹${refundAmount} to ${txRecord.retailer_id} for ${reference_id}`)
+          // Refund exactly what was debited, routed to the correct wallet backend
+          // (partner vs retailer) with the shared, exactly-once refund helper.
+          const refund = await refundShadvalSettlement(supabaseAdmin, txRecord, { note: 'status poll' })
+          if (refund.critical) {
+            console.error('[Settlement-2 Status] CRITICAL refund failed:', refund.error)
+            await supabaseAdmin
+              .from('shadval_settlement')
+              .update({
+                status_message: `${apiResult.data.status_message || apiResult.data.txn_status} [CRITICAL: REFUND_FAILED - Manual review required] (${refund.error})`,
+              })
+              .eq('id', txRecord.id)
+          } else {
+            console.log(`[Settlement-2 Status] Refund ${refund.alreadyRefunded ? 'already applied' : 'applied'} ₹${refund.refunded} to ${txRecord.retailer_id} for ${reference_id}`)
           }
 
-          // Reverse commission/revenue if charges were involved (DT + company; no MD)
-          const chargesNum = parseFloat(String(txRecord.charges || 0))
+          // Reverse commission/revenue if charges were involved (DT + company; no MD).
+          // Skip when the money refund itself failed — that needs manual review first.
+          const chargesNum = refund.critical ? 0 : parseFloat(String(txRecord.charges || 0))
           if (chargesNum > 0) {
             await reverseServiceCommission({
               supabase: supabaseAdmin,

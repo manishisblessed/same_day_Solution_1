@@ -110,6 +110,14 @@ export async function adminAssignOneToPartner(
     return { ok: false, error: 'Partner is not active', status: 400 }
   }
 
+  if (machine.inventory_status !== 'in_stock') {
+    return {
+      ok: false,
+      error: `Machine is currently "${machine.inventory_status}". Only In Stock machines can be assigned to a Partner.`,
+      status: 400,
+    }
+  }
+
   await closeActiveAssignment(supabase, machine.id, activeAssignment)
 
   const { error: updateError } = await supabase
@@ -212,10 +220,10 @@ export async function adminAssignOneToMasterDistributor(
   }
 
   const isReturned = machine.status === 'returned'
-  if (!isReturned && machine.inventory_status && !['in_stock', 'received_from_bank'].includes(machine.inventory_status)) {
+  if (machine.inventory_status !== 'in_stock') {
     return {
       ok: false,
-      error: `Machine is currently "${machine.inventory_status}". Only in_stock, received_from_bank, or returned machines can be assigned to a Master Distributor.`,
+      error: `Machine is currently "${machine.inventory_status}". Only In Stock machines can be assigned to a Master Distributor.`,
       status: 400,
     }
   }

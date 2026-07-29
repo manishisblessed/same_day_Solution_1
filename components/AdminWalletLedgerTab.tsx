@@ -42,6 +42,7 @@ const SERVICE_TYPES = [
   { value: 'pos', label: 'POS' },
   { value: 'bbps', label: 'BBPS' },
   { value: 'pay2new', label: 'Pay2New (BBPS-2)' },
+  { value: 'rechargekit', label: 'RechargeKit (CC-2)' },
   { value: 'aeps', label: 'AEPS' },
   { value: 'payout', label: 'Payout / Settlement-1' },
   { value: 'shadval_settlement', label: 'Settlement-2' },

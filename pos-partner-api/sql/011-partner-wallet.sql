@@ -65,12 +65,14 @@ CREATE TABLE IF NOT EXISTS partner_wallet_ledger (
   reference_id TEXT,
   payout_transaction_id UUID,
   description TEXT,
+  service_type TEXT,
   status TEXT NOT NULL DEFAULT 'completed' CHECK (status IN ('pending', 'completed', 'failed')),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_partner_wallet_ledger_partner ON partner_wallet_ledger(partner_id);
 CREATE INDEX IF NOT EXISTS idx_partner_wallet_ledger_created ON partner_wallet_ledger(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_partner_wallet_ledger_service ON partner_wallet_ledger(service_type);
 CREATE INDEX IF NOT EXISTS idx_partner_wallet_ledger_payout ON partner_wallet_ledger(payout_transaction_id) WHERE payout_transaction_id IS NOT NULL;
 
 -- RLS
@@ -148,7 +150,8 @@ CREATE OR REPLACE FUNCTION credit_partner_wallet(
   p_amount DECIMAL(12, 2),
   p_description TEXT DEFAULT NULL,
   p_reference_id TEXT DEFAULT NULL,
-  p_transaction_type TEXT DEFAULT 'CREDIT'
+  p_transaction_type TEXT DEFAULT 'CREDIT',
+  p_service_type TEXT DEFAULT NULL
 )
 RETURNS UUID AS $$
 DECLARE
@@ -190,10 +193,10 @@ BEGIN
   -- Insert ledger entry
   INSERT INTO partner_wallet_ledger (
     partner_id, transaction_type, amount, credit, debit,
-    opening_balance, closing_balance, reference_id, description, status
+    opening_balance, closing_balance, reference_id, description, status, service_type
   ) VALUES (
     p_partner_id, p_transaction_type, p_amount, p_amount, 0,
-    v_opening_balance, v_closing_balance, p_reference_id, p_description, 'completed'
+    v_opening_balance, v_closing_balance, p_reference_id, p_description, 'completed', p_service_type
   ) RETURNING id INTO v_ledger_id;
 
   RETURN v_ledger_id;
@@ -206,7 +209,8 @@ CREATE OR REPLACE FUNCTION debit_partner_wallet(
   p_amount DECIMAL(12, 2),
   p_payout_transaction_id UUID DEFAULT NULL,
   p_description TEXT DEFAULT NULL,
-  p_reference_id TEXT DEFAULT NULL
+  p_reference_id TEXT DEFAULT NULL,
+  p_service_type TEXT DEFAULT NULL
 )
 RETURNS UUID AS $$
 DECLARE
@@ -257,10 +261,10 @@ BEGIN
   -- Insert ledger entry
   INSERT INTO partner_wallet_ledger (
     partner_id, transaction_type, amount, credit, debit,
-    opening_balance, closing_balance, payout_transaction_id, reference_id, description, status
+    opening_balance, closing_balance, payout_transaction_id, reference_id, description, status, service_type
   ) VALUES (
     p_partner_id, 'DEBIT', p_amount, 0, p_amount,
-    v_opening_balance, v_closing_balance, p_payout_transaction_id, p_reference_id, p_description, 'completed'
+    v_opening_balance, v_closing_balance, p_payout_transaction_id, p_reference_id, p_description, 'completed', p_service_type
   ) RETURNING id INTO v_ledger_id;
 
   RETURN v_ledger_id;
@@ -273,7 +277,8 @@ CREATE OR REPLACE FUNCTION refund_partner_wallet(
   p_amount DECIMAL(12, 2),
   p_payout_transaction_id UUID DEFAULT NULL,
   p_description TEXT DEFAULT NULL,
-  p_reference_id TEXT DEFAULT NULL
+  p_reference_id TEXT DEFAULT NULL,
+  p_service_type TEXT DEFAULT NULL
 )
 RETURNS UUID AS $$
 DECLARE
@@ -315,10 +320,10 @@ BEGIN
   -- Insert ledger entry
   INSERT INTO partner_wallet_ledger (
     partner_id, transaction_type, amount, credit, debit,
-    opening_balance, closing_balance, payout_transaction_id, reference_id, description, status
+    opening_balance, closing_balance, payout_transaction_id, reference_id, description, status, service_type
   ) VALUES (
     p_partner_id, 'REFUND', p_amount, p_amount, 0,
-    v_opening_balance, v_closing_balance, p_payout_transaction_id, p_reference_id, p_description, 'completed'
+    v_opening_balance, v_closing_balance, p_payout_transaction_id, p_reference_id, p_description, 'completed', p_service_type
   ) RETURNING id INTO v_ledger_id;
 
   RETURN v_ledger_id;
@@ -348,7 +353,7 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 -- ============================================================================
 GRANT EXECUTE ON FUNCTION get_partner_wallet_balance(UUID) TO service_role;
 GRANT EXECUTE ON FUNCTION ensure_partner_wallet(UUID) TO service_role;
-GRANT EXECUTE ON FUNCTION credit_partner_wallet(UUID, DECIMAL, TEXT, TEXT, TEXT) TO service_role;
-GRANT EXECUTE ON FUNCTION debit_partner_wallet(UUID, DECIMAL, UUID, TEXT, TEXT) TO service_role;
-GRANT EXECUTE ON FUNCTION refund_partner_wallet(UUID, DECIMAL, UUID, TEXT, TEXT) TO service_role;
+GRANT EXECUTE ON FUNCTION credit_partner_wallet(UUID, DECIMAL, TEXT, TEXT, TEXT, TEXT) TO service_role;
+GRANT EXECUTE ON FUNCTION debit_partner_wallet(UUID, DECIMAL, UUID, TEXT, TEXT, TEXT) TO service_role;
+GRANT EXECUTE ON FUNCTION refund_partner_wallet(UUID, DECIMAL, UUID, TEXT, TEXT, TEXT) TO service_role;
 GRANT EXECUTE ON FUNCTION set_partner_wallet_frozen(UUID, BOOLEAN, TEXT) TO service_role;

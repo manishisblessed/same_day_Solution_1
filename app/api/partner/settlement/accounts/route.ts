@@ -292,6 +292,7 @@ export async function POST(request: NextRequest) {
       p_payout_transaction_id: null,
       p_description: `Account verification charge ₹${VERIFICATION_CHARGE} for ${account_number} (${ifsc_code})`,
       p_reference_id: refId,
+      p_service_type: 'shadval_settlement',
     })
 
     if (ledgerErr) {
@@ -320,6 +321,7 @@ export async function POST(request: NextRequest) {
           p_payout_transaction_id: null,
           p_description: `Refund: Verification service unavailable for ${account_number}`,
           p_reference_id: `REFUND_${refId}`,
+          p_service_type: 'shadval_settlement',
         })
       } catch {}
 

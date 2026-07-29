@@ -29,6 +29,8 @@ import PayoutTransactionReport from '@/components/reports/PayoutTransactionRepor
 import BillPaymentTransactionReport from '@/components/reports/BillPaymentTransactionReport'
 import { useToast } from '@/components/Toast'
 import { getPosCompanies } from '@/lib/merchant-companies'
+import ExportDropdown, { type ExportFormat } from '@/components/ExportDropdown'
+import { exportTable } from '@/lib/export/table-export'
 
 type TabType = 'dashboard' | 'services' | 'distributors' | 'retailers' | 'wallet' | 'network' | 'commission' | 'analytics' | 'reports' | 'settings' | 'scheme-management' | 'pos-machines' | 'subscriptions'
 
@@ -537,6 +539,12 @@ function WalletTab({ user }: { user: any }) {
   const [aepsBalance, setAepsBalance] = useState<number | null>(null)
   const [loading, setLoading] = useState(true)
   const [ledgerEntries, setLedgerEntries] = useState<any[]>([])
+  const [ledgerLoading, setLedgerLoading] = useState(true)
+  const [ledgerPage, setLedgerPage] = useState(1)
+  const [ledgerTotal, setLedgerTotal] = useState(0)
+  const [exportingFmt, setExportingFmt] = useState<ExportFormat | null>(null)
+  const ledgerPageSize = 25
+  const ledgerTotalPages = Math.max(1, Math.ceil(ledgerTotal / ledgerPageSize))
 
   useEffect(() => {
     fetchWalletData()
@@ -570,20 +578,67 @@ function WalletTab({ user }: { user: any }) {
 
       setWalletBalance(primaryBalance)
       setAepsBalance(aepsBalanceData)
+    } catch (error) {
+      console.error('Error fetching wallet data:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
 
-      const { data: ledger } = await supabase
+  const fetchLedger = useCallback(async () => {
+    if (!user?.partner_id) return
+    setLedgerLoading(true)
+    try {
+      const { data: ledger, count } = await supabase
+        .from('wallet_ledger')
+        .select('*', { count: 'exact' })
+        .eq('retailer_id', user.partner_id)
+        .eq('wallet_type', 'primary')
+        .order('created_at', { ascending: false })
+        .range((ledgerPage - 1) * ledgerPageSize, ledgerPage * ledgerPageSize - 1)
+
+      setLedgerEntries(ledger || [])
+      setLedgerTotal(count || 0)
+    } catch (error) {
+      console.error('Error fetching ledger:', error)
+      setLedgerEntries([])
+    } finally {
+      setLedgerLoading(false)
+    }
+  }, [user?.partner_id, ledgerPage])
+
+  useEffect(() => {
+    fetchLedger()
+  }, [fetchLedger])
+
+  const handleExportLedger = async (fmt: ExportFormat) => {
+    if (!user?.partner_id) return
+    setExportingFmt(fmt)
+    try {
+      const { data, error } = await supabase
         .from('wallet_ledger')
         .select('*')
         .eq('retailer_id', user.partner_id)
         .eq('wallet_type', 'primary')
         .order('created_at', { ascending: false })
-        .limit(50)
+        .limit(50000)
+      if (error) throw error
 
-      setLedgerEntries(ledger || [])
-    } catch (error) {
-      console.error('Error fetching wallet data:', error)
+      const headers = ['Date', 'Type', 'Category', 'Credit', 'Debit', 'Balance', 'Status']
+      const rows = (data || []).map((e: any) => [
+        new Date(e.created_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }),
+        e.transaction_type || '-',
+        e.fund_category || '-',
+        Number(e.credit) > 0 ? Number(e.credit).toFixed(2) : '',
+        Number(e.debit) > 0 ? Number(e.debit).toFixed(2) : '',
+        Number(e.closing_balance || 0).toFixed(2),
+        e.status || 'completed',
+      ])
+      exportTable({ format: fmt, title: 'Wallet Ledger', filename: 'master-distributor-wallet-ledger', headers, rows, themeColor: '#CA8A04' })
+    } catch (err) {
+      console.error('Error exporting ledger:', err)
     } finally {
-      setLoading(false)
+      setExportingFmt(null)
     }
   }
 
@@ -636,7 +691,10 @@ function WalletTab({ user }: { user: any }) {
         animate={{ opacity: 1, y: 0 }}
         className="bg-white rounded-xl shadow-lg border border-gray-200 p-6"
       >
-        <h3 className="text-lg font-semibold mb-4">Transaction History</h3>
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+          <h3 className="text-lg font-semibold">Transaction History</h3>
+          <ExportDropdown onExport={handleExportLedger} exporting={exportingFmt} disabled={ledgerLoading || ledgerTotal === 0} size="sm" />
+        </div>
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead className="bg-gray-50">
@@ -651,7 +709,13 @@ function WalletTab({ user }: { user: any }) {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
-              {ledgerEntries.length === 0 ? (
+              {ledgerLoading ? (
+                <tr>
+                  <td colSpan={7} className="px-4 py-8 text-center text-gray-500">
+                    <Loader2 className="w-6 h-6 animate-spin mx-auto" />
+                  </td>
+                </tr>
+              ) : ledgerEntries.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="px-4 py-8 text-center text-gray-500">
                     No transactions found
@@ -690,6 +754,33 @@ function WalletTab({ user }: { user: any }) {
             </tbody>
           </table>
         </div>
+
+        {ledgerTotal > 0 && (
+          <div className="px-1 py-3 mt-2 border-t border-gray-200 flex items-center justify-between">
+            <p className="text-xs text-gray-500">
+              Showing {(ledgerPage - 1) * ledgerPageSize + 1}-{Math.min(ledgerPage * ledgerPageSize, ledgerTotal)} of {ledgerTotal}
+            </p>
+            {ledgerTotalPages > 1 && (
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setLedgerPage(p => Math.max(1, p - 1))}
+                  disabled={ledgerPage === 1 || ledgerLoading}
+                  className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Previous
+                </button>
+                <span className="text-sm text-gray-600">Page {ledgerPage} of {ledgerTotalPages}</span>
+                <button
+                  onClick={() => setLedgerPage(p => Math.min(ledgerTotalPages, p + 1))}
+                  disabled={ledgerPage === ledgerTotalPages || ledgerLoading}
+                  className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Next
+                </button>
+              </div>
+            )}
+          </div>
+        )}
       </motion.div>
     </div>
   )

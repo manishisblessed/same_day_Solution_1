@@ -219,6 +219,7 @@ export async function POST(request: NextRequest) {
               p_payout_transaction_id: null,
               p_description: `CC-2 refund ₹${refundAmount} | Status check: ${upstream.message || 'failed'}`,
               p_reference_id: `REFUND_${txRequestId}`,
+              p_service_type: 'rechargekit',
             })
             if (!refundErr) {
               txStatus = 'REFUNDED'

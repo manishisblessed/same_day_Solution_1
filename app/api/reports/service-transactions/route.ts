@@ -10,6 +10,29 @@ function sanitizeFilterValue(value: string): string {
   return value.replace(/[,()\\*%]/g, '').trim()
 }
 
+/** Human-readable label for a service filter key (used in export headers). */
+function serviceLabel(service: string): string {
+  const map: Record<string, string> = {
+    all: 'All Services',
+    pos: 'POS',
+    bbps: 'BBPS',
+    aeps: 'AEPS',
+    settlement: 'Settlement',
+    payout: 'Payout',
+    creditcard: 'Credit Card Bill Payment',
+    account_verification: 'Account Verification',
+  }
+  return map[service] || service.toUpperCase()
+}
+
+/** CSS class suffix for the PDF service badge (no spaces). */
+function serviceBadgeSuffix(serviceType: string): string {
+  const s = serviceType.toLowerCase()
+  if (s.startsWith('credit')) return 'creditcard'
+  if (s.startsWith('verif')) return 'verification'
+  return s.replace(/\s+/g, '')
+}
+
 function escapeHtml(str: string | null | undefined): string {
   if (!str) return ''
   return String(str)
@@ -20,7 +43,7 @@ function escapeHtml(str: string | null | undefined): string {
     .replace(/'/g, '&#039;')
 }
 
-type ServiceType = 'all' | 'pos' | 'bbps' | 'aeps' | 'settlement'
+type ServiceType = 'all' | 'pos' | 'bbps' | 'aeps' | 'settlement' | 'payout' | 'creditcard' | 'account_verification'
 
 interface NormalizedTransaction {
   id: string
@@ -213,6 +236,45 @@ export async function GET(request: NextRequest) {
     // Fetch Settlement transactions (includes both settlements and payout_transactions)
     if (service === 'all' || service === 'settlement') {
       const { data, count } = await fetchSettlementTransactions(
+        supabase,
+        user,
+        downline,
+        { dateFrom, dateTo, status, search, limit, offset, adminUserIds },
+        partnerRetailerScope
+      )
+      results = results.concat(data)
+      total += count
+    }
+
+    // Fetch Payout transactions (bank transfer payouts only)
+    if (service === 'payout') {
+      const { data, count } = await fetchPayoutTransactions(
+        supabase,
+        user,
+        downline,
+        { dateFrom, dateTo, status, search, limit, offset, adminUserIds },
+        partnerRetailerScope
+      )
+      results = results.concat(data)
+      total += count
+    }
+
+    // Fetch Credit Card Bill Payment transactions (Rechargekit via wallet_ledger)
+    if (service === 'creditcard') {
+      const { data, count } = await fetchCreditCardTransactions(
+        supabase,
+        user,
+        downline,
+        { dateFrom, dateTo, status, search, limit, offset, adminUserIds },
+        partnerRetailerScope
+      )
+      results = results.concat(data)
+      total += count
+    }
+
+    // Fetch Account Verification transactions (penny-drop charges via wallet_ledger)
+    if (service === 'account_verification') {
+      const { data, count } = await fetchAccountVerificationTransactions(
         supabase,
         user,
         downline,
@@ -917,6 +979,237 @@ async function fetchSettlementTransactions(
 }
 
 // ============================================================================
+// FETCH - PAYOUT (bank transfer payouts only)
+// ============================================================================
+
+async function fetchPayoutTransactions(
+  supabase: any,
+  user: any,
+  downline: DownlineInfo,
+  filters: FetchFilters,
+  partnerRetailerScope: string[] | null
+) {
+  let query = supabase
+    .from('payout_transactions')
+    .select('*', { count: 'exact' })
+    .order('created_at', { ascending: false })
+
+  if (user.role === 'partner') {
+    if (!partnerRetailerScope?.length) return { data: [], count: 0 }
+    query = query.in('retailer_id', partnerRetailerScope)
+  } else if (user.role === 'retailer') {
+    query = query.eq('retailer_id', user.partner_id)
+  } else if (user.role === 'distributor' || user.role === 'master_distributor') {
+    if (downline.retailerIds.length > 0) {
+      query = query.in('retailer_id', downline.retailerIds)
+    } else {
+      return { data: [], count: 0 }
+    }
+  } else if (filters.adminUserIds) {
+    query = query.in('retailer_id', filters.adminUserIds)
+  }
+
+  if (filters.dateFrom) query = query.gte('created_at', filters.dateFrom)
+  if (filters.dateTo) query = query.lte('created_at', filters.dateTo)
+  if (filters.status) query = query.eq('status', filters.status)
+  if (filters.search) query = query.ilike('transaction_id', `%${sanitizeFilterValue(filters.search)}%`)
+
+  query = query.range(filters.offset, filters.offset + filters.limit - 1)
+
+  const { data, count, error } = await query
+  if (error) {
+    console.error('[Payout fetch error]', error)
+    return { data: [], count: 0 }
+  }
+
+  const normalized: NormalizedTransaction[] = (data || []).map((tx: any) => ({
+    id: tx.id,
+    service_type: 'Payout',
+    transaction_id: tx.transaction_id || tx.client_ref_id || tx.id,
+    tid: null,
+    amount: tx.amount || 0,
+    status: tx.status || 'pending',
+    commission: 0,
+    mdr: tx.charges || 0,
+    mdr_rate: 0,
+    settlement_type: tx.transfer_mode || 'IMPS',
+    scheme_name: tx.scheme_name || '-',
+    scheme_id: tx.scheme_id || null,
+    retailer_id: tx.retailer_id,
+    retailer_name: null,
+    distributor_id: null,
+    distributor_name: null,
+    master_distributor_id: null,
+    md_name: null,
+    payment_mode: tx.transfer_mode || 'IMPS',
+    card_type: null,
+    device_serial: null,
+    description: tx.account_holder_name
+      ? `Payout to ${tx.account_holder_name} (${tx.transfer_mode || 'IMPS'})`
+      : `Payout - ${tx.transfer_mode || 'Bank Transfer'}`,
+    created_at: tx.created_at,
+    settlement_source: 'payout',
+    raw: tx,
+  }))
+
+  return { data: normalized, count: count || 0 }
+}
+
+// ============================================================================
+// FETCH - CREDIT CARD BILL PAYMENT (Rechargekit via wallet_ledger)
+// ============================================================================
+
+async function fetchCreditCardTransactions(
+  supabase: any,
+  user: any,
+  downline: DownlineInfo,
+  filters: FetchFilters,
+  partnerRetailerScope: string[] | null
+) {
+  let query = supabase
+    .from('wallet_ledger')
+    .select('*', { count: 'exact' })
+    .eq('service_type', 'rechargekit')
+    .eq('transaction_type', 'RECHARGEKIT_CC_DEBIT')
+    .order('created_at', { ascending: false })
+
+  if (user.role === 'partner') {
+    if (!partnerRetailerScope?.length) return { data: [], count: 0 }
+    query = query.in('retailer_id', partnerRetailerScope)
+  } else if (user.role === 'retailer') {
+    query = query.eq('retailer_id', user.partner_id)
+  } else if (user.role === 'distributor' || user.role === 'master_distributor') {
+    if (downline.retailerIds.length > 0) {
+      query = query.in('retailer_id', downline.retailerIds)
+    } else {
+      return { data: [], count: 0 }
+    }
+  } else if (filters.adminUserIds) {
+    query = query.in('retailer_id', filters.adminUserIds)
+  }
+
+  if (filters.dateFrom) query = query.gte('created_at', filters.dateFrom)
+  if (filters.dateTo) query = query.lte('created_at', filters.dateTo)
+  if (filters.status) query = query.eq('status', filters.status.toLowerCase())
+  if (filters.search) query = query.ilike('reference_id', `%${sanitizeFilterValue(filters.search)}%`)
+
+  query = query.range(filters.offset, filters.offset + filters.limit - 1)
+
+  const { data, count, error } = await query
+  if (error) {
+    console.error('[Credit Card fetch error]', error)
+    return { data: [], count: 0 }
+  }
+
+  const normalized: NormalizedTransaction[] = (data || []).map((tx: any) => ({
+    id: tx.id,
+    service_type: 'Credit Card',
+    transaction_id: tx.reference_id || tx.id,
+    tid: null,
+    amount: Number(tx.debit) || 0,
+    status: tx.status || 'completed',
+    commission: 0,
+    mdr: 0,
+    mdr_rate: 0,
+    settlement_type: '-',
+    scheme_name: '-',
+    scheme_id: null,
+    retailer_id: tx.retailer_id,
+    retailer_name: null,
+    distributor_id: null,
+    distributor_name: null,
+    master_distributor_id: null,
+    md_name: null,
+    payment_mode: 'Credit Card',
+    card_type: null,
+    device_serial: null,
+    description: tx.description || 'Credit Card Bill Payment',
+    created_at: tx.created_at,
+    raw: tx,
+  }))
+
+  return { data: normalized, count: count || 0 }
+}
+
+// ============================================================================
+// FETCH - ACCOUNT VERIFICATION (penny-drop charges via wallet_ledger)
+// ============================================================================
+
+async function fetchAccountVerificationTransactions(
+  supabase: any,
+  user: any,
+  downline: DownlineInfo,
+  filters: FetchFilters,
+  partnerRetailerScope: string[] | null
+) {
+  let query = supabase
+    .from('wallet_ledger')
+    .select('*', { count: 'exact' })
+    .in('transaction_type', ['ACCOUNT_VERIFICATION_CHARGE', 'ACCOUNT_VERIFICATION_REFUND'])
+    .order('created_at', { ascending: false })
+
+  if (user.role === 'partner') {
+    if (!partnerRetailerScope?.length) return { data: [], count: 0 }
+    query = query.in('retailer_id', partnerRetailerScope)
+  } else if (user.role === 'retailer') {
+    query = query.eq('retailer_id', user.partner_id)
+  } else if (user.role === 'distributor' || user.role === 'master_distributor') {
+    if (downline.retailerIds.length > 0) {
+      query = query.in('retailer_id', downline.retailerIds)
+    } else {
+      return { data: [], count: 0 }
+    }
+  } else if (filters.adminUserIds) {
+    query = query.in('retailer_id', filters.adminUserIds)
+  }
+
+  if (filters.dateFrom) query = query.gte('created_at', filters.dateFrom)
+  if (filters.dateTo) query = query.lte('created_at', filters.dateTo)
+  if (filters.status) query = query.eq('status', filters.status.toLowerCase())
+  if (filters.search) query = query.ilike('reference_id', `%${sanitizeFilterValue(filters.search)}%`)
+
+  query = query.range(filters.offset, filters.offset + filters.limit - 1)
+
+  const { data, count, error } = await query
+  if (error) {
+    console.error('[Account Verification fetch error]', error)
+    return { data: [], count: 0 }
+  }
+
+  const normalized: NormalizedTransaction[] = (data || []).map((tx: any) => {
+    const isRefund = tx.transaction_type === 'ACCOUNT_VERIFICATION_REFUND'
+    return {
+      id: tx.id,
+      service_type: 'Verification',
+      transaction_id: tx.reference_id || tx.id,
+      tid: null,
+      amount: Number(isRefund ? tx.credit : tx.debit) || 0,
+      status: tx.status || 'completed',
+      commission: 0,
+      mdr: 0,
+      mdr_rate: 0,
+      settlement_type: '-',
+      scheme_name: '-',
+      scheme_id: null,
+      retailer_id: tx.retailer_id,
+      retailer_name: null,
+      distributor_id: null,
+      distributor_name: null,
+      master_distributor_id: null,
+      md_name: null,
+      payment_mode: isRefund ? 'Verification Refund' : 'Account Verification',
+      card_type: null,
+      device_serial: null,
+      description: tx.remarks || tx.description || 'Account Verification',
+      created_at: tx.created_at,
+      raw: tx,
+    }
+  })
+
+  return { data: normalized, count: count || 0 }
+}
+
+// ============================================================================
 // ENRICH USER NAMES
 // ============================================================================
 
@@ -996,7 +1289,7 @@ function generateCSV(results: NormalizedTransaction[], summary: any, dateFrom: s
   const csvContent = [
     `Service Transaction Report`,
     `Generated: ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}`,
-    `Service: ${service}`,
+    `Service: ${serviceLabel(service)}`,
     `Date Range: ${dateFrom || 'All'} to ${dateTo || 'Now'}`,
     `Total Transactions: ${summary.total_transactions}`,
     `Total Amount: ₹${summary.total_amount.toFixed(2)}`,
@@ -1066,7 +1359,7 @@ function generateExcel(results: NormalizedTransaction[], dateFrom: string | null
     </Row>`
   }).join('\n')
 
-  const sheetName = service === 'all' ? 'All Services' : service.toUpperCase()
+  const sheetName = serviceLabel(service)
   const xml = `<?xml version="1.0"?>
 <?mso-application progid="Excel.Sheet"?>
 <Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
@@ -1124,6 +1417,9 @@ async function generatePDF(results: NormalizedTransaction[], summary: any, dateF
     .badge-bbps { background: #D1FAE5; color: #065F46; }
     .badge-aeps { background: #FEF3C7; color: #92400E; }
     .badge-settlement { background: #EDE9FE; color: #5B21B6; }
+    .badge-payout { background: #EDE9FE; color: #5B21B6; }
+    .badge-creditcard { background: #FCE7F3; color: #9D174D; }
+    .badge-verification { background: #E0F2FE; color: #075985; }
     .footer { margin-top: 20px; text-align: center; font-size: 10px; color: #888; border-top: 1px solid #E5E7EB; padding-top: 10px; }
     .amount { font-family: monospace; text-align: right; }
     @media print { body { padding: 15px; font-size: 9px; } th { font-size: 8px; } td { font-size: 8px; padding: 4px; } }
@@ -1138,7 +1434,7 @@ async function generatePDF(results: NormalizedTransaction[], summary: any, dateF
   <div class="meta">
     <div class="meta-item">
       <div class="label">Service Filter</div>
-      <div class="value">${service === 'all' ? 'All Services' : service.toUpperCase()}</div>
+      <div class="value">${serviceLabel(service)}</div>
     </div>
     <div class="meta-item">
       <div class="label">Date Range</div>
@@ -1195,7 +1491,7 @@ async function generatePDF(results: NormalizedTransaction[], summary: any, dateF
       <tr>
         <td>${i + 1}</td>
         <td>${new Date(r.created_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: '2-digit', hour: '2-digit', minute: '2-digit' })}</td>
-        <td><span class="badge badge-${escapeHtml(r.service_type.toLowerCase())}">${escapeHtml(r.service_type)}</span></td>
+        <td><span class="badge badge-${serviceBadgeSuffix(r.service_type)}">${escapeHtml(r.service_type)}</span></td>
         <td style="font-family: monospace; font-size: 9px;">${escapeHtml(r.transaction_id.length > 16 ? r.transaction_id.slice(0, 16) + '...' : r.transaction_id)}${r.tid ? '<br/>TID: ' + escapeHtml(r.tid) : ''}</td>
         <td class="amount">₹${r.amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
         <td class="${['success', 'captured', 'SUCCESS', 'CAPTURED'].includes(r.status) ? 'status-success' : ['failed', 'FAILED'].includes(r.status) ? 'status-failed' : 'status-pending'}">${escapeHtml(r.status)}</td>

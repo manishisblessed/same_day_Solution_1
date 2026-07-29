@@ -30,6 +30,8 @@ interface Partner {
   status: string
   ip_whitelist: string[] | null
   webhook_url: string | null
+  webhook_secret_masked?: string | null
+  has_webhook_secret?: boolean
   bbps_enabled?: boolean
   bbps2_pay2new_enabled?: boolean
   settlement_enabled?: boolean
@@ -71,6 +73,9 @@ export default function POSPartnerAPIManagement() {
   // Webhook modal
   const [showWebhookModal, setShowWebhookModal] = useState(false)
   const [webhookUrlValue, setWebhookUrlValue] = useState('')
+
+  // Webhook signing secret reveal modal
+  const [showSecretResult, setShowSecretResult] = useState<{ partner_name: string; webhook_secret: string } | null>(null)
 
   // Partner wallet
   const [walletBalances, setWalletBalances] = useState<Record<string, { balance: number; is_frozen: boolean; loading: boolean }>>({})
@@ -219,6 +224,7 @@ export default function POSPartnerAPIManagement() {
   // ─── Update Webhook URL ────────────────────────────────
   const handleUpdateWebhookUrl = async () => {
     if (!selectedPartner) return
+    const partnerName = selectedPartner.name
     const result = await doAction({
       action: 'update_webhook_url',
       partner_id: selectedPartner.id,
@@ -226,7 +232,25 @@ export default function POSPartnerAPIManagement() {
     })
     if (result) {
       setShowWebhookModal(false)
-      showSuccess(`Webhook URL updated for ${selectedPartner.name}`)
+      showSuccess(`Webhook URL updated for ${partnerName}`)
+      // First-time URL set auto-provisions a signing secret — reveal it once.
+      if (result.data?.webhook_secret) {
+        setShowSecretResult({ partner_name: partnerName, webhook_secret: result.data.webhook_secret })
+      }
+      fetchPartners()
+    }
+  }
+
+  // ─── Rotate Webhook Signing Secret ─────────────────────
+  const handleRotateWebhookSecret = async (partner: Partner) => {
+    const hasSecret = partner.has_webhook_secret
+    if (hasSecret && !confirm(`Rotate the signing secret for ${partner.name}?\n\nThe current secret stops working immediately — the partner must update to the new one or signature checks will fail.`)) return
+    const result = await doAction({
+      action: 'rotate_webhook_secret',
+      partner_id: partner.id,
+    })
+    if (result?.data?.webhook_secret) {
+      setShowSecretResult({ partner_name: partner.name, webhook_secret: result.data.webhook_secret })
       fetchPartners()
     }
   }
@@ -931,14 +955,37 @@ export default function POSPartnerAPIManagement() {
                           Callback Webhook URL
                         </h4>
                         {partner.webhook_url ? (
-                          <div className="space-y-1">
+                          <div className="space-y-2">
                             <div className="flex items-center gap-2">
                               <CheckCircle className="w-3 h-3 text-green-500 flex-shrink-0" />
                               <code className="text-sm font-mono text-gray-700 dark:text-gray-300 break-all">{partner.webhook_url}</code>
                             </div>
-                            <p className="text-xs text-green-600 dark:text-green-400 mt-2 font-medium">
-                              POS transaction callbacks will be forwarded to this URL
+                            <p className="text-xs text-green-600 dark:text-green-400 font-medium">
+                              POS transaction callbacks will be forwarded to this URL (signed with HMAC-SHA256)
                             </p>
+                            <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-gray-200 dark:border-gray-700 mt-2">
+                              <Lock className="w-3.5 h-3.5 text-gray-500 flex-shrink-0" />
+                              <span className="text-xs text-gray-500">Signing secret:</span>
+                              {partner.has_webhook_secret ? (
+                                <code className="text-xs font-mono text-gray-700 dark:text-gray-300">{partner.webhook_secret_masked}</code>
+                              ) : (
+                                <span className="text-xs text-yellow-600 dark:text-yellow-400 flex items-center gap-1">
+                                  <AlertCircle className="w-3.5 h-3.5" /> not set — callbacks are unsigned
+                                </span>
+                              )}
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  handleRotateWebhookSecret(partner)
+                                }}
+                                disabled={actionLoading}
+                                className="ml-auto flex items-center gap-1.5 px-2.5 py-1 bg-gray-900 dark:bg-gray-700 text-white rounded-lg hover:bg-gray-800 text-xs disabled:opacity-50"
+                                title={partner.has_webhook_secret ? 'Rotate signing secret (reveals a new one)' : 'Generate signing secret'}
+                              >
+                                <RefreshCw className="w-3.5 h-3.5" />
+                                {partner.has_webhook_secret ? 'Rotate & reveal secret' : 'Generate secret'}
+                              </button>
+                            </div>
                           </div>
                         ) : (
                           <div>
@@ -969,6 +1016,69 @@ export default function POSPartnerAPIManagement() {
           ))}
         </div>
       )}
+
+      {/* ─── Webhook Signing Secret Reveal Modal ──────────── */}
+      <AnimatePresence>
+        {showSecretResult && (
+          <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white dark:bg-gray-800 rounded-2xl w-full max-w-lg shadow-2xl"
+            >
+              <div className="px-6 py-4 bg-gradient-to-r from-gray-800 to-gray-900 rounded-t-2xl flex items-center justify-between">
+                <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                  <Lock className="w-5 h-5" />
+                  Webhook Signing Secret
+                </h3>
+                <button onClick={() => setShowSecretResult(null)} className="p-1 hover:bg-white/20 rounded-lg">
+                  <X className="w-5 h-5 text-white" />
+                </button>
+              </div>
+              <div className="p-6 space-y-4">
+                <div>
+                  <label className="text-xs font-medium text-gray-500 mb-1 block">Partner</label>
+                  <p className="font-semibold text-gray-900 dark:text-white">{showSecretResult.partner_name}</p>
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-gray-500 mb-1 block">Signing Secret (shown only once)</label>
+                  <div className="flex items-center gap-2">
+                    <code className="flex-1 px-3 py-2 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-300 dark:border-yellow-700 rounded-lg text-sm font-mono break-all text-yellow-900 dark:text-yellow-200">
+                      {showSecretResult.webhook_secret}
+                    </code>
+                    <button
+                      onClick={() => copyToClipboard(showSecretResult.webhook_secret, 'Signing secret')}
+                      className="p-2 bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 rounded-lg hover:bg-yellow-200"
+                    >
+                      <Copy className="w-4 h-4" />
+                    </button>
+                  </div>
+                  <p className="text-xs text-yellow-600 dark:text-yellow-400 mt-2 flex items-center gap-1">
+                    <AlertCircle className="w-3.5 h-3.5" />
+                    Save it now — it can&apos;t be retrieved again. Rotating replaces it.
+                  </p>
+                </div>
+                <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-3 text-xs text-gray-600 dark:text-gray-400 space-y-1">
+                  <p className="font-semibold text-gray-700 dark:text-gray-300">How the partner verifies each callback:</p>
+                  <p><code className="font-mono">X-Sameday-Signature</code> = HMAC-SHA256(secret, <code className="font-mono">{'`${X-Sameday-Timestamp}.${rawBody}`'}</code>), hex</p>
+                  <p>Also sent: <code className="font-mono">X-Sameday-Timestamp</code> (unix s), <code className="font-mono">X-Sameday-Delivery</code> (idempotency id), <code className="font-mono">X-Sameday-Event</code>.</p>
+                </div>
+                <button
+                  onClick={() => {
+                    const text = `Same Day — POS Webhook Signing\n\nPartner: ${showSecretResult.partner_name}\nSigning Secret: ${showSecretResult.webhook_secret}\n\nVerify each callback:\nX-Sameday-Signature = HMAC_SHA256(secret, \`\${X-Sameday-Timestamp}.\${rawBody}\`) in hex\nHeaders also sent: X-Sameday-Timestamp (unix seconds), X-Sameday-Delivery (idempotency id, dedup on this), X-Sameday-Event.\nReject if timestamp is older than your tolerance (e.g. 5 min). Return HTTP 200 on success.\n\nKeep this secret safe. Do not share via insecure channels.`
+                    copyToClipboard(text, 'Signing secret + instructions')
+                  }}
+                  className="w-full py-2 bg-gray-900 dark:bg-gray-700 text-white rounded-lg hover:bg-gray-800 text-sm font-medium flex items-center justify-center gap-2"
+                >
+                  <Copy className="w-4 h-4" />
+                  Copy secret + verification instructions
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* ─── New Key Result Modal ─────────────────────────── */}
       <AnimatePresence>
@@ -1083,9 +1193,26 @@ export default function POSPartnerAPIManagement() {
                   />
                 </div>
                 {selectedPartner.webhook_url && (
-                  <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-3">
-                    <p className="text-xs text-gray-500 mb-1">Current URL:</p>
-                    <code className="text-xs text-gray-700 dark:text-gray-300 break-all">{selectedPartner.webhook_url}</code>
+                  <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-3 space-y-2">
+                    <div>
+                      <p className="text-xs text-gray-500 mb-1">Current URL:</p>
+                      <code className="text-xs text-gray-700 dark:text-gray-300 break-all">{selectedPartner.webhook_url}</code>
+                    </div>
+                    <div className="flex items-center gap-2 pt-2 border-t border-gray-200 dark:border-gray-700">
+                      <Lock className="w-3.5 h-3.5 text-gray-500 flex-shrink-0" />
+                      <span className="text-xs text-gray-500">Signing secret:</span>
+                      <code className="text-xs font-mono text-gray-700 dark:text-gray-300">
+                        {selectedPartner.has_webhook_secret ? selectedPartner.webhook_secret_masked : 'not set'}
+                      </code>
+                      <button
+                        onClick={() => handleRotateWebhookSecret(selectedPartner)}
+                        disabled={actionLoading}
+                        className="ml-auto flex items-center gap-1.5 px-2.5 py-1 bg-gray-900 dark:bg-gray-700 text-white rounded-lg hover:bg-gray-800 text-xs disabled:opacity-50"
+                      >
+                        <RefreshCw className="w-3.5 h-3.5" />
+                        {selectedPartner.has_webhook_secret ? 'Rotate & reveal' : 'Generate'}
+                      </button>
+                    </div>
                   </div>
                 )}
                 <div className="flex gap-3">

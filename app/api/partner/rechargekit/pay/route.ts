@@ -193,6 +193,7 @@ export async function POST(request: NextRequest) {
       p_payout_transaction_id: null,
       p_description: `CC-2 (RechargeKit) ₹${amountNum} + ₹${totalServiceCharge} charge | ${bank_name} | Card:${maskedCard} | Mob:${mobile_no}`,
       p_reference_id: request_id,
+      p_service_type: 'rechargekit',
     })
     if (debitErr) {
       return NextResponse.json(
@@ -208,6 +209,7 @@ export async function POST(request: NextRequest) {
         p_payout_transaction_id: null,
         p_description: `CC-2 refund ₹${totalDebit} | ${bank_name} | Card:${maskedCard} — ${reason}`,
         p_reference_id: `REFUND_${request_id}`,
+        p_service_type: 'rechargekit',
       })
       if (refundErr) console.error('[Partner Rechargekit Pay] CRITICAL refund failed:', refundErr)
     }

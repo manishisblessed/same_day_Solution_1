@@ -415,6 +415,7 @@ export async function POST(request: NextRequest) {
         p_amount: totalDebit,
         p_description: debitRemarks,
         p_reference_id: `${refId}_TRANSFER`,
+        p_service_type: 'shadval_settlement',
       })
       transferLedgerId = data
       transferLedgerError = error
@@ -537,6 +538,7 @@ export async function POST(request: NextRequest) {
           p_description: `Settlement-2 refund ₹${totalDebit.toFixed(2)} — provider transfer failed: ${apiResult.message || ''}`,
           p_reference_id: `REFUND_${refId}`,
           p_transaction_type: 'REFUND',
+          p_service_type: 'shadval_settlement',
         })
         retailerRefundErr = error
       } else {

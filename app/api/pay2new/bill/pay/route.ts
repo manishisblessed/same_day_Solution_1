@@ -224,6 +224,7 @@ export async function POST(request: NextRequest) {
         p_amount: totalDebit,
         p_description: `CC ₹${amountNum} + ₹${totalServiceCharge} charge | ${product_name || product_code} | Card:${number}`,
         p_reference_id: request_id,
+        p_service_type: 'pay2new',
       })
       debitErr = error
     } else {
@@ -256,6 +257,7 @@ export async function POST(request: NextRequest) {
           p_transaction_type: 'REFUND',
           p_description: `Refund ₹${totalDebit} | ${product_name || product_code} | Card:${number} — ${reason}`,
           p_reference_id: `REFUND_${request_id}`,
+          p_service_type: 'pay2new',
         })
         if (refundErr) console.error('[Pay2New Bill Pay] CRITICAL refund failed:', refundErr)
       } else {

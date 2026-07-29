@@ -355,6 +355,7 @@ export async function POST(request: NextRequest) {
         p_amount: VERIFICATION_CHARGE,
         p_description: `Account verification charge ₹${VERIFICATION_CHARGE} for ${account_number} (${ifsc_code})`,
         p_reference_id: refId,
+        p_service_type: 'shadval_settlement',
       })
       chargeLedgerId = data
       chargeError = error
@@ -458,6 +459,7 @@ export async function POST(request: NextRequest) {
           p_description: `Auto-refund: Verification service unavailable (${apiResult.code || 'NO_RESPONSE'}). ₹${VERIFICATION_CHARGE} returned.`,
           p_reference_id: `REFUND_${refId}`,
           p_transaction_type: 'REFUND',
+          p_service_type: 'shadval_settlement',
         })
         refundErr = error
       } else {
@@ -618,6 +620,7 @@ export async function POST(request: NextRequest) {
           p_description: `Refund: account verification failed for ${account_number} (${ifsc_code}). DB error.`,
           p_reference_id: `REFUND_DB_${refId}`,
           p_transaction_type: 'REFUND',
+          p_service_type: 'shadval_settlement',
         })
         dbRefundErr = error
       } else {

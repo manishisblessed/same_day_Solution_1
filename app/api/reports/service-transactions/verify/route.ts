@@ -7,6 +7,7 @@ import { transactionStatus } from '@/services/bbps'
 import { checkTransactionStatus as shadvalCheckStatus } from '@/services/shadval-pay'
 import { creditSettlementFeeToPlatformWallet } from '@/lib/wallet/platform-revenue-wallet'
 import { reverseServiceCommission } from '@/lib/commission/distribute-service-commission'
+import { refundShadvalSettlement } from '@/lib/settlement-2/shadval-refund'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -536,7 +537,7 @@ async function verifyShadval(
 ) {
   let query = supabase
     .from('shadval_settlement')
-    .select('id, retailer_id, status, amount, charges, total_debit, actual_wallet_debit, reference_id, distributor_commission, md_commission, company_earning')
+    .select('id, retailer_id, status, status_message, amount, charges, total_debit, actual_wallet_debit, reference_id, distributor_commission, md_commission, company_earning')
     .eq('id', txId)
 
   if (!isAdmin) {
@@ -547,6 +548,68 @@ async function verifyShadval(
 
   if (txErr || !tx) {
     return NextResponse.json({ error: 'Transaction not found' }, { status: 404 })
+  }
+
+  // RECOVERY: the row is already FAILED but an earlier refund may never have
+  // completed (e.g. it hit the wallets_user_role_check constraint because a
+  // partner was refunded down the retailer path, leaving a CRITICAL marker and
+  // the money stuck). Re-attempt the refund idempotently so the "Check" button
+  // can always make the settler whole — a second click is a safe no-op.
+  if (tx.status === 'FAILED') {
+    const refund = await refundShadvalSettlement(supabase, tx, { note: 'verification recovery' })
+
+    if (refund.critical) {
+      await supabase
+        .from('shadval_settlement')
+        .update({
+          status_message: `${stripRefundMarkers(tx.status_message)} [CRITICAL: REFUND_FAILED - Manual review required] (${refund.error})`,
+        })
+        .eq('id', tx.id)
+      await logVerifyActivity(request, user, 'shadval_verify_refund_FAILED_CRITICAL', tx.id, { refund_failed: true, recovery: true })
+      return NextResponse.json({
+        success: false,
+        action: 'refund_failed_critical',
+        critical: true,
+        message: `⚠️ CRITICAL: Refund still could not complete for txn ${tx.id}. ${refund.error}`,
+        status: 'FAILED',
+        refunded: false,
+      }, { status: 500 })
+    }
+
+    if (refund.alreadyRefunded) {
+      return NextResponse.json({
+        success: true,
+        action: 'no_change',
+        message: `Transaction already FAILED and the wallet was already refunded (₹${refund.refunded.toFixed(2)}). No action needed.`,
+        status: 'FAILED',
+      })
+    }
+
+    if (refund.refunded > 0) {
+      await supabase
+        .from('shadval_settlement')
+        .update({
+          status_message: `${stripRefundMarkers(tx.status_message)} [Wallet refunded ₹${refund.refunded.toFixed(2)} via verification recovery]`,
+        })
+        .eq('id', tx.id)
+      await reverseShadvalCommissions(supabase, tx)
+      await logVerifyActivity(request, user, 'shadval_verify_recovery_refunded', tx.id, { refunded_amount: refund.refunded })
+      return NextResponse.json({
+        success: true,
+        action: 'failed_and_refunded',
+        message: `Recovered failed settlement. ₹${refund.refunded.toFixed(2)} refunded to wallet.`,
+        status: 'FAILED',
+        refunded: true,
+        refunded_amount: refund.refunded,
+      })
+    }
+
+    return NextResponse.json({
+      success: true,
+      action: 'no_change',
+      message: 'Transaction is already FAILED and no wallet debit was found to refund.',
+      status: 'FAILED',
+    })
   }
 
   if (tx.status !== 'PENDING') {
@@ -656,48 +719,21 @@ async function verifyShadval(
     })
   }
 
-  // Refund exactly what was debited — prefer actual_wallet_debit, fallback to total_debit
-  const refundAmount = parseFloat(String(tx.actual_wallet_debit || tx.total_debit || 0))
-    || (parseFloat(String(tx.amount)) + parseFloat(String(tx.charges || 0)))
+  // Refund exactly what was debited, routed to the correct wallet backend
+  // (partner_wallets for partners, wallets for retailers). Idempotent via the
+  // deterministic REFUND_<reference_id>, shared with the settlement-2 status poll.
+  const refund = await refundShadvalSettlement(supabase, tx, { note: 'verification' })
+  const refundedAmount = refund.refunded
+  const refundCritical = refund.critical
 
-  let refundedAmount = 0
-  let refundCritical = false
-
-  if (refundAmount > 0) {
-    const { error: refundErr } = await supabase.rpc('add_ledger_entry', {
-      p_user_id: tx.retailer_id,
-      p_user_role: resolveRole(tx.retailer_id),
-      p_wallet_type: 'primary',
-      p_fund_category: 'service',
-      p_service_type: 'shadval_settlement',
-      p_tx_type: 'SETTLEMENT2_REFUND',
-      p_credit: refundAmount,
-      p_debit: 0,
-      // Same reference_id as /api/settlement-2/status → DB unique index is the
-      // hard backstop against a double refund if a race slips past the claim.
-      p_reference_id: `REFUND_${tx.reference_id}`,
-      p_transaction_id: tx.id,
-      p_status: 'completed',
-      p_remarks: `Settlement-2 refund ₹${refundAmount.toFixed(2)} — provider status: ${apiResult.data.txn_status || 'FAILED'} (via verification)`,
-    })
-
-    if (refundErr) {
-      if (isDuplicateLedgerError(refundErr)) {
-        // Already refunded by another path (retailer status poll) — benign.
-        refundedAmount = refundAmount
-      } else {
-        refundCritical = true
-        await supabase
-          .from('shadval_settlement')
-          .update({
-            status_message: `${apiResult.data.status_message || 'FAILED'} [CRITICAL: REFUND_FAILED - Manual review required] (${refundErr.message})`,
-          })
-          .eq('id', tx.id)
-        console.error(`[Verify Shadval] 🚨 CRITICAL: ${tx.id} marked FAILED but wallet refund FAILED:`, refundErr.message)
-      }
-    } else {
-      refundedAmount = refundAmount
-    }
+  if (refundCritical) {
+    await supabase
+      .from('shadval_settlement')
+      .update({
+        status_message: `${apiResult.data.status_message || 'FAILED'} [CRITICAL: REFUND_FAILED - Manual review required] (${refund.error})`,
+      })
+      .eq('id', tx.id)
+    console.error(`[Verify Shadval] 🚨 CRITICAL: ${tx.id} marked FAILED but wallet refund FAILED:`, refund.error)
   }
 
   if (refundCritical) {
@@ -733,6 +769,14 @@ async function verifyShadval(
     refunded: true,
     refunded_amount: refundedAmount,
   })
+}
+
+/** Drop stale refund status markers so a recovery refund doesn't stack them. */
+function stripRefundMarkers(msg: string | null | undefined): string {
+  return String(msg || '')
+    .replace(/\s*\[CRITICAL: REFUND_FAILED[^\]]*\]\s*\([^)]*\)/gi, '')
+    .replace(/\s*\[Wallet refunded[^\]]*\]/gi, '')
+    .trim()
 }
 
 async function reverseShadvalCommissions(supabase: ReturnType<typeof createClient>, tx: any) {

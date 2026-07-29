@@ -1,9 +1,9 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
-import { Download, FileText, FileSpreadsheet, FileDown, ChevronDown, Loader2 } from 'lucide-react'
+import { Download, FileText, FileSpreadsheet, FileDown, FileArchive, ChevronDown, Loader2 } from 'lucide-react'
 
-export type ExportFormat = 'csv' | 'excel' | 'pdf'
+export type ExportFormat = 'csv' | 'excel' | 'pdf' | 'zip'
 
 interface ExportDropdownProps {
   onExport: (format: ExportFormat) => Promise<void> | void
@@ -17,6 +17,7 @@ const formatConfig: Record<ExportFormat, { label: string; icon: typeof FileText;
   csv: { label: 'CSV', icon: FileText, bg: 'bg-emerald-600', hover: 'hover:bg-emerald-700' },
   excel: { label: 'Excel', icon: FileSpreadsheet, bg: 'bg-green-700', hover: 'hover:bg-green-800' },
   pdf: { label: 'PDF', icon: FileDown, bg: 'bg-red-600', hover: 'hover:bg-red-700' },
+  zip: { label: 'ZIP', icon: FileArchive, bg: 'bg-purple-600', hover: 'hover:bg-purple-700' },
 }
 
 export default function ExportDropdown({

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { mapTransactionStatus, calculateMDR } from '@/lib/razorpay/service'
+import { deliverPartnerCallback } from '@/lib/partner-webhook/deliver'
 import * as crypto from 'crypto'
 
 const RAZORPAY_WEBHOOK_SECRET = process.env.RAZORPAY_WEBHOOK_SECRET
@@ -551,59 +552,14 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Forward transaction callback to partner's webhook_url (fire-and-forget)
-    if (!tid) {
-      console.warn(`[Partner Callback] Skip txnId=${txnId}: no tid in payload (partner callback requires terminal_id match)`)
-    } else {
-      try {
-        const { data: partnerRows, error: pmErr } = await supabase
-          .from('partner_pos_machines')
-          .select('partner_id')
-          .eq('terminal_id', tid)
-          .eq('status', 'active')
-          .limit(2)
-
-        if (pmErr) {
-          console.error(`[Partner Callback] partner_pos_machines query error tid=${tid}:`, pmErr.message)
-        } else if (!partnerRows?.length) {
-          console.warn(`[Partner Callback] Skip txnId=${txnId} tid=${tid}: no active row in partner_pos_machines for this terminal`)
-        } else if (partnerRows.length > 1) {
-          console.error(`[Partner Callback] Skip txnId=${txnId} tid=${tid}: multiple active partner_pos_machines rows — fix duplicates`)
-        } else {
-          const partnerForCallback = partnerRows[0]
-          const { data: partnerRecord, error: pErr } = await supabase
-            .from('partners')
-            .select('webhook_url')
-            .eq('id', partnerForCallback.partner_id)
-            .eq('status', 'active')
-            .maybeSingle()
-
-          if (pErr) {
-            console.error(`[Partner Callback] partners query error partner_id=${partnerForCallback.partner_id}:`, pErr.message)
-          } else if (!partnerRecord?.webhook_url) {
-            console.warn(`[Partner Callback] Skip txnId=${txnId} tid=${tid} partner_id=${partnerForCallback.partner_id}: webhook_url empty or partner not active`)
-          } else {
-            const rawPayload = normalizedPayload._source === 'pos_notification' ? payload : normalizedPayload
-            // Inject mappedStatus so partner gets the final status (CAPTURED/FAILED/PENDING)
-            // alongside the original Razorpay status (AUTHORIZED etc.)
-            const bodyPayload = { ...rawPayload, mappedStatus }
-            fetch(partnerRecord.webhook_url, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(bodyPayload),
-              signal: AbortSignal.timeout(10000),
-            })
-              .then(res =>
-                console.log(`[Partner Callback] txnId=${txnId} tid=${tid} status=${rawPayload.status} mappedStatus=${mappedStatus} → ${partnerRecord.webhook_url} HTTP ${res.status}`)
-              )
-              .catch(err =>
-                console.error(`[Partner Callback] Failed txnId=${txnId} tid=${tid} partner=${partnerForCallback.partner_id}:`, err.message)
-              )
-          }
-        }
-      } catch (callbackErr) {
-        console.error('[Partner Callback] Lookup error:', callbackErr)
-      }
+    // Forward transaction callback to partner's webhook_url — signed (HMAC-SHA256)
+    // with bounded retries. Fire-and-forget: never blocks the webhook response.
+    // Inject mappedStatus so partner gets the final status (CAPTURED/FAILED/PENDING)
+    // alongside the original Razorpay status (AUTHORIZED etc.)
+    {
+      const rawPayload = normalizedPayload._source === 'pos_notification' ? payload : normalizedPayload
+      const bodyPayload = { ...rawPayload, mappedStatus }
+      void deliverPartnerCallback({ supabase, tid, txnId, payload: bodyPayload })
     }
 
     // Return success response (always return 200 to prevent Razorpay retries)

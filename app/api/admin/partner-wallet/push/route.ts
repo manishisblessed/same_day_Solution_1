@@ -88,7 +88,8 @@ export async function POST(request: NextRequest) {
       p_amount: amountNum,
       p_description: remarks || `Admin top-up by ${user.email}`,
       p_reference_id: `ADMIN_PUSH_${Date.now()}`,
-      p_transaction_type: 'CREDIT'
+      p_transaction_type: 'CREDIT',
+      p_service_type: 'admin',
     })
 
     if (creditErr) {

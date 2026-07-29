@@ -276,6 +276,7 @@ export async function POST(request: NextRequest) {
         ? `Settlement transfer ₹${amountNum} + charge ₹${baseCharge} + GST ₹${gstAmount} = ₹${totalRequired} to ${account.account_number} (${account.account_holder_name})`
         : `Settlement transfer ₹${amountNum} to ${account.account_number} (${account.account_holder_name})`,
       p_reference_id: refId,
+      p_service_type: 'shadval_settlement',
     })
 
     if (debitErr) {
@@ -334,6 +335,7 @@ export async function POST(request: NextRequest) {
           p_payout_transaction_id: txRecord.id,
           p_description: `Settlement failed - Refund: ${apiResult.message}`,
           p_reference_id: `REFUND_${refId}`,
+          p_service_type: 'shadval_settlement',
         })
       } catch {}
     }

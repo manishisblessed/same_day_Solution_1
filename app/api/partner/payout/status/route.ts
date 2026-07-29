@@ -121,6 +121,7 @@ export async function GET(request: NextRequest) {
               p_payout_transaction_id: tx.id,
               p_description: 'Payout failed - Auto refund',
               p_reference_id: `REFUND_${tx.client_ref_id}`,
+              p_service_type: 'payout',
             })
             await supabase.from('payout_transactions').update({ status: 'refunded' }).eq('id', tx.id)
             tx.status = 'refunded'

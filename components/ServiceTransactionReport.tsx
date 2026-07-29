@@ -63,7 +63,16 @@ interface Pagination {
   totalPages: number
 }
 
-type ServiceFilter = 'all' | 'pos' | 'bbps' | 'aeps' | 'settlement'
+type ServiceFilter = 'all' | 'payout' | 'pos' | 'creditcard' | 'account_verification' | 'bbps' | 'aeps' | 'settlement'
+
+// Options shown in the Service dropdown (the 4 requested services + All)
+const SERVICE_OPTIONS: { value: ServiceFilter; label: string }[] = [
+  { value: 'all', label: 'All Services' },
+  { value: 'payout', label: 'Payout' },
+  { value: 'pos', label: 'POS' },
+  { value: 'creditcard', label: 'Credit Card Bill Payment' },
+  { value: 'account_verification', label: 'Account Verification' },
+]
 type DatePreset = 'today' | 'yesterday' | 'week' | 'month' | 'quarter' | 'custom'
 
 interface ServiceTransactionReportProps {
@@ -91,7 +100,7 @@ export default function ServiceTransactionReport({ userRole, userName, defaultSe
   const [error, setError] = useState('')
 
   // Filters
-  const [serviceFilter] = useState<ServiceFilter>(defaultService || 'all')
+  const [serviceFilter, setServiceFilter] = useState<ServiceFilter>(defaultService || 'all')
   const [datePreset, setDatePreset] = useState<DatePreset>('month')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
@@ -365,6 +374,9 @@ export default function ServiceTransactionReport({ userRole, userName, defaultSe
       'BBPS': 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
       'AEPS': 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
       'Settlement': 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400',
+      'Payout': 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400',
+      'Credit Card': 'bg-pink-100 text-pink-700 dark:bg-pink-900/30 dark:text-pink-400',
+      'Verification': 'bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400',
     }
     return map[service] || 'bg-gray-100 text-gray-700 dark:bg-gray-900/30 dark:text-gray-400'
   }
@@ -479,6 +491,21 @@ export default function ServiceTransactionReport({ userRole, userName, defaultSe
         className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-lg border border-gray-100 dark:border-gray-700"
       >
         <div className="flex flex-wrap gap-4 items-end">
+          <div className="min-w-[200px]">
+            <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">Service</label>
+            <select value={serviceFilter} onChange={e => setServiceFilter(e.target.value as ServiceFilter)}
+              className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 text-sm focus:ring-2 focus:ring-indigo-500"
+            >
+              {SERVICE_OPTIONS.map(o => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+              {/* Preserve a preset defaultService (e.g. bbps/aeps) that isn't in the core list */}
+              {!SERVICE_OPTIONS.some(o => o.value === serviceFilter) && (
+                <option value={serviceFilter}>{serviceFilter.toUpperCase()}</option>
+              )}
+            </select>
+          </div>
+
           <div className="min-w-[160px]">
             <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">Date Range</label>
             <select value={datePreset} onChange={e => setDatePreset(e.target.value as DatePreset)}
@@ -944,6 +971,8 @@ function ViewTransactionModal({ txn, userRole, onClose }: { txn: Transaction; us
                 txn.service_type === 'POS' ? 'bg-blue-100 text-blue-700' :
                 txn.service_type === 'BBPS' ? 'bg-green-100 text-green-700' :
                 txn.service_type === 'AEPS' ? 'bg-amber-100 text-amber-700' :
+                txn.service_type === 'Credit Card' ? 'bg-pink-100 text-pink-700' :
+                txn.service_type === 'Verification' ? 'bg-sky-100 text-sky-700' :
                 'bg-purple-100 text-purple-700'
               }`}>
                 {txn.service_type}

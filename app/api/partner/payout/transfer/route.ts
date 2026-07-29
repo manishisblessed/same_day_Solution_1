@@ -271,6 +271,7 @@ export async function POST(request: NextRequest) {
       p_payout_transaction_id: payoutTx.id,
       p_description: `Payout to ${accountHolderName} via ${transferMode}`,
       p_reference_id: clientRefId,
+      p_service_type: 'payout',
     })
 
     if (ledgerErr) {
@@ -313,6 +314,7 @@ export async function POST(request: NextRequest) {
         p_payout_transaction_id: payoutTx.id,
         p_description: `Payout failed - Refund: ${transferResult.error}`,
         p_reference_id: `REFUND_${clientRefId}`,
+        p_service_type: 'payout',
       })
       await supabase.from('payout_transactions').update({ status: 'failed', failure_reason: transferResult.error, updated_at: new Date().toISOString() }).eq('id', payoutTx.id)
       const failResponse = { success: false, error: { code: 'TRANSFER_FAILED', message: transferResult.error || 'Transfer failed' }, refunded: true }

@@ -46,6 +46,9 @@ function generateApiKey(prefix = 'pk_live_') {
 function generateApiSecret(prefix = 'sk_live_') {
   return prefix + crypto.randomBytes(32).toString('hex')
 }
+function generateWebhookSecret() {
+  return 'whsec_' + crypto.randomBytes(32).toString('hex')
+}
 
 /**
  * GET /api/admin/pos-partner-api
@@ -121,6 +124,9 @@ export async function GET(request: NextRequest) {
 
     // Combine data
     const enrichedPartners = (partners || []).map((p: any) => {
+      // Never expose the raw webhook signing secret in the list view — only a
+      // masked hint. Use the rotate_webhook_secret action to reveal a new one.
+      const { webhook_secret, ...partnerRest } = p
       const keys = (apiKeys || [])
         .filter((k: any) => k.partner_id === p.id)
         .map((k: any) => ({
@@ -132,7 +138,9 @@ export async function GET(request: NextRequest) {
         .filter((m: any) => m.partner_id === p.id)
         .map((m: any) => m.merchant_id)
       return {
-        ...p,
+        ...partnerRest,
+        webhook_secret_masked: webhook_secret ? webhook_secret.substring(0, 11) + '••••••••' : null,
+        has_webhook_secret: !!webhook_secret,
         api_keys: keys,
         export_limit: limits?.daily_limit || 10,
         linked_merchants,
@@ -513,9 +521,29 @@ export async function POST(request: NextRequest) {
 
         const finalUrl = webhook_url && webhook_url.trim().length > 0 ? webhook_url.trim() : null
 
+        const updatePayload: Record<string, unknown> = {
+          webhook_url: finalUrl,
+          updated_at: new Date().toISOString(),
+        }
+
+        // Auto-provision a signing secret the first time a URL is set so signed
+        // delivery works immediately. Returned once here (and via rotate).
+        let generatedSecret: string | null = null
+        if (finalUrl) {
+          const { data: existingP } = await supabase
+            .from('partners')
+            .select('webhook_secret')
+            .eq('id', partner_id)
+            .maybeSingle()
+          if (!existingP?.webhook_secret) {
+            generatedSecret = generateWebhookSecret()
+            updatePayload.webhook_secret = generatedSecret
+          }
+        }
+
         const { error: wErr } = await supabase
           .from('partners')
-          .update({ webhook_url: finalUrl, updated_at: new Date().toISOString() })
+          .update(updatePayload)
           .eq('id', partner_id)
 
         if (wErr) throw wErr
@@ -523,7 +551,47 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({
           success: true,
           message: finalUrl ? `Webhook URL updated to ${finalUrl}` : 'Webhook URL removed',
-          data: { partner_id, webhook_url: finalUrl },
+          data: {
+            partner_id,
+            webhook_url: finalUrl,
+            ...(generatedSecret
+              ? {
+                  webhook_secret: generatedSecret,
+                  secret_note: 'Save this signing secret — it is shown only once. Share it securely with the partner.',
+                }
+              : {}),
+          },
+        })
+      }
+
+      // ─── ROTATE WEBHOOK SIGNING SECRET ───────────────────
+      case 'rotate_webhook_secret': {
+        let { partner_id } = body
+        if (isPartner) {
+          partner_id = user.partner_id
+        }
+        if (!partner_id) {
+          return NextResponse.json({ error: 'partner_id is required' }, { status: 400 })
+        }
+        const rsScope = assertPartnerScope(partner_id)
+        if (rsScope) return rsScope
+
+        const newSecret = generateWebhookSecret()
+        const { error: rsErr } = await supabase
+          .from('partners')
+          .update({ webhook_secret: newSecret, updated_at: new Date().toISOString() })
+          .eq('id', partner_id)
+
+        if (rsErr) throw rsErr
+
+        return NextResponse.json({
+          success: true,
+          message: 'Webhook signing secret rotated. Save it — it is shown only once and old signatures will stop validating.',
+          data: {
+            partner_id,
+            webhook_secret: newSecret,
+            secret_note: 'Share this securely with the partner. It will not be shown again.',
+          },
         })
       }
 

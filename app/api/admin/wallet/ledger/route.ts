@@ -55,12 +55,13 @@ export async function GET(request: NextRequest) {
     if (isPartnerScope && scope === 'all') {
       let pq = supabase.from('partner_wallet_ledger').select('*', { count: 'exact' })
       if (userId) pq = pq.eq('partner_id', userId)
+      if (serviceType && serviceType !== 'all') pq = pq.eq('service_type', serviceType)
       if (transactionType && transactionType !== 'all') pq = pq.eq('transaction_type', transactionType)
       if (status && status !== 'all') pq = pq.eq('status', status)
       if (dateFrom) pq = pq.gte('created_at', `${dateFrom}T00:00:00`)
       if (dateTo) pq = pq.lte('created_at', `${dateTo}T23:59:59`)
       if (q) pq = pq.ilike('description', `%${q.replace(/%/g, '\\%')}%`)
-      // wallet_type / service_type don't exist on the partner ledger — ignored
+      // wallet_type doesn't exist on the partner ledger — ignored
 
       const from = (page - 1) * limit
       const { data, error, count } = await pq

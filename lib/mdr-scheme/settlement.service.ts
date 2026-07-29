@@ -751,7 +751,8 @@ export async function creditPartnerWallet(
   partnerId: string,
   amount: number,
   referenceId: string,
-  description: string
+  description: string,
+  serviceType: string = 'pos'
 ): Promise<{
   success: boolean;
   wallet_credit_id?: string;
@@ -767,6 +768,7 @@ export async function creditPartnerWallet(
       p_description: description,
       p_reference_id: referenceId,
       p_transaction_type: 'CREDIT',
+      p_service_type: serviceType,
     });
 
     if (error) {

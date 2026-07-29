@@ -177,6 +177,7 @@ export async function POST(request: NextRequest) {
       p_payout_transaction_id: null,
       p_description: `BBPS-2 CC ₹${amountNum} + ₹${totalServiceCharge} charge | ${product_name || product_code} | Card:****${number} | Mob:${customer_number}`,
       p_reference_id: request_id,
+      p_service_type: 'pay2new',
     })
     if (debitErr) {
       return NextResponse.json(
@@ -192,6 +193,7 @@ export async function POST(request: NextRequest) {
         p_payout_transaction_id: null,
         p_description: `BBPS-2 refund ₹${totalDebit} | ${product_name || product_code} | Card:****${number} — ${reason}`,
         p_reference_id: `REFUND_${request_id}`,
+        p_service_type: 'pay2new',
       })
       if (refundErr) console.error('[Partner Pay2New Pay] CRITICAL refund failed:', refundErr)
     }

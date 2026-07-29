@@ -6103,6 +6103,8 @@ function POSMachinesTab({
         {showBulkAssignModal && (() => {
           const aq = bulkModalSearch.toLowerCase()
           const assignSearched = posMachines.filter((m) => {
+            // Only In Stock devices can be assigned. Exclude already-assigned machines.
+            if ((m.inventory_status || '') !== 'in_stock') return false
             if (!aq) return true
             return (
               m.machine_id.toLowerCase().includes(aq) ||

@@ -86,6 +86,7 @@ export async function POST(request: NextRequest) {
       p_payout_transaction_id: null,
       p_description: remarks || `Admin debit by ${user.email}`,
       p_reference_id: `ADMIN_PULL_${Date.now()}`,
+      p_service_type: 'admin',
     })
 
     if (debitErr) {

@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js'
 import { checkTransactionStatus } from '@/services/shadval-pay'
 import { sendSettlementCallback } from '@/lib/settlement-callback'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
+import { refundShadvalSettlement } from '@/lib/settlement-2/shadval-refund'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -51,7 +52,7 @@ export async function POST(request: NextRequest) {
 
     const { data: pendingTxs, error: fetchErr } = await supabase
       .from('shadval_settlement')
-      .select('id, retailer_id, reference_id, order_id, amount, charges, total_debit, mode, status, account_number, ifsc_code, account_holder_name, status_message, provider_timestamp, utr, created_at')
+      .select('id, retailer_id, reference_id, order_id, amount, charges, total_debit, actual_wallet_debit, mode, status, account_number, ifsc_code, account_holder_name, status_message, provider_timestamp, utr, created_at')
       .eq('status', 'PENDING')
       .lt('created_at', staleThreshold)
       .order('created_at', { ascending: true })
@@ -112,18 +113,19 @@ export async function POST(request: NextRequest) {
               }
 
               if (isFailed) {
-                // Refund partner wallet
-                try {
-                  await supabase.rpc('refund_partner_wallet', {
-                    p_partner_id: tx.retailer_id,
-                    p_amount: tx.total_debit || tx.amount,
-                    p_payout_transaction_id: tx.id,
-                    p_description: `Settlement auto-refund (check-pending): ${statusResult.data.txn_status || 'Failed'}`,
-                    p_reference_id: `REFUND_${tx.reference_id}`,
-                  })
+                // Route to the correct wallet (partner vs retailer) via the shared
+                // exactly-once refund helper.
+                const refund = await refundShadvalSettlement(supabase, tx, { note: 'check-pending auto' })
+                if (refund.critical) {
+                  console.error(`[Settlement Check-Pending] CRITICAL refund failed for ${tx.id}:`, refund.error)
+                  await supabase
+                    .from('shadval_settlement')
+                    .update({
+                      status_message: `${statusResult.data.status_message || statusResult.data.txn_status || 'FAILED'} [CRITICAL: REFUND_FAILED - Manual review required] (${refund.error})`,
+                    })
+                    .eq('id', tx.id)
+                } else if (!refund.alreadyRefunded) {
                   refunded++
-                } catch (refundErr: any) {
-                  console.error(`[Settlement Check-Pending] Refund error for ${tx.id}:`, refundErr)
                 }
               }
 
@@ -164,22 +166,25 @@ export async function POST(request: NextRequest) {
           .select('id')
 
         if (claimed && claimed.length > 0) {
-          try {
-            await supabase.rpc('refund_partner_wallet', {
-              p_partner_id: tx.retailer_id,
-              p_amount: tx.total_debit || tx.amount,
-              p_payout_transaction_id: tx.id,
-              p_description: `Settlement auto-refund (timeout): No response after ${txAgeMin}min`,
-              p_reference_id: `REFUND_TIMEOUT_${tx.reference_id}`,
-            })
-          } catch (refundErr: any) {
-            console.error(`[Settlement Check-Pending] Timeout refund error for ${tx.id}:`, refundErr)
+          // Unified reference (REFUND_<ref>) — NOT REFUND_TIMEOUT_ — so this can
+          // never double-credit on top of a status-poll/verify refund. The helper
+          // also treats any legacy REFUND_TIMEOUT_ entry as already refunded.
+          const refund = await refundShadvalSettlement(supabase, tx, { note: `timeout ${txAgeMin}min` })
+          if (refund.critical) {
+            console.error(`[Settlement Check-Pending] CRITICAL timeout refund failed for ${tx.id}:`, refund.error)
+            await supabase
+              .from('shadval_settlement')
+              .update({
+                status_message: `Auto-failed: No resolution after ${txAgeMin} minutes [CRITICAL: REFUND_FAILED - Manual review required] (${refund.error})`,
+              })
+              .eq('id', tx.id)
+          } else if (!refund.alreadyRefunded) {
+            refunded++
           }
 
           const failedTx = { ...tx, status: 'FAILED', status_message: `Auto-failed after ${txAgeMin} minutes` }
           sendSettlementCallback(tx.retailer_id, failedTx).catch(() => {})
 
-          refunded++
           results.push({ id: tx.id, ref: tx.reference_id, previous_status: 'PENDING', new_status: 'FAILED', action: `timeout_refunded_${txAgeMin}min` })
         }
         continue

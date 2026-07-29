@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { mapTransactionStatus } from '@/lib/razorpay/service'
+import { deliverPartnerCallback } from '@/lib/partner-webhook/deliver'
 import * as crypto from 'crypto'
 
 const RAZORPAY_WEBHOOK_SECRET = process.env.RAZORPAY_WEBHOOK_SECRET
@@ -406,57 +407,12 @@ export async function POST(
       }
     }
 
-    // Forward transaction callback to partner's webhook_url (fire-and-forget)
-    if (!tid) {
-      console.warn(`[Partner Callback/${merchantSlug}] Skip txnId=${txnId}: no tid in payload`)
-    } else {
-      try {
-        const { data: partnerRows, error: pmErr } = await supabase
-          .from('partner_pos_machines')
-          .select('partner_id')
-          .eq('terminal_id', tid)
-          .eq('status', 'active')
-          .limit(2)
-
-        if (pmErr) {
-          console.error(`[Partner Callback/${merchantSlug}] partner_pos_machines error tid=${tid}:`, pmErr.message)
-        } else if (!partnerRows?.length) {
-          console.warn(`[Partner Callback/${merchantSlug}] Skip txnId=${txnId} tid=${tid}: no active partner_pos_machines row`)
-        } else if (partnerRows.length > 1) {
-          console.error(`[Partner Callback/${merchantSlug}] Skip txnId=${txnId} tid=${tid}: duplicate active terminals`)
-        } else {
-          const partnerForCallback = partnerRows[0]
-          const { data: partnerRecord, error: pErr } = await supabase
-            .from('partners')
-            .select('webhook_url')
-            .eq('id', partnerForCallback.partner_id)
-            .eq('status', 'active')
-            .maybeSingle()
-
-          if (pErr) {
-            console.error(`[Partner Callback/${merchantSlug}] partners error:`, pErr.message)
-          } else if (!partnerRecord?.webhook_url) {
-            console.warn(`[Partner Callback/${merchantSlug}] Skip txnId=${txnId} tid=${tid}: no webhook_url or partner inactive`)
-          } else {
-            const rawPayload = normalizedPayload._source === 'pos_notification' ? payload : normalizedPayload
-            const bodyPayload = { ...rawPayload, mappedStatus }
-            fetch(partnerRecord.webhook_url, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(bodyPayload),
-              signal: AbortSignal.timeout(10000),
-            })
-              .then(res =>
-                console.log(`[Partner Callback/${merchantSlug}] txnId=${txnId} tid=${tid} status=${rawPayload.status} mappedStatus=${mappedStatus} → HTTP ${res.status}`)
-              )
-              .catch(err =>
-                console.error(`[Partner Callback/${merchantSlug}] Failed txnId=${txnId}:`, err.message)
-              )
-          }
-        }
-      } catch (callbackErr) {
-        console.error(`[Partner Callback/${merchantSlug}] Lookup error:`, callbackErr)
-      }
+    // Forward transaction callback to partner's webhook_url — signed (HMAC-SHA256)
+    // with bounded retries. Fire-and-forget: never blocks the webhook response.
+    {
+      const rawPayload = normalizedPayload._source === 'pos_notification' ? payload : normalizedPayload
+      const bodyPayload = { ...rawPayload, mappedStatus }
+      void deliverPartnerCallback({ supabase, tid, txnId, payload: bodyPayload, logPrefix: `Partner Callback/${merchantSlug}` })
     }
 
     const walletCredited = (posResult as { wallet_credited?: boolean })?.wallet_credited ?? false

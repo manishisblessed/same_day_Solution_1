@@ -8,7 +8,7 @@ import {
   Settings,
   Activity, X, Menu, CreditCard, Receipt, CheckCircle2, ArrowUpCircle,
   Building2, FileBarChart, Layers, Key, Timer, History, Repeat, ScrollText, Wallet,
-  Fingerprint, Server, TrendingUp, Scale, ShieldCheck
+  Fingerprint, Server, TrendingUp, Scale, ShieldCheck, BarChart3
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { supabase } from '@/lib/supabase/client'
@@ -24,6 +24,7 @@ interface SidebarItem {
 
 const sidebarItems: SidebarItem[] = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, href: '/admin?tab=dashboard' },
+  { id: 'business-analytics', label: 'Business Analytics', icon: BarChart3, href: '/admin/business-analytics' },
   { id: 'pos-transactions', label: 'POS Transactions', icon: Receipt, href: '/admin/razorpay-transactions' },
   { id: 'retailers', label: 'Retailers', icon: Users, href: '/admin?tab=retailers' },
   { id: 'distributors', label: 'Distributors', icon: Package, href: '/admin?tab=distributors' },

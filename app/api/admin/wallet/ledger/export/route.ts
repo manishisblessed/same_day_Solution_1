@@ -56,6 +56,7 @@ export async function GET(request: NextRequest) {
     if (isPartnerScope && scope === 'all') {
       let pq = supabase.from('partner_wallet_ledger').select('*')
       if (userId) pq = pq.eq('partner_id', userId)
+      if (serviceType && serviceType !== 'all') pq = pq.eq('service_type', serviceType)
       if (transactionType && transactionType !== 'all') pq = pq.eq('transaction_type', transactionType)
       if (status && status !== 'all') pq = pq.eq('status', status)
       if (dateFrom) pq = pq.gte('created_at', `${dateFrom}T00:00:00`)
