@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import * as crypto from 'crypto'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -12,12 +13,78 @@ function getSupabaseAdmin() {
   )
 }
 
+function extractClientIp(request: NextRequest): string | null {
+  const xff = request.headers.get('x-forwarded-for')
+  if (xff) return xff.split(',')[0].trim()
+  const xreal = request.headers.get('x-real-ip')
+  if (xreal) return xreal.trim()
+  return null
+}
+
+function timingSafeEqualStr(a: string, b: string): boolean {
+  const ab = Buffer.from(a)
+  const bb = Buffer.from(b)
+  if (ab.length !== bb.length) return false
+  try {
+    return crypto.timingSafeEqual(ab, bb)
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Authenticate the inbound RechargeKit callback. This endpoint finalizes
+ * bbps_transactions and moves money (commission credits / refunds), so it must
+ * not act on unauthenticated requests.
+ *
+ * Controls (both fail-closed only when configured, for safe rollout):
+ *   - RECHARGEKIT_CALLBACK_SECRET : shared token via `x-callback-token` header
+ *     or `?token=` query param (primary control).
+ *   - RECHARGEKIT_CALLBACK_IPS    : optional comma-separated source-IP allowlist.
+ *
+ * To enforce: set RECHARGEKIT_CALLBACK_SECRET and register the callback URL with
+ * RechargeKit as `.../api/rechargekit/callback?token=<secret>` (or the header).
+ */
+function verifyRechargekitCaller(request: NextRequest): NextResponse | null {
+  const secret = process.env.RECHARGEKIT_CALLBACK_SECRET
+  const ipAllowlist = (process.env.RECHARGEKIT_CALLBACK_IPS || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+
+  if (ipAllowlist.length > 0) {
+    const clientIp = extractClientIp(request)
+    if (!clientIp || !ipAllowlist.includes(clientIp)) {
+      console.error(`[Rechargekit Callback] Rejected: source IP ${clientIp || 'unknown'} not in allowlist`)
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+  }
+
+  if (secret) {
+    const provided =
+      request.headers.get('x-callback-token') ||
+      request.nextUrl.searchParams.get('token') ||
+      ''
+    if (!provided || !timingSafeEqualStr(provided, secret)) {
+      console.error('[Rechargekit Callback] Rejected: invalid or missing callback token')
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+  } else {
+    console.warn('[Rechargekit Callback] RECHARGEKIT_CALLBACK_SECRET not configured — accepting unauthenticated callback. Set it and register the token with RechargeKit to enforce.')
+  }
+
+  return null
+}
+
 /**
  * POST /api/rechargekit/callback
  * Rechargekit calls this URL when a pending transaction status changes.
  * Expected payload: { partner_request_id, status, orderid, optransid, commission, msg }
  */
 export async function POST(request: NextRequest) {
+  const authError = verifyRechargekitCaller(request)
+  if (authError) return authError
+
   try {
     const body = await request.json()
     const {
@@ -160,6 +227,12 @@ export async function POST(request: NextRequest) {
         completed_at: new Date().toISOString(),
         additional_info: updatedInfo,
       }).eq('id', tx.id)
+
+      // Mark original debit ledger entry as failed
+      await supabaseAdmin.from('wallet_ledger')
+        .update({ status: 'failed' })
+        .eq('reference_id', requestId)
+        .eq('transaction_type', 'RECHARGEKIT_CC_DEBIT')
 
       // Refund: get original debit amount from ledger
       const { data: debitEntry } = await supabaseAdmin

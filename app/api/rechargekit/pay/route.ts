@@ -361,6 +361,14 @@ export async function POST(request: NextRequest) {
       // Update transaction status
       await (supabaseAdmin as any).from('bbps_transactions').update({ status: 'failed', error_message: reason, completed_at: new Date().toISOString() }).eq('id', txRecord.id)
 
+      // Mark original debit ledger entry as failed
+      if (user.role !== 'partner') {
+        await (supabaseAdmin as any).from('wallet_ledger')
+          .update({ status: 'failed' })
+          .eq('reference_id', request_id)
+          .eq('transaction_type', 'RECHARGEKIT_CC_DEBIT')
+      }
+
       if (user.role === 'partner') {
         const { error: refundErr } = await (supabaseAdmin as any).rpc('credit_partner_wallet', {
           p_partner_id: user.partner_id,

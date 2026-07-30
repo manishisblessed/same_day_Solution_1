@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { motion } from 'framer-motion'
 import { apiFetch } from '@/lib/api-client'
 import NetworkUserFilter, { NetworkFilterValue } from '@/components/reports/NetworkUserFilter'
@@ -26,6 +26,14 @@ interface Transaction {
   retailer_name?: string
 }
 
+interface StatusBucket {
+  count: number
+  bill_amount: number
+  charges: number
+  gst: number
+  total_debit: number
+}
+
 interface Summary {
   total_transactions: number
   total_bill_amount: number
@@ -35,6 +43,11 @@ interface Summary {
   success_count: number
   failed_count: number
   pending_count: number
+  by_status: {
+    success: StatusBucket
+    failed: StatusBucket
+    pending: StatusBucket
+  }
 }
 
 interface Pagination {
@@ -52,9 +65,11 @@ interface BillPaymentTransactionReportProps {
   userName?: string
 }
 
+const blankBucket = (): StatusBucket => ({ count: 0, bill_amount: 0, charges: 0, gst: 0, total_debit: 0 })
 const emptySummary: Summary = {
   total_transactions: 0, total_bill_amount: 0, total_charges: 0,
   total_gst: 0, total_debit: 0, success_count: 0, failed_count: 0, pending_count: 0,
+  by_status: { success: blankBucket(), failed: blankBucket(), pending: blankBucket() },
 }
 
 export default function BillPaymentTransactionReport({ userRole, userName }: BillPaymentTransactionReportProps) {
@@ -73,6 +88,13 @@ export default function BillPaymentTransactionReport({ userRole, userName }: Bil
   const [exporting, setExporting] = useState<ExportFormat | null>(null)
 
   const [networkFilter, setNetworkFilter] = useState<NetworkFilterValue | null>(null)
+
+  const tableRef = useRef<HTMLDivElement>(null)
+
+  const handleStatusCardClick = (status: string) => {
+    setStatusFilter(prev => (prev === status ? '' : status))
+    setTimeout(() => tableRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 120)
+  }
 
   const applyNetworkUserParams = useCallback((params: URLSearchParams) => {
     if (!networkFilter) return
@@ -134,7 +156,7 @@ export default function BillPaymentTransactionReport({ userRole, userName }: Bil
       if (!res.ok) throw new Error(json.error || 'Failed to fetch report')
 
       setTransactions(json.data || [])
-      setSummary(json.summary || emptySummary)
+      setSummary(json.summary ? { ...emptySummary, ...json.summary, by_status: { ...emptySummary.by_status, ...(json.summary.by_status || {}) } } : emptySummary)
       setPagination(json.pagination || { total: 0, limit: rowsPerPage, offset: 0, page: 1, totalPages: 0 })
     } catch (err: any) {
       setError(err.message || 'Something went wrong')
@@ -175,6 +197,12 @@ export default function BillPaymentTransactionReport({ userRole, userName }: Bil
   }
 
   const formatCurrency = (amount: number) => `₹${amount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+
+  const formatCompact = (amount: number) => {
+    if (Math.abs(amount) >= 1e7) return `₹${(amount / 1e7).toFixed(2)} Cr`
+    if (Math.abs(amount) >= 1e5) return `₹${(amount / 1e5).toFixed(2)} L`
+    return `₹${amount.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`
+  }
 
   const getStatusClasses = (status: string) => {
     const s = status.toLowerCase()
@@ -295,7 +323,7 @@ export default function BillPaymentTransactionReport({ userRole, userName }: Bil
         </div>
       </motion.div>
 
-      {/* Summary Cards */}
+      {/* Summary Cards — reflect the currently filtered view */}
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}
         className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4"
       >
@@ -306,14 +334,65 @@ export default function BillPaymentTransactionReport({ userRole, userName }: Bil
         <SummaryCard icon={<IndianRupee className="w-5 h-5" />} label="Total Debit" value={formatCurrency(summary.total_debit)} gradient="from-emerald-500 to-teal-600" />
       </motion.div>
 
+      {/* Clickable status breakdown — filters the table on click */}
+      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.13 }}
+        className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4"
+      >
+        <StatusCard
+          active={statusFilter === ''}
+          onClick={() => handleStatusCardClick('')}
+          icon={<Receipt className="w-5 h-5" />}
+          label="All Transactions"
+          count={summary.by_status.success.count + summary.by_status.failed.count + summary.by_status.pending.count}
+          amount={formatCompact(summary.by_status.success.bill_amount + summary.by_status.failed.bill_amount + summary.by_status.pending.bill_amount)}
+          accent="slate"
+        />
+        <StatusCard
+          active={statusFilter === 'success'}
+          onClick={() => handleStatusCardClick('success')}
+          icon={<CheckCircle2 className="w-5 h-5" />}
+          label="Success"
+          count={summary.by_status.success.count}
+          amount={formatCompact(summary.by_status.success.bill_amount)}
+          accent="green"
+        />
+        <StatusCard
+          active={statusFilter === 'failed'}
+          onClick={() => handleStatusCardClick('failed')}
+          icon={<XCircle className="w-5 h-5" />}
+          label="Failed / Refunded"
+          count={summary.by_status.failed.count}
+          amount={formatCompact(summary.by_status.failed.bill_amount)}
+          accent="red"
+        />
+        <StatusCard
+          active={statusFilter === 'pending'}
+          onClick={() => handleStatusCardClick('pending')}
+          icon={<Clock className="w-5 h-5" />}
+          label="Pending"
+          count={summary.by_status.pending.count}
+          amount={formatCompact(summary.by_status.pending.bill_amount)}
+          accent="amber"
+        />
+      </motion.div>
+
       {/* Export + Count Bar */}
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}
         className="bg-white dark:bg-gray-800 rounded-xl px-6 py-4 shadow-lg border border-gray-100 dark:border-gray-700 flex flex-wrap items-center justify-between gap-4"
       >
-        <div className="text-sm text-gray-600 dark:text-gray-400">
-          <span className="font-semibold text-green-600">{summary.success_count}</span> success &middot;{' '}
-          <span className="font-semibold text-red-600">{summary.failed_count}</span> failed &middot;{' '}
-          <span className="font-semibold text-yellow-600">{summary.pending_count}</span> pending
+        <div className="flex items-center gap-3 text-sm text-gray-600 dark:text-gray-400">
+          <span>
+            <span className="font-semibold text-green-600">{summary.success_count}</span> success &middot;{' '}
+            <span className="font-semibold text-red-600">{summary.failed_count}</span> failed &middot;{' '}
+            <span className="font-semibold text-yellow-600">{summary.pending_count}</span> pending
+          </span>
+          {statusFilter && (
+            <button onClick={() => handleStatusCardClick('')}
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 text-xs font-medium hover:bg-emerald-200 dark:hover:bg-emerald-900/50 transition-colors">
+              Filtered: {statusFilter}
+              <XCircle className="w-3 h-3" />
+            </button>
+          )}
         </div>
         <ExportDropdown onExport={handleExport} exporting={exporting} disabled={false} />
       </motion.div>
@@ -327,8 +406,8 @@ export default function BillPaymentTransactionReport({ userRole, userName }: Bil
       )}
 
       {/* Table */}
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}
-        className="bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-100 dark:border-gray-700 overflow-hidden"
+      <motion.div ref={tableRef} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}
+        className="bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-100 dark:border-gray-700 overflow-hidden scroll-mt-4"
       >
         <div className="overflow-x-auto">
           <table className="w-full">
@@ -451,5 +530,80 @@ function SummaryCard({ icon, label, value, gradient }: { icon: React.ReactNode; 
       <p className="text-xl font-bold truncate">{value}</p>
       <p className="text-xs opacity-80 mt-0.5">{label}</p>
     </div>
+  )
+}
+
+type StatusAccent = 'slate' | 'green' | 'red' | 'amber'
+
+const STATUS_ACCENTS: Record<StatusAccent, {
+  iconWrap: string; count: string; ring: string; activeBg: string; hoverBorder: string; bar: string
+}> = {
+  slate: {
+    iconWrap: 'bg-slate-100 text-slate-600 dark:bg-slate-700/40 dark:text-slate-300',
+    count: 'text-slate-900 dark:text-white',
+    ring: 'ring-slate-400 dark:ring-slate-500',
+    activeBg: 'bg-slate-50 dark:bg-slate-800/60',
+    hoverBorder: 'hover:border-slate-300 dark:hover:border-slate-600',
+    bar: 'bg-slate-500',
+  },
+  green: {
+    iconWrap: 'bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400',
+    count: 'text-green-700 dark:text-green-400',
+    ring: 'ring-green-500',
+    activeBg: 'bg-green-50 dark:bg-green-900/20',
+    hoverBorder: 'hover:border-green-300 dark:hover:border-green-700',
+    bar: 'bg-green-500',
+  },
+  red: {
+    iconWrap: 'bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400',
+    count: 'text-red-600 dark:text-red-400',
+    ring: 'ring-red-500',
+    activeBg: 'bg-red-50 dark:bg-red-900/20',
+    hoverBorder: 'hover:border-red-300 dark:hover:border-red-700',
+    bar: 'bg-red-500',
+  },
+  amber: {
+    iconWrap: 'bg-amber-100 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400',
+    count: 'text-amber-600 dark:text-amber-400',
+    ring: 'ring-amber-500',
+    activeBg: 'bg-amber-50 dark:bg-amber-900/20',
+    hoverBorder: 'hover:border-amber-300 dark:hover:border-amber-700',
+    bar: 'bg-amber-500',
+  },
+}
+
+function StatusCard({ active, onClick, icon, label, count, amount, accent }: {
+  active: boolean
+  onClick: () => void
+  icon: React.ReactNode
+  label: string
+  count: number
+  amount: string
+  accent: StatusAccent
+}) {
+  const c = STATUS_ACCENTS[accent]
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={`group relative text-left overflow-hidden rounded-xl p-4 border transition-all duration-200 shadow-sm hover:shadow-md
+        ${active
+          ? `${c.activeBg} border-transparent ring-2 ${c.ring}`
+          : `bg-white dark:bg-gray-800 border-gray-100 dark:border-gray-700 ${c.hoverBorder}`}`}
+    >
+      <span className={`absolute left-0 top-0 h-full w-1 ${c.bar} ${active ? 'opacity-100' : 'opacity-0 group-hover:opacity-60'} transition-opacity`} />
+      <div className="flex items-center justify-between mb-3">
+        <span className={`inline-flex items-center justify-center w-9 h-9 rounded-lg ${c.iconWrap}`}>{icon}</span>
+        <span className="text-[11px] font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wide">
+          {active ? 'Viewing' : 'View'}
+        </span>
+      </div>
+      <p className={`text-2xl font-bold ${c.count} leading-none`}>{count.toLocaleString('en-IN')}</p>
+      <div className="mt-1.5 flex items-center justify-between">
+        <p className="text-xs font-medium text-gray-500 dark:text-gray-400">{label}</p>
+        <p className="text-xs font-semibold text-gray-700 dark:text-gray-300" title="Total bill amount">{amount}</p>
+      </div>
+    </button>
   )
 }

@@ -1,4 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
+import * as crypto from 'crypto'
+import { signPartnerPayload } from '@/lib/partner-webhook/deliver'
 
 const CALLBACK_TIMEOUT_MS = 10_000
 const MAX_RETRIES = 3
@@ -63,26 +65,28 @@ function buildPayload(tx: any): SettlementCallbackPayload {
 }
 
 /**
- * Look up a partner's webhook_url.
+ * Look up a partner's webhook_url + signing secret.
  */
-async function getPartnerWebhookUrl(partnerId: string): Promise<string | null> {
+async function getPartnerWebhook(partnerId: string): Promise<{ url: string; secret: string | null } | null> {
   const supabase = getSupabase()
   const { data } = await supabase
     .from('partners')
-    .select('webhook_url')
+    .select('webhook_url, webhook_secret')
     .eq('id', partnerId)
     .eq('status', 'active')
     .maybeSingle()
-  return data?.webhook_url || null
+  if (!data?.webhook_url) return null
+  return { url: data.webhook_url, secret: (data as { webhook_secret?: string | null }).webhook_secret ?? null }
 }
 
 /**
- * Send callback payload to a URL with timeout.
+ * POST a pre-serialized body with pre-computed headers and a timeout.
  * Returns { ok, httpStatus, error }.
  */
 async function postCallback(
   url: string,
-  payload: SettlementCallbackPayload
+  body: string,
+  headers: Record<string, string>
 ): Promise<{ ok: boolean; httpStatus?: number; error?: string }> {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), CALLBACK_TIMEOUT_MS)
@@ -90,8 +94,8 @@ async function postCallback(
   try {
     const res = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
+      headers,
+      body,
       signal: controller.signal,
     })
     return { ok: res.ok, httpStatus: res.status }
@@ -149,17 +153,32 @@ export async function sendSettlementCallback(
   if (transaction.status === 'PENDING') return { sent: false, error: 'Still pending' }
 
   try {
-    const webhookUrl = await getPartnerWebhookUrl(partnerId)
-    if (!webhookUrl) return { sent: false, error: 'No webhook_url configured' }
+    const webhook = await getPartnerWebhook(partnerId)
+    if (!webhook) return { sent: false, error: 'No webhook_url configured' }
 
     const payload = buildPayload(transaction)
+
+    // Sign once — timestamp/delivery/signature stay stable across retries so the
+    // partner can dedupe on X-Sameday-Delivery and the signature stays valid.
+    const body = JSON.stringify(payload)
+    const timestamp = Math.floor(Date.now() / 1000).toString()
+    const deliveryId = crypto.randomUUID()
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'X-Sameday-Event': payload.event,
+      'X-Sameday-Timestamp': timestamp,
+      'X-Sameday-Delivery': deliveryId,
+    }
+    if (webhook.secret) {
+      headers['X-Sameday-Signature'] = signPartnerPayload(webhook.secret, timestamp, body)
+    }
 
     let lastResult: { ok: boolean; httpStatus?: number; error?: string } = { ok: false }
 
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-      lastResult = await postCallback(webhookUrl, payload)
+      lastResult = await postCallback(webhook.url, body, headers)
 
-      await logAttempt(transaction.id, partnerId, webhookUrl, payload, lastResult, attempt)
+      await logAttempt(transaction.id, partnerId, webhook.url, payload, lastResult, attempt)
 
       if (lastResult.ok) {
         console.log('[SettlementCallback] Delivered', {
@@ -167,6 +186,8 @@ export async function sendSettlementCallback(
           ref: transaction.reference_id,
           status: transaction.status,
           attempt,
+          delivery: deliveryId,
+          signed: !!webhook.secret,
           httpStatus: lastResult.httpStatus,
         })
         return { sent: true, httpStatus: lastResult.httpStatus }
