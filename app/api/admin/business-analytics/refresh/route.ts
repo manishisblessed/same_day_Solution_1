@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { isAdminOrFinance } from '@/lib/auth-roles'
 import { createClient } from '@supabase/supabase-js'
+import { getEnv } from '@/lib/env'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -32,8 +33,8 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+    const supabaseUrl = getEnv('NEXT_PUBLIC_SUPABASE_URL')
+    const supabaseServiceKey = getEnv('SUPABASE_SERVICE_ROLE_KEY')
     if (!supabaseUrl || !supabaseServiceKey) {
       return NextResponse.json({ error: 'Supabase configuration missing' }, { status: 500 })
     }

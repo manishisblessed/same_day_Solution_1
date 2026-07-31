@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useMemo, Suspense, Fragment } from 'r
 import Link from 'next/link'
 import AdminSidebar from '@/components/AdminSidebar'
 import ExportDropdown, { type ExportFormat, downloadBlob } from '@/components/ExportDropdown'
-import { apiFetch } from '@/lib/api-fetch'
+import { apiFetchJson } from '@/lib/api-client'
 import {
   BarChart3, TrendingUp, Wallet, Users, Percent, RefreshCw, Loader2,
   Search, ChevronDown, ChevronUp, ChevronRight, Coins, Banknote, ArrowUp, ArrowDown, Minus, X,
@@ -113,8 +113,7 @@ function BusinessAnalyticsContent() {
     refresh ? setRefreshing(true) : setLoading(true)
     setError(null)
     try {
-      const res = await apiFetch(`/api/admin/business-analytics${refresh ? '?refresh=1' : ''}`)
-      const json = await res.json()
+      const json = await apiFetchJson(`/api/admin/business-analytics${refresh ? '?refresh=1' : ''}`)
       setData(json)
       seedNames(json.users || [])
     } catch (e: any) {
@@ -132,8 +131,7 @@ function BusinessAnalyticsContent() {
     setRangeLoading(true)
     setError(null)
     try {
-      const res = await apiFetch(`/api/admin/business-analytics?from=${dateFrom}&to=${dateTo}`)
-      const json = await res.json()
+      const json = await apiFetchJson(`/api/admin/business-analytics?from=${dateFrom}&to=${dateTo}`)
       setRanged({ from: dateFrom, to: dateTo, users: json.users || [], services: json.services || [] })
       setVisibleCount(50)
       seedNames(json.users || [])
