@@ -71,7 +71,7 @@ async function getUserRole(_supabase: any, email: string, userId: string): Promi
 
   // Check admin_users FIRST — admin is the highest privilege level and must
   // take precedence when the same email exists in multiple tables.
-  if (admin.data && !admin.error) {
+  if (admin.data && !admin.error && admin.data.is_active !== false) {
     return {
       id: userId,
       email: email,

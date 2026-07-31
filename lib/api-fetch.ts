@@ -8,7 +8,18 @@ export async function apiFetch(url: string, options?: RequestInit): Promise<Resp
   })
 
   if (!response.ok) {
-    throw new Error(`API request failed: ${response.status} ${response.statusText}`)
+    let serverMsg = ''
+    try {
+      const body = await response.clone().json()
+      serverMsg = body?.error || body?.message || ''
+    } catch {
+      try { serverMsg = (await response.clone().text()).slice(0, 300) } catch { /* ignore */ }
+    }
+    throw new Error(
+      serverMsg
+        ? `${serverMsg} (${response.status})`
+        : `API request failed: ${response.status} ${response.statusText}`
+    )
   }
 
   return response

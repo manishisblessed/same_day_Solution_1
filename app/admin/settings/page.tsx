@@ -105,6 +105,8 @@ export default function AdminSettings() {
 
   const availableDepartments = [
     { id: 'dashboard', label: 'Dashboard' },
+    { id: 'business-analytics', label: 'Business Analytics' },
+    { id: 'pos-transactions', label: 'POS Transactions' },
     { id: 'retailers', label: 'Retailers' },
     { id: 'distributors', label: 'Distributors' },
     { id: 'master-distributors', label: 'Master Distributors' },
@@ -115,33 +117,23 @@ export default function AdminSettings() {
     { id: 'pos-tracking-report', label: 'POS Tracking Report' },
     { id: 'pos-rental-report', label: 'POS Rental Report' },
     { id: 'pos-partner-api', label: 'POS Partner API' },
-    { id: 'pos-transactions', label: 'POS Transactions' },
     { id: 'services', label: 'Services' },
     { id: 'aeps', label: 'AEPS Management' },
-    { id: 'reports', label: 'Reports' },
+    { id: 'reports', label: 'Reports & Analytics' },
     { id: 'service-transaction-report', label: 'Service Transaction Report' },
     { id: 'pos-report', label: 'POS Report' },
     { id: 'bill-payment-report', label: 'Bill Payment Report' },
     { id: 'aeps-report', label: 'AEPS Report' },
     { id: 'settlement-report', label: 'Settlement Report' },
-    { id: 'business-report', label: 'Business Report' },
     { id: 'settlement', label: 'Settlement' },
     { id: 'revenue-wallet', label: 'Revenue Wallet' },
     { id: 'wallet-ledger', label: 'Wallet Ledger' },
     { id: 'push-pull-report', label: 'Push/Pull Report' },
-    { id: 'wallet', label: 'Wallet' },
-    { id: 'commission', label: 'Commission' },
-    { id: 'mdr', label: 'MDR' },
-    { id: 'limits', label: 'Limits' },
-    { id: 'reversals', label: 'Reversals' },
-    { id: 'capabilities', label: 'Capabilities' },
-    { id: 'disputes', label: 'Disputes' },
-    { id: 'users', label: 'Users' },
     { id: 'performance', label: 'Performance' },
     { id: 'subscriptions', label: 'Subscriptions' },
     { id: 'portal-management', label: 'Portal Management' },
     { id: 'legal-agreements', label: 'Legal Agreements' },
-    { id: 'settings', label: 'Settings' },
+    { id: 'capabilities', label: 'Capabilities' },
     { id: 'all', label: 'Select All' }
   ]
 
@@ -418,7 +410,7 @@ export default function AdminSettings() {
   }
 
   const handleDeleteSubAdmin = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this sub-admin?')) return
+    if (!confirm('Remove this sub-admin? If they have any audit-log history, the account is deactivated (login revoked) instead of permanently deleted, to preserve the immutable audit trail.')) return
 
     try {
       const response = await apiFetch(`/api/admin/sub-admins?id=${id}`, {
@@ -430,7 +422,7 @@ export default function AdminSettings() {
         throw new Error(data.error || 'Failed to delete sub-admin')
       }
 
-      setMessage({ type: 'success', text: 'Sub-admin deleted successfully!' })
+      setMessage({ type: 'success', text: data.message || 'Sub-admin deleted successfully!' })
       fetchSubAdmins()
     } catch (error: any) {
       setMessage({ type: 'error', text: error.message || 'Failed to delete sub-admin' })
@@ -907,7 +899,6 @@ export default function AdminSettings() {
                       <tr className="border-b border-gray-200 dark:border-gray-700">
                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700 dark:text-gray-300">Name</th>
                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700 dark:text-gray-300">Email</th>
-                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700 dark:text-gray-300">Department</th>
                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700 dark:text-gray-300">Status</th>
                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700 dark:text-gray-300">Type</th>
                         <th className="text-right py-3 px-4 text-sm font-semibold text-gray-700 dark:text-gray-300">Actions</th>
@@ -918,19 +909,6 @@ export default function AdminSettings() {
                         <tr key={admin.id} className="border-b border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50">
                           <td className="py-3 px-4 text-sm text-gray-900 dark:text-white">{admin.name}</td>
                           <td className="py-3 px-4 text-sm text-gray-600 dark:text-gray-400">{admin.email}</td>
-                          <td className="py-3 px-4 text-sm text-gray-600 dark:text-gray-400">
-                            {admin.departments && admin.departments.length > 0 ? (
-                              <div className="flex flex-wrap gap-1">
-                                {admin.departments.map((dept: string) => (
-                                  <span key={dept} className="px-2 py-0.5 text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-400 rounded capitalize">
-                                    {dept}
-                                  </span>
-                                ))}
-                              </div>
-                            ) : (
-                              <span className="capitalize">{admin.department || 'N/A'}</span>
-                            )}
-                          </td>
                           <td className="py-3 px-4">
                             <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
                               admin.is_active 
@@ -998,7 +976,7 @@ export default function AdminSettings() {
                       ))}
                       {subAdmins.length === 0 && (
                         <tr>
-                          <td colSpan={6} className="py-8 text-center text-gray-500 dark:text-gray-400">
+                          <td colSpan={5} className="py-8 text-center text-gray-500 dark:text-gray-400">
                             No sub-admins found. Click "Add Sub-Admin" to create one.
                           </td>
                         </tr>

@@ -18,6 +18,35 @@ function isEffectiveSuperAdmin(a: { admin_type?: string; department?: string; de
   return a.department === 'settings' || a.department === 'all' || depts.includes('settings') || depts.includes('all')
 }
 
+// Remove the Supabase Auth login for an admin_users row. Best-effort: tries the
+// admin_users.id directly, then falls back to matching by email (legacy rows can
+// have an auth id that differs from admin_users.id). Never throws.
+async function removeAuthLogin(supabase: any, adminId: string): Promise<void> {
+  try {
+    const { data: byId } = await supabase.auth.admin.getUserById(adminId)
+    if (byId?.user) {
+      await supabase.auth.admin.deleteUser(adminId)
+      return
+    }
+  } catch { /* fall through to email lookup */ }
+
+  try {
+    const { data: rec } = await supabase.from('admin_users').select('email').eq('id', adminId).single()
+    const email = (rec?.email || '').toLowerCase()
+    if (!email) return
+    // Scan auth users (bounded) to find the real id for this email.
+    for (let page = 1; page <= 50; page++) {
+      const { data } = await supabase.auth.admin.listUsers({ page, perPage: 1000 })
+      const users = data?.users || []
+      const match = users.find((u: any) => (u.email || '').toLowerCase() === email)
+      if (match) { await supabase.auth.admin.deleteUser(match.id); return }
+      if (users.length < 1000) break
+    }
+  } catch (e: any) {
+    console.warn('[Sub-Admins API] removeAuthLogin best-effort failed:', e?.message)
+  }
+}
+
 // Handle CORS preflight requests
 export async function OPTIONS(request: NextRequest) {
   const response = handleCorsPreflight(request)
@@ -180,7 +209,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Validate departments array
-    const validDepartments = ['dashboard', 'pos-transactions', 'retailers', 'distributors', 'master-distributors', 'scheme-management', 'partners', 'pos-machines', 'pos-history', 'pos-tracking-report', 'pos-rental-report', 'pos-partner-api', 'razorpay-transactions', 'services', 'aeps', 'reports', 'service-transaction-report', 'pos-report', 'bill-payment-report', 'aeps-report', 'settlement-report', 'business-report', 'settlement', 'revenue-wallet', 'wallet-ledger', 'push-pull-report', 'wallet', 'commission', 'mdr', 'limits', 'reversals', 'capabilities', 'disputes', 'users', 'performance', 'subscriptions', 'portal-management', 'legal-agreements', 'settings', 'all']
+    const validDepartments = ['dashboard', 'business-analytics', 'pos-transactions', 'retailers', 'distributors', 'master-distributors', 'scheme-management', 'partners', 'pos-machines', 'pos-history', 'pos-tracking-report', 'pos-rental-report', 'pos-partner-api', 'razorpay-transactions', 'services', 'aeps', 'reports', 'service-transaction-report', 'pos-report', 'bill-payment-report', 'aeps-report', 'settlement-report', 'business-report', 'settlement', 'revenue-wallet', 'wallet-ledger', 'push-pull-report', 'wallet', 'commission', 'mdr', 'limits', 'reversals', 'capabilities', 'disputes', 'users', 'performance', 'subscriptions', 'portal-management', 'legal-agreements', 'settings', 'all']
     if (!departments || !Array.isArray(departments) || departments.length === 0) {
       const response = NextResponse.json(
         { error: 'At least one department must be selected' },
@@ -375,7 +404,7 @@ export async function PUT(request: NextRequest) {
         )
         return addCorsHeaders(request, response)
       }
-      const validDepartments = ['dashboard', 'pos-transactions', 'retailers', 'distributors', 'master-distributors', 'scheme-management', 'partners', 'pos-machines', 'pos-history', 'pos-tracking-report', 'pos-rental-report', 'pos-partner-api', 'razorpay-transactions', 'services', 'aeps', 'reports', 'service-transaction-report', 'pos-report', 'bill-payment-report', 'aeps-report', 'settlement-report', 'business-report', 'settlement', 'revenue-wallet', 'wallet-ledger', 'push-pull-report', 'wallet', 'commission', 'mdr', 'limits', 'reversals', 'capabilities', 'disputes', 'users', 'performance', 'subscriptions', 'portal-management', 'legal-agreements', 'settings', 'all']
+      const validDepartments = ['dashboard', 'business-analytics', 'pos-transactions', 'retailers', 'distributors', 'master-distributors', 'scheme-management', 'partners', 'pos-machines', 'pos-history', 'pos-tracking-report', 'pos-rental-report', 'pos-partner-api', 'razorpay-transactions', 'services', 'aeps', 'reports', 'service-transaction-report', 'pos-report', 'bill-payment-report', 'aeps-report', 'settlement-report', 'business-report', 'settlement', 'revenue-wallet', 'wallet-ledger', 'push-pull-report', 'wallet', 'commission', 'mdr', 'limits', 'reversals', 'capabilities', 'disputes', 'users', 'performance', 'subscriptions', 'portal-management', 'legal-agreements', 'settings', 'all']
       for (const dept of departments) {
         if (!validDepartments.includes(dept)) {
           const response = NextResponse.json(
@@ -419,15 +448,25 @@ export async function PUT(request: NextRequest) {
             email_confirm: true,
           })
           if (createErr) {
-            console.error('Error recreating auth account:', createErr)
-            const response = NextResponse.json(
-              { error: `Auth account missing and could not be recreated: ${createErr.message}` },
-              { status: 500 }
+            // An auth account with this email already exists (its id just differs
+            // from admin_users.id, which is why getUserById missed it). The account
+            // is NOT actually missing — don't block the tab/permission update.
+            const alreadyExists = /already.*(registered|exists)|email_exists|has already been registered/i.test(
+              createErr.message || ''
             )
-            return addCorsHeaders(request, response)
+            if (!alreadyExists) {
+              console.error('Error recreating auth account:', createErr)
+              const response = NextResponse.json(
+                { error: `Auth account missing and could not be recreated: ${createErr.message}` },
+                { status: 500 }
+              )
+              return addCorsHeaders(request, response)
+            }
+            console.warn(`[Sub-Admins API] Auth account for ${adminRecord.email} already exists (id mismatch) — skipping recreation`)
+          } else {
+            authRecreated = true
+            console.log(`[Sub-Admins API] Recreated auth account for ${adminRecord.email}`)
           }
-          authRecreated = true
-          console.log(`[Sub-Admins API] Recreated auth account for ${adminRecord.email}`)
         }
       }
     }
@@ -549,17 +588,53 @@ export async function DELETE(request: NextRequest) {
       return addCorsHeaders(request, response)
     }
 
+    // Remove the Supabase Auth login so the account can no longer sign in.
+    // The admin_users.id may not match the auth user's id (legacy data), so we
+    // delete by id and, if that misses, by resolving the real auth user via email.
+    await removeAuthLogin(supabase, id)
+
+    // The admin_audit_log is an immutable, append-only compliance record with a
+    // FK to admin_users. If this admin has ANY audited actions, the row cannot be
+    // hard-deleted (and ON DELETE SET NULL/CASCADE are rejected by the append-only
+    // trigger). In that case we soft-delete: deactivate so they lose all access
+    // while the audit trail stays intact.
+    const { count: auditCount } = await supabase
+      .from('admin_audit_log')
+      .select('*', { count: 'exact', head: true })
+      .eq('admin_id', id)
+
+    if ((auditCount ?? 0) > 0) {
+      const { error: deactErr } = await supabase
+        .from('admin_users')
+        .update({ is_active: false })
+        .eq('id', id)
+
+      if (deactErr) {
+        console.error('Error deactivating sub-admin:', deactErr.message)
+        const response = NextResponse.json(
+          { error: `Failed to remove sub-admin: ${deactErr.message}` },
+          { status: 500 }
+        )
+        return addCorsHeaders(request, response)
+      }
+
+      const ctx = getRequestContext(request)
+      logActivityFromContext(ctx, admin, { activity_type: 'admin_delete_sub_admin', activity_category: 'admin' }).catch(() => {})
+
+      const response = NextResponse.json({
+        success: true,
+        soft_deleted: true,
+        message: `Sub-admin deactivated. They can no longer sign in. The account was kept (not permanently deleted) because it has ${auditCount} immutable audit-log record(s).`,
+      })
+      return addCorsHeaders(request, response)
+    }
+
+    // No audit history — safe to hard-delete.
     // Nullify created_by references pointing to this admin (avoid FK violation)
     await supabase
       .from('admin_users')
       .update({ created_by: null })
       .eq('created_by', id)
-
-    // Delete auth user (ignore error if user doesn't exist in auth)
-    const { error: authDeleteError } = await supabase.auth.admin.deleteUser(id)
-    if (authDeleteError) {
-      console.warn('Auth user deletion failed:', authDeleteError.message)
-    }
 
     // Delete admin record
     const { error } = await supabase
