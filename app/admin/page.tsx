@@ -18,7 +18,7 @@ import {
   Building2, Briefcase, Phone, Mail, Clock, Percent, IndianRupee,
   FileBarChart, Printer, Sheet, BadgeIndianRupee, Banknote,
   CheckCircle2, AlertTriangle, XCircle, Zap, Globe, Smartphone, FileDown,
-  Shield, ShieldCheck, Loader2, CheckCircle, ChevronDown, ChevronUp, Info
+  Shield, ShieldCheck, Loader2, CheckCircle, ChevronDown, ChevronUp, Info, Ban
 } from 'lucide-react'
 import TransactionsTable from '@/components/TransactionsTable'
 import POSTransactionsTable from '@/components/POSTransactionsTable'
@@ -54,6 +54,7 @@ function AdminDashboardContent() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [walletProcessing, setWalletProcessing] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [suspendingId, setSuspendingId] = useState<string | null>(null)
   const [bulkDeleting, setBulkDeleting] = useState(false)
   const [returningToStock, setReturningToStock] = useState<string | null>(null)
   const [impersonatingId, setImpersonatingId] = useState<string | null>(null)
@@ -252,36 +253,56 @@ function AdminDashboardContent() {
   }
 
   const handleDelete = async (id: string) => {
-    let label = id.slice(0, 8)
-    if (activeTab === 'pos-machines') {
-      const m = posMachines.find((pm) => pm.id === id)
-      if (m) label = m.tid ? `TID: ${m.tid}` : m.machine_id
+    // Only POS machines can be deleted; user accounts are protected
+    if (activeTab !== 'pos-machines') {
+      showToast('Accounts cannot be deleted. Use suspend instead.', 'error')
+      return
     }
+
+    const m = posMachines.find((pm) => pm.id === id)
+    const label = m ? (m.tid ? `TID: ${m.tid}` : m.machine_id) : id.slice(0, 8)
     if (!confirm(`Are you sure you want to delete "${label}"?`)) return
 
     setDeletingId(id)
     try {
-      const tableName = activeTab === 'retailers' ? 'retailers' : 
-                       activeTab === 'distributors' ? 'distributors' : 
-                       activeTab === 'pos-machines' ? 'pos_machines' :
-                       'master_distributors'
-      
-      const apiPath = tableName === 'pos_machines' ? '/api/admin/pos-machines' : '/api/admin/users'
-      const body = tableName === 'pos_machines'
-        ? { ids: [id] }
-        : { type: tableName, ids: [id] }
-      const res = await apiFetch(apiPath, { method: 'DELETE', body: JSON.stringify(body) })
+      const res = await apiFetch('/api/admin/pos-machines', { method: 'DELETE', body: JSON.stringify({ ids: [id] }) })
       const result = await res.json()
       if (!res.ok) throw new Error(result.error || 'Failed to delete')
 
-      showToast('Item deleted successfully', 'success')
+      showToast('Machine deleted successfully', 'success')
       fetchData()
       setSelectedItems(new Set())
     } catch (error) {
       console.error('Error deleting:', error)
-      showToast('Failed to delete item', 'error')
+      showToast('Failed to delete machine', 'error')
     } finally {
       setDeletingId(null)
+    }
+  }
+
+  const handleSuspendToggle = async (item: any) => {
+    const newStatus = item.status === 'suspended' ? 'active' : 'suspended'
+    const action = newStatus === 'suspended' ? 'suspend' : 'activate'
+    if (!confirm(`Are you sure you want to ${action} "${item.name || item.partner_id}"?`)) return
+
+    setSuspendingId(item.id)
+    try {
+      const tableName = activeTab === 'retailers' ? 'retailers' :
+                       activeTab === 'distributors' ? 'distributors' :
+                       'master_distributors'
+      const res = await apiFetch('/api/admin/users', {
+        method: 'PUT',
+        body: JSON.stringify({ type: tableName, id: item.id, data: { status: newStatus } })
+      })
+      const result = await res.json()
+      if (!res.ok) throw new Error(result.error || `Failed to ${action}`)
+      showToast(`Account ${action}d successfully`, 'success')
+      fetchData()
+    } catch (error: any) {
+      console.error(`Error ${action}ing:`, error)
+      showToast(error.message || `Failed to ${action} account`, 'error')
+    } finally {
+      setSuspendingId(null)
     }
   }
 
@@ -325,20 +346,18 @@ function AdminDashboardContent() {
 
   const handleBulkDelete = async () => {
     if (selectedItems.size === 0) return
+
+    // Only POS machines can be bulk deleted; user accounts can only be suspended
+    if (activeTab !== 'pos-machines') {
+      showToast('Accounts cannot be deleted. Use suspend instead.', 'error')
+      return
+    }
+
     if (!confirm(`Are you sure you want to delete ${selectedItems.size} item(s)?`)) return
 
     setBulkDeleting(true)
     try {
-      const tableName = activeTab === 'retailers' ? 'retailers' : 
-                       activeTab === 'distributors' ? 'distributors' : 
-                       activeTab === 'pos-machines' ? 'pos_machines' :
-                       'master_distributors'
-      
-      const apiPath = tableName === 'pos_machines' ? '/api/admin/pos-machines' : '/api/admin/users'
-      const body = tableName === 'pos_machines'
-        ? { ids: Array.from(selectedItems) }
-        : { type: tableName, ids: Array.from(selectedItems) }
-      const res = await apiFetch(apiPath, { method: 'DELETE', body: JSON.stringify(body) })
+      const res = await apiFetch('/api/admin/pos-machines', { method: 'DELETE', body: JSON.stringify({ ids: Array.from(selectedItems) }) })
       const result = await res.json()
       if (!res.ok) throw new Error(result.error || 'Failed to delete')
 
@@ -968,14 +987,25 @@ function AdminDashboardContent() {
                             >
                               <Edit className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
                             </button>
-                            <button
-                              onClick={() => handleDelete(item.id)}
-                              disabled={deletingId === item.id}
-                              className="p-1 sm:p-1.5 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors disabled:opacity-50"
-                              title="Delete"
-                            >
-                              {deletingId === item.id ? <Loader2 className="w-3 h-3 sm:w-3.5 sm:h-3.5 animate-spin" /> : <Trash2 className="w-3 h-3 sm:w-3.5 sm:h-3.5" />}
-                            </button>
+                            {activeTab === 'pos-machines' ? (
+                              <button
+                                onClick={() => handleDelete(item.id)}
+                                disabled={deletingId === item.id}
+                                className="p-1 sm:p-1.5 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors disabled:opacity-50"
+                                title="Delete"
+                              >
+                                {deletingId === item.id ? <Loader2 className="w-3 h-3 sm:w-3.5 sm:h-3.5 animate-spin" /> : <Trash2 className="w-3 h-3 sm:w-3.5 sm:h-3.5" />}
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => handleSuspendToggle(item)}
+                                disabled={suspendingId === item.id}
+                                className={`p-1 sm:p-1.5 ${item.status === 'suspended' ? 'text-green-600 hover:bg-green-50 dark:hover:bg-green-900/20' : 'text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20'} rounded transition-colors disabled:opacity-50`}
+                                title={item.status === 'suspended' ? 'Activate' : 'Suspend'}
+                              >
+                                {suspendingId === item.id ? <Loader2 className="w-3 h-3 sm:w-3.5 sm:h-3.5 animate-spin" /> : item.status === 'suspended' ? <CheckCircle className="w-3 h-3 sm:w-3.5 sm:h-3.5" /> : <Ban className="w-3 h-3 sm:w-3.5 sm:h-3.5" />}
+                              </button>
+                            )}
                           </div>
                         </td>
                       </motion.tr>

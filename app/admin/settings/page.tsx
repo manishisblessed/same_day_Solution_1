@@ -877,6 +877,7 @@ export default function AdminSettings() {
                 </div>
                 <button
                   onClick={() => {
+                    setMessage(null)
                     setEditingSubAdmin(null)
                     setSubAdminFormData({
                       email: '',
@@ -965,6 +966,7 @@ export default function AdminSettings() {
                                 </button>
                                 <button
                                   onClick={() => {
+                                    setMessage(null)
                                     setEditingSubAdmin(admin)
                                     setSubAdminFormData({
                                       email: admin.email,

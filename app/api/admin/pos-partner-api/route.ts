@@ -155,7 +155,7 @@ export async function GET(request: NextRequest) {
 }
 
 /** Permissions accepted on partner API keys (see /api/partner/* routes). */
-const VALID_KEY_PERMISSIONS = ['read', 'export', 'bbps', 'bbps2', 'payout', 'settlement', 'all'] as const
+const VALID_KEY_PERMISSIONS = ['read', 'export', 'bbps', 'bbps2', 'payout', 'settlement', 'aeps', 'rechargekit', 'all'] as const
 const VALID_KEY_PERMISSIONS_SET: Record<string, true> = Object.fromEntries(
   VALID_KEY_PERMISSIONS.map((p) => [p, true])
 ) as any

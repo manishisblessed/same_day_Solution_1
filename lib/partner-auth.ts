@@ -41,51 +41,50 @@ export function parsePartnerKeyPermissions(raw: unknown): string[] {
   return ['read']
 }
 
-/** Key permission + partner-level service flag (admin POS Partner API tab). */
+/**
+ * Authorize a partner API call for a given service scope.
+ *
+ * The partner-level service flag (toggled in the admin POS Partner API tab) is
+ * the single source of truth. Enabling a service there grants access to every
+ * active API key for that partner — no separate per-key permission string is
+ * required. This avoids the double-gate where a key silently lacks a permission
+ * even though the service is enabled.
+ */
 export function partnerCanUseApi(
   partner: PartnerAuthResult['partner'],
   scope: PartnerApiScope
 ): { allowed: boolean; message: string } {
-  const perms = partner.permissions
-  const permName = scope === 'settlement' ? 'settlement' : scope === 'payout' ? 'payout' : scope === 'bbps2' ? 'bbps2' : scope === 'aeps' ? 'aeps' : scope === 'rechargekit' ? 'rechargekit' : 'bbps'
-  if (!perms.includes('all') && !perms.includes(permName)) {
-    return { allowed: false, message: `Missing required permission: ${permName}` }
-  }
-  if (scope === 'bbps' && !partner.bbps_enabled) {
-    return {
-      allowed: false,
-      message: 'BBPS Bill Payment is not enabled for this partner account. Contact admin.',
-    }
-  }
-  if (scope === 'bbps2' && !partner.bbps2_pay2new_enabled) {
-    return {
-      allowed: false,
-      message: 'BBPS-2 (Pay2New) is not enabled for this partner account. Contact admin.',
-    }
-  }
-  if (scope === 'payout' && !partner.settlement_enabled) {
-    return {
-      allowed: false,
-      message: 'Settlement / Payout is not enabled for this partner account. Contact admin.',
-    }
-  }
-  if (scope === 'settlement' && !partner.settlement2_enabled) {
-    return {
-      allowed: false,
-      message: 'Settlement-2 (SHADVAL Pay) is not enabled for this partner account. Contact admin.',
-    }
-  }
-  if (scope === 'aeps' && !partner.aeps_enabled) {
-    return {
-      allowed: false,
-      message: 'AEPS is not enabled for this partner account. Contact admin.',
-    }
-  }
-  if (scope === 'rechargekit' && !partner.rechargekit_cc_enabled) {
-    return {
-      allowed: false,
-      message: 'Credit Card-2 (RechargeKit) is not enabled for this partner account. Contact admin.',
-    }
+  switch (scope) {
+    case 'bbps':
+      if (!partner.bbps_enabled) {
+        return { allowed: false, message: 'BBPS Bill Payment is not enabled for this partner account. Contact admin.' }
+      }
+      break
+    case 'bbps2':
+      if (!partner.bbps2_pay2new_enabled) {
+        return { allowed: false, message: 'BBPS-2 (Pay2New) is not enabled for this partner account. Contact admin.' }
+      }
+      break
+    case 'payout':
+      if (!partner.settlement_enabled) {
+        return { allowed: false, message: 'Settlement / Payout is not enabled for this partner account. Contact admin.' }
+      }
+      break
+    case 'settlement':
+      if (!partner.settlement2_enabled) {
+        return { allowed: false, message: 'Settlement-2 (SHADVAL Pay) is not enabled for this partner account. Contact admin.' }
+      }
+      break
+    case 'aeps':
+      if (!partner.aeps_enabled) {
+        return { allowed: false, message: 'AEPS is not enabled for this partner account. Contact admin.' }
+      }
+      break
+    case 'rechargekit':
+      if (!partner.rechargekit_cc_enabled) {
+        return { allowed: false, message: 'Credit Card-2 (RechargeKit) is not enabled for this partner account. Contact admin.' }
+      }
+      break
   }
   return { allowed: true, message: '' }
 }

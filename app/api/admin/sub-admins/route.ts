@@ -399,6 +399,39 @@ export async function PUT(request: NextRequest) {
     if (permissions !== undefined) updateData.permissions = permissions
     if (is_active !== undefined) updateData.is_active = is_active
 
+    // When reactivating, ensure the auth account exists (it may have been deleted)
+    let authRecreated = false
+    if (is_active === true) {
+      const { data: authCheck } = await supabase.auth.admin.getUserById(id)
+      if (!authCheck?.user) {
+        const { data: adminRecord } = await supabase
+          .from('admin_users')
+          .select('email')
+          .eq('id', id)
+          .single()
+
+        if (adminRecord?.email) {
+          const tempPassword = `Temp${Date.now()}!${Math.random().toString(36).slice(2, 8)}`
+          const { error: createErr } = await supabase.auth.admin.createUser({
+            uid: id,
+            email: adminRecord.email,
+            password: tempPassword,
+            email_confirm: true,
+          })
+          if (createErr) {
+            console.error('Error recreating auth account:', createErr)
+            const response = NextResponse.json(
+              { error: `Auth account missing and could not be recreated: ${createErr.message}` },
+              { status: 500 }
+            )
+            return addCorsHeaders(request, response)
+          }
+          authRecreated = true
+          console.log(`[Sub-Admins API] Recreated auth account for ${adminRecord.email}`)
+        }
+      }
+    }
+
     const { data: updatedAdmin, error } = await supabase
       .from('admin_users')
       .update(updateData)
@@ -418,10 +451,15 @@ export async function PUT(request: NextRequest) {
     const ctx = getRequestContext(request)
     logActivityFromContext(ctx, admin, { activity_type: 'admin_update_sub_admin', activity_category: 'admin' }).catch(() => {})
 
+    const msg = authRecreated
+      ? 'Sub-admin reactivated. Auth account was recreated — please reset their password.'
+      : 'Sub-admin updated successfully'
+
     const response = NextResponse.json({
       success: true,
-      message: 'Sub-admin updated successfully',
-      admin: updatedAdmin
+      message: msg,
+      admin: updatedAdmin,
+      auth_recreated: authRecreated,
     })
     return addCorsHeaders(request, response)
   } catch (error: any) {

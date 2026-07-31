@@ -116,38 +116,12 @@ export async function PUT(request: NextRequest) {
 }
 
 /**
- * DELETE - Delete user(s)
+ * DELETE - Disabled. Accounts cannot be deleted to preserve data integrity.
+ * Use PUT to suspend (status: 'suspended') instead.
  */
 export async function DELETE(request: NextRequest) {
-  try {
-    const auth = await checkAdminAuth(request)
-    if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 403 })
-
-    const { type, ids } = await request.json()
-    if (!type || !isValidTable(type)) {
-      return NextResponse.json({ error: 'Invalid table type' }, { status: 400 })
-    }
-    if (!ids || !Array.isArray(ids) || ids.length === 0) {
-      return NextResponse.json({ error: 'Missing or empty ids array' }, { status: 400 })
-    }
-
-    const supabase = getSupabaseAdmin()
-    const { error } = await supabase.from(type).delete().in('id', ids)
-    if (error) return NextResponse.json({ error: error.message }, { status: 400 })
-
-    try {
-      const ctx = getRequestContext(request)
-      await logActivityFromContext(ctx, { id: auth.admin.id, role: auth.admin.role, email: auth.admin.email }, {
-        activity_type: 'user_deleted',
-        activity_category: 'admin',
-        activity_description: `Deleted ${ids.length} ${type.replace('_', ' ')}`,
-        metadata: { table: type, ids },
-      })
-    } catch {}
-
-    return NextResponse.json({ success: true })
-  } catch (err: any) {
-    console.error('[Admin Users API] DELETE error:', err)
-    return NextResponse.json({ error: err.message || 'Internal server error' }, { status: 500 })
-  }
+  return NextResponse.json(
+    { error: 'Account deletion is disabled. Use suspend action instead to deactivate accounts.' },
+    { status: 403 }
+  )
 }

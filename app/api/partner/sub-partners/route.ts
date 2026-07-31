@@ -230,56 +230,11 @@ export async function DELETE(request: NextRequest) {
   try {
     const user = await getPartnerUser(request)
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 403 })
-    if (user.role !== 'partner') {
-      return NextResponse.json({ error: 'Only the main partner account can delete sub-partners' }, { status: 403 })
-    }
 
-    const body = await request.json()
-    const { id } = body
-    if (!id) return NextResponse.json({ error: 'Missing sub-partner id' }, { status: 400 })
-
-    const supabase = getSupabaseAdmin()
-
-    // Get sub-partner to verify ownership and get email for auth cleanup
-    const { data: existing } = await supabase
-      .from('sub_partners')
-      .select('id, email, parent_partner_id')
-      .eq('id', id)
-      .single()
-
-    if (!existing || existing.parent_partner_id !== user.partner_id) {
-      return NextResponse.json({ error: 'Sub-partner not found' }, { status: 404 })
-    }
-
-    // Delete sub-partner record
-    const { error } = await supabase.from('sub_partners').delete().eq('id', id)
-    if (error) return NextResponse.json({ error: error.message }, { status: 400 })
-
-    // Also delete Supabase Auth user
-    try {
-      const { data: authUsers } = await supabase.auth.admin.listUsers()
-      const authUser = authUsers?.users?.find((u: any) => u.email === existing.email)
-      if (authUser) {
-        await supabase.auth.admin.deleteUser(authUser.id)
-      }
-    } catch {
-      // Best-effort auth cleanup
-    }
-
-    // End any active sessions
-    try {
-      const { data: authUsers } = await supabase.auth.admin.listUsers()
-      const authUser = authUsers?.users?.find((u: any) => u.email === existing.email)
-      if (authUser) {
-        await supabase
-          .from('user_sessions')
-          .update({ is_active: false, ended_reason: 'account_deleted' })
-          .eq('user_id', authUser.id)
-          .eq('is_active', true)
-      }
-    } catch {}
-
-    return NextResponse.json({ success: true })
+    return NextResponse.json(
+      { error: 'Account deletion is disabled. Use suspend action instead to deactivate accounts.' },
+      { status: 403 }
+    )
   } catch (err: any) {
     console.error('[Sub-Partners API] DELETE error:', err)
     return NextResponse.json({ error: err.message || 'Internal server error' }, { status: 500 })
