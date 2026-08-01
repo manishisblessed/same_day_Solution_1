@@ -77,12 +77,13 @@ export async function getSchemeById(id: string): Promise<{ data: Scheme | null; 
   if (error || !scheme) return { data: null, error: error?.message || 'Scheme not found' };
 
   // Fetch related configs in parallel
-  const [bbps, payout, mdr, aeps, aepsSettle, mappings] = await Promise.all([
+  const [bbps, payout, mdr, aeps, aepsSettle, shadvalSettle, mappings] = await Promise.all([
     supabase.from('scheme_bbps_commissions').select('*').eq('scheme_id', id).order('min_amount'),
     supabase.from('scheme_payout_charges').select('*').eq('scheme_id', id).order('transfer_mode'),
     supabase.from('scheme_mdr_rates').select('*').eq('scheme_id', id).order('mode'),
     supabase.from('scheme_aeps_commissions').select('*').eq('scheme_id', id).order('transaction_type').order('min_amount'),
     supabase.from('scheme_aeps_settlement_charges').select('*').eq('scheme_id', id).order('min_amount'),
+    supabase.from('scheme_shadval_settlement_charges').select('*').eq('scheme_id', id).order('transfer_mode').order('min_amount'),
     supabase.from('scheme_mappings').select('*').eq('scheme_id', id).eq('status', 'active'),
   ]);
 
@@ -94,6 +95,7 @@ export async function getSchemeById(id: string): Promise<{ data: Scheme | null; 
       mdr_rates: mdr.data || [],
       aeps_commissions: aeps.data || [],
       aeps_settlement_charges: aepsSettle.data || [],
+      shadval_settlement_charges: shadvalSettle.data || [],
       mappings: mappings.data || [],
       mapping_count: mappings.data?.length || 0,
     },

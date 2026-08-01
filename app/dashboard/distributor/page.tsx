@@ -3481,6 +3481,14 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
     distributor_commission_type: 'flat' as 'flat' | 'percentage',
     md_commission: 0,
     md_commission_type: 'flat' as 'flat' | 'percentage',
+    company_charge: 0,
+    company_charge_type: 'flat' as 'flat' | 'percentage',
+    md_purchase_charge: 0,
+    md_purchase_charge_type: 'flat' as 'flat' | 'percentage',
+    dt_purchase_charge: 0,
+    dt_purchase_charge_type: 'flat' as 'flat' | 'percentage',
+    rt_purchase_charge: 0,
+    rt_purchase_charge_type: 'flat' as 'flat' | 'percentage',
     gst_inclusive: false,
     vendor_rate: 0,
     company_mdr_rate: 0,
@@ -3498,6 +3506,14 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
     distributor_commission_type: 'flat' as 'flat' | 'percentage',
     md_commission: 0,
     md_commission_type: 'flat' as 'flat' | 'percentage',
+    company_charge: 0,
+    company_charge_type: 'flat' as 'flat' | 'percentage',
+    md_purchase_charge: 0,
+    md_purchase_charge_type: 'flat' as 'flat' | 'percentage',
+    dt_purchase_charge: 0,
+    dt_purchase_charge_type: 'flat' as 'flat' | 'percentage',
+    rt_purchase_charge: 0,
+    rt_purchase_charge_type: 'flat' as 'flat' | 'percentage',
     gst_inclusive: false,
     vendor_rate: 0,
     company_mdr_rate: 0,
@@ -3569,6 +3585,12 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
     md_commission_type: 'flat' as 'flat' | 'percentage',
     company_charge: 0,
     company_charge_type: 'flat' as 'flat' | 'percentage',
+    md_purchase_charge: 0,
+    md_purchase_charge_type: 'flat' as 'flat' | 'percentage',
+    dt_purchase_charge: 0,
+    dt_purchase_charge_type: 'flat' as 'flat' | 'percentage',
+    rt_purchase_charge: 0,
+    rt_purchase_charge_type: 'flat' as 'flat' | 'percentage',
     gst_inclusive: false,
     vendor_rate: 0,
     company_mdr_rate: 0,
@@ -3792,12 +3814,12 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
     setConfigSchemeId(schemeId)
     setConfigType(type)
     // Reset forms
-    setBbpsForm({ bbps_type: 'bbps_1', category: '', min_amount: 0, max_amount: 100000, retailer_charge: 0, retailer_charge_type: 'flat', retailer_commission: 0, retailer_commission_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat', gst_inclusive: false, vendor_rate: 0, company_mdr_rate: 0 })
-    setPayoutForm({ transfer_mode: 'IMPS', min_amount: 0, max_amount: 100000, retailer_charge: 0, retailer_charge_type: 'flat', retailer_commission: 0, retailer_commission_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat', gst_inclusive: false, vendor_rate: 0, company_mdr_rate: 0 })
+    setBbpsForm({ bbps_type: 'bbps_1', category: '', min_amount: 0, max_amount: 100000, retailer_charge: 0, retailer_charge_type: 'flat', retailer_commission: 0, retailer_commission_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat', company_charge: 0, company_charge_type: 'flat', md_purchase_charge: 0, md_purchase_charge_type: 'flat', dt_purchase_charge: 0, dt_purchase_charge_type: 'flat', rt_purchase_charge: 0, rt_purchase_charge_type: 'flat', gst_inclusive: false, vendor_rate: 0, company_mdr_rate: 0 })
+    setPayoutForm({ transfer_mode: 'IMPS', min_amount: 0, max_amount: 100000, retailer_charge: 0, retailer_charge_type: 'flat', retailer_commission: 0, retailer_commission_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat', company_charge: 0, company_charge_type: 'flat', md_purchase_charge: 0, md_purchase_charge_type: 'flat', dt_purchase_charge: 0, dt_purchase_charge_type: 'flat', rt_purchase_charge: 0, rt_purchase_charge_type: 'flat', gst_inclusive: false, vendor_rate: 0, company_mdr_rate: 0 })
     setMdrForm({ mode: 'CARD', card_type: '', brand_type: '', card_classification: '', merchant_slug: '', retailer_mdr_t1: 0, retailer_mdr_t0: 0, distributor_mdr_t1: 0, distributor_mdr_t0: 0, md_mdr_t1: 0, md_mdr_t0: 0, partner_mdr: 0, gst_inclusive: false, vendor_rate: 0, company_mdr_rate: 0 })
     setAepsForm({ transaction_type: 'cash_withdrawal', min_amount: 0, max_amount: 100000, base_commission: 0, base_commission_type: 'percentage', company_earning: 0, company_earning_type: 'flat', md_commission: 0, md_commission_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', retailer_commission: 0, retailer_commission_type: 'flat', tds_percentage: 5, gst_inclusive: false, vendor_rate: 0, company_mdr_rate: 0 })
     setAepsSettleForm({ min_amount: 0, max_amount: 100000, retailer_charge: 0, retailer_charge_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat', company_charge: 0, company_charge_type: 'flat', gst_inclusive: false, vendor_rate: 0, company_mdr_rate: 0 })
-    setShadvalSettleForm({ transfer_mode: 'IMPS', min_amount: 0, max_amount: 100000, retailer_charge: 0, retailer_charge_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat', company_charge: 0, company_charge_type: 'flat', gst_inclusive: false, vendor_rate: 0, company_mdr_rate: 0 })
+    setShadvalSettleForm({ transfer_mode: 'IMPS', min_amount: 0, max_amount: 100000, retailer_charge: 0, retailer_charge_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat', company_charge: 0, company_charge_type: 'flat', md_purchase_charge: 0, md_purchase_charge_type: 'flat', dt_purchase_charge: 0, dt_purchase_charge_type: 'flat', rt_purchase_charge: 0, rt_purchase_charge_type: 'flat', gst_inclusive: false, vendor_rate: 0, company_mdr_rate: 0 })
     setShowConfigModal(true)
   }
 
@@ -3815,9 +3837,9 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
 
       let configData: any = {}
       if (configType === 'bbps') {
-        configData = { ...bbpsForm, category: bbpsForm.category || null, company_charge: 0, company_charge_type: 'flat' }
+        configData = { ...bbpsForm, category: bbpsForm.category || null }
       } else if (configType === 'payout') {
-        configData = { ...payoutForm, company_charge: 0, company_charge_type: 'flat' }
+        configData = { ...payoutForm }
       } else if (configType === 'mdr') {
         const configScheme = schemes.find(s => s.id === configSchemeId)
         const isPartnerPlan = configScheme?.is_partner_plan || false
@@ -4549,12 +4571,16 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
                       className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
                   </div>
                 </div>
+                <div className="flex items-center gap-2 px-3 py-2 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800 mb-2">
+                  <Layers className="w-4 h-4 text-blue-600" />
+                  <span className="text-xs font-medium text-blue-700 dark:text-blue-400">Charge-Based Model: Admin → MD → DT → RT (margin = selling - purchase)</span>
+                </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 {[
-                  { label: 'Retailer Charge', key: 'retailer_charge', typeKey: 'retailer_charge_type' },
-                  { label: 'Retailer Commission', key: 'retailer_commission', typeKey: 'retailer_commission_type' },
-                  { label: 'Distributor Commission', key: 'distributor_commission', typeKey: 'distributor_commission_type' },
-                  { label: 'MD Commission', key: 'md_commission', typeKey: 'md_commission_type' },
+                  { label: 'Company Cost (Vendor)', key: 'company_charge', typeKey: 'company_charge_type' },
+                  { label: 'MD Purchase Charge (Admin → MD)', key: 'md_purchase_charge', typeKey: 'md_purchase_charge_type' },
+                  { label: 'DT Purchase Charge (MD → DT)', key: 'dt_purchase_charge', typeKey: 'dt_purchase_charge_type' },
+                  { label: 'RT Purchase Charge (DT → RT)', key: 'rt_purchase_charge', typeKey: 'rt_purchase_charge_type' },
                 ].map(({ label, key, typeKey }) => (
                   <div key={key} className="grid grid-cols-3 gap-2 items-end">
                     <div className="col-span-2">
@@ -4573,6 +4599,14 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
                     </div>
                   </div>
                 ))}
+                </div>
+                <div className="mt-2 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                  <p className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Margin Preview (flat values)</p>
+                  <div className="grid grid-cols-3 gap-2 text-xs">
+                    <div className="text-center"><div className="text-gray-500">Company</div><div className="font-semibold text-green-600">₹{((bbpsForm.md_purchase_charge || 0) - (bbpsForm.company_charge || 0)).toFixed(2)}</div></div>
+                    <div className="text-center"><div className="text-gray-500">MD</div><div className="font-semibold text-purple-600">₹{((bbpsForm.dt_purchase_charge || 0) - (bbpsForm.md_purchase_charge || 0)).toFixed(2)}</div></div>
+                    <div className="text-center"><div className="text-gray-500">DT</div><div className="font-semibold text-blue-600">₹{((bbpsForm.rt_purchase_charge || 0) - (bbpsForm.dt_purchase_charge || 0)).toFixed(2)}</div></div>
+                  </div>
                 </div>
                 <div className="border-t border-gray-200 dark:border-gray-700 pt-3 mt-3 space-y-2">
                   <label className="flex items-center gap-2 cursor-pointer">
@@ -4622,12 +4656,16 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
                       className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
                   </div>
                 </div>
+                <div className="flex items-center gap-2 px-3 py-2 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800 mb-2">
+                  <Layers className="w-4 h-4 text-blue-600" />
+                  <span className="text-xs font-medium text-blue-700 dark:text-blue-400">Charge-Based Model: Admin → MD → DT → RT</span>
+                </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 {[
-                  { label: 'Retailer Charge', key: 'retailer_charge', typeKey: 'retailer_charge_type' },
-                  { label: 'Retailer Commission', key: 'retailer_commission', typeKey: 'retailer_commission_type' },
-                  { label: 'Distributor Commission', key: 'distributor_commission', typeKey: 'distributor_commission_type' },
-                  { label: 'MD Commission', key: 'md_commission', typeKey: 'md_commission_type' },
+                  { label: 'Company Cost (Vendor)', key: 'company_charge', typeKey: 'company_charge_type' },
+                  { label: 'MD Purchase Charge (Admin → MD)', key: 'md_purchase_charge', typeKey: 'md_purchase_charge_type' },
+                  { label: 'DT Purchase Charge (MD → DT)', key: 'dt_purchase_charge', typeKey: 'dt_purchase_charge_type' },
+                  { label: 'RT Purchase Charge (DT → RT)', key: 'rt_purchase_charge', typeKey: 'rt_purchase_charge_type' },
                 ].map(({ label, key, typeKey }) => (
                   <div key={key} className="grid grid-cols-3 gap-2 items-end">
                     <div className="col-span-2">
@@ -4646,6 +4684,14 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
                     </div>
                   </div>
                 ))}
+                </div>
+                <div className="mt-2 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                  <p className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Margin Preview (flat values)</p>
+                  <div className="grid grid-cols-3 gap-2 text-xs">
+                    <div className="text-center"><div className="text-gray-500">Company</div><div className="font-semibold text-green-600">₹{((payoutForm.md_purchase_charge || 0) - (payoutForm.company_charge || 0)).toFixed(2)}</div></div>
+                    <div className="text-center"><div className="text-gray-500">MD</div><div className="font-semibold text-purple-600">₹{((payoutForm.dt_purchase_charge || 0) - (payoutForm.md_purchase_charge || 0)).toFixed(2)}</div></div>
+                    <div className="text-center"><div className="text-gray-500">DT</div><div className="font-semibold text-blue-600">₹{((payoutForm.rt_purchase_charge || 0) - (payoutForm.dt_purchase_charge || 0)).toFixed(2)}</div></div>
+                  </div>
                 </div>
                 <div className="border-t border-gray-200 dark:border-gray-700 pt-3 mt-3 space-y-2">
                   <label className="flex items-center gap-2 cursor-pointer">
@@ -5036,13 +5082,13 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
                       className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
                   </div>
                 </div>
-                <p className="text-xs text-gray-500">Retailer charge is deducted on Settlement-2 transfers. Margins go to DT/MD/Company.</p>
+                <p className="text-xs text-gray-500">Charge-based model: charges increase Company → MD → DT → RT. RT pays the RT Purchase Charge; each level keeps the difference.</p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 {[
-                  { label: 'Retailer Charge (deducted)', key: 'retailer_charge', typeKey: 'retailer_charge_type' },
-                  { label: 'Distributor Margin', key: 'distributor_commission', typeKey: 'distributor_commission_type' },
-                  { label: 'MD Margin', key: 'md_commission', typeKey: 'md_commission_type' },
-                  { label: 'Company Earning', key: 'company_charge', typeKey: 'company_charge_type' },
+                  { label: 'Company Cost (Vendor)', key: 'company_charge', typeKey: 'company_charge_type' },
+                  { label: 'MD Purchase Charge (Admin → MD)', key: 'md_purchase_charge', typeKey: 'md_purchase_charge_type' },
+                  { label: 'DT Purchase Charge (MD → DT)', key: 'dt_purchase_charge', typeKey: 'dt_purchase_charge_type' },
+                  { label: 'RT Purchase Charge (DT → RT)', key: 'rt_purchase_charge', typeKey: 'rt_purchase_charge_type' },
                 ].map(({ label, key, typeKey }) => (
                   <div key={key} className="grid grid-cols-3 gap-2 items-end">
                     <div className="col-span-2">
@@ -5061,6 +5107,14 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
                     </div>
                   </div>
                 ))}
+                </div>
+                <div className="mt-2 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                  <p className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Margin Preview (flat values)</p>
+                  <div className="grid grid-cols-3 gap-2 text-xs">
+                    <div className="text-center"><div className="text-gray-500">Company</div><div className="font-semibold text-green-600">₹{((shadvalSettleForm.md_purchase_charge || 0) - (shadvalSettleForm.company_charge || 0)).toFixed(2)}</div></div>
+                    <div className="text-center"><div className="text-gray-500">MD</div><div className="font-semibold text-purple-600">₹{((shadvalSettleForm.dt_purchase_charge || 0) - (shadvalSettleForm.md_purchase_charge || 0)).toFixed(2)}</div></div>
+                    <div className="text-center"><div className="text-gray-500">DT</div><div className="font-semibold text-blue-600">₹{((shadvalSettleForm.rt_purchase_charge || 0) - (shadvalSettleForm.dt_purchase_charge || 0)).toFixed(2)}</div></div>
+                  </div>
                 </div>
                 <div className="border-t border-gray-200 dark:border-gray-700 pt-3 mt-3 space-y-2">
                   <label className="flex items-center gap-2 cursor-pointer">

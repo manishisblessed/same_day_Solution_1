@@ -290,7 +290,7 @@ export async function GET(request: NextRequest) {
           .select('*')
           .eq('partner_id', bpPartnerId)
           .eq('transaction_type', 'DEBIT')
-          .or('description.ilike.BBPS-2*,description.ilike.BBPS*,description.ilike.CC *')
+          .or('description.ilike.BBPS-2*,description.ilike.BBPS*,description.ilike.CC*')
           .order('created_at', { ascending: false })
         if (dateFrom) q = q.gte('created_at', dateFrom)
         if (dateTo) q = q.lte('created_at', dateTo)

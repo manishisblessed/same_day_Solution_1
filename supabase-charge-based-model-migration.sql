@@ -172,6 +172,14 @@ BEGIN
 END $$;
 
 -- ============================================================================
+-- 7b. DROP OLD RPC SIGNATURES (return type changed → CREATE OR REPLACE can't alter)
+-- ============================================================================
+DROP FUNCTION IF EXISTS calculate_bbps_charge_from_scheme(uuid, numeric, text);
+DROP FUNCTION IF EXISTS calculate_payout_charge_from_scheme(uuid, numeric, text);
+DROP FUNCTION IF EXISTS calculate_shadval_charge_from_scheme(uuid, numeric, text);
+DROP FUNCTION IF EXISTS calculate_aeps_settlement_charge_from_scheme(uuid, numeric);
+
+-- ============================================================================
 -- 8. UPDATED RPC: calculate_bbps_charge_from_scheme (charge-based model)
 -- ============================================================================
 -- Now returns per-level charges + computed margins
