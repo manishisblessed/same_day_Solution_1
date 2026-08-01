@@ -414,6 +414,12 @@ function SchemeManagementPageContent() {
     md_commission_type: 'flat' as 'flat' | 'percentage',
     company_charge: 0,
     company_charge_type: 'flat' as 'flat' | 'percentage',
+    md_purchase_charge: 0,
+    md_purchase_charge_type: 'flat' as 'flat' | 'percentage',
+    dt_purchase_charge: 0,
+    dt_purchase_charge_type: 'flat' as 'flat' | 'percentage',
+    rt_purchase_charge: 0,
+    rt_purchase_charge_type: 'flat' as 'flat' | 'percentage',
     gst_inclusive: false,
     vendor_rate: 0,
     company_mdr_rate: 0,
@@ -435,6 +441,12 @@ function SchemeManagementPageContent() {
     md_commission_type: 'flat' as 'flat' | 'percentage',
     company_charge: 0,
     company_charge_type: 'flat' as 'flat' | 'percentage',
+    md_purchase_charge: 0,
+    md_purchase_charge_type: 'flat' as 'flat' | 'percentage',
+    dt_purchase_charge: 0,
+    dt_purchase_charge_type: 'flat' as 'flat' | 'percentage',
+    rt_purchase_charge: 0,
+    rt_purchase_charge_type: 'flat' as 'flat' | 'percentage',
     gst_inclusive: false,
     vendor_rate: 0,
     company_mdr_rate: 0,
@@ -527,9 +539,9 @@ function SchemeManagementPageContent() {
     }
     if (editData) {
       if (type === 'bbps') {
-        setBbpsForm({ bbps_type: editData.bbps_type || 'bbps_1', category: editData.category || '', min_amount: editData.min_amount || 0, max_amount: editData.max_amount || 100000, retailer_charge: editData.retailer_charge || 0, retailer_charge_type: editData.retailer_charge_type || 'flat', retailer_commission: editData.retailer_commission || 0, retailer_commission_type: editData.retailer_commission_type || 'flat', distributor_commission: editData.distributor_commission || 0, distributor_commission_type: editData.distributor_commission_type || 'flat', md_commission: editData.md_commission || 0, md_commission_type: editData.md_commission_type || 'flat', company_charge: editData.company_charge || 0, company_charge_type: editData.company_charge_type || 'flat', gst_inclusive: editData.gst_inclusive || false, vendor_rate: editData.vendor_rate || 0, company_mdr_rate: editData.company_mdr_rate || 0 })
+        setBbpsForm({ bbps_type: editData.bbps_type || 'bbps_1', category: editData.category || '', min_amount: editData.min_amount || 0, max_amount: editData.max_amount || 100000, retailer_charge: editData.retailer_charge || 0, retailer_charge_type: editData.retailer_charge_type || 'flat', retailer_commission: editData.retailer_commission || 0, retailer_commission_type: editData.retailer_commission_type || 'flat', distributor_commission: editData.distributor_commission || 0, distributor_commission_type: editData.distributor_commission_type || 'flat', md_commission: editData.md_commission || 0, md_commission_type: editData.md_commission_type || 'flat', company_charge: editData.company_charge || 0, company_charge_type: editData.company_charge_type || 'flat', md_purchase_charge: editData.md_purchase_charge || 0, md_purchase_charge_type: editData.md_purchase_charge_type || 'flat', dt_purchase_charge: editData.dt_purchase_charge || 0, dt_purchase_charge_type: editData.dt_purchase_charge_type || 'flat', rt_purchase_charge: editData.rt_purchase_charge || 0, rt_purchase_charge_type: editData.rt_purchase_charge_type || 'flat', gst_inclusive: editData.gst_inclusive || false, vendor_rate: editData.vendor_rate || 0, company_mdr_rate: editData.company_mdr_rate || 0 })
       } else if (type === 'payout') {
-        setPayoutForm({ transfer_mode: editData.transfer_mode || 'IMPS', min_amount: editData.min_amount || 0, max_amount: editData.max_amount || 100000, retailer_charge: editData.retailer_charge || 0, retailer_charge_type: editData.retailer_charge_type || 'flat', retailer_commission: editData.retailer_commission || 0, retailer_commission_type: editData.retailer_commission_type || 'flat', distributor_commission: editData.distributor_commission || 0, distributor_commission_type: editData.distributor_commission_type || 'flat', md_commission: editData.md_commission || 0, md_commission_type: editData.md_commission_type || 'flat', company_charge: editData.company_charge || 0, company_charge_type: editData.company_charge_type || 'flat', gst_inclusive: editData.gst_inclusive || false, vendor_rate: editData.vendor_rate || 0, company_mdr_rate: editData.company_mdr_rate || 0 })
+        setPayoutForm({ transfer_mode: editData.transfer_mode || 'IMPS', min_amount: editData.min_amount || 0, max_amount: editData.max_amount || 100000, retailer_charge: editData.retailer_charge || 0, retailer_charge_type: editData.retailer_charge_type || 'flat', retailer_commission: editData.retailer_commission || 0, retailer_commission_type: editData.retailer_commission_type || 'flat', distributor_commission: editData.distributor_commission || 0, distributor_commission_type: editData.distributor_commission_type || 'flat', md_commission: editData.md_commission || 0, md_commission_type: editData.md_commission_type || 'flat', company_charge: editData.company_charge || 0, company_charge_type: editData.company_charge_type || 'flat', md_purchase_charge: editData.md_purchase_charge || 0, md_purchase_charge_type: editData.md_purchase_charge_type || 'flat', dt_purchase_charge: editData.dt_purchase_charge || 0, dt_purchase_charge_type: editData.dt_purchase_charge_type || 'flat', rt_purchase_charge: editData.rt_purchase_charge || 0, rt_purchase_charge_type: editData.rt_purchase_charge_type || 'flat', gst_inclusive: editData.gst_inclusive || false, vendor_rate: editData.vendor_rate || 0, company_mdr_rate: editData.company_mdr_rate || 0 })
       } else if (type === 'mdr') {
         setMdrForm({ mode: editData.mode || 'CARD', card_type: editData.card_type || '', brand_type: editData.brand_type || '', card_classification: editData.card_classification || '', merchant_slug: editData.merchant_slug || '', retailer_mdr_t1: editData.retailer_mdr_t1 || 0, retailer_mdr_t0: editData.retailer_mdr_t0 || 0, distributor_mdr_t1: editData.distributor_mdr_t1 || 0, distributor_mdr_t0: editData.distributor_mdr_t0 || 0, md_mdr_t1: editData.md_mdr_t1 || 0, md_mdr_t0: editData.md_mdr_t0 || 0, partner_mdr: editData.partner_mdr || 0, gst_inclusive: editData.gst_inclusive || false, vendor_rate: editData.vendor_rate || 0, company_mdr_rate: editData.company_mdr_rate || 0 })
       } else if (type === 'aeps') {
@@ -540,8 +552,8 @@ function SchemeManagementPageContent() {
         setShadvalSettleForm({ transfer_mode: editData.transfer_mode || 'IMPS', min_amount: editData.min_amount || 0, max_amount: editData.max_amount || 100000, retailer_charge: editData.retailer_charge || 0, retailer_charge_type: editData.retailer_charge_type || 'flat', distributor_commission: editData.distributor_commission || 0, distributor_commission_type: editData.distributor_commission_type || 'flat', md_commission: editData.md_commission || 0, md_commission_type: editData.md_commission_type || 'flat', company_charge: editData.company_charge || 0, company_charge_type: editData.company_charge_type || 'flat', gst_inclusive: editData.gst_inclusive || false, vendor_rate: editData.vendor_rate || 0, company_mdr_rate: editData.company_mdr_rate || 0 })
       }
     } else {
-      setBbpsForm({ bbps_type: 'bbps_1', category: '', min_amount: 0, max_amount: 100000, retailer_charge: 0, retailer_charge_type: 'flat', retailer_commission: 0, retailer_commission_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat', company_charge: 0, company_charge_type: 'flat', gst_inclusive: false, vendor_rate: 0, company_mdr_rate: 0 })
-      setPayoutForm({ transfer_mode: 'IMPS', min_amount: 0, max_amount: 100000, retailer_charge: 0, retailer_charge_type: 'flat', retailer_commission: 0, retailer_commission_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat', company_charge: 0, company_charge_type: 'flat', gst_inclusive: false, vendor_rate: 0, company_mdr_rate: 0 })
+      setBbpsForm({ bbps_type: 'bbps_1', category: '', min_amount: 0, max_amount: 100000, retailer_charge: 0, retailer_charge_type: 'flat', retailer_commission: 0, retailer_commission_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat', company_charge: 0, company_charge_type: 'flat', md_purchase_charge: 0, md_purchase_charge_type: 'flat', dt_purchase_charge: 0, dt_purchase_charge_type: 'flat', rt_purchase_charge: 0, rt_purchase_charge_type: 'flat', gst_inclusive: false, vendor_rate: 0, company_mdr_rate: 0 })
+      setPayoutForm({ transfer_mode: 'IMPS', min_amount: 0, max_amount: 100000, retailer_charge: 0, retailer_charge_type: 'flat', retailer_commission: 0, retailer_commission_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat', company_charge: 0, company_charge_type: 'flat', md_purchase_charge: 0, md_purchase_charge_type: 'flat', dt_purchase_charge: 0, dt_purchase_charge_type: 'flat', rt_purchase_charge: 0, rt_purchase_charge_type: 'flat', gst_inclusive: false, vendor_rate: 0, company_mdr_rate: 0 })
       setMdrForm({ mode: 'CARD', card_type: '', brand_type: '', card_classification: '', merchant_slug: '', retailer_mdr_t1: 0, retailer_mdr_t0: 0, distributor_mdr_t1: 0, distributor_mdr_t0: 0, md_mdr_t1: 0, md_mdr_t0: 0, partner_mdr: 0, gst_inclusive: false, vendor_rate: 0, company_mdr_rate: 0 })
       setAepsForm({ transaction_type: 'cash_withdrawal', min_amount: 0, max_amount: 100000, base_commission: 0, base_commission_type: 'percentage', company_earning: 0, company_earning_type: 'flat', md_commission: 0, md_commission_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', retailer_commission: 0, retailer_commission_type: 'flat', tds_percentage: 5, gst_inclusive: false, vendor_rate: 0, company_mdr_rate: 0 })
       setAepsSettleForm({ min_amount: 0, max_amount: 100000, retailer_charge: 0, retailer_charge_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat', company_charge: 0, company_charge_type: 'flat', gst_inclusive: false, vendor_rate: 0, company_mdr_rate: 0 })
@@ -1627,11 +1639,10 @@ function SchemeManagementPageContent() {
                           { label: 'Company Earning', key: 'company_charge', typeKey: 'company_charge_type' },
                         ]
                       : [
-                          { label: 'Retailer Charge', key: 'retailer_charge', typeKey: 'retailer_charge_type' },
-                          { label: 'Retailer Commission', key: 'retailer_commission', typeKey: 'retailer_commission_type' },
-                          { label: 'Distributor Commission', key: 'distributor_commission', typeKey: 'distributor_commission_type' },
-                          { label: 'MD Commission', key: 'md_commission', typeKey: 'md_commission_type' },
-                          { label: 'Company Earning', key: 'company_charge', typeKey: 'company_charge_type' },
+                          { label: 'Company Cost (Vendor)', key: 'company_charge', typeKey: 'company_charge_type' },
+                          { label: 'MD Purchase Charge (Admin → MD)', key: 'md_purchase_charge', typeKey: 'md_purchase_charge_type' },
+                          { label: 'DT Purchase Charge (MD → DT)', key: 'dt_purchase_charge', typeKey: 'dt_purchase_charge_type' },
+                          { label: 'RT Purchase Charge (DT → RT)', key: 'rt_purchase_charge', typeKey: 'rt_purchase_charge_type' },
                         ]
                     return (
                       <>
@@ -1639,6 +1650,12 @@ function SchemeManagementPageContent() {
                           <div className="flex items-center gap-2 px-3 py-2 bg-orange-50 dark:bg-orange-900/20 rounded-lg border border-orange-200 dark:border-orange-800">
                             <TrendingUp className="w-4 h-4 text-orange-600" />
                             <span className="text-xs font-medium text-orange-700 dark:text-orange-400">Partner Plan — single rate (no RT/DT/MD breakdown)</span>
+                          </div>
+                        )}
+                        {!isPartnerPlan && (
+                          <div className="flex items-center gap-2 px-3 py-2 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+                            <Layers className="w-4 h-4 text-blue-600" />
+                            <span className="text-xs font-medium text-blue-700 dark:text-blue-400">Charge-Based Model: Admin → MD → DT → RT (margin = selling - purchase)</span>
                           </div>
                         )}
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -1661,6 +1678,25 @@ function SchemeManagementPageContent() {
                           </div>
                         ))}
                         </div>
+                        {!isPartnerPlan && (
+                          <div className="mt-2 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                            <p className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Margin Preview (flat values)</p>
+                            <div className="grid grid-cols-3 gap-2 text-xs">
+                              <div className="text-center">
+                                <div className="text-gray-500">Company</div>
+                                <div className="font-semibold text-green-600">₹{(((bbpsForm as any).md_purchase_charge || 0) - ((bbpsForm as any).company_charge || 0)).toFixed(2)}</div>
+                              </div>
+                              <div className="text-center">
+                                <div className="text-gray-500">MD</div>
+                                <div className="font-semibold text-purple-600">₹{(((bbpsForm as any).dt_purchase_charge || 0) - ((bbpsForm as any).md_purchase_charge || 0)).toFixed(2)}</div>
+                              </div>
+                              <div className="text-center">
+                                <div className="text-gray-500">DT</div>
+                                <div className="font-semibold text-blue-600">₹{(((bbpsForm as any).rt_purchase_charge || 0) - ((bbpsForm as any).dt_purchase_charge || 0)).toFixed(2)}</div>
+                              </div>
+                            </div>
+                          </div>
+                        )}
                       </>
                     )
                   })()}
@@ -1731,11 +1767,10 @@ function SchemeManagementPageContent() {
                           { label: 'Company Earning', key: 'company_charge', typeKey: 'company_charge_type' },
                         ]
                       : [
-                          { label: 'Retailer Charge', key: 'retailer_charge', typeKey: 'retailer_charge_type' },
-                          ...(settlementTypeSelection === 'payout' ? [{ label: 'Retailer Commission', key: 'retailer_commission', typeKey: 'retailer_commission_type' }] : []),
-                          { label: 'Distributor Commission', key: 'distributor_commission', typeKey: 'distributor_commission_type' },
-                          { label: 'MD Commission', key: 'md_commission', typeKey: 'md_commission_type' },
-                          { label: 'Company Earning', key: 'company_charge', typeKey: 'company_charge_type' },
+                          { label: 'Company Cost (Vendor)', key: 'company_charge', typeKey: 'company_charge_type' },
+                          { label: 'MD Purchase Charge (Admin → MD)', key: 'md_purchase_charge', typeKey: 'md_purchase_charge_type' },
+                          { label: 'DT Purchase Charge (MD → DT)', key: 'dt_purchase_charge', typeKey: 'dt_purchase_charge_type' },
+                          { label: 'RT Purchase Charge (DT → RT)', key: 'rt_purchase_charge', typeKey: 'rt_purchase_charge_type' },
                         ]
                     return (
                       <>
@@ -1743,6 +1778,12 @@ function SchemeManagementPageContent() {
                           <div className="flex items-center gap-2 px-3 py-2 bg-orange-50 dark:bg-orange-900/20 rounded-lg border border-orange-200 dark:border-orange-800">
                             <TrendingUp className="w-4 h-4 text-orange-600" />
                             <span className="text-xs font-medium text-orange-700 dark:text-orange-400">Partner Plan — single rate (no RT/DT/MD breakdown)</span>
+                          </div>
+                        )}
+                        {!isPartnerPlan && (
+                          <div className="flex items-center gap-2 px-3 py-2 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+                            <Layers className="w-4 h-4 text-blue-600" />
+                            <span className="text-xs font-medium text-blue-700 dark:text-blue-400">Charge-Based Model: Admin → MD → DT → RT</span>
                           </div>
                         )}
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -1765,6 +1806,25 @@ function SchemeManagementPageContent() {
                           </div>
                         ))}
                         </div>
+                        {!isPartnerPlan && (
+                          <div className="mt-2 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                            <p className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Margin Preview (flat values)</p>
+                            <div className="grid grid-cols-3 gap-2 text-xs">
+                              <div className="text-center">
+                                <div className="text-gray-500">Company</div>
+                                <div className="font-semibold text-green-600">₹{(((payoutForm as any).md_purchase_charge || 0) - ((payoutForm as any).company_charge || 0)).toFixed(2)}</div>
+                              </div>
+                              <div className="text-center">
+                                <div className="text-gray-500">MD</div>
+                                <div className="font-semibold text-purple-600">₹{(((payoutForm as any).dt_purchase_charge || 0) - ((payoutForm as any).md_purchase_charge || 0)).toFixed(2)}</div>
+                              </div>
+                              <div className="text-center">
+                                <div className="text-gray-500">DT</div>
+                                <div className="font-semibold text-blue-600">₹{(((payoutForm as any).rt_purchase_charge || 0) - ((payoutForm as any).dt_purchase_charge || 0)).toFixed(2)}</div>
+                              </div>
+                            </div>
+                          </div>
+                        )}
                       </>
                     )
                   })()}

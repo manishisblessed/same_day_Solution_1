@@ -194,8 +194,8 @@ export async function GET(request: NextRequest) {
       if (search) q = q.or(`transaction_id.ilike.%${sanitize(search)}%,agent_transaction_id.ilike.%${sanitize(search)}%`)
       return q
     }, (tx: any) => {
-      const charge = Number(tx.commission_amount) || 0
-      const gst = Math.round(charge * GST_RATE * 100) / 100
+      const charge = Number(tx.retailer_charge) || Number(tx.commission_amount) || 0
+      const gst = 0
       return {
         date: tx.created_at,
         transaction_id: tx.transaction_id || tx.agent_transaction_id || tx.id,
@@ -204,7 +204,7 @@ export async function GET(request: NextRequest) {
         bill_amount: Number(tx.bill_amount) || 0,
         charge,
         gst,
-        total_debit: (Number(tx.amount_paid) || Number(tx.bill_amount) || 0) + charge + gst,
+        total_debit: (Number(tx.amount_paid) || Number(tx.bill_amount) || 0) + charge,
         reference_number: tx.transaction_id || tx.agent_transaction_id || '-',
         status: tx.status || 'pending',
         retailer_id: tx.retailer_id,
@@ -229,10 +229,12 @@ export async function GET(request: NextRequest) {
     }, (tx: any) => {
       const debitAmt = Number(tx.debit) || 0
       const description = tx.description || tx.remarks || ''
-      const chargeMatch = description.match(/charge\s*₹?([\d,.]+)/i)
-      const charge = chargeMatch ? parseFloat(chargeMatch[1].replace(/,/g, '')) : 0
-      const gst = Math.round(charge * GST_RATE * 100) / 100
-      const billAmount = debitAmt - charge - gst
+      // Remarks format: "CC ₹{bill} + ₹{totalServiceCharge} GST" or "CC-2 ₹{bill} + ₹{totalServiceCharge} GST"
+      const chargeMatch = description.match(/\+\s*₹?([\d,.]+)\s*(?:GST|charge)/i)
+      const totalChargeWithGst = chargeMatch ? parseFloat(chargeMatch[1].replace(/,/g, '')) : 0
+      const charge = totalChargeWithGst > 0 ? Math.round(totalChargeWithGst / (1 + GST_RATE) * 100) / 100 : 0
+      const gst = totalChargeWithGst > 0 ? Math.round((totalChargeWithGst - charge) * 100) / 100 : 0
+      const billAmount = debitAmt - totalChargeWithGst
       const providerLabel = tx.service_type === 'rechargekit' ? 'Credit Card' : 'BBPS-2'
       return {
         date: tx.created_at,
@@ -297,9 +299,12 @@ export async function GET(request: NextRequest) {
       }, (tx: any) => {
         const debitAmt = Number(tx.debit) || 0
         const description = tx.description || ''
+        // Partner description format: "CC ₹{bill} + ₹{totalServiceCharge} charge"
         const chargeMatch = description.match(/\+\s*₹?([\d,.]+)\s*charge/i)
-        const charge = chargeMatch ? parseFloat(chargeMatch[1].replace(/,/g, '')) : 0
-        const billAmount = debitAmt - charge
+        const totalChargeWithGst = chargeMatch ? parseFloat(chargeMatch[1].replace(/,/g, '')) : 0
+        const charge = totalChargeWithGst > 0 ? Math.round(totalChargeWithGst / (1 + GST_RATE) * 100) / 100 : 0
+        const gst = totalChargeWithGst > 0 ? Math.round((totalChargeWithGst - charge) * 100) / 100 : 0
+        const billAmount = debitAmt - totalChargeWithGst
         const cardMatch = description.match(/Card:([*\d]+)/i)
         const mobMatch = description.match(/Mob:(\d+)/i)
         const isCC = /CC/i.test(description)
@@ -310,7 +315,7 @@ export async function GET(request: NextRequest) {
           customer_number: cardMatch?.[1] || mobMatch?.[1] || '-',
           bill_amount: billAmount > 0 ? billAmount : debitAmt,
           charge,
-          gst: 0,
+          gst,
           total_debit: debitAmt,
           reference_number: tx.reference_id || '-',
           status: tx.status || 'completed',

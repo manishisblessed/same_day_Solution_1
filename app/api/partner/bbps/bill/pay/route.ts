@@ -160,6 +160,7 @@ export async function POST(request: NextRequest) {
     let resolvedSchemeId: string | null = null
     let resolvedSchemeName: string | null = null
     let commissionSplit = { retailer_commission: 0, distributor_commission: 0, md_commission: 0 }
+    let chargeModelData: { md_purchase_charge: number; dt_purchase_charge: number; rt_purchase_charge: number; company_cost: number } | null = null
     try {
       const { data: schemeResult } = await (supabase as any).rpc('resolve_scheme_for_user', {
         p_user_id: retailer_id,
@@ -182,6 +183,17 @@ export async function POST(request: NextRequest) {
             retailer_commission: parseFloat(chargeResult[0].retailer_commission) || 0,
             distributor_commission: parseFloat(chargeResult[0].distributor_commission) || 0,
             md_commission: parseFloat(chargeResult[0].md_commission) || 0,
+          }
+          const mdPc = parseFloat(chargeResult[0].md_purchase_charge_val) || 0
+          const dtPc = parseFloat(chargeResult[0].dt_purchase_charge_val) || 0
+          const rtPc = parseFloat(chargeResult[0].rt_purchase_charge_val) || 0
+          if (mdPc > 0 || dtPc > 0 || rtPc > 0) {
+            chargeModelData = {
+              md_purchase_charge: mdPc,
+              dt_purchase_charge: dtPc,
+              rt_purchase_charge: rtPc,
+              company_cost: parseFloat(chargeResult[0].company_earning) || 0,
+            }
           }
         }
       }
@@ -297,6 +309,8 @@ export async function POST(request: NextRequest) {
           totalCharge: bbpsCharge,
           retailer: { id: retailer_id, role: 'retailer', commission: commissionSplit.retailer_commission },
           distributor: { id: retailer.distributor_id || null, commission: commissionSplit.distributor_commission },
+          masterDistributor: { id: retailer.master_distributor_id || null },
+          chargeModel: chargeModelData,
           remarksSuffix: `on ₹${billAmountInRupees} bill (partner API)`,
         })
         if (commResult.errors.length) console.error('[Partner BBPS Pay] Commission errors:', commResult.errors)

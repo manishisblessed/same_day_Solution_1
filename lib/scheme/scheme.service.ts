@@ -182,6 +182,12 @@ export async function upsertBBPSCommission(
       md_commission_type: input.md_commission_type || 'flat',
       company_charge: input.company_charge || 0,
       company_charge_type: input.company_charge_type || 'flat',
+      md_purchase_charge: input.md_purchase_charge || 0,
+      md_purchase_charge_type: input.md_purchase_charge_type || 'flat',
+      dt_purchase_charge: input.dt_purchase_charge || 0,
+      dt_purchase_charge_type: input.dt_purchase_charge_type || 'flat',
+      rt_purchase_charge: input.rt_purchase_charge || 0,
+      rt_purchase_charge_type: input.rt_purchase_charge_type || 'flat',
       gst_inclusive: input.gst_inclusive ?? false,
       vendor_rate: input.vendor_rate ?? 0,
       company_mdr_rate: input.company_mdr_rate ?? 0,
@@ -233,6 +239,12 @@ export async function upsertPayoutCharge(
       md_commission_type: input.md_commission_type || 'flat',
       company_charge: input.company_charge || 0,
       company_charge_type: input.company_charge_type || 'flat',
+      md_purchase_charge: input.md_purchase_charge || 0,
+      md_purchase_charge_type: input.md_purchase_charge_type || 'flat',
+      dt_purchase_charge: input.dt_purchase_charge || 0,
+      dt_purchase_charge_type: input.dt_purchase_charge_type || 'flat',
+      rt_purchase_charge: input.rt_purchase_charge || 0,
+      rt_purchase_charge_type: input.rt_purchase_charge_type || 'flat',
       gst_inclusive: input.gst_inclusive ?? false,
       vendor_rate: input.vendor_rate ?? 0,
       company_mdr_rate: input.company_mdr_rate ?? 0,
@@ -383,6 +395,12 @@ export async function upsertAEPSCommission(
       retailer_commission: input.retailer_commission || 0,
       retailer_commission_type: input.retailer_commission_type || 'flat',
       tds_percentage: input.tds_percentage || 0,
+      md_purchase_charge: input.md_purchase_charge || 0,
+      md_purchase_charge_type: input.md_purchase_charge_type || 'flat',
+      dt_purchase_charge: input.dt_purchase_charge || 0,
+      dt_purchase_charge_type: input.dt_purchase_charge_type || 'flat',
+      rt_purchase_charge: input.rt_purchase_charge || 0,
+      rt_purchase_charge_type: input.rt_purchase_charge_type || 'flat',
       gst_inclusive: input.gst_inclusive ?? false,
       vendor_rate: input.vendor_rate ?? 0,
       company_mdr_rate: input.company_mdr_rate ?? 0,
@@ -500,6 +518,12 @@ export async function upsertAEPSSettlementCharge(
       md_commission_type: input.md_commission_type || 'flat',
       company_charge: input.company_charge || 0,
       company_charge_type: input.company_charge_type || 'flat',
+      md_purchase_charge: input.md_purchase_charge || 0,
+      md_purchase_charge_type: input.md_purchase_charge_type || 'flat',
+      dt_purchase_charge: input.dt_purchase_charge || 0,
+      dt_purchase_charge_type: input.dt_purchase_charge_type || 'flat',
+      rt_purchase_charge: input.rt_purchase_charge || 0,
+      rt_purchase_charge_type: input.rt_purchase_charge_type || 'flat',
       gst_inclusive: input.gst_inclusive ?? false,
       vendor_rate: input.vendor_rate ?? 0,
       company_mdr_rate: input.company_mdr_rate ?? 0,
@@ -582,12 +606,22 @@ export async function calculateBBPSCharge(
   }
 
   const row = data[0];
+  const isChargeModel = (parseFloat(row.md_purchase_charge_val) || 0) > 0 ||
+    (parseFloat(row.dt_purchase_charge_val) || 0) > 0 ||
+    (parseFloat(row.rt_purchase_charge_val) || 0) > 0;
   return {
     retailer_charge: parseFloat(row.retailer_charge) || 0,
     retailer_commission: parseFloat(row.retailer_commission) || 0,
     distributor_commission: parseFloat(row.distributor_commission) || 0,
     md_commission: parseFloat(row.md_commission) || 0,
     company_earning: parseFloat(row.company_earning) || 0,
+    md_purchase_charge: parseFloat(row.md_purchase_charge_val) || 0,
+    dt_purchase_charge: parseFloat(row.dt_purchase_charge_val) || 0,
+    rt_purchase_charge: parseFloat(row.rt_purchase_charge_val) || 0,
+    md_margin: parseFloat(row.md_margin) || 0,
+    dt_margin: parseFloat(row.dt_margin) || 0,
+    company_margin: parseFloat(row.company_margin) || 0,
+    is_charge_model: isChargeModel,
     scheme_id: resolved.scheme_id,
     scheme_name: resolved.scheme_name,
     scheme_type: resolved.scheme_type,
@@ -622,12 +656,22 @@ export async function calculatePayoutCharge(
   }
 
   const row = data[0];
+  const isChargeModel = (parseFloat(row.md_purchase_charge_val) || 0) > 0 ||
+    (parseFloat(row.dt_purchase_charge_val) || 0) > 0 ||
+    (parseFloat(row.rt_purchase_charge_val) || 0) > 0;
   return {
     retailer_charge: parseFloat(row.retailer_charge) || 0,
     retailer_commission: parseFloat(row.retailer_commission) || 0,
     distributor_commission: parseFloat(row.distributor_commission) || 0,
     md_commission: parseFloat(row.md_commission) || 0,
     company_earning: parseFloat(row.company_earning) || 0,
+    md_purchase_charge: parseFloat(row.md_purchase_charge_val) || 0,
+    dt_purchase_charge: parseFloat(row.dt_purchase_charge_val) || 0,
+    rt_purchase_charge: parseFloat(row.rt_purchase_charge_val) || 0,
+    md_margin: parseFloat(row.md_margin) || 0,
+    dt_margin: parseFloat(row.dt_margin) || 0,
+    company_margin: parseFloat(row.company_margin) || 0,
+    is_charge_model: isChargeModel,
     scheme_id: resolved.scheme_id,
     scheme_name: resolved.scheme_name,
     scheme_type: resolved.scheme_type,
@@ -660,12 +704,22 @@ export async function calculateAEPSSettlementCharge(
   }
 
   const chargeRow = chargeData[0];
+  const isChargeModel = (parseFloat(chargeRow.md_purchase_charge_val) || 0) > 0 ||
+    (parseFloat(chargeRow.dt_purchase_charge_val) || 0) > 0 ||
+    (parseFloat(chargeRow.rt_purchase_charge_val) || 0) > 0;
   return {
     retailer_charge: parseFloat(chargeRow.retailer_charge) || 0,
     retailer_commission: 0,
     distributor_commission: parseFloat(chargeRow.distributor_commission) || 0,
     md_commission: parseFloat(chargeRow.md_commission) || 0,
-    company_earning: parseFloat(chargeRow.company_charge) || 0,
+    company_earning: parseFloat(chargeRow.company_earning) || 0,
+    md_purchase_charge: parseFloat(chargeRow.md_purchase_charge_val) || 0,
+    dt_purchase_charge: parseFloat(chargeRow.dt_purchase_charge_val) || 0,
+    rt_purchase_charge: parseFloat(chargeRow.rt_purchase_charge_val) || 0,
+    md_margin: parseFloat(chargeRow.md_margin) || 0,
+    dt_margin: parseFloat(chargeRow.dt_margin) || 0,
+    company_margin: parseFloat(chargeRow.company_margin) || 0,
+    is_charge_model: isChargeModel,
     scheme_id: resolved.scheme_id,
     scheme_name: resolved.scheme_name,
     scheme_type: resolved.scheme_type,
@@ -707,6 +761,12 @@ export async function upsertShadvalSettlementCharge(
       md_commission_type: input.md_commission_type || 'flat',
       company_charge: input.company_charge || 0,
       company_charge_type: input.company_charge_type || 'flat',
+      md_purchase_charge: input.md_purchase_charge || 0,
+      md_purchase_charge_type: input.md_purchase_charge_type || 'flat',
+      dt_purchase_charge: input.dt_purchase_charge || 0,
+      dt_purchase_charge_type: input.dt_purchase_charge_type || 'flat',
+      rt_purchase_charge: input.rt_purchase_charge || 0,
+      rt_purchase_charge_type: input.rt_purchase_charge_type || 'flat',
       gst_inclusive: input.gst_inclusive ?? false,
       vendor_rate: input.vendor_rate ?? 0,
       company_mdr_rate: input.company_mdr_rate ?? 0,
@@ -747,12 +807,22 @@ export async function calculateShadvalSettlementCharge(
   }
 
   const chargeRow = chargeData[0];
+  const isChargeModel = (parseFloat(chargeRow.md_purchase_charge_val) || 0) > 0 ||
+    (parseFloat(chargeRow.dt_purchase_charge_val) || 0) > 0 ||
+    (parseFloat(chargeRow.rt_purchase_charge_val) || 0) > 0;
   return {
     retailer_charge: parseFloat(chargeRow.retailer_charge) || 0,
     retailer_commission: 0,
     distributor_commission: parseFloat(chargeRow.distributor_commission) || 0,
     md_commission: parseFloat(chargeRow.md_commission) || 0,
-    company_earning: parseFloat(chargeRow.company_charge) || 0,
+    company_earning: parseFloat(chargeRow.company_earning || chargeRow.company_charge) || 0,
+    md_purchase_charge: parseFloat(chargeRow.md_purchase_charge_val) || 0,
+    dt_purchase_charge: parseFloat(chargeRow.dt_purchase_charge_val) || 0,
+    rt_purchase_charge: parseFloat(chargeRow.rt_purchase_charge_val) || 0,
+    md_margin: parseFloat(chargeRow.md_margin) || 0,
+    dt_margin: parseFloat(chargeRow.dt_margin) || 0,
+    company_margin: parseFloat(chargeRow.company_margin) || 0,
+    is_charge_model: isChargeModel,
     scheme_id: resolved.scheme_id,
     scheme_name: resolved.scheme_name,
     scheme_type: resolved.scheme_type,

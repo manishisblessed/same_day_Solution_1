@@ -91,6 +91,37 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       return NextResponse.json({ error: `Invalid config_type: ${config_type}` }, { status: 400 });
     }
 
+    // Charge-based model validation: ensure charge hierarchy is valid
+    const mdPc = parseFloat(configData.md_purchase_charge) || 0;
+    const dtPc = parseFloat(configData.dt_purchase_charge) || 0;
+    const rtPc = parseFloat(configData.rt_purchase_charge) || 0;
+    if (mdPc > 0 || dtPc > 0 || rtPc > 0) {
+      if (dtPc < mdPc) {
+        return NextResponse.json({ error: 'DT Purchase Charge must be >= MD Purchase Charge' }, { status: 400 });
+      }
+      if (rtPc < dtPc) {
+        return NextResponse.json({ error: 'RT Purchase Charge must be >= DT Purchase Charge' }, { status: 400 });
+      }
+      // Role-based field restriction
+      if (user.role === 'master_distributor') {
+        // MD can only set dt_purchase_charge; md_purchase_charge and rt_purchase_charge are set by admin/DT
+        if (mdPc > 0) {
+          return NextResponse.json({ error: 'Master Distributor cannot set MD Purchase Charge (set by Admin)' }, { status: 403 });
+        }
+        if (rtPc > 0) {
+          return NextResponse.json({ error: 'Master Distributor cannot set RT Purchase Charge (set by Distributor)' }, { status: 403 });
+        }
+      } else if (user.role === 'distributor') {
+        // DT can only set rt_purchase_charge
+        if (mdPc > 0) {
+          return NextResponse.json({ error: 'Distributor cannot set MD Purchase Charge (set by Admin)' }, { status: 403 });
+        }
+        if (dtPc > 0) {
+          return NextResponse.json({ error: 'Distributor cannot set DT Purchase Charge (set by Master Distributor)' }, { status: 403 });
+        }
+      }
+    }
+
     configData.scheme_id = params.id;
 
     let result: { data: any; error: string | null };

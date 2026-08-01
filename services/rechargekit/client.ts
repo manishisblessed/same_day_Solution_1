@@ -41,10 +41,27 @@ function extractErrorMessage(parsed: any, status: number): string {
         return `${parsed.message ? parsed.message + ' — ' : ''}${parts.join(' | ')}`
       }
     }
-    const candidate =
-      parsed.message ?? parsed.error ?? parsed.msg ?? parsed.error_message ?? parsed.description
-    if (candidate) return String(candidate)
+    // Prefer human-readable text fields. Rechargekit puts a numeric code in
+    // `error` (e.g. 1) and the actual reason in `msg` — so `msg`/`message`
+    // must win over `error`, otherwise callers see a meaningless "1"/"422".
+    const textCandidate =
+      parsed.msg ?? parsed.message ?? parsed.error_message ?? parsed.description
+    const isMeaningfulText =
+      textCandidate != null && String(textCandidate).trim() !== '' && isNaN(Number(textCandidate))
+
+    // Numeric provider code, if any, to append for traceability.
+    const codeVal = parsed.error ?? parsed.status ?? parsed.code
+    const codeSuffix =
+      codeVal != null && String(codeVal).trim() !== '' ? ` (code ${codeVal})` : ''
+
+    if (isMeaningfulText) return `${String(textCandidate).trim()}${codeSuffix}`
     if (typeof parsed.data === 'string' && parsed.data.trim()) return parsed.data
+
+    // No readable message — fall back to whatever we have (code or text).
+    const fallback = textCandidate ?? codeVal
+    if (fallback != null && String(fallback).trim() !== '') {
+      return `Rechargekit error ${String(fallback).trim()} (HTTP ${status})`
+    }
   }
   return `Rechargekit HTTP error ${status}`
 }

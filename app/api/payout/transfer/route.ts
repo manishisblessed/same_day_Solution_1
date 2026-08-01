@@ -289,10 +289,11 @@ export async function POST(request: NextRequest) {
     let resolvedSchemeName: string | null = null
     let resolvedVia: string | null = null // Track how scheme was resolved for commission logic
     let commissionSplit = { retailer_commission: 0, distributor_commission: 0, md_commission: 0 }
-    
+    let chargeModelData: { md_purchase_charge: number; dt_purchase_charge: number; rt_purchase_charge: number; company_cost: number } | null = null
+
     try {
       console.log(`[Payout] Resolving scheme: user=${user.partner_id}, dist=${distributorId}, md=${mdId}, amount=${amountNum}, mode=${transferMode}`)
-      
+
       const { data: schemeResult, error: schemeError } = await (supabaseAdmin as any).rpc('resolve_scheme_for_user', {
         p_user_id: user.partner_id,
         p_user_role: user.role,
@@ -325,7 +326,18 @@ export async function POST(request: NextRequest) {
             distributor_commission: parseFloat(chargeResult[0].distributor_commission) || 0,
             md_commission: parseFloat(chargeResult[0].md_commission) || 0,
           }
-          console.log(`[Payout] Scheme charge via RPC: ₹${charges}, commissions: RT=${commissionSplit.retailer_commission}, DT=${commissionSplit.distributor_commission}, MD=${commissionSplit.md_commission}`)
+          const mdPc = parseFloat(chargeResult[0].md_purchase_charge_val) || 0
+          const dtPc = parseFloat(chargeResult[0].dt_purchase_charge_val) || 0
+          const rtPc = parseFloat(chargeResult[0].rt_purchase_charge_val) || 0
+          if (mdPc > 0 || dtPc > 0 || rtPc > 0) {
+            chargeModelData = {
+              md_purchase_charge: mdPc,
+              dt_purchase_charge: dtPc,
+              rt_purchase_charge: rtPc,
+              company_cost: parseFloat(chargeResult[0].company_earning) || 0,
+            }
+          }
+          console.log(`[Payout] Scheme charge via RPC: ₹${charges}, commissions: RT=${commissionSplit.retailer_commission}, DT=${commissionSplit.distributor_commission}, MD=${commissionSplit.md_commission}${chargeModelData ? ' [CHARGE MODEL]' : ''}`)
         } else {
           console.warn(`[Payout] RPC charge slab returned 0, trying direct query for scheme ${resolved.scheme_id}, amount=${amountNum}, mode=${transferMode}`)
           // Fallback: Direct table query for payout charge
@@ -765,17 +777,20 @@ export async function POST(request: NextRequest) {
         totalCharge: charges,
         retailer: { id: user.partner_id, role: user.role, commission: commissionSplit.retailer_commission },
         distributor: { id: distributorId, commission: commissionSplit.distributor_commission },
+        masterDistributor: { id: mdId },
+        chargeModel: chargeModelData,
         remarksSuffix: `on ₹${amountNum} transfer`,
         auditWriteback: {
           table: 'payout_transactions',
           txnId: payoutTx.id,
           retailerCol: 'retailer_commission_earned',
           distributorCol: 'distributor_commission_earned',
+          mdCol: 'md_margin_earned',
           companyCol: 'company_earning',
         },
       })
       if (commResult.errors.length) console.error('[Payout] ❌ Commission errors:', commResult.errors)
-      else console.log(`[Payout] ✅ Commission distributed: RT ₹${commResult.retailerCredited}, DT ₹${commResult.distributorCredited}, Company ₹${commResult.companyCredited}`)
+      else console.log(`[Payout] ✅ Commission distributed (${commResult.model}): RT ₹${commResult.retailerCredited}, DT ₹${commResult.distributorCredited}, MD ₹${commResult.mdCredited}, Company ₹${commResult.companyCredited}`)
     } else {
       console.log(`[Payout] ⚠️ charges is 0, skipping all commission distribution`)
     }

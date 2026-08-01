@@ -259,6 +259,7 @@ export async function POST(request: NextRequest) {
     let resolvedSchemeName: string | null = null
     let resolvedVia: string | null = null // Track how scheme was resolved for commission logic
     let commissionSplit = { retailer_commission: 0, distributor_commission: 0, md_commission: 0 }
+    let chargeModelData: { md_purchase_charge: number; dt_purchase_charge: number; rt_purchase_charge: number; company_cost: number } | null = null
     
     try {
       // Try scheme-based charge calculation first (RPC)
@@ -296,7 +297,19 @@ export async function POST(request: NextRequest) {
             distributor_commission: parseFloat(chargeResult[0].distributor_commission) || 0,
             md_commission: parseFloat(chargeResult[0].md_commission) || 0,
           }
-          console.log(`[BBPS Pay] Scheme charge via RPC: ₹${bbpsCharge}, commissions: RT=${commissionSplit.retailer_commission}, DT=${commissionSplit.distributor_commission}, MD=${commissionSplit.md_commission}`)
+          // Detect charge-based model
+          const mdPc = parseFloat(chargeResult[0].md_purchase_charge_val) || 0
+          const dtPc = parseFloat(chargeResult[0].dt_purchase_charge_val) || 0
+          const rtPc = parseFloat(chargeResult[0].rt_purchase_charge_val) || 0
+          if (mdPc > 0 || dtPc > 0 || rtPc > 0) {
+            chargeModelData = {
+              md_purchase_charge: mdPc,
+              dt_purchase_charge: dtPc,
+              rt_purchase_charge: rtPc,
+              company_cost: parseFloat(chargeResult[0].company_earning) || 0,
+            }
+          }
+          console.log(`[BBPS Pay] Scheme charge via RPC: ₹${bbpsCharge}, commissions: RT=${commissionSplit.retailer_commission}, DT=${commissionSplit.distributor_commission}, MD=${commissionSplit.md_commission}${chargeModelData ? ' [CHARGE MODEL]' : ''}`)
         } else {
           console.warn(`[BBPS Pay] RPC charge slab returned 0 for scheme ${resolved.scheme_id}, trying direct query...`)
           // Fallback: Direct table query for BBPS charge
@@ -874,17 +887,20 @@ export async function POST(request: NextRequest) {
           totalCharge: bbpsCharge,
           retailer: { id: user.partner_id, role: user.role, commission: commissionSplit.retailer_commission },
           distributor: { id: distributorId, commission: commissionSplit.distributor_commission },
+          masterDistributor: { id: mdId },
+          chargeModel: chargeModelData,
           remarksSuffix: `on ₹${billAmountInRupees} bill`,
           auditWriteback: {
             table: 'bbps_transactions',
             txnId: bbpsTransaction.id,
             retailerCol: 'retailer_commission_earned',
             distributorCol: 'distributor_commission_earned',
+            mdCol: 'md_margin_earned',
             companyCol: 'company_earning',
           },
         })
         if (commResult.errors.length) console.error('[BBPS Pay] ❌ Commission errors:', commResult.errors)
-        else console.log(`[BBPS Pay] ✅ Commission distributed: RT ₹${commResult.retailerCredited}, DT ₹${commResult.distributorCredited}, Company ₹${commResult.companyCredited}`)
+        else console.log(`[BBPS Pay] ✅ Commission distributed (${commResult.model}): RT ₹${commResult.retailerCredited}, DT ₹${commResult.distributorCredited}, MD ₹${commResult.mdCredited}, Company ₹${commResult.companyCredited}`)
       } else {
         console.log(`[BBPS Pay] ⚠️ bbpsCharge is 0, skipping all commission distribution`)
       }

@@ -76,6 +76,14 @@ export interface SchemeBBPSCommission {
   
   company_charge: number;
   company_charge_type: ChargeType;
+
+  // Charge-based model fields
+  md_purchase_charge: number;
+  md_purchase_charge_type: ChargeType;
+  dt_purchase_charge: number;
+  dt_purchase_charge_type: ChargeType;
+  rt_purchase_charge: number;
+  rt_purchase_charge_type: ChargeType;
   
   gst_inclusive: boolean;
   vendor_rate: number;
@@ -111,6 +119,14 @@ export interface SchemePayoutCharge {
   
   company_charge: number;
   company_charge_type: ChargeType;
+
+  // Charge-based model fields
+  md_purchase_charge: number;
+  md_purchase_charge_type: ChargeType;
+  dt_purchase_charge: number;
+  dt_purchase_charge_type: ChargeType;
+  rt_purchase_charge: number;
+  rt_purchase_charge_type: ChargeType;
   
   gst_inclusive: boolean;
   vendor_rate: number;
@@ -185,6 +201,14 @@ export interface SchemeAEPSCommission {
 
   tds_percentage: number;
 
+  // Charge-based model fields
+  md_purchase_charge: number;
+  md_purchase_charge_type: ChargeType;
+  dt_purchase_charge: number;
+  dt_purchase_charge_type: ChargeType;
+  rt_purchase_charge: number;
+  rt_purchase_charge_type: ChargeType;
+
   gst_inclusive: boolean;
   vendor_rate: number;
   company_mdr_rate: number;
@@ -215,6 +239,14 @@ export interface SchemeAEPSSettlementCharge {
 
   company_charge: number;
   company_charge_type: ChargeType;
+
+  // Charge-based model fields
+  md_purchase_charge: number;
+  md_purchase_charge_type: ChargeType;
+  dt_purchase_charge: number;
+  dt_purchase_charge_type: ChargeType;
+  rt_purchase_charge: number;
+  rt_purchase_charge_type: ChargeType;
 
   gst_inclusive: boolean;
   vendor_rate: number;
@@ -247,6 +279,14 @@ export interface SchemeShadvalSettlementCharge {
 
   company_charge: number;
   company_charge_type: ChargeType;
+
+  // Charge-based model fields
+  md_purchase_charge: number;
+  md_purchase_charge_type: ChargeType;
+  dt_purchase_charge: number;
+  dt_purchase_charge_type: ChargeType;
+  rt_purchase_charge: number;
+  rt_purchase_charge_type: ChargeType;
 
   gst_inclusive: boolean;
   vendor_rate: number;
@@ -302,6 +342,14 @@ export interface ChargeBreakdown {
   distributor_commission: number;
   md_commission: number;
   company_earning: number;
+  // Charge-based model fields
+  md_purchase_charge: number;
+  dt_purchase_charge: number;
+  rt_purchase_charge: number;
+  md_margin: number;
+  dt_margin: number;
+  company_margin: number;
+  is_charge_model: boolean;
   scheme_id: string;
   scheme_name: string;
   scheme_type: SchemeType;
@@ -340,6 +388,13 @@ export interface CreateBBPSCommissionInput {
   md_commission_type?: ChargeType;
   company_charge?: number;
   company_charge_type?: ChargeType;
+  // Charge-based model
+  md_purchase_charge?: number;
+  md_purchase_charge_type?: ChargeType;
+  dt_purchase_charge?: number;
+  dt_purchase_charge_type?: ChargeType;
+  rt_purchase_charge?: number;
+  rt_purchase_charge_type?: ChargeType;
   gst_inclusive?: boolean;
   vendor_rate?: number;
   company_mdr_rate?: number;
@@ -360,6 +415,13 @@ export interface CreatePayoutChargeInput {
   md_commission_type?: ChargeType;
   company_charge?: number;
   company_charge_type?: ChargeType;
+  // Charge-based model
+  md_purchase_charge?: number;
+  md_purchase_charge_type?: ChargeType;
+  dt_purchase_charge?: number;
+  dt_purchase_charge_type?: ChargeType;
+  rt_purchase_charge?: number;
+  rt_purchase_charge_type?: ChargeType;
   gst_inclusive?: boolean;
   vendor_rate?: number;
   company_mdr_rate?: number;
@@ -407,6 +469,13 @@ export interface CreateAEPSSettlementChargeInput {
   md_commission_type?: ChargeType;
   company_charge?: number;
   company_charge_type?: ChargeType;
+  // Charge-based model
+  md_purchase_charge?: number;
+  md_purchase_charge_type?: ChargeType;
+  dt_purchase_charge?: number;
+  dt_purchase_charge_type?: ChargeType;
+  rt_purchase_charge?: number;
+  rt_purchase_charge_type?: ChargeType;
   gst_inclusive?: boolean;
   vendor_rate?: number;
   company_mdr_rate?: number;
@@ -425,6 +494,13 @@ export interface CreateShadvalSettlementChargeInput {
   md_commission_type?: ChargeType;
   company_charge?: number;
   company_charge_type?: ChargeType;
+  // Charge-based model
+  md_purchase_charge?: number;
+  md_purchase_charge_type?: ChargeType;
+  dt_purchase_charge?: number;
+  dt_purchase_charge_type?: ChargeType;
+  rt_purchase_charge?: number;
+  rt_purchase_charge_type?: ChargeType;
   gst_inclusive?: boolean;
   vendor_rate?: number;
   company_mdr_rate?: number;
@@ -446,6 +522,13 @@ export interface CreateAEPSCommissionInput {
   retailer_commission?: number;
   retailer_commission_type?: ChargeType;
   tds_percentage?: number;
+  // Charge-based model
+  md_purchase_charge?: number;
+  md_purchase_charge_type?: ChargeType;
+  dt_purchase_charge?: number;
+  dt_purchase_charge_type?: ChargeType;
+  rt_purchase_charge?: number;
+  rt_purchase_charge_type?: ChargeType;
   gst_inclusive?: boolean;
   vendor_rate?: number;
   company_mdr_rate?: number;

@@ -171,6 +171,7 @@ export async function POST(request: NextRequest) {
     let resolvedSchemeName: string | null = null
     let resolvedVia: string | null = null
     let commissionSplit = { retailer_commission: 0, distributor_commission: 0, md_commission: 0 }
+    let chargeModelData: { md_purchase_charge: number; dt_purchase_charge: number; rt_purchase_charge: number; company_cost: number } | null = null
     const schemeCategory = 'Credit Card'
 
     try {
@@ -198,6 +199,17 @@ export async function POST(request: NextRequest) {
             retailer_commission: parseFloat(chargeResult[0].retailer_commission) || 0,
             distributor_commission: parseFloat(chargeResult[0].distributor_commission) || 0,
             md_commission: parseFloat(chargeResult[0].md_commission) || 0,
+          }
+          const mdPc = parseFloat(chargeResult[0].md_purchase_charge_val) || 0
+          const dtPc = parseFloat(chargeResult[0].dt_purchase_charge_val) || 0
+          const rtPc = parseFloat(chargeResult[0].rt_purchase_charge_val) || 0
+          if (mdPc > 0 || dtPc > 0 || rtPc > 0) {
+            chargeModelData = {
+              md_purchase_charge: mdPc,
+              dt_purchase_charge: dtPc,
+              rt_purchase_charge: rtPc,
+              company_cost: parseFloat(chargeResult[0].company_earning) || 0,
+            }
           }
         } else {
           const { data: slabs } = await (supabaseAdmin as any)
@@ -483,6 +495,8 @@ export async function POST(request: NextRequest) {
         totalCharge: totalServiceCharge,
         retailer: { id: user.partner_id, role: user.role, commission: commissionSplit.retailer_commission },
         distributor: { id: distributorId, commission: commissionSplit.distributor_commission },
+        masterDistributor: { id: mdId },
+        chargeModel: chargeModelData,
         remarksSuffix: `on CC-2 Bill ₹${amountNum} - ${bankLabel}`,
       })
       if (commResult.errors.length) console.error('[Rechargekit Pay] Commission errors:', commResult.errors)

@@ -152,6 +152,7 @@ export async function POST(request: NextRequest) {
     let resolvedSchemeName: string | null = null
     let resolvedVia: string | null = null
     let commissionSplit = { distributor_commission: 0, md_commission: 0, company_earning: 0 }
+    let chargeModelData: { md_purchase_charge: number; dt_purchase_charge: number; rt_purchase_charge: number; company_cost: number } | null = null
 
     // Get retailer hierarchy
     let distributorId: string | null = null
@@ -200,7 +201,18 @@ export async function POST(request: NextRequest) {
             md_commission: parseFloat(chargeResult[0].md_commission) || 0,
             company_earning: parseFloat(chargeResult[0].company_charge) || 0,
           }
-          console.log(`[Settlement-2] Scheme charge: ₹${baseCharges} + GST ₹${gstAmount} = ₹${charges}`)
+          const mdPc = parseFloat(chargeResult[0].md_purchase_charge_val) || 0
+          const dtPc = parseFloat(chargeResult[0].dt_purchase_charge_val) || 0
+          const rtPc = parseFloat(chargeResult[0].rt_purchase_charge_val) || 0
+          if (mdPc > 0 || dtPc > 0 || rtPc > 0) {
+            chargeModelData = {
+              md_purchase_charge: mdPc,
+              dt_purchase_charge: dtPc,
+              rt_purchase_charge: rtPc,
+              company_cost: parseFloat(chargeResult[0].company_earning || chargeResult[0].company_charge) || 0,
+            }
+          }
+          console.log(`[Settlement-2] Scheme charge: ₹${baseCharges} + GST ₹${gstAmount} = ₹${charges}${chargeModelData ? ' [CHARGE MODEL]' : ''}`)
         }
       }
     } catch (schemeErr) {
@@ -471,16 +483,19 @@ export async function POST(request: NextRequest) {
         totalCharge: charges,
         retailer: { id: user.partner_id, role: user.role, commission: 0 },
         distributor: { id: distributorId, commission: commissionSplit.distributor_commission },
+        masterDistributor: { id: mdId },
+        chargeModel: chargeModelData,
         remarksSuffix: `on ₹${amountNum} transfer`,
         auditWriteback: {
           table: 'shadval_settlement',
           txnId: txRecord.id,
           distributorCol: 'distributor_commission',
+          mdCol: 'md_margin_earned',
           companyCol: 'company_earning',
         },
       })
       if (commResult.errors.length) console.error('[Settlement-2] Commission errors:', commResult.errors)
-      else console.log(`[Settlement-2] ✅ Commission distributed: DT ₹${commResult.distributorCredited}, Company ₹${commResult.companyCredited}`)
+      else console.log(`[Settlement-2] ✅ Commission distributed (${commResult.model}): DT ₹${commResult.distributorCredited}, MD ₹${commResult.mdCredited}, Company ₹${commResult.companyCredited}`)
     }
 
     // Initiate bank transfer via Shadval Pay
