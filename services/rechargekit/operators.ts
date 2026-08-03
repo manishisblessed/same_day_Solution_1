@@ -26,11 +26,27 @@ function normalizeOperator(raw: any): RechargekitOperator | null {
 
   if (!operator_id || !operator_name) return null
 
+  // Provider may return the CC IFSC under any of several key spellings.
+  const operator_ifsc = String(
+    raw.operator_ifsc ??
+      raw.operatorIfsc ??
+      raw.ifsc ??
+      raw.IFSC ??
+      raw.ifsc_code ??
+      raw.ifscCode ??
+      raw.bank_ifsc ??
+      raw.bankIfsc ??
+      raw.cc_ifsc ??
+      raw.ccIfsc ??
+      ''
+  ).trim()
+
   return {
     ...raw,
     operator_id,
     operator_name,
     operator_code: String(raw.operator_code ?? raw.operatorCode ?? operator_id),
+    operator_ifsc: operator_ifsc || undefined,
   }
 }
 

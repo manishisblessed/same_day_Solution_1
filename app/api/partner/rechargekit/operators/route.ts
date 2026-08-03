@@ -43,6 +43,7 @@ export async function GET(request: NextRequest) {
         operator_id: op.operator_id,
         operator_name: op.operator_name,
         operator_code: op.operator_code || op.operator_id,
+        operator_ifsc: op.operator_ifsc || null,
       })),
       count: result.operators.length,
     })
