@@ -15,6 +15,10 @@ interface Transaction {
   date: string
   transaction_id: string
   operator: string
+  biller_name?: string
+  customer_name?: string
+  mobile?: string
+  card_number?: string
   customer_number: string
   bill_amount: number
   charge: number
@@ -22,9 +26,23 @@ interface Transaction {
   total_debit: number
   reference_number: string
   status: string
+  user_id?: string
+  user_name?: string
+  user_type?: 'retailer' | 'partner'
   retailer_id?: string
   retailer_name?: string
+  source?: string
 }
+
+type ProviderFilter = '' | 'bbps' | 'credit_card' | 'pay2new' | 'rechargekit'
+
+const PROVIDER_OPTIONS: { value: ProviderFilter; label: string }[] = [
+  { value: '', label: 'All Providers' },
+  { value: 'bbps', label: 'BBPS' },
+  { value: 'credit_card', label: 'Credit Card' },
+  { value: 'pay2new', label: 'Pay2New' },
+  { value: 'rechargekit', label: 'Rechargekit' },
+]
 
 interface StatusBucket {
   count: number
@@ -84,6 +102,7 @@ export default function BillPaymentTransactionReport({ userRole, userName }: Bil
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
+  const [providerFilter, setProviderFilter] = useState<ProviderFilter>('')
   const [searchTerm, setSearchTerm] = useState('')
   const [exporting, setExporting] = useState<ExportFormat | null>(null)
 
@@ -148,6 +167,7 @@ export default function BillPaymentTransactionReport({ userRole, userName }: Bil
         limit: String(rowsPerPage), offset: String(offset),
       })
       if (statusFilter) params.set('status', statusFilter)
+      if (providerFilter) params.set('provider', providerFilter)
       if (searchTerm) params.set('search', searchTerm)
       applyNetworkUserParams(params)
 
@@ -163,9 +183,9 @@ export default function BillPaymentTransactionReport({ userRole, userName }: Bil
     } finally {
       setLoading(false)
     }
-  }, [getDateRange, statusFilter, searchTerm, rowsPerPage, applyNetworkUserParams])
+  }, [getDateRange, statusFilter, providerFilter, searchTerm, rowsPerPage, applyNetworkUserParams])
 
-  useEffect(() => { fetchReport(1) }, [fetchReport, datePreset, dateFrom, dateTo, statusFilter, rowsPerPage, networkFilter])
+  useEffect(() => { fetchReport(1) }, [fetchReport, datePreset, dateFrom, dateTo, statusFilter, providerFilter, rowsPerPage, networkFilter])
 
   const handleSearch = () => fetchReport(1)
   const handlePageChange = (page: number) => fetchReport(page)
@@ -179,6 +199,7 @@ export default function BillPaymentTransactionReport({ userRole, userName }: Bil
         limit: '10000', offset: '0', format,
       })
       if (statusFilter) params.set('status', statusFilter)
+      if (providerFilter) params.set('provider', providerFilter)
       if (searchTerm) params.set('search', searchTerm)
       applyNetworkUserParams(params)
 
@@ -219,6 +240,13 @@ export default function BillPaymentTransactionReport({ userRole, userName }: Bil
     if (s === 'success') return <CheckCircle2 className="w-3 h-3" />
     if (s === 'failed') return <XCircle className="w-3 h-3" />
     return <Clock className="w-3 h-3" />
+  }
+
+  const getProviderClasses = (provider: string) => {
+    if (provider.includes('Rechargekit')) return 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300'
+    if (provider.includes('Pay2New') && provider.includes('Credit')) return 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300'
+    if (provider.includes('Pay2New')) return 'bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300'
+    return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300'
   }
 
   const roleLabel = userRole === 'admin' ? 'Admin' : userRole === 'finance_executive' ? 'Finance'
@@ -288,6 +316,26 @@ export default function BillPaymentTransactionReport({ userRole, userName }: Bil
               <NetworkUserFilter userRole={userRole} onChange={setNetworkFilter} />
             </div>
           )}
+
+          <div>
+            <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">Provider</label>
+            <div className="flex flex-wrap gap-1.5">
+              {PROVIDER_OPTIONS.map(opt => (
+                <button
+                  key={opt.value || 'all'}
+                  type="button"
+                  onClick={() => setProviderFilter(opt.value)}
+                  className={`px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+                    providerFilter === opt.value
+                      ? 'bg-emerald-600 text-white border-emerald-600'
+                      : 'bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-700 hover:border-emerald-400'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
 
           <div>
             <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">Status</label>
@@ -393,6 +441,13 @@ export default function BillPaymentTransactionReport({ userRole, userName }: Bil
               <XCircle className="w-3 h-3" />
             </button>
           )}
+          {providerFilter && (
+            <button onClick={() => setProviderFilter('')}
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-teal-100 dark:bg-teal-900/30 text-teal-700 dark:text-teal-400 text-xs font-medium hover:bg-teal-200 dark:hover:bg-teal-900/50 transition-colors">
+              Provider: {PROVIDER_OPTIONS.find(o => o.value === providerFilter)?.label}
+              <XCircle className="w-3 h-3" />
+            </button>
+          )}
         </div>
         <ExportDropdown onExport={handleExport} exporting={exporting} disabled={false} />
       </motion.div>
@@ -413,7 +468,7 @@ export default function BillPaymentTransactionReport({ userRole, userName }: Bil
           <table className="w-full">
             <thead className="bg-gray-50 dark:bg-gray-900">
               <tr>
-                {['Date', 'Transaction ID', 'Operator/Provider', 'Customer No / CC No', 'Bill Amount', 'Charge', 'GST', 'Total Debit', 'Reference No', 'Status'].map(col => (
+                {['Date', 'Transaction ID', 'Provider', 'User ID', 'Customer Name', 'Mobile', 'Card / Consumer No', 'Bill Amount', 'Charge', 'GST', 'Total Debit', 'Reference No', 'Status'].map(col => (
                   <th key={col} className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase whitespace-nowrap">{col}</th>
                 ))}
               </tr>
@@ -421,7 +476,7 @@ export default function BillPaymentTransactionReport({ userRole, userName }: Bil
             <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
               {loading ? (
                 <tr>
-                  <td colSpan={10} className="px-6 py-16 text-center">
+                  <td colSpan={13} className="px-6 py-16 text-center">
                     <div className="flex flex-col items-center gap-3">
                       <Loader2 className="w-8 h-8 text-emerald-500 animate-spin" />
                       <span className="text-sm text-gray-500">Loading transactions...</span>
@@ -430,7 +485,7 @@ export default function BillPaymentTransactionReport({ userRole, userName }: Bil
                 </tr>
               ) : transactions.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="px-6 py-16 text-center text-gray-500 dark:text-gray-400">
+                  <td colSpan={13} className="px-6 py-16 text-center text-gray-500 dark:text-gray-400">
                     <div className="flex flex-col items-center gap-2">
                       <Receipt className="w-10 h-10 text-gray-300 dark:text-gray-600" />
                       <span>No transactions found</span>
@@ -448,8 +503,25 @@ export default function BillPaymentTransactionReport({ userRole, userName }: Bil
                     <td className="px-4 py-3">
                       <span className="text-xs font-mono text-gray-600 dark:text-gray-400 block truncate max-w-[150px]" title={txn.transaction_id}>{txn.transaction_id}</span>
                     </td>
-                    <td className="px-4 py-3 text-sm text-gray-900 dark:text-white whitespace-nowrap">{txn.operator}</td>
-                    <td className="px-4 py-3 text-sm font-mono text-gray-700 dark:text-gray-300 whitespace-nowrap">{txn.customer_number}</td>
+                    <td className="px-4 py-3">
+                      <span className={`inline-flex px-2 py-0.5 rounded text-[10px] font-semibold whitespace-nowrap ${getProviderClasses(txn.operator || txn.source || '')}`}>
+                        {txn.operator || txn.source || '-'}
+                      </span>
+                      {txn.biller_name && txn.biller_name !== '-' && (
+                        <div className="text-[10px] text-gray-500 mt-0.5 truncate max-w-[160px]" title={txn.biller_name}>{txn.biller_name}</div>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className="text-xs font-mono text-gray-700 dark:text-gray-300 block truncate max-w-[120px]" title={txn.user_id}>{txn.user_id || '-'}</span>
+                      {(txn.user_name || txn.retailer_name) && (
+                        <div className="text-[10px] text-gray-500 truncate max-w-[120px]" title={txn.user_name || txn.retailer_name || ''}>
+                          {txn.user_type === 'partner' ? 'Partner: ' : ''}{txn.user_name || txn.retailer_name}
+                        </div>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-700 dark:text-gray-300 whitespace-nowrap">{txn.customer_name || '-'}</td>
+                    <td className="px-4 py-3 text-sm font-mono text-gray-700 dark:text-gray-300 whitespace-nowrap">{txn.mobile || '-'}</td>
+                    <td className="px-4 py-3 text-sm font-mono text-gray-700 dark:text-gray-300 whitespace-nowrap">{txn.card_number && txn.card_number !== '-' ? txn.card_number : (txn.customer_number || '-')}</td>
                     <td className="px-4 py-3 text-sm font-semibold text-gray-900 dark:text-white whitespace-nowrap">{formatCurrency(txn.bill_amount)}</td>
                     <td className="px-4 py-3 text-sm text-gray-700 dark:text-gray-300 whitespace-nowrap">{formatCurrency(txn.charge)}</td>
                     <td className="px-4 py-3 text-sm text-gray-700 dark:text-gray-300 whitespace-nowrap">{formatCurrency(txn.gst)}</td>

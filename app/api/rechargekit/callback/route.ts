@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { createClient, SupabaseClient } from '@supabase/supabase-js'
 import * as crypto from 'crypto'
+import { sendSignedCallback } from '@/lib/partner-webhook/deliver'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -77,6 +78,127 @@ function verifyRechargekitCaller(request: NextRequest): NextResponse | null {
 }
 
 /**
+ * Handle a callback for a PARTNER API transaction (lives in partner_wallet_ledger,
+ * keyed by reference_id = RKCC...). Finalizes the ledger (idempotent refund on
+ * failure) and forwards a signed webhook to the partner's webhook_url if set.
+ *
+ * Returns a NextResponse when the requestId belongs to a partner transaction,
+ * or null when it does not (so the caller can fall through to a 404).
+ */
+async function handlePartnerRechargekitCallback(
+  supabaseAdmin: SupabaseClient,
+  requestId: string,
+  providerStatus: number,
+  orderId: string,
+  operatorRef: string,
+  providerMsg: string
+): Promise<NextResponse | null> {
+  const { data: entries, error } = await supabaseAdmin
+    .from('partner_wallet_ledger')
+    .select('id, partner_id, debit, description, status, reference_id, created_at')
+    .eq('reference_id', requestId)
+    .eq('transaction_type', 'DEBIT')
+    .order('created_at', { ascending: false })
+    .limit(1)
+
+  const entry = entries?.[0]
+  if (error || !entry) return null
+
+  const partnerId = entry.partner_id
+
+  // Amounts encoded in the debit description: "... ₹<bill> + ₹<charge> charge ..."
+  const m = entry.description?.match(/₹([\d.]+)\s*\+\s*₹([\d.]+)\s*charge/)
+  const billAmount = m ? parseFloat(m[1]) : 0
+  const chargeAmount = m ? parseFloat(m[2]) : 0
+  const refundAmount = Math.round((billAmount + chargeAmount) * 100) / 100
+
+  let finalStatus: 'SUCCESS' | 'FAILED' | 'REFUNDED' | 'PENDING' = 'PENDING'
+
+  if (providerStatus === 1) {
+    finalStatus = 'SUCCESS'
+    if ((entry.status || '').toUpperCase() !== 'SUCCESS') {
+      const newDesc = `${entry.description || ''} | Callback TxnID:${orderId || requestId} | Ref:${operatorRef || 'N/A'}`
+      await supabaseAdmin
+        .from('partner_wallet_ledger')
+        .update({ status: 'SUCCESS', description: newDesc })
+        .eq('id', entry.id)
+    }
+  } else if (providerStatus === 3) {
+    finalStatus = 'FAILED'
+    // Idempotent refund — only if no REFUND_ entry already exists
+    const { data: refundExists } = await supabaseAdmin
+      .from('partner_wallet_ledger')
+      .select('id')
+      .eq('partner_id', partnerId)
+      .eq('reference_id', `REFUND_${requestId}`)
+      .limit(1)
+
+    if (refundExists && refundExists.length > 0) {
+      finalStatus = 'REFUNDED'
+    } else if (refundAmount > 0) {
+      const { error: refundErr } = await supabaseAdmin.rpc('refund_partner_wallet', {
+        p_partner_id: partnerId,
+        p_amount: refundAmount,
+        p_payout_transaction_id: null,
+        p_description: `CC-2 refund ₹${refundAmount} | Callback failed: ${providerMsg || 'payment failed'}`,
+        p_reference_id: `REFUND_${requestId}`,
+        p_service_type: 'rechargekit',
+      })
+      if (refundErr) {
+        console.error('[Rechargekit Callback] Partner refund failed:', requestId, refundErr)
+      } else {
+        finalStatus = 'REFUNDED'
+      }
+    }
+    await supabaseAdmin
+      .from('partner_wallet_ledger')
+      .update({ status: 'FAILED' })
+      .eq('id', entry.id)
+  }
+
+  // Forward a signed webhook to the partner (fire-and-forget) if configured.
+  try {
+    const { data: partnerRow } = await supabaseAdmin
+      .from('partners')
+      .select('rechargekit_webhook_url, webhook_secret')
+      .eq('id', partnerId)
+      .eq('status', 'active')
+      .maybeSingle()
+
+    const ccWebhookUrl = (partnerRow as { rechargekit_webhook_url?: string | null })?.rechargekit_webhook_url
+
+    if (ccWebhookUrl) {
+      const payload = {
+        event: 'rechargekit.cc.status',
+        request_id: requestId,
+        txn_id: finalStatus === 'FAILED' || finalStatus === 'REFUNDED' ? null : orderId || requestId,
+        status: finalStatus,
+        amount: billAmount || null,
+        charge: chargeAmount || null,
+        operator_reference: operatorRef || null,
+        message: providerMsg || null,
+        timestamp: new Date().toISOString(),
+      }
+      void sendSignedCallback({
+        url: ccWebhookUrl,
+        secret: (partnerRow as { webhook_secret?: string | null }).webhook_secret ?? null,
+        payload,
+        txnId: requestId,
+        event: 'rechargekit.cc.status',
+        logPrefix: 'Rechargekit Partner Callback',
+      })
+    } else {
+      console.log(`[Rechargekit Callback] Partner ${partnerId} has no rechargekit_webhook_url — finalized without forward (partner can poll status). request_id=${requestId}`)
+    }
+  } catch (whErr: any) {
+    console.error('[Rechargekit Callback] Partner webhook forward error:', whErr?.message || whErr)
+  }
+
+  console.log(`[Rechargekit Callback] Partner txn finalized: ${requestId} → ${finalStatus}`)
+  return NextResponse.json({ ok: true, scope: 'partner', status: finalStatus.toLowerCase() })
+}
+
+/**
  * POST /api/rechargekit/callback
  * Rechargekit calls this URL when a pending transaction status changes.
  * Expected payload: { partner_request_id, status, orderid, optransid, commission, msg }
@@ -118,6 +240,17 @@ export async function POST(request: NextRequest) {
       .maybeSingle()
 
     if (txErr || !tx) {
+      // Not a retailer transaction — try the partner API ledger before giving up.
+      const partnerResp = await handlePartnerRechargekitCallback(
+        supabaseAdmin,
+        requestId,
+        providerStatus,
+        orderid || requestId,
+        operatorRef,
+        providerMsg
+      )
+      if (partnerResp) return partnerResp
+
       console.error('[Rechargekit Callback] Transaction not found:', requestId, txErr)
       return NextResponse.json({ error: 'Transaction not found' }, { status: 404 })
     }

@@ -564,6 +564,74 @@ export async function POST(request: NextRequest) {
         })
       }
 
+      // ─── UPDATE RECHARGEKIT (CC) WEBHOOK URL ─────────────
+      case 'update_rechargekit_webhook_url': {
+        let { partner_id, webhook_url } = body
+        if (isPartner) {
+          partner_id = user.partner_id
+        }
+        if (!partner_id) {
+          return NextResponse.json({ error: 'partner_id is required' }, { status: 400 })
+        }
+        const rkScope = assertPartnerScope(partner_id)
+        if (rkScope) return rkScope
+
+        if (webhook_url && typeof webhook_url === 'string' && webhook_url.trim().length > 0) {
+          try {
+            new URL(webhook_url.trim())
+          } catch {
+            return NextResponse.json({ error: 'Invalid URL format' }, { status: 400 })
+          }
+          if (isPrivateUrl(webhook_url.trim())) {
+            return NextResponse.json({ error: 'Invalid webhook URL: private/internal addresses are not allowed' }, { status: 400 })
+          }
+        }
+
+        const finalUrl = webhook_url && webhook_url.trim().length > 0 ? webhook_url.trim() : null
+
+        const updatePayload: Record<string, unknown> = {
+          rechargekit_webhook_url: finalUrl,
+          updated_at: new Date().toISOString(),
+        }
+
+        // Reuse the same webhook_secret as POS callbacks. Auto-provision one if
+        // the partner has none yet, so signed delivery works immediately.
+        let generatedSecret: string | null = null
+        if (finalUrl) {
+          const { data: existingP } = await supabase
+            .from('partners')
+            .select('webhook_secret')
+            .eq('id', partner_id)
+            .maybeSingle()
+          if (!existingP?.webhook_secret) {
+            generatedSecret = generateWebhookSecret()
+            updatePayload.webhook_secret = generatedSecret
+          }
+        }
+
+        const { error: rkErr } = await supabase
+          .from('partners')
+          .update(updatePayload)
+          .eq('id', partner_id)
+
+        if (rkErr) throw rkErr
+
+        return NextResponse.json({
+          success: true,
+          message: finalUrl ? `RechargeKit webhook URL updated to ${finalUrl}` : 'RechargeKit webhook URL removed',
+          data: {
+            partner_id,
+            rechargekit_webhook_url: finalUrl,
+            ...(generatedSecret
+              ? {
+                  webhook_secret: generatedSecret,
+                  secret_note: 'Save this signing secret — it is shown only once. Share it securely with the partner.',
+                }
+              : {}),
+          },
+        })
+      }
+
       // ─── ROTATE WEBHOOK SIGNING SECRET ───────────────────
       case 'rotate_webhook_secret': {
         let { partner_id } = body

@@ -36,9 +36,10 @@ export async function sendSignedCallback(opts: {
   secret: string | null
   payload: unknown
   txnId: string
+  event?: string
   logPrefix?: string
 }): Promise<void> {
-  const { url, secret, payload, txnId, logPrefix = 'Partner Callback' } = opts
+  const { url, secret, payload, txnId, event = 'pos.transaction', logPrefix = 'Partner Callback' } = opts
 
   const body = JSON.stringify(payload)
   const timestamp = Math.floor(Date.now() / 1000).toString()
@@ -46,7 +47,7 @@ export async function sendSignedCallback(opts: {
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-    'X-Sameday-Event': 'pos.transaction',
+    'X-Sameday-Event': event,
     'X-Sameday-Timestamp': timestamp,
     'X-Sameday-Delivery': deliveryId,
   }

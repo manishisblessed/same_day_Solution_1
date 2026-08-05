@@ -12,6 +12,60 @@ function sanitize(value: string): string {
 
 const GST_RATE = 0.18
 
+type ProviderCode =
+  | 'BBPS_1'
+  | 'BBPS_Pay2New'
+  | 'BBPS_Pay2New_Credit_Card'
+  | 'BBPS_Rechargekit_Credit_Card'
+
+type ProviderFilter = '' | 'bbps' | 'credit_card' | 'pay2new' | 'rechargekit'
+
+function matchesProviderFilter(source: ProviderCode, filter: ProviderFilter): boolean {
+  if (!filter) return true
+  switch (filter) {
+    case 'bbps':
+      return source === 'BBPS_1' || source === 'BBPS_Pay2New'
+    case 'credit_card':
+      return source === 'BBPS_Pay2New_Credit_Card' || source === 'BBPS_Rechargekit_Credit_Card'
+    case 'pay2new':
+      return source === 'BBPS_Pay2New' || source === 'BBPS_Pay2New_Credit_Card'
+    case 'rechargekit':
+      return source === 'BBPS_Rechargekit_Credit_Card'
+    default:
+      return true
+  }
+}
+
+function parseLedgerMeta(description: string) {
+  const text = description || ''
+  const chargeMatch = text.match(/\+\s*₹?([\d,.]+)\s*(?:GST|charge)/i)
+  const totalChargeWithGst = chargeMatch ? parseFloat(chargeMatch[1].replace(/,/g, '')) : 0
+  const charge = totalChargeWithGst > 0 ? Math.round(totalChargeWithGst / (1 + GST_RATE) * 100) / 100 : 0
+  const gst = totalChargeWithGst > 0 ? Math.round((totalChargeWithGst - charge) * 100) / 100 : 0
+  const cardMatch = text.match(/Card:([*\dXx]+)/i)
+  const mobMatch = text.match(/Mob:(\d{8,15})/i)
+  const isRechargekit = /rechargekit|CC-2/i.test(text)
+  const isPay2newCc = !isRechargekit && (/\bBBPS-2\s*CC\b/i.test(text) || /^CC\s*₹/i.test(text.trim()) || (/Card:/i.test(text) && /pay2new|BBPS-2|^CC\b/i.test(text)))
+  const isPay2new = !isRechargekit && (isPay2newCc || /BBPS-2|pay2new/i.test(text) || /^CC\s*₹/i.test(text.trim()))
+  return {
+    totalChargeWithGst,
+    charge,
+    gst,
+    card_number: cardMatch?.[1] || '-',
+    mobile: mobMatch?.[1] || '-',
+    isRechargekit,
+    isPay2newCc,
+    isPay2new,
+  }
+}
+
+function resolvePay2newSource(description: string, serviceType?: string | null): ProviderCode {
+  const meta = parseLedgerMeta(description)
+  if (serviceType === 'rechargekit' || meta.isRechargekit) return 'BBPS_Rechargekit_Credit_Card'
+  if (meta.isPay2newCc || /Card:/i.test(description || '')) return 'BBPS_Pay2New_Credit_Card'
+  return 'BBPS_Pay2New'
+}
+
 interface DownlineInfo {
   retailerIds: string[]
   distributorIds: string[]
@@ -116,6 +170,11 @@ export async function GET(request: NextRequest) {
     const dateTo = rawDateTo ? (rawDateTo.includes('T') ? rawDateTo : `${rawDateTo}T23:59:59+05:30`) : null
     const status = searchParams.get('status')
     const search = searchParams.get('search')
+    const rawProvider = (searchParams.get('provider') || '').toLowerCase().trim()
+    const providerFilter: ProviderFilter =
+      ['bbps', 'credit_card', 'pay2new', 'rechargekit'].includes(rawProvider)
+        ? (rawProvider as ProviderFilter)
+        : ''
     const rawLimit = parseInt(searchParams.get('limit') || '25', 10)
     const format = searchParams.get('format') || 'json'
     const isExport = ['csv', 'excel', 'pdf'].includes(format)
@@ -155,7 +214,6 @@ export async function GET(request: NextRequest) {
       ? await resolvePartnerScope(supabase, user.partner_id)
       : null
 
-    // Determine user scope for filtering
     function getUserScope(): string[] | null {
       if (user.role === 'partner') return partnerScope?.length ? partnerScope : []
       if (user.role === 'retailer') return user.partner_id ? [user.partner_id] : []
@@ -168,9 +226,14 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: true, data: [], summary: emptyStats(), pagination: emptyPagination(limit, offset) })
     }
 
+    // Partner API ledger: own partner, specific partner filter, or admin "All Users"
+    const loadPartnerLedger =
+      user.role === 'partner' ||
+      ((user.role === 'admin' || user.role === 'finance_executive') && (!!adminPartnerId || !adminUserIds))
+    const bpPartnerId = user.role === 'partner' ? user.partner_id : adminPartnerId
+
     let allRows: any[] = []
 
-    // Chunked fetch helper — pulls the entire filtered set from a table
     const fetchAll = async (baseFactory: () => any, mapRow: (tx: any) => any) => {
       const size = 1000
       for (let from = 0; from < 100000; from += size) {
@@ -183,8 +246,7 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // 1. bbps_transactions (BBPS-1) — excludes rechargekit entries (handled via wallet_ledger in section 2)
-    // Note: status filter deferred to in-memory pass so the by_status breakdown stays complete
+    // 1. bbps_transactions (BBPS-1) — excludes rechargekit entries (handled via wallet_ledger)
     await fetchAll(() => {
       let q = supabase.from('bbps_transactions').select('*').order('created_at', { ascending: false })
         .not('biller_id', 'like', 'RKCC_%')
@@ -196,10 +258,15 @@ export async function GET(request: NextRequest) {
     }, (tx: any) => {
       const charge = Number(tx.retailer_charge) || Number(tx.commission_amount) || 0
       const gst = 0
+      const source: ProviderCode = 'BBPS_1'
       return {
         date: tx.created_at,
         transaction_id: tx.transaction_id || tx.agent_transaction_id || tx.id,
-        operator: tx.biller_name || 'BBPS-1',
+        operator: source,
+        biller_name: tx.biller_name || '-',
+        customer_name: tx.consumer_name || '-',
+        mobile: '-',
+        card_number: '-',
         customer_number: tx.consumer_number || '-',
         bill_amount: Number(tx.bill_amount) || 0,
         charge,
@@ -207,14 +274,16 @@ export async function GET(request: NextRequest) {
         total_debit: (Number(tx.amount_paid) || Number(tx.bill_amount) || 0) + charge,
         reference_number: tx.transaction_id || tx.agent_transaction_id || '-',
         status: tx.status || 'pending',
+        user_id: tx.retailer_id || '-',
+        user_name: null as string | null,
+        user_type: 'retailer' as const,
         retailer_id: tx.retailer_id,
         retailer_name: null as string | null,
-        source: 'BBPS-1',
+        source,
       }
     })
 
-    // 2. wallet_ledger for BBPS-2 (Pay2New) and Credit Card (Rechargekit)
-    // Note: status filter is applied AFTER cross-referencing refunds (ledger status is always 'completed')
+    // 2. wallet_ledger — Pay2New + Rechargekit (retailer network)
     await fetchAll(() => {
       let q = supabase.from('wallet_ledger')
         .select('*')
@@ -229,33 +298,38 @@ export async function GET(request: NextRequest) {
     }, (tx: any) => {
       const debitAmt = Number(tx.debit) || 0
       const description = tx.description || tx.remarks || ''
-      // Remarks format: "CC ₹{bill} + ₹{totalServiceCharge} GST" or "CC-2 ₹{bill} + ₹{totalServiceCharge} GST"
-      const chargeMatch = description.match(/\+\s*₹?([\d,.]+)\s*(?:GST|charge)/i)
-      const totalChargeWithGst = chargeMatch ? parseFloat(chargeMatch[1].replace(/,/g, '')) : 0
-      const charge = totalChargeWithGst > 0 ? Math.round(totalChargeWithGst / (1 + GST_RATE) * 100) / 100 : 0
-      const gst = totalChargeWithGst > 0 ? Math.round((totalChargeWithGst - charge) * 100) / 100 : 0
-      const billAmount = debitAmt - totalChargeWithGst
-      const providerLabel = tx.service_type === 'rechargekit' ? 'Credit Card' : 'BBPS-2'
+      const meta = parseLedgerMeta(description)
+      const source = tx.service_type === 'rechargekit'
+        ? 'BBPS_Rechargekit_Credit_Card' as ProviderCode
+        : resolvePay2newSource(description, tx.service_type)
+      const billAmount = debitAmt - meta.totalChargeWithGst
       return {
         date: tx.created_at,
         transaction_id: tx.reference_id || tx.id,
-        operator: providerLabel,
-        customer_number: '-',
+        operator: source,
+        biller_name: '-',
+        customer_name: '-',
+        mobile: meta.mobile,
+        card_number: meta.card_number,
+        customer_number: meta.card_number !== '-' ? meta.card_number : meta.mobile,
         bill_amount: billAmount > 0 ? billAmount : debitAmt,
-        charge,
-        gst,
+        charge: meta.charge,
+        gst: meta.gst,
         total_debit: debitAmt,
         reference_number: tx.reference_id || '-',
         status: tx.status || 'completed',
+        user_id: tx.retailer_id || '-',
+        user_name: null as string | null,
+        user_type: 'retailer' as const,
         retailer_id: tx.retailer_id,
         retailer_name: null as string | null,
-        source: providerLabel,
+        source,
         _ref_id: tx.reference_id || '',
         _refund_table: 'wallet_ledger' as const,
       }
     })
 
-    // Cross-reference wallet_ledger refunds → mark matching debits as failed
+    // Cross-reference wallet_ledger refunds
     const ledgerRows = allRows.filter((r: any) => r._refund_table === 'wallet_ledger')
     if (ledgerRows.length > 0) {
       const refIds = ledgerRows.map((r: any) => r._ref_id).filter(Boolean)
@@ -281,56 +355,95 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // 3. Partner bill payments live in partner_wallet_ledger (keyed by partner_id)
-    // Note: status filter is applied AFTER cross-referencing refunds (ledger status is always 'completed')
-    const bpPartnerId = user.role === 'partner' ? user.partner_id : adminPartnerId
-    if (bpPartnerId) {
+    // Enrich Rechargekit / Pay2New rows from bbps_transactions when available (RKCC_ records)
+    const ledgerRefIds = allRows
+      .filter((r: any) => r.source === 'BBPS_Rechargekit_Credit_Card' || r.source === 'BBPS_Pay2New_Credit_Card')
+      .map((r: any) => r.transaction_id)
+      .filter(Boolean)
+    if (ledgerRefIds.length > 0) {
+      const txMap = new Map<string, any>()
+      const batchSize = 200
+      for (let i = 0; i < ledgerRefIds.length; i += batchSize) {
+        const batch = ledgerRefIds.slice(i, i + batchSize)
+        const { data: txs } = await supabase
+          .from('bbps_transactions')
+          .select('agent_transaction_id, consumer_name, consumer_number, additional_info, biller_name')
+          .in('agent_transaction_id', batch)
+        for (const t of txs || []) {
+          if (t.agent_transaction_id) txMap.set(t.agent_transaction_id, t)
+        }
+      }
+      for (const row of allRows) {
+        const t = txMap.get(row.transaction_id)
+        if (!t) continue
+        if (t.consumer_name) row.customer_name = t.consumer_name
+        if (t.biller_name) row.biller_name = t.biller_name
+        const info = t.additional_info || {}
+        if (info.mobile && (row.mobile === '-' || !row.mobile)) row.mobile = String(info.mobile)
+        if (t.consumer_number && (row.card_number === '-' || !row.card_number)) {
+          row.card_number = t.consumer_number
+          row.customer_number = t.consumer_number
+        }
+      }
+    }
+
+    // 3. Partner API bill payments (JMP Nextgen, Paymatrix, etc.)
+    if (loadPartnerLedger) {
       await fetchAll(() => {
         let q = supabase.from('partner_wallet_ledger')
           .select('*')
-          .eq('partner_id', bpPartnerId)
           .eq('transaction_type', 'DEBIT')
-          .or('description.ilike.BBPS-2*,description.ilike.BBPS*,description.ilike.CC*')
+          .or('service_type.in.(pay2new,rechargekit,bbps),description.ilike.BBPS-2%,description.ilike.CC-2%,description.ilike.CC %')
           .order('created_at', { ascending: false })
+        if (bpPartnerId) q = q.eq('partner_id', bpPartnerId)
         if (dateFrom) q = q.gte('created_at', dateFrom)
         if (dateTo) q = q.lte('created_at', dateTo)
         if (search) q = q.ilike('reference_id', `%${sanitize(search)}%`)
         return q
       }, (tx: any) => {
-        const debitAmt = Number(tx.debit) || 0
+        const debitAmt = Number(tx.debit) || Number(tx.amount) || 0
         const description = tx.description || ''
-        // Partner description format: "CC ₹{bill} + ₹{totalServiceCharge} charge"
-        const chargeMatch = description.match(/\+\s*₹?([\d,.]+)\s*charge/i)
-        const totalChargeWithGst = chargeMatch ? parseFloat(chargeMatch[1].replace(/,/g, '')) : 0
-        const charge = totalChargeWithGst > 0 ? Math.round(totalChargeWithGst / (1 + GST_RATE) * 100) / 100 : 0
-        const gst = totalChargeWithGst > 0 ? Math.round((totalChargeWithGst - charge) * 100) / 100 : 0
-        const billAmount = debitAmt - totalChargeWithGst
-        const cardMatch = description.match(/Card:([*\d]+)/i)
-        const mobMatch = description.match(/Mob:(\d+)/i)
-        const isCC = /CC/i.test(description)
+        const meta = parseLedgerMeta(description)
+        let source: ProviderCode
+        if (tx.service_type === 'rechargekit' || meta.isRechargekit) {
+          source = 'BBPS_Rechargekit_Credit_Card'
+        } else if (tx.service_type === 'pay2new' || meta.isPay2new) {
+          source = meta.isPay2newCc || /Card:/i.test(description)
+            ? 'BBPS_Pay2New_Credit_Card'
+            : 'BBPS_Pay2New'
+        } else {
+          source = 'BBPS_1'
+        }
+        // Skip non-bill partner debits that somehow match (e.g. plain payouts with service_type null already excluded)
+        const billAmount = debitAmt - meta.totalChargeWithGst
         return {
           date: tx.created_at,
           transaction_id: tx.reference_id || tx.id,
-          operator: isCC ? 'Credit Card' : 'BBPS-2',
-          customer_number: cardMatch?.[1] || mobMatch?.[1] || '-',
+          operator: source,
+          biller_name: '-',
+          customer_name: '-',
+          mobile: meta.mobile,
+          card_number: meta.card_number,
+          customer_number: meta.card_number !== '-' ? meta.card_number : meta.mobile,
           bill_amount: billAmount > 0 ? billAmount : debitAmt,
-          charge,
-          gst,
+          charge: meta.charge,
+          gst: meta.gst,
           total_debit: debitAmt,
           reference_number: tx.reference_id || '-',
           status: tx.status || 'completed',
+          user_id: tx.partner_id || '-',
+          user_name: null as string | null,
+          user_type: 'partner' as const,
           retailer_id: null,
           retailer_name: null as string | null,
-          source: isCC ? 'Credit Card' : 'BBPS-2',
+          source,
           _ref_id: tx.reference_id || '',
           _refund_table: 'partner_wallet_ledger' as const,
-          _partner_id: bpPartnerId,
+          _partner_id: tx.partner_id,
         }
       })
-    }
 
-    // Cross-reference partner_wallet_ledger refunds → mark matching debits as failed
-    if (bpPartnerId) {
+      // Partner refunds → failed
       const partnerRows = allRows.filter((r: any) => r._refund_table === 'partner_wallet_ledger')
       const pRefIds = partnerRows.map((r: any) => r._ref_id).filter(Boolean)
       if (pRefIds.length > 0) {
@@ -338,12 +451,13 @@ export async function GET(request: NextRequest) {
         const batchSize = 300
         for (let i = 0; i < pRefIds.length; i += batchSize) {
           const batch = pRefIds.slice(i, i + batchSize).map((id: string) => `REFUND_${id}`)
-          const { data: refunds } = await supabase
+          let rq = supabase
             .from('partner_wallet_ledger')
             .select('reference_id')
-            .eq('partner_id', bpPartnerId)
             .eq('transaction_type', 'REFUND')
             .in('reference_id', batch)
+          if (bpPartnerId) rq = rq.eq('partner_id', bpPartnerId)
+          const { data: refunds } = await rq
           for (const r of refunds || []) {
             refundSet.add(r.reference_id.replace(/^REFUND_/, ''))
           }
@@ -356,7 +470,12 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // Clean up internal fields from all rows
+    // Provider filter (before status-card breakdown)
+    if (providerFilter) {
+      allRows = allRows.filter((r: any) => matchesProviderFilter(r.source as ProviderCode, providerFilter))
+    }
+
+    // Clean up internal fields
     for (const row of allRows) {
       delete (row as any)._ref_id
       delete (row as any)._service_type
@@ -364,7 +483,6 @@ export async function GET(request: NextRequest) {
       delete (row as any)._partner_id
     }
 
-    // Bucket a row's status into one of the reporting groups
     const bucketOf = (s: string): 'success' | 'failed' | 'pending' | null => {
       if (['success', 'completed'].includes(s)) return 'success'
       if (s === 'failed') return 'failed'
@@ -372,8 +490,6 @@ export async function GET(request: NextRequest) {
       return null
     }
 
-    // Full per-status breakdown computed over the COMPLETE set (before status filtering),
-    // so the status cards always show accurate counts + amounts regardless of the active filter.
     const blankBucket = () => ({ count: 0, bill_amount: 0, charges: 0, gst: 0, total_debit: 0 })
     const by_status = { success: blankBucket(), failed: blankBucket(), pending: blankBucket() }
     for (const r of allRows) {
@@ -386,7 +502,6 @@ export async function GET(request: NextRequest) {
       by_status[b].total_debit += r.total_debit
     }
 
-    // Apply deferred status filter (uniform across all sources)
     if (status) {
       const target = status.toLowerCase()
       const targetBucket = target === 'success' ? 'success' : target === 'failed' ? 'failed' : target === 'pending' || target === 'initiated' || target === 'processing' ? 'pending' : null
@@ -396,18 +511,43 @@ export async function GET(request: NextRequest) {
       })
     }
 
-    // Sort combined results by date descending
     allRows.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
 
     // Enrich retailer names
-    const retailerIds = Array.from(new Set(allRows.map(r => r.retailer_id).filter(Boolean)))
+    const retailerIds = Array.from(new Set(allRows.filter(r => r.user_type === 'retailer').map(r => r.user_id).filter(id => id && id !== '-')))
     if (retailerIds.length > 0) {
       const { data: retailers } = await supabase.from('retailers').select('partner_id, name').in('partner_id', retailerIds)
       const nameMap = new Map((retailers || []).map((r: any) => [r.partner_id, r.name]))
-      allRows.forEach(r => { if (r.retailer_id) r.retailer_name = nameMap.get(r.retailer_id) || null })
+      allRows.forEach(r => {
+        if (r.user_type === 'retailer' && r.user_id) {
+          r.user_name = nameMap.get(r.user_id) || null
+          r.retailer_name = r.user_name
+        }
+      })
     }
 
-    // Summary over the FULL filtered set
+    // Enrich partner names (API partners)
+    const partnerIds = Array.from(new Set(allRows.filter(r => r.user_type === 'partner').map(r => r.user_id).filter(id => id && id !== '-')))
+    if (partnerIds.length > 0) {
+      const { data: partnersById } = await supabase.from('partners').select('id, partner_id, name, business_name').in('id', partnerIds)
+      const { data: partnersByPid } = await supabase.from('partners').select('id, partner_id, name, business_name').in('partner_id', partnerIds)
+      const nameMap = new Map<string, string>()
+      for (const p of partnersById || []) {
+        const n = p.business_name || p.name
+        if (n) nameMap.set(p.id, n)
+      }
+      for (const p of partnersByPid || []) {
+        const n = p.business_name || p.name
+        if (n && p.partner_id) nameMap.set(p.partner_id, n)
+        if (n) nameMap.set(p.id, n)
+      }
+      allRows.forEach(r => {
+        if (r.user_type === 'partner' && r.user_id) {
+          r.user_name = nameMap.get(r.user_id) || null
+        }
+      })
+    }
+
     const summary = {
       total_transactions: allRows.length,
       total_bill_amount: allRows.reduce((s, r) => s + r.bill_amount, 0),
@@ -423,7 +563,12 @@ export async function GET(request: NextRequest) {
     const billColumns: ReportColumn[] = [
       { header: 'Date', key: 'date', type: 'date' },
       { header: 'Transaction ID', key: 'transaction_id' },
-      { header: 'Operator/Provider', key: 'operator' },
+      { header: 'Provider', key: 'operator' },
+      { header: 'User ID', key: 'user_id' },
+      { header: 'User Name', key: 'user_name' },
+      { header: 'Customer Name', key: 'customer_name' },
+      { header: 'Mobile', key: 'mobile' },
+      { header: 'Card Number', key: 'card_number' },
       { header: 'Customer Number', key: 'customer_number' },
       { header: 'Bill Amount (₹)', key: 'bill_amount', type: 'currency' },
       { header: 'Charge (₹)', key: 'charge', type: 'currency' },
@@ -487,4 +632,3 @@ function emptyStats() {
 function emptyPagination(limit: number, offset: number) {
   return { total: 0, limit, offset, page: 1, totalPages: 0 }
 }
-

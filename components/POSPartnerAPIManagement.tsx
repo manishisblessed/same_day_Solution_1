@@ -30,6 +30,7 @@ interface Partner {
   status: string
   ip_whitelist: string[] | null
   webhook_url: string | null
+  rechargekit_webhook_url?: string | null
   webhook_secret_masked?: string | null
   has_webhook_secret?: boolean
   bbps_enabled?: boolean
@@ -73,6 +74,7 @@ export default function POSPartnerAPIManagement() {
   // Webhook modal
   const [showWebhookModal, setShowWebhookModal] = useState(false)
   const [webhookUrlValue, setWebhookUrlValue] = useState('')
+  const [rechargekitWebhookUrlValue, setRechargekitWebhookUrlValue] = useState('')
 
   // Webhook signing secret reveal modal
   const [showSecretResult, setShowSecretResult] = useState<{ partner_name: string; webhook_secret: string } | null>(null)
@@ -234,6 +236,25 @@ export default function POSPartnerAPIManagement() {
       setShowWebhookModal(false)
       showSuccess(`Webhook URL updated for ${partnerName}`)
       // First-time URL set auto-provisions a signing secret — reveal it once.
+      if (result.data?.webhook_secret) {
+        setShowSecretResult({ partner_name: partnerName, webhook_secret: result.data.webhook_secret })
+      }
+      fetchPartners()
+    }
+  }
+
+  // ─── Update RechargeKit (CC) Webhook URL ───────────────
+  const handleUpdateRechargekitWebhookUrl = async (urlOverride?: string) => {
+    if (!selectedPartner) return
+    const partnerName = selectedPartner.name
+    const result = await doAction({
+      action: 'update_rechargekit_webhook_url',
+      partner_id: selectedPartner.id,
+      webhook_url: (urlOverride ?? rechargekitWebhookUrlValue).trim(),
+    })
+    if (result) {
+      setShowWebhookModal(false)
+      showSuccess(`RechargeKit webhook URL updated for ${partnerName}`)
       if (result.data?.webhook_secret) {
         setShowSecretResult({ partner_name: partnerName, webhook_secret: result.data.webhook_secret })
       }
@@ -567,6 +588,7 @@ export default function POSPartnerAPIManagement() {
                           onClick={() => {
                             setSelectedPartner(partner)
                             setWebhookUrlValue(partner.webhook_url || '')
+                            setRechargekitWebhookUrlValue(partner.rechargekit_webhook_url || '')
                             setShowWebhookModal(true)
                           }}
                           className="flex items-center gap-2 px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors text-sm"
@@ -1183,7 +1205,7 @@ export default function POSPartnerAPIManagement() {
                   Leave empty to disable callbacks.
                 </p>
                 <div>
-                  <label className="text-xs font-medium text-gray-500 mb-1 block">Callback URL</label>
+                  <label className="text-xs font-medium text-gray-500 mb-1 block">POS Transaction Callback URL</label>
                   <input
                     type="url"
                     value={webhookUrlValue}
@@ -1191,6 +1213,41 @@ export default function POSPartnerAPIManagement() {
                     placeholder="https://example.com/api/pos-callback"
                     className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-sm font-mono"
                   />
+                  <p className="text-[11px] text-gray-400 mt-1">Event: <code>pos.transaction</code></p>
+                </div>
+                <div className="pt-2 border-t border-gray-200 dark:border-gray-700">
+                  <label className="text-xs font-medium text-gray-500 mb-1 block">RechargeKit (Credit Card) Callback URL</label>
+                  <div className="flex gap-2">
+                    <input
+                      type="url"
+                      value={rechargekitWebhookUrlValue}
+                      onChange={(e) => setRechargekitWebhookUrlValue(e.target.value)}
+                      placeholder="https://example.com/api/rechargekit-callback"
+                      className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-sm font-mono"
+                    />
+                    <button
+                      onClick={() => handleUpdateRechargekitWebhookUrl()}
+                      disabled={actionLoading || !rechargekitWebhookUrlValue.trim()}
+                      className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 text-sm disabled:opacity-50 whitespace-nowrap"
+                    >
+                      Save
+                    </button>
+                    {selectedPartner.rechargekit_webhook_url && (
+                      <button
+                        onClick={() => { setRechargekitWebhookUrlValue(''); handleUpdateRechargekitWebhookUrl('') }}
+                        disabled={actionLoading}
+                        className="px-3 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 text-sm disabled:opacity-50"
+                      >
+                        Remove
+                      </button>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-gray-400 mt-1">
+                    Event: <code>rechargekit.cc.status</code> · signed with the same secret below.
+                    {selectedPartner.rechargekit_webhook_url && (
+                      <> Current: <code className="break-all">{selectedPartner.rechargekit_webhook_url}</code></>
+                    )}
+                  </p>
                 </div>
                 {selectedPartner.webhook_url && (
                   <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-3 space-y-2">
