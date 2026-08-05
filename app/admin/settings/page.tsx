@@ -126,6 +126,7 @@ export default function AdminSettings() {
     { id: 'aeps-report', label: 'AEPS Report' },
     { id: 'settlement-report', label: 'Settlement Report' },
     { id: 'settlement', label: 'Settlement' },
+    { id: 'settlement-2-approvals', label: 'Settlement-2 Approvals' },
     { id: 'revenue-wallet', label: 'Revenue Wallet' },
     { id: 'wallet-ledger', label: 'Wallet Ledger' },
     { id: 'push-pull-report', label: 'Push/Pull Report' },
