@@ -7,7 +7,7 @@ import { Lock, Mail, AlertCircle, Loader2, MapPin, ShieldCheck, Clock, Eye, EyeO
 import AnimatedSection from '@/components/AnimatedSection'
 import { getGeoLocationForLogin } from '@/hooks/useGeolocation'
 import TurnstileWidget, { TurnstileHandle, isCaptchaEnabled } from '@/components/TurnstileWidget'
-import { TwoFactorRequiredError } from '@/lib/auth'
+import { TwoFactorRequiredError, waitForServerSession } from '@/lib/auth'
 
 type BannerType = 'expired' | 'replaced' | null
 
@@ -64,9 +64,15 @@ export default function FinanceLoginPage() {
     }
   }, [banner])
 
+  const redirectingRef = useRef(false)
   useEffect(() => {
-    if (user?.role === 'finance_executive') {
-      router.push('/finance-same')
+    if (user?.role === 'finance_executive' && !redirectingRef.current) {
+      redirectingRef.current = true
+      ;(async () => {
+        await waitForServerSession()
+        const params = new URLSearchParams(window.location.search)
+        router.push(params.get('redirect')?.startsWith('/finance-same') ? params.get('redirect')! : '/finance-same')
+      })()
     }
   }, [user, router])
 
@@ -92,6 +98,8 @@ export default function FinanceLoginPage() {
     setLoading(true)
     try {
       await login(formData.email, formData.password, 'finance_executive', captchaToken)
+      // Ensure middleware can see the session cookie before navigating (1-attempt login).
+      await waitForServerSession()
       const params = new URLSearchParams(window.location.search)
       router.push(params.get('redirect')?.startsWith('/finance-same') ? params.get('redirect')! : '/finance-same')
     } catch (err: any) {
@@ -115,6 +123,7 @@ export default function FinanceLoginPage() {
     setLoading(true)
     try {
       await login2FA(formData.email, formData.password, 'finance_executive', totpCode.trim(), useBackupCode)
+      await waitForServerSession()
       const params = new URLSearchParams(window.location.search)
       router.push(params.get('redirect')?.startsWith('/finance-same') ? params.get('redirect')! : '/finance-same')
     } catch (err: any) {

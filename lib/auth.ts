@@ -35,6 +35,41 @@ export function clearStoredSessionToken(): void {
 }
 
 /**
+ * Block until the server-side (SSR cookie) session is live, or until timeout.
+ *
+ * After signIn(), the Supabase session lives in localStorage and the sb-* cookies
+ * are written by /api/auth/sync-session. The browser can take a moment to commit
+ * those cookies, so navigating to a protected route immediately makes middleware's
+ * getUser() see no session and bounce back to login → the classic "login works on
+ * the 2nd attempt" bug. Polling this same-origin probe (which mirrors middleware)
+ * guarantees the very first post-login navigation is accepted.
+ *
+ * Uses a RELATIVE URL on purpose: the probe must hit the same Amplify origin as
+ * middleware so it reads the same cookies.
+ */
+export async function waitForServerSession(timeoutMs = 4000): Promise<boolean> {
+  if (typeof window === 'undefined') return true
+  const start = Date.now()
+  while (Date.now() - start < timeoutMs) {
+    try {
+      const res = await fetch('/api/auth/session-check', {
+        method: 'GET',
+        credentials: 'include',
+        cache: 'no-store',
+      })
+      if (res.ok) {
+        const data = await res.json().catch(() => ({}))
+        if (data?.authenticated) return true
+      }
+    } catch {
+      // Network hiccup — keep polling until timeout.
+    }
+    await new Promise((r) => setTimeout(r, 150))
+  }
+  return false
+}
+
+/**
  * Best-effort call to the server-side login throttle. Never throws on network
  * errors (so a guard outage can't lock out all logins), except when the guard
  * explicitly reports the account is locked.

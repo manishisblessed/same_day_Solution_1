@@ -528,19 +528,13 @@ export async function GET(request: NextRequest) {
       })
     }
 
-    // Enrich partner names (API partners)
+    // Enrich partner names (API partners). partner_wallet_ledger.partner_id → partners.id
     const partnerIds = Array.from(new Set(allRows.filter(r => r.user_type === 'partner').map(r => r.user_id).filter(id => id && id !== '-')))
     if (partnerIds.length > 0) {
-      const { data: partnersById } = await supabase.from('partners').select('id, partner_id, name, business_name').in('id', partnerIds)
-      const { data: partnersByPid } = await supabase.from('partners').select('id, partner_id, name, business_name').in('partner_id', partnerIds)
+      const { data: partnersById } = await supabase.from('partners').select('id, name, business_name, email').in('id', partnerIds)
       const nameMap = new Map<string, string>()
       for (const p of partnersById || []) {
-        const n = p.business_name || p.name
-        if (n) nameMap.set(p.id, n)
-      }
-      for (const p of partnersByPid || []) {
-        const n = p.business_name || p.name
-        if (n && p.partner_id) nameMap.set(p.partner_id, n)
+        const n = p.name || p.business_name || p.email
         if (n) nameMap.set(p.id, n)
       }
       allRows.forEach(r => {

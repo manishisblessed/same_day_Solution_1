@@ -7,7 +7,7 @@ import { Lock, Mail, AlertCircle, Loader2, MapPin, ShieldCheck, Clock, Eye, EyeO
 import AnimatedSection from '@/components/AnimatedSection'
 import { getGeoLocationForLogin } from '@/hooks/useGeolocation'
 import TurnstileWidget, { TurnstileHandle, isCaptchaEnabled } from '@/components/TurnstileWidget'
-import { TwoFactorRequiredError } from '@/lib/auth'
+import { TwoFactorRequiredError, waitForServerSession } from '@/lib/auth'
 
 type BannerType = 'expired' | 'replaced' | null
 
@@ -64,9 +64,15 @@ export default function AdminLogin() {
     }
   }, [banner])
 
+  const redirectingRef = useRef(false)
   useEffect(() => {
-    if (user?.role === 'admin') {
-      router.push('/admin')
+    if (user?.role === 'admin' && !redirectingRef.current) {
+      redirectingRef.current = true
+      ;(async () => {
+        await waitForServerSession()
+        const params = new URLSearchParams(window.location.search)
+        router.push(params.get('redirect')?.startsWith('/admin') ? params.get('redirect')! : '/admin')
+      })()
     }
   }, [user, router])
 
@@ -135,6 +141,8 @@ export default function AdminLogin() {
 
     try {
       await login(creds.email, creds.password, 'admin', captchaToken)
+      // Ensure middleware can see the session cookie before navigating (1-attempt login).
+      await waitForServerSession()
       const params = new URLSearchParams(window.location.search)
       router.push(params.get('redirect')?.startsWith('/admin') ? params.get('redirect')! : '/admin')
     } catch (err: any) {
@@ -159,6 +167,7 @@ export default function AdminLogin() {
     const creds = getCredentials()
     try {
       await login2FA(creds.email, creds.password, 'admin', totpCode.trim(), useBackupCode)
+      await waitForServerSession()
       const params = new URLSearchParams(window.location.search)
       router.push(params.get('redirect')?.startsWith('/admin') ? params.get('redirect')! : '/admin')
     } catch (err: any) {

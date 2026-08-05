@@ -9,7 +9,7 @@ import Link from 'next/link'
 import { AlertCircle, Loader2, MapPin, ShieldCheck, Clock, Eye, EyeOff, Monitor, KeyRound } from 'lucide-react'
 import { getGeoLocationForLogin } from '@/hooks/useGeolocation'
 import TurnstileWidget, { TurnstileHandle, isCaptchaEnabled } from '@/components/TurnstileWidget'
-import { TwoFactorRequiredError } from '@/lib/auth'
+import { TwoFactorRequiredError, waitForServerSession } from '@/lib/auth'
 
 type BannerType = 'expired' | 'replaced' | null
 
@@ -86,9 +86,10 @@ export default function BusinessLogin() {
     return () => clearTimeout(timer)
   }, [])
 
+  const redirectingRef = useRef(false)
   useEffect(() => {
     // Only redirect if auth is done loading and user exists
-    if (!authLoading && user) {
+    if (!authLoading && user && !redirectingRef.current) {
       const params = new URLSearchParams(window.location.search)
       const redirectTo = params.get('redirect')
       let dest = ''
@@ -98,7 +99,11 @@ export default function BusinessLogin() {
       else if (user.role === 'distributor') dest = '/dashboard/distributor'
       else if (user.role === 'master_distributor') dest = '/dashboard/master-distributor'
       else if (user.role === 'partner' || user.role === 'sub_partner') dest = '/dashboard/partner'
-      if (dest) router.push(dest)
+      if (dest) {
+        redirectingRef.current = true
+        // Wait for the SSR session cookie so middleware doesn't bounce us back (1-attempt login).
+        waitForServerSession().then(() => router.push(dest))
+      }
     }
   }, [user, authLoading])
 
@@ -146,8 +151,10 @@ export default function BusinessLogin() {
     try {
       let role: string = userType === 'master-distributor' ? 'master_distributor' : userType!
       await login(formData.email, formData.password, role as any, captchaToken)
-      
-      await new Promise(resolve => setTimeout(resolve, 500))
+
+      // Wait until middleware can see the session cookie before navigating,
+      // so the protected dashboard route isn't bounced back to login (1-attempt login).
+      await waitForServerSession()
 
       const params = new URLSearchParams(window.location.search)
       const redirectTo = params.get('redirect')
@@ -194,7 +201,7 @@ export default function BusinessLogin() {
       let role: string = userType === 'master-distributor' ? 'master_distributor' : userType!
       await login2FA(formData.email, formData.password, role, totpCode.trim(), useBackupCode)
 
-      await new Promise(resolve => setTimeout(resolve, 500))
+      await waitForServerSession()
       const params = new URLSearchParams(window.location.search)
       const redirectTo = params.get('redirect')
       let dest = ''

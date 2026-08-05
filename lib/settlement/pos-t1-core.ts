@@ -29,6 +29,9 @@ import type { SettlementType } from '@/types/mdr-scheme.types'
 const BATCH_SIZE = 500
 const MAX_ITERATIONS = 200 // 200 * 500 = 100k txns per run — a safety backstop.
 
+/** TDS withheld on every distributor commission credit (2%). */
+export const DISTRIBUTOR_COMMISSION_TDS_RATE = 0.02
+
 interface RetailerMeta {
   distributorId: string | null
   name: string
@@ -78,6 +81,21 @@ export async function runPosT1Settlement(
 
   const cutoffDate = options.beforeDate ?? new Date(new Date().setHours(0, 0, 0, 0))
   const pausedRetailers = options.pausedRetailers ?? (await getPausedRetailerIds(supabase))
+
+  // Self-heal: stamp retailer_id on captured transactions whose device is
+  // registered in pos_machines (by tid/serial) but where the webhook never
+  // wrote retailer_id (it only reads pos_device_mapping). Without this, such
+  // transactions are invisible to the eligibility query below and never settle.
+  try {
+    const { data: backfilled, error: backfillError } = await supabase.rpc('backfill_pos_retailer_ids')
+    if (backfillError) {
+      console.error('[PosT1] backfill_pos_retailer_ids failed:', backfillError.message)
+    } else if (backfilled && Number(backfilled) > 0) {
+      console.log(`[PosT1] Backfilled retailer_id on ${backfilled} transaction(s) from pos_machines.`)
+    }
+  } catch (err: any) {
+    console.error('[PosT1] backfill_pos_retailer_ids threw:', err?.message || err)
+  }
 
   const result: PosT1SettlementResult = {
     processed: 0,
@@ -199,6 +217,10 @@ export async function runPosT1Settlement(
 
       const r = mdrResult.result
       const commission = meta.distributorId && r.distributor_margin > 0 ? r.distributor_margin : 0
+      // 2% TDS withheld on the distributor commission — net (gross - TDS) is credited.
+      const commissionTds = commission > 0
+        ? Math.round(commission * DISTRIBUTOR_COMMISSION_TDS_RATE * 100) / 100
+        : 0
 
       const { data: ledgerId, error: rpcError } = await supabase.rpc('settle_pos_txn_t1', {
         p_txn_id: txn.id,
@@ -212,6 +234,7 @@ export async function runPosT1Settlement(
         p_distributor_id: commission > 0 ? meta.distributorId : null,
         p_distributor_mdr: r.distributor_mdr,
         p_distributor_commission: commission,
+        p_distributor_tds: commissionTds,
         p_tid: txn.tid || txn.device_serial || null,
         p_retailer_name: meta.name,
         p_retailer_ref: `AUTO-T1-${txn.txn_id}`,

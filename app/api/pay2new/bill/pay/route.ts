@@ -234,7 +234,7 @@ export async function POST(request: NextRequest) {
       const { error } = await (supabaseAdmin as any).rpc('debit_partner_wallet', {
         p_partner_id: user.partner_id,
         p_amount: totalDebit,
-        p_description: `CC ₹${amountNum} + ₹${totalServiceCharge} charge | ${product_name || product_code} | Card:${number}${customer_name ? ` | Name:${customer_name}` : ''}`,
+        p_description: `CC ₹${amountNum} + ₹${totalServiceCharge} charge | ${product_name || product_code} | Card:${number} | Mob:${customer_number}${customer_name ? ` | Name:${customer_name}` : ''}`,
         p_reference_id: request_id,
         p_service_type: 'pay2new',
       })

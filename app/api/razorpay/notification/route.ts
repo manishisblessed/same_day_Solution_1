@@ -394,8 +394,40 @@ export async function POST(request: NextRequest) {
         console.error('Error looking up device mapping:', mappingError)
       }
 
-      if (deviceMapping && deviceMapping.retailer_id) {
-        retailerMapping = deviceMapping
+      // Fallback: many retailer devices are registered in pos_machines (by
+      // serial_number / tid) and NOT in pos_device_mapping. Resolve the
+      // retailer hierarchy from there too, otherwise retailer_id is never
+      // stamped and the T+1 cron can't see the transaction.
+      let retailerHierarchy: { retailer_id: string; distributor_id: string | null; master_distributor_id: string | null } | null =
+        deviceMapping && deviceMapping.retailer_id
+          ? {
+              retailer_id: deviceMapping.retailer_id,
+              distributor_id: deviceMapping.distributor_id ?? null,
+              master_distributor_id: deviceMapping.master_distributor_id ?? null,
+            }
+          : null
+
+      if (!retailerHierarchy && (deviceSerial || tid)) {
+        let machineQuery = supabase
+          .from('pos_machines')
+          .select('retailer_id, distributor_id, master_distributor_id')
+          .not('retailer_id', 'is', null)
+          .limit(1)
+        machineQuery = deviceSerial
+          ? machineQuery.eq('serial_number', deviceSerial)
+          : machineQuery.eq('tid', tid)
+        const { data: machine } = await machineQuery.maybeSingle()
+        if (machine && machine.retailer_id) {
+          retailerHierarchy = {
+            retailer_id: machine.retailer_id,
+            distributor_id: machine.distributor_id ?? null,
+            master_distributor_id: machine.master_distributor_id ?? null,
+          }
+        }
+      }
+
+      if (retailerHierarchy) {
+        retailerMapping = retailerHierarchy
         const grossAmount = amount // Amount is already in rupees from Razorpay POS
 
         // Store retailer hierarchy on transaction (but do NOT credit wallet)
@@ -403,9 +435,9 @@ export async function POST(request: NextRequest) {
         await supabase
           .from('razorpay_pos_transactions')
           .update({
-            retailer_id: deviceMapping.retailer_id,
-            distributor_id: deviceMapping.distributor_id,
-            master_distributor_id: deviceMapping.master_distributor_id,
+            retailer_id: retailerHierarchy.retailer_id,
+            distributor_id: retailerHierarchy.distributor_id,
+            master_distributor_id: retailerHierarchy.master_distributor_id,
             settlement_type: 'T1',
             gross_amount: grossAmount,
             // wallet_credited: false (default - NOT crediting here)
@@ -413,10 +445,10 @@ export async function POST(request: NextRequest) {
           })
           .eq('txn_id', txnId)
 
-        console.log(`[PulsePay] Transaction ${txnId} CAPTURED for retailer ${deviceMapping.retailer_id}, amount: ₹${grossAmount}. Awaiting settlement via Pulse Pay (T+0) or Auto-T+1.`)
+        console.log(`[PulsePay] Transaction ${txnId} CAPTURED for retailer ${retailerHierarchy.retailer_id}, amount: ₹${grossAmount}. Awaiting settlement via Pulse Pay (T+0) or Auto-T+1.`)
       } else {
         // Device not mapped to a retailer - may still be a partner device
-        console.warn(`No retailer device mapping found for device_serial: ${deviceSerial}.`)
+        console.warn(`No retailer device mapping found for device_serial: ${deviceSerial}, tid: ${tid}.`)
       }
 
       // ================================================================

@@ -32,6 +32,7 @@ import { getPosCompanies } from '@/lib/merchant-companies'
 import ExportDropdown, { type ExportFormat } from '@/components/ExportDropdown'
 import { exportTable } from '@/lib/export/table-export'
 import ShadvalPayTransfer from '@/components/ShadvalPayTransfer'
+import TpinSetup from '@/components/TpinSetup'
 
 type TabType = 'dashboard' | 'services' | 'retailers' | 'wallet' | 'commission' | 'mdr-schemes' | 'analytics' | 'reports' | 'settings' | 'scheme-management' | 'pos-machines' | 'subscriptions'
 
@@ -895,7 +896,7 @@ function WalletTab({ user }: { user: any }) {
           animate={{ opacity: 1, y: 0 }}
           className="bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl shadow-lg p-6 text-white"
         >
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center justify-between">
             <div>
               <p className="text-purple-100 text-sm font-medium mb-1">Primary Wallet</p>
               <p className="text-3xl font-bold">
@@ -904,13 +905,6 @@ function WalletTab({ user }: { user: any }) {
             </div>
             <Wallet className="w-12 h-12 text-purple-200" />
           </div>
-          <button
-            onClick={() => setShowSettlement(true)}
-            className="w-full bg-white/20 hover:bg-white/30 text-white py-2 px-4 rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
-          >
-            <Banknote className="w-4 h-4" />
-            Request Settlement
-          </button>
         </motion.div>
 
         <motion.div
@@ -930,76 +924,10 @@ function WalletTab({ user }: { user: any }) {
         </motion.div>
       </div>
 
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="bg-white rounded-xl shadow-lg border border-gray-200 p-6"
-      >
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-semibold">Settlement History</h3>
-          <button
-            onClick={fetchSettlements}
-            className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
-            title="Refresh"
-          >
-            <RefreshCw className="w-4 h-4 text-gray-500" />
-          </button>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">Date</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">Mode</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">Amount</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">Charge</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">Net Amount</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">Bank A/C</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">Status</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200">
-              {settlements.length === 0 ? (
-                <tr>
-                  <td colSpan={7} className="px-4 py-8 text-center text-gray-500">
-                    No settlements yet
-                  </td>
-                </tr>
-              ) : (
-                settlements.map((s) => (
-                  <tr key={s.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-3 text-sm text-gray-900">
-                      {new Date(s.created_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', dateStyle: 'short', timeStyle: 'short' })}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-900 uppercase">{s.settlement_mode}</td>
-                    <td className="px-4 py-3 text-sm text-gray-900">₹{parseFloat(s.amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
-                    <td className="px-4 py-3 text-sm text-red-600">₹{parseFloat(s.charge).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
-                    <td className="px-4 py-3 text-sm font-medium text-green-700">₹{parseFloat(s.net_amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
-                    <td className="px-4 py-3 text-sm text-gray-500">
-                      ****{String(s.bank_account_number || '').slice(-4)}
-                    </td>
-                    <td className="px-4 py-3 text-sm">
-                      <span className={`px-2 py-1 rounded-full text-xs ${
-                        s.status === 'success' ? 'bg-green-100 text-green-800' :
-                        s.status === 'pending' || s.status === 'processing' ? 'bg-yellow-100 text-yellow-800' :
-                        s.status === 'failed' || s.status === 'reversed' ? 'bg-red-100 text-red-800' :
-                        'bg-gray-100 text-gray-800'
-                      }`}>
-                        {s.status}
-                      </span>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </motion.div>
-
       {/* Settlement-2: Shadval Pay Transfer (only if enabled by admin) */}
       {settlement2Enabled && <ShadvalPayTransfer title="Settlement-2 - Bank Transfer" />}
 
-      {/* Settlement Request Modal */}
+      {/* Settlement Request Modal (legacy — retained but no longer triggered) */}
       {showSettlement && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
           <motion.div
@@ -5550,6 +5478,7 @@ function SettingsTab() {
                 <div>
                   <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Security Settings</h3>
                   <div className="space-y-6">
+                    <TpinSetup />
                     <ChangePasswordForm onPasswordChange={handleChangePassword} loading={loading} />
                     <TwoFactorSetup />
                     <div className="p-4 border border-gray-200 dark:border-gray-700 rounded-lg">

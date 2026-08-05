@@ -299,22 +299,52 @@ export async function POST(
         console.error(`[Webhook/${merchantSlug}] Error looking up device mapping:`, mappingError)
       }
 
-      if (deviceMapping && deviceMapping.retailer_id) {
-        retailerMapping = deviceMapping
+      // Fallback to pos_machines (serial_number / tid) when the device isn't in
+      // pos_device_mapping, so retailer_id gets stamped and the T+1 cron sees it.
+      let retailerHierarchy: { retailer_id: string; distributor_id: string | null; master_distributor_id: string | null } | null =
+        deviceMapping && deviceMapping.retailer_id
+          ? {
+              retailer_id: deviceMapping.retailer_id,
+              distributor_id: deviceMapping.distributor_id ?? null,
+              master_distributor_id: deviceMapping.master_distributor_id ?? null,
+            }
+          : null
+
+      if (!retailerHierarchy && (deviceSerial || tid)) {
+        let machineQuery = supabase
+          .from('pos_machines')
+          .select('retailer_id, distributor_id, master_distributor_id')
+          .not('retailer_id', 'is', null)
+          .limit(1)
+        machineQuery = deviceSerial
+          ? machineQuery.eq('serial_number', deviceSerial)
+          : machineQuery.eq('tid', tid)
+        const { data: machine } = await machineQuery.maybeSingle()
+        if (machine && machine.retailer_id) {
+          retailerHierarchy = {
+            retailer_id: machine.retailer_id,
+            distributor_id: machine.distributor_id ?? null,
+            master_distributor_id: machine.master_distributor_id ?? null,
+          }
+        }
+      }
+
+      if (retailerHierarchy) {
+        retailerMapping = retailerHierarchy
 
         await supabase
           .from('razorpay_pos_transactions')
           .update({
-            retailer_id: deviceMapping.retailer_id,
-            distributor_id: deviceMapping.distributor_id,
-            master_distributor_id: deviceMapping.master_distributor_id,
+            retailer_id: retailerHierarchy.retailer_id,
+            distributor_id: retailerHierarchy.distributor_id,
+            master_distributor_id: retailerHierarchy.master_distributor_id,
             gross_amount: amount,
           })
           .eq('txn_id', txnId)
 
-        console.log(`[Webhook/${merchantSlug}] Transaction ${txnId} CAPTURED for retailer ${deviceMapping.retailer_id}, amount: ₹${amount}`)
+        console.log(`[Webhook/${merchantSlug}] Transaction ${txnId} CAPTURED for retailer ${retailerHierarchy.retailer_id}, amount: ₹${amount}`)
       } else {
-        console.warn(`[Webhook/${merchantSlug}] No device mapping for device_serial: ${deviceSerial}`)
+        console.warn(`[Webhook/${merchantSlug}] No device mapping for device_serial: ${deviceSerial}, tid: ${tid}`)
       }
     }
 
