@@ -33,7 +33,7 @@ interface TransactionRecord {
   amount: number
   charges: number
   mode: string
-  status: 'SUCCESS' | 'FAILED' | 'PENDING'
+  status: 'SUCCESS' | 'FAILED' | 'PENDING' | 'AWAITING_APPROVAL' | 'REJECTED'
   status_message?: string
   account_number: string
   account_holder_name: string
@@ -1049,8 +1049,10 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
               <div className={`p-6 text-center ${
                 transferResult.status === 'SUCCESS'
                   ? 'bg-gradient-to-br from-emerald-500 to-emerald-700'
-                  : transferResult.status === 'FAILED'
+                  : transferResult.status === 'FAILED' || transferResult.status === 'REJECTED'
                   ? 'bg-gradient-to-br from-red-500 to-red-700'
+                  : transferResult.status === 'AWAITING_APPROVAL'
+                  ? 'bg-gradient-to-br from-blue-500 to-blue-700'
                   : 'bg-gradient-to-br from-amber-500 to-amber-700'
               }`}>
                 <motion.div
@@ -1061,15 +1063,19 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
                 >
                   {transferResult.status === 'SUCCESS' ? (
                     <CheckCircle2 className="w-9 h-9 text-white" />
-                  ) : transferResult.status === 'FAILED' ? (
+                  ) : transferResult.status === 'FAILED' || transferResult.status === 'REJECTED' ? (
                     <XCircle className="w-9 h-9 text-white" />
+                  ) : transferResult.status === 'AWAITING_APPROVAL' ? (
+                    <Clock className="w-9 h-9 text-white" />
                   ) : (
                     <Clock className="w-9 h-9 text-white" />
                   )}
                 </motion.div>
                 <h3 className="text-xl font-bold text-white">
                   {transferResult.status === 'SUCCESS' ? 'Transfer Successful' :
-                   transferResult.status === 'FAILED' ? 'Transfer Failed' : 'Transfer Processing'}
+                   transferResult.status === 'FAILED' ? 'Transfer Failed' :
+                   transferResult.status === 'REJECTED' ? 'Transfer Rejected' :
+                   transferResult.status === 'AWAITING_APPROVAL' ? 'Awaiting Admin Approval' : 'Transfer Processing'}
                 </h3>
                 <p className="text-white/80 text-sm mt-1">{transferResult.status_message || 'Transaction processed'}</p>
                 <p className="text-3xl font-bold text-white mt-3">₹{transferResult.amount.toFixed(2)}</p>
@@ -1198,7 +1204,7 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
                             <html><head><title>Receipt - ${transferResult.reference_id}</title>
                             <style>
                               body { font-family: 'Segoe UI', sans-serif; max-width: 400px; margin: 20px auto; padding: 20px; }
-                              .header { text-align: center; padding: 20px; border-radius: 12px; color: white; background: ${transferResult.status === 'SUCCESS' ? '#059669' : transferResult.status === 'FAILED' ? '#dc2626' : '#d97706'}; }
+                              .header { text-align: center; padding: 20px; border-radius: 12px; color: white; background: ${transferResult.status === 'SUCCESS' ? '#059669' : transferResult.status === 'FAILED' || transferResult.status === 'REJECTED' ? '#dc2626' : transferResult.status === 'AWAITING_APPROVAL' ? '#2563eb' : '#d97706'}; }
                               .amount { font-size: 28px; font-weight: bold; margin-top: 10px; }
                               .row { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #f3f4f6; }
                               .label { color: #6b7280; font-size: 14px; }
@@ -1207,7 +1213,7 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
                               .footer { text-align: center; color: #9ca3af; font-size: 12px; margin-top: 20px; }
                             </style></head><body>
                             <div class="header">
-                              <div style="font-size:18px;font-weight:bold">${transferResult.status === 'SUCCESS' ? 'Transfer Successful' : transferResult.status === 'FAILED' ? 'Transfer Failed' : 'Transfer Processing'}</div>
+                              <div style="font-size:18px;font-weight:bold">${transferResult.status === 'SUCCESS' ? 'Transfer Successful' : transferResult.status === 'FAILED' ? 'Transfer Failed' : transferResult.status === 'REJECTED' ? 'Transfer Rejected' : transferResult.status === 'AWAITING_APPROVAL' ? 'Awaiting Admin Approval' : 'Transfer Processing'}</div>
                               <div class="amount">₹${transferResult.amount.toFixed(2)}</div>
                             </div>
                             <div class="divider"></div>
@@ -1244,7 +1250,7 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
                 >
                   Done
                 </button>
-                {transferResult.status === 'PENDING' && (
+                {(transferResult.status === 'PENDING' || transferResult.status === 'AWAITING_APPROVAL') && (
                   <button
                     onClick={() => handleCheckStatus(transferResult.reference_id)}
                     className="flex-1 py-3 rounded-xl border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300 font-medium hover:bg-gray-50 dark:hover:bg-gray-800 transition-all flex items-center justify-center gap-2"
@@ -1562,8 +1568,10 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
                           <span className={`px-2 py-1 rounded-full text-xs font-medium ${
                             tx.status === 'SUCCESS'
                               ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400'
-                              : tx.status === 'FAILED'
+                              : tx.status === 'FAILED' || tx.status === 'REJECTED'
                               ? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400'
+                              : tx.status === 'AWAITING_APPROVAL'
+                              ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400'
                               : 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400'
                           }`}>
                             {tx.status}

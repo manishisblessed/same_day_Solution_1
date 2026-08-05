@@ -256,6 +256,7 @@ export default function Pay2NewServiceFlow(props: Pay2NewServiceFlowProps) {
           bill_fetch_ref: orderId,
           optional1: optional1 || '',
           customer_number: optional1 || number,
+          customer_name: billData?.customer_name || '',
           user_id: user?.id,
           tpin,
           ...(bbpsFallback ? { use_bbps: true, biller_id: bbpsFallback.biller_id } : {}),

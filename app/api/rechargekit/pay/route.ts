@@ -336,7 +336,7 @@ export async function POST(request: NextRequest) {
       const { error } = await (supabaseAdmin as any).rpc('debit_partner_wallet', {
         p_partner_id: user.partner_id,
         p_amount: totalDebit,
-        p_description: `CC-2 ₹${amountNum} + ₹${totalServiceCharge} charge | ${bankLabel} | Card:${cardMasked}`,
+        p_description: `CC-2 ₹${amountNum} + ₹${totalServiceCharge} charge | ${bankLabel} | Card:${cardMasked} | Mob:${mobile} | Name:${beneficiary_name}`,
         p_reference_id: request_id,
         p_service_type: 'rechargekit',
       })
@@ -354,7 +354,7 @@ export async function POST(request: NextRequest) {
         p_reference_id: request_id,
         p_transaction_id: txRecord.id,
         p_status: 'completed',
-        p_remarks: `CC-2 ₹${amountNum} + ₹${totalServiceCharge} GST | ${bankLabel} | Card:${cardMasked} | Mob:${mobile}`,
+        p_remarks: `CC-2 ₹${amountNum} + ₹${totalServiceCharge} GST | ${bankLabel} | Card:${cardMasked} | Mob:${mobile} | Name:${beneficiary_name}`,
       })
       debitErr = error
     }

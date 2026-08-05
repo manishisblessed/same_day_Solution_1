@@ -30,7 +30,7 @@ export async function OPTIONS(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const { user } = await getCurrentUserWithFallback(request)
-    if (!user || !['retailer', 'partner'].includes(user.role)) {
+    if (!user || !['retailer', 'distributor', 'partner'].includes(user.role)) {
       const response = NextResponse.json({ success: false, error: 'Access denied' }, { status: 403 })
       return addCorsHeaders(request, response)
     }
@@ -52,6 +52,20 @@ export async function POST(request: NextRequest) {
 
     if (!txRecord) {
       const response = NextResponse.json({ success: false, error: 'Transaction not found' }, { status: 404 })
+      return addCorsHeaders(request, response)
+    }
+
+    // AWAITING_APPROVAL / REJECTED: no provider call was made, return DB status only
+    if (txRecord.status === 'AWAITING_APPROVAL' || txRecord.status === 'REJECTED') {
+      const response = NextResponse.json({
+        success: true,
+        data: {
+          txn_status: txRecord.status,
+          status_message: txRecord.status === 'AWAITING_APPROVAL'
+            ? 'Your settlement request is awaiting admin approval.'
+            : 'Your settlement request was rejected. Wallet has been refunded.',
+        },
+      })
       return addCorsHeaders(request, response)
     }
 

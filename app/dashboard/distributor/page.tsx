@@ -31,6 +31,7 @@ import BillPaymentTransactionReport from '@/components/reports/BillPaymentTransa
 import { getPosCompanies } from '@/lib/merchant-companies'
 import ExportDropdown, { type ExportFormat } from '@/components/ExportDropdown'
 import { exportTable } from '@/lib/export/table-export'
+import ShadvalPayTransfer from '@/components/ShadvalPayTransfer'
 
 type TabType = 'dashboard' | 'services' | 'retailers' | 'wallet' | 'commission' | 'mdr-schemes' | 'analytics' | 'reports' | 'settings' | 'scheme-management' | 'pos-machines' | 'subscriptions'
 
@@ -669,6 +670,15 @@ function WalletTab({ user }: { user: any }) {
   const ledgerPageSize = 25
   const ledgerTotalPages = Math.max(1, Math.ceil(ledgerTotal / ledgerPageSize))
 
+  // Settlement-2 service permission
+  const [settlement2Enabled, setSettlement2Enabled] = useState(false)
+  useEffect(() => {
+    if (!user?.partner_id) return
+    apiFetchJson<{ services: Record<string, boolean> }>(`/api/user/enabled-services?partner_id=${user.partner_id}&role=distributor`)
+      .then(data => setSettlement2Enabled(!!data.services?.settlement2))
+      .catch(() => setSettlement2Enabled(false))
+  }, [user?.partner_id])
+
   // Settlement state
   const [showSettlement, setShowSettlement] = useState(false)
   const [settlements, setSettlements] = useState<any[]>([])
@@ -985,6 +995,9 @@ function WalletTab({ user }: { user: any }) {
           </table>
         </div>
       </motion.div>
+
+      {/* Settlement-2: Shadval Pay Transfer (only if enabled by admin) */}
+      {settlement2Enabled && <ShadvalPayTransfer title="Settlement-2 - Bank Transfer" />}
 
       {/* Settlement Request Modal */}
       {showSettlement && (

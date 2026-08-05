@@ -43,7 +43,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const { user } = await getCurrentUserWithFallback(request)
-    if (!user || !['retailer', 'partner'].includes(user.role)) {
+    if (!user || !['retailer', 'distributor', 'partner'].includes(user.role)) {
       const response = NextResponse.json({ success: false, error: 'Access denied' }, { status: 403 })
       return addCorsHeaders(request, response)
     }
@@ -56,8 +56,8 @@ export async function POST(request: NextRequest) {
       return addCorsHeaders(request, response)
     }
 
-    const tpinFn = user.role === 'partner' ? 'verify_partner_tpin' : 'verify_retailer_tpin'
-    const tpinParam = user.role === 'partner' ? 'p_partner_id' : 'p_retailer_id'
+    const tpinFn = user.role === 'partner' ? 'verify_partner_tpin' : user.role === 'distributor' ? 'verify_distributor_tpin' : 'verify_retailer_tpin'
+    const tpinParam = user.role === 'partner' ? 'p_partner_id' : user.role === 'distributor' ? 'p_distributor_id' : 'p_retailer_id'
     const { data: tpinResult, error: tpinError } = await supabaseAdmin.rpc(tpinFn, {
       [tpinParam]: user.partner_id,
       p_tpin: tpin,
@@ -154,7 +154,7 @@ export async function POST(request: NextRequest) {
     let commissionSplit = { distributor_commission: 0, md_commission: 0, company_earning: 0 }
     let chargeModelData: { md_purchase_charge: number; dt_purchase_charge: number; rt_purchase_charge: number; company_cost: number } | null = null
 
-    // Get retailer hierarchy
+    // Get user hierarchy
     let distributorId: string | null = null
     let mdId: string | null = null
     if (user.role === 'retailer') {
@@ -168,6 +168,18 @@ export async function POST(request: NextRequest) {
         mdId = retailerData?.master_distributor_id || null
       } catch (e) {
         console.warn('[Settlement-2] Failed to fetch retailer hierarchy:', e)
+      }
+    } else if (user.role === 'distributor') {
+      distributorId = user.partner_id
+      try {
+        const { data: distData } = await supabaseAdmin
+          .from('distributors')
+          .select('master_distributor_id')
+          .eq('partner_id', user.partner_id)
+          .maybeSingle()
+        mdId = distData?.master_distributor_id || null
+      } catch (e) {
+        console.warn('[Settlement-2] Failed to fetch distributor hierarchy:', e)
       }
     }
 
@@ -378,11 +390,14 @@ export async function POST(request: NextRequest) {
 
     const refId = `SV2_${user.partner_id}_${Date.now()}`
 
+    const requiresApproval = user.role === 'distributor'
+
     // Create transaction record
     const { data: txRecord, error: txError } = await supabaseAdmin
       .from('shadval_settlement')
       .insert({
         retailer_id: user.partner_id,
+        user_role: user.role,
         account_number: account.account_number,
         ifsc_code: account.ifsc_code,
         account_holder_name: account.verified_name || account.account_holder_name,
@@ -391,7 +406,7 @@ export async function POST(request: NextRequest) {
         total_debit: amountNum + charges,
         mode,
         reference_id: refId,
-        status: 'PENDING',
+        status: requiresApproval ? 'AWAITING_APPROVAL' : 'PENDING',
         contact_name: account.contact_name || user.name,
         contact_email: account.contact_email || user.email,
         contact_mobile: account.contact_mobile || user.phone,
@@ -466,6 +481,26 @@ export async function POST(request: NextRequest) {
       .from('shadval_settlement')
       .update({ actual_wallet_debit: totalDebit, transfer_ledger_id: transferLedgerId })
       .eq('id', txRecord.id)
+
+    // Distributor settlements require admin approval before processing
+    if (requiresApproval) {
+      if (idemKey) await finalizeIdempotencyKey({ scope: IDEM_SCOPE, key: idemKey, status: 'completed', response: { awaiting_approval: true } })
+      const response = NextResponse.json({
+        success: true,
+        transaction: {
+          id: txRecord.id,
+          reference_id: refId,
+          amount: amountNum,
+          charges,
+          mode,
+          status: 'AWAITING_APPROVAL',
+          status_message: 'Settlement request submitted. Awaiting admin approval.',
+          account_number: account.account_number,
+          account_holder_name: account.verified_name || account.account_holder_name,
+        },
+      })
+      return addCorsHeaders(request, response)
+    }
 
     const chargeLedgerId: string | null = null
 

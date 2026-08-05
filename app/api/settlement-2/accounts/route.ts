@@ -88,7 +88,7 @@ export async function OPTIONS(request: NextRequest) {
 export async function GET(request: NextRequest) {
   try {
     const { user } = await getCurrentUserWithFallback(request)
-    if (!user || !['retailer', 'partner'].includes(user.role)) {
+    if (!user || !['retailer', 'distributor', 'partner'].includes(user.role)) {
       const response = NextResponse.json({ success: false, error: 'Access denied' }, { status: 403 })
       return addCorsHeaders(request, response)
     }
@@ -129,7 +129,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const { user } = await getCurrentUserWithFallback(request)
-    if (!user || !['retailer', 'partner'].includes(user.role)) {
+    if (!user || !['retailer', 'distributor', 'partner'].includes(user.role)) {
       const response = NextResponse.json({ success: false, error: 'Access denied' }, { status: 403 })
       return addCorsHeaders(request, response)
     }
@@ -675,7 +675,7 @@ export async function POST(request: NextRequest) {
 export async function PATCH(request: NextRequest) {
   try {
     const { user } = await getCurrentUserWithFallback(request)
-    if (!user || !['retailer', 'partner'].includes(user.role)) {
+    if (!user || !['retailer', 'distributor', 'partner'].includes(user.role)) {
       const response = NextResponse.json({ success: false, error: 'Access denied' }, { status: 403 })
       return addCorsHeaders(request, response)
     }
@@ -837,7 +837,7 @@ export async function PATCH(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   try {
     const { user } = await getCurrentUserWithFallback(request)
-    if (!user || !['retailer', 'partner'].includes(user.role)) {
+    if (!user || !['retailer', 'distributor', 'partner'].includes(user.role)) {
       const response = NextResponse.json({ success: false, error: 'Access denied' }, { status: 403 })
       return addCorsHeaders(request, response)
     }

@@ -44,6 +44,7 @@ function parseLedgerMeta(description: string) {
   const gst = totalChargeWithGst > 0 ? Math.round((totalChargeWithGst - charge) * 100) / 100 : 0
   const cardMatch = text.match(/Card:([*\dXx]+)/i)
   const mobMatch = text.match(/Mob:(\d{8,15})/i)
+  const nameMatch = text.match(/Name:([^|]+)/i)
   const isRechargekit = /rechargekit|CC-2/i.test(text)
   const isPay2newCc = !isRechargekit && (/\bBBPS-2\s*CC\b/i.test(text) || /^CC\s*₹/i.test(text.trim()) || (/Card:/i.test(text) && /pay2new|BBPS-2|^CC\b/i.test(text)))
   const isPay2new = !isRechargekit && (isPay2newCc || /BBPS-2|pay2new/i.test(text) || /^CC\s*₹/i.test(text.trim()))
@@ -53,6 +54,7 @@ function parseLedgerMeta(description: string) {
     gst,
     card_number: cardMatch?.[1] || '-',
     mobile: mobMatch?.[1] || '-',
+    customer_name: nameMatch?.[1]?.trim() || '-',
     isRechargekit,
     isPay2newCc,
     isPay2new,
@@ -308,7 +310,7 @@ export async function GET(request: NextRequest) {
         transaction_id: tx.reference_id || tx.id,
         operator: source,
         biller_name: '-',
-        customer_name: '-',
+        customer_name: meta.customer_name,
         mobile: meta.mobile,
         card_number: meta.card_number,
         customer_number: meta.card_number !== '-' ? meta.card_number : meta.mobile,
@@ -376,8 +378,8 @@ export async function GET(request: NextRequest) {
       for (const row of allRows) {
         const t = txMap.get(row.transaction_id)
         if (!t) continue
-        if (t.consumer_name) row.customer_name = t.consumer_name
-        if (t.biller_name) row.biller_name = t.biller_name
+        if (t.consumer_name && (row.customer_name === '-' || !row.customer_name)) row.customer_name = t.consumer_name
+        if (t.biller_name && (row.biller_name === '-' || !row.biller_name)) row.biller_name = t.biller_name
         const info = t.additional_info || {}
         if (info.mobile && (row.mobile === '-' || !row.mobile)) row.mobile = String(info.mobile)
         if (t.consumer_number && (row.card_number === '-' || !row.card_number)) {
@@ -421,7 +423,7 @@ export async function GET(request: NextRequest) {
           transaction_id: tx.reference_id || tx.id,
           operator: source,
           biller_name: '-',
-          customer_name: '-',
+          customer_name: meta.customer_name,
           mobile: meta.mobile,
           card_number: meta.card_number,
           customer_number: meta.card_number !== '-' ? meta.card_number : meta.mobile,
@@ -564,8 +566,9 @@ export async function GET(request: NextRequest) {
       { header: 'Date', key: 'date', type: 'date' },
       { header: 'Transaction ID', key: 'transaction_id' },
       { header: 'Provider', key: 'operator' },
-      { header: 'User ID', key: 'user_id' },
+      { header: 'User Type', key: 'user_type' },
       { header: 'User Name', key: 'user_name' },
+      { header: 'User ID', key: 'user_id' },
       { header: 'Customer Name', key: 'customer_name' },
       { header: 'Mobile', key: 'mobile' },
       { header: 'Card Number', key: 'card_number' },

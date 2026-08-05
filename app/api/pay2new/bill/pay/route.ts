@@ -47,7 +47,7 @@ export async function POST(request: NextRequest) {
     const rl = rateLimit(request, { ...RATE_LIMITS.bbpsPay, identifier: user.partner_id })
     if (rl.limited) return addCorsHeaders(request, rl.response!)
 
-    const { number, amount, product_code, product_name, bill_fetch_ref, optional1, optional2, optional3, optional4, customer_number, pincode, tpin, use_bbps, biller_id: frontendBillerId } = body
+    const { number, amount, product_code, product_name, bill_fetch_ref, optional1, optional2, optional3, optional4, customer_number, customer_name, pincode, tpin, use_bbps, biller_id: frontendBillerId } = body
 
     if (!number || !amount || !product_code || !bill_fetch_ref || !customer_number) {
       const response = NextResponse.json(
@@ -234,7 +234,7 @@ export async function POST(request: NextRequest) {
       const { error } = await (supabaseAdmin as any).rpc('debit_partner_wallet', {
         p_partner_id: user.partner_id,
         p_amount: totalDebit,
-        p_description: `CC ₹${amountNum} + ₹${totalServiceCharge} charge | ${product_name || product_code} | Card:${number}`,
+        p_description: `CC ₹${amountNum} + ₹${totalServiceCharge} charge | ${product_name || product_code} | Card:${number}${customer_name ? ` | Name:${customer_name}` : ''}`,
         p_reference_id: request_id,
         p_service_type: 'pay2new',
       })
@@ -251,7 +251,7 @@ export async function POST(request: NextRequest) {
         p_debit: totalDebit,
         p_reference_id: request_id,
         p_status: 'completed',
-        p_remarks: `CC ₹${amountNum} + ₹${totalServiceCharge} GST | ${product_name || product_code} | Card:${number} | Mob:${customer_number}`,
+        p_remarks: `CC ₹${amountNum} + ₹${totalServiceCharge} GST | ${product_name || product_code} | Card:${number} | Mob:${customer_number}${customer_name ? ` | Name:${customer_name}` : ''}`,
       })
       debitErr = error
     }

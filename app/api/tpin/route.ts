@@ -29,6 +29,16 @@ function tpinConfig(role: string) {
       setParam: 'p_partner_id' as const,
     }
   }
+  if (role === 'distributor') {
+    return {
+      table: 'distributors' as const,
+      idColumn: 'partner_id' as const,
+      verifyFn: 'verify_distributor_tpin' as const,
+      setFn: 'set_distributor_tpin' as const,
+      verifyParam: 'p_distributor_id' as const,
+      setParam: 'p_distributor_id' as const,
+    }
+  }
   return {
     table: 'retailers' as const,
     idColumn: 'partner_id' as const,

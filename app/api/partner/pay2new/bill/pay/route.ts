@@ -51,7 +51,7 @@ export async function POST(request: NextRequest) {
 
     const {
       number, amount, product_code, product_name,
-      bill_fetch_ref, customer_number,
+      bill_fetch_ref, customer_number, customer_name,
       optional1, optional2, optional3, optional4, pincode,
     } = body
 
@@ -175,7 +175,7 @@ export async function POST(request: NextRequest) {
       p_partner_id: partner.id,
       p_amount: totalDebit,
       p_payout_transaction_id: null,
-      p_description: `BBPS-2 CC ₹${amountNum} + ₹${totalServiceCharge} charge | ${product_name || product_code} | Card:****${number} | Mob:${customer_number}`,
+      p_description: `BBPS-2 CC ₹${amountNum} + ₹${totalServiceCharge} charge | ${product_name || product_code} | Card:****${number} | Mob:${customer_number}${customer_name ? ` | Name:${customer_name}` : ''}`,
       p_reference_id: request_id,
       p_service_type: 'pay2new',
     })
@@ -247,7 +247,7 @@ export async function POST(request: NextRequest) {
       .from('partner_wallet_ledger')
       .update({
         payout_transaction_id: result.order_id || null,
-        description: `BBPS-2 CC ₹${amountNum} + ₹${totalServiceCharge} charge | ${product_name || product_code} | Card:****${number} | Mob:${customer_number} | OrderID:${result.order_id} | Ref:${result.operator_reference || 'N/A'}`,
+        description: `BBPS-2 CC ₹${amountNum} + ₹${totalServiceCharge} charge | ${product_name || product_code} | Card:****${number} | Mob:${customer_number}${customer_name ? ` | Name:${customer_name}` : ''} | OrderID:${result.order_id} | Ref:${result.operator_reference || 'N/A'}`,
       })
       .eq('partner_id', partner.id)
       .eq('reference_id', request_id)

@@ -24,7 +24,7 @@ export async function GET(request: NextRequest) {
     }
     const userRole = user.role as string | undefined
     const isAdmin = userRole === 'admin' || userRole === 'super_admin'
-    const isRetailer = userRole === 'retailer' || userRole === 'partner'
+    const isRetailer = userRole === 'retailer' || userRole === 'distributor' || userRole === 'partner'
 
     if (!isAdmin && !isRetailer) {
       const response = NextResponse.json(

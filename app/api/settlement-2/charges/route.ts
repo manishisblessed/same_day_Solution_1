@@ -26,7 +26,7 @@ export async function OPTIONS(request: NextRequest) {
 export async function GET(request: NextRequest) {
   try {
     const { user } = await getCurrentUserWithFallback(request)
-    if (!user || !['retailer', 'partner'].includes(user.role)) {
+    if (!user || !['retailer', 'distributor', 'partner'].includes(user.role)) {
       const response = NextResponse.json({ success: false, error: 'Access denied' }, { status: 403 })
       return addCorsHeaders(request, response)
     }
@@ -53,6 +53,18 @@ export async function GET(request: NextRequest) {
         mdId = retailer?.master_distributor_id || null
       } catch (e) {
         console.warn('[Settlement-2 Charges] Retailer lookup failed:', e)
+      }
+    } else if (user.role === 'distributor') {
+      distributorId = user.partner_id
+      try {
+        const { data: dist } = await supabaseAdmin
+          .from('distributors')
+          .select('master_distributor_id')
+          .eq('partner_id', user.partner_id)
+          .maybeSingle()
+        mdId = dist?.master_distributor_id || null
+      } catch (e) {
+        console.warn('[Settlement-2 Charges] Distributor lookup failed:', e)
       }
     }
 

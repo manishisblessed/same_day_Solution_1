@@ -468,7 +468,7 @@ export default function BillPaymentTransactionReport({ userRole, userName }: Bil
           <table className="w-full">
             <thead className="bg-gray-50 dark:bg-gray-900">
               <tr>
-                {['Date', 'Transaction ID', 'Provider', 'User ID', 'Customer Name', 'Mobile', 'Card / Consumer No', 'Bill Amount', 'Charge', 'GST', 'Total Debit', 'Reference No', 'Status'].map(col => (
+                {['Date', 'Transaction ID', 'Provider', 'User', 'Customer Name', 'Mobile', 'Card / Consumer No', 'Bill Amount', 'Charge', 'GST', 'Total Debit', 'Reference No', 'Status'].map(col => (
                   <th key={col} className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase whitespace-nowrap">{col}</th>
                 ))}
               </tr>
@@ -512,12 +512,18 @@ export default function BillPaymentTransactionReport({ userRole, userName }: Bil
                       )}
                     </td>
                     <td className="px-4 py-3">
-                      <span className="text-xs font-mono text-gray-700 dark:text-gray-300 block truncate max-w-[120px]" title={txn.user_id}>{txn.user_id || '-'}</span>
-                      {(txn.user_name || txn.retailer_name) && (
-                        <div className="text-[10px] text-gray-500 truncate max-w-[120px]" title={txn.user_name || txn.retailer_name || ''}>
-                          {txn.user_type === 'partner' ? 'Partner: ' : ''}{txn.user_name || txn.retailer_name}
-                        </div>
-                      )}
+                      <div className="flex items-center gap-1.5">
+                        <span className={`inline-flex px-1.5 py-0.5 rounded text-[9px] font-bold uppercase leading-none ${
+                          txn.user_type === 'partner'
+                            ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300'
+                            : 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300'
+                        }`}>
+                          {txn.user_type === 'partner' ? 'PT' : 'RT'}
+                        </span>
+                        <span className="text-xs text-gray-900 dark:text-white truncate max-w-[110px]" title={txn.user_name || txn.retailer_name || txn.user_id || '-'}>
+                          {txn.user_name || txn.retailer_name || txn.user_id || '-'}
+                        </span>
+                      </div>
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-700 dark:text-gray-300 whitespace-nowrap">{txn.customer_name || '-'}</td>
                     <td className="px-4 py-3 text-sm font-mono text-gray-700 dark:text-gray-300 whitespace-nowrap">{txn.mobile || '-'}</td>
