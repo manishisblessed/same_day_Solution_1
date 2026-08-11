@@ -30,6 +30,7 @@ type ItemResult = {
     | 'refunded'
     | 'already_refunded'
     | 'reconciled_success'
+    | 'skipped_success'
     | 'critical_refund_failed'
     | 'not_found'
     | 'error'
@@ -113,6 +114,7 @@ export async function POST(request: NextRequest) {
     let refunded = 0
     let alreadyRefunded = 0
     let reconciled = 0
+    let skipped = 0
     let critical = 0
     let notFound = 0
     let totalRefundedAmount = 0
@@ -187,6 +189,9 @@ export async function POST(request: NextRequest) {
       // reports a GENUINE terminal success. Aligned with settlement-2/status: a
       // status that mentions refund/reversal/fail/pending/initiated is NOT a
       // success, and a real success always carries a UTR.
+      // We also record whether the provider ACTIVELY confirmed a non-success so
+      // STEP 3 can decide if it's safe to refund a row that is SUCCESS in our DB.
+      let providerConfirmedNotSuccess = false
       if (verifyProvider && tx.reference_id) {
         try {
           const statusResult = await checkTransactionStatus({ reference_id: tx.reference_id })
@@ -205,6 +210,9 @@ export async function POST(request: NextRequest) {
 
           if (providerSuccess) {
             if (!dryRun) {
+              // Reconcile our record to SUCCESS. Already-refunded rows were
+              // handled in STEP 1, so any row reaching here is safe to flip
+              // regardless of its current status (PENDING or FAILED).
               await supabase
                 .from('shadval_settlement')
                 .update({
@@ -214,7 +222,6 @@ export async function POST(request: NextRequest) {
                   updated_at: new Date().toISOString(),
                 })
                 .eq('id', tx.id)
-                .eq('status', 'PENDING')
             }
             reconciled++
             results.push({
@@ -225,10 +232,27 @@ export async function POST(request: NextRequest) {
             })
             continue
           }
+          providerConfirmedNotSuccess = true
         } catch (e: any) {
           // Provider check failed — fall through and let the admin's manual decision stand.
           console.warn(`[Shadval Refund] Provider status check failed for ${tx.reference_id}:`, e?.message)
         }
+      }
+
+      // STEP 3 — Never refund a settlement that is SUCCESS in our DB unless the
+      // provider has ACTIVELY confirmed it is not a genuine success. This blocks
+      // double-payment when verifyProvider is disabled or the status check threw
+      // (both of which would otherwise fall straight through to a refund).
+      if (tx.status === 'SUCCESS' && !providerConfirmedNotSuccess) {
+        skipped++
+        results.push({
+          ...base,
+          target,
+          result: 'skipped_success',
+          message:
+            'Settlement is SUCCESS — refused to refund without provider confirmation of failure/reversal. Re-run with verifyProvider enabled.',
+        })
+        continue
       }
 
       if (dryRun) {
@@ -315,6 +339,7 @@ export async function POST(request: NextRequest) {
         refunded,
         already_refunded: alreadyRefunded,
         reconciled_success: reconciled,
+        skipped_success: skipped,
         critical_failed: critical,
         not_found: notFound,
         total_refunded_amount: Number(totalRefundedAmount.toFixed(2)),

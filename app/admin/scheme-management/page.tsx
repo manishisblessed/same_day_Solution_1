@@ -643,10 +643,13 @@ function SchemeManagementPageContent() {
         } else {
           // Admin sets only the MD's commission rate (Admin → MD). Retailer/
           // Distributor rates are set downstream by the MD and DT respectively.
-          configData.retailer_mdr_t1 = 0
-          configData.retailer_mdr_t0 = 0
-          configData.distributor_mdr_t1 = 0
-          configData.distributor_mdr_t0 = 0
+          // On edit we upsert in place, so preserve any downstream-set retailer/
+          // distributor rates already on the row (loaded into the form from
+          // editData); only default them to 0 when creating a brand-new slab.
+          configData.retailer_mdr_t1 = editingConfigId ? mdrForm.retailer_mdr_t1 : 0
+          configData.retailer_mdr_t0 = editingConfigId ? mdrForm.retailer_mdr_t0 : 0
+          configData.distributor_mdr_t1 = editingConfigId ? mdrForm.distributor_mdr_t1 : 0
+          configData.distributor_mdr_t0 = editingConfigId ? mdrForm.distributor_mdr_t0 : 0
           configData.md_mdr_t1 = mdrForm.md_mdr_t1
           configData.md_mdr_t0 = mdrForm.md_mdr_t0
           configData.partner_mdr = null
