@@ -38,7 +38,8 @@ async function checkAdminAuth(request: NextRequest) {
 
   if (adminData.admin_type === 'sub_admin') {
     const depts: string[] = adminData.departments || (adminData.department ? [adminData.department] : [])
-    if (!depts.includes('users')) return null
+    const allowed = ['users', 'retailers', 'distributors', 'master-distributors', 'all', 'settings']
+    if (!depts.some(d => allowed.includes(d))) return null
   }
 
   return { admin, adminData }
