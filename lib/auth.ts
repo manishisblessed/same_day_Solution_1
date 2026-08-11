@@ -132,67 +132,35 @@ async function completeSignIn(
     }
   }
 
-  let tableName = ''
-  switch (role) {
-    case 'retailer': tableName = 'retailers'; break
-    case 'distributor': tableName = 'distributors'; break
-    case 'master_distributor': tableName = 'master_distributors'; break
-    case 'admin': tableName = 'admin_users'; break
-    case 'partner': tableName = 'partners'; break
-    case 'sub_partner': tableName = 'sub_partners'; break
-    case 'finance_executive': tableName = 'finance_users'; break
-  }
-
-  let query = supabase.from(tableName).select('*').eq('email', email)
-  if (role === 'finance_executive') {
-    query = query.eq('is_active', true)
-  } else if (role !== 'admin') {
-    query = query.eq('status', 'active')
-  }
-
-  let { data, error } = await query.single()
-
-  // If user selected 'partner' but wasn't found in partners table,
-  // check sub_partners table (sub-partners login via the Partner option)
-  let resolvedRole: UserRole = role
-  if ((error || !data) && role === 'partner') {
-    const subQuery = await supabase
-      .from('sub_partners')
-      .select('*')
-      .eq('email', email)
-      .eq('status', 'active')
-      .single()
-    if (subQuery.data && !subQuery.error) {
-      data = subQuery.data
-      error = null
-      resolvedRole = 'sub_partner'
+  // Resolve role profile via service-role API (browser has no direct table access)
+  let user: AuthUser | null = null
+  try {
+    const meRes = await fetch(authApiUrl('/api/auth/me'), {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(authData.session?.access_token
+          ? { Authorization: `Bearer ${authData.session.access_token}` }
+          : {}),
+      },
+      body: JSON.stringify({ email, roleHint: role }),
+    })
+    const meJson = await meRes.json().catch(() => ({}))
+    if (meRes.ok && meJson?.user) {
+      user = meJson.user as AuthUser
     }
+  } catch {
+    user = null
   }
 
-  if (error || !data) {
+  if (!user) {
     await supabase.auth.signOut()
     const roleLabel = role.replace('_', ' ')
     throw new Error(
       `No active ${roleLabel} account found for this email. ` +
       `Please check that you selected the correct account type.`
     )
-  }
-
-  const user: AuthUser = {
-    id: authData.user.id,
-    email: authData.user.email!,
-    role: resolvedRole,
-    partner_id: resolvedRole === 'partner' ? data.id
-      : resolvedRole === 'sub_partner' ? data.parent_partner_id
-      : data.partner_id,
-    name: data.name,
-    ...(resolvedRole === 'finance_executive' && 'phone' in data
-      ? { phone: (data as { phone?: string }).phone }
-      : {}),
-    ...(resolvedRole === 'sub_partner' ? {
-      sub_partner_id: data.id,
-      permissions: data.permissions || {},
-    } : {}),
   }
 
   // Register single-session token (invalidates any previous session for this user)
@@ -390,87 +358,20 @@ export async function signOut() {
 export async function getCurrentUser(): Promise<AuthUser | null> {
   try {
     const { data: { user }, error } = await supabase.auth.getUser()
-    
     if (error || !user) return null
 
-    const [retailer, distributor, masterDistributor, admin, finance, partner, subPartner] = await Promise.all([
-      supabase.from('retailers').select('*').eq('email', user.email!).eq('status', 'active').maybeSingle(),
-      supabase.from('distributors').select('*').eq('email', user.email!).eq('status', 'active').maybeSingle(),
-      supabase.from('master_distributors').select('*').eq('email', user.email!).eq('status', 'active').maybeSingle(),
-      supabase.from('admin_users').select('*').eq('email', user.email!).maybeSingle(),
-      supabase.from('finance_users').select('*').eq('email', user.email!).eq('is_active', true).maybeSingle(),
-      supabase.from('partners').select('*').eq('email', user.email!).eq('status', 'active').maybeSingle(),
-      supabase.from('sub_partners').select('*').eq('email', user.email!).eq('status', 'active').maybeSingle(),
-    ])
-
-    // Precedence: admin and finance before hierarchy users (matches server-side auth).
-    if (admin.data && !admin.error) {
-      return {
-        id: user.id,
-        email: user.email!,
-        role: 'admin',
-        name: admin.data.name,
-      }
-    }
-    if (finance.data && !finance.error) {
-      return {
-        id: user.id,
-        email: user.email!,
-        role: 'finance_executive',
-        name: finance.data.name,
-        phone: finance.data.phone ?? undefined,
-      }
-    }
-    if (masterDistributor.data && !masterDistributor.error) {
-      return {
-        id: user.id,
-        email: user.email!,
-        role: 'master_distributor',
-        partner_id: masterDistributor.data.partner_id,
-        name: masterDistributor.data.name,
-      }
-    }
-    if (distributor.data && !distributor.error) {
-      return {
-        id: user.id,
-        email: user.email!,
-        role: 'distributor',
-        partner_id: distributor.data.partner_id,
-        name: distributor.data.name,
-      }
-    }
-    if (retailer.data && !retailer.error) {
-      return {
-        id: user.id,
-        email: user.email!,
-        role: 'retailer',
-        partner_id: retailer.data.partner_id,
-        name: retailer.data.name,
-      }
-    }
-    if (partner.data && !partner.error) {
-      return {
-        id: user.id,
-        email: user.email!,
-        role: 'partner',
-        partner_id: partner.data.id,
-        name: partner.data.name,
-      }
-    }
-    if (subPartner.data && !subPartner.error) {
-      return {
-        id: user.id,
-        email: user.email!,
-        role: 'sub_partner',
-        partner_id: subPartner.data.parent_partner_id,
-        sub_partner_id: subPartner.data.id,
-        name: subPartner.data.name,
-        permissions: subPartner.data.permissions || {},
-      }
-    }
-
-    return null
-  } catch (error) {
+    // Role tables are service-role only — resolve via /api/auth/me
+    const token = await getAccessToken()
+    const res = await fetch(authApiUrl('/api/auth/me'), {
+      method: 'GET',
+      credentials: 'include',
+      cache: 'no-store',
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    })
+    if (!res.ok) return null
+    const json = await res.json().catch(() => ({}))
+    return (json?.user as AuthUser) || null
+  } catch {
     return null
   }
 }

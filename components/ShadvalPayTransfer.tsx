@@ -68,7 +68,7 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
   // Process settlement state
   const [selectedAccount, setSelectedAccount] = useState<VerifiedAccount | null>(null)
   const [amount, setAmount] = useState('')
-  const [transferMode, setTransferMode] = useState<'IMPS' | 'NEFT' | 'RTGS'>('IMPS')
+  const [transferMode, setTransferMode] = useState<'IMPS' | 'RTGS'>('IMPS')
   const [narration, setNarration] = useState('')
   const [charges, setCharges] = useState<number>(0)
   const [loadingCharges, setLoadingCharges] = useState(false)
@@ -484,7 +484,7 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
             {title || 'Settlement-2 - Bank Transfer'}
           </h2>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-            Send money to bank accounts via IMPS, NEFT, or RTGS
+            Send money to bank accounts via IMPS or RTGS
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -545,7 +545,7 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
                 </div>
                 <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-2">Process Settlement</h3>
                 <p className="text-sm text-gray-500 dark:text-gray-400">
-                  Send money to verified bank accounts via IMPS, NEFT, or RTGS
+                  Send money to verified bank accounts via IMPS or RTGS
                 </p>
                 {settlementAccounts.length > 0 ? (
                   <div className="mt-4 flex items-center gap-2 flex-wrap">
@@ -868,7 +868,7 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Transfer Mode *</label>
                   <div className="flex gap-2">
-                    {(['IMPS', 'NEFT', 'RTGS'] as const).map(mode => (
+                    {(['IMPS', 'RTGS'] as const).map(mode => (
                       <button
                         key={mode}
                         onClick={() => setTransferMode(mode)}

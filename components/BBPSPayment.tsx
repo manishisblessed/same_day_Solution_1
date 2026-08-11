@@ -11,6 +11,8 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { paiseToRupees, formatPaiseAsRupees } from '@/lib/bbps/currency'
 import { apiFetch, apiFetchJson, newIdempotencyKey } from '@/lib/api-client'
 import { supabase } from '@/lib/supabase/client'
+
+import { secureDb } from '@/lib/secure-db'
 import { useAuth } from '@/contexts/AuthContext'
 import { isPrepaidCategoryName } from '@/lib/bbps/category-groups'
 
@@ -238,7 +240,7 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
   const fetchBBPSLimit = async () => {
     if (!user?.partner_id) return
     try {
-      const { data, error } = await supabase
+      const { data, error } = await secureDb
         .from('retailers')
         .select('bbps_limit_tier')
         .eq('partner_id', user.partner_id)
@@ -471,7 +473,7 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
       
       // Use Supabase directly instead of API route (avoids cookie auth issues)
       // Try new function first
-      const { data: newBalance, error: newError } = await supabase.rpc('get_wallet_balance_v2', {
+      const { data: newBalance, error: newError } = await secureDb.rpc('get_wallet_balance_v2', {
         p_user_id: user.partner_id,
         p_wallet_type: 'primary'
       })
@@ -480,7 +482,7 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
         setWalletBalance(newBalance)
       } else if (user.role === 'retailer') {
         // Fallback to old function for retailers
-        const { data: oldBalance, error: oldError } = await supabase.rpc('get_wallet_balance', {
+        const { data: oldBalance, error: oldError } = await secureDb.rpc('get_wallet_balance', {
           p_retailer_id: user.partner_id
         })
         if (!oldError) {

@@ -5,6 +5,8 @@ import { useAuth } from '@/contexts/AuthContext'
 import { useGeolocation } from '@/hooks/useGeolocation'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase/client'
+
+import { secureDb } from '@/lib/secure-db'
 import { apiFetch, apiFetchJson } from '@/lib/api-client'
 import PartnerHeader from '@/components/PartnerHeader'
 import { 
@@ -144,7 +146,7 @@ function PartnerDashboardContent() {
       // Use maybeSingle() to avoid 406 errors
       // Note: We already have user data from auth, so this query is just for additional partner info
       // Use a shorter timeout since we don't strictly need this data to show the dashboard
-      const partnerQuery = supabase
+      const partnerQuery = secureDb
         .from('partners')
         .select('*')
         .eq('email', user.email)
@@ -173,7 +175,7 @@ function PartnerDashboardContent() {
           )
 
           const balanceResult = await Promise.race([
-            supabase.rpc('get_partner_wallet_balance', { p_partner_id: user.partner_id }),
+            secureDb.rpc('get_partner_wallet_balance', { p_partner_id: user.partner_id }),
             walletTimeout,
           ]) as any
 
@@ -190,7 +192,7 @@ function PartnerDashboardContent() {
       if (user.partner_id) {
         try {
           const aepsResult = await Promise.race([
-            supabase.rpc('get_wallet_balance_v2', { p_user_id: user.partner_id, p_wallet_type: 'aeps' }),
+            secureDb.rpc('get_wallet_balance_v2', { p_user_id: user.partner_id, p_wallet_type: 'aeps' }),
             new Promise((resolve) => setTimeout(() => resolve({ data: null, error: { message: 'Timeout' } }), 3000)),
           ]) as any
           if (aepsResult?.data !== null && aepsResult?.data !== undefined && !aepsResult?.error) {
@@ -202,7 +204,7 @@ function PartnerDashboardContent() {
       }
 
       // Partner wallet activity (partner_wallet_ledger — do not query wallet_ledger.partner_id; column does not exist)
-      const { data: ledgerData } = await supabase
+      const { data: ledgerData } = await secureDb
         .from('partner_wallet_ledger')
         .select('*')
         .eq('partner_id', user.partner_id)
@@ -229,7 +231,7 @@ function PartnerDashboardContent() {
         .reduce((sum, tx) => sum + (parseFloat(tx.amount || 0) / 100 || 0), 0) // Amount is in paise, convert to rupees
       const totalRevenue = ledgerRevenue + posRevenue
       
-      const { data: commissionData } = await supabase
+      const { data: commissionData } = await secureDb
         .from('commission_ledger')
         .select('dt_amount, md_amount, rt_amount, dt_user_id, md_user_id, rt_user_id')
         .or(`dt_user_id.eq.${user.partner_id},md_user_id.eq.${user.partner_id},rt_user_id.eq.${user.partner_id}`)
@@ -527,7 +529,7 @@ function PartnerVIPCard({ user }: { user: any }) {
     setLoading(true)
     try {
       // Fetch partner data
-      const { data: partnerData } = await supabase
+      const { data: partnerData } = await secureDb
         .from('partners')
         .select('*')
         .eq('id', user.partner_id)
@@ -538,7 +540,7 @@ function PartnerVIPCard({ user }: { user: any }) {
       }
 
       // Fetch count of active schemes assigned to this partner
-      const { data: schemesData } = await supabase
+      const { data: schemesData } = await secureDb
         .from('scheme_mappings')
         .select('id', { count: 'exact' })
         .eq('entity_id', user.partner_id)
@@ -940,7 +942,7 @@ function APIIntegrationsTab() {
     }
 
     try {
-      const { data: ledgerData } = await supabase
+      const { data: ledgerData } = await secureDb
         .from('partner_wallet_ledger')
         .select('*')
         .eq('partner_id', user.partner_id)
@@ -1227,7 +1229,7 @@ function WalletTab({ user }: { user: any }) {
     try {
       let primaryBalance = 0
       try {
-        const { data: balance } = await supabase.rpc('get_partner_wallet_balance', {
+        const { data: balance } = await secureDb.rpc('get_partner_wallet_balance', {
           p_partner_id: user.partner_id,
         })
         primaryBalance = Number(balance) || 0
@@ -1250,7 +1252,7 @@ function WalletTab({ user }: { user: any }) {
 
       if (isAepsEnabled) {
         try {
-          const { data: balance } = await supabase.rpc('get_wallet_balance_v2', {
+          const { data: balance } = await secureDb.rpc('get_wallet_balance_v2', {
             p_user_id: user.partner_id,
             p_wallet_type: 'aeps',
           })
@@ -1264,7 +1266,7 @@ function WalletTab({ user }: { user: any }) {
       setAepsBalance(aepsBalanceData)
       setAepsEnabled(isAepsEnabled)
 
-      const { data: ledger } = await supabase
+      const { data: ledger } = await secureDb
         .from('partner_wallet_ledger')
         .select('*')
         .eq('partner_id', user.partner_id)
@@ -1604,7 +1606,7 @@ function MDRSchemesTab({ user }: { user: any }) {
     setLoading(true)
     try {
       // Fetch schemes mapped to this partner from scheme_mappings
-      const { data: mappingsData, error: mappingsError } = await supabase
+      const { data: mappingsData, error: mappingsError } = await secureDb
         .from('scheme_mappings')
         .select(`
           *,
@@ -2101,7 +2103,7 @@ function MDRSchemesTab({ user }: { user: any }) {
 
         if (allPayoutCharges.length === 0) return null
 
-        // Sort: IMPS first, then NEFT, then by amount range
+        // Sort: IMPS first, then by amount range
         allPayoutCharges.sort((a, b) => {
           if (a.transfer_mode !== b.transfer_mode) return a.transfer_mode === 'IMPS' ? -1 : 1
           return (a.min_amount || 0) - (b.min_amount || 0)
@@ -2119,7 +2121,7 @@ function MDRSchemesTab({ user }: { user: any }) {
               <h3 className="text-lg font-bold text-gray-900 dark:text-white">Payout / Settlement Charges</h3>
               <span className="text-xs bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300 px-2 py-0.5 rounded-full">From Scheme</span>
             </div>
-            <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">Charges for bank settlements (IMPS & NEFT transfers)</p>
+            <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">Charges for bank settlements (IMPS transfers)</p>
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead className="bg-gray-50 dark:bg-gray-700">
@@ -2585,7 +2587,7 @@ function PartnerLedgerTab({ user }: { user: any }) {
     if (!user?.partner_id) return
     setLoading(true)
     try {
-      let query = supabase
+      let query = secureDb
         .from('partner_wallet_ledger')
         .select('*', { count: 'exact' })
         .eq('partner_id', user.partner_id)
@@ -2631,7 +2633,7 @@ function PartnerLedgerTab({ user }: { user: any }) {
     if (!user?.partner_id) return
     setExportingFmt(fmt)
     try {
-      let q = supabase
+      let q = secureDb
         .from('partner_wallet_ledger')
         .select('*')
         .eq('partner_id', user.partner_id)

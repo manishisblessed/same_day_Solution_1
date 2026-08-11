@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
+import { authorizeSubPartner } from '@/lib/partner-access'
 import { createClient } from '@supabase/supabase-js'
 import { addCorsHeaders } from '@/lib/cors'
 import { resolveDownline, downlineToIdSet, isPrivilegedRole } from '@/lib/security/downline'
@@ -41,6 +42,9 @@ export async function GET(request: NextRequest) {
     if (!user) {
       return NextResponse.json({ error: 'Session expired. Please log in again.', code: 'SESSION_EXPIRED' }, { status: 401 })
     }
+
+    const access = authorizeSubPartner(user, ['aeps-ledger', 'aeps', 'reports'])
+    if (!access.ok) return access.response
 
     const { searchParams } = new URL(request.url)
 

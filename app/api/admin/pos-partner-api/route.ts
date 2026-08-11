@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
+import { authorizeSubPartner } from '@/lib/partner-access'
 import { createClient } from '@supabase/supabase-js'
 import crypto from 'crypto'
 import { parsePartnerKeyPermissions } from '@/lib/partner-auth'
@@ -76,6 +77,9 @@ export async function GET(request: NextRequest) {
         code: 'AUTH_REQUIRED'
       }, { status: 401 })
     }
+
+    const access = authorizeSubPartner(user, 'api-management')
+    if (!access.ok) return access.response
 
     const isAdmin = user.role === 'admin'
     const isPartner = user.role === 'partner' && user.partner_id
@@ -228,6 +232,9 @@ export async function POST(request: NextRequest) {
         code: 'AUTH_REQUIRED'
       }, { status: 401 })
     }
+
+    const access = authorizeSubPartner(user, 'api-management')
+    if (!access.ok) return access.response
 
     const isAdmin = user.role === 'admin'
     const isPartner = user.role === 'partner' && user.partner_id

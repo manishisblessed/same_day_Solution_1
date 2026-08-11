@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
+import { authorizeSubPartner } from '@/lib/partner-access'
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
 import { getBalance } from '@/services/shadval-pay'
 
@@ -22,6 +23,9 @@ export async function GET(request: NextRequest) {
       const response = NextResponse.json({ success: false, error: 'Authentication required' }, { status: 401 })
       return addCorsHeaders(request, response)
     }
+    const access = authorizeSubPartner(user, 'settlement-2')
+    if (!access.ok) return access.response
+
     const userRole = user.role as string | undefined
     const isAdmin = userRole === 'admin' || userRole === 'super_admin'
     const isRetailer = userRole === 'retailer' || userRole === 'distributor' || userRole === 'partner'

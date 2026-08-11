@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
+import { authorizeSubPartner } from '@/lib/partner-access'
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
 import {
   getPay2NewCreditCardBillers,
@@ -37,6 +38,9 @@ export async function GET(request: NextRequest) {
       const response = NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
       return addCorsHeaders(request, response)
     }
+
+    const access = authorizeSubPartner(user, ['bbps-2', 'credit-card'])
+    if (!access.ok) return access.response
 
     const serviceIdParam = request.nextUrl.searchParams.get('service_id')
     const serviceId = serviceIdParam ? parseInt(serviceIdParam, 10) : PAY2NEW_CC_SERVICE_ID

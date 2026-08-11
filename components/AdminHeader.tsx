@@ -3,7 +3,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '@/contexts/AuthContext'
-import { supabase } from '@/lib/supabase/client'
 import Image from 'next/image'
 import { 
   Bell, Search, Settings, LogOut, User, Moon, Sun, 

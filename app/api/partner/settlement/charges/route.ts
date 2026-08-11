@@ -56,10 +56,10 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    const validModes = ['IMPS', 'NEFT', 'RTGS']
+    const validModes = ['IMPS', 'RTGS']
     if (!validModes.includes(mode)) {
       return NextResponse.json(
-        { success: false, error: { code: 'BAD_REQUEST', message: 'Invalid mode. Must be IMPS, NEFT, or RTGS' } },
+        { success: false, error: { code: 'BAD_REQUEST', message: 'Invalid mode. Must be IMPS or RTGS' } },
         { status: 400 }
       )
     }

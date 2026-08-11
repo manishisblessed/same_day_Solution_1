@@ -5,6 +5,8 @@ import { useAuth } from '@/contexts/AuthContext'
 import { useToast } from '@/components/Toast'
 import { useRouter, useSearchParams, usePathname } from 'next/navigation'
 import { supabase } from '@/lib/supabase/client'
+
+import { secureDb } from '@/lib/secure-db'
 import DistributorSidebar from '@/components/DistributorSidebar'
 import DistributorHeader from '@/components/DistributorHeader'
 import { 
@@ -13,7 +15,7 @@ import {
   ArrowUpRight, ArrowDownRight, UserPlus, Receipt, Wallet,
   ArrowUpCircle, ArrowDownCircle, Download, Search, Eye, EyeOff,
   Settings, PieChart as PieChartIcon, Plus, X, Percent,
-  Edit, Trash2, CreditCard, Smartphone, RefreshCw, AlertCircle, Menu,
+  Edit, Edit2, Trash2, CreditCard, Smartphone, RefreshCw, AlertCircle, Menu,
   Layers, Banknote, Link2, ChevronDown, ChevronUp,
   User, Bell, Shield, Sliders, CheckCircle, Loader2, Building2, ShieldCheck
 } from 'lucide-react'
@@ -81,14 +83,14 @@ function DistributorDashboardContent() {
     setLoading(true)
     try {
       // Fetch distributor data (use maybeSingle to avoid 406 errors)
-      const { data: distributorData } = await supabase
+      const { data: distributorData } = await secureDb
         .from('distributors')
         .select('*')
         .eq('email', user.email)
         .maybeSingle()
 
       // Fetch retailers under this distributor
-      const { data: retailersData } = await supabase
+      const { data: retailersData } = await secureDb
         .from('retailers')
         .select('*')
         .eq('distributor_id', distributorData?.partner_id || '')
@@ -100,7 +102,7 @@ function DistributorDashboardContent() {
       let walletBalance = 0
       if (user.partner_id) {
         try {
-          const { data: balance } = await supabase.rpc('get_wallet_balance_v2', {
+          const { data: balance } = await secureDb.rpc('get_wallet_balance_v2', {
             p_user_id: user.partner_id,
             p_wallet_type: 'primary'
           })
@@ -111,7 +113,7 @@ function DistributorDashboardContent() {
       }
 
       // Fetch commission data
-      const { data: commissionLedger } = await supabase
+      const { data: commissionLedger } = await secureDb
         .from('commission_ledger')
         .select('*')
         .eq('dt_user_id', user.partner_id)
@@ -122,7 +124,7 @@ function DistributorDashboardContent() {
       const totalCommission = commissionLedger?.reduce((sum, entry) => sum + (entry.dt_amount || 0), 0) || 0
 
       // Fetch transaction data for analytics
-      const { data: transactions } = await supabase
+      const { data: transactions } = await secureDb
         .from('wallet_ledger')
         .select('*')
         .eq('user_role', 'distributor')
@@ -528,15 +530,15 @@ function ServicesTab() {
     setLoading(true)
     try {
       const [bbpsData, aepsData, settlementData] = await Promise.all([
-        supabase
+        secureDb
           .from('bbps_transactions')
           .select('bill_amount, created_at, status')
           .eq('status', 'success'),
-        supabase
+        secureDb
           .from('aeps_transactions')
           .select('amount, created_at, status')
           .eq('status', 'success'),
-        supabase
+        secureDb
           .from('settlements')
           .select('amount, created_at, status')
           .eq('status', 'success')
@@ -792,7 +794,7 @@ function WalletTab({ user }: { user: any }) {
     try {
       let primaryBalance = 0
       try {
-        const { data: balance } = await supabase.rpc('get_wallet_balance_v2', {
+        const { data: balance } = await secureDb.rpc('get_wallet_balance_v2', {
           p_user_id: user.partner_id,
           p_wallet_type: 'primary'
         })
@@ -803,7 +805,7 @@ function WalletTab({ user }: { user: any }) {
 
       let aepsBalanceData = 0
       try {
-        const { data: balance } = await supabase.rpc('get_wallet_balance_v2', {
+        const { data: balance } = await secureDb.rpc('get_wallet_balance_v2', {
           p_user_id: user.partner_id,
           p_wallet_type: 'aeps'
         })
@@ -826,7 +828,7 @@ function WalletTab({ user }: { user: any }) {
     if (!user?.partner_id) return
     setLedgerLoading(true)
     try {
-      const { data: ledger, count } = await supabase
+      const { data: ledger, count } = await secureDb
         .from('wallet_ledger')
         .select('*', { count: 'exact' })
         .eq('retailer_id', user.partner_id)
@@ -852,7 +854,7 @@ function WalletTab({ user }: { user: any }) {
     if (!user?.partner_id) return
     setExportingFmt(fmt)
     try {
-      const { data, error } = await supabase
+      const { data, error } = await secureDb
         .from('wallet_ledger')
         .select('*')
         .eq('retailer_id', user.partner_id)
@@ -1177,9 +1179,9 @@ function NetworkTab({ retailers, user, onRefresh }: { retailers: any[], user: an
     setBalancesLoading(true)
     try {
       const [distBal, ...retailerBals] = await Promise.all([
-        supabase.rpc('get_wallet_balance_v2', { p_user_id: user.partner_id, p_wallet_type: 'primary' }),
+        secureDb.rpc('get_wallet_balance_v2', { p_user_id: user.partner_id, p_wallet_type: 'primary' }),
         ...retailers.map(r =>
-          supabase.rpc('get_wallet_balance_v2', { p_user_id: r.partner_id, p_wallet_type: 'primary' })
+          secureDb.rpc('get_wallet_balance_v2', { p_user_id: r.partner_id, p_wallet_type: 'primary' })
             .then(res => ({ partner_id: r.partner_id, balance: res.data || 0 }))
         )
       ])
@@ -2598,7 +2600,7 @@ function CommissionTab({ commissionData, stats, onRefresh }: { commissionData: a
 
     setAdjusting(true)
     try {
-      const { data: transaction } = await supabase
+      const { data: transaction } = await secureDb
         .from('razorpay_transactions')
         .select('retailer_id')
         .eq('id', selectedCommission.transaction_id)
@@ -2948,7 +2950,7 @@ function MDRSchemesTab({ user, retailers, onRefresh }: { user: any, retailers: a
     if (!user?.partner_id) return
     setLoading(true)
     try {
-      const { data, error } = await supabase
+      const { data, error } = await secureDb
         .from('retailer_schemes')
         .select('*, retailers(name, partner_id)')
         .eq('distributor_id', user.partner_id)
@@ -2998,13 +3000,13 @@ function MDRSchemesTab({ user, retailers, onRefresh }: { user: any, retailers: a
       }
 
       if (editingScheme) {
-        const { error } = await supabase
+        const { error } = await secureDb
           .from('retailer_schemes')
           .update(schemeData)
           .eq('id', editingScheme.id)
         if (error) throw error
       } else {
-        const { error } = await supabase
+        const { error } = await secureDb
           .from('retailer_schemes')
           .insert(schemeData)
         if (error) throw error
@@ -3058,7 +3060,7 @@ function MDRSchemesTab({ user, retailers, onRefresh }: { user: any, retailers: a
     if (!confirm('Are you sure you want to delete this scheme?')) return
     setDeletingId(id)
     try {
-      const { error } = await supabase
+      const { error } = await secureDb
         .from('retailer_schemes')
         .delete()
         .eq('id', id)
@@ -3401,6 +3403,9 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
   const [configSchemeId, setConfigSchemeId] = useState<string>('')
   const [configType, setConfigType] = useState<'bbps' | 'payout' | 'mdr' | 'aeps' | 'aeps_settlement' | 'shadval_settlement' | null>(null)
 
+  // Configs from schemes assigned to this DT (for auto-populating "Your Cost" as read-only)
+  const [adminConfigs, setAdminConfigs] = useState<{ bbps: any[], payout: any[], shadval: any[] }>({ bbps: [], payout: [], shadval: [] })
+
   const [schemeForm, setSchemeForm] = useState({
     name: '',
     description: '',
@@ -3435,8 +3440,10 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
     company_mdr_rate: 0,
   })
 
+  const [settlementTypeSelection, setSettlementTypeSelection] = useState<'payout' | 'shadval_settlement'>('payout')
+
   const [payoutForm, setPayoutForm] = useState({
-    transfer_mode: 'IMPS' as 'IMPS' | 'NEFT',
+    transfer_mode: 'IMPS' as 'IMPS',
     min_amount: 0,
     max_amount: 100000,
     retailer_charge: 0,
@@ -3515,7 +3522,7 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
   })
 
   const [shadvalSettleForm, setShadvalSettleForm] = useState({
-    transfer_mode: 'IMPS' as 'IMPS' | 'NEFT' | 'RTGS',
+    transfer_mode: 'IMPS' as 'IMPS' | 'RTGS',
     min_amount: 0,
     max_amount: 100000,
     retailer_charge: 0,
@@ -3558,7 +3565,7 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
     setLoading(true)
     try {
       // 1. Fetch schemes created by this distributor
-      const { data: ownSchemes, error: ownErr } = await supabase
+      const { data: ownSchemes, error: ownErr } = await secureDb
         .from('schemes')
         .select('*')
         .eq('created_by_id', user.partner_id)
@@ -3567,7 +3574,7 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
       if (ownErr) throw ownErr
 
       // 2. Fetch schemes assigned to this distributor (by MD or admin)
-      const { data: assignedMappings } = await supabase
+      const { data: assignedMappings } = await secureDb
         .from('scheme_mappings')
         .select('scheme_id')
         .eq('entity_id', user.partner_id)
@@ -3581,12 +3588,20 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
 
       let assignedSchemes: any[] = []
       if (assignedIds.length > 0) {
-        const { data } = await supabase
+        const { data } = await secureDb
           .from('schemes')
           .select('*')
           .in('id', assignedIds)
           .eq('status', 'active')
         assignedSchemes = (data || []).map(s => ({ ...s, _assigned: true }))
+
+        // Pre-fetch assigned configs for "Your Cost" auto-population
+        const [bbpsRes, payoutRes, shadvalRes] = await Promise.all([
+          secureDb.from('scheme_bbps_commissions').select('*').in('scheme_id', assignedIds).eq('status', 'active'),
+          secureDb.from('scheme_payout_charges').select('*').in('scheme_id', assignedIds).eq('status', 'active'),
+          secureDb.from('scheme_shadval_settlement_charges').select('*').in('scheme_id', assignedIds).eq('status', 'active'),
+        ])
+        setAdminConfigs({ bbps: bbpsRes.data || [], payout: payoutRes.data || [], shadval: shadvalRes.data || [] })
       }
 
       let filtered = [...(ownSchemes || []), ...assignedSchemes]
@@ -3600,7 +3615,7 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
       // Fetch mapping counts
       const schemeIds = filtered.map(s => s.id)
       if (schemeIds.length > 0) {
-        const { data: mappings } = await supabase
+        const { data: mappings } = await secureDb
           .from('scheme_mappings')
           .select('scheme_id')
           .in('scheme_id', schemeIds)
@@ -3631,33 +3646,29 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
     }
   }, [user?.partner_id, fetchSchemes])
 
-  const toggleExpand = async (schemeId: string) => {
-    if (expandedSchemeId === schemeId) {
-      setExpandedSchemeId(null)
-      return
-    }
-    
-    setExpandingSchemeId(schemeId)
-    try {
+  // Fetch full details for a scheme and merge into state WITHOUT toggling the
+  // expand state. Used by toggleExpand and for refresh-in-place after add/edit/
+  // delete so newly-saved slabs appear immediately.
+  const loadSchemeDetails = async (schemeId: string) => {
     const [bbps, payout, mdr, aepsComm, aepsSettle, shadvalSettle, mappings] = await Promise.all([
-      supabase.from('scheme_bbps_commissions').select('*').eq('scheme_id', schemeId).eq('status', 'active').order('min_amount'),
-      supabase.from('scheme_payout_charges').select('*').eq('scheme_id', schemeId).eq('status', 'active').order('transfer_mode'),
-      supabase.from('scheme_mdr_rates').select('*').eq('scheme_id', schemeId).eq('status', 'active').order('mode'),
-      supabase.from('scheme_aeps_commissions').select('*').eq('scheme_id', schemeId).eq('status', 'active').order('transaction_type,min_amount'),
-      supabase.from('scheme_aeps_settlement_charges').select('*').eq('scheme_id', schemeId).eq('status', 'active').order('min_amount'),
-      supabase.from('scheme_shadval_settlement_charges').select('*').eq('scheme_id', schemeId).eq('status', 'active').order('transfer_mode'),
-      supabase.from('scheme_mappings').select('*').eq('scheme_id', schemeId).eq('status', 'active'),
+      secureDb.from('scheme_bbps_commissions').select('*').eq('scheme_id', schemeId).eq('status', 'active').order('min_amount'),
+      secureDb.from('scheme_payout_charges').select('*').eq('scheme_id', schemeId).eq('status', 'active').order('transfer_mode'),
+      secureDb.from('scheme_mdr_rates').select('*').eq('scheme_id', schemeId).eq('status', 'active').order('mode'),
+      secureDb.from('scheme_aeps_commissions').select('*').eq('scheme_id', schemeId).eq('status', 'active').order('transaction_type,min_amount'),
+      secureDb.from('scheme_aeps_settlement_charges').select('*').eq('scheme_id', schemeId).eq('status', 'active').order('min_amount'),
+      secureDb.from('scheme_shadval_settlement_charges').select('*').eq('scheme_id', schemeId).eq('status', 'active').order('transfer_mode'),
+      secureDb.from('scheme_mappings').select('*').eq('scheme_id', schemeId).eq('status', 'active'),
     ])
 
     let enrichedMappings = mappings.data || []
     if (enrichedMappings.length > 0) {
       const entityIds = enrichedMappings.map((m: any) => m.entity_id)
-      const { data: retNames } = await supabase.from('retailers').select('partner_id, name, business_name').in('partner_id', entityIds)
+      const { data: retNames } = await secureDb.from('retailers').select('partner_id, name, business_name').in('partner_id', entityIds)
       const nameMap: Record<string, string> = {}
       retNames?.forEach((r: any) => { nameMap[r.partner_id] = r.business_name || r.name })
       enrichedMappings = enrichedMappings.map((m: any) => ({ ...m, entity_name: nameMap[m.entity_id] || null }))
     }
-    
+
     setSchemes(prev => prev.map(s => s.id === schemeId ? {
       ...s,
       bbps_commissions: bbps.data || [],
@@ -3668,7 +3679,17 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
       shadval_settlement_charges: shadvalSettle.data || [],
       mappings: enrichedMappings,
     } : s))
+  }
+
+  const toggleExpand = async (schemeId: string) => {
+    if (expandedSchemeId === schemeId) {
+      setExpandedSchemeId(null)
+      return
+    }
     
+    setExpandingSchemeId(schemeId)
+    try {
+    await loadSchemeDetails(schemeId)
     setExpandedSchemeId(schemeId)
     } finally {
       setExpandingSchemeId(null)
@@ -3751,17 +3772,67 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
     }
   }
 
-  const openConfigModal = (schemeId: string, type: 'bbps' | 'payout' | 'mdr' | 'aeps' | 'aeps_settlement' | 'shadval_settlement') => {
+  const [editingConfigId, setEditingConfigId] = useState<string | null>(null)
+
+  const openConfigModal = (schemeId: string, type: 'bbps' | 'payout' | 'mdr' | 'aeps' | 'aeps_settlement' | 'shadval_settlement', editData?: any) => {
     setConfigSchemeId(schemeId)
-    setConfigType(type)
-    // Reset forms
-    setBbpsForm({ bbps_type: 'bbps_1', category: '', min_amount: 0, max_amount: 100000, retailer_charge: 0, retailer_charge_type: 'flat', retailer_commission: 0, retailer_commission_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat', company_charge: 0, company_charge_type: 'flat', md_purchase_charge: 0, md_purchase_charge_type: 'flat', dt_purchase_charge: 0, dt_purchase_charge_type: 'flat', rt_purchase_charge: 0, rt_purchase_charge_type: 'flat', gst_inclusive: false, vendor_rate: 0, company_mdr_rate: 0 })
-    setPayoutForm({ transfer_mode: 'IMPS', min_amount: 0, max_amount: 100000, retailer_charge: 0, retailer_charge_type: 'flat', retailer_commission: 0, retailer_commission_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat', company_charge: 0, company_charge_type: 'flat', md_purchase_charge: 0, md_purchase_charge_type: 'flat', dt_purchase_charge: 0, dt_purchase_charge_type: 'flat', rt_purchase_charge: 0, rt_purchase_charge_type: 'flat', gst_inclusive: false, vendor_rate: 0, company_mdr_rate: 0 })
-    setMdrForm({ mode: 'CARD', card_type: '', brand_type: '', card_classification: '', merchant_slug: '', retailer_mdr_t1: 0, retailer_mdr_t0: 0, distributor_mdr_t1: 0, distributor_mdr_t0: 0, md_mdr_t1: 0, md_mdr_t0: 0, partner_mdr: 0, gst_inclusive: false, vendor_rate: 0, company_mdr_rate: 0 })
-    setAepsForm({ transaction_type: 'cash_withdrawal', min_amount: 0, max_amount: 100000, base_commission: 0, base_commission_type: 'percentage', company_earning: 0, company_earning_type: 'flat', md_commission: 0, md_commission_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', retailer_commission: 0, retailer_commission_type: 'flat', tds_percentage: 5, gst_inclusive: false, vendor_rate: 0, company_mdr_rate: 0 })
-    setAepsSettleForm({ min_amount: 0, max_amount: 100000, retailer_charge: 0, retailer_charge_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat', company_charge: 0, company_charge_type: 'flat', gst_inclusive: false, vendor_rate: 0, company_mdr_rate: 0 })
-    setShadvalSettleForm({ transfer_mode: 'IMPS', min_amount: 0, max_amount: 100000, retailer_charge: 0, retailer_charge_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat', company_charge: 0, company_charge_type: 'flat', md_purchase_charge: 0, md_purchase_charge_type: 'flat', dt_purchase_charge: 0, dt_purchase_charge_type: 'flat', rt_purchase_charge: 0, rt_purchase_charge_type: 'flat', gst_inclusive: false, vendor_rate: 0, company_mdr_rate: 0 })
+    if (type === 'shadval_settlement') {
+      setConfigType('payout')
+      setSettlementTypeSelection('shadval_settlement')
+    } else {
+      setConfigType(type)
+      if (type === 'payout') setSettlementTypeSelection('payout')
+    }
+    setEditingConfigId(editData?.id || null)
+    if (editData) {
+      if (type === 'bbps') {
+        setBbpsForm({ bbps_type: editData.bbps_type || 'bbps_1', category: editData.category || '', min_amount: editData.min_amount || 0, max_amount: editData.max_amount || 100000, retailer_charge: editData.retailer_charge || 0, retailer_charge_type: editData.retailer_charge_type || 'flat', retailer_commission: editData.retailer_commission || 0, retailer_commission_type: editData.retailer_commission_type || 'flat', distributor_commission: editData.distributor_commission || 0, distributor_commission_type: editData.distributor_commission_type || 'flat', md_commission: editData.md_commission || 0, md_commission_type: editData.md_commission_type || 'flat', company_charge: editData.company_charge || 0, company_charge_type: editData.company_charge_type || 'flat', md_purchase_charge: editData.md_purchase_charge || 0, md_purchase_charge_type: editData.md_purchase_charge_type || 'flat', dt_purchase_charge: editData.dt_purchase_charge || 0, dt_purchase_charge_type: editData.dt_purchase_charge_type || 'flat', rt_purchase_charge: editData.rt_purchase_charge || 0, rt_purchase_charge_type: editData.rt_purchase_charge_type || 'flat', gst_inclusive: editData.gst_inclusive || false, vendor_rate: editData.vendor_rate || 0, company_mdr_rate: editData.company_mdr_rate || 0 })
+      } else if (type === 'payout') {
+        setPayoutForm({ transfer_mode: editData.transfer_mode || 'IMPS', min_amount: editData.min_amount || 0, max_amount: editData.max_amount || 100000, retailer_charge: editData.retailer_charge || 0, retailer_charge_type: editData.retailer_charge_type || 'flat', retailer_commission: editData.retailer_commission || 0, retailer_commission_type: editData.retailer_commission_type || 'flat', distributor_commission: editData.distributor_commission || 0, distributor_commission_type: editData.distributor_commission_type || 'flat', md_commission: editData.md_commission || 0, md_commission_type: editData.md_commission_type || 'flat', company_charge: editData.company_charge || 0, company_charge_type: editData.company_charge_type || 'flat', md_purchase_charge: editData.md_purchase_charge || 0, md_purchase_charge_type: editData.md_purchase_charge_type || 'flat', dt_purchase_charge: editData.dt_purchase_charge || 0, dt_purchase_charge_type: editData.dt_purchase_charge_type || 'flat', rt_purchase_charge: editData.rt_purchase_charge || 0, rt_purchase_charge_type: editData.rt_purchase_charge_type || 'flat', gst_inclusive: editData.gst_inclusive || false, vendor_rate: editData.vendor_rate || 0, company_mdr_rate: editData.company_mdr_rate || 0 })
+      } else if (type === 'mdr') {
+        setMdrForm({ mode: editData.mode || 'CARD', card_type: editData.card_type || '', brand_type: editData.brand_type || '', card_classification: editData.card_classification || '', merchant_slug: editData.merchant_slug || '', retailer_mdr_t1: editData.retailer_mdr_t1 || 0, retailer_mdr_t0: editData.retailer_mdr_t0 || 0, distributor_mdr_t1: editData.distributor_mdr_t1 || 0, distributor_mdr_t0: editData.distributor_mdr_t0 || 0, md_mdr_t1: editData.md_mdr_t1 || 0, md_mdr_t0: editData.md_mdr_t0 || 0, partner_mdr: editData.partner_mdr || 0, gst_inclusive: editData.gst_inclusive || false, vendor_rate: editData.vendor_rate || 0, company_mdr_rate: editData.company_mdr_rate || 0 })
+      } else if (type === 'aeps') {
+        setAepsForm({ transaction_type: editData.transaction_type || 'cash_withdrawal', min_amount: editData.min_amount || 0, max_amount: editData.max_amount || 100000, base_commission: editData.base_commission || 0, base_commission_type: editData.base_commission_type || 'percentage', company_earning: editData.company_earning || 0, company_earning_type: editData.company_earning_type || 'flat', md_commission: editData.md_commission || 0, md_commission_type: editData.md_commission_type || 'flat', distributor_commission: editData.distributor_commission || 0, distributor_commission_type: editData.distributor_commission_type || 'flat', retailer_commission: editData.retailer_commission || 0, retailer_commission_type: editData.retailer_commission_type || 'flat', tds_percentage: editData.tds_percentage ?? 5, gst_inclusive: editData.gst_inclusive || false, vendor_rate: editData.vendor_rate || 0, company_mdr_rate: editData.company_mdr_rate || 0 })
+      } else if (type === 'aeps_settlement') {
+        setAepsSettleForm({ min_amount: editData.min_amount || 0, max_amount: editData.max_amount || 100000, retailer_charge: editData.retailer_charge || 0, retailer_charge_type: editData.retailer_charge_type || 'flat', distributor_commission: editData.distributor_commission || 0, distributor_commission_type: editData.distributor_commission_type || 'flat', md_commission: editData.md_commission || 0, md_commission_type: editData.md_commission_type || 'flat', company_charge: editData.company_charge || 0, company_charge_type: editData.company_charge_type || 'flat', gst_inclusive: editData.gst_inclusive || false, vendor_rate: editData.vendor_rate || 0, company_mdr_rate: editData.company_mdr_rate || 0 })
+      } else if (type === 'shadval_settlement') {
+        setPayoutForm({ transfer_mode: editData.transfer_mode || 'IMPS', min_amount: editData.min_amount || 0, max_amount: editData.max_amount || 100000, retailer_charge: editData.retailer_charge || 0, retailer_charge_type: editData.retailer_charge_type || 'flat', retailer_commission: editData.retailer_commission || 0, retailer_commission_type: editData.retailer_commission_type || 'flat', distributor_commission: editData.distributor_commission || 0, distributor_commission_type: editData.distributor_commission_type || 'flat', md_commission: editData.md_commission || 0, md_commission_type: editData.md_commission_type || 'flat', company_charge: editData.company_charge || 0, company_charge_type: editData.company_charge_type || 'flat', md_purchase_charge: editData.md_purchase_charge || 0, md_purchase_charge_type: editData.md_purchase_charge_type || 'flat', dt_purchase_charge: editData.dt_purchase_charge || 0, dt_purchase_charge_type: editData.dt_purchase_charge_type || 'flat', rt_purchase_charge: editData.rt_purchase_charge || 0, rt_purchase_charge_type: editData.rt_purchase_charge_type || 'flat', gst_inclusive: editData.gst_inclusive || false, vendor_rate: editData.vendor_rate || 0, company_mdr_rate: editData.company_mdr_rate || 0 })
+      }
+    } else {
+      setBbpsForm({ bbps_type: 'bbps_1', category: '', min_amount: 0, max_amount: 100000, retailer_charge: 0, retailer_charge_type: 'flat', retailer_commission: 0, retailer_commission_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat', company_charge: 0, company_charge_type: 'flat', md_purchase_charge: 0, md_purchase_charge_type: 'flat', dt_purchase_charge: 0, dt_purchase_charge_type: 'flat', rt_purchase_charge: 0, rt_purchase_charge_type: 'flat', gst_inclusive: false, vendor_rate: 0, company_mdr_rate: 0 })
+      setPayoutForm({ transfer_mode: 'IMPS', min_amount: 0, max_amount: 100000, retailer_charge: 0, retailer_charge_type: 'flat', retailer_commission: 0, retailer_commission_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat', company_charge: 0, company_charge_type: 'flat', md_purchase_charge: 0, md_purchase_charge_type: 'flat', dt_purchase_charge: 0, dt_purchase_charge_type: 'flat', rt_purchase_charge: 0, rt_purchase_charge_type: 'flat', gst_inclusive: false, vendor_rate: 0, company_mdr_rate: 0 })
+      setMdrForm({ mode: 'CARD', card_type: '', brand_type: '', card_classification: '', merchant_slug: '', retailer_mdr_t1: 0, retailer_mdr_t0: 0, distributor_mdr_t1: 0, distributor_mdr_t0: 0, md_mdr_t1: 0, md_mdr_t0: 0, partner_mdr: 0, gst_inclusive: false, vendor_rate: 0, company_mdr_rate: 0 })
+      setAepsForm({ transaction_type: 'cash_withdrawal', min_amount: 0, max_amount: 100000, base_commission: 0, base_commission_type: 'percentage', company_earning: 0, company_earning_type: 'flat', md_commission: 0, md_commission_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', retailer_commission: 0, retailer_commission_type: 'flat', tds_percentage: 5, gst_inclusive: false, vendor_rate: 0, company_mdr_rate: 0 })
+      setAepsSettleForm({ min_amount: 0, max_amount: 100000, retailer_charge: 0, retailer_charge_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat', company_charge: 0, company_charge_type: 'flat', gst_inclusive: false, vendor_rate: 0, company_mdr_rate: 0 })
+      setShadvalSettleForm({ transfer_mode: 'IMPS', min_amount: 0, max_amount: 100000, retailer_charge: 0, retailer_charge_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat', company_charge: 0, company_charge_type: 'flat', md_purchase_charge: 0, md_purchase_charge_type: 'flat', dt_purchase_charge: 0, dt_purchase_charge_type: 'flat', rt_purchase_charge: 0, rt_purchase_charge_type: 'flat', gst_inclusive: false, vendor_rate: 0, company_mdr_rate: 0 })
+    }
     setShowConfigModal(true)
+  }
+
+  // Look up cost assigned to this DT from the MD's scheme
+  const getAdminCost = (type: string, params: { bbps_type?: string, transfer_mode?: string, min_amount?: number, max_amount?: number }) => {
+    let configs: any[] = []
+    if (type === 'bbps') configs = adminConfigs.bbps
+    else if (type === 'payout') configs = adminConfigs.payout
+    else if (type === 'shadval_settlement') configs = adminConfigs.shadval
+    else return null
+
+    const match = configs.find(c => {
+      if (type === 'bbps' && params.bbps_type && c.bbps_type !== params.bbps_type) return false
+      if ((type === 'payout' || type === 'shadval_settlement') && params.transfer_mode && c.transfer_mode !== params.transfer_mode) return false
+      if (params.min_amount !== undefined && params.max_amount !== undefined) {
+        if (c.min_amount <= params.min_amount && c.max_amount >= params.max_amount) return true
+        if (c.min_amount <= params.min_amount && c.max_amount >= params.min_amount) return true
+      }
+      return !params.min_amount && !params.max_amount
+    })
+    if (match) return { value: match.dt_purchase_charge || 0, type: match.dt_purchase_charge_type || 'flat' }
+    const fallback = configs.find(c => {
+      if (type === 'bbps' && params.bbps_type) return c.bbps_type === params.bbps_type
+      if ((type === 'payout' || type === 'shadval_settlement') && params.transfer_mode) return c.transfer_mode === params.transfer_mode
+      return true
+    })
+    return fallback ? { value: fallback.dt_purchase_charge || 0, type: fallback.dt_purchase_charge_type || 'flat' } : null
   }
 
   const handleSaveConfig = async () => {
@@ -3776,11 +3847,36 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
         }
       }
 
+      // Determine effective config type (settlement type selector overrides 'payout')
+      let effectiveConfigType = configType
+      if (configType === 'payout' && settlementTypeSelection === 'shadval_settlement') {
+        effectiveConfigType = 'shadval_settlement'
+      }
+
+      // AEPS/settlement/shadval have a UNIQUE slab constraint, so editing a
+      // changed slab range needs delete-then-insert. bbps/payout/mdr have no such
+      // constraint and are updated in place by passing the row id (see below).
+      const constrainedTypes = ['aeps', 'aeps_settlement', 'shadval_settlement']
+      if (editingConfigId && constrainedTypes.includes(effectiveConfigType!)) {
+        await apiFetch(`/api/schemes/${configSchemeId}/config?config_type=${effectiveConfigType}&config_id=${editingConfigId}`, { method: 'DELETE' })
+      }
+
       let configData: any = {}
       if (configType === 'bbps') {
+        const adminCost = getAdminCost('bbps', { bbps_type: bbpsForm.bbps_type, min_amount: bbpsForm.min_amount, max_amount: bbpsForm.max_amount })
         configData = { ...bbpsForm, category: bbpsForm.category || null }
+        if (adminCost) { configData.dt_purchase_charge = adminCost.value; configData.dt_purchase_charge_type = adminCost.type }
       } else if (configType === 'payout') {
+        const effectiveType = settlementTypeSelection
+        const adminCost = getAdminCost(effectiveType, { transfer_mode: payoutForm.transfer_mode, min_amount: payoutForm.min_amount, max_amount: payoutForm.max_amount })
         configData = { ...payoutForm }
+        if (adminCost) { configData.dt_purchase_charge = adminCost.value; configData.dt_purchase_charge_type = adminCost.type }
+        if (configData.rt_purchase_charge) { configData.retailer_charge = configData.rt_purchase_charge; configData.retailer_charge_type = configData.rt_purchase_charge_type || 'flat' }
+      } else if (configType === 'shadval_settlement') {
+        const adminCost = getAdminCost('shadval_settlement', { transfer_mode: payoutForm.transfer_mode, min_amount: payoutForm.min_amount, max_amount: payoutForm.max_amount })
+        configData = { ...payoutForm }
+        if (adminCost) { configData.dt_purchase_charge = adminCost.value; configData.dt_purchase_charge_type = adminCost.type }
+        if (configData.rt_purchase_charge) { configData.retailer_charge = configData.rt_purchase_charge; configData.retailer_charge_type = configData.rt_purchase_charge_type || 'flat' }
       } else if (configType === 'mdr') {
         const configScheme = schemes.find(s => s.id === configSchemeId)
         const isPartnerPlan = configScheme?.is_partner_plan || false
@@ -3788,7 +3884,9 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
         if (isPartnerPlan) {
           configData.partner_mdr = mdrForm.partner_mdr; configData.retailer_mdr_t1 = 0; configData.retailer_mdr_t0 = 0; configData.distributor_mdr_t1 = 0; configData.distributor_mdr_t0 = 0; configData.md_mdr_t1 = 0; configData.md_mdr_t0 = 0
         } else {
-          configData.retailer_mdr_t1 = mdrForm.retailer_mdr_t1; configData.retailer_mdr_t0 = mdrForm.retailer_mdr_t0; configData.distributor_mdr_t1 = mdrForm.distributor_mdr_t1; configData.distributor_mdr_t0 = mdrForm.distributor_mdr_t0; configData.md_mdr_t1 = 0; configData.md_mdr_t0 = 0; configData.partner_mdr = null
+          // DT sets only the Retailer MDR (the rate the retailer pays). The DT's
+          // own commission is set upstream by the MD.
+          configData.retailer_mdr_t1 = mdrForm.retailer_mdr_t1; configData.retailer_mdr_t0 = mdrForm.retailer_mdr_t0; configData.distributor_mdr_t1 = 0; configData.distributor_mdr_t0 = 0; configData.md_mdr_t1 = 0; configData.md_mdr_t0 = 0; configData.partner_mdr = null
         }
         configData.gst_inclusive = mdrForm.gst_inclusive
         configData.vendor_rate = mdrForm.vendor_rate
@@ -3797,25 +3895,25 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
         configData = { ...aepsForm }
       } else if (configType === 'aeps_settlement') {
         configData = { ...aepsSettleForm }
-      } else if (configType === 'shadval_settlement') {
-        configData = { ...shadvalSettleForm }
       }
+
+      // Editing an unconstrained type → pass the row id so the server UPDATEs it
+      // in place (upsert on primary key) instead of the destructive delete+insert.
+      if (editingConfigId && !constrainedTypes.includes(effectiveConfigType!)) configData.id = editingConfigId
 
       const res = await apiFetch(`/api/schemes/${configSchemeId}/config`, {
         method: 'POST',
-        body: JSON.stringify({ config_type: configType, ...configData }),
+        body: JSON.stringify({ config_type: effectiveConfigType, ...configData }),
       })
       const result = await res.json()
       if (!res.ok) throw new Error(result.error || 'Failed to save configuration')
 
-      setSuccess(`${configType?.toUpperCase()} configuration added successfully`)
-      showToast(`${configType?.toUpperCase()} configuration added`, 'success')
+      setSuccess(`${configType?.toUpperCase()} configuration ${editingConfigId ? 'updated' : 'added'} successfully`)
+      showToast(`${configType?.toUpperCase()} configuration ${editingConfigId ? 'updated' : 'added'}`, 'success')
       setShowConfigModal(false)
-      if (expandedSchemeId === configSchemeId) {
-        toggleExpand(configSchemeId)
-      } else {
-        fetchSchemes()
-      }
+      // Always refresh + expand so the new/updated slab is visible immediately.
+      await loadSchemeDetails(configSchemeId)
+      setExpandedSchemeId(configSchemeId)
       setTimeout(() => setSuccess(''), 3000)
     } catch (err: any) {
       setError(err.message)
@@ -3841,7 +3939,7 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
       if (!res.ok) throw new Error(result.error || 'Failed to delete configuration')
       setSuccess('Configuration deleted')
       showToast('Configuration deleted', 'success')
-      if (expandedSchemeId) toggleExpand(expandedSchemeId)
+      if (expandedSchemeId) await loadSchemeDetails(expandedSchemeId)
       setTimeout(() => setSuccess(''), 3000)
     } catch (err: any) {
       setError(err.message)
@@ -3987,7 +4085,7 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
                     <CreditCard className="w-4 h-4" />
                   </button>
                   <button onClick={(e) => { e.stopPropagation(); openConfigModal(scheme.id, 'payout') }}
-                    className="p-1.5 rounded-lg hover:bg-green-50 dark:hover:bg-green-900/20 text-green-600" title="Add Settlement-1 Charge">
+                    className="p-1.5 rounded-lg hover:bg-green-50 dark:hover:bg-green-900/20 text-green-600" title="Add Settlement Charge">
                     <Banknote className="w-4 h-4" />
                   </button>
                   <button onClick={(e) => { e.stopPropagation(); openConfigModal(scheme.id, 'mdr') }}
@@ -4001,10 +4099,6 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
                   <button onClick={(e) => { e.stopPropagation(); openConfigModal(scheme.id, 'aeps_settlement') }}
                     className="p-1.5 rounded-lg hover:bg-purple-50 dark:hover:bg-purple-900/20 text-purple-600" title="Add AEPS Settlement Charge">
                     <DollarSign className="w-4 h-4" />
-                  </button>
-                  <button onClick={(e) => { e.stopPropagation(); openConfigModal(scheme.id, 'shadval_settlement') }}
-                    className="p-1.5 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-900/20 text-rose-600" title="Add Settlement-2 Charge">
-                    <Banknote className="w-4 h-4" />
                   </button>
                   </>)}
                   <button onClick={(e) => { e.stopPropagation(); openMappingModal(scheme.id) }}
@@ -4031,7 +4125,7 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
                   {/* BBPS Commissions */}
                   <div>
                     <h4 className="font-semibold text-sm text-blue-700 dark:text-blue-400 mb-2 flex items-center gap-1">
-                      <CreditCard className="w-4 h-4" /> BBPS Commissions ({scheme.bbps_commissions?.length || 0})
+                      <CreditCard className="w-4 h-4" /> BBPS Charges ({scheme.bbps_commissions?.length || 0})
                     </h4>
                     {scheme.bbps_commissions && scheme.bbps_commissions.length > 0 ? (
                       <div className="overflow-x-auto">
@@ -4041,36 +4135,56 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
                               <th className="px-2 py-1.5 text-left">Type</th>
                               <th className="px-2 py-1.5 text-left">Category</th>
                               <th className="px-2 py-1.5 text-left">Slab</th>
-                              <th className="px-2 py-1.5 text-right">Retailer Charge</th>
-                              <th className="px-2 py-1.5 text-right">Retailer Comm</th>
-                              <th className="px-2 py-1.5 text-right">Dist Comm</th>
-                              <th className="px-2 py-1.5 text-right">MD Comm</th>
+                              {scheme.is_partner_plan ? (
+                                <>
+                                  <th className="px-2 py-1.5 text-right">Partner Charge</th>
+                                  <th className="px-2 py-1.5 text-right">Partner Comm</th>
+                                  <th className="px-2 py-1.5 text-right">Company Earning</th>
+                                </>
+                              ) : (
+                                <>
+                                  <th className="px-2 py-1.5 text-right">Your Cost</th>
+                                  <th className="px-2 py-1.5 text-right">RT Price</th>
+                                  <th className="px-2 py-1.5 text-right">DT Margin</th>
+                                </>
+                              )}
                               <th className="px-2 py-1.5 text-center">GST</th>
-                              <th className="px-2 py-1.5 text-right">Vendor</th>
-                              <th className="px-2 py-1.5 text-right">Co. MDR</th>
                               <th className="px-2 py-1.5"></th>
                             </tr>
                           </thead>
                           <tbody>
-                            {scheme.bbps_commissions.map((c: any) => (
+                            {scheme.bbps_commissions.map((c: any) => {
+                              const fmt = (v: number, t: string) => t === 'percentage' ? `${v}%` : `₹${v}`
+                              return (
                               <tr key={c.id} className="border-b border-gray-100 dark:border-gray-700">
-                                <td className="px-2 py-1.5"><span className={`px-1.5 py-0.5 rounded text-xs font-medium ${c.bbps_type === 'bbps_2' ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400' : 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'}`}>{c.bbps_type === 'bbps_2' ? 'BBPS 2' : 'BBPS 1'}</span></td>
+                                <td className="px-2 py-1.5"><span className={`px-1.5 py-0.5 rounded text-xs font-medium ${c.bbps_type === 'bbps_2' ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400' : 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'}`}>{c.bbps_type === 'bbps_2' ? 'BBPS-Rechargekit' : 'BBPS-Pay2New'}</span></td>
                                 <td className="px-2 py-1.5">{c.category || 'All'}</td>
                                 <td className="px-2 py-1.5">{`₹${c.min_amount} - ₹${c.max_amount >= 999999 ? '∞' : c.max_amount}`}</td>
-                                <td className="px-2 py-1.5 text-right">{c.retailer_charge}{c.retailer_charge_type === 'percentage' ? '%' : '₹'}</td>
-                                <td className="px-2 py-1.5 text-right">{c.retailer_commission}{c.retailer_commission_type === 'percentage' ? '%' : '₹'}</td>
-                                <td className="px-2 py-1.5 text-right">{c.distributor_commission}{c.distributor_commission_type === 'percentage' ? '%' : '₹'}</td>
-                                <td className="px-2 py-1.5 text-right">{c.md_commission}{c.md_commission_type === 'percentage' ? '%' : '₹'}</td>
+                                {scheme.is_partner_plan ? (
+                                  <>
+                                    <td className="px-2 py-1.5 text-right">{fmt(c.retailer_charge, c.retailer_charge_type)}</td>
+                                    <td className="px-2 py-1.5 text-right">{fmt(c.retailer_commission, c.retailer_commission_type)}</td>
+                                    <td className="px-2 py-1.5 text-right">{fmt(c.company_charge, c.company_charge_type)}</td>
+                                  </>
+                                ) : (
+                                  <>
+                                    <td className="px-2 py-1.5 text-right">{fmt(c.dt_purchase_charge, c.dt_purchase_charge_type)}</td>
+                                    <td className="px-2 py-1.5 text-right">{fmt(c.rt_purchase_charge, c.rt_purchase_charge_type)}</td>
+                                    <td className="px-2 py-1.5 text-right text-blue-600 dark:text-blue-400">{(((c.rt_purchase_charge || 0) - (c.dt_purchase_charge || 0))).toFixed(2)}₹</td>
+                                  </>
+                                )}
                                 <td className="px-2 py-1.5 text-center">{c.gst_inclusive ? '✓' : '-'}</td>
-                                <td className="px-2 py-1.5 text-right">{c.vendor_rate || '-'}</td>
-                                <td className="px-2 py-1.5 text-right">{c.company_mdr_rate || '-'}</td>
-                                {!isAssigned && <td className="px-2 py-1.5 text-right">
+                                {!isAssigned && <td className="px-2 py-1.5 text-right flex items-center gap-1">
+                                  <button onClick={() => openConfigModal(scheme.id, 'bbps', c)} className="text-blue-400 hover:text-blue-600" title="Edit">
+                                    <Edit2 className="w-3 h-3" />
+                                  </button>
                                   <button onClick={() => handleDeleteConfig('scheme_bbps_commissions', c.id)} disabled={deletingConfigId === c.id} className="text-red-400 hover:text-red-600 disabled:opacity-50">
                                     <Trash2 className="w-3 h-3" />
                                   </button>
                                 </td>}
                               </tr>
-                            ))}
+                              )
+                            })}
                           </tbody>
                         </table>
                       </div>
@@ -4079,52 +4193,77 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
                     )}
                   </div>
 
-                  {/* Payout Charges */}
+                  {/* Settlement Charges (Settlement-1 + Settlement-2 combined) */}
                   <div>
                     <h4 className="font-semibold text-sm text-green-700 dark:text-green-400 mb-2 flex items-center gap-1">
-                      <Banknote className="w-4 h-4" /> Settlement-1 Charges ({scheme.payout_charges?.length || 0})
+                      <Banknote className="w-4 h-4" /> Settlement Charges ({(scheme.payout_charges?.length || 0) + (scheme.shadval_settlement_charges?.length || 0)})
                     </h4>
-                    {scheme.payout_charges && scheme.payout_charges.length > 0 ? (
+                    {((scheme.payout_charges?.length || 0) + (scheme.shadval_settlement_charges?.length || 0)) > 0 ? (
                       <div className="overflow-x-auto">
                         <table className="w-full text-xs">
                           <thead>
                             <tr className="bg-green-50 dark:bg-green-900/20">
+                              <th className="px-2 py-1.5 text-left">Type</th>
                               <th className="px-2 py-1.5 text-left">Mode</th>
                               <th className="px-2 py-1.5 text-left">Slab</th>
-                              <th className="px-2 py-1.5 text-right">Retailer Charge</th>
-                              <th className="px-2 py-1.5 text-right">Retailer Comm</th>
-                              <th className="px-2 py-1.5 text-right">Dist Comm</th>
-                              <th className="px-2 py-1.5 text-right">MD Comm</th>
+                              {scheme.is_partner_plan ? (
+                                <>
+                                  <th className="px-2 py-1.5 text-right">Partner Charge</th>
+                                  <th className="px-2 py-1.5 text-right">Partner Comm</th>
+                                  <th className="px-2 py-1.5 text-right">Company Earning</th>
+                                </>
+                              ) : (
+                                <>
+                                  <th className="px-2 py-1.5 text-right">Your Cost</th>
+                                  <th className="px-2 py-1.5 text-right">RT Price</th>
+                                  <th className="px-2 py-1.5 text-right">DT Margin</th>
+                                </>
+                              )}
                               <th className="px-2 py-1.5 text-center">GST</th>
-                              <th className="px-2 py-1.5 text-right">Vendor</th>
-                              <th className="px-2 py-1.5 text-right">Co. MDR</th>
                               <th className="px-2 py-1.5"></th>
                             </tr>
                           </thead>
                           <tbody>
-                            {scheme.payout_charges.map((c: any) => (
+                            {[
+                              ...(scheme.payout_charges || []).map((c: any) => ({ ...c, _stype: 'payout' as const })),
+                              ...(scheme.shadval_settlement_charges || []).map((c: any) => ({ ...c, _stype: 'shadval' as const })),
+                            ].map((c: any) => {
+                              const fmt = (v: number, t: string) => t === 'percentage' ? `${v}%` : `₹${v}`
+                              return (
                               <tr key={c.id} className="border-b border-gray-100 dark:border-gray-700">
+                                <td className="px-2 py-1.5"><span className={`px-1.5 py-0.5 rounded text-xs font-medium ${c._stype === 'shadval' ? 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400' : 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'}`}>{c._stype === 'shadval' ? 'Settlement-2 (Shadval)' : 'Settlement-1'}</span></td>
                                 <td className="px-2 py-1.5">{c.transfer_mode}</td>
                                 <td className="px-2 py-1.5">{`₹${c.min_amount} - ₹${c.max_amount >= 999999 ? '∞' : c.max_amount}`}</td>
-                                <td className="px-2 py-1.5 text-right">{c.retailer_charge}{c.retailer_charge_type === 'percentage' ? '%' : '₹'}</td>
-                                <td className="px-2 py-1.5 text-right">{c.retailer_commission}{c.retailer_commission_type === 'percentage' ? '%' : '₹'}</td>
-                                <td className="px-2 py-1.5 text-right">{c.distributor_commission}{c.distributor_commission_type === 'percentage' ? '%' : '₹'}</td>
-                                <td className="px-2 py-1.5 text-right">{c.md_commission}{c.md_commission_type === 'percentage' ? '%' : '₹'}</td>
+                                {scheme.is_partner_plan ? (
+                                  <>
+                                    <td className="px-2 py-1.5 text-right">{fmt(c.retailer_charge, c.retailer_charge_type)}</td>
+                                    <td className="px-2 py-1.5 text-right">{fmt(c.retailer_commission, c.retailer_commission_type)}</td>
+                                    <td className="px-2 py-1.5 text-right">{fmt(c.company_charge, c.company_charge_type)}</td>
+                                  </>
+                                ) : (
+                                  <>
+                                    <td className="px-2 py-1.5 text-right">{fmt(c.dt_purchase_charge, c.dt_purchase_charge_type)}</td>
+                                    <td className="px-2 py-1.5 text-right">{fmt(c.rt_purchase_charge, c.rt_purchase_charge_type)}</td>
+                                    <td className="px-2 py-1.5 text-right text-blue-600 dark:text-blue-400">{(((c.rt_purchase_charge || 0) - (c.dt_purchase_charge || 0))).toFixed(2)}₹</td>
+                                  </>
+                                )}
                                 <td className="px-2 py-1.5 text-center">{c.gst_inclusive ? '✓' : '-'}</td>
-                                <td className="px-2 py-1.5 text-right">{c.vendor_rate || '-'}</td>
-                                <td className="px-2 py-1.5 text-right">{c.company_mdr_rate || '-'}</td>
-                                {!isAssigned && <td className="px-2 py-1.5 text-right">
-                                  <button onClick={() => handleDeleteConfig('scheme_payout_charges', c.id)} disabled={deletingConfigId === c.id} className="text-red-400 hover:text-red-600 disabled:opacity-50">
-                                    <Trash2 className="w-3 h-3" />
+                                {!isAssigned && <td className="px-2 py-1.5 text-right flex items-center gap-1">
+                                  <button onClick={() => openConfigModal(scheme.id, c._stype === 'shadval' ? 'shadval_settlement' : 'payout', c)} className="text-blue-400 hover:text-blue-600" title="Edit">
+                                    <Edit2 className="w-3 h-3" />
+                                  </button>
+                                  <button onClick={() => handleDeleteConfig(c._stype === 'shadval' ? 'scheme_shadval_settlement_charges' : 'scheme_payout_charges', c.id)} disabled={deletingConfigId === c.id} className="text-red-400 hover:text-red-600 disabled:opacity-50">
+                                    {deletingConfigId === c.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
                                   </button>
                                 </td>}
                               </tr>
-                            ))}
+                              )
+                            })}
                           </tbody>
                         </table>
                       </div>
                     ) : (
-                      <p className="text-xs text-gray-400 italic">No Settlement-1 charges configured</p>
+                      <p className="text-xs text-gray-400 italic">No settlement charges configured</p>
                     )}
                   </div>
 
@@ -4153,8 +4292,6 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
                                 </>
                               )}
                               <th className="px-2 py-1.5 text-center">GST</th>
-                              <th className="px-2 py-1.5 text-right">Vendor</th>
-                              <th className="px-2 py-1.5 text-right">Co. MDR</th>
                               <th className="px-2 py-1.5"></th>
                             </tr>
                           </thead>
@@ -4176,9 +4313,10 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
                                   </>
                                 )}
                                 <td className="px-2 py-1.5 text-center">{c.gst_inclusive ? '✓' : '-'}</td>
-                                <td className="px-2 py-1.5 text-right">{c.vendor_rate || '-'}</td>
-                                <td className="px-2 py-1.5 text-right">{c.company_mdr_rate || '-'}</td>
-                                {!isAssigned && <td className="px-2 py-1.5 text-right">
+                                {!isAssigned && <td className="px-2 py-1.5 text-right flex items-center gap-1">
+                                  <button onClick={() => openConfigModal(scheme.id, 'mdr', c)} className="text-blue-400 hover:text-blue-600" title="Edit">
+                                    <Edit2 className="w-3 h-3" />
+                                  </button>
                                   <button onClick={() => handleDeleteConfig('scheme_mdr_rates', c.id)} disabled={deletingConfigId === c.id} className="text-red-400 hover:text-red-600 disabled:opacity-50">
                                     <Trash2 className="w-3 h-3" />
                                   </button>
@@ -4212,8 +4350,6 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
                               <th className="px-2 py-1.5 text-right">RT</th>
                               <th className="px-2 py-1.5 text-right">TDS</th>
                               <th className="px-2 py-1.5 text-center">GST</th>
-                              <th className="px-2 py-1.5 text-right">Vendor</th>
-                              <th className="px-2 py-1.5 text-right">Co. MDR</th>
                               <th className="px-2 py-1.5"></th>
                             </tr>
                           </thead>
@@ -4231,12 +4367,15 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
                                   <td className="px-2 py-1.5 text-right">{fmt(c.retailer_commission, c.retailer_commission_type)}</td>
                                   <td className="px-2 py-1.5 text-right">{c.tds_percentage}%</td>
                                   <td className="px-2 py-1.5 text-center">{c.gst_inclusive ? '✓' : '-'}</td>
-                                  <td className="px-2 py-1.5 text-right">{c.vendor_rate || '-'}</td>
-                                  <td className="px-2 py-1.5 text-right">{c.company_mdr_rate || '-'}</td>
                                   <td className="px-2 py-1.5 text-right">
-                                    {!isAssigned && <button onClick={() => handleDeleteConfig('scheme_aeps_commissions', c.id)} disabled={deletingConfigId === c.id} className="text-red-400 hover:text-red-600 disabled:opacity-50">
-                                      <Trash2 className="w-3 h-3" />
-                                    </button>}
+                                    {!isAssigned && <span className="flex items-center gap-1 justify-end">
+                                      <button onClick={() => openConfigModal(scheme.id, 'aeps', c)} className="text-blue-400 hover:text-blue-600" title="Edit">
+                                        <Edit2 className="w-3 h-3" />
+                                      </button>
+                                      <button onClick={() => handleDeleteConfig('scheme_aeps_commissions', c.id)} disabled={deletingConfigId === c.id} className="text-red-400 hover:text-red-600 disabled:opacity-50">
+                                        <Trash2 className="w-3 h-3" />
+                                      </button>
+                                    </span>}
                                   </td>
                                 </tr>
                               )
@@ -4265,8 +4404,6 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
                               <th className="px-2 py-1.5 text-right">MD Margin</th>
                               <th className="px-2 py-1.5 text-right">Company</th>
                               <th className="px-2 py-1.5 text-center">GST</th>
-                              <th className="px-2 py-1.5 text-right">Vendor</th>
-                              <th className="px-2 py-1.5 text-right">Co. MDR</th>
                               <th className="px-2 py-1.5"></th>
                             </tr>
                           </thead>
@@ -4281,12 +4418,15 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
                                   <td className="px-2 py-1.5 text-right">{fmt(c.md_commission, c.md_commission_type)}</td>
                                   <td className="px-2 py-1.5 text-right">{fmt(c.company_charge, c.company_charge_type)}</td>
                                   <td className="px-2 py-1.5 text-center">{c.gst_inclusive ? '✓' : '-'}</td>
-                                  <td className="px-2 py-1.5 text-right">{c.vendor_rate || '-'}</td>
-                                  <td className="px-2 py-1.5 text-right">{c.company_mdr_rate || '-'}</td>
                                   <td className="px-2 py-1.5 text-right">
-                                    {!isAssigned && <button onClick={() => handleDeleteConfig('scheme_aeps_settlement_charges', c.id)} disabled={deletingConfigId === c.id} className="text-red-400 hover:text-red-600 disabled:opacity-50">
-                                      <Trash2 className="w-3 h-3" />
-                                    </button>}
+                                    {!isAssigned && <span className="flex items-center gap-1 justify-end">
+                                      <button onClick={() => openConfigModal(scheme.id, 'aeps_settlement', c)} className="text-blue-400 hover:text-blue-600" title="Edit">
+                                        <Edit2 className="w-3 h-3" />
+                                      </button>
+                                      <button onClick={() => handleDeleteConfig('scheme_aeps_settlement_charges', c.id)} disabled={deletingConfigId === c.id} className="text-red-400 hover:text-red-600 disabled:opacity-50">
+                                        <Trash2 className="w-3 h-3" />
+                                      </button>
+                                    </span>}
                                   </td>
                                 </tr>
                               )
@@ -4299,57 +4439,6 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
                     )}
                   </div>
                   
-                  {/* Settlement-2 Charges */}
-                  <div>
-                    <h4 className="font-semibold text-sm text-rose-700 dark:text-rose-400 mb-2 flex items-center gap-1">
-                      <Banknote className="w-4 h-4" /> Settlement-2 Charges ({scheme.shadval_settlement_charges?.length || 0})
-                    </h4>
-                    {scheme.shadval_settlement_charges && scheme.shadval_settlement_charges.length > 0 ? (
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-xs">
-                          <thead>
-                            <tr className="bg-rose-50 dark:bg-rose-900/20">
-                              <th className="px-2 py-1.5 text-left">Mode</th>
-                              <th className="px-2 py-1.5 text-left">Slab</th>
-                              <th className="px-2 py-1.5 text-right">Retailer Charge</th>
-                              <th className="px-2 py-1.5 text-right">Dist Comm</th>
-                              <th className="px-2 py-1.5 text-right">MD Comm</th>
-                              <th className="px-2 py-1.5 text-right">Company</th>
-                              <th className="px-2 py-1.5 text-center">GST</th>
-                              <th className="px-2 py-1.5 text-right">Vendor</th>
-                              <th className="px-2 py-1.5 text-right">Co. MDR</th>
-                              <th className="px-2 py-1.5"></th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {scheme.shadval_settlement_charges.map((c: any) => {
-                              const fmt = (v: number, t: string) => t === 'percentage' ? `${v}%` : `₹${v}`
-                              return (
-                                <tr key={c.id} className="border-b border-gray-100 dark:border-gray-700">
-                                  <td className="px-2 py-1.5 font-medium">{c.transfer_mode}</td>
-                                  <td className="px-2 py-1.5">₹{c.min_amount?.toLocaleString('en-IN')} - {c.max_amount >= 999999 ? '∞' : `₹${c.max_amount?.toLocaleString('en-IN')}`}</td>
-                                  <td className="px-2 py-1.5 text-right font-medium">{fmt(c.retailer_charge, c.retailer_charge_type)}</td>
-                                  <td className="px-2 py-1.5 text-right">{fmt(c.distributor_commission, c.distributor_commission_type)}</td>
-                                  <td className="px-2 py-1.5 text-right">{fmt(c.md_commission, c.md_commission_type)}</td>
-                                  <td className="px-2 py-1.5 text-right">{fmt(c.company_charge, c.company_charge_type)}</td>
-                                  <td className="px-2 py-1.5 text-center">{c.gst_inclusive ? '✓' : '-'}</td>
-                                  <td className="px-2 py-1.5 text-right">{c.vendor_rate || '-'}</td>
-                                  <td className="px-2 py-1.5 text-right">{c.company_mdr_rate || '-'}</td>
-                                  <td className="px-2 py-1.5 text-right">
-                                    {!isAssigned && <button onClick={() => handleDeleteConfig('scheme_shadval_settlement_charges', c.id)} disabled={deletingConfigId === c.id} className="text-red-400 hover:text-red-600 disabled:opacity-50">
-                                      {deletingConfigId === c.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
-                                    </button>}
-                                  </td>
-                                </tr>
-                              )
-                            })}
-                          </tbody>
-                        </table>
-                      </div>
-                    ) : (
-                      <p className="text-xs text-gray-400 italic">No Settlement-2 charges configured</p>
-                    )}
-                  </div>
                   
                   {/* Mapped Retailers */}
                   <div>
@@ -4460,12 +4549,12 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
           <div className="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-lg max-h-[90vh] flex flex-col my-4">
             <div className="px-6 pt-5 pb-4 border-b border-gray-200 dark:border-gray-700 shrink-0">
               <h2 className="text-lg font-bold flex items-center gap-2">
-                {configType === 'bbps' && <><CreditCard className="w-5 h-5 text-blue-600" /> Add BBPS Commission</>}
-                {configType === 'payout' && <><Banknote className="w-5 h-5 text-green-600" /> Add Settlement-1 Charge</>}
-                {configType === 'mdr' && <><TrendingUp className="w-5 h-5 text-orange-600" /> Add MDR Rate</>}
-                {configType === 'aeps' && <><Banknote className="w-5 h-5 text-teal-600" /> Add AEPS Commission</>}
-                {configType === 'aeps_settlement' && <><DollarSign className="w-5 h-5 text-purple-600" /> Add AEPS Settlement Charge</>}
-                {configType === 'shadval_settlement' && <><Banknote className="w-5 h-5 text-rose-600" /> Add Settlement-2 Charge</>}
+                {configType === 'bbps' && <><CreditCard className="w-5 h-5 text-blue-600" /> {editingConfigId ? 'Edit' : 'Add'} BBPS Commission</>}
+                {configType === 'payout' && <><Banknote className="w-5 h-5 text-green-600" /> {editingConfigId ? 'Edit' : 'Add'} {settlementTypeSelection === 'shadval_settlement' ? 'Settlement-2 (Shadval)' : 'Settlement-1'} Charge</>}
+                {configType === 'mdr' && <><TrendingUp className="w-5 h-5 text-orange-600" /> {editingConfigId ? 'Edit' : 'Add'} MDR Rate</>}
+                {configType === 'aeps' && <><Banknote className="w-5 h-5 text-teal-600" /> {editingConfigId ? 'Edit' : 'Add'} AEPS Commission</>}
+                {configType === 'aeps_settlement' && <><DollarSign className="w-5 h-5 text-purple-600" /> {editingConfigId ? 'Edit' : 'Add'} AEPS Settlement Charge</>}
+                {configType === 'shadval_settlement' && <><Banknote className="w-5 h-5 text-rose-600" /> {editingConfigId ? 'Edit' : 'Add'} Settlement-2 Charge</>}
               </h2>
             </div>
 
@@ -4477,8 +4566,8 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
                   <label className="block text-sm font-medium mb-1">BBPS Type</label>
                   <select value={bbpsForm.bbps_type} onChange={(e) => setBbpsForm({ ...bbpsForm, bbps_type: e.target.value as 'bbps_1' | 'bbps_2' })}
                     className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700">
-                    <option value="bbps_1">BBPS 1</option>
-                    <option value="bbps_2">BBPS 2</option>
+                    <option value="bbps_1">BBPS-Pay2New</option>
+                    <option value="bbps_2">BBPS-Rechargekit</option>
                   </select>
                 </div>
                 <div>
@@ -4514,39 +4603,42 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
                 </div>
                 <div className="flex items-center gap-2 px-3 py-2 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800 mb-2">
                   <Layers className="w-4 h-4 text-blue-600" />
-                  <span className="text-xs font-medium text-blue-700 dark:text-blue-400">Charge-Based Model: Admin → MD → DT → RT (margin = selling - purchase)</span>
+                  <span className="text-xs font-medium text-blue-700 dark:text-blue-400">Charge-Based Model: DT → Retailer (set the retailer price; your margin = RT price − your cost)</span>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                {[
-                  { label: 'Company Cost (Vendor)', key: 'company_charge', typeKey: 'company_charge_type' },
-                  { label: 'MD Purchase Charge (Admin → MD)', key: 'md_purchase_charge', typeKey: 'md_purchase_charge_type' },
-                  { label: 'DT Purchase Charge (MD → DT)', key: 'dt_purchase_charge', typeKey: 'dt_purchase_charge_type' },
-                  { label: 'RT Purchase Charge (DT → RT)', key: 'rt_purchase_charge', typeKey: 'rt_purchase_charge_type' },
-                ].map(({ label, key, typeKey }) => (
-                  <div key={key} className="grid grid-cols-3 gap-2 items-end">
-                    <div className="col-span-2">
-                      <label className="block text-xs font-medium mb-1">{label}</label>
-                      <input type="number" step="0.01" value={(bbpsForm as any)[key]}
-                        onChange={(e) => setBbpsForm({ ...bbpsForm, [key]: parseFloat(e.target.value) || 0 })}
-                        className="w-full px-3 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
+                {(() => {
+                  const adminCost = getAdminCost('bbps', { bbps_type: bbpsForm.bbps_type, min_amount: bbpsForm.min_amount, max_amount: bbpsForm.max_amount })
+                  return [
+                    { label: 'Your Cost (from MD Scheme)', key: 'dt_purchase_charge', typeKey: 'dt_purchase_charge_type', readOnly: true, adminValue: adminCost },
+                    { label: 'RT Purchase Charge (DT → RT)', key: 'rt_purchase_charge', typeKey: 'rt_purchase_charge_type', readOnly: false, adminValue: null },
+                  ].map(({ label, key, typeKey, readOnly, adminValue }) => (
+                    <div key={key} className="grid grid-cols-3 gap-2 items-end">
+                      <div className="col-span-2">
+                        <label className="block text-xs font-medium mb-1">{label}</label>
+                        <input type="number" step="0.01"
+                          value={readOnly && adminValue ? adminValue.value : (bbpsForm as any)[key]}
+                          onChange={readOnly ? undefined : (e) => setBbpsForm({ ...bbpsForm, [key]: parseFloat(e.target.value) || 0 })}
+                          disabled={readOnly}
+                          className={`w-full px-3 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700 ${readOnly ? 'bg-gray-100 dark:bg-gray-900 cursor-not-allowed opacity-75' : ''}`} />
+                      </div>
+                      <div>
+                        <select
+                          value={readOnly && adminValue ? adminValue.type : (bbpsForm as any)[typeKey]}
+                          onChange={readOnly ? undefined : (e) => setBbpsForm({ ...bbpsForm, [typeKey]: e.target.value })}
+                          disabled={readOnly}
+                          className={`w-full px-2 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700 ${readOnly ? 'bg-gray-100 dark:bg-gray-900 cursor-not-allowed opacity-75' : ''}`}>
+                          <option value="flat">₹ Flat</option>
+                          <option value="percentage">% Pct</option>
+                        </select>
+                      </div>
                     </div>
-                    <div>
-                      <select value={(bbpsForm as any)[typeKey]}
-                        onChange={(e) => setBbpsForm({ ...bbpsForm, [typeKey]: e.target.value })}
-                        className="w-full px-2 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700">
-                        <option value="flat">₹ Flat</option>
-                        <option value="percentage">% Pct</option>
-                      </select>
-                    </div>
-                  </div>
-                ))}
+                  ))
+                })()}
                 </div>
                 <div className="mt-2 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
-                  <p className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Margin Preview (flat values)</p>
-                  <div className="grid grid-cols-3 gap-2 text-xs">
-                    <div className="text-center"><div className="text-gray-500">Company</div><div className="font-semibold text-green-600">₹{((bbpsForm.md_purchase_charge || 0) - (bbpsForm.company_charge || 0)).toFixed(2)}</div></div>
-                    <div className="text-center"><div className="text-gray-500">MD</div><div className="font-semibold text-purple-600">₹{((bbpsForm.dt_purchase_charge || 0) - (bbpsForm.md_purchase_charge || 0)).toFixed(2)}</div></div>
-                    <div className="text-center"><div className="text-gray-500">DT</div><div className="font-semibold text-blue-600">₹{((bbpsForm.rt_purchase_charge || 0) - (bbpsForm.dt_purchase_charge || 0)).toFixed(2)}</div></div>
+                  <p className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Your Margin Preview (flat values)</p>
+                  <div className="grid grid-cols-1 gap-2 text-xs">
+                    <div className="text-center"><div className="text-gray-500">DT Margin (RT price − Your cost)</div><div className="font-semibold text-blue-600">₹{((bbpsForm.rt_purchase_charge || 0) - (getAdminCost('bbps', { bbps_type: bbpsForm.bbps_type, min_amount: bbpsForm.min_amount, max_amount: bbpsForm.max_amount })?.value || bbpsForm.dt_purchase_charge || 0)).toFixed(2)}</div></div>
                   </div>
                 </div>
                 <div className="border-t border-gray-200 dark:border-gray-700 pt-3 mt-3 space-y-2">
@@ -4556,20 +4648,6 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
                       className="w-4 h-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
                     <span className="text-sm font-medium text-gray-700 dark:text-gray-300">With GST (18% added on top)</span>
                   </label>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs font-medium mb-1">Vendor Rate (%)</label>
-                      <input type="number" step="0.0001" value={bbpsForm.vendor_rate}
-                        onChange={(e) => setBbpsForm({ ...bbpsForm, vendor_rate: parseFloat(e.target.value) || 0 })}
-                        className="w-full px-3 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" placeholder="0" />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium mb-1">Company MDR Rate (%)</label>
-                      <input type="number" step="0.0001" value={bbpsForm.company_mdr_rate}
-                        onChange={(e) => setBbpsForm({ ...bbpsForm, company_mdr_rate: parseFloat(e.target.value) || 0 })}
-                        className="w-full px-3 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" placeholder="0" />
-                    </div>
-                  </div>
                 </div>
               </div>
             )}
@@ -4578,11 +4656,18 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
             {configType === 'payout' && (
               <div className="space-y-2">
                 <div>
+                  <label className="block text-sm font-medium mb-1">Settlement Type</label>
+                  <select value={settlementTypeSelection} onChange={(e) => setSettlementTypeSelection(e.target.value as 'payout' | 'shadval_settlement')}
+                    className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700">
+                    <option value="payout">Settlement-1</option>
+                    <option value="shadval_settlement">Settlement-2 (Shadval)</option>
+                  </select>
+                </div>
+                <div>
                   <label className="block text-sm font-medium mb-1">Transfer Mode</label>
                   <select value={payoutForm.transfer_mode} onChange={(e) => setPayoutForm({ ...payoutForm, transfer_mode: e.target.value as any })}
                     className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700">
                     <option value="IMPS">IMPS</option>
-                    <option value="NEFT">NEFT</option>
                   </select>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
@@ -4599,39 +4684,42 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
                 </div>
                 <div className="flex items-center gap-2 px-3 py-2 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800 mb-2">
                   <Layers className="w-4 h-4 text-blue-600" />
-                  <span className="text-xs font-medium text-blue-700 dark:text-blue-400">Charge-Based Model: Admin → MD → DT → RT</span>
+                  <span className="text-xs font-medium text-blue-700 dark:text-blue-400">Charge-Based Model: DT → Retailer (set the retailer price; your margin = RT price − your cost)</span>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                {[
-                  { label: 'Company Cost (Vendor)', key: 'company_charge', typeKey: 'company_charge_type' },
-                  { label: 'MD Purchase Charge (Admin → MD)', key: 'md_purchase_charge', typeKey: 'md_purchase_charge_type' },
-                  { label: 'DT Purchase Charge (MD → DT)', key: 'dt_purchase_charge', typeKey: 'dt_purchase_charge_type' },
-                  { label: 'RT Purchase Charge (DT → RT)', key: 'rt_purchase_charge', typeKey: 'rt_purchase_charge_type' },
-                ].map(({ label, key, typeKey }) => (
-                  <div key={key} className="grid grid-cols-3 gap-2 items-end">
-                    <div className="col-span-2">
-                      <label className="block text-xs font-medium mb-1">{label}</label>
-                      <input type="number" step="0.01" value={(payoutForm as any)[key]}
-                        onChange={(e) => setPayoutForm({ ...payoutForm, [key]: parseFloat(e.target.value) || 0 })}
-                        className="w-full px-3 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
+                {(() => {
+                  const adminCost = getAdminCost(settlementTypeSelection, { transfer_mode: payoutForm.transfer_mode, min_amount: payoutForm.min_amount, max_amount: payoutForm.max_amount })
+                  return [
+                    { label: 'Your Cost (from MD Scheme)', key: 'dt_purchase_charge', typeKey: 'dt_purchase_charge_type', readOnly: true, adminValue: adminCost },
+                    { label: 'RT Purchase Charge (DT → RT)', key: 'rt_purchase_charge', typeKey: 'rt_purchase_charge_type', readOnly: false, adminValue: null },
+                  ].map(({ label, key, typeKey, readOnly, adminValue }) => (
+                    <div key={key} className="grid grid-cols-3 gap-2 items-end">
+                      <div className="col-span-2">
+                        <label className="block text-xs font-medium mb-1">{label}</label>
+                        <input type="number" step="0.01"
+                          value={readOnly && adminValue ? adminValue.value : (payoutForm as any)[key]}
+                          onChange={readOnly ? undefined : (e) => setPayoutForm({ ...payoutForm, [key]: parseFloat(e.target.value) || 0 })}
+                          disabled={readOnly}
+                          className={`w-full px-3 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700 ${readOnly ? 'bg-gray-100 dark:bg-gray-900 cursor-not-allowed opacity-75' : ''}`} />
+                      </div>
+                      <div>
+                        <select
+                          value={readOnly && adminValue ? adminValue.type : (payoutForm as any)[typeKey]}
+                          onChange={readOnly ? undefined : (e) => setPayoutForm({ ...payoutForm, [typeKey]: e.target.value })}
+                          disabled={readOnly}
+                          className={`w-full px-2 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700 ${readOnly ? 'bg-gray-100 dark:bg-gray-900 cursor-not-allowed opacity-75' : ''}`}>
+                          <option value="flat">₹ Flat</option>
+                          <option value="percentage">% Pct</option>
+                        </select>
+                      </div>
                     </div>
-                    <div>
-                      <select value={(payoutForm as any)[typeKey]}
-                        onChange={(e) => setPayoutForm({ ...payoutForm, [typeKey]: e.target.value })}
-                        className="w-full px-2 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700">
-                        <option value="flat">₹ Flat</option>
-                        <option value="percentage">% Pct</option>
-                      </select>
-                    </div>
-                  </div>
-                ))}
+                  ))
+                })()}
                 </div>
                 <div className="mt-2 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
-                  <p className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Margin Preview (flat values)</p>
-                  <div className="grid grid-cols-3 gap-2 text-xs">
-                    <div className="text-center"><div className="text-gray-500">Company</div><div className="font-semibold text-green-600">₹{((payoutForm.md_purchase_charge || 0) - (payoutForm.company_charge || 0)).toFixed(2)}</div></div>
-                    <div className="text-center"><div className="text-gray-500">MD</div><div className="font-semibold text-purple-600">₹{((payoutForm.dt_purchase_charge || 0) - (payoutForm.md_purchase_charge || 0)).toFixed(2)}</div></div>
-                    <div className="text-center"><div className="text-gray-500">DT</div><div className="font-semibold text-blue-600">₹{((payoutForm.rt_purchase_charge || 0) - (payoutForm.dt_purchase_charge || 0)).toFixed(2)}</div></div>
+                  <p className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Your Margin Preview (flat values)</p>
+                  <div className="grid grid-cols-1 gap-2 text-xs">
+                    <div className="text-center"><div className="text-gray-500">DT Margin (RT price − Your cost)</div><div className="font-semibold text-blue-600">₹{((payoutForm.rt_purchase_charge || 0) - (getAdminCost(settlementTypeSelection, { transfer_mode: payoutForm.transfer_mode, min_amount: payoutForm.min_amount, max_amount: payoutForm.max_amount })?.value || payoutForm.dt_purchase_charge || 0)).toFixed(2)}</div></div>
                   </div>
                 </div>
                 <div className="border-t border-gray-200 dark:border-gray-700 pt-3 mt-3 space-y-2">
@@ -4641,20 +4729,6 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
                       className="w-4 h-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
                     <span className="text-sm font-medium text-gray-700 dark:text-gray-300">With GST (18% added on top)</span>
                   </label>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs font-medium mb-1">Vendor Rate (%)</label>
-                      <input type="number" step="0.0001" value={payoutForm.vendor_rate}
-                        onChange={(e) => setPayoutForm({ ...payoutForm, vendor_rate: parseFloat(e.target.value) || 0 })}
-                        className="w-full px-3 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" placeholder="0" />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium mb-1">Company MDR Rate (%)</label>
-                      <input type="number" step="0.0001" value={payoutForm.company_mdr_rate}
-                        onChange={(e) => setPayoutForm({ ...payoutForm, company_mdr_rate: parseFloat(e.target.value) || 0 })}
-                        className="w-full px-3 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" placeholder="0" />
-                    </div>
-                  </div>
                 </div>
               </div>
             )}
@@ -4780,7 +4854,7 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
                   }
                   return (
                     <>
-                      <p className="text-xs text-gray-500">T+0 MDR = T+1 MDR + 1% (auto calculated if left as 0)</p>
+                      <p className="text-xs text-gray-500">You set the <strong>Retailer MDR</strong> (the rate the retailer pays). Your commission is set upstream by your MD. T+0 = T+1 + 1% (auto if left 0).</p>
                       <div className="grid grid-cols-2 gap-3">
                         <div>
                           <label className="block text-xs font-medium mb-1">Retailer MDR T+1 (%)</label>
@@ -4797,21 +4871,6 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
                             onChange={(e) => setMdrForm({ ...mdrForm, retailer_mdr_t0: parseFloat(e.target.value) || 0 })}
                             className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
                         </div>
-                        <div>
-                          <label className="block text-xs font-medium mb-1">Distributor MDR T+1 (%)</label>
-                          <input type="number" step="0.01" value={mdrForm.distributor_mdr_t1}
-                            onChange={(e) => {
-                              const t1 = parseFloat(e.target.value) || 0
-                              setMdrForm({ ...mdrForm, distributor_mdr_t1: t1, distributor_mdr_t0: mdrForm.distributor_mdr_t0 === 0 ? t1 + 1 : mdrForm.distributor_mdr_t0 })
-                            }}
-                            className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
-                        </div>
-                        <div>
-                          <label className="block text-xs font-medium mb-1">Distributor MDR T+0 (%)</label>
-                          <input type="number" step="0.01" value={mdrForm.distributor_mdr_t0}
-                            onChange={(e) => setMdrForm({ ...mdrForm, distributor_mdr_t0: parseFloat(e.target.value) || 0 })}
-                            className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
-                        </div>
                       </div>
                     </>
                   )
@@ -4823,20 +4882,6 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
                       className="w-4 h-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
                     <span className="text-sm font-medium text-gray-700 dark:text-gray-300">With GST (18% added on top)</span>
                   </label>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs font-medium mb-1">Vendor Rate (%)</label>
-                      <input type="number" step="0.0001" value={mdrForm.vendor_rate}
-                        onChange={(e) => setMdrForm({ ...mdrForm, vendor_rate: parseFloat(e.target.value) || 0 })}
-                        className="w-full px-3 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" placeholder="0" />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium mb-1">Company MDR Rate (%)</label>
-                      <input type="number" step="0.0001" value={mdrForm.company_mdr_rate}
-                        onChange={(e) => setMdrForm({ ...mdrForm, company_mdr_rate: parseFloat(e.target.value) || 0 })}
-                        className="w-full px-3 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" placeholder="0" />
-                    </div>
-                  </div>
                 </div>
               </div>
             )}
@@ -4917,20 +4962,6 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
                       className="w-4 h-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
                     <span className="text-sm font-medium text-gray-700 dark:text-gray-300">With GST (18% added on top)</span>
                   </label>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs font-medium mb-1">Vendor Rate (%)</label>
-                      <input type="number" step="0.0001" value={aepsForm.vendor_rate}
-                        onChange={(e) => setAepsForm({ ...aepsForm, vendor_rate: parseFloat(e.target.value) || 0 })}
-                        className="w-full px-3 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" placeholder="0" />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium mb-1">Company MDR Rate (%)</label>
-                      <input type="number" step="0.0001" value={aepsForm.company_mdr_rate}
-                        onChange={(e) => setAepsForm({ ...aepsForm, company_mdr_rate: parseFloat(e.target.value) || 0 })}
-                        className="w-full px-3 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" placeholder="0" />
-                    </div>
-                  </div>
                 </div>
               </div>
             )}
@@ -4982,20 +5013,6 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
                       className="w-4 h-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
                     <span className="text-sm font-medium text-gray-700 dark:text-gray-300">With GST (18% added on top)</span>
                   </label>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs font-medium mb-1">Vendor Rate (%)</label>
-                      <input type="number" step="0.0001" value={aepsSettleForm.vendor_rate}
-                        onChange={(e) => setAepsSettleForm({ ...aepsSettleForm, vendor_rate: parseFloat(e.target.value) || 0 })}
-                        className="w-full px-3 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" placeholder="0" />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium mb-1">Company MDR Rate (%)</label>
-                      <input type="number" step="0.0001" value={aepsSettleForm.company_mdr_rate}
-                        onChange={(e) => setAepsSettleForm({ ...aepsSettleForm, company_mdr_rate: parseFloat(e.target.value) || 0 })}
-                        className="w-full px-3 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" placeholder="0" />
-                    </div>
-                  </div>
                 </div>
               </div>
             )}
@@ -5007,7 +5024,6 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
                   <select value={shadvalSettleForm.transfer_mode} onChange={(e) => setShadvalSettleForm({ ...shadvalSettleForm, transfer_mode: e.target.value as any })}
                     className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700">
                     <option value="IMPS">IMPS</option>
-                    <option value="NEFT">NEFT</option>
                     <option value="RTGS">RTGS</option>
                   </select>
                 </div>
@@ -5023,38 +5039,41 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
                       className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
                   </div>
                 </div>
-                <p className="text-xs text-gray-500">Charge-based model: charges increase Company → MD → DT → RT. RT pays the RT Purchase Charge; each level keeps the difference.</p>
+                <p className="text-xs text-gray-500">Charge-based model: you set the retailer (RT) purchase price. Your margin = RT price − your cost.</p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                {[
-                  { label: 'Company Cost (Vendor)', key: 'company_charge', typeKey: 'company_charge_type' },
-                  { label: 'MD Purchase Charge (Admin → MD)', key: 'md_purchase_charge', typeKey: 'md_purchase_charge_type' },
-                  { label: 'DT Purchase Charge (MD → DT)', key: 'dt_purchase_charge', typeKey: 'dt_purchase_charge_type' },
-                  { label: 'RT Purchase Charge (DT → RT)', key: 'rt_purchase_charge', typeKey: 'rt_purchase_charge_type' },
-                ].map(({ label, key, typeKey }) => (
-                  <div key={key} className="grid grid-cols-3 gap-2 items-end">
-                    <div className="col-span-2">
-                      <label className="block text-xs font-medium mb-1">{label}</label>
-                      <input type="number" step="0.01" value={(shadvalSettleForm as any)[key]}
-                        onChange={(e) => setShadvalSettleForm({ ...shadvalSettleForm, [key]: parseFloat(e.target.value) || 0 })}
-                        className="w-full px-3 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
+                {(() => {
+                  const adminCost = getAdminCost('shadval_settlement', { transfer_mode: shadvalSettleForm.transfer_mode, min_amount: shadvalSettleForm.min_amount, max_amount: shadvalSettleForm.max_amount })
+                  return [
+                    { label: 'Your Cost (from MD Scheme)', key: 'dt_purchase_charge', typeKey: 'dt_purchase_charge_type', readOnly: true, adminValue: adminCost },
+                    { label: 'RT Purchase Charge (DT → RT)', key: 'rt_purchase_charge', typeKey: 'rt_purchase_charge_type', readOnly: false, adminValue: null },
+                  ].map(({ label, key, typeKey, readOnly, adminValue }) => (
+                    <div key={key} className="grid grid-cols-3 gap-2 items-end">
+                      <div className="col-span-2">
+                        <label className="block text-xs font-medium mb-1">{label}</label>
+                        <input type="number" step="0.01"
+                          value={readOnly && adminValue ? adminValue.value : (shadvalSettleForm as any)[key]}
+                          onChange={readOnly ? undefined : (e) => setShadvalSettleForm({ ...shadvalSettleForm, [key]: parseFloat(e.target.value) || 0 })}
+                          disabled={readOnly}
+                          className={`w-full px-3 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700 ${readOnly ? 'bg-gray-100 dark:bg-gray-900 cursor-not-allowed opacity-75' : ''}`} />
+                      </div>
+                      <div>
+                        <select
+                          value={readOnly && adminValue ? adminValue.type : (shadvalSettleForm as any)[typeKey]}
+                          onChange={readOnly ? undefined : (e) => setShadvalSettleForm({ ...shadvalSettleForm, [typeKey]: e.target.value })}
+                          disabled={readOnly}
+                          className={`w-full px-2 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700 ${readOnly ? 'bg-gray-100 dark:bg-gray-900 cursor-not-allowed opacity-75' : ''}`}>
+                          <option value="flat">₹ Flat</option>
+                          <option value="percentage">% Pct</option>
+                        </select>
+                      </div>
                     </div>
-                    <div>
-                      <select value={(shadvalSettleForm as any)[typeKey]}
-                        onChange={(e) => setShadvalSettleForm({ ...shadvalSettleForm, [typeKey]: e.target.value })}
-                        className="w-full px-2 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700">
-                        <option value="flat">₹ Flat</option>
-                        <option value="percentage">% Pct</option>
-                      </select>
-                    </div>
-                  </div>
-                ))}
+                  ))
+                })()}
                 </div>
                 <div className="mt-2 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
-                  <p className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Margin Preview (flat values)</p>
-                  <div className="grid grid-cols-3 gap-2 text-xs">
-                    <div className="text-center"><div className="text-gray-500">Company</div><div className="font-semibold text-green-600">₹{((shadvalSettleForm.md_purchase_charge || 0) - (shadvalSettleForm.company_charge || 0)).toFixed(2)}</div></div>
-                    <div className="text-center"><div className="text-gray-500">MD</div><div className="font-semibold text-purple-600">₹{((shadvalSettleForm.dt_purchase_charge || 0) - (shadvalSettleForm.md_purchase_charge || 0)).toFixed(2)}</div></div>
-                    <div className="text-center"><div className="text-gray-500">DT</div><div className="font-semibold text-blue-600">₹{((shadvalSettleForm.rt_purchase_charge || 0) - (shadvalSettleForm.dt_purchase_charge || 0)).toFixed(2)}</div></div>
+                  <p className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Your Margin Preview (flat values)</p>
+                  <div className="grid grid-cols-1 gap-2 text-xs">
+                    <div className="text-center"><div className="text-gray-500">DT Margin (RT price − Your cost)</div><div className="font-semibold text-blue-600">₹{((shadvalSettleForm.rt_purchase_charge || 0) - (getAdminCost('shadval_settlement', { transfer_mode: shadvalSettleForm.transfer_mode, min_amount: shadvalSettleForm.min_amount, max_amount: shadvalSettleForm.max_amount })?.value || shadvalSettleForm.dt_purchase_charge || 0)).toFixed(2)}</div></div>
                   </div>
                 </div>
                 <div className="border-t border-gray-200 dark:border-gray-700 pt-3 mt-3 space-y-2">
@@ -5064,20 +5083,6 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
                       className="w-4 h-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
                     <span className="text-sm font-medium text-gray-700 dark:text-gray-300">With GST (18% added on top)</span>
                   </label>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs font-medium mb-1">Vendor Rate (%)</label>
-                      <input type="number" step="0.0001" value={shadvalSettleForm.vendor_rate}
-                        onChange={(e) => setShadvalSettleForm({ ...shadvalSettleForm, vendor_rate: parseFloat(e.target.value) || 0 })}
-                        className="w-full px-3 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" placeholder="0" />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium mb-1">Company MDR Rate (%)</label>
-                      <input type="number" step="0.0001" value={shadvalSettleForm.company_mdr_rate}
-                        onChange={(e) => setShadvalSettleForm({ ...shadvalSettleForm, company_mdr_rate: parseFloat(e.target.value) || 0 })}
-                        className="w-full px-3 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" placeholder="0" />
-                    </div>
-                  </div>
                 </div>
               </div>
             )}
@@ -5141,7 +5146,7 @@ function SettingsTab() {
   const fetchUserData = async () => {
     if (!user?.partner_id) return
     try {
-      const { data, error } = await supabase
+      const { data, error } = await secureDb
         .from('distributors')
         .select('*')
         .eq('partner_id', user.partner_id)
@@ -5177,7 +5182,7 @@ function SettingsTab() {
     setSuccess('')
     
     try {
-      const { error } = await supabase
+      const { error } = await secureDb
         .from('distributors')
         .update({
           name: profileData.name,

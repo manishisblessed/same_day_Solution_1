@@ -330,7 +330,9 @@ export async function POST(request: NextRequest) {
       amount,
       retailer_settlement_amount: mdrResult.result.retailer_settlement_amount,
       retailer_fee: mdrResult.result.retailer_fee,
+      distributor_commission: mdrResult.result.distributor_commission,
       distributor_margin: mdrResult.result.distributor_margin,
+      md_commission: mdrResult.result.md_commission,
       company_earning: mdrResult.result.company_earning,
     });
   } catch (error: any) {

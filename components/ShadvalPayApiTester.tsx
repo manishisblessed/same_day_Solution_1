@@ -43,7 +43,7 @@ export default function ShadvalPayApiTester() {
   const [ifscCode, setIfscCode] = useState('SBIN0001234')
   const [beneficiaryName, setBeneficiaryName] = useState('Test User')
   const [amount, setAmount] = useState('1')
-  const [transferMode, setTransferMode] = useState<'IMPS' | 'NEFT' | 'RTGS'>('IMPS')
+  const [transferMode, setTransferMode] = useState<'IMPS' | 'RTGS'>('IMPS')
   const [narration, setNarration] = useState('UAT API Test')
 
   // Status check
@@ -479,7 +479,7 @@ export default function ShadvalPayApiTester() {
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Transfer Mode</label>
                   <div className="flex gap-2">
-                    {(['IMPS', 'NEFT', 'RTGS'] as const).map(mode => (
+                    {(['IMPS', 'RTGS'] as const).map(mode => (
                       <button
                         key={mode}
                         onClick={() => setTransferMode(mode)}

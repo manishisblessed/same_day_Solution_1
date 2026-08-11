@@ -177,7 +177,10 @@ export async function handleBBPSFailure(
       .update({ status: 'failed' })
       .eq('id', ledger_id)
 
-    // Reverse the debit - credit wallet
+    // Reverse the debit - credit wallet.
+    // Deterministic reference (no timestamp) so a repeated failure-handler call
+    // can NEVER double-credit: the (reference_id, retailer_id) unique index +
+    // in-function dedup reject the second attempt.
     const { error: reversalError } = await getSupabase().rpc('add_ledger_entry', {
       p_user_id: user_id,
       p_user_role: user_role,
@@ -187,13 +190,20 @@ export async function handleBBPSFailure(
       p_tx_type: 'BBPS_REFUND',
       p_credit: amount,
       p_debit: 0,
-      p_reference_id: `REVERSAL_${transaction_id}_${Date.now()}`,
+      p_reference_id: `REVERSAL_${transaction_id}`,
       p_transaction_id: transaction_id,
       p_status: 'completed',
       p_remarks: `BBPS payment failed - ${reason}`
     })
 
     if (reversalError) {
+      // A duplicate means the wallet was already refunded for this transaction —
+      // that is success, not failure. Anything else is a real error.
+      const msg = (reversalError.message || '').toLowerCase()
+      if (msg.includes('duplicate') || (reversalError as any).code === '23505') {
+        console.warn(`[BBPS] Reversal already applied for ${transaction_id} — treating as refunded`)
+        return true
+      }
       console.error('Error reversing BBPS debit:', reversalError)
       return false
     }

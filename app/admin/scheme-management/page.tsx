@@ -3,6 +3,8 @@
 import { useState, useEffect, useCallback, Suspense } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
 import { supabase } from '@/lib/supabase/client'
+
+import { secureDb } from '@/lib/secure-db'
 import { getAssignableRoles } from '@/lib/role-hierarchy'
 import AdminSidebar from '@/components/AdminSidebar'
 import { 
@@ -100,9 +102,7 @@ function SchemeManagementPageContent() {
   const [showMappingModal, setShowMappingModal] = useState(false)
   const [mappingSchemeId, setMappingSchemeId] = useState<string>('')
   
-  // Users for mapping
-  const [retailers, setRetailers] = useState<any[]>([])
-  const [distributors, setDistributors] = useState<any[]>([])
+  // Users for mapping (admin can only assign to MD / Partner)
   const [masterDistributors, setMasterDistributors] = useState<any[]>([])
   const [partners, setPartners] = useState<any[]>([])
   
@@ -113,14 +113,22 @@ function SchemeManagementPageContent() {
   const fetchSchemes = useCallback(async () => {
     setLoading(true)
     try {
-      let query = supabase.from('schemes').select('*').order('priority', { ascending: true })
+      let query = secureDb.from('schemes').select('*').order('priority', { ascending: true })
       if (filterType) query = query.eq('scheme_type', filterType)
       if (filterStatus) query = query.eq('status', filterStatus)
       
       const { data, error } = await query
       if (error) throw error
       
-      let filtered = data || []
+      // Admin manages ONLY admin-created rates. Custom schemes created by
+      // MDs/Distributors (which carry a partner created_by_id) are their own
+      // downstream rates and must not appear in the admin list.
+      let filtered = (data || []).filter((s: any) =>
+        s.created_by_role === 'admin' ||
+        s.scheme_type === 'global' ||
+        s.scheme_type === 'golden' ||
+        !s.created_by_id
+      )
       if (searchQuery) {
         filtered = filtered.filter(s => 
           s.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -131,7 +139,7 @@ function SchemeManagementPageContent() {
       // Fetch mapping counts for each scheme
       const schemeIds = filtered.map(s => s.id)
       if (schemeIds.length > 0) {
-        const { data: mappings } = await supabase
+        const { data: mappings } = await secureDb
           .from('scheme_mappings')
           .select('scheme_id, entity_role')
           .in('scheme_id', schemeIds)
@@ -156,8 +164,8 @@ function SchemeManagementPageContent() {
       if (creatorIds.length > 0) {
         // Fetch from partner tables in parallel (admin_users don't have partner_id - admin schemes have null created_by_id)
         const [mdData, distData] = await Promise.all([
-          supabase.from('master_distributors').select('partner_id, name, business_name, email').in('partner_id', creatorIds),
-          supabase.from('distributors').select('partner_id, name, business_name, email').in('partner_id', creatorIds),
+          secureDb.from('master_distributors').select('partner_id, name, business_name, email').in('partner_id', creatorIds),
+          secureDb.from('distributors').select('partner_id, name, business_name, email').in('partner_id', creatorIds),
         ])
 
         const creatorMap: Record<string, { name: string; email: string; role_label: string }> = {}
@@ -207,14 +215,10 @@ function SchemeManagementPageContent() {
 
   const fetchUsers = useCallback(async () => {
     try {
-      const [r, d, md, p] = await Promise.all([
-        supabase.from('retailers').select('partner_id, name, email, status').eq('status', 'active'),
-        supabase.from('distributors').select('partner_id, name, email, status').eq('status', 'active'),
-        supabase.from('master_distributors').select('partner_id, name, email, status').eq('status', 'active'),
-        supabase.from('partners').select('id, name, email, status, business_name').eq('status', 'active'),
+      const [md, p] = await Promise.all([
+        secureDb.from('master_distributors').select('partner_id, name, email, status').eq('status', 'active'),
+        secureDb.from('partners').select('id, name, email, status, business_name').eq('status', 'active'),
       ])
-      setRetailers(r.data || [])
-      setDistributors(d.data || [])
       setMasterDistributors(md.data || [])
       setPartners((p.data || []).map((partner: any) => ({ ...partner, partner_id: partner.id })))
     } catch (err: any) {
@@ -231,22 +235,18 @@ function SchemeManagementPageContent() {
   // EXPAND SCHEME (load full details)
   // ============================================================================
 
-  const toggleExpand = async (schemeId: string) => {
-    if (expandedSchemeId === schemeId) {
-      setExpandedSchemeId(null)
-      return
-    }
-    
-    setExpandingSchemeId(schemeId)
-    try {
+  // Fetch full details for a scheme and merge into state, WITHOUT toggling the
+  // expanded/collapsed state. Used both by toggleExpand and by refresh-in-place
+  // after add/edit/delete so newly-saved slabs appear immediately.
+  const loadSchemeDetails = async (schemeId: string) => {
     const [bbps, payout, mdr, aeps, aepsSettle, shadvalSettle, mappings] = await Promise.all([
-      supabase.from('scheme_bbps_commissions').select('*').eq('scheme_id', schemeId).eq('status', 'active').order('min_amount'),
-      supabase.from('scheme_payout_charges').select('*').eq('scheme_id', schemeId).eq('status', 'active').order('transfer_mode'),
-      supabase.from('scheme_mdr_rates').select('*').eq('scheme_id', schemeId).eq('status', 'active').order('mode'),
-      supabase.from('scheme_aeps_commissions').select('*').eq('scheme_id', schemeId).eq('status', 'active').order('transaction_type').order('min_amount'),
-      supabase.from('scheme_aeps_settlement_charges').select('*').eq('scheme_id', schemeId).eq('status', 'active').order('min_amount'),
-      supabase.from('scheme_shadval_settlement_charges').select('*').eq('scheme_id', schemeId).eq('status', 'active').order('transfer_mode'),
-      supabase.from('scheme_mappings').select('*').eq('scheme_id', schemeId).eq('status', 'active'),
+      secureDb.from('scheme_bbps_commissions').select('*').eq('scheme_id', schemeId).eq('status', 'active').order('min_amount'),
+      secureDb.from('scheme_payout_charges').select('*').eq('scheme_id', schemeId).eq('status', 'active').order('transfer_mode'),
+      secureDb.from('scheme_mdr_rates').select('*').eq('scheme_id', schemeId).eq('status', 'active').order('mode'),
+      secureDb.from('scheme_aeps_commissions').select('*').eq('scheme_id', schemeId).eq('status', 'active').order('transaction_type').order('min_amount'),
+      secureDb.from('scheme_aeps_settlement_charges').select('*').eq('scheme_id', schemeId).eq('status', 'active').order('min_amount'),
+      secureDb.from('scheme_shadval_settlement_charges').select('*').eq('scheme_id', schemeId).eq('status', 'active').order('transfer_mode'),
+      secureDb.from('scheme_mappings').select('*').eq('scheme_id', schemeId).eq('status', 'active'),
     ])
 
     // Resolve entity names for mappings
@@ -254,10 +254,10 @@ function SchemeManagementPageContent() {
     if (enrichedMappings.length > 0) {
       const entityIds = enrichedMappings.map((m: any) => m.entity_id)
       const [retNames, distNames, mdNames, partnerNames] = await Promise.all([
-        supabase.from('retailers').select('partner_id, name, business_name').in('partner_id', entityIds),
-        supabase.from('distributors').select('partner_id, name, business_name').in('partner_id', entityIds),
-        supabase.from('master_distributors').select('partner_id, name, business_name').in('partner_id', entityIds),
-        supabase.from('partners').select('id, name, business_name').in('id', entityIds),
+        secureDb.from('retailers').select('partner_id, name, business_name').in('partner_id', entityIds),
+        secureDb.from('distributors').select('partner_id, name, business_name').in('partner_id', entityIds),
+        secureDb.from('master_distributors').select('partner_id, name, business_name').in('partner_id', entityIds),
+        secureDb.from('partners').select('id, name, business_name').in('id', entityIds),
       ])
       const nameMap: Record<string, string> = {}
       retNames.data?.forEach((r: any) => { nameMap[r.partner_id] = r.business_name || r.name })
@@ -266,7 +266,7 @@ function SchemeManagementPageContent() {
       partnerNames.data?.forEach((p: any) => { nameMap[p.id] = p.business_name || p.name })
       enrichedMappings = enrichedMappings.map((m: any) => ({ ...m, entity_name: nameMap[m.entity_id] || null }))
     }
-    
+
     setSchemes(prev => prev.map(s => s.id === schemeId ? {
       ...s,
       bbps_commissions: bbps.data || [],
@@ -279,7 +279,17 @@ function SchemeManagementPageContent() {
       // Auto-detect partner plan from mappings (if any mapping is entity_role='partner')
       is_partner_plan: s.is_partner_plan || enrichedMappings.some((m: any) => m.entity_role === 'partner'),
     } : s))
+  }
+
+  const toggleExpand = async (schemeId: string) => {
+    if (expandedSchemeId === schemeId) {
+      setExpandedSchemeId(null)
+      return
+    }
     
+    setExpandingSchemeId(schemeId)
+    try {
+    await loadSchemeDetails(schemeId)
     setExpandedSchemeId(schemeId)
     } catch (err: any) {
       showToast('Failed to load scheme details', 'error')
@@ -428,7 +438,7 @@ function SchemeManagementPageContent() {
   const [settlementTypeSelection, setSettlementTypeSelection] = useState<'payout' | 'shadval_settlement'>('payout')
 
   const [payoutForm, setPayoutForm] = useState({
-    transfer_mode: 'IMPS' as 'IMPS' | 'NEFT',
+    transfer_mode: 'IMPS' as 'IMPS',
     min_amount: 0,
     max_amount: 100000,
     retailer_charge: 0,
@@ -507,7 +517,7 @@ function SchemeManagementPageContent() {
   })
 
   const [shadvalSettleForm, setShadvalSettleForm] = useState({
-    transfer_mode: 'IMPS' as 'IMPS' | 'NEFT',
+    transfer_mode: 'IMPS' as 'IMPS',
     min_amount: 0,
     max_amount: 100000,
     retailer_charge: 0,
@@ -527,11 +537,8 @@ function SchemeManagementPageContent() {
     setConfigSchemeId(schemeId)
     setEditingConfigId(editData?.id || null)
     if (type === 'shadval_settlement') {
-      if (editData) {
-        setConfigType('shadval_settlement')
-      } else {
-        setConfigType('payout')
-      }
+      // Settlement-2 uses the SAME charge-based form/model as Settlement-1 (payout).
+      setConfigType('payout')
       setSettlementTypeSelection('shadval_settlement')
     } else {
       setConfigType(type)
@@ -540,7 +547,7 @@ function SchemeManagementPageContent() {
     if (editData) {
       if (type === 'bbps') {
         setBbpsForm({ bbps_type: editData.bbps_type || 'bbps_1', category: editData.category || '', min_amount: editData.min_amount || 0, max_amount: editData.max_amount || 100000, retailer_charge: editData.retailer_charge || 0, retailer_charge_type: editData.retailer_charge_type || 'flat', retailer_commission: editData.retailer_commission || 0, retailer_commission_type: editData.retailer_commission_type || 'flat', distributor_commission: editData.distributor_commission || 0, distributor_commission_type: editData.distributor_commission_type || 'flat', md_commission: editData.md_commission || 0, md_commission_type: editData.md_commission_type || 'flat', company_charge: editData.company_charge || 0, company_charge_type: editData.company_charge_type || 'flat', md_purchase_charge: editData.md_purchase_charge || 0, md_purchase_charge_type: editData.md_purchase_charge_type || 'flat', dt_purchase_charge: editData.dt_purchase_charge || 0, dt_purchase_charge_type: editData.dt_purchase_charge_type || 'flat', rt_purchase_charge: editData.rt_purchase_charge || 0, rt_purchase_charge_type: editData.rt_purchase_charge_type || 'flat', gst_inclusive: editData.gst_inclusive || false, vendor_rate: editData.vendor_rate || 0, company_mdr_rate: editData.company_mdr_rate || 0 })
-      } else if (type === 'payout') {
+      } else if (type === 'payout' || type === 'shadval_settlement') {
         setPayoutForm({ transfer_mode: editData.transfer_mode || 'IMPS', min_amount: editData.min_amount || 0, max_amount: editData.max_amount || 100000, retailer_charge: editData.retailer_charge || 0, retailer_charge_type: editData.retailer_charge_type || 'flat', retailer_commission: editData.retailer_commission || 0, retailer_commission_type: editData.retailer_commission_type || 'flat', distributor_commission: editData.distributor_commission || 0, distributor_commission_type: editData.distributor_commission_type || 'flat', md_commission: editData.md_commission || 0, md_commission_type: editData.md_commission_type || 'flat', company_charge: editData.company_charge || 0, company_charge_type: editData.company_charge_type || 'flat', md_purchase_charge: editData.md_purchase_charge || 0, md_purchase_charge_type: editData.md_purchase_charge_type || 'flat', dt_purchase_charge: editData.dt_purchase_charge || 0, dt_purchase_charge_type: editData.dt_purchase_charge_type || 'flat', rt_purchase_charge: editData.rt_purchase_charge || 0, rt_purchase_charge_type: editData.rt_purchase_charge_type || 'flat', gst_inclusive: editData.gst_inclusive || false, vendor_rate: editData.vendor_rate || 0, company_mdr_rate: editData.company_mdr_rate || 0 })
       } else if (type === 'mdr') {
         setMdrForm({ mode: editData.mode || 'CARD', card_type: editData.card_type || '', brand_type: editData.brand_type || '', card_classification: editData.card_classification || '', merchant_slug: editData.merchant_slug || '', retailer_mdr_t1: editData.retailer_mdr_t1 || 0, retailer_mdr_t0: editData.retailer_mdr_t0 || 0, distributor_mdr_t1: editData.distributor_mdr_t1 || 0, distributor_mdr_t0: editData.distributor_mdr_t0 || 0, md_mdr_t1: editData.md_mdr_t1 || 0, md_mdr_t0: editData.md_mdr_t0 || 0, partner_mdr: editData.partner_mdr || 0, gst_inclusive: editData.gst_inclusive || false, vendor_rate: editData.vendor_rate || 0, company_mdr_rate: editData.company_mdr_rate || 0 })
@@ -548,8 +555,6 @@ function SchemeManagementPageContent() {
         setAepsForm({ transaction_type: editData.transaction_type || 'cash_withdrawal', min_amount: editData.min_amount || 0, max_amount: editData.max_amount || 100000, base_commission: editData.base_commission || 0, base_commission_type: editData.base_commission_type || 'percentage', company_earning: editData.company_earning || 0, company_earning_type: editData.company_earning_type || 'flat', md_commission: editData.md_commission || 0, md_commission_type: editData.md_commission_type || 'flat', distributor_commission: editData.distributor_commission || 0, distributor_commission_type: editData.distributor_commission_type || 'flat', retailer_commission: editData.retailer_commission || 0, retailer_commission_type: editData.retailer_commission_type || 'flat', tds_percentage: editData.tds_percentage ?? 5, gst_inclusive: editData.gst_inclusive || false, vendor_rate: editData.vendor_rate || 0, company_mdr_rate: editData.company_mdr_rate || 0 })
       } else if (type === 'aeps_settlement') {
         setAepsSettleForm({ min_amount: editData.min_amount || 0, max_amount: editData.max_amount || 100000, retailer_charge: editData.retailer_charge || 0, retailer_charge_type: editData.retailer_charge_type || 'flat', distributor_commission: editData.distributor_commission || 0, distributor_commission_type: editData.distributor_commission_type || 'flat', md_commission: editData.md_commission || 0, md_commission_type: editData.md_commission_type || 'flat', company_charge: editData.company_charge || 0, company_charge_type: editData.company_charge_type || 'flat', gst_inclusive: editData.gst_inclusive || false, vendor_rate: editData.vendor_rate || 0, company_mdr_rate: editData.company_mdr_rate || 0 })
-      } else if (type === 'shadval_settlement') {
-        setShadvalSettleForm({ transfer_mode: editData.transfer_mode || 'IMPS', min_amount: editData.min_amount || 0, max_amount: editData.max_amount || 100000, retailer_charge: editData.retailer_charge || 0, retailer_charge_type: editData.retailer_charge_type || 'flat', distributor_commission: editData.distributor_commission || 0, distributor_commission_type: editData.distributor_commission_type || 'flat', md_commission: editData.md_commission || 0, md_commission_type: editData.md_commission_type || 'flat', company_charge: editData.company_charge || 0, company_charge_type: editData.company_charge_type || 'flat', gst_inclusive: editData.gst_inclusive || false, vendor_rate: editData.vendor_rate || 0, company_mdr_rate: editData.company_mdr_rate || 0 })
       }
     } else {
       setBbpsForm({ bbps_type: 'bbps_1', category: '', min_amount: 0, max_amount: 100000, retailer_charge: 0, retailer_charge_type: 'flat', retailer_commission: 0, retailer_commission_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat', company_charge: 0, company_charge_type: 'flat', md_purchase_charge: 0, md_purchase_charge_type: 'flat', dt_purchase_charge: 0, dt_purchase_charge_type: 'flat', rt_purchase_charge: 0, rt_purchase_charge_type: 'flat', gst_inclusive: false, vendor_rate: 0, company_mdr_rate: 0 })
@@ -592,19 +597,21 @@ function SchemeManagementPageContent() {
         }
       }
 
-      // If editing, delete old record first then insert new
-      if (editingConfigId) {
-        const configTypeMap: Record<string, string> = {
-          bbps: 'bbps', payout: 'payout', mdr: 'mdr', aeps: 'aeps',
-          aeps_settlement: 'aeps_settlement', shadval_settlement: 'shadval_settlement',
-        }
-        const ct = configTypeMap[configType] || configType
-        await apiFetch(`/api/schemes/${configSchemeId}/config?config_type=${ct}&config_id=${editingConfigId}`, { method: 'DELETE' })
+      // Settlement-2 (Shadval) is authored through the same payout form; resolve
+      // the real target type up-front so delete/insert routing is consistent for
+      // both create and edit.
+      let effectiveConfigType = configType
+      if (configType === 'payout' && settlementTypeSelection === 'shadval_settlement') {
+        effectiveConfigType = 'shadval_settlement'
       }
 
-      let effectiveConfigType = configType
-      if (configType === 'payout' && settlementTypeSelection === 'shadval_settlement' && !editingConfigId) {
-        effectiveConfigType = 'shadval_settlement'
+      // AEPS/settlement/shadval tables have a UNIQUE slab constraint, so we can't
+      // safely update-by-id when the slab range changes. Keep delete-then-insert
+      // for those. bbps/payout/mdr have no such constraint and are updated in
+      // place by passing the row id (see below) — no destructive delete.
+      const constrainedTypes = ['aeps', 'aeps_settlement', 'shadval_settlement']
+      if (editingConfigId && constrainedTypes.includes(effectiveConfigType)) {
+        await apiFetch(`/api/schemes/${configSchemeId}/config?config_type=${effectiveConfigType}&config_id=${editingConfigId}`, { method: 'DELETE' })
       }
 
       let configData: any = {}
@@ -634,10 +641,12 @@ function SchemeManagementPageContent() {
           configData.vendor_rate = mdrForm.vendor_rate
           configData.company_mdr_rate = mdrForm.company_mdr_rate
         } else {
-          configData.retailer_mdr_t1 = mdrForm.retailer_mdr_t1
-          configData.retailer_mdr_t0 = mdrForm.retailer_mdr_t0
-          configData.distributor_mdr_t1 = mdrForm.distributor_mdr_t1
-          configData.distributor_mdr_t0 = mdrForm.distributor_mdr_t0
+          // Admin sets only the MD's commission rate (Admin → MD). Retailer/
+          // Distributor rates are set downstream by the MD and DT respectively.
+          configData.retailer_mdr_t1 = 0
+          configData.retailer_mdr_t0 = 0
+          configData.distributor_mdr_t1 = 0
+          configData.distributor_mdr_t0 = 0
           configData.md_mdr_t1 = mdrForm.md_mdr_t1
           configData.md_mdr_t0 = mdrForm.md_mdr_t0
           configData.partner_mdr = null
@@ -650,27 +659,13 @@ function SchemeManagementPageContent() {
       } else if (effectiveConfigType === 'aeps_settlement') {
         configData = { ...aepsSettleForm }
       } else if (effectiveConfigType === 'shadval_settlement') {
-        if (configType === 'payout') {
-          configData = {
-            transfer_mode: payoutForm.transfer_mode,
-            min_amount: payoutForm.min_amount,
-            max_amount: payoutForm.max_amount,
-            retailer_charge: payoutForm.retailer_charge,
-            retailer_charge_type: payoutForm.retailer_charge_type,
-            distributor_commission: payoutForm.distributor_commission,
-            distributor_commission_type: payoutForm.distributor_commission_type,
-            md_commission: payoutForm.md_commission,
-            md_commission_type: payoutForm.md_commission_type,
-            company_charge: payoutForm.company_charge,
-            company_charge_type: payoutForm.company_charge_type,
-            gst_inclusive: payoutForm.gst_inclusive,
-            vendor_rate: payoutForm.vendor_rate,
-            company_mdr_rate: payoutForm.company_mdr_rate,
-          }
-        } else {
-          configData = { ...shadvalSettleForm }
-        }
+        // Same charge-based fields as Settlement-1 (company_charge, md_purchase_charge, …).
+        configData = { ...payoutForm }
       }
+
+      // When editing an unconstrained type, pass the existing row id so the server
+      // UPDATEs it in place (upsert on primary key) instead of deleting+inserting.
+      if (editingConfigId && !constrainedTypes.includes(effectiveConfigType)) configData.id = editingConfigId
 
       const res = await apiFetch(`/api/schemes/${configSchemeId}/config`, {
         method: 'POST',
@@ -685,9 +680,10 @@ function SchemeManagementPageContent() {
       showToast(`${typeLabel} config ${action}`, 'success')
       setEditingConfigId(null)
       setShowConfigModal(false)
-      if (expandedSchemeId === configSchemeId) {
-        toggleExpand(configSchemeId)
-      }
+      // Always refresh + expand the scheme so the new/updated slab is visible,
+      // even if it was added from a collapsed scheme's toolbar.
+      await loadSchemeDetails(configSchemeId)
+      setExpandedSchemeId(configSchemeId)
     } catch (err: any) {
       setError(err.message)
       showToast(err.message, 'error')
@@ -717,7 +713,7 @@ function SchemeManagementPageContent() {
       if (!res.ok) throw new Error(result.error || 'Failed to delete configuration')
       setSuccess('Config deleted')
       showToast('Config deleted', 'success')
-      if (expandedSchemeId) toggleExpand(expandedSchemeId)
+      if (expandedSchemeId) await loadSchemeDetails(expandedSchemeId)
     } catch (err: any) {
       setError(err.message)
       showToast(err.message, 'error')
@@ -744,11 +740,9 @@ function SchemeManagementPageContent() {
     setShowMappingModal(true)
   }
 
-  // Roles that a scheme can be assigned to: Partner Plans → partner only; others → non-partner roles.
-  const getMappableRoles = (isPartnerPlan?: boolean) => {
-    const roles = getAssignableRoles(user?.role)
-    if (isPartnerPlan) return roles.filter(r => r.value === 'partner')
-    return roles.filter(r => r.value !== 'partner')
+  // Admin can assign ANY scheme to either a Master Distributor or a Partner.
+  const getMappableRoles = (_isPartnerPlan?: boolean) => {
+    return getAssignableRoles(user?.role)
   }
 
   const handleSaveMapping = async () => {
@@ -778,7 +772,7 @@ function SchemeManagementPageContent() {
       showToast('Scheme assigned successfully', 'success')
       setShowMappingModal(false)
       fetchSchemes()
-      if (expandedSchemeId) toggleExpand(expandedSchemeId)
+      if (expandedSchemeId) await loadSchemeDetails(expandedSchemeId)
     } catch (err: any) {
       setError(err.message)
       showToast(err.message, 'error')
@@ -794,7 +788,7 @@ function SchemeManagementPageContent() {
       await apiFetchJson(`/api/schemes/mappings?id=${encodeURIComponent(id)}`, { method: 'DELETE' })
       setSuccess('Mapping removed')
       showToast('Mapping removed', 'success')
-      if (expandedSchemeId) toggleExpand(expandedSchemeId)
+      if (expandedSchemeId) await loadSchemeDetails(expandedSchemeId)
       fetchSchemes()
     } catch (err: any) {
       setError(err.message)
@@ -804,10 +798,8 @@ function SchemeManagementPageContent() {
     }
   }
 
-  // Get user list based on selected role
+  // Get user list based on selected role (admin can only assign to MD / Partner)
   const getUsersForRole = (role: string) => {
-    if (role === 'retailer') return retailers
-    if (role === 'distributor') return distributors
     if (role === 'master_distributor') return masterDistributors
     if (role === 'partner') return partners
     return []
@@ -1023,7 +1015,7 @@ function SchemeManagementPageContent() {
                       <DollarSign className="w-4 h-4" />
                     </button>
                     <button onClick={(e) => { e.stopPropagation(); openMappingModal(scheme.id) }}
-                      className="p-1.5 rounded-lg hover:bg-purple-50 dark:hover:bg-purple-900/20 text-purple-600" title="Map to User">
+                      className="p-1.5 rounded-lg hover:bg-purple-50 dark:hover:bg-purple-900/20 text-purple-600" title="Assign to MD / Partner">
                       <Link2 className="w-4 h-4" />
                     </button>
                     <button onClick={(e) => { e.stopPropagation(); openEditModal(scheme) }}
@@ -1102,7 +1094,7 @@ function SchemeManagementPageContent() {
                     {/* BBPS Commissions */}
                     <div>
                       <h4 className="font-semibold text-sm text-blue-700 dark:text-blue-400 mb-2 flex items-center gap-1">
-                        <CreditCard className="w-4 h-4" /> BBPS Commissions ({scheme.bbps_commissions?.length || 0})
+                        <CreditCard className="w-4 h-4" /> BBPS Charges ({scheme.bbps_commissions?.length || 0})
                       </h4>
                       {scheme.bbps_commissions && scheme.bbps_commissions.length > 0 ? (
                         <div className="overflow-x-auto">
@@ -1112,11 +1104,19 @@ function SchemeManagementPageContent() {
                                 <th className="px-2 py-1.5 text-left">Type</th>
                                 <th className="px-2 py-1.5 text-left">Category</th>
                                 <th className="px-2 py-1.5 text-left">Slab</th>
-                                <th className="px-2 py-1.5 text-right">Retailer Charge</th>
-                                <th className="px-2 py-1.5 text-right">Retailer Comm</th>
-                                <th className="px-2 py-1.5 text-right">Dist Comm</th>
-                                <th className="px-2 py-1.5 text-right">MD Comm</th>
-                                <th className="px-2 py-1.5 text-right">Company</th>
+                                {scheme.is_partner_plan ? (
+                                  <>
+                                    <th className="px-2 py-1.5 text-right">Partner Charge</th>
+                                    <th className="px-2 py-1.5 text-right">Partner Comm</th>
+                                    <th className="px-2 py-1.5 text-right">Company Earning</th>
+                                  </>
+                                ) : (
+                                  <>
+                                    <th className="px-2 py-1.5 text-right">Company Cost</th>
+                                    <th className="px-2 py-1.5 text-right">MD Purchase</th>
+                                    <th className="px-2 py-1.5 text-right">Co. Margin</th>
+                                  </>
+                                )}
                                 <th className="px-2 py-1.5 text-center">GST</th>
                                 <th className="px-2 py-1.5 text-right">Vendor</th>
                                 <th className="px-2 py-1.5 text-right">Co. MDR</th>
@@ -1124,16 +1124,26 @@ function SchemeManagementPageContent() {
                               </tr>
                             </thead>
                             <tbody>
-                              {scheme.bbps_commissions.map((c: any) => (
+                              {scheme.bbps_commissions.map((c: any) => {
+                                const fmt = (v: number, t: string) => t === 'percentage' ? `${v}%` : `₹${v}`
+                                return (
                                 <tr key={c.id} className="border-b border-gray-100 dark:border-gray-700">
-                                  <td className="px-2 py-1.5"><span className={`px-1.5 py-0.5 rounded text-xs font-medium ${c.bbps_type === 'bbps_2' ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400' : 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'}`}>{c.bbps_type === 'bbps_2' ? 'BBPS 2' : 'BBPS 1'}</span></td>
+                                  <td className="px-2 py-1.5"><span className={`px-1.5 py-0.5 rounded text-xs font-medium ${c.bbps_type === 'bbps_2' ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400' : 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'}`}>{c.bbps_type === 'bbps_2' ? 'BBPS-Rechargekit' : 'BBPS-Pay2New'}</span></td>
                                   <td className="px-2 py-1.5">{c.category || 'All'}</td>
                                   <td className="px-2 py-1.5">{`₹${c.min_amount} - ₹${c.max_amount >= 999999 ? '∞' : c.max_amount}`}</td>
-                                  <td className="px-2 py-1.5 text-right">{c.retailer_charge}{c.retailer_charge_type === 'percentage' ? '%' : '₹'}</td>
-                                  <td className="px-2 py-1.5 text-right">{c.retailer_commission}{c.retailer_commission_type === 'percentage' ? '%' : '₹'}</td>
-                                  <td className="px-2 py-1.5 text-right">{c.distributor_commission}{c.distributor_commission_type === 'percentage' ? '%' : '₹'}</td>
-                                  <td className="px-2 py-1.5 text-right">{c.md_commission}{c.md_commission_type === 'percentage' ? '%' : '₹'}</td>
-                                  <td className="px-2 py-1.5 text-right">{c.company_charge}{c.company_charge_type === 'percentage' ? '%' : '₹'}</td>
+                                  {scheme.is_partner_plan ? (
+                                    <>
+                                      <td className="px-2 py-1.5 text-right">{fmt(c.retailer_charge, c.retailer_charge_type)}</td>
+                                      <td className="px-2 py-1.5 text-right">{fmt(c.retailer_commission, c.retailer_commission_type)}</td>
+                                      <td className="px-2 py-1.5 text-right">{fmt(c.company_charge, c.company_charge_type)}</td>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <td className="px-2 py-1.5 text-right">{fmt(c.company_charge, c.company_charge_type)}</td>
+                                      <td className="px-2 py-1.5 text-right">{fmt(c.md_purchase_charge, c.md_purchase_charge_type)}</td>
+                                      <td className="px-2 py-1.5 text-right text-green-600 dark:text-green-400">{(((c.md_purchase_charge || 0) - (c.company_charge || 0))).toFixed(2)}₹</td>
+                                    </>
+                                  )}
                                   <td className="px-2 py-1.5 text-center">{c.gst_inclusive ? '✓' : '-'}</td>
                                   <td className="px-2 py-1.5 text-right">{c.vendor_rate || '-'}</td>
                                   <td className="px-2 py-1.5 text-right">{c.company_mdr_rate || '-'}</td>
@@ -1146,32 +1156,42 @@ function SchemeManagementPageContent() {
                                     </button>
                                   </td>
                                 </tr>
-                              ))}
+                                )
+                              })}
                             </tbody>
                           </table>
                         </div>
                       ) : (
-                        <p className="text-xs text-gray-400 italic">No BBPS commissions configured</p>
+                        <p className="text-xs text-gray-400 italic">No BBPS charges configured</p>
                       )}
                     </div>
 
-                    {/* Settlement-1 Charges */}
+                    {/* Settlement Charges (Settlement-1 + Settlement-2 combined) */}
                     <div>
                       <h4 className="font-semibold text-sm text-green-700 dark:text-green-400 mb-2 flex items-center gap-1">
-                        <Banknote className="w-4 h-4" /> Settlement-1 Charges ({scheme.payout_charges?.length || 0})
+                        <Banknote className="w-4 h-4" /> Settlement Charges ({(scheme.payout_charges?.length || 0) + (scheme.shadval_settlement_charges?.length || 0)})
                       </h4>
-                      {scheme.payout_charges && scheme.payout_charges.length > 0 ? (
+                      {((scheme.payout_charges?.length || 0) + (scheme.shadval_settlement_charges?.length || 0)) > 0 ? (
                         <div className="overflow-x-auto">
                           <table className="w-full text-xs">
                             <thead>
                               <tr className="bg-green-50 dark:bg-green-900/20">
+                                <th className="px-2 py-1.5 text-left">Type</th>
                                 <th className="px-2 py-1.5 text-left">Mode</th>
                                 <th className="px-2 py-1.5 text-left">Slab</th>
-                                <th className="px-2 py-1.5 text-right">Retailer Charge</th>
-                                <th className="px-2 py-1.5 text-right">Retailer Comm</th>
-                                <th className="px-2 py-1.5 text-right">Dist Comm</th>
-                                <th className="px-2 py-1.5 text-right">MD Comm</th>
-                                <th className="px-2 py-1.5 text-right">Company</th>
+                                {scheme.is_partner_plan ? (
+                                  <>
+                                    <th className="px-2 py-1.5 text-right">Partner Charge</th>
+                                    <th className="px-2 py-1.5 text-right">Partner Comm</th>
+                                    <th className="px-2 py-1.5 text-right">Company Earning</th>
+                                  </>
+                                ) : (
+                                  <>
+                                    <th className="px-2 py-1.5 text-right">Company Cost</th>
+                                    <th className="px-2 py-1.5 text-right">MD Purchase</th>
+                                    <th className="px-2 py-1.5 text-right">Co. Margin</th>
+                                  </>
+                                )}
                                 <th className="px-2 py-1.5 text-center">GST</th>
                                 <th className="px-2 py-1.5 text-right">Vendor</th>
                                 <th className="px-2 py-1.5 text-right">Co. MDR</th>
@@ -1179,33 +1199,48 @@ function SchemeManagementPageContent() {
                               </tr>
                             </thead>
                             <tbody>
-                              {scheme.payout_charges.map((c: any) => (
+                              {[
+                                ...(scheme.payout_charges || []).map((c: any) => ({ ...c, _stype: 'payout' as const })),
+                                ...(scheme.shadval_settlement_charges || []).map((c: any) => ({ ...c, _stype: 'shadval' as const })),
+                              ].map((c: any) => {
+                                const fmt = (v: number, t: string) => t === 'percentage' ? `${v}%` : `₹${v}`
+                                return (
                                 <tr key={c.id} className="border-b border-gray-100 dark:border-gray-700">
+                                  <td className="px-2 py-1.5"><span className={`px-1.5 py-0.5 rounded text-xs font-medium ${c._stype === 'shadval' ? 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400' : 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'}`}>{c._stype === 'shadval' ? 'Settlement-2 (Shadval)' : 'Settlement-1'}</span></td>
                                   <td className="px-2 py-1.5 font-medium">{c.transfer_mode}</td>
                                   <td className="px-2 py-1.5">{`₹${c.min_amount} - ₹${c.max_amount >= 999999 ? '∞' : c.max_amount}`}</td>
-                                  <td className="px-2 py-1.5 text-right">{c.retailer_charge}{c.retailer_charge_type === 'percentage' ? '%' : '₹'}</td>
-                                  <td className="px-2 py-1.5 text-right">{c.retailer_commission}{c.retailer_commission_type === 'percentage' ? '%' : '₹'}</td>
-                                  <td className="px-2 py-1.5 text-right">{c.distributor_commission}{c.distributor_commission_type === 'percentage' ? '%' : '₹'}</td>
-                                  <td className="px-2 py-1.5 text-right">{c.md_commission}{c.md_commission_type === 'percentage' ? '%' : '₹'}</td>
-                                  <td className="px-2 py-1.5 text-right">{c.company_charge}{c.company_charge_type === 'percentage' ? '%' : '₹'}</td>
+                                  {scheme.is_partner_plan ? (
+                                    <>
+                                      <td className="px-2 py-1.5 text-right">{fmt(c.retailer_charge, c.retailer_charge_type)}</td>
+                                      <td className="px-2 py-1.5 text-right">{fmt(c.retailer_commission, c.retailer_commission_type)}</td>
+                                      <td className="px-2 py-1.5 text-right">{fmt(c.company_charge, c.company_charge_type)}</td>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <td className="px-2 py-1.5 text-right">{fmt(c.company_charge, c.company_charge_type)}</td>
+                                      <td className="px-2 py-1.5 text-right">{fmt(c.md_purchase_charge, c.md_purchase_charge_type)}</td>
+                                      <td className="px-2 py-1.5 text-right text-green-600 dark:text-green-400">{(((c.md_purchase_charge || 0) - (c.company_charge || 0))).toFixed(2)}₹</td>
+                                    </>
+                                  )}
                                   <td className="px-2 py-1.5 text-center">{c.gst_inclusive ? '✓' : '-'}</td>
                                   <td className="px-2 py-1.5 text-right">{c.vendor_rate || '-'}</td>
                                   <td className="px-2 py-1.5 text-right">{c.company_mdr_rate || '-'}</td>
                                   <td className="px-2 py-1.5 text-right flex gap-1">
-                                    <button onClick={() => openConfigModal(scheme.id, 'payout', c)} className="text-blue-400 hover:text-blue-600" title="Edit">
+                                    <button onClick={() => openConfigModal(scheme.id, c._stype === 'shadval' ? 'shadval_settlement' : 'payout', c)} className="text-blue-400 hover:text-blue-600" title="Edit">
                                       <Edit2 className="w-3 h-3" />
                                     </button>
-                                    <button onClick={() => handleDeleteConfig('scheme_payout_charges', c.id)} disabled={deletingConfigId === c.id} className="text-red-400 hover:text-red-600 disabled:opacity-50">
+                                    <button onClick={() => handleDeleteConfig(c._stype === 'shadval' ? 'scheme_shadval_settlement_charges' : 'scheme_payout_charges', c.id)} disabled={deletingConfigId === c.id} className="text-red-400 hover:text-red-600 disabled:opacity-50">
                                       {deletingConfigId === c.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
                                     </button>
                                   </td>
                                 </tr>
-                              ))}
+                                )
+                              })}
                             </tbody>
                           </table>
                         </div>
                       ) : (
-                        <p className="text-xs text-gray-400 italic">No Settlement-1 charges configured</p>
+                        <p className="text-xs text-gray-400 italic">No settlement charges configured</p>
                       )}
                     </div>
 
@@ -1402,60 +1437,6 @@ function SchemeManagementPageContent() {
                       )}
                     </div>
 
-                    {/* Settlement-2 (Shadval) Charges */}
-                    <div>
-                      <h4 className="font-semibold text-sm text-rose-700 dark:text-rose-400 mb-2 flex items-center gap-1">
-                        <Banknote className="w-4 h-4" /> Settlement-2 Charges (Shadval) ({scheme.shadval_settlement_charges?.length || 0})
-                      </h4>
-                      {scheme.shadval_settlement_charges && scheme.shadval_settlement_charges.length > 0 ? (
-                        <div className="overflow-x-auto">
-                          <table className="w-full text-xs">
-                            <thead>
-                              <tr className="bg-rose-50 dark:bg-rose-900/20">
-                                <th className="px-2 py-1.5 text-left">Mode</th>
-                                <th className="px-2 py-1.5 text-left">Slab</th>
-                                <th className="px-2 py-1.5 text-right">Retailer Charge</th>
-                                <th className="px-2 py-1.5 text-right">Dist Comm</th>
-                                <th className="px-2 py-1.5 text-right">MD Comm</th>
-                                <th className="px-2 py-1.5 text-right">Company</th>
-                                <th className="px-2 py-1.5 text-center">GST</th>
-                                <th className="px-2 py-1.5 text-right">Vendor</th>
-                                <th className="px-2 py-1.5 text-right">Co. MDR</th>
-                                <th className="px-2 py-1.5"></th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {scheme.shadval_settlement_charges.map((c: any) => {
-                                const fmt = (v: number, t: string) => t === 'percentage' ? `${v}%` : `₹${v}`
-                                return (
-                                  <tr key={c.id} className="border-b border-gray-100 dark:border-gray-700">
-                                    <td className="px-2 py-1.5 font-medium">{c.transfer_mode}</td>
-                                    <td className="px-2 py-1.5">₹{c.min_amount} - {c.max_amount >= 999999 ? '∞' : `₹${c.max_amount}`}</td>
-                                    <td className="px-2 py-1.5 text-right font-medium">{fmt(c.retailer_charge, c.retailer_charge_type)}</td>
-                                    <td className="px-2 py-1.5 text-right">{fmt(c.distributor_commission, c.distributor_commission_type)}</td>
-                                    <td className="px-2 py-1.5 text-right">{fmt(c.md_commission, c.md_commission_type)}</td>
-                                    <td className="px-2 py-1.5 text-right">{fmt(c.company_charge, c.company_charge_type)}</td>
-                                    <td className="px-2 py-1.5 text-center">{c.gst_inclusive ? '✓' : '-'}</td>
-                                    <td className="px-2 py-1.5 text-right">{c.vendor_rate || '-'}</td>
-                                    <td className="px-2 py-1.5 text-right">{c.company_mdr_rate || '-'}</td>
-                                    <td className="px-2 py-1.5 text-right flex gap-1">
-                                      <button onClick={() => openConfigModal(scheme.id, 'shadval_settlement', c)} className="text-blue-400 hover:text-blue-600" title="Edit">
-                                        <Edit2 className="w-3 h-3" />
-                                      </button>
-                                      <button onClick={() => handleDeleteConfig('scheme_shadval_settlement_charges', c.id)} disabled={deletingConfigId === c.id} className="text-red-400 hover:text-red-600 disabled:opacity-50">
-                                        {deletingConfigId === c.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
-                                      </button>
-                                    </td>
-                                  </tr>
-                                )
-                              })}
-                            </tbody>
-                          </table>
-                        </div>
-                      ) : (
-                        <p className="text-xs text-gray-400 italic">No Settlement-2 charges configured</p>
-                      )}
-                    </div>
 
                     {/* Mappings */}
                     <div>
@@ -1595,8 +1576,8 @@ function SchemeManagementPageContent() {
                     <label className="block text-sm font-medium mb-1">BBPS Type</label>
                     <select value={bbpsForm.bbps_type} onChange={(e) => setBbpsForm({ ...bbpsForm, bbps_type: e.target.value as 'bbps_1' | 'bbps_2' })}
                       className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700">
-                      <option value="bbps_1">BBPS 1</option>
-                      <option value="bbps_2">BBPS 2</option>
+                      <option value="bbps_1">BBPS-Pay2New</option>
+                      <option value="bbps_2">BBPS-Rechargekit</option>
                     </select>
                   </div>
                   <div>
@@ -1641,8 +1622,6 @@ function SchemeManagementPageContent() {
                       : [
                           { label: 'Company Cost (Vendor)', key: 'company_charge', typeKey: 'company_charge_type' },
                           { label: 'MD Purchase Charge (Admin → MD)', key: 'md_purchase_charge', typeKey: 'md_purchase_charge_type' },
-                          { label: 'DT Purchase Charge (MD → DT)', key: 'dt_purchase_charge', typeKey: 'dt_purchase_charge_type' },
-                          { label: 'RT Purchase Charge (DT → RT)', key: 'rt_purchase_charge', typeKey: 'rt_purchase_charge_type' },
                         ]
                     return (
                       <>
@@ -1655,7 +1634,7 @@ function SchemeManagementPageContent() {
                         {!isPartnerPlan && (
                           <div className="flex items-center gap-2 px-3 py-2 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
                             <Layers className="w-4 h-4 text-blue-600" />
-                            <span className="text-xs font-medium text-blue-700 dark:text-blue-400">Charge-Based Model: Admin → MD → DT → RT (margin = selling - purchase)</span>
+                            <span className="text-xs font-medium text-blue-700 dark:text-blue-400">Charge-Based Model: Admin → MD (you set the MD purchase price; MD/DT set their own downlines)</span>
                           </div>
                         )}
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -1680,19 +1659,11 @@ function SchemeManagementPageContent() {
                         </div>
                         {!isPartnerPlan && (
                           <div className="mt-2 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
-                            <p className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Margin Preview (flat values)</p>
-                            <div className="grid grid-cols-3 gap-2 text-xs">
+                            <p className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Company Margin Preview (flat values)</p>
+                            <div className="grid grid-cols-1 gap-2 text-xs">
                               <div className="text-center">
-                                <div className="text-gray-500">Company</div>
+                                <div className="text-gray-500">Company (MD price − Vendor cost)</div>
                                 <div className="font-semibold text-green-600">₹{(((bbpsForm as any).md_purchase_charge || 0) - ((bbpsForm as any).company_charge || 0)).toFixed(2)}</div>
-                              </div>
-                              <div className="text-center">
-                                <div className="text-gray-500">MD</div>
-                                <div className="font-semibold text-purple-600">₹{(((bbpsForm as any).dt_purchase_charge || 0) - ((bbpsForm as any).md_purchase_charge || 0)).toFixed(2)}</div>
-                              </div>
-                              <div className="text-center">
-                                <div className="text-gray-500">DT</div>
-                                <div className="font-semibold text-blue-600">₹{(((bbpsForm as any).rt_purchase_charge || 0) - ((bbpsForm as any).dt_purchase_charge || 0)).toFixed(2)}</div>
                               </div>
                             </div>
                           </div>
@@ -1743,7 +1714,6 @@ function SchemeManagementPageContent() {
                     <select value={payoutForm.transfer_mode} onChange={(e) => setPayoutForm({ ...payoutForm, transfer_mode: e.target.value as any })}
                       className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700">
                       <option value="IMPS">IMPS</option>
-                      <option value="NEFT">NEFT</option>
                     </select>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
@@ -1769,8 +1739,6 @@ function SchemeManagementPageContent() {
                       : [
                           { label: 'Company Cost (Vendor)', key: 'company_charge', typeKey: 'company_charge_type' },
                           { label: 'MD Purchase Charge (Admin → MD)', key: 'md_purchase_charge', typeKey: 'md_purchase_charge_type' },
-                          { label: 'DT Purchase Charge (MD → DT)', key: 'dt_purchase_charge', typeKey: 'dt_purchase_charge_type' },
-                          { label: 'RT Purchase Charge (DT → RT)', key: 'rt_purchase_charge', typeKey: 'rt_purchase_charge_type' },
                         ]
                     return (
                       <>
@@ -1783,7 +1751,7 @@ function SchemeManagementPageContent() {
                         {!isPartnerPlan && (
                           <div className="flex items-center gap-2 px-3 py-2 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
                             <Layers className="w-4 h-4 text-blue-600" />
-                            <span className="text-xs font-medium text-blue-700 dark:text-blue-400">Charge-Based Model: Admin → MD → DT → RT</span>
+                            <span className="text-xs font-medium text-blue-700 dark:text-blue-400">Charge-Based Model: Admin → MD (you set the MD purchase price; MD/DT set their own downlines)</span>
                           </div>
                         )}
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -1808,19 +1776,11 @@ function SchemeManagementPageContent() {
                         </div>
                         {!isPartnerPlan && (
                           <div className="mt-2 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
-                            <p className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Margin Preview (flat values)</p>
-                            <div className="grid grid-cols-3 gap-2 text-xs">
+                            <p className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Company Margin Preview (flat values)</p>
+                            <div className="grid grid-cols-1 gap-2 text-xs">
                               <div className="text-center">
-                                <div className="text-gray-500">Company</div>
+                                <div className="text-gray-500">Company (MD price − Vendor cost)</div>
                                 <div className="font-semibold text-green-600">₹{(((payoutForm as any).md_purchase_charge || 0) - ((payoutForm as any).company_charge || 0)).toFixed(2)}</div>
-                              </div>
-                              <div className="text-center">
-                                <div className="text-gray-500">MD</div>
-                                <div className="font-semibold text-purple-600">₹{(((payoutForm as any).dt_purchase_charge || 0) - ((payoutForm as any).md_purchase_charge || 0)).toFixed(2)}</div>
-                              </div>
-                              <div className="text-center">
-                                <div className="text-gray-500">DT</div>
-                                <div className="font-semibold text-blue-600">₹{(((payoutForm as any).rt_purchase_charge || 0) - ((payoutForm as any).dt_purchase_charge || 0)).toFixed(2)}</div>
                               </div>
                             </div>
                           </div>
@@ -1989,38 +1949,8 @@ function SchemeManagementPageContent() {
                     }
                     return (
                       <>
-                        <p className="text-xs text-gray-500">T+0 MDR = T+1 MDR + 1% (auto calculated if left as 0)</p>
+                        <p className="text-xs text-gray-500">You set the <strong>MD's commission rate</strong> (Admin → MD). MDs set their DT's rate; DTs set the retailer rate. T+0 = T+1 + 1% (auto if left 0).</p>
                         <div className="grid grid-cols-2 gap-3">
-                          <div>
-                            <label className="block text-xs font-medium mb-1">Retailer MDR T+1 (%)</label>
-                            <input type="number" step="0.01" value={mdrForm.retailer_mdr_t1}
-                              onChange={(e) => {
-                                const t1 = parseFloat(e.target.value) || 0
-                                setMdrForm({ ...mdrForm, retailer_mdr_t1: t1, retailer_mdr_t0: mdrForm.retailer_mdr_t0 === 0 ? t1 + 1 : mdrForm.retailer_mdr_t0 })
-                              }}
-                              className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
-                          </div>
-                          <div>
-                            <label className="block text-xs font-medium mb-1">Retailer MDR T+0 (%)</label>
-                            <input type="number" step="0.01" value={mdrForm.retailer_mdr_t0}
-                              onChange={(e) => setMdrForm({ ...mdrForm, retailer_mdr_t0: parseFloat(e.target.value) || 0 })}
-                              className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
-                          </div>
-                          <div>
-                            <label className="block text-xs font-medium mb-1">Distributor MDR T+1 (%)</label>
-                            <input type="number" step="0.01" value={mdrForm.distributor_mdr_t1}
-                              onChange={(e) => {
-                                const t1 = parseFloat(e.target.value) || 0
-                                setMdrForm({ ...mdrForm, distributor_mdr_t1: t1, distributor_mdr_t0: mdrForm.distributor_mdr_t0 === 0 ? t1 + 1 : mdrForm.distributor_mdr_t0 })
-                              }}
-                              className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
-                          </div>
-                          <div>
-                            <label className="block text-xs font-medium mb-1">Distributor MDR T+0 (%)</label>
-                            <input type="number" step="0.01" value={mdrForm.distributor_mdr_t0}
-                              onChange={(e) => setMdrForm({ ...mdrForm, distributor_mdr_t0: parseFloat(e.target.value) || 0 })}
-                              className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
-                          </div>
                           <div>
                             <label className="block text-xs font-medium mb-1">MD MDR T+1 (%)</label>
                             <input type="number" step="0.01" value={mdrForm.md_mdr_t1}
@@ -2258,7 +2188,6 @@ function SchemeManagementPageContent() {
                     <select value={shadvalSettleForm.transfer_mode} onChange={(e) => setShadvalSettleForm({ ...shadvalSettleForm, transfer_mode: e.target.value as any })}
                       className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700">
                       <option value="IMPS">IMPS</option>
-                      <option value="NEFT">NEFT</option>
                     </select>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
@@ -2342,25 +2271,23 @@ function SchemeManagementPageContent() {
           <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
             <div className="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-md p-6">
               <h2 className="text-lg font-bold mb-4 flex items-center gap-2">
-                <Link2 className="w-5 h-5 text-purple-600" /> Assign Scheme to User
+                <Link2 className="w-5 h-5 text-purple-600" /> Assign Scheme to MD / Partner
               </h2>
               <div className="space-y-3">
                 <div>
                   <label className="block text-sm font-medium mb-1">User Role</label>
                   {(() => {
-                    const isPartnerPlan = schemes.find(s => s.id === mappingSchemeId)?.is_partner_plan
-                    const mappableRoles = getMappableRoles(isPartnerPlan)
+                    const mappableRoles = getMappableRoles()
                     return (
                       <>
                         <select value={mappingForm.entity_role} onChange={(e) => setMappingForm({ ...mappingForm, entity_role: e.target.value, entity_id: '' })}
-                          disabled={isPartnerPlan}
-                          className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700 disabled:opacity-70 disabled:cursor-not-allowed">
+                          className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700">
                           {mappableRoles.map(role => (
                             <option key={role.value} value={role.value}>{role.label}</option>
                           ))}
                         </select>
-                        {isPartnerPlan && (
-                          <p className="mt-1 text-xs text-purple-600 dark:text-purple-400">This is a Partner Plan — it can only be assigned to Partners.</p>
+                        {mappingForm.entity_role === 'partner' && (
+                          <p className="mt-1 text-xs text-purple-600 dark:text-purple-400">Assigning to a Partner marks this scheme as a Partner Plan.</p>
                         )}
                       </>
                     )

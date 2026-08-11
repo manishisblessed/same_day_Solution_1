@@ -28,7 +28,7 @@ export interface ShadvalContactDetails {
 
 export interface ShadvalTransferRequest {
   amount: number
-  mode: 'IMPS' | 'NEFT' | 'RTGS'
+  mode: 'IMPS' | 'RTGS'
   fund_account: ShadvalFundAccount
   contact_details: ShadvalContactDetails
   reference_id: string
@@ -120,7 +120,7 @@ export interface ShadvalPayTransaction {
   amount: number
   charges: number
   total_value: number
-  mode: 'IMPS' | 'NEFT' | 'RTGS'
+  mode: 'IMPS' | 'RTGS'
   status: 'SUCCESS' | 'FAILED' | 'PENDING'
   status_message?: string
   failure_reason?: string

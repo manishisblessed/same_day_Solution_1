@@ -185,7 +185,7 @@ export async function POST(request: NextRequest) {
         ifscCode: settlement.bank_ifsc,
         accountHolderName: settlement.bank_account_name,
         amount: transferAmount,
-        transferMode: 'NEFT', // Default to NEFT for settlements (can be made configurable)
+        transferMode: 'IMPS',
         bankId: undefined, // Will be resolved from bankList API
         bankName: undefined, // Will be resolved from bankList API
         beneficiaryMobile: beneficiaryMobile,

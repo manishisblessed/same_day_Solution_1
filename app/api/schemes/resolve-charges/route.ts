@@ -21,6 +21,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient, SupabaseClient } from '@supabase/supabase-js'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
+import { authorizeSubPartner } from '@/lib/partner-access'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -346,6 +347,12 @@ export async function GET(request: NextRequest) {
     if (!user || !user.partner_id) {
       return NextResponse.json({ error: 'Authentication required', code: 'SESSION_EXPIRED' }, { status: 401 })
     }
+
+    // Charge preview is shared across several partner tabs — normalize sub-partners to the
+    // parent partner scope without requiring a specific tab permission.
+    const access = authorizeSubPartner(user)
+    if (!access.ok) return access.response
+
     const isPrivileged = ['admin', 'finance_executive'].includes(user.role as string)
     const userId = isPrivileged ? searchParams.get('user_id') : user.partner_id
 
@@ -817,7 +824,7 @@ export async function GET(request: NextRequest) {
 
         if (chargeError) {
           console.error(`[resolve-charges] Shadval settlement charge RPC error:`, chargeError.message)
-        } else if (chargeResult && chargeResult.length > 0) {
+        } else if (chargeResult && chargeResult.length > 0 && parseFloat(chargeResult[0].retailer_charge) > 0) {
           charges = {
             retailer_charge: parseFloat(chargeResult[0].retailer_charge) || 0,
             distributor_commission: parseFloat(chargeResult[0].distributor_commission) || 0,
@@ -829,8 +836,8 @@ export async function GET(request: NextRequest) {
         console.error(`[resolve-charges] Shadval settlement charge exception:`, err.message)
       }
 
-      // Fallback: direct query
-      if (!charges && clientMode === 'admin') {
+      // Fallback: direct query (also when RPC returned retailer_charge=0)
+      if (!charges) {
         try {
           const { data: slabs } = await supabase
             .from('scheme_shadval_settlement_charges')
@@ -844,10 +851,14 @@ export async function GET(request: NextRequest) {
             .limit(1)
 
           if (slabs && slabs.length > 0) {
-            const s = slabs[0]
+            const s = slabs[0] as any
             const calc = (v: number, t: string) => t === 'percentage' ? Math.round(amount * v / 100 * 100) / 100 : v
+            const rtPc = parseFloat(s.rt_purchase_charge) || 0
+            const rawRc = parseFloat(s.retailer_charge) || 0
+            const effCharge = rtPc > 0 ? rtPc : rawRc
+            const effType = rtPc > 0 ? (s.rt_purchase_charge_type || 'flat') : (s.retailer_charge_type || 'flat')
             charges = {
-              retailer_charge: calc(parseFloat(s.retailer_charge) || 0, s.retailer_charge_type),
+              retailer_charge: calc(effCharge, effType),
               distributor_commission: calc(parseFloat(s.distributor_commission) || 0, s.distributor_commission_type),
               md_commission: calc(parseFloat(s.md_commission) || 0, s.md_commission_type),
               company_charge: calc(parseFloat(s.company_charge) || 0, s.company_charge_type),

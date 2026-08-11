@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getCurrentUserWithFallback } from '@/lib/auth-server';
+import { authorizeSubPartner } from '@/lib/partner-access';
 import { getAEPSService } from '@/services/aeps';
 import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger';
 import { rateLimit, RATE_LIMITS } from '@/lib/rate-limit';
@@ -79,6 +80,9 @@ export async function POST(request: NextRequest) {
         { status: 401 }
       );
     }
+
+    const access = authorizeSubPartner(user, 'aeps');
+    if (!access.ok) return access.response;
 
     if (!['retailer', 'distributor', 'master_distributor', 'partner'].includes(user.role)) {
       return NextResponse.json(

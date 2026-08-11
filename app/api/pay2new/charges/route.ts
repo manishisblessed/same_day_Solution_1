@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
+import { authorizeSubPartner } from '@/lib/partner-access'
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
 import { createClient, SupabaseClient } from '@supabase/supabase-js'
 
@@ -32,6 +33,8 @@ export async function OPTIONS(request: NextRequest) {
 export async function GET(request: NextRequest) {
   try {
     const { user } = await getCurrentUserWithFallback(request)
+    const access = authorizeSubPartner(user, ['bbps-2', 'credit-card'])
+    if (!access.ok) return access.response
     if (!user || !['retailer', 'partner'].includes(user.role)) {
       const response = NextResponse.json({ success: false, error: 'Access denied' }, { status: 403 })
       return addCorsHeaders(request, response)

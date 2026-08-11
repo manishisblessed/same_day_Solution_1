@@ -96,10 +96,10 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const validModes = ['IMPS', 'NEFT', 'RTGS']
+    const validModes = ['IMPS', 'RTGS']
     if (!validModes.includes(mode)) {
       return NextResponse.json(
-        { success: false, error: { code: 'BAD_REQUEST', message: 'Invalid mode. Must be IMPS, NEFT, or RTGS' } },
+        { success: false, error: { code: 'BAD_REQUEST', message: 'Invalid mode. Must be IMPS or RTGS' } },
         { status: 400 }
       )
     }
@@ -291,7 +291,7 @@ export async function POST(request: NextRequest) {
     // Initiate bank transfer via Shadval Pay
     const transferRequest: ShadvalTransferRequest = {
       amount: amountNum,
-      mode: mode as 'IMPS' | 'NEFT' | 'RTGS',
+      mode: mode as 'IMPS' | 'RTGS',
       fund_account: {
         name: account.account_holder_name,
         ifsc: account.ifsc_code,

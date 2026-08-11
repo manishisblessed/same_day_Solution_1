@@ -8,6 +8,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger';
 import { getCurrentUserWithFallback } from '@/lib/auth-server';
+import { authorizeSubPartner } from '@/lib/partner-access';
 import {
   getSchemeMappings,
   createSchemeMapping,
@@ -55,6 +56,9 @@ export async function GET(request: NextRequest) {
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
+
+    const access = authorizeSubPartner(user, 'mdr-schemes');
+    if (!access.ok) return access.response;
 
     const url = new URL(request.url);
     const filters = {

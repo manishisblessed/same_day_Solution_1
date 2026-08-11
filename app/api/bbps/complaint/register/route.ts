@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger'
 import { getCurrentUserFromRequest } from '@/lib/auth-server-request'
+import { authorizeSubPartner } from '@/lib/partner-access'
 import { complaintRegistration } from '@/services/bbps'
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
 import { createClient } from '@supabase/supabase-js'
@@ -30,6 +31,9 @@ export async function POST(request: NextRequest) {
       )
       return addCorsHeaders(request, response)
     }
+
+    const access = authorizeSubPartner(user, 'bbps')
+    if (!access.ok) return access.response
 
     // Only retailers can register complaints
     if (!['retailer', 'partner'].includes(user.role)) {

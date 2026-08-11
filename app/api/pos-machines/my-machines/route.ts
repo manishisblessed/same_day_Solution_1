@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
+import { authorizeSubPartner } from '@/lib/partner-access'
 import { createClient } from '@supabase/supabase-js'
 
 export const runtime = 'nodejs'
@@ -52,6 +53,9 @@ export async function GET(request: NextRequest) {
     if (!user) {
       return NextResponse.json({ error: 'Session expired. Please log in again.', code: 'SESSION_EXPIRED' }, { status: 401 })
     }
+
+    const access = authorizeSubPartner(user, 'pos-machines')
+    if (!access.ok) return access.response
 
     if (user.role !== 'admin' && !user.partner_id) {
       console.error('[POS My Machines GET] User has no partner_id:', user.email, user.role)

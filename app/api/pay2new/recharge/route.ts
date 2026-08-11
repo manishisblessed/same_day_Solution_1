@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
+import { authorizeSubPartner } from '@/lib/partner-access'
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
 import { pay2newRecharge } from '@/services/pay2new'
 import { rateLimit, RATE_LIMITS } from '@/lib/rate-limit'
@@ -31,6 +32,9 @@ export async function POST(request: NextRequest) {
       const response = NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
       return addCorsHeaders(request, response)
     }
+
+    const access = authorizeSubPartner(user, ['bbps-2', 'credit-card'])
+    if (!access.ok) return access.response
 
     if (!['retailer', 'partner'].includes(user.role) || !user.partner_id) {
       const response = NextResponse.json(

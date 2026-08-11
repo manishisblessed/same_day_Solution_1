@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { supabase } from '@/lib/supabase/client'
 import { 
   Building2, Plus, Edit, Trash2, Eye, Globe, Search,
   Upload, CheckCircle2, XCircle, Clock, ExternalLink,

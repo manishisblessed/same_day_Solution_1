@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
+import { authorizeSubPartner } from '@/lib/partner-access'
 import { supabaseAdmin } from '@/lib/supabase/server-admin'
 
 export const dynamic = 'force-dynamic'
@@ -11,6 +12,10 @@ export async function GET(request: NextRequest) {
     if (!user?.partner_id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
+
+    const access = authorizeSubPartner(user, 'subscriptions')
+    if (!access.ok) return access.response
+
     const role = user.role === 'partner' ? 'retailer' : user.role
     if (!['retailer', 'distributor', 'master_distributor'].includes(role)) {
       return NextResponse.json({ error: 'Access denied' }, { status: 403 })

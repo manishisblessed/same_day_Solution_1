@@ -88,7 +88,11 @@ export async function resolveShadvalCharge(
 
         if (slabs && slabs.length > 0) {
           const s = slabs[0] as any
-          baseCharge = calcCharge(amount, parseFloat(s.retailer_charge) || 0, s.retailer_charge_type)
+          const rtPc = parseFloat(s.rt_purchase_charge) || 0
+          const rawRc = parseFloat(s.retailer_charge) || 0
+          const effCharge = rtPc > 0 ? rtPc : rawRc
+          const effType = rtPc > 0 ? (s.rt_purchase_charge_type || 'flat') : (s.retailer_charge_type || 'flat')
+          baseCharge = calcCharge(amount, effCharge, effType)
           schemeId = s.scheme_id
         }
       }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getCurrentUserWithFallback } from '@/lib/auth-server';
+import { authorizeSubPartner } from '@/lib/partner-access';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -25,6 +26,9 @@ export async function GET(request: NextRequest) {
   try {
     const { user, method } = await getCurrentUserWithFallback(request);
     console.log('[AEPS Stats] Auth:', method, '|', user?.email || 'none');
+
+    const access = authorizeSubPartner(user, 'aeps');
+    if (!access.ok) return access.response;
 
     if (!user || !user.partner_id) {
       return NextResponse.json(

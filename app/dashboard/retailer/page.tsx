@@ -6,6 +6,8 @@ import { useAuth } from '@/contexts/AuthContext'
 import { useGeolocation } from '@/hooks/useGeolocation'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase/client'
+
+import { secureDb } from '@/lib/secure-db'
 import { apiFetch, apiFetchJson, newIdempotencyKey } from '@/lib/api-client'
 import RetailerHeader from '@/components/RetailerHeader'
 import { 
@@ -138,7 +140,7 @@ function RetailerDashboardContent() {
       // Use maybeSingle() to avoid 406 errors
       // Note: We already have user data from auth, so this query is just for additional retailer info
       // Use a shorter timeout since we don't strictly need this data to show the dashboard
-      const retailerQuery = supabase
+      const retailerQuery = secureDb
         .from('retailers')
         .select('*')
         .eq('email', user.email)
@@ -168,7 +170,7 @@ function RetailerDashboardContent() {
 
         try {
           const balanceResult = await Promise.race([
-            supabase.rpc('get_wallet_balance_v2', {
+            secureDb.rpc('get_wallet_balance_v2', {
               p_user_id: user.partner_id,
               p_wallet_type: 'primary'
             }),
@@ -180,7 +182,7 @@ function RetailerDashboardContent() {
           } else if (user.role === 'retailer') {
             try {
               const oldBalanceResult = await Promise.race([
-                supabase.rpc('get_wallet_balance', {
+                secureDb.rpc('get_wallet_balance', {
                   p_retailer_id: user.partner_id
                 }),
                 walletTimeout
@@ -194,7 +196,7 @@ function RetailerDashboardContent() {
           if (user.role === 'retailer') {
             try {
               const oldBalanceResult = await Promise.race([
-                supabase.rpc('get_wallet_balance', {
+                secureDb.rpc('get_wallet_balance', {
                   p_retailer_id: user.partner_id
                 }),
                 walletTimeout
@@ -208,7 +210,7 @@ function RetailerDashboardContent() {
 
         try {
           const aepsBalanceResult = await Promise.race([
-            supabase.rpc('get_wallet_balance_v2', {
+            secureDb.rpc('get_wallet_balance_v2', {
               p_user_id: user.partner_id,
               p_wallet_type: 'aeps'
             }),
@@ -221,7 +223,7 @@ function RetailerDashboardContent() {
       }
 
       // Fetch real transaction data from ledger
-      const { data: ledgerData } = await supabase
+      const { data: ledgerData } = await secureDb
         .from('wallet_ledger')
         .select('*')
         .eq('retailer_id', user.partner_id)
@@ -262,7 +264,7 @@ function RetailerDashboardContent() {
       const totalRevenue = ledgerRevenue + posRevenue
       
       // Fetch commission data
-      const { data: commissionData } = await supabase
+      const { data: commissionData } = await secureDb
         .from('commission_ledger')
         .select('rt_amount')
         .eq('rt_user_id', user.partner_id)
@@ -402,11 +404,11 @@ function RetailerDashboardContent() {
         try {
           const [primaryRes, aepsRes] = await Promise.all([
             Promise.race([
-              supabase.rpc('get_wallet_balance_v2', { p_user_id: user.partner_id, p_wallet_type: 'primary' }),
+              secureDb.rpc('get_wallet_balance_v2', { p_user_id: user.partner_id, p_wallet_type: 'primary' }),
               walletTimeout,
             ]),
             Promise.race([
-              supabase.rpc('get_wallet_balance_v2', { p_user_id: user.partner_id, p_wallet_type: 'aeps' }),
+              secureDb.rpc('get_wallet_balance_v2', { p_user_id: user.partner_id, p_wallet_type: 'aeps' }),
               walletTimeout,
             ]),
           ]) as any[]
@@ -420,7 +422,7 @@ function RetailerDashboardContent() {
         }
 
         try {
-          const { data: aepsCommData } = await supabase
+          const { data: aepsCommData } = await secureDb
             .from('commission_ledger')
             .select('rt_amount')
             .eq('rt_user_id', user.partner_id)
@@ -621,7 +623,7 @@ function DistributorConnectionCard({ user }: { user: any }) {
     setLoading(true)
     try {
       // Fetch retailer data to get distributor_id
-      const { data: retailerData } = await supabase
+      const { data: retailerData } = await secureDb
         .from('retailers')
         .select('distributor_id, created_at')
         .eq('partner_id', user.partner_id)
@@ -633,7 +635,7 @@ function DistributorConnectionCard({ user }: { user: any }) {
       }
 
       // Fetch distributor information
-      const { data: distributorData } = await supabase
+      const { data: distributorData } = await secureDb
         .from('distributors')
         .select('partner_id, name, email, phone, business_name, status, created_at')
         .eq('partner_id', retailerData.distributor_id)
@@ -647,7 +649,7 @@ function DistributorConnectionCard({ user }: { user: any }) {
       }
 
       // Fetch active schemes mapped to this retailer (with scheme name)
-      const { data: schemesData } = await supabase
+      const { data: schemesData } = await secureDb
         .from('scheme_mappings')
         .select('id, scheme:schemes(name)')
         .eq('entity_id', user.partner_id)
@@ -1060,7 +1062,7 @@ function ServicesTab() {
 
     try {
       // Fetch all ledger entries for this retailer
-      const { data: ledgerData } = await supabase
+      const { data: ledgerData } = await secureDb
         .from('wallet_ledger')
         .select('*')
         .eq('retailer_id', user.partner_id)
@@ -1382,7 +1384,7 @@ function WalletTab({ user }: { user: any }) {
   const fetchSettlementLimit = async () => {
     if (!user?.partner_id) return
     try {
-      const { data, error } = await supabase
+      const { data, error } = await secureDb
         .from('retailers')
         .select('settlement_limit_tier')
         .eq('partner_id', user.partner_id)
@@ -1468,7 +1470,7 @@ function WalletTab({ user }: { user: any }) {
       // Fetch PRIMARY wallet balance
       let primaryBalance = 0
       try {
-        const { data: balance } = await supabase.rpc('get_wallet_balance_v2', {
+        const { data: balance } = await secureDb.rpc('get_wallet_balance_v2', {
           p_user_id: user.partner_id,
           p_wallet_type: 'primary'
         })
@@ -1480,7 +1482,7 @@ function WalletTab({ user }: { user: any }) {
       // Fetch AEPS wallet balance
       let aepsBalanceData = 0
       try {
-        const { data: balance } = await supabase.rpc('get_wallet_balance_v2', {
+        const { data: balance } = await secureDb.rpc('get_wallet_balance_v2', {
           p_user_id: user.partner_id,
           p_wallet_type: 'aeps'
         })
@@ -1493,7 +1495,7 @@ function WalletTab({ user }: { user: any }) {
       setAepsBalance(aepsBalanceData)
 
       // Fetch ledger entries
-      const { data: ledger } = await supabase
+      const { data: ledger } = await secureDb
         .from('wallet_ledger')
         .select('*')
         .eq('retailer_id', user.partner_id)
@@ -2353,7 +2355,7 @@ function MDRSchemesTab({ user }: { user: any }) {
     setLoading(true)
     try {
       // Fetch schemes mapped to this retailer from scheme_mappings
-      const { data: mappingsData, error: mappingsError } = await supabase
+      const { data: mappingsData, error: mappingsError } = await secureDb
         .from('scheme_mappings')
         .select(`
           *,
@@ -2832,7 +2834,7 @@ function MDRSchemesTab({ user }: { user: any }) {
 
         if (allPayoutCharges.length === 0) return null
 
-        // Sort: IMPS first, then NEFT, then by amount range
+        // Sort: IMPS first, then by amount range
         allPayoutCharges.sort((a, b) => {
           if (a.transfer_mode !== b.transfer_mode) return a.transfer_mode === 'IMPS' ? -1 : 1
           return (a.min_amount || 0) - (b.min_amount || 0)
@@ -2850,7 +2852,7 @@ function MDRSchemesTab({ user }: { user: any }) {
               <h3 className="text-lg font-bold text-gray-900 dark:text-white">Settlement Charges</h3>
               <span className="text-xs bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300 px-2 py-0.5 rounded-full">From Scheme</span>
             </div>
-            <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">Charges for bank settlements (IMPS & NEFT transfers)</p>
+            <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">Charges for bank settlements (IMPS transfers)</p>
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead className="bg-gray-50 dark:bg-gray-700">
@@ -3034,9 +3036,13 @@ function MDRSchemesTab({ user }: { user: any }) {
                         ₹{Number(c.min_amount).toLocaleString('en-IN')} – {c.max_amount >= 100000 ? '∞' : `₹${Number(c.max_amount).toLocaleString('en-IN')}`}
                       </td>
                       <td className="px-4 py-3 text-sm font-semibold text-red-600 dark:text-red-400">
-                        {c.retailer_charge_type === 'percentage' 
-                          ? `${c.retailer_charge}%` 
-                          : `₹${Number(c.retailer_charge).toLocaleString('en-IN')}`}
+                        {(() => {
+                          const charge = parseFloat(c.rt_purchase_charge) > 0 ? parseFloat(c.rt_purchase_charge) : parseFloat(c.retailer_charge) || 0
+                          const chargeType = parseFloat(c.rt_purchase_charge) > 0 ? (c.rt_purchase_charge_type || 'flat') : (c.retailer_charge_type || 'flat')
+                          if (chargeType === 'percentage') return `${charge}%`
+                          const withGst = c.gst_inclusive ? Math.round(charge * 1.18 * 100) / 100 : charge
+                          return `₹${withGst.toLocaleString('en-IN')}${c.gst_inclusive ? ' (incl. GST)' : ''}`
+                        })()}
                       </td>
                       <td className="px-4 py-3 text-xs text-gray-500 dark:text-gray-400">{c.scheme_name}</td>
                     </tr>
@@ -3101,9 +3107,13 @@ function MDRSchemesTab({ user }: { user: any }) {
                         ₹{Number(c.min_amount).toLocaleString('en-IN')} – {c.max_amount >= 999999 ? '∞' : `₹${Number(c.max_amount).toLocaleString('en-IN')}`}
                       </td>
                       <td className="px-4 py-3 text-sm font-semibold text-red-600 dark:text-red-400">
-                        {c.retailer_charge_type === 'percentage' 
-                          ? `${c.retailer_charge}%` 
-                          : `₹${Number(c.retailer_charge).toLocaleString('en-IN')}`}
+                        {(() => {
+                          const charge = parseFloat(c.rt_purchase_charge) > 0 ? parseFloat(c.rt_purchase_charge) : parseFloat(c.retailer_charge) || 0
+                          const chargeType = parseFloat(c.rt_purchase_charge) > 0 ? (c.rt_purchase_charge_type || 'flat') : (c.retailer_charge_type || 'flat')
+                          if (chargeType === 'percentage') return `${charge}%`
+                          const withGst = c.gst_inclusive ? Math.round(charge * 1.18 * 100) / 100 : charge
+                          return `₹${withGst.toLocaleString('en-IN')}${c.gst_inclusive ? ' (incl. GST)' : ''}`
+                        })()}
                       </td>
                       <td className="px-4 py-3 text-xs text-gray-500 dark:text-gray-400">{c.scheme_name}</td>
                     </tr>

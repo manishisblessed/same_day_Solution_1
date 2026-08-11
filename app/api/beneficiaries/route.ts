@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
+import { authorizeSubPartner } from '@/lib/partner-access'
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
 import { createClient } from '@supabase/supabase-js'
 
@@ -32,6 +33,9 @@ export async function GET(request: NextRequest) {
       const response = NextResponse.json({ error: 'Authentication required' }, { status: 401 })
       return addCorsHeaders(request, response)
     }
+
+    const access = authorizeSubPartner(user, 'payout')
+    if (!access.ok) return access.response
 
     // Get saved beneficiaries
     const { data: beneficiaries, error } = await supabaseAdmin
@@ -103,6 +107,9 @@ export async function POST(request: NextRequest) {
       const response = NextResponse.json({ error: 'Authentication required' }, { status: 401 })
       return addCorsHeaders(request, response)
     }
+
+    const access = authorizeSubPartner(user, 'payout')
+    if (!access.ok) return access.response
 
     // Validate required fields
     if (!account_number || !ifsc_code || !bank_name) {
@@ -255,6 +262,9 @@ export async function DELETE(request: NextRequest) {
       const response = NextResponse.json({ error: 'Authentication required' }, { status: 401 })
       return addCorsHeaders(request, response)
     }
+
+    const access = authorizeSubPartner(user, 'payout')
+    if (!access.ok) return access.response
 
     if (!id) {
       const response = NextResponse.json(

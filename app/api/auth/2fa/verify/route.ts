@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseAdmin } from '@/lib/supabase/server-admin'
 import { decryptSecret, verifyTOTP, verifyBackupCode } from '@/lib/totp'
+import { rateLimit, RATE_LIMITS } from '@/lib/rate-limit'
 
 export async function POST(request: NextRequest) {
   try {
@@ -9,6 +10,13 @@ export async function POST(request: NextRequest) {
     if (!email || !code) {
       return NextResponse.json({ error: 'email and code are required' }, { status: 400 })
     }
+
+    // Throttle per-email+IP to stop TOTP / backup-code brute-force.
+    const rl = rateLimit(request, {
+      ...RATE_LIMITS.twofa,
+      identifier: String(email).toLowerCase().trim(),
+    })
+    if (rl.limited) return rl.response!
 
     const supabase = getSupabaseAdmin()
 

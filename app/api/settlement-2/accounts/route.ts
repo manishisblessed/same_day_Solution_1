@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
+import { authorizeSubPartner } from '@/lib/partner-access'
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
 import { initiateBankTransfer, checkTransactionStatus, getBalance } from '@/services/shadval-pay'
 import { verifyBankPennyLess, generateOrderId } from '@/services/ekyc'
@@ -88,6 +89,8 @@ export async function OPTIONS(request: NextRequest) {
 export async function GET(request: NextRequest) {
   try {
     const { user } = await getCurrentUserWithFallback(request)
+    const access = authorizeSubPartner(user, 'settlement-2')
+    if (!access.ok) return access.response
     if (!user || !['retailer', 'distributor', 'partner'].includes(user.role)) {
       const response = NextResponse.json({ success: false, error: 'Access denied' }, { status: 403 })
       return addCorsHeaders(request, response)
@@ -129,6 +132,8 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const { user } = await getCurrentUserWithFallback(request)
+    const access = authorizeSubPartner(user, 'settlement-2')
+    if (!access.ok) return access.response
     if (!user || !['retailer', 'distributor', 'partner'].includes(user.role)) {
       const response = NextResponse.json({ success: false, error: 'Access denied' }, { status: 403 })
       return addCorsHeaders(request, response)
@@ -675,6 +680,8 @@ export async function POST(request: NextRequest) {
 export async function PATCH(request: NextRequest) {
   try {
     const { user } = await getCurrentUserWithFallback(request)
+    const access = authorizeSubPartner(user, 'settlement-2')
+    if (!access.ok) return access.response
     if (!user || !['retailer', 'distributor', 'partner'].includes(user.role)) {
       const response = NextResponse.json({ success: false, error: 'Access denied' }, { status: 403 })
       return addCorsHeaders(request, response)
@@ -837,6 +844,8 @@ export async function PATCH(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   try {
     const { user } = await getCurrentUserWithFallback(request)
+    const access = authorizeSubPartner(user, 'settlement-2')
+    if (!access.ok) return access.response
     if (!user || !['retailer', 'distributor', 'partner'].includes(user.role)) {
       const response = NextResponse.json({ success: false, error: 'Access denied' }, { status: 403 })
       return addCorsHeaders(request, response)

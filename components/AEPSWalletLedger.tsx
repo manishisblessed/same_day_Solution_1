@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { supabase } from '@/lib/supabase/client'
+
+import { secureDb } from '@/lib/secure-db'
 import {
   RefreshCw, Download, Search,
   ArrowDownCircle, ArrowUpCircle,
@@ -78,14 +80,14 @@ export default function AEPSWalletLedger({ user }: AEPSWalletLedgerProps) {
     setLoading(true)
     try {
       const [ledgerRes, balanceRes] = await Promise.all([
-        supabase
+        secureDb
           .from('wallet_ledger')
           .select('*')
           .eq('retailer_id', user.partner_id)
           .eq('wallet_type', 'aeps')
           .order('created_at', { ascending: false })
           .limit(1000),
-        supabase.rpc('get_wallet_balance_v2', {
+        secureDb.rpc('get_wallet_balance_v2', {
           p_user_id: user.partner_id,
           p_wallet_type: 'aeps',
         }),
@@ -106,7 +108,7 @@ export default function AEPSWalletLedger({ user }: AEPSWalletLedgerProps) {
   const fetchCommissionDetail = async (txnId: string) => {
     if (commissionDetails[txnId]) return
     try {
-      const { data } = await supabase
+      const { data } = await secureDb
         .from('commission_ledger')
         .select('id, transaction_id, service_type, total_commission, rt_amount, tds_amount, status, created_at')
         .eq('transaction_id', txnId)

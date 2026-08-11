@@ -16,6 +16,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getCurrentUserWithFallback } from '@/lib/auth-server';
+import { authorizeSubPartner } from '@/lib/partner-access';
 import { initiateTransfer } from '@/services/payout/transfer';
 import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger';
 import { calculateAEPSSettlementCharge } from '@/lib/scheme/scheme.service';
@@ -48,6 +49,9 @@ export async function POST(request: NextRequest) {
     if (!user || !user.partner_id) {
       return NextResponse.json({ error: 'Session expired. Please log in again.', code: 'SESSION_EXPIRED' }, { status: 401 });
     }
+
+    const access = authorizeSubPartner(user, 'aeps');
+    if (!access.ok) return access.response;
 
     if (!['retailer', 'distributor', 'master_distributor', 'partner'].includes(user.role)) {
       return NextResponse.json({ error: 'Forbidden: Invalid user role' }, { status: 403 });

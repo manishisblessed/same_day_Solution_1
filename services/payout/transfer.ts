@@ -42,7 +42,7 @@ export function generateClientRefId(retailerId: string): string {
 export async function getBankIdFromBankList(
   ifscCode: string,
   bankName?: string,
-  transferMode?: 'IMPS' | 'NEFT'
+  transferMode?: 'IMPS'
 ): Promise<{
   bankId: number
   bank: PayoutBank
@@ -60,8 +60,6 @@ export async function getBankIdFromBankList(
     
     if (transferMode === 'IMPS') {
       bankListOptions.impsOnly = true
-    } else if (transferMode === 'NEFT') {
-      bankListOptions.neftOnly = true
     }
     
     // IFSC prefix = first 4 chars (identifies the bank, e.g. "ICIC" for ICICI)
@@ -86,14 +84,13 @@ export async function getBankIdFromBankList(
       bankListResult = await getBankList({
         searchQuery: ifscPrefix,
         ...(transferMode === 'IMPS' ? { impsOnly: true } : {}),
-        ...(transferMode === 'NEFT' ? { neftOnly: true } : {}),
       })
     }
     
     // If mode filter hides the bank, retry prefix search without mode filter
     if (
       (!bankListResult.success || !bankListResult.banks || bankListResult.banks.length === 0) &&
-      (transferMode === 'IMPS' || transferMode === 'NEFT') &&
+      transferMode === 'IMPS' &&
       normalizedIfsc
     ) {
       console.warn('[Payout] bankList empty with mode filter, retrying prefix without filter:', {
@@ -168,15 +165,6 @@ export async function getBankIdFromBankList(
     // Verify the bank supports the transfer mode
     if (transferMode === 'IMPS' && !matchedBank.isIMPS) {
       console.warn('[Payout] Bank does not support IMPS:', {
-        bankId: matchedBank.id,
-        bankName: matchedBank.bankName,
-        ifsc: matchedBank.ifsc,
-      })
-      return null
-    }
-    
-    if (transferMode === 'NEFT' && !matchedBank.isNEFT) {
-      console.warn('[Payout] Bank does not support NEFT:', {
         bankId: matchedBank.id,
         bankName: matchedBank.bankName,
         ifsc: matchedBank.ifsc,
@@ -310,10 +298,10 @@ export async function initiateTransfer(request: TransferRequest): Promise<{
   }
 
   // Validate transfer mode
-  if (!['IMPS', 'NEFT'].includes(transferMode)) {
+  if (transferMode !== 'IMPS') {
     return {
       success: false,
-      error: 'Transfer mode must be IMPS or NEFT',
+      error: 'Transfer mode must be IMPS',
     }
   }
 

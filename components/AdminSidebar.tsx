@@ -8,10 +8,12 @@ import {
   Settings,
   Activity, X, Menu, CreditCard, Receipt, CheckCircle2, ArrowUpCircle,
   Building2, FileBarChart, Layers, Key, Timer, History, Repeat, ScrollText, Wallet,
-  Fingerprint, Server, TrendingUp, Scale, ShieldCheck, BarChart3
+  Fingerprint, Server, TrendingUp, Scale, BarChart3, RotateCcw
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { supabase } from '@/lib/supabase/client'
+
+import { secureDb } from '@/lib/secure-db'
 import { useAuth } from '@/contexts/AuthContext'
 
 interface SidebarItem {
@@ -53,7 +55,7 @@ const sidebarItems: SidebarItem[] = [
   { id: 'subscriptions', label: 'Subscriptions', icon: Repeat, href: '/admin?tab=subscriptions' },
   { id: 'portal-management', label: 'Portal Management', icon: Server, href: '/admin?tab=portal-management' },
   { id: 'legal-agreements', label: 'Legal Agreements', icon: Scale, href: '/admin/agreements' },
-  { id: 'capabilities', label: 'Capabilities', icon: ShieldCheck, href: '/admin/capabilities' },
+  { id: 'reversals', label: 'Reversals', icon: RotateCcw, href: '/admin/reversals' },
   { id: 'settings', label: 'Settings', icon: Settings, href: '/admin/settings' },
 ]
 
@@ -74,7 +76,7 @@ export default function AdminSidebar({ isOpen, onClose }: { isOpen: boolean; onC
     const fetchAdminDepartments = async () => {
       if (user?.email) {
         try {
-          const { data } = await supabase
+          const { data } = await secureDb
             .from('admin_users')
             .select('admin_type, departments, department')
             .eq('email', user.email)

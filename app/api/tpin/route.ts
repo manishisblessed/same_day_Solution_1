@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
+import { authorizeSubPartner } from '@/lib/partner-access'
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
 import { rateLimit, RATE_LIMITS } from '@/lib/rate-limit'
 import { createClient } from '@supabase/supabase-js'
@@ -71,6 +72,11 @@ export async function GET(request: NextRequest) {
       const response = NextResponse.json({ error: 'TPIN is not available for this role' }, { status: 403 })
       return addCorsHeaders(request, response)
     }
+
+    // TPIN status is read-only and needed for any transaction; a sub-partner reads
+    // the parent partner's TPIN state (normalize role, no specific permission required).
+    const access = authorizeSubPartner(user)
+    if (!access.ok) return access.response
 
     const cfg = tpinConfig(user.role)
 
@@ -145,6 +151,11 @@ export async function POST(request: NextRequest) {
       const response = NextResponse.json({ error: 'TPIN is not available for this role' }, { status: 403 })
       return addCorsHeaders(request, response)
     }
+
+    // Setting/changing the TPIN mutates the parent partner's security PIN — restrict to
+    // sub-partners granted the 'settings' permission.
+    const access = authorizeSubPartner(user, 'settings')
+    if (!access.ok) return access.response
 
     if (!tpin || tpin.length !== 4 || !/^\d{4}$/.test(tpin)) {
       const response = NextResponse.json(

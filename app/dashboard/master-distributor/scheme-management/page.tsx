@@ -4,6 +4,8 @@ import { useState, useEffect, useCallback } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase/client'
+
+import { secureDb } from '@/lib/secure-db'
 import { apiFetchJson } from '@/lib/api-client'
 import MasterDistributorSidebar from '@/components/MasterDistributorSidebar'
 import { 
@@ -65,7 +67,7 @@ export default function MasterDistributorSchemeManagementPage() {
     if (!user?.partner_id) return
     setLoading(true)
     try {
-      const { data: ownSchemes, error: ownErr } = await supabase
+      const { data: ownSchemes, error: ownErr } = await secureDb
         .from('schemes')
         .select('*')
         .eq('created_by_id', user.partner_id)
@@ -74,7 +76,7 @@ export default function MasterDistributorSchemeManagementPage() {
       if (ownErr) throw ownErr
 
       // Fetch schemes assigned to this MD (by admin)
-      const { data: assignedMappings } = await supabase
+      const { data: assignedMappings } = await secureDb
         .from('scheme_mappings')
         .select('scheme_id')
         .eq('entity_id', user.partner_id)
@@ -88,7 +90,7 @@ export default function MasterDistributorSchemeManagementPage() {
 
       let assignedSchemes: any[] = []
       if (assignedIds.length > 0) {
-        const { data } = await supabase
+        const { data } = await secureDb
           .from('schemes')
           .select('*')
           .in('id', assignedIds)
@@ -107,7 +109,7 @@ export default function MasterDistributorSchemeManagementPage() {
       // Fetch mapping counts
       const schemeIds = filtered.map(s => s.id)
       if (schemeIds.length > 0) {
-        const { data: mappings } = await supabase
+        const { data: mappings } = await secureDb
           .from('scheme_mappings')
           .select('scheme_id')
           .in('scheme_id', schemeIds)
@@ -136,7 +138,7 @@ export default function MasterDistributorSchemeManagementPage() {
   const fetchDistributors = useCallback(async () => {
     if (!user?.partner_id) return
     try {
-      const { data, error } = await supabase
+      const { data, error } = await secureDb
         .from('distributors')
         .select('partner_id, name, email, status')
         .eq('master_distributor_id', user.partner_id)
@@ -165,10 +167,10 @@ export default function MasterDistributorSchemeManagementPage() {
     }
     
     const [bbps, payout, mdr, mappings] = await Promise.all([
-      supabase.from('scheme_bbps_commissions').select('*').eq('scheme_id', schemeId).eq('status', 'active').order('min_amount'),
-      supabase.from('scheme_payout_charges').select('*').eq('scheme_id', schemeId).eq('status', 'active').order('transfer_mode'),
-      supabase.from('scheme_mdr_rates').select('*').eq('scheme_id', schemeId).eq('status', 'active').order('mode'),
-      supabase.from('scheme_mappings').select('*').eq('scheme_id', schemeId).eq('status', 'active'),
+      secureDb.from('scheme_bbps_commissions').select('*').eq('scheme_id', schemeId).eq('status', 'active').order('min_amount'),
+      secureDb.from('scheme_payout_charges').select('*').eq('scheme_id', schemeId).eq('status', 'active').order('transfer_mode'),
+      secureDb.from('scheme_mdr_rates').select('*').eq('scheme_id', schemeId).eq('status', 'active').order('mode'),
+      secureDb.from('scheme_mappings').select('*').eq('scheme_id', schemeId).eq('status', 'active'),
     ])
 
     // Resolve entity names for mappings
@@ -176,8 +178,8 @@ export default function MasterDistributorSchemeManagementPage() {
     if (enrichedMappings.length > 0) {
       const entityIds = enrichedMappings.map((m: any) => m.entity_id)
       const [distNames, retNames] = await Promise.all([
-        supabase.from('distributors').select('partner_id, name, business_name').in('partner_id', entityIds),
-        supabase.from('retailers').select('partner_id, name, business_name').in('partner_id', entityIds),
+        secureDb.from('distributors').select('partner_id, name, business_name').in('partner_id', entityIds),
+        secureDb.from('retailers').select('partner_id, name, business_name').in('partner_id', entityIds),
       ])
       const nameMap: Record<string, string> = {}
       distNames.data?.forEach((d: any) => { nameMap[d.partner_id] = d.business_name || d.name })
@@ -243,7 +245,7 @@ export default function MasterDistributorSchemeManagementPage() {
   const handleMapScheme = async (distributorId: string) => {
     try {
       // Check if mapping already exists
-      const { data: existing } = await supabase
+      const { data: existing } = await secureDb
         .from('scheme_mappings')
         .select('id')
         .eq('scheme_id', mappingSchemeId)

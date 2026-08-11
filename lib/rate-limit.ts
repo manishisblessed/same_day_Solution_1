@@ -44,6 +44,10 @@ export const RATE_LIMITS = {
   tpin: { maxRequests: 5, windowMs: 60_000, keyPrefix: 'tpin' },
   adminWallet: { maxRequests: 20, windowMs: 60_000, keyPrefix: 'admin_wallet' },
   login: { maxRequests: 10, windowMs: 5 * 60_000, keyPrefix: 'login' },
+  twofa: { maxRequests: 10, windowMs: 5 * 60_000, keyPrefix: 'twofa' },
+  // Lenient per-IP cap on the 2FA-enabled probe to blunt bulk account enumeration
+  // without ever tripping legitimate login page loads.
+  twofaStatus: { maxRequests: 60, windowMs: 5 * 60_000, keyPrefix: 'twofa_status' },
   contact: { maxRequests: 3, windowMs: 5 * 60_000, keyPrefix: 'contact' },
   api_mutation: { maxRequests: 100, windowMs: 60_000, keyPrefix: 'api_mutation' },
 } as const

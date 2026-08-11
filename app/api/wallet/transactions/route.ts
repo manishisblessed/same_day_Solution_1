@@ -1,24 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
-import { createClient } from '@supabase/supabase-js'
+import { getSupabaseAdmin } from '@/lib/supabase/server-admin'
 
 // Mark this route as dynamic (uses cookies for authentication)
 export const dynamic = 'force-dynamic'
 
 export async function GET(request: NextRequest) {
   try {
-    // Get env vars at runtime, not module load
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-    
-    if (!supabaseUrl || !supabaseAnonKey) {
-      return NextResponse.json(
-        { error: 'Supabase configuration missing' },
-        { status: 500 }
-      )
-    }
-    
     // Get current user (server-side) with fallback
     const { user, method } = await getCurrentUserWithFallback(request)
     console.log('[Wallet Transactions] Auth method:', method, '| User:', user?.email || 'none')
@@ -35,7 +24,7 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    const supabase = createClient(supabaseUrl, supabaseAnonKey)
+    const supabase = getSupabaseAdmin()
     const { searchParams } = new URL(request.url)
 
     const limit = parseInt(searchParams.get('limit') || '50')

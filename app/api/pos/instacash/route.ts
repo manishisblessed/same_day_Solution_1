@@ -18,6 +18,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
+import { authorizeSubPartner } from '@/lib/partner-access'
 import { getSupabaseAdmin } from '@/lib/supabase/server-admin'
 import {
   calculateMDR as calculateSchemeMDR,
@@ -45,6 +46,9 @@ export async function POST(request: NextRequest) {
         { status: 401 }
       )
     }
+
+    const access = authorizeSubPartner(user, 'transactions')
+    if (!access.ok) return access.response
 
     // Only retailers and partners can use Pulse Pay
     if (user.role !== 'retailer' && user.role !== 'admin' && user.role !== 'partner') {
@@ -335,6 +339,9 @@ export async function POST(request: NextRequest) {
       .maybeSingle()
 
     const distributorId = retailerData?.distributor_id || null
+    const masterDistributorId = retailerData?.master_distributor_id || null
+    // 2% TDS withheld on every upline commission (matches T+1 settlement).
+    const UPLINE_TDS_RATE = 0.02
 
     // 7. Create Pulse Pay batch
     const { data: batch, error: batchError } = await supabase
@@ -365,6 +372,8 @@ export async function POST(request: NextRequest) {
     let totalGrossAmount = 0
     let totalMdrAmount = 0
     let totalNetAmount = 0
+    let totalDistributorCommission = 0
+    let totalMdCommission = 0
     let successCount = 0
     let failedCount = 0
     const batchItems: any[] = []
@@ -415,6 +424,8 @@ export async function POST(request: NextRequest) {
         totalGrossAmount += grossAmount
         totalMdrAmount += mdrAmount
         totalNetAmount += netAmount
+        totalDistributorCommission += mdrResult.result.distributor_commission || 0
+        totalMdCommission += mdrResult.result.md_commission || 0
         successCount++
 
         batchItems.push({
@@ -522,6 +533,57 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // 10b. Distribute upline commissions for this batch (T+0 instant), each net
+    // of 2% TDS. Aggregated to one credit per tier since every transaction in a
+    // retailer's batch shares the same distributor / master distributor.
+    if (walletCreditId) {
+      if (distributorId && totalDistributorCommission > 0) {
+        const gross = Number(totalDistributorCommission.toFixed(2))
+        const tds = Number((gross * UPLINE_TDS_RATE).toFixed(2))
+        const net = Number((gross - tds).toFixed(2))
+        if (net > 0) {
+          const { error: distErr } = await supabase.rpc('add_ledger_entry', {
+            p_user_id: distributorId,
+            p_user_role: 'distributor',
+            p_wallet_type: 'primary',
+            p_fund_category: 'online',
+            p_service_type: 'pos_commission',
+            p_tx_type: 'DISTRIBUTOR_COMMISSION',
+            p_credit: net,
+            p_debit: 0,
+            p_reference_id: `INSTACASH-COMM-${batch.id}`,
+            p_transaction_id: batch.id,
+            p_status: 'completed',
+            p_remarks: `POS Commission (Pulse Pay) - ${successCount} txn(s), Gross: ₹${gross.toFixed(2)}, TDS: ₹${tds.toFixed(2)}, Net: ₹${net.toFixed(2)}`,
+          })
+          if (distErr) console.error('[PulsePay] Distributor commission credit failed:', distErr.message)
+        }
+      }
+
+      if (masterDistributorId && totalMdCommission > 0) {
+        const gross = Number(totalMdCommission.toFixed(2))
+        const tds = Number((gross * UPLINE_TDS_RATE).toFixed(2))
+        const net = Number((gross - tds).toFixed(2))
+        if (net > 0) {
+          const { error: mdErr } = await supabase.rpc('add_ledger_entry', {
+            p_user_id: masterDistributorId,
+            p_user_role: 'master_distributor',
+            p_wallet_type: 'primary',
+            p_fund_category: 'online',
+            p_service_type: 'pos_commission',
+            p_tx_type: 'MASTER_DISTRIBUTOR_COMMISSION',
+            p_credit: net,
+            p_debit: 0,
+            p_reference_id: `INSTACASH-MDCOMM-${batch.id}`,
+            p_transaction_id: batch.id,
+            p_status: 'completed',
+            p_remarks: `POS MD Commission (Pulse Pay) - ${successCount} txn(s), Gross: ₹${gross.toFixed(2)}, TDS: ₹${tds.toFixed(2)}, Net: ₹${net.toFixed(2)}`,
+          })
+          if (mdErr) console.error('[PulsePay] MD commission credit failed:', mdErr.message)
+        }
+      }
+    }
+
     // 11. Update batch items to settled
     const settledItemIds = batchItems
       .filter(item => item.status === 'pending')
@@ -626,6 +688,8 @@ export async function POST(request: NextRequest) {
         total_gross_amount: totalGrossAmount,
         total_mdr_amount: totalMdrAmount,
         total_net_amount: totalNetAmount,
+        total_distributor_commission: Number(totalDistributorCommission.toFixed(2)),
+        total_md_commission: Number(totalMdCommission.toFixed(2)),
         wallet_credit_id: walletCreditId,
         failure_reasons: failureReasons.length > 0 ? failureReasons : undefined,
       },
@@ -659,6 +723,9 @@ export async function GET(request: NextRequest) {
         { status: 401 }
       )
     }
+
+    const access = authorizeSubPartner(user, 'transactions')
+    if (!access.ok) return access.response
 
     const { searchParams } = new URL(request.url)
     const batchId = searchParams.get('batch_id')

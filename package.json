@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@emotion/is-prop-valid": "^1.4.0",
+    "@sentry/nextjs": "^10.69.0",
     "@sparticuz/chromium": "^149.0.0",
     "@supabase/node-fetch": "^2.6.13",
     "@supabase/ssr": "^0.4.0",

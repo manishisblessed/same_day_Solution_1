@@ -75,10 +75,10 @@ export async function POST(request: NextRequest) {
       return addCorsHeaders(request, response)
     }
 
-    const validModes = ['IMPS', 'NEFT', 'RTGS']
+    const validModes = ['IMPS', 'RTGS']
     if (!validModes.includes(mode)) {
       const response = NextResponse.json(
-        { success: false, error: 'Invalid transfer mode. Must be IMPS, NEFT, or RTGS.' },
+        { success: false, error: 'Invalid transfer mode. Must be IMPS or RTGS.' },
         { status: 400 }
       )
       return addCorsHeaders(request, response)

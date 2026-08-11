@@ -105,7 +105,7 @@ function addSecurityHeaders(response: NextResponse): void {
     `style-src 'self' 'unsafe-inline' https://fonts.googleapis.com`,
     `font-src 'self' https://fonts.gstatic.com data:`,
     `img-src 'self' data: blob: https://*.supabase.co`,
-    `connect-src 'self' https://*.supabase.co https://challenges.cloudflare.com https://api.samedaysolution.in wss://*.supabase.co`,
+    `connect-src 'self' https://*.supabase.co https://challenges.cloudflare.com https://api.samedaysolution.in wss://*.supabase.co https://*.ingest.de.sentry.io`,
     `frame-src https://challenges.cloudflare.com`,
     `frame-ancestors 'none'`,
     `form-action 'self'`,
@@ -241,7 +241,7 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    '/((?!monitoring|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 }
 

@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useMemo } from 'react'
 import { supabase } from '@/lib/supabase/client'
+
+import { secureDb } from '@/lib/secure-db'
 import { 
   RefreshCw, Download, Filter, Search, 
   ArrowDownCircle, ArrowUpCircle, 
@@ -50,7 +52,7 @@ export default function LedgerTab({ user }: LedgerTabProps) {
     
     setLoading(true)
     try {
-      const { data, error } = await supabase
+      const { data, error } = await secureDb
         .from('wallet_ledger')
         .select('*')
         .eq('retailer_id', user.partner_id)

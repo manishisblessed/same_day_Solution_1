@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
+import { authorizeSubPartner } from '@/lib/partner-access'
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
 import { verifyAccount } from '@/services/shadval-pay'
 
@@ -20,6 +21,8 @@ export async function OPTIONS(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const { user } = await getCurrentUserWithFallback(request)
+    const access = authorizeSubPartner(user, 'settlement-2')
+    if (!access.ok) return access.response
     const userRole = user?.role as string | undefined
     const isRetailer = userRole === 'retailer' || userRole === 'partner'
     const isAdmin = userRole === 'admin' || userRole === 'super_admin'

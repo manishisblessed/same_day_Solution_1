@@ -1,3 +1,5 @@
+const { withSentryConfig } = require('@sentry/nextjs')
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   // Production optimizations
@@ -94,5 +96,12 @@ const nextConfig = {
   // This allows file upload routes (multipart/form-data) to work correctly
 }
 
-module.exports = nextConfig
+module.exports = withSentryConfig(nextConfig, {
+  org: 'sameday-solutions-private-limi',
+  project: 'javascript-nextjs',
+  authToken: process.env.SENTRY_AUTH_TOKEN,
+  widenClientFileUpload: true,
+  tunnelRoute: '/monitoring',
+  silent: !process.env.CI,
+})
 

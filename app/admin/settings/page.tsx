@@ -4,6 +4,8 @@ import { useState, useEffect, useRef } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase/client'
+
+import { secureDb } from '@/lib/secure-db'
 import TurnstileWidget, { TurnstileHandle, isCaptchaEnabled } from '@/components/TurnstileWidget'
 import AdminSidebar from '@/components/AdminSidebar'
 import { 
@@ -134,7 +136,7 @@ export default function AdminSettings() {
     { id: 'subscriptions', label: 'Subscriptions' },
     { id: 'portal-management', label: 'Portal Management' },
     { id: 'legal-agreements', label: 'Legal Agreements' },
-    { id: 'capabilities', label: 'Capabilities' },
+    { id: 'reversals', label: 'Reversals' },
     { id: 'all', label: 'Select All' }
   ]
 
@@ -148,7 +150,7 @@ export default function AdminSettings() {
     const fetchAdminInfo = async () => {
       if (user?.email) {
         try {
-          const { data, error } = await supabase
+          const { data, error } = await secureDb
             .from('admin_users')
             .select('*')
             .eq('email', user.email)

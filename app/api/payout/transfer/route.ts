@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
+import { authorizeSubPartner } from '@/lib/partner-access'
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
 import { rateLimit, RATE_LIMITS } from '@/lib/rate-limit'
 import { checkPayoutVelocity, checkBeneficiaryCooling } from '@/lib/security/velocity'
@@ -87,6 +88,9 @@ export async function POST(request: NextRequest) {
       )
       return addCorsHeaders(request, response)
     }
+
+    const access = authorizeSubPartner(user, 'payout')
+    if (!access.ok) return access.response
 
     const userRole = user.role as string | undefined
     if (!['retailer', 'partner'].includes(userRole || '')) {
@@ -207,9 +211,9 @@ export async function POST(request: NextRequest) {
     }
 
     // Validate transfer mode
-    if (!['IMPS', 'NEFT'].includes(transferMode)) {
+    if (transferMode !== 'IMPS') {
       const response = NextResponse.json(
-        { success: false, error: 'Transfer mode must be IMPS or NEFT' },
+        { success: false, error: 'Transfer mode must be IMPS' },
         { status: 400 }
       )
       return addCorsHeaders(request, response)
@@ -641,7 +645,7 @@ export async function POST(request: NextRequest) {
       ifscCode,
       accountHolderName,
       amount: amountNum,
-      transferMode: transferMode as 'IMPS' | 'NEFT',
+      transferMode: transferMode as 'IMPS',
       bankId: parseInt(bankId),
       bankName,
       beneficiaryMobile,

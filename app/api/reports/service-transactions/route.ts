@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
+import { authorizeSubPartner } from '@/lib/partner-access'
 import { createClient } from '@supabase/supabase-js'
 import { htmlToPdf } from '@/lib/pdf/html-to-pdf'
 
@@ -111,6 +112,9 @@ export async function GET(request: NextRequest) {
     if (!user) {
       return NextResponse.json({ error: 'Session expired. Please log in again.', code: 'SESSION_EXPIRED' }, { status: 401 })
     }
+
+    const access = authorizeSubPartner(user, 'reports')
+    if (!access.ok) return access.response
 
     const allowedRoles = ['admin', 'finance_executive', 'master_distributor', 'distributor', 'retailer', 'partner']
     if (!allowedRoles.includes(user.role)) {

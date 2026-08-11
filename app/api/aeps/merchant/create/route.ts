@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getCurrentUserWithFallback } from '@/lib/auth-server';
+import { authorizeSubPartner } from '@/lib/partner-access';
 import { getAEPSClient } from '@/services/aeps';
 import { getAEPSConfig } from '@/services/aeps/config';
 import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger';
@@ -37,6 +38,9 @@ export async function POST(request: NextRequest) {
     }
 
     // Only retailers, distributors, and master distributors can create merchants
+    const access = authorizeSubPartner(user, 'aeps');
+    if (!access.ok) return access.response;
+
     if (!['retailer', 'distributor', 'master_distributor', 'partner'].includes(user.role)) {
       return NextResponse.json(
         { error: 'Forbidden: Invalid user role' },

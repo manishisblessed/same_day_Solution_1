@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
-import { createClient } from '@supabase/supabase-js'
+import { authorizeSubPartner } from '@/lib/partner-access'
+import { getSupabaseAdmin } from '@/lib/supabase/server-admin'
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
 
-// Mark this route as dynamic (uses cookies for authentication)
 export const dynamic = 'force-dynamic'
 
 export async function OPTIONS(request: NextRequest) {
@@ -14,37 +14,23 @@ export async function OPTIONS(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   try {
-    // Get env vars at runtime, not module load
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-    
-    if (!supabaseUrl || !supabaseAnonKey) {
-      const errorResponse = NextResponse.json(
-        { error: 'Supabase configuration missing' },
-        { status: 500 }
-      )
-      return addCorsHeaders(request, errorResponse)
-    }
-    
-    // Get current user from request using fallback auth
     const { user } = await getCurrentUserWithFallback(request)
     if (!user || !user.partner_id) {
-      console.error('Wallet Balance API: User not authenticated', {
-        hasUser: !!user,
-        hasPartnerId: !!user?.partner_id,
-      })
       const response = NextResponse.json(
-        { 
-          error: 'Unauthorized', 
-          message: 'Please log in to access this feature. If you are already logged in, try refreshing the page.' 
+        {
+          error: 'Unauthorized',
+          message:
+            'Please log in to access this feature. If you are already logged in, try refreshing the page.',
         },
         { status: 401 }
       )
       return addCorsHeaders(request, response)
     }
 
-    // All roles (retailer, distributor, master_distributor) have wallets
-    if (!['retailer', 'distributor', 'master_distributor'].includes(user.role)) {
+    const access = authorizeSubPartner(user)
+    if (!access.ok) return addCorsHeaders(request, access.response)
+
+    if (!['retailer', 'distributor', 'master_distributor', 'partner'].includes(user.role)) {
       const response = NextResponse.json(
         { error: 'Forbidden: Invalid user role' },
         { status: 403 }
@@ -52,12 +38,10 @@ export async function GET(request: NextRequest) {
       return addCorsHeaders(request, response)
     }
 
-    const supabase = createClient(supabaseUrl, supabaseAnonKey)
-
-    // Get wallet type from query params (default to 'primary')
+    const supabase = getSupabaseAdmin()
     const walletType = request.nextUrl.searchParams.get('wallet_type') || 'primary'
     const validWalletTypes = ['primary', 'aeps', 'commission', 'settlement']
-    
+
     if (!validWalletTypes.includes(walletType)) {
       const response = NextResponse.json(
         { error: 'Invalid wallet_type. Valid types: primary, aeps, commission, settlement' },
@@ -66,21 +50,40 @@ export async function GET(request: NextRequest) {
       return addCorsHeaders(request, response)
     }
 
-    // Get wallet balance using new function (supports all roles)
-    // Fallback to old function for retailers if new function doesn't exist
+    if (user.role === 'partner' && walletType === 'primary') {
+      const { data: partnerBal, error: partnerErr } = await supabase.rpc('get_partner_wallet_balance', {
+        p_partner_id: user.partner_id,
+      })
+      if (partnerErr) {
+        return addCorsHeaders(
+          request,
+          NextResponse.json({ success: true, balance: 0, warning: partnerErr.message })
+        )
+      }
+      return addCorsHeaders(
+        request,
+        NextResponse.json({
+          success: true,
+          balance: partnerBal || 0,
+          user_id: user.partner_id,
+          user_role: user.role,
+          wallet_type: walletType,
+        })
+      )
+    }
+
     let balance = 0
-    let error = null
-    
+    let error: any = null
+
     const { data: newBalance, error: newError } = await supabase.rpc('get_wallet_balance_v2', {
       p_user_id: user.partner_id,
-      p_wallet_type: walletType
+      p_wallet_type: walletType,
     })
 
     if (newError) {
-      // If new function doesn't exist, try old function for retailers
       if (user.role === 'retailer') {
         const { data: oldBalance, error: oldError } = await supabase.rpc('get_wallet_balance', {
-          p_retailer_id: user.partner_id
+          p_retailer_id: user.partner_id,
         })
         if (!oldError) {
           balance = oldBalance || 0
@@ -96,7 +99,6 @@ export async function GET(request: NextRequest) {
 
     if (error) {
       console.error('Error fetching wallet balance:', error)
-      // Return 0 instead of error to prevent dashboard blocking
       const ctx = getRequestContext(request)
       logActivityFromContext(ctx, user, {
         activity_type: 'wallet_balance_check',
@@ -110,7 +112,7 @@ export async function GET(request: NextRequest) {
         user_id: user.partner_id,
         user_role: user.role,
         wallet_type: walletType,
-        warning: 'Wallet function not available, returning 0'
+        warning: 'Wallet function not available, returning 0',
       })
     }
 
@@ -127,7 +129,7 @@ export async function GET(request: NextRequest) {
       balance: balance || 0,
       user_id: user.partner_id,
       user_role: user.role,
-      wallet_type: walletType
+      wallet_type: walletType,
     })
     return addCorsHeaders(request, successResponse)
   } catch (error: any) {
@@ -139,4 +141,3 @@ export async function GET(request: NextRequest) {
     return addCorsHeaders(request, errorResponse)
   }
 }
-

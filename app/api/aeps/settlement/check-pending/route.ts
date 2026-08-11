@@ -14,6 +14,7 @@ import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
 import { getTransferStatus } from '@/services/payout'
 import { createClient } from '@supabase/supabase-js'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
+import { authorizeSubPartner } from '@/lib/partner-access'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -466,6 +467,9 @@ export async function GET(request: NextRequest) {
       const response = NextResponse.json({ success: false, error: 'Authentication required' }, { status: 401 })
       return addCorsHeaders(request, response)
     }
+
+    const access = authorizeSubPartner(user, 'aeps')
+    if (!access.ok) return access.response
 
     const { searchParams } = new URL(request.url)
     const isPrivileged = ['admin', 'finance_executive'].includes(user.role as string)

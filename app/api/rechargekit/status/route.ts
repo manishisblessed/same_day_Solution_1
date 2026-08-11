@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
+import { authorizeSubPartner } from '@/lib/partner-access'
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
 import { createClient } from '@supabase/supabase-js'
 import { getRechargekitBaseUrl, getRechargekitApiToken } from '@/services/rechargekit/config'
@@ -28,6 +29,8 @@ export async function OPTIONS(request: NextRequest) {
 export async function GET(request: NextRequest) {
   try {
     const { user } = await getCurrentUserWithFallback(request)
+    const access = authorizeSubPartner(user, ['credit-card', 'credit-card-2'])
+    if (!access.ok) return access.response
     if (!user || !user.partner_id) {
       const response = NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
       return addCorsHeaders(request, response)

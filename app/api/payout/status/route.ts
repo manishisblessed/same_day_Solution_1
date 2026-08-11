@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
+import { authorizeSubPartner } from '@/lib/partner-access'
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
 import { getTransferStatus } from '@/services/payout'
 import { createClient } from '@supabase/supabase-js'
@@ -48,6 +49,9 @@ export async function GET(request: NextRequest) {
       )
       return addCorsHeaders(request, response)
     }
+
+    const access = authorizeSubPartner(user, 'payout')
+    if (!access.ok) return access.response
 
     // If list mode, return recent transactions
     if (listMode) {

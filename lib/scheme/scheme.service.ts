@@ -169,6 +169,7 @@ export async function upsertBBPSCommission(
   const { data, error } = await supabase
     .from('scheme_bbps_commissions')
     .upsert({
+      ...((input as any).id ? { id: (input as any).id } : {}),
       scheme_id: input.scheme_id,
       bbps_type: input.bbps_type || 'bbps_1',
       category: input.category || null,
@@ -227,6 +228,7 @@ export async function upsertPayoutCharge(
   const { data, error } = await supabase
     .from('scheme_payout_charges')
     .upsert({
+      ...((input as any).id ? { id: (input as any).id } : {}),
       scheme_id: input.scheme_id,
       transfer_mode: input.transfer_mode,
       min_amount: input.min_amount || 0,
@@ -284,6 +286,7 @@ export async function upsertMDRRate(
   const { data, error } = await supabase
     .from('scheme_mdr_rates')
     .upsert({
+      ...((input as any).id ? { id: (input as any).id } : {}),
       scheme_id: input.scheme_id,
       mode: input.mode,
       card_type: input.card_type || null,

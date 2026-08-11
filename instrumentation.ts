@@ -1,7 +1,10 @@
+import * as Sentry from '@sentry/nextjs'
+
 export async function register() {
   // Use bracket notation to bypass webpack DefinePlugin
   const env = process['env']
   if (env['NEXT_RUNTIME'] === 'nodejs') {
+    await import('./sentry.server.config')
     // Always load .env.local to ensure vars are available (webpack may inline them as empty)
     try {
       const fs = await import('fs')
@@ -67,4 +70,10 @@ export async function register() {
       console.error('[Instrumentation] Failed to initialize Pinelab Sync cron:', err)
     }
   }
+
+  if (env['NEXT_RUNTIME'] === 'edge') {
+    await import('./sentry.edge.config')
+  }
 }
+
+export const onRequestError = Sentry.captureRequestError

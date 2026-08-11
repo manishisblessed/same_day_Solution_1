@@ -3,6 +3,8 @@
 import { useState, useEffect, useCallback, Suspense } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
 import { supabase } from '@/lib/supabase/client'
+
+import { secureDb } from '@/lib/secure-db'
 import AdminSidebar from '@/components/AdminSidebar'
 import {
   BarChart3, Search, Download, Filter, Users, TrendingUp,
@@ -70,9 +72,9 @@ function BusinessReportContent() {
     if (unknownIds.length === 0) return
 
     const [ret, dist, md] = await Promise.all([
-      supabase.from('retailers').select('partner_id, name, business_name').in('partner_id', unknownIds),
-      supabase.from('distributors').select('partner_id, name, business_name').in('partner_id', unknownIds),
-      supabase.from('master_distributors').select('partner_id, name, business_name').in('partner_id', unknownIds),
+      secureDb.from('retailers').select('partner_id, name, business_name').in('partner_id', unknownIds),
+      secureDb.from('distributors').select('partner_id, name, business_name').in('partner_id', unknownIds),
+      secureDb.from('master_distributors').select('partner_id, name, business_name').in('partner_id', unknownIds),
     ])
 
     const names: Record<string, string> = {}
@@ -87,7 +89,7 @@ function BusinessReportContent() {
     setLoading(true)
     try {
       // Fetch commission entries from wallet_ledger
-      let query = supabase
+      let query = secureDb
         .from('wallet_ledger')
         .select('user_id, user_role, service_type, tx_type, credit, debit, fund_category')
         .gte('created_at', `${dateFrom}T00:00:00`)
@@ -170,7 +172,7 @@ function BusinessReportContent() {
     setExpandedUser(userId)
 
     try {
-      const { data } = await supabase
+      const { data } = await secureDb
         .from('wallet_ledger')
         .select('id, user_id, user_role, service_type, tx_type, credit, debit, reference_id, remarks, created_at')
         .eq('user_id', userId)

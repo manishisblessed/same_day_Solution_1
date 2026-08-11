@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserFromRequest } from '@/lib/auth-server-request'
+import { authorizeSubPartner } from '@/lib/partner-access'
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
 import { getPayoutBalance } from '@/services/payout'
 
@@ -24,6 +25,8 @@ export async function GET(request: NextRequest) {
   try {
     // Get current user
     const user = await getCurrentUserFromRequest(request)
+    const access = authorizeSubPartner(user, 'payout')
+    if (!access.ok) return access.response
     const userRole = user?.role as string | undefined
     const isAdmin = userRole === 'admin' || userRole === 'super_admin'
     const isRetailer = userRole === 'retailer'

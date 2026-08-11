@@ -4,6 +4,8 @@ import React, { useState, useEffect, useMemo, Suspense } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase/client'
+
+import { secureDb } from '@/lib/secure-db'
 import { Retailer, Distributor, MasterDistributor, POSMachine } from '@/types/database.types'
 import AdminSidebar from '@/components/AdminSidebar'
 import { 
@@ -165,7 +167,7 @@ function AdminDashboardContent() {
     if (!userId) return
     setLoadingBalance(true)
     try {
-      const { data, error } = await supabase.rpc('get_wallet_balance_v2', {
+      const { data, error } = await secureDb.rpc('get_wallet_balance_v2', {
         p_user_id: userId,
         p_wallet_type: walletType
       })
@@ -195,14 +197,14 @@ function AdminDashboardContent() {
     setRefreshing(true)
     try {
       if (activeTab === 'retailers') {
-        const { data, error } = await supabase
+        const { data, error } = await secureDb
           .from('retailers')
           .select('*')
           .order('created_at', { ascending: false })
         if (error) throw error
         setRetailers(data || [])
       } else if (activeTab === 'distributors') {
-        const { data, error } = await supabase
+        const { data, error } = await secureDb
           .from('distributors')
           .select('*')
           .order('created_at', { ascending: false })
@@ -214,7 +216,7 @@ function AdminDashboardContent() {
         const chunkSize = 1000
         const allMachines: POSMachine[] = []
         for (let from = 0; ; from += chunkSize) {
-          const { data, error } = await supabase
+          const { data, error } = await secureDb
             .from('pos_machines')
             .select('*')
             .order('created_at', { ascending: false })
@@ -227,17 +229,17 @@ function AdminDashboardContent() {
         setPosMachines(allMachines)
         // Also fetch retailers, distributors, master distributors, and partners for dropdowns
         const [{ data: retailersData }, { data: distributorsData }, { data: masterDistributorsData }, { data: partnersData }] = await Promise.all([
-          supabase.from('retailers').select('*').order('name'),
-          supabase.from('distributors').select('*').order('name'),
-          supabase.from('master_distributors').select('*').order('name'),
-          supabase.from('partners').select('id, name, email, business_name, status').order('name')
+          secureDb.from('retailers').select('*').order('name'),
+          secureDb.from('distributors').select('*').order('name'),
+          secureDb.from('master_distributors').select('*').order('name'),
+          secureDb.from('partners').select('id, name, email, business_name, status').order('name')
         ])
         if (retailersData) setRetailers(retailersData)
         if (distributorsData) setDistributors(distributorsData)
         if (masterDistributorsData) setMasterDistributors(masterDistributorsData)
         if (partnersData) setPartners(partnersData)
       } else {
-        const { data, error } = await supabase
+        const { data, error } = await secureDb
           .from('master_distributors')
           .select('*')
           .order('created_at', { ascending: false })
@@ -2012,12 +2014,12 @@ function AdminDashboardOverview({
     try {
       const since = getDateRange(selectedPeriod)
       const [bbpsRes, aepsRes, retailersRes, distributorsRes, mdRes, posRes] = await Promise.all([
-        supabase.from('bbps_transactions').select('bill_amount, created_at, status').gte('created_at', since),
-        supabase.from('aeps_transactions').select('amount, created_at, status').gte('created_at', since),
-        supabase.from('retailers').select('status, verification_status'),
-        supabase.from('distributors').select('status, verification_status'),
-        supabase.from('master_distributors').select('status, verification_status'),
-        supabase.from('pos_machines').select('id', { count: 'exact', head: true }).eq('status', 'active'),
+        secureDb.from('bbps_transactions').select('bill_amount, created_at, status').gte('created_at', since),
+        secureDb.from('aeps_transactions').select('amount, created_at, status').gte('created_at', since),
+        secureDb.from('retailers').select('status, verification_status'),
+        secureDb.from('distributors').select('status, verification_status'),
+        secureDb.from('master_distributors').select('status, verification_status'),
+        secureDb.from('pos_machines').select('id', { count: 'exact', head: true }).eq('status', 'active'),
       ])
       if (bbpsRes.error) console.error('Analytics BBPS error:', bbpsRes.error)
       if (aepsRes.error) console.error('Analytics AEPS error:', aepsRes.error)
@@ -2093,7 +2095,7 @@ function AdminDashboardOverview({
   const downloadReport = async (format: 'csv' | 'excel' | 'pdf' | 'json') => {
     setDownloading(true)
     try {
-      const { data: transactions } = await supabase
+      const { data: transactions } = await secureDb
         .from('transactions')
         .select('*')
         .order('created_at', { ascending: false })
@@ -2287,7 +2289,7 @@ function AdminDashboardOverview({
             theme="violet"
             icon={<Banknote className="w-4 h-4 text-white" />}
             title="SHADVAL Main"
-            subtitle="Payout · IMPS/NEFT/RTGS"
+            subtitle="Payout · IMPS/RTGS"
             status={shadvalBalance?.success ? 'active' : shadvalBalance ? 'error' : 'idle'}
             available={shadvalBalance?.available_balance ?? null}
             total={shadvalBalance?.balance ?? null}
@@ -2422,9 +2424,9 @@ function ServicesManagementTab() {
     setLoading(true)
     try {
       const [bbpsData, aepsData, settlementData] = await Promise.all([
-        supabase.from('bbps_transactions').select('bill_amount, created_at, status').eq('status', 'success'),
-        supabase.from('aeps_transactions').select('amount, created_at, status').eq('status', 'success'),
-        supabase.from('settlements').select('amount, created_at, status').eq('status', 'success')
+        secureDb.from('bbps_transactions').select('bill_amount, created_at, status').eq('status', 'success'),
+        secureDb.from('aeps_transactions').select('amount, created_at, status').eq('status', 'success'),
+        secureDb.from('settlements').select('amount, created_at, status').eq('status', 'success')
       ])
       const bbpsTransactions = bbpsData.data || []
       const aepsTransactions = aepsData.data || []
@@ -2473,10 +2475,10 @@ function ServicesManagementTab() {
         const fields = `${roleBase}, ${allFieldsList}`
         const fallbackFields = roleBase
         
-        const { data, error } = await supabase.from(table).select(fields).order('created_at', { ascending: false })
+        const { data, error } = await secureDb.from(table).select(fields).order('created_at', { ascending: false })
         if (error) {
           console.warn(`Service columns not found in ${table}, fetching without them:`, error.message)
-          const { data: fallbackData } = await supabase.from(table).select(fallbackFields).order('created_at', { ascending: false })
+          const { data: fallbackData } = await secureDb.from(table).select(fallbackFields).order('created_at', { ascending: false })
           return (fallbackData || []).map(u => {
             // Partners use 'id' instead of 'partner_id', normalize to partner_id for consistency
             const partnerId = isPartner ? (u as any).id : (u as any).partner_id
@@ -3461,7 +3463,7 @@ function PartnerModal({
       try {
         if (type === 'distributors' || type === 'retailers') {
           // Fetch master distributors - include all for editing (so existing MD shows up even if inactive)
-          const { data, error } = await supabase
+          const { data, error } = await secureDb
             .from('master_distributors')
             .select('id, partner_id, name, email, status')
             .order('name', { ascending: true })
@@ -3472,7 +3474,7 @@ function PartnerModal({
 
         if (type === 'retailers') {
           // Fetch distributors - include all for editing (so existing distributor shows up even if inactive)
-          const { data, error } = await supabase
+          const { data, error } = await secureDb
             .from('distributors')
             .select('id, partner_id, name, email, status, master_distributor_id')
             .order('name', { ascending: true })
@@ -7467,7 +7469,7 @@ function PartnersTab() {
     setLoading(true)
     try {
       // Fetch partners from database
-      const { data, error } = await supabase
+      const { data, error } = await secureDb
         .from('partners')
         .select('*')
         .order('created_at', { ascending: false })
@@ -9285,7 +9287,7 @@ function ReportsTab() {
     try {
       const { start, end } = getDateRangeValues()
 
-      let query = supabase
+      let query = secureDb
         .from('transactions')
         .select('*')
         .gte('created_at', start.toISOString())

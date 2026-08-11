@@ -20,6 +20,9 @@ import type {
 } from '@/types/mdr-scheme.types';
 import type { GlobalScheme, RetailerScheme } from '@/types/mdr-scheme.types';
 
+/** TDS withheld on every upline (distributor / MD) commission payout (2%). */
+const UPLINE_COMMISSION_TDS_RATE = 0.02;
+
 /**
  * Calculate MDR and fees for a transaction
  * First tries the new scheme management system (schemes + scheme_mdr_rates + scheme_mappings),
@@ -39,6 +42,7 @@ export async function calculateMDR(
 
     let retailer_mdr: number | null = null;
     let distributor_mdr: number | null = null;
+    let md_mdr: number = 0;
     let usedSchemeId: string | null = null;
     let usedSchemeType: 'global' | 'custom' = 'global';
 
@@ -164,19 +168,24 @@ export async function calculateMDR(
         if (mdrRate) {
           const partnerMdr = mdrRate.partner_mdr != null ? parseFloat(mdrRate.partner_mdr) : null;
           if (partnerMdr != null) {
+            // Unified single-tier partner plan: the whole fee is company revenue,
+            // no distributor / MD split.
             retailer_mdr = partnerMdr;
-            distributor_mdr = partnerMdr;
+            distributor_mdr = 0;
+            md_mdr = 0;
             console.log(`[MDR] Partner Plan MDR: ${partnerMdr}% (unified rate)`);
           } else if (input.settlement_type === 'T0') {
             retailer_mdr = parseFloat(mdrRate.retailer_mdr_t0) || 0;
             distributor_mdr = parseFloat(mdrRate.distributor_mdr_t0) || 0;
+            md_mdr = parseFloat(mdrRate.md_mdr_t0) || 0;
           } else {
             retailer_mdr = parseFloat(mdrRate.retailer_mdr_t1) || 0;
             distributor_mdr = parseFloat(mdrRate.distributor_mdr_t1) || 0;
+            md_mdr = parseFloat(mdrRate.md_mdr_t1) || 0;
           }
           usedSchemeId = resolved.scheme_id;
           usedSchemeType = (resolved.scheme_type === 'global' ? 'global' : 'custom') as 'global' | 'custom';
-          console.log(`[MDR] Scheme "${resolved.scheme_name}" resolved via ${resolved.resolved_via}, company=${mdrRate.merchant_slug || 'ALL'}, retailer_mdr: ${retailer_mdr}%, distributor_mdr: ${distributor_mdr}%, classification: ${card_classification || 'N/A'}`);
+          console.log(`[MDR] Scheme "${resolved.scheme_name}" resolved via ${resolved.resolved_via}, company=${mdrRate.merchant_slug || 'ALL'}, retailer_mdr: ${retailer_mdr}%, distributor_mdr: ${distributor_mdr}%, md_mdr: ${md_mdr}%, classification: ${card_classification || 'N/A'}`);
         }
       }
     } catch (newSchemeErr) {
@@ -226,25 +235,33 @@ export async function calculateMDR(
       usedSchemeType = scheme_type || 'global';
     }
 
-    // Calculate fees (with 4 decimal precision)
+    // Explicit per-tier commission model (NEXTGEN parity): each tier earns its
+    // OWN rate directly off the gross. The company keeps whatever remains after
+    // the retailer fee is reduced by the distributor + MD commissions.
+    //   retailer_fee           = amount * retailer_mdr%   (charged to retailer)
+    //   distributor_commission = amount * distributor_mdr%
+    //   md_commission          = amount * md_mdr%
+    //   company_earning        = retailer_fee − distributor_commission − md_commission
     const retailer_fee = Number(
       ((input.amount * retailer_mdr) / 100).toFixed(4)
     );
-    const distributor_fee = Number(
+    const distributor_commission = Number(
       ((input.amount * distributor_mdr) / 100).toFixed(4)
     );
-
-    // Calculate margin and earnings
-    const distributor_margin = Number(
-      (retailer_fee - distributor_fee).toFixed(4)
+    const md_commission = Number(
+      ((input.amount * md_mdr) / 100).toFixed(4)
     );
-    const company_earning = Number(distributor_fee.toFixed(4));
 
-    // Prevent negative margin
-    if (distributor_margin < 0) {
+    const company_earning = Number(
+      (retailer_fee - distributor_commission - md_commission).toFixed(4)
+    );
+
+    // The retailer rate must cover both upline tiers, else the company loses
+    // money on the transaction.
+    if (company_earning < 0) {
       return {
         success: false,
-        error: 'Distributor margin cannot be negative. Retailer MDR must be >= Distributor MDR',
+        error: `Invalid scheme: retailer MDR (${retailer_mdr}%) must be >= distributor MDR (${distributor_mdr}%) + MD MDR (${md_mdr}%).`,
       };
     }
 
@@ -258,9 +275,13 @@ export async function calculateMDR(
       result: {
         retailer_mdr,
         distributor_mdr,
+        md_mdr,
         retailer_fee,
-        distributor_fee,
-        distributor_margin,
+        distributor_fee: distributor_commission,
+        md_fee: md_commission,
+        distributor_commission,
+        md_commission,
+        distributor_margin: distributor_commission,
         company_earning,
         retailer_settlement_amount,
         scheme_type: usedSchemeType,
@@ -291,6 +312,20 @@ export async function createTransaction(
     const card_type = normalizeCardType(input.card_type || undefined);
     const brand_type = normalizeBrandType(input.brand_type || undefined);
 
+    // Resolve the retailer's master distributor so the MD commission leg can be
+    // paid at settlement time (explicit per-tier model).
+    let masterDistributorId: string | null = null;
+    try {
+      const { data: rd } = await supabase
+        .from('retailers')
+        .select('master_distributor_id')
+        .eq('partner_id', input.retailer_id)
+        .maybeSingle();
+      masterDistributorId = rd?.master_distributor_id || null;
+    } catch {
+      masterDistributorId = null;
+    }
+
     const transactionData = {
       razorpay_payment_id: input.razorpay_payment_id,
       amount: input.amount,
@@ -300,11 +335,15 @@ export async function createTransaction(
       brand_type: brand_type || null,
       retailer_id: input.retailer_id,
       distributor_id: input.distributor_id || null,
+      master_distributor_id: masterDistributorId,
       retailer_mdr_used: mdrResult.retailer_mdr,
       distributor_mdr_used: mdrResult.distributor_mdr,
+      md_mdr_used: mdrResult.md_mdr,
       retailer_fee: mdrResult.retailer_fee,
       distributor_fee: mdrResult.distributor_fee,
       distributor_margin: mdrResult.distributor_margin,
+      md_fee: mdrResult.md_fee,
+      md_commission: mdrResult.md_commission,
       company_earning: mdrResult.company_earning,
       retailer_settlement_amount: mdrResult.retailer_settlement_amount,
       settlement_status: input.settlement_type === 'T0' ? 'completed' : 'pending',
@@ -312,6 +351,8 @@ export async function createTransaction(
       retailer_wallet_credit_id: null,
       distributor_wallet_credited: false,
       distributor_wallet_credit_id: null,
+      md_wallet_credited: false,
+      md_wallet_credit_id: null,
       admin_wallet_credited: false,
       admin_wallet_credit_id: null,
       scheme_type: mdrResult.scheme_type,
@@ -446,35 +487,76 @@ export async function processSettlement(
       }
     }
 
-    // 2. Credit distributor wallet (distributor margin)
+    // 2. Credit distributor wallet (explicit DT commission, net of 2% TDS)
     if (transaction.distributor_id && !transaction.distributor_wallet_credited) {
-      const distributorResult = await creditWallet(
-        transaction.distributor_id,
-        'distributor',
-        transaction.distributor_margin,
-        transaction.razorpay_payment_id,
-        transaction.id,
-        `Distributor Margin - Amount: ₹${transaction.distributor_margin}`
-      );
+      const distGross = Number((transaction.distributor_margin || 0).toFixed(2));
+      const distTds = Number((distGross * UPLINE_COMMISSION_TDS_RATE).toFixed(2));
+      const distNet = Number((distGross - distTds).toFixed(2));
 
-      if (distributorResult.success && distributorResult.wallet_credit_id) {
-        distributor_credited = true;
-        // Update transaction record
-        await supabase
-          .from('transactions')
-          .update({
-            distributor_wallet_credited: true,
-            distributor_wallet_credit_id: distributorResult.wallet_credit_id,
-          })
-          .eq('id', transaction.id);
-      } else {
-        // Log but don't fail - distributor margin can be processed later
-        console.error(
-          `Failed to credit distributor wallet: ${distributorResult.error}`
+      if (distNet > 0) {
+        const distributorResult = await creditWallet(
+          transaction.distributor_id,
+          'distributor',
+          distNet,
+          transaction.razorpay_payment_id,
+          transaction.id,
+          `Distributor Commission - Gross: ₹${distGross}, TDS: ₹${distTds}, Net: ₹${distNet}`
         );
+
+        if (distributorResult.success && distributorResult.wallet_credit_id) {
+          distributor_credited = true;
+          await supabase
+            .from('transactions')
+            .update({
+              distributor_wallet_credited: true,
+              distributor_wallet_credit_id: distributorResult.wallet_credit_id,
+            })
+            .eq('id', transaction.id);
+        } else {
+          // Log but don't fail - distributor commission can be processed later
+          console.error(
+            `Failed to credit distributor wallet: ${distributorResult.error}`
+          );
+        }
+      } else {
+        distributor_credited = true;
       }
     } else if (transaction.distributor_wallet_credited) {
       distributor_credited = true;
+    }
+
+    // 2b. Credit master distributor wallet (explicit MD commission, net of 2% TDS)
+    if (
+      transaction.master_distributor_id &&
+      !transaction.md_wallet_credited &&
+      (transaction.md_commission || 0) > 0
+    ) {
+      const mdGross = Number((transaction.md_commission || 0).toFixed(2));
+      const mdTds = Number((mdGross * UPLINE_COMMISSION_TDS_RATE).toFixed(2));
+      const mdNet = Number((mdGross - mdTds).toFixed(2));
+
+      if (mdNet > 0) {
+        const mdResult = await creditWallet(
+          transaction.master_distributor_id,
+          'master_distributor',
+          mdNet,
+          `${transaction.razorpay_payment_id}-MD`,
+          transaction.id,
+          `MD Commission - Gross: ₹${mdGross}, TDS: ₹${mdTds}, Net: ₹${mdNet}`
+        );
+
+        if (mdResult.success && mdResult.wallet_credit_id) {
+          await supabase
+            .from('transactions')
+            .update({
+              md_wallet_credited: true,
+              md_wallet_credit_id: mdResult.wallet_credit_id,
+            })
+            .eq('id', transaction.id);
+        } else {
+          console.error(`Failed to credit MD wallet: ${mdResult.error}`);
+        }
+      }
     }
 
     // 3. Credit admin wallet (company earning)

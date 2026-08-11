@@ -34,6 +34,7 @@ export const DISTRIBUTOR_COMMISSION_TDS_RATE = 0.02
 
 interface RetailerMeta {
   distributorId: string | null
+  masterDistributorId: string | null
   name: string
   startAt: string | null
 }
@@ -42,6 +43,7 @@ export interface PosT1SettlementResult {
   processed: number
   failed: number
   commissionCredited: number
+  mdCommissionCredited: number
   excludedPreStart: number
   retailersProcessed: number
   results: Array<{
@@ -50,6 +52,8 @@ export interface PosT1SettlementResult {
     net: number
     commission: number
     distributor_id: string | null
+    md_commission: number
+    master_distributor_id: string | null
     wallet_credit_id: string | null
   }>
 }
@@ -101,6 +105,7 @@ export async function runPosT1Settlement(
     processed: 0,
     failed: 0,
     commissionCredited: 0,
+    mdCommissionCredited: 0,
     excludedPreStart: 0,
     retailersProcessed: 0,
     results: [],
@@ -151,11 +156,12 @@ export async function runPosT1Settlement(
       if (!meta) {
         const { data: rd } = await supabase
           .from('retailers')
-          .select('distributor_id, name, business_name, t1_settlement_start_at')
+          .select('distributor_id, master_distributor_id, name, business_name, t1_settlement_start_at')
           .eq('partner_id', retailerId)
           .maybeSingle()
         meta = {
           distributorId: rd?.distributor_id || null,
+          masterDistributorId: rd?.master_distributor_id || null,
           name: rd?.business_name || rd?.name || retailerId,
           startAt: rd?.t1_settlement_start_at || null,
         }
@@ -216,10 +222,16 @@ export async function runPosT1Settlement(
       }
 
       const r = mdrResult.result
-      const commission = meta.distributorId && r.distributor_margin > 0 ? r.distributor_margin : 0
-      // 2% TDS withheld on the distributor commission — net (gross - TDS) is credited.
+      // Explicit per-tier commissions: DT earns amount*distributor_mdr%, MD earns
+      // amount*md_mdr% — each paid off its own rate, net of 2% TDS.
+      const commission = meta.distributorId && r.distributor_commission > 0 ? r.distributor_commission : 0
       const commissionTds = commission > 0
         ? Math.round(commission * DISTRIBUTOR_COMMISSION_TDS_RATE * 100) / 100
+        : 0
+
+      const mdCommission = meta.masterDistributorId && r.md_commission > 0 ? r.md_commission : 0
+      const mdTds = mdCommission > 0
+        ? Math.round(mdCommission * DISTRIBUTOR_COMMISSION_TDS_RATE * 100) / 100
         : 0
 
       const { data: ledgerId, error: rpcError } = await supabase.rpc('settle_pos_txn_t1', {
@@ -239,6 +251,11 @@ export async function runPosT1Settlement(
         p_retailer_name: meta.name,
         p_retailer_ref: `AUTO-T1-${txn.txn_id}`,
         p_commission_ref: `AUTO-T1-COMM-${txn.txn_id}`,
+        p_master_distributor_id: mdCommission > 0 ? meta.masterDistributorId : null,
+        p_md_mdr: r.md_mdr,
+        p_md_commission: mdCommission,
+        p_md_commission_ref: `AUTO-T1-MDCOMM-${txn.txn_id}`,
+        p_md_tds: mdTds,
       })
 
       if (rpcError) {
@@ -259,6 +276,7 @@ export async function runPosT1Settlement(
       creditedThisIteration++
       result.processed++
       if (commission > 0) result.commissionCredited++
+      if (mdCommission > 0) result.mdCommissionCredited++
       if (!retailersProcessed.has(retailerId)) {
         retailersProcessed.add(retailerId)
         result.retailersProcessed++
@@ -269,6 +287,8 @@ export async function runPosT1Settlement(
         net: r.retailer_settlement_amount,
         commission,
         distributor_id: commission > 0 ? meta.distributorId : null,
+        md_commission: mdCommission,
+        master_distributor_id: mdCommission > 0 ? meta.masterDistributorId : null,
         wallet_credit_id: (ledgerId as string) || null,
       })
       await resolveSettlementAlerts(supabase, [txn.txn_id])

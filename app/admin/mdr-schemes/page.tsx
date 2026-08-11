@@ -4,6 +4,8 @@ import { useState, useEffect } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase/client'
+
+import { secureDb } from '@/lib/secure-db'
 import AdminSidebar from '@/components/AdminSidebar'
 import {
   Plus, Edit, Trash2, Search, X, Check, AlertCircle,
@@ -69,7 +71,7 @@ export default function AdminMDRSchemes() {
   const fetchSchemes = async () => {
     setLoading(true)
     try {
-      const { data, error } = await supabase
+      const { data, error } = await secureDb
         .from('global_schemes')
         .select('*')
         .order('created_at', { ascending: false })

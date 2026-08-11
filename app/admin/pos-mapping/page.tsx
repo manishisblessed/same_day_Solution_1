@@ -5,6 +5,8 @@ import { useAuth } from '@/contexts/AuthContext'
 import { useRouter } from 'next/navigation'
 import AdminSidebar from '@/components/AdminSidebar'
 import { supabase } from '@/lib/supabase/client'
+
+import { secureDb } from '@/lib/secure-db'
 import { 
   Settings, 
   ChevronLeft, 
@@ -84,9 +86,9 @@ function POSMappingPageContent() {
     try {
       // Fetch retailers, distributors, and master distributors
       const [{ data: retailersData }, { data: distributorsData }, { data: masterDistributorsData }] = await Promise.all([
-        supabase.from('retailers').select('partner_id, name').order('name'),
-        supabase.from('distributors').select('partner_id, name').order('name'),
-        supabase.from('master_distributors').select('partner_id, name').order('name')
+        secureDb.from('retailers').select('partner_id, name').order('name'),
+        secureDb.from('distributors').select('partner_id, name').order('name'),
+        secureDb.from('master_distributors').select('partner_id, name').order('name')
       ])
       
       if (retailersData) setRetailers(retailersData)

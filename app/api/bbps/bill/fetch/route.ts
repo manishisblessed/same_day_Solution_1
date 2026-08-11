@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserFromRequest } from '@/lib/auth-server-request'
+import { authorizeSubPartner } from '@/lib/partner-access'
 import { fetchBill } from '@/services/bbps'
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
 import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger'
@@ -36,6 +37,9 @@ export async function POST(request: NextRequest) {
       )
       return addCorsHeaders(request, response)
     }
+
+    const access = authorizeSubPartner(user, 'bbps')
+    if (!access.ok) return access.response
 
     // Only retailers can fetch bills
     if (!['retailer', 'partner'].includes(user.role)) {

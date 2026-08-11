@@ -43,7 +43,7 @@ const SERVICE_CONFIGS: ServiceConfig[] = [
     key: 'payout',
     label: 'Payout / DMT',
     icon: '💸',
-    description: 'Domestic Money Transfer via IMPS/NEFT',
+    description: 'Domestic Money Transfer via IMPS',
     providers: [
       { id: 'internal', name: 'Internal', description: 'Payout managed internally' },
     ],

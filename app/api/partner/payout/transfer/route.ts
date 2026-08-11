@@ -109,9 +109,9 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       )
     }
-    if (!['IMPS', 'NEFT'].includes(transferMode)) {
+    if (transferMode !== 'IMPS') {
       return NextResponse.json(
-        { success: false, error: { code: 'BAD_REQUEST', message: 'transferMode must be IMPS or NEFT' } },
+        { success: false, error: { code: 'BAD_REQUEST', message: 'transferMode must be IMPS' } },
         { status: 400 }
       )
     }
@@ -288,7 +288,7 @@ export async function POST(request: NextRequest) {
     // Initiate payout transfer
     const transferResult = await initiateTransfer({
       accountNumber, ifscCode, accountHolderName, amount: amountNum,
-      transferMode: transferMode as 'IMPS' | 'NEFT',
+      transferMode: transferMode as 'IMPS',
       bankId: parseInt(bankId), bankName, beneficiaryMobile, senderName, senderMobile,
       senderEmail: senderEmail || '', remarks: remarks || `Payout - ${clientRefId}`, clientRefId,
     })

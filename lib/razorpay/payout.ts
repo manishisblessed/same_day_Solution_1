@@ -11,7 +11,7 @@ interface PayoutRequest {
   fund_account_id?: string
   amount: number // in paise
   currency: string
-  mode: 'NEFT' | 'IMPS' | 'RTGS'
+  mode: 'IMPS' | 'RTGS'
   purpose: string
   queue_if_low_balance?: boolean
   reference_id: string
@@ -51,7 +51,7 @@ export async function createPayout(
       account_number: request.account_number,
       amount: amountInPaise,
       currency: request.currency || 'INR',
-      mode: request.mode || 'NEFT',
+      mode: request.mode || 'IMPS',
       purpose: request.purpose || 'payout',
       queue_if_low_balance: request.queue_if_low_balance !== false, // Default to true
       reference_id: request.reference_id,
@@ -170,7 +170,7 @@ export async function createSettlementPayout(
     account_number: settlement.bank_account_number,
     amount: settlement.net_amount, // Use net amount (after charge deduction)
     currency: 'INR',
-    mode: 'NEFT', // Default to NEFT, can be made configurable
+    mode: 'IMPS',
     purpose: 'payout',
     queue_if_low_balance: true,
     reference_id: `SETTLE_${settlement.id}`,

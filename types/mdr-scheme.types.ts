@@ -77,15 +77,19 @@ export interface Transaction {
   
   retailer_id: string;
   distributor_id: string | null;
+  master_distributor_id: string | null;
   
   // MDR rates used
   retailer_mdr_used: number;
   distributor_mdr_used: number;
+  md_mdr_used: number;
   
   // Fee calculations
   retailer_fee: number;
   distributor_fee: number;
   distributor_margin: number;
+  md_fee: number;
+  md_commission: number;
   company_earning: number;
   
   // Settlement
@@ -97,6 +101,8 @@ export interface Transaction {
   retailer_wallet_credit_id: string | null;
   distributor_wallet_credited: boolean;
   distributor_wallet_credit_id: string | null;
+  md_wallet_credited: boolean;
+  md_wallet_credit_id: string | null;
   admin_wallet_credited: boolean;
   admin_wallet_credit_id: string | null;
   
@@ -129,9 +135,27 @@ export interface SchemeQueryParams {
 export interface MDRCalculationResult {
   retailer_mdr: number;
   distributor_mdr: number;
+  /** Master Distributor MDR (explicit commission rate for the MD tier). */
+  md_mdr: number;
   retailer_fee: number;
   distributor_fee: number;
+  /** MD commission fee = amount * md_mdr% (gross, before TDS). */
+  md_fee: number;
+  /**
+   * Explicit per-tier gross commissions (NEXTGEN model). Each tier earns its
+   * own rate directly off the gross — NOT the leftover margin between tiers.
+   *   distributor_commission = amount * distributor_mdr%
+   *   md_commission          = amount * md_mdr%
+   */
+  distributor_commission: number;
+  md_commission: number;
+  /**
+   * Backward-compat alias for the distributor payout. Under the explicit
+   * per-tier model this equals `distributor_commission` (what the DT is paid),
+   * not the old retailer−distributor leftover.
+   */
   distributor_margin: number;
+  /** Company net = retailer_fee − distributor_commission − md_commission. */
   company_earning: number;
   retailer_settlement_amount: number;
   scheme_type: SchemeType;

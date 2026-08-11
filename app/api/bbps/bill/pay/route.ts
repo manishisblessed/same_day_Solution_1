@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
+import { authorizeSubPartner } from '@/lib/partner-access'
 import { createClient } from '@supabase/supabase-js'
 import { payRequest, generateAgentTransactionId, getBBPSWalletBalance } from '@/services/bbps'
 import { paiseToRupees } from '@/lib/bbps/currency'
@@ -54,6 +55,9 @@ export async function POST(request: NextRequest) {
       )
       return addCorsHeaders(request, response)
     }
+
+    const access = authorizeSubPartner(user, 'bbps')
+    if (!access.ok) return access.response
 
     // Only retailers can pay bills
     if (!['retailer', 'partner'].includes(user.role)) {

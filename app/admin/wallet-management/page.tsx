@@ -4,6 +4,8 @@ import { useState, useEffect } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase/client'
+
+import { secureDb } from '@/lib/secure-db'
 import {
   Wallet, ArrowUpCircle, ArrowDownCircle, Lock, Unlock,
   Snowflake, Sun, Search, Filter, Download, RefreshCw,
@@ -50,9 +52,9 @@ export default function AdminWalletManagement() {
     setLoading(true)
     try {
       const [retailers, distributors, masterDistributors] = await Promise.all([
-        supabase.from('retailers').select('id, partner_id, name, email, status').order('created_at', { ascending: false }),
-        supabase.from('distributors').select('id, partner_id, name, email, status').order('created_at', { ascending: false }),
-        supabase.from('master_distributors').select('id, partner_id, name, email, status').order('created_at', { ascending: false })
+        secureDb.from('retailers').select('id, partner_id, name, email, status').order('created_at', { ascending: false }),
+        secureDb.from('distributors').select('id, partner_id, name, email, status').order('created_at', { ascending: false }),
+        secureDb.from('master_distributors').select('id, partner_id, name, email, status').order('created_at', { ascending: false })
       ])
 
       const allUsers = [
@@ -67,7 +69,7 @@ export default function AdminWalletManagement() {
           try {
             let balance = 0
             try {
-              const { data: balanceData } = await supabase.rpc('get_wallet_balance_v2', {
+              const { data: balanceData } = await secureDb.rpc('get_wallet_balance_v2', {
                 p_user_id: u.partner_id,
                 p_wallet_type: 'primary'
               })
@@ -78,7 +80,7 @@ export default function AdminWalletManagement() {
 
             let wallet = null
             try {
-              const { data: walletData } = await supabase
+              const { data: walletData } = await secureDb
                 .from('wallets')
                 .select('is_frozen, is_settlement_held')
                 .eq('user_id', u.partner_id)

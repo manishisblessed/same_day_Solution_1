@@ -56,7 +56,7 @@ export async function GET(request: NextRequest) {
       code: mainResult.code,
       error: mainResult.status !== 'SUCCESS' ? mainResult.message : null,
       provider: 'SHADVAL PAY PRIVATE LIMITED',
-      service_name: 'Payout (IMPS/NEFT/RTGS)',
+      service_name: 'Payout (IMPS/RTGS)',
       last_checked: new Date().toISOString(),
     })
 

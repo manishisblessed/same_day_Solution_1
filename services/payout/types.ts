@@ -136,7 +136,7 @@ export interface TransferRequest {
   ifscCode: string
   accountHolderName: string
   amount: number
-  transferMode: 'IMPS' | 'NEFT'
+  transferMode: 'IMPS'
   bankId?: number          // Optional: BankID from bank list (will be resolved if not provided)
   bankName?: string        // Optional: Bank name (will be resolved if not provided)
   beneficiaryMobile: string // Required: Beneficiary mobile
@@ -163,7 +163,7 @@ export interface ExpressPayRequestBody {
   SenderEmail: string
   SenderMobile: string
   SenderName: string
-  paymentType: 'IMPS' | 'NEFT'
+  paymentType: 'IMPS'
   WebHook: string
   extraParam1: string
   extraParam2: string
@@ -247,7 +247,7 @@ export interface PayoutTransaction {
   bank_name?: string
   amount: number
   charges: number
-  transfer_mode: 'IMPS' | 'NEFT'
+  transfer_mode: 'IMPS'
   client_ref_id: string
   transaction_id?: string
   rrn?: string

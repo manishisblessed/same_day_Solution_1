@@ -3,6 +3,8 @@
 import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { supabase } from '@/lib/supabase/client'
+
+import { secureDb } from '@/lib/secure-db'
 import {
   FileBarChart, Download, Calendar, Filter, Search,
   FileSpreadsheet, FileJson, FileText, Printer, RefreshCw,
@@ -92,7 +94,7 @@ export default function ReportsPage() {
     try {
       const { start, end } = getDateRangeValues()
 
-      let query = supabase
+      let query = secureDb
         .from('transactions')
         .select('*')
         .gte('created_at', start.toISOString())
@@ -133,7 +135,7 @@ export default function ReportsPage() {
     
     try {
       // Fetch all data for export
-      let exportQuery = supabase
+      let exportQuery = secureDb
         .from('transactions')
         .select('*')
         .gte('created_at', start.toISOString())

@@ -127,7 +127,7 @@ export async function POST(request: NextRequest) {
 
     const transferRequest: ShadvalTransferRequest = {
       amount: parseFloat(String(txRecord.amount)),
-      mode: txRecord.mode as 'IMPS' | 'NEFT' | 'RTGS',
+      mode: txRecord.mode as 'IMPS' | 'RTGS',
       fund_account: {
         name: txRecord.account_holder_name,
         ifsc: txRecord.ifsc_code,

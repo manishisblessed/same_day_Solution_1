@@ -151,13 +151,21 @@ export async function POST(request: NextRequest) {
             p_tx_type: 'REFUND',
             p_credit: parseFloat(txn.amount),
             p_debit: 0,
-            p_reference_id: `RECON_REFUND_${txn.id}_${Date.now()}`,
+            // Deterministic, mode-agnostic reference: an AEPS txn can be refunded
+            // at most once (unique index on reference_id+user), preventing a
+            // concurrent double-click from double-crediting the wallet.
+            p_reference_id: `AEPS_REFUND_${txn.id}`,
             p_transaction_id: txn.id,
             p_status: 'completed',
             p_remarks: `Reconciliation refund - ${remarks || 'marked failed by admin'}`,
           })
 
-          if (!refundError) {
+          const dupRefund = !!refundError && (
+            (refundError.message || '').toLowerCase().includes('duplicate') ||
+            (refundError as any).code === '23505'
+          )
+          if (!refundError || dupRefund) {
+            // Success OR already-refunded (idempotent) — assert the flag either way.
             refunded = true
             await supabase
               .from('aeps_transactions')
@@ -198,15 +206,23 @@ export async function POST(request: NextRequest) {
           p_tx_type: 'REFUND',
           p_credit: amount,
           p_debit: 0,
-          p_reference_id: `FORCE_REFUND_${txn.id}_${Date.now()}`,
+          // Same deterministic reference as every other refund path for this txn.
+          p_reference_id: `AEPS_REFUND_${txn.id}`,
           p_transaction_id: txn.id,
           p_status: 'completed',
           p_remarks: `Admin force refund - ${remarks || 'manual reconciliation'}`,
         })
 
         if (refundError) {
-          console.error('[Reconciliation] Force refund error:', refundError)
-          return NextResponse.json({ error: 'Failed to process refund' }, { status: 500 })
+          // A duplicate means this transaction was already refunded — idempotent,
+          // so fall through and (re)assert the reversed state instead of erroring.
+          const dup = (refundError.message || '').toLowerCase().includes('duplicate') ||
+            (refundError as any).code === '23505'
+          if (!dup) {
+            console.error('[Reconciliation] Force refund error:', refundError)
+            return NextResponse.json({ error: 'Failed to process refund' }, { status: 500 })
+          }
+          console.warn(`[Reconciliation] AEPS ${txn.id} already refunded — marking reversed`)
         }
 
         await supabase
@@ -291,7 +307,7 @@ export async function POST(request: NextRequest) {
                 p_tx_type: 'REFUND',
                 p_credit: parseFloat(txn.amount),
                 p_debit: 0,
-                p_reference_id: `RETRY_REFUND_${txn.id}_${Date.now()}`,
+                p_reference_id: `AEPS_REFUND_${txn.id}`,
                 p_transaction_id: txn.id,
                 p_status: 'completed',
                 p_remarks: `Auto-refund after retry check confirmed failure`,

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
+import { authorizeSubPartner } from '@/lib/partner-access'
 
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
 import { verifyBankAccount } from '@/services/payout'
@@ -50,6 +51,9 @@ export async function POST(request: NextRequest) {
       )
       return addCorsHeaders(request, response)
     }
+
+    const access = authorizeSubPartner(user, 'payout')
+    if (!access.ok) return access.response
 
     const userRole = user.role as string | undefined
     if (!['retailer', 'partner', 'admin', 'super_admin'].includes(userRole || '')) {

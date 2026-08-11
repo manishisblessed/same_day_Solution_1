@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
+import { authorizeSubPartner } from '@/lib/partner-access'
 import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger'
 import { createClient } from '@supabase/supabase-js'
 import { getTransferStatus } from '@/services/payout'
@@ -35,6 +36,9 @@ export async function POST(request: NextRequest) {
     if (!user) {
       return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
     }
+
+    const access = authorizeSubPartner(user, 'reports')
+    if (!access.ok) return access.response
 
     const allowedRoles = ['admin', 'finance_executive', 'retailer', 'partner']
     if (!allowedRoles.includes(user.role)) {

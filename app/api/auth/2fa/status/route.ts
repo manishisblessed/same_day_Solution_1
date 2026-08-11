@@ -1,8 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseAdmin } from '@/lib/supabase/server-admin'
+import { rateLimit, RATE_LIMITS } from '@/lib/rate-limit'
 
 export async function POST(request: NextRequest) {
   try {
+    // Per-IP throttle blunts bulk email enumeration ("which accounts have 2FA?").
+    const rl = rateLimit(request, RATE_LIMITS.twofaStatus)
+    if (rl.limited) return rl.response!
+
     const { email } = await request.json()
 
     if (!email) {

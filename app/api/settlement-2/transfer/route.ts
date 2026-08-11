@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
+import { authorizeSubPartner } from '@/lib/partner-access'
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
 import { initiateBankTransfer } from '@/services/shadval-pay'
 import type { ShadvalTransferRequest } from '@/services/shadval-pay'
@@ -43,6 +44,8 @@ export async function POST(request: NextRequest) {
 
   try {
     const { user } = await getCurrentUserWithFallback(request)
+    const access = authorizeSubPartner(user, 'settlement-2')
+    if (!access.ok) return access.response
     if (!user || !['retailer', 'distributor', 'partner'].includes(user.role)) {
       const response = NextResponse.json({ success: false, error: 'Access denied' }, { status: 403 })
       return addCorsHeaders(request, response)
@@ -92,7 +95,7 @@ export async function POST(request: NextRequest) {
       return addCorsHeaders(request, response)
     }
 
-    const validModes = ['IMPS', 'NEFT', 'RTGS']
+    const validModes = ['IMPS', 'RTGS']
     if (!validModes.includes(mode)) {
       const response = NextResponse.json({ success: false, error: 'Invalid transfer mode' }, { status: 400 })
       return addCorsHeaders(request, response)
@@ -204,7 +207,7 @@ export async function POST(request: NextRequest) {
           { p_scheme_id: resolved.scheme_id, p_amount: amountNum, p_transfer_mode: mode }
         )
 
-        if (!chargeError && chargeResult?.length > 0) {
+        if (!chargeError && chargeResult?.length > 0 && parseFloat(chargeResult[0].retailer_charge) > 0) {
           baseCharges = parseFloat(chargeResult[0].retailer_charge) || 0
           gstAmount = Math.round(baseCharges * GST_PERCENT / 100 * 100) / 100
           charges = Math.round((baseCharges + gstAmount) * 100) / 100
@@ -231,23 +234,46 @@ export async function POST(request: NextRequest) {
       console.error('[Settlement-2] Scheme resolution failed:', schemeErr)
     }
 
-    // Direct query fallback for charges
-    if (!resolvedSchemeId) {
+    // Direct query fallback for charges (also triggers when RPC returned retailer_charge=0).
+    // Scope to the user's entitled scheme(s): the RPC-resolved scheme if present,
+    // otherwise the schemes directly mapped to the user. This prevents picking up
+    // charges from an unrelated/previous scheme.
+    if (!resolvedSchemeId || baseCharges === 0) {
       try {
-        const { data: slabs } = await supabaseAdmin
+        let scopedSchemeIds: string[] = []
+        if (resolvedSchemeId) {
+          scopedSchemeIds = [resolvedSchemeId]
+        } else {
+          const { data: mappings } = await supabaseAdmin
+            .from('scheme_mappings')
+            .select('scheme_id, service_type, status')
+            .eq('entity_id', user.partner_id)
+            .eq('entity_role', user.role)
+            .eq('status', 'active')
+          scopedSchemeIds = (mappings || [])
+            .filter((m: any) => !m.service_type || m.service_type === 'all' || m.service_type === 'shadval_settlement')
+            .map((m: any) => m.scheme_id)
+        }
+
+        const { data: slabs } = scopedSchemeIds.length > 0 ? await supabaseAdmin
           .from('scheme_shadval_settlement_charges')
           .select('*, schemes!inner(id, name, status)')
+          .in('scheme_id', scopedSchemeIds)
           .eq('status', 'active')
           .eq('transfer_mode', mode)
           .lte('min_amount', amountNum)
           .gte('max_amount', amountNum)
           .order('min_amount', { ascending: false })
-          .limit(1)
+          .limit(1) : { data: null }
 
         if (slabs?.length) {
           const slab = slabs[0] as any
           const calc = (v: number, t: string) => t === 'percentage' ? Math.round(amountNum * v / 100 * 100) / 100 : v
-          baseCharges = calc(parseFloat(slab.retailer_charge) || 0, slab.retailer_charge_type)
+          const rtCharge = parseFloat(slab.rt_purchase_charge) || 0
+          const rawRetailer = parseFloat(slab.retailer_charge) || 0
+          const effectiveCharge = rtCharge > 0 ? rtCharge : rawRetailer
+          const effectiveType = rtCharge > 0 ? (slab.rt_purchase_charge_type || 'flat') : (slab.retailer_charge_type || 'flat')
+          baseCharges = calc(effectiveCharge, effectiveType)
           gstAmount = Math.round(baseCharges * GST_PERCENT / 100 * 100) / 100
           charges = Math.round((baseCharges + gstAmount) * 100) / 100
           commissionSplit = {
@@ -548,7 +574,7 @@ export async function POST(request: NextRequest) {
 
     const transferRequest: ShadvalTransferRequest = {
       amount: amountNum,
-      mode: mode as 'IMPS' | 'NEFT' | 'RTGS',
+      mode: mode as 'IMPS' | 'RTGS',
       fund_account: {
         name: fundAccountName,
         ifsc: account.ifsc_code,

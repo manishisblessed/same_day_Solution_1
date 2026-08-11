@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
+import { authorizeSubPartner } from '@/lib/partner-access'
 import { fetchBillerInfo } from '@/services/bbps/fetchBillerInfo'
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
 
@@ -21,6 +22,9 @@ export async function POST(request: NextRequest) {
       const response = NextResponse.json({ error: 'Authentication required' }, { status: 401 })
       return addCorsHeaders(request, response)
     }
+
+    const access = authorizeSubPartner(user, 'bbps')
+    if (!access.ok) return access.response
 
     // Only retailers can fetch biller info
     if (!['retailer', 'partner'].includes(user.role)) {

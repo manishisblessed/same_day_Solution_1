@@ -3,6 +3,8 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
 import { supabase } from '@/lib/supabase/client'
+
+import { secureDb } from '@/lib/secure-db'
 import { apiFetchJson, newIdempotencyKey } from '@/lib/api-client'
 import { motion } from 'framer-motion'
 import {
@@ -80,7 +82,7 @@ export default function PayoutTransfer({ title, readOnly }: PayoutTransferProps 
   const [accountHolderName, setAccountHolderName] = useState('')
   const [beneficiaryMobile, setBeneficiaryMobile] = useState('')
   const [amount, setAmount] = useState('')
-  const [transferMode, setTransferMode] = useState<'IMPS' | 'NEFT'>('IMPS')
+  const [transferMode, setTransferMode] = useState<'IMPS'>('IMPS')
   const [remarks, setRemarks] = useState('')
   const [tpin, setTpin] = useState('')
   const [showTpin, setShowTpin] = useState(false)
@@ -231,7 +233,7 @@ export default function PayoutTransfer({ title, readOnly }: PayoutTransferProps 
     
     setLoadingBalance(true)
     try {
-      const { data, error } = await supabase.rpc('get_wallet_balance_v2', {
+      const { data, error } = await secureDb.rpc('get_wallet_balance_v2', {
         p_user_id: user.partner_id,
         p_wallet_type: 'primary'
       })
@@ -749,7 +751,7 @@ export default function PayoutTransfer({ title, readOnly }: PayoutTransferProps 
       setSenderEmail(user.email || '')
       // Fetch phone from retailer profile if available
       if (user.partner_id) {
-        supabase
+        secureDb
           .from('retailers')
           .select('phone')
           .eq('partner_id', user.partner_id)
