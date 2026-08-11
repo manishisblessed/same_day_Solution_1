@@ -105,6 +105,13 @@ nginx-config*.txt
 fix-add-ledger-entry-amount.sql
 supabase-bbps2-pay2new-migration.sql
 
+# One-off local debug / data-fix scripts (never deploy these)
+check-refund-date.js
+check-txns.js
+fix-may8-refunds.js
+get-details.js
+verify-refunds.js
+
 # Test files
 src/test/
 *.test.js
