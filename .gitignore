@@ -89,6 +89,9 @@ ec2.config.js
 !postcss.config.js
 !tailwind.config.ts
 
+# Monitoring webhook secret (real webhook lives only on the server)
+scripts/monitoring/config.env
+
 # Deployment scripts and server configs
 *.sh
 nginx-config*.conf
