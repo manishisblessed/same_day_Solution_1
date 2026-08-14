@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js'
 import { authenticatePartner, PartnerAuthError, partnerCanUseApi } from '@/lib/partner-auth'
 import { checkTransactionStatus } from '@/services/shadval-pay'
 import { sendSettlementCallback } from '@/lib/settlement-callback'
+import { refundShadvalSettlement, isGenuineProviderSuccess } from '@/lib/settlement-2/shadval-refund'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -108,11 +109,24 @@ export async function GET(request: NextRequest) {
         const apiResult = await checkTransactionStatus({ reference_id: referenceId })
         if (apiResult.status === 'SUCCESS' && apiResult.data) {
           const txnStatusLower = apiResult.data.txn_status?.toLowerCase() || ''
-          const newStatus = (txnStatusLower.includes('success') && !txnStatusLower.includes('refund'))
+          // Genuine success requires a UTR (money left the bank).
+          const genuineSuccess = isGenuineProviderSuccess(apiResult)
+          let newStatus = genuineSuccess
             ? 'SUCCESS'
-            : (txnStatusLower.includes('fail') || txnStatusLower.includes('refund'))
+            : (txnStatusLower.includes('fail') || txnStatusLower.includes('revers') || txnStatusLower.includes('refund'))
               ? 'FAILED'
               : 'PENDING'
+
+          // Refund on failure — routed through the shared, exactly-once helper
+          // which re-verifies with the provider and REFUSES to refund a payout
+          // that actually succeeded (anti double-money guard).
+          if (newStatus === 'FAILED') {
+            const refund = await refundShadvalSettlement(supabase, tx, { note: 'partner status poll' })
+            if (refund.blockedProviderSuccess) {
+              // Payout actually succeeded — do not fail/refund. Reconcile to SUCCESS.
+              newStatus = 'SUCCESS'
+            }
+          }
 
           await supabase
             .from('shadval_settlement')
@@ -124,21 +138,6 @@ export async function GET(request: NextRequest) {
               provider_timestamp: apiResult.data.timestamp,
             })
             .eq('id', tx.id)
-
-          // Refund on failure
-          if (newStatus === 'FAILED') {
-            const totalRefund = tx.amount + (tx.charges || 0)
-            try {
-              await supabase.rpc('refund_partner_wallet', {
-                p_partner_id: partner.id,
-                p_amount: totalRefund,
-                p_payout_transaction_id: tx.id,
-                p_description: `Settlement failed - Auto refund: ${apiResult.data.txn_status}`,
-                p_reference_id: `REFUND_${referenceId}`,
-                p_service_type: 'shadval_settlement',
-              })
-            } catch {}
-          }
 
           // Fire callback when PENDING resolves to terminal state
           if (newStatus !== 'PENDING') {

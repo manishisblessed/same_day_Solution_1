@@ -5,7 +5,7 @@ import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
 import { checkTransactionStatus } from '@/services/shadval-pay'
 import { createClient } from '@supabase/supabase-js'
 import { reverseServiceCommission } from '@/lib/commission/distribute-service-commission'
-import { refundShadvalSettlement } from '@/lib/settlement-2/shadval-refund'
+import { refundShadvalSettlement, isGenuineProviderSuccess } from '@/lib/settlement-2/shadval-refund'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -76,9 +76,12 @@ export async function POST(request: NextRequest) {
 
     if (apiResult.status === 'SUCCESS' && apiResult.data) {
       const txnStatusLower = apiResult.data.txn_status?.toLowerCase() || ''
-      const newStatus = (txnStatusLower.includes('success') && !txnStatusLower.includes('refund'))
+      // A genuine success MUST carry a UTR (money left the bank). A status text
+      // that merely contains "success" without a UTR is not trustworthy.
+      const genuineSuccess = isGenuineProviderSuccess(apiResult)
+      const newStatus = genuineSuccess
         ? 'SUCCESS'
-        : (txnStatusLower.includes('fail') || txnStatusLower.includes('refund'))
+        : (txnStatusLower.includes('fail') || txnStatusLower.includes('revers') || txnStatusLower.includes('refund'))
         ? 'FAILED'
         : 'PENDING'
 
@@ -104,7 +107,20 @@ export async function POST(request: NextRequest) {
           // Refund exactly what was debited, routed to the correct wallet backend
           // (partner vs retailer) with the shared, exactly-once refund helper.
           const refund = await refundShadvalSettlement(supabaseAdmin, txRecord, { note: 'status poll' })
-          if (refund.critical) {
+
+          if (refund.blockedProviderSuccess) {
+            // The payout actually SUCCEEDED — undo the FAILED flip so we never
+            // create the "bank paid + wallet refunded" double-money state.
+            console.warn(`[Settlement-2 Status] Refund BLOCKED — provider confirms success (UTR ${refund.providerUtr}) for ${reference_id}. Reconciling to SUCCESS.`)
+            await supabaseAdmin
+              .from('shadval_settlement')
+              .update({
+                status: 'SUCCESS',
+                utr: refund.providerUtr || apiResult.data.utr || undefined,
+                status_message: `${apiResult.data.status_message || apiResult.data.txn_status} [Reconciled SUCCESS — refund blocked, payout confirmed]`,
+              })
+              .eq('id', txRecord.id)
+          } else if (refund.critical) {
             console.error('[Settlement-2 Status] CRITICAL refund failed:', refund.error)
             await supabaseAdmin
               .from('shadval_settlement')
@@ -117,8 +133,9 @@ export async function POST(request: NextRequest) {
           }
 
           // Reverse commission/revenue if charges were involved (DT + company; no MD).
-          // Skip when the money refund itself failed — that needs manual review first.
-          const chargesNum = refund.critical ? 0 : parseFloat(String(txRecord.charges || 0))
+          // Skip when the money refund failed (needs review) or was blocked
+          // because the payout actually succeeded (charges are legitimately earned).
+          const chargesNum = (refund.critical || refund.blockedProviderSuccess) ? 0 : parseFloat(String(txRecord.charges || 0))
           if (chargesNum > 0) {
             await reverseServiceCommission({
               supabase: supabaseAdmin,

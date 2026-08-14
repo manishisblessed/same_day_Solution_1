@@ -262,7 +262,9 @@ export async function POST(request: NextRequest) {
         continue
       }
 
-      const refund = await refundShadvalSettlement(supabase, tx, { note: `admin manual by ${admin.email}` })
+      // This route has already done its own authoritative provider verification
+      // (STEP 2) and reconciliation, so skip the helper's redundant re-check.
+      const refund = await refundShadvalSettlement(supabase, tx, { note: `admin manual by ${admin.email}`, verifyProvider: false })
 
       if (refund.critical) {
         critical++

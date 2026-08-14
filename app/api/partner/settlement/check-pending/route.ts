@@ -3,7 +3,7 @@ import { createClient } from '@supabase/supabase-js'
 import { checkTransactionStatus } from '@/services/shadval-pay'
 import { sendSettlementCallback } from '@/lib/settlement-callback'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
-import { refundShadvalSettlement } from '@/lib/settlement-2/shadval-refund'
+import { refundShadvalSettlement, isGenuineProviderSuccess } from '@/lib/settlement-2/shadval-refund'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -85,8 +85,10 @@ export async function POST(request: NextRequest) {
 
           if (statusResult.status === 'SUCCESS' && statusResult.data) {
             const txnStatus = statusResult.data.txn_status?.toLowerCase() || ''
-            const isSuccess = txnStatus.includes('success')
-            const isFailed = txnStatus.includes('fail') || txnStatus.includes('reversed')
+            // Genuine success requires a UTR (money left the bank). Never treat a
+            // bare "success" string as terminal success without one.
+            const isSuccess = isGenuineProviderSuccess(statusResult)
+            const isFailed = !isSuccess && (txnStatus.includes('fail') || txnStatus.includes('revers') || txnStatus.includes('refund'))
 
             if (isSuccess || isFailed) {
               const newStatus = isSuccess ? 'SUCCESS' : 'FAILED'
@@ -116,6 +118,22 @@ export async function POST(request: NextRequest) {
                 // Route to the correct wallet (partner vs retailer) via the shared
                 // exactly-once refund helper.
                 const refund = await refundShadvalSettlement(supabase, tx, { note: 'check-pending auto' })
+                if (refund.blockedProviderSuccess) {
+                  // Payout actually succeeded — undo the FAILED flip. No refund, no loss.
+                  console.warn(`[Settlement Check-Pending] Refund BLOCKED — provider confirms success (UTR ${refund.providerUtr}) for ${tx.id}. Reconciling to SUCCESS.`)
+                  await supabase
+                    .from('shadval_settlement')
+                    .update({
+                      status: 'SUCCESS',
+                      utr: refund.providerUtr || statusResult.data.utr || tx.utr || null,
+                      status_message: `${statusResult.data.status_message || statusResult.data.txn_status || 'SUCCESS'} [Reconciled SUCCESS — refund blocked, payout confirmed]`,
+                      updated_at: new Date().toISOString(),
+                    })
+                    .eq('id', tx.id)
+                  resolved++
+                  results.push({ id: tx.id, ref: tx.reference_id, previous_status: 'PENDING', new_status: 'SUCCESS', action: 'reconciled_success_refund_blocked' })
+                  continue
+                }
                 if (refund.critical) {
                   console.error(`[Settlement Check-Pending] CRITICAL refund failed for ${tx.id}:`, refund.error)
                   await supabase
@@ -169,7 +187,27 @@ export async function POST(request: NextRequest) {
           // Unified reference (REFUND_<ref>) — NOT REFUND_TIMEOUT_ — so this can
           // never double-credit on top of a status-poll/verify refund. The helper
           // also treats any legacy REFUND_TIMEOUT_ entry as already refunded.
+          //
+          // The helper additionally re-checks the provider before crediting: a
+          // transaction can sit PENDING for 60 min and STILL have been paid out.
+          // If so the refund is blocked and we reconcile to SUCCESS — this is the
+          // key guard against the timeout path causing a double-money loss.
           const refund = await refundShadvalSettlement(supabase, tx, { note: `timeout ${txAgeMin}min` })
+          if (refund.blockedProviderSuccess) {
+            console.warn(`[Settlement Check-Pending] Timeout refund BLOCKED — provider confirms success (UTR ${refund.providerUtr}) for ${tx.id}. Reconciling to SUCCESS.`)
+            await supabase
+              .from('shadval_settlement')
+              .update({
+                status: 'SUCCESS',
+                utr: refund.providerUtr || tx.utr || null,
+                status_message: `Reconciled SUCCESS after ${txAgeMin}min — refund blocked, payout confirmed`,
+                updated_at: new Date().toISOString(),
+              })
+              .eq('id', tx.id)
+            resolved++
+            results.push({ id: tx.id, ref: tx.reference_id, previous_status: 'PENDING', new_status: 'SUCCESS', action: `reconciled_success_refund_blocked_${txAgeMin}min` })
+            continue
+          }
           if (refund.critical) {
             console.error(`[Settlement Check-Pending] CRITICAL timeout refund failed for ${tx.id}:`, refund.error)
             await supabase

@@ -8,7 +8,7 @@ import { transactionStatus } from '@/services/bbps'
 import { checkTransactionStatus as shadvalCheckStatus } from '@/services/shadval-pay'
 import { creditSettlementFeeToPlatformWallet } from '@/lib/wallet/platform-revenue-wallet'
 import { reverseServiceCommission } from '@/lib/commission/distribute-service-commission'
-import { refundShadvalSettlement } from '@/lib/settlement-2/shadval-refund'
+import { refundShadvalSettlement, isGenuineProviderSuccess } from '@/lib/settlement-2/shadval-refund'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -562,6 +562,31 @@ async function verifyShadval(
   if (tx.status === 'FAILED') {
     const refund = await refundShadvalSettlement(supabase, tx, { note: 'verification recovery' })
 
+    // Anti-loss guard: the row was marked FAILED but the provider actually paid
+    // out. Do NOT refund — correct the record to SUCCESS instead.
+    if (refund.blockedProviderSuccess) {
+      await supabase
+        .from('shadval_settlement')
+        .update({
+          status: 'SUCCESS',
+          utr: refund.providerUtr || tx.utr || undefined,
+          status_message: `${stripRefundMarkers(tx.status_message)} [Reconciled SUCCESS — refund blocked, payout confirmed]`,
+        })
+        .eq('id', tx.id)
+      await logVerifyActivity(request, user, 'shadval_verify_recovery_reconciled_success', tx.id, {
+        previous_status: 'FAILED',
+        new_status: 'SUCCESS',
+        provider_utr: refund.providerUtr,
+      })
+      return NextResponse.json({
+        success: true,
+        action: 'reconciled_success',
+        message: `Provider confirms this settlement SUCCEEDED (UTR ${refund.providerUtr || ''}). Refund blocked — corrected to SUCCESS.`,
+        status: 'SUCCESS',
+        refunded: false,
+      })
+    }
+
     if (refund.critical) {
       await supabase
         .from('shadval_settlement')
@@ -658,9 +683,10 @@ async function verifyShadval(
   }
 
   const txnStatusLower = apiResult.data.txn_status?.toLowerCase() || ''
-  const newStatus = (txnStatusLower.includes('success') && !txnStatusLower.includes('refund'))
+  // Genuine success requires a UTR (money left the bank).
+  const newStatus = isGenuineProviderSuccess(apiResult)
     ? 'SUCCESS'
-    : (txnStatusLower.includes('fail') || txnStatusLower.includes('refund'))
+    : (txnStatusLower.includes('fail') || txnStatusLower.includes('revers') || txnStatusLower.includes('refund'))
     ? 'FAILED'
     : 'PENDING'
 
@@ -729,6 +755,30 @@ async function verifyShadval(
   const refund = await refundShadvalSettlement(supabase, tx, { note: 'verification' })
   const refundedAmount = refund.refunded
   const refundCritical = refund.critical
+
+  // Anti-loss guard fired: the payout actually succeeded. Undo the FAILED flip.
+  if (refund.blockedProviderSuccess) {
+    await supabase
+      .from('shadval_settlement')
+      .update({
+        status: 'SUCCESS',
+        utr: refund.providerUtr || apiResult.data.utr || undefined,
+        status_message: `${apiResult.data.status_message || apiResult.data.txn_status} [Reconciled SUCCESS — refund blocked, payout confirmed]`,
+      })
+      .eq('id', tx.id)
+    await logVerifyActivity(request, user, 'shadval_verify_refund_blocked_reconciled_success', tx.id, {
+      previous_status: 'PENDING',
+      new_status: 'SUCCESS',
+      provider_utr: refund.providerUtr,
+    })
+    return NextResponse.json({
+      success: true,
+      action: 'reconciled_success',
+      message: `Provider confirms this settlement SUCCEEDED (UTR ${refund.providerUtr || apiResult.data.utr || ''}). Refund blocked — no wallet credit. Marked SUCCESS.`,
+      status: 'SUCCESS',
+      refunded: false,
+    })
+  }
 
   if (refundCritical) {
     await supabase

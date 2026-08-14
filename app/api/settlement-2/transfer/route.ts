@@ -601,10 +601,18 @@ export async function POST(request: NextRequest) {
 
     const apiResult = await initiateBankTransfer(transferRequest)
     const isSuccess = apiResult.status === 'SUCCESS'
-    const isFailed = apiResult.status === 'FAILED'
+    // A network timeout or a malformed provider response does NOT mean the payout
+    // failed — the transfer may already be in flight at the bank. Treat these as
+    // INDETERMINATE: leave the transaction PENDING (money stays debited) and let
+    // the status poll / check-pending cron resolve it against the real provider
+    // status. Refunding here risks paying the beneficiary AND refunding the wallet.
+    const INDETERMINATE_CODES = ['NETWORK_ERROR', 'PROVIDER_ERROR', 'TIMEOUT']
+    const isIndeterminate = apiResult.status === 'FAILED' && INDETERMINATE_CODES.includes(String(apiResult.code || ''))
+    const isFailed = apiResult.status === 'FAILED' && !isIndeterminate
 
-    // Provider hard-failed → make everyone whole: refund the retailer (amount + charges)
-    // and reverse the commission/revenue credits that were posted optimistically above.
+    // Provider hard-failed (a definitive business failure, money never left) →
+    // make everyone whole: refund the retailer (amount + charges) and reverse the
+    // commission/revenue credits that were posted optimistically above.
     if (isFailed) {
       let retailerRefundErr: any = null
       if (user.role === 'partner') {
@@ -647,12 +655,17 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Update transaction with API result
+    // Update transaction with API result. Indeterminate outcomes stay PENDING
+    // (no refund) so the poll/cron can confirm against the provider.
     await supabaseAdmin
       .from('shadval_settlement')
       .update({
         status: isSuccess ? 'SUCCESS' : isFailed ? 'FAILED' : 'PENDING',
-        status_message: isFailed ? `${apiResult.message || 'Transfer failed'} [Wallet refunded]` : apiResult.message,
+        status_message: isFailed
+          ? `${apiResult.message || 'Transfer failed'} [Wallet refunded]`
+          : isIndeterminate
+          ? `${apiResult.message || 'Awaiting confirmation'} [PENDING — verifying with provider]`
+          : apiResult.message,
         order_id: apiResult.data?.order_id || null,
         internal_ref_id: apiResult.data?.internal_ref_id || null,
         utr: apiResult.data?.utr || null,
@@ -672,20 +685,24 @@ export async function POST(request: NextRequest) {
         amount: amountNum,
         charges,
         mode,
-        status: isSuccess ? 'SUCCESS' : apiResult.status === 'FAILED' ? 'FAILED' : 'PENDING',
-        status_message: apiResult.message,
+        status: isSuccess ? 'SUCCESS' : isFailed ? 'FAILED' : 'PENDING',
+        status_message: isIndeterminate
+          ? 'Transfer is being verified with the provider. Please check status shortly — do not retry.'
+          : apiResult.message,
         account_number: account.account_number,
         account_holder_name: account.verified_name || account.account_holder_name,
         provider_timestamp: apiResult.data?.timestamp,
       },
     }
-    // Provider FAILED is retryable; only persist a replayable result when not failed.
+    // Only a DEFINITIVE provider failure is retryable. Indeterminate outcomes are
+    // PENDING with the money still debited, so a retry would double-debit — cache
+    // them as completed so a replay returns the same pending result.
     if (idemKey) {
       await finalizeIdempotencyKey({
         scope: IDEM_SCOPE,
         key: idemKey,
-        status: apiResult.status === 'FAILED' ? 'failed' : 'completed',
-        response: apiResult.status === 'FAILED' ? undefined : successBody,
+        status: isFailed ? 'failed' : 'completed',
+        response: isFailed ? undefined : successBody,
       })
     }
     const response = NextResponse.json(successBody)
