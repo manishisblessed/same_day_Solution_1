@@ -23,3 +23,30 @@ jobs:
           script: |
             set -e
             bash ~/deploy.sh
+            echo "Waiting for backend to boot..."
+            for i in $(seq 1 10); do
+              code=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:3000/api/health || true)
+              if [ "$code" = "200" ]; then
+                echo "Health check OK (HTTP 200) after ${i} attempt(s)"
+                exit 0
+              fi
+              echo "Attempt ${i}: got HTTP ${code}, retrying in 3s..."
+              sleep 3
+            done
+            echo "HEALTH CHECK FAILED — backend not returning 200 on /api/health"
+            pm2 logs sameday-backend --lines 40 --nostream || true
+            exit 1
+
+      - name: Notify Slack (success)
+        if: success()
+        run: |
+          curl -sf -X POST -H 'Content-type: application/json' \
+            --data "{\"text\":\":white_check_mark: *Backend deployed* to EC2\n*Repo:* ${GITHUB_REPOSITORY}\n*Commit:* \`${GITHUB_SHA:0:7}\` by ${GITHUB_ACTOR}\n*Run:* ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}\"}" \
+            "${{ secrets.SLACK_WEBHOOK_URL }}"
+
+      - name: Notify Slack (failure)
+        if: failure()
+        run: |
+          curl -sf -X POST -H 'Content-type: application/json' \
+            --data "{\"text\":\":x: *Backend deploy FAILED* on EC2\n*Repo:* ${GITHUB_REPOSITORY}\n*Commit:* \`${GITHUB_SHA:0:7}\` by ${GITHUB_ACTOR}\n*Check logs:* ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}\"}" \
+            "${{ secrets.SLACK_WEBHOOK_URL }}"
