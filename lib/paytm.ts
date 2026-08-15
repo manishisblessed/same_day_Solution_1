@@ -1,4 +1,5 @@
 import PaytmChecksum from 'paytmchecksum'
+import * as crypto from 'crypto'
 
 const PAYTM_URLS = {
   staging: 'https://securegw-stage.paytm.in',
@@ -112,4 +113,27 @@ export function generateMerchantTxnId(prefix = 'SDS'): string {
   const ts = Date.now().toString(36).toUpperCase()
   const rand = Math.random().toString(36).substring(2, 8).toUpperCase()
   return `${prefix}${ts}${rand}`
+}
+
+/**
+ * Guard for the Paytm POS caller-facing endpoints (sale/refund/void/status).
+ * These trigger EDC terminal operations and expose card/transaction data, so
+ * they must never run for anonymous callers.
+ *
+ * Fail-closed: requires header `x-pos-secret` to equal env `POS_API_SECRET`
+ * (constant-time compare). If the secret is not configured, all requests are
+ * rejected. Does NOT apply to Paytm's inbound S2S notification callback.
+ */
+export function isPosAuthorized(request: { headers: { get(name: string): string | null } }): boolean {
+  const secret = process.env.POS_API_SECRET
+  if (!secret) return false
+  const provided = request.headers.get('x-pos-secret') || ''
+  const a = Buffer.from(provided)
+  const b = Buffer.from(secret)
+  if (a.length !== b.length) return false
+  try {
+    return crypto.timingSafeEqual(a, b)
+  } catch {
+    return false
+  }
 }

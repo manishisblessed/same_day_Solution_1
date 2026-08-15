@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getPaytmConfig, callPaytmApi, formatTimestamp, generateMerchantTxnId } from '@/lib/paytm'
+import { getPaytmConfig, callPaytmApi, formatTimestamp, generateMerchantTxnId, isPosAuthorized } from '@/lib/paytm'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -13,6 +13,9 @@ export const dynamic = 'force-dynamic'
  */
 export async function POST(request: NextRequest) {
   try {
+    if (!isPosAuthorized(request)) {
+      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
+    }
     const payload = await request.json()
     const { originalMerchantTransactionId, tid, mid } = payload
 
