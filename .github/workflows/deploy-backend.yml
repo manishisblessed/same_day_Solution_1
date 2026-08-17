@@ -22,24 +22,54 @@ jobs:
           command_timeout: 20m
           script: |
             set -e
-            # Self-heal the checkout so a plain merge can never abort the deploy on
-            # "untracked working tree files would be overwritten by merge". Force the
-            # working tree to exactly match origin/main before building.
-            REPO_DIR="${DEPLOY_REPO_DIR:-$HOME/same_day_Solution_1}"
-            if [ ! -d "$REPO_DIR/.git" ]; then
-              REPO_DIR="$(dirname "$(find "$HOME" -maxdepth 3 -type d -name .git 2>/dev/null | head -n1)")"
+            PM2_APP="sameday-backend"
+            BRANCH="main"
+
+            # 1) Locate the ACTIVE backend repo. Prefer the cwd of the running pm2
+            #    app (authoritative); otherwise scan $HOME, skipping disabled/old
+            #    clones. Override anytime with the DEPLOY_REPO_DIR secret.
+            REPO_DIR="${DEPLOY_REPO_DIR:-}"
+            if [ -z "$REPO_DIR" ] && command -v pm2 >/dev/null 2>&1 && command -v node >/dev/null 2>&1; then
+              CWD="$(pm2 jlist 2>/dev/null | PM2_APP="$PM2_APP" node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{try{const p=JSON.parse(d).find(x=>x.name===process.env.PM2_APP);if(p&&p.pm2_env&&p.pm2_env.pm_cwd)process.stdout.write(p.pm2_env.pm_cwd)}catch(e){}})' 2>/dev/null || true)"
+              if [ -n "$CWD" ] && [ -d "$CWD/.git" ]; then REPO_DIR="$CWD"; fi
+            fi
+            if [ -z "$REPO_DIR" ]; then
+              for gd in $(find "$HOME" -maxdepth 3 -type d -name .git 2>/dev/null); do
+                d="$(dirname "$gd")"
+                case "$d" in *DISABLED*|*oldcode*|*_old*|*backup*) continue;; esac
+                if [ -f "$d/DO_NOT_START_README.txt" ]; then continue; fi
+                if [ ! -f "$d/package.json" ]; then continue; fi
+                if git -C "$d" remote -v 2>/dev/null | grep -q "same_day_Solution_1"; then REPO_DIR="$d"; break; fi
+              done
+            fi
+            if [ -z "$REPO_DIR" ] || [ ! -d "$REPO_DIR/.git" ]; then
+              echo "ERROR: could not locate the backend repo. Set the DEPLOY_REPO_DIR secret."; exit 1
             fi
             echo "Using REPO_DIR=$REPO_DIR"
             cd "$REPO_DIR"
-            git clean -fd
-            git fetch origin main
-            git reset --hard origin/main
-            # Keep the server deploy script in sync with the version-controlled one.
-            if [ -f scripts/deploy.sh ]; then
-              cp -f scripts/deploy.sh ~/deploy.sh
-              chmod +x ~/deploy.sh
+
+            # 2) Force-sync to origin/main. reset --hard overwrites any stray tracked
+            #    OR untracked collisions WITHOUT deleting gitignored files (.env,
+            #    ecosystem config, uploads) — so no `git clean` here on purpose.
+            git fetch origin "$BRANCH"
+            git reset --hard "origin/${BRANCH}"
+
+            # 3) Keep the server helper script in sync (for manual runs).
+            if [ -f scripts/deploy.sh ]; then cp -f scripts/deploy.sh ~/deploy.sh && chmod +x ~/deploy.sh; fi
+
+            # 4) Build & restart.
+            echo "Installing dependencies..."
+            npm ci
+            echo "Building..."
+            npm run build
+            echo "Restarting PM2 '${PM2_APP}'..."
+            if pm2 describe "$PM2_APP" >/dev/null 2>&1; then
+              pm2 reload "$PM2_APP" --update-env
+            else
+              pm2 start npm --name "$PM2_APP" -- start
             fi
-            bash ~/deploy.sh
+            pm2 save
+
             echo "Waiting for backend to boot..."
             for i in $(seq 1 10); do
               code=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:3000/api/health || true)
