@@ -79,8 +79,14 @@ export function getBBPSBackendUrl(): string {
   return 'https://api.samedaysolution.in'
 }
 
-/** Filesystem-backed routes — always served by the same Next.js origin (not EC2 proxy) */
-const SAME_ORIGIN_API_PREFIXES = ['/api/admin/legal-agreements']
+/**
+ * Routes that must be served by the same Next.js origin (Amplify) instead of the
+ * EC2 proxy. NOTE: admin routes that resolve roles/permissions must NOT live here —
+ * Amplify's SSR runtime does not expose SUPABASE_SERVICE_ROLE_KEY, so the server-side
+ * admin_users lookup fails and every admin gets a 401 (this is why legal-agreements
+ * was moved back to the EC2 backend along with the other admin APIs).
+ */
+const SAME_ORIGIN_API_PREFIXES: string[] = []
 
 /**
  * Check if a path is a route that needs EC2 backend

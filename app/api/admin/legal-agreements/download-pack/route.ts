@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
 import { getAllLegalDocumentsContent, loadLegalManifest } from '@/lib/legal/server'
 import { renderMarkdownToHtml } from '@/lib/legal/renderMarkdown'
+import { requireLegalAdmin } from '@/lib/legal/authz'
 import JSZip from 'jszip'
 
 export const runtime = 'nodejs'
@@ -13,16 +13,9 @@ export async function OPTIONS(request: NextRequest) {
   return response || new NextResponse(null, { status: 204 })
 }
 
-async function requireAdmin(request: NextRequest) {
-  const { user: admin } = await getCurrentUserWithFallback(request)
-  if (!admin) return { error: 'Session expired', status: 401 as const }
-  if (admin.role !== 'admin') return { error: 'Admin access required', status: 403 as const }
-  return { admin }
-}
-
 export async function GET(request: NextRequest) {
   try {
-    const auth = await requireAdmin(request)
+    const auth = await requireLegalAdmin(request)
     if ('error' in auth) {
       return addCorsHeaders(request, NextResponse.json({ error: auth.error }, { status: auth.status }))
     }
