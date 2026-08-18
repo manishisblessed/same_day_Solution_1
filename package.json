@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "next lint",
     "create-admin": "node scripts/create-admin.js",
-    "migrate": "node scripts/run-migration.mjs"
+    "migrate": "node scripts/run-migration.mjs",
+    "migrate:deploy": "node scripts/run-migration.mjs --deploy"
   },
   "dependencies": {
     "@emotion/is-prop-valid": "^1.4.0",

@@ -60,6 +60,10 @@ jobs:
             # 4) Build & restart.
             echo "Installing dependencies..."
             npm ci
+            # Apply pending DB migrations BEFORE build/restart so the new code
+            # never starts against an out-of-date schema. Aborts deploy on failure.
+            echo "Applying DB migrations (db/migrations)..."
+            npm run migrate:deploy
             echo "Building..."
             npm run build
             echo "Restarting PM2 '${PM2_APP}'..."

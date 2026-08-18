@@ -115,10 +115,19 @@ export default function Pay2NewServiceFlow(props: Pay2NewServiceFlowProps) {
   const [chargesData, setChargesData] = useState<{ base_charge: number; gst_percent: number; gst_amount: number; total_charge: number } | null>(null)
   const [loadingCharges, setLoadingCharges] = useState(false)
 
+  // CC-1++ add-on gate (payments above ₹49,999)
+  const [cc1PlusEnabled, setCc1PlusEnabled] = useState(false)
+
   useEffect(() => {
     fetchBillers()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [serviceId])
+
+  useEffect(() => {
+    apiFetchJson('/api/user/enabled-services')
+      .then((data) => setCc1PlusEnabled(!!data?.services?.credit_card1_plus))
+      .catch(() => setCc1PlusEnabled(false))
+  }, [])
 
   // Fetch charges when payment amount changes (bill mode only)
   useEffect(() => {
@@ -225,7 +234,7 @@ export default function Pay2NewServiceFlow(props: Pay2NewServiceFlowProps) {
       if (data.success && data.data && !Array.isArray(data.data)) {
         setBillData(data.data)
         setOrderId(data.order_id)
-        setPayAmount(data.data.amount || '')
+        setPayAmount('')
         setBbpsFallback(data.fallback === 'bbps' && data.biller_id ? { biller_id: data.biller_id } : null)
         setStep('bill-fetched')
       } else {
@@ -247,6 +256,10 @@ export default function Pay2NewServiceFlow(props: Pay2NewServiceFlowProps) {
     }
     if (!tpin || tpin.length < 4) {
       showToast('T-PIN is required (4 digits)', 'error')
+      return
+    }
+    if (amount > PAN_MANDATORY_ABOVE && !cc1PlusEnabled) {
+      showToast('Credit Card-1++ is not enabled for your account. Contact admin to make payments above ₹49,999.', 'error')
       return
     }
     const normalizedPan = panNumber.trim().toUpperCase()
@@ -645,7 +658,18 @@ export default function Pay2NewServiceFlow(props: Pay2NewServiceFlowProps) {
                   </div>
                 )}
 
-                {parseFloat(payAmount) > PAN_MANDATORY_ABOVE && (
+                {parseFloat(payAmount) > PAN_MANDATORY_ABOVE && !cc1PlusEnabled && (
+                  <div className="p-3 rounded-lg border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20">
+                    <p className="text-sm font-medium text-red-600 dark:text-red-400">
+                      Payments above ₹49,999 require Credit Card-1++ (CC-1++), which is not enabled for your account.
+                    </p>
+                    <p className="text-xs text-red-500 dark:text-red-400 mt-1">
+                      Contact admin to enable it, or enter an amount up to ₹49,999.
+                    </p>
+                  </div>
+                )}
+
+                {parseFloat(payAmount) > PAN_MANDATORY_ABOVE && cc1PlusEnabled && (
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                       PAN Number *
@@ -685,7 +709,7 @@ export default function Pay2NewServiceFlow(props: Pay2NewServiceFlowProps) {
 
                 <button
                   onClick={handlePayBill}
-                  disabled={payLoading || !payAmount || parseFloat(payAmount) <= 0 || tpin.length < 4 || (parseFloat(payAmount) > PAN_MANDATORY_ABOVE && !PAN_REGEX.test(panNumber.trim().toUpperCase()))}
+                  disabled={payLoading || !payAmount || parseFloat(payAmount) <= 0 || tpin.length < 4 || (parseFloat(payAmount) > PAN_MANDATORY_ABOVE && (!cc1PlusEnabled || !PAN_REGEX.test(panNumber.trim().toUpperCase())))}
                   className="w-full py-3 bg-gradient-to-r from-green-600 to-green-700 text-white rounded-lg font-medium text-sm hover:from-green-700 hover:to-green-800 disabled:opacity-50 flex items-center justify-center gap-2"
                 >
                   {payLoading ? (

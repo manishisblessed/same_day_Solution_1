@@ -47,20 +47,23 @@ echo "[1/5] Force-syncing to origin/${BRANCH} (reset --hard, no clean)..."
 git fetch origin "$BRANCH"
 git reset --hard "origin/${BRANCH}"
 
-echo "[2/5] Installing dependencies..."
+echo "[2/6] Installing dependencies..."
 npm ci
 
-echo "[3/5] Building..."
+echo "[3/6] Applying DB migrations (db/migrations)..."
+npm run migrate:deploy
+
+echo "[4/6] Building..."
 npm run build
 
-echo "[4/5] Restarting PM2 process '${PM2_APP}'..."
+echo "[5/6] Restarting PM2 process '${PM2_APP}'..."
 if pm2 describe "$PM2_APP" >/dev/null 2>&1; then
   pm2 reload "$PM2_APP" --update-env
 else
   pm2 start npm --name "$PM2_APP" -- start
 fi
 
-echo "[5/5] Persisting PM2 process list..."
+echo "[6/6] Persisting PM2 process list..."
 pm2 save
 
 echo "=== Deploy complete ==="

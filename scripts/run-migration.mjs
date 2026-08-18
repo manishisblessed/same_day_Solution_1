@@ -3,11 +3,17 @@
  * Run SQL migration files against Supabase Postgres directly.
  *
  * Usage:
- *   npm run migrate -- <file.sql>              # run one file
+ *   npm run migrate -- <file.sql>               # run one file
  *   npm run migrate -- <file1.sql> <file2.sql>  # run multiple files
- *   npm run migrate -- --all-pending            # run all unapplied *.sql in project root
+ *   npm run migrate -- --all-pending            # run all unapplied supabase-*.sql in project root
+ *   npm run migrate:deploy                      # run all unapplied *.sql in db/migrations/ (deploy path)
  *
  * Requires DATABASE_URL in .env.local
+ *
+ * NOTE (deploy path): `--deploy` scans the forward-only `db/migrations/` folder,
+ * NOT the historical root supabase-*.sql files. Every new schema change MUST be
+ * added as a file in db/migrations/ so it is applied automatically on deploy —
+ * this is what prevents "code shipped without its migration" outages.
  */
 
 import { readFileSync, readdirSync, existsSync } from 'fs'
@@ -99,7 +105,27 @@ async function main() {
 
   let files = []
 
-  if (args.includes('--all-pending')) {
+  if (args.includes('--deploy')) {
+    // Forward-only migrations that ship with the app and run on every deploy.
+    const dir = resolve(process.cwd(), 'db', 'migrations')
+    if (!existsSync(dir)) {
+      console.log('✅ No db/migrations directory — nothing to apply')
+      await client.end()
+      return
+    }
+    files = readdirSync(dir)
+      .filter((f) => f.endsWith('.sql'))
+      .filter((f) => !applied.has(f))
+      .sort()
+      .map((f) => resolve(dir, f))
+
+    if (files.length === 0) {
+      console.log('✅ No pending migrations (db/migrations up to date)')
+      await client.end()
+      return
+    }
+    console.log(`📋 ${files.length} pending migration(s) in db/migrations/`)
+  } else if (args.includes('--all-pending')) {
     const root = process.cwd()
     files = readdirSync(root)
       .filter((f) => f.startsWith('supabase-') && f.endsWith('.sql'))

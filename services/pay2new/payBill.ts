@@ -58,14 +58,29 @@ export async function pay2newPayBill(params: BillPayParams): Promise<{
     outletId: String(getPay2NewOutletId()),
   }
 
-  console.log('[Pay2New] Bill Pay request_id:', params.request_id, 'amount:', params.amount, 'product_code:', params.product_code)
+  console.log('[Pay2New] Bill Pay payload:', JSON.stringify({
+    ...payload,
+    // Diagnostic: expose field presence/lengths without leaking full PAN
+    _diag: {
+      number_len: String(payload.number ?? '').length,
+      amount_type: typeof payload.amount,
+      bill_fetch_ref_len: String(payload.bill_fetch_ref ?? '').length,
+      pan_present: !!payload.pan_number,
+      customer_number_len: String(payload.customer_number ?? '').length,
+      pincode: payload.pincode,
+      lat: payload.latitude,
+      lng: payload.longitude,
+      ip: payload.ip,
+      outletId: payload.outletId,
+    },
+  }))
 
   try {
     const result = await pay2newPost<Pay2NewBillPaymentResponse>('apis/v1/billPayment', payload as any)
 
     if (!result.ok || !result.data) {
       const errMsg = result.error || result.data?.message || 'Bill payment failed'
-      console.error('[Pay2New] Bill Pay failed:', errMsg)
+      console.error('[Pay2New] Bill Pay failed:', errMsg, '| raw response:', JSON.stringify(result.data ?? result.raw ?? null))
       return { success: false, error: errMsg, raw: result.data as any }
     }
 
