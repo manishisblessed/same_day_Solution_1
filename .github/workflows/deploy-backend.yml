@@ -15,11 +15,14 @@ jobs:
     steps:
       - name: Deploy over SSH
         uses: appleboy/ssh-action@v1.0.3
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
           command_timeout: 20m
+          envs: DATABASE_URL
           script: |
             set -e
             PM2_APP="sameday-backend"
@@ -60,6 +63,19 @@ jobs:
             # 4) Build & restart.
             echo "Installing dependencies..."
             npm ci
+            # Ensure DATABASE_URL is available for migrations. Prefer the value
+            # already in the server's gitignored .env.local; otherwise fall back
+            # to the DATABASE_URL forwarded from the GitHub secret and persist it
+            # so both the migrate step and the running app can read it.
+            if ! grep -q '^DATABASE_URL=' .env.local 2>/dev/null; then
+              if [ -n "$DATABASE_URL" ]; then
+                echo "DATABASE_URL missing from .env.local — writing from CI secret"
+                printf '\nDATABASE_URL=%s\n' "$DATABASE_URL" >> .env.local
+              else
+                echo "ERROR: DATABASE_URL not in .env.local and no DATABASE_URL secret set."; exit 1
+              fi
+            fi
+
             # Apply pending DB migrations BEFORE build/restart so the new code
             # never starts against an out-of-date schema. Aborts deploy on failure.
             echo "Applying DB migrations (db/migrations)..."
