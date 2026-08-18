@@ -29,6 +29,9 @@ export interface Pay2NewServiceFlowProps {
   accent?: 'blue' | 'green' | 'purple' | 'orange' | 'pink' | 'red' | 'cyan' | 'indigo'
 }
 
+const PAN_MANDATORY_ABOVE = 49999
+const PAN_REGEX = /^[A-Z]{5}[0-9]{4}[A-Z]$/
+
 interface Biller {
   product_code: string
   product_name: string
@@ -96,6 +99,7 @@ export default function Pay2NewServiceFlow(props: Pay2NewServiceFlowProps) {
 
   // Common pay
   const [payAmount, setPayAmount] = useState('')
+  const [panNumber, setPanNumber] = useState('')
   const [tpin, setTpin] = useState('')
   const [payLoading, setPayLoading] = useState(false)
   const [payResult, setPayResult] = useState<{
@@ -177,6 +181,7 @@ export default function Pay2NewServiceFlow(props: Pay2NewServiceFlowProps) {
     setFetchError(null)
     setPayResult(null)
     setPayAmount('')
+    setPanNumber('')
     setTpin('')
   }
 
@@ -190,6 +195,7 @@ export default function Pay2NewServiceFlow(props: Pay2NewServiceFlowProps) {
     setFetchError(null)
     setPayResult(null)
     setPayAmount('')
+    setPanNumber('')
   }
 
   const handleFetchBill = async () => {
@@ -243,6 +249,11 @@ export default function Pay2NewServiceFlow(props: Pay2NewServiceFlowProps) {
       showToast('T-PIN is required (4 digits)', 'error')
       return
     }
+    const normalizedPan = panNumber.trim().toUpperCase()
+    if (amount > PAN_MANDATORY_ABOVE && !PAN_REGEX.test(normalizedPan)) {
+      showToast('PAN number is mandatory for payments above ₹49,999', 'error')
+      return
+    }
 
     setPayLoading(true)
     try {
@@ -254,6 +265,7 @@ export default function Pay2NewServiceFlow(props: Pay2NewServiceFlowProps) {
           product_code: selectedBiller.product_code,
           product_name: selectedBiller.product_name,
           bill_fetch_ref: orderId,
+          pan_number: normalizedPan,
           optional1: optional1 || '',
           customer_number: optional1 || number,
           customer_name: billData?.customer_name || '',
@@ -633,6 +645,25 @@ export default function Pay2NewServiceFlow(props: Pay2NewServiceFlowProps) {
                   </div>
                 )}
 
+                {parseFloat(payAmount) > PAN_MANDATORY_ABOVE && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      PAN Number *
+                    </label>
+                    <input
+                      type="text"
+                      maxLength={10}
+                      placeholder="e.g. ABCDE1234F"
+                      value={panNumber}
+                      onChange={(e) => setPanNumber(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10))}
+                      className={`w-full px-4 py-2.5 rounded-lg border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-sm uppercase tracking-widest focus:ring-2 ${accentCls.ring}`}
+                    />
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                      Mandatory for payments above ₹49,999.
+                    </p>
+                  </div>
+                )}
+
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                     Transaction PIN (TPIN) *
@@ -654,7 +685,7 @@ export default function Pay2NewServiceFlow(props: Pay2NewServiceFlowProps) {
 
                 <button
                   onClick={handlePayBill}
-                  disabled={payLoading || !payAmount || parseFloat(payAmount) <= 0 || tpin.length < 4}
+                  disabled={payLoading || !payAmount || parseFloat(payAmount) <= 0 || tpin.length < 4 || (parseFloat(payAmount) > PAN_MANDATORY_ABOVE && !PAN_REGEX.test(panNumber.trim().toUpperCase()))}
                   className="w-full py-3 bg-gradient-to-r from-green-600 to-green-700 text-white rounded-lg font-medium text-sm hover:from-green-700 hover:to-green-800 disabled:opacity-50 flex items-center justify-center gap-2"
                 >
                   {payLoading ? (

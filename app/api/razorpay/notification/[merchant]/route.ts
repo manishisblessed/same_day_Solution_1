@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { mapTransactionStatus } from '@/lib/razorpay/service'
-import { deliverPartnerCallback } from '@/lib/partner-webhook/deliver'
+import { deliverPartnerCallback, deliverPartnerReversal } from '@/lib/partner-webhook/deliver'
 import * as crypto from 'crypto'
 
 const RAZORPAY_WEBHOOK_SECRET = process.env.RAZORPAY_WEBHOOK_SECRET
@@ -152,6 +152,11 @@ export async function POST(
     }
 
     const mappedStatus = mapTransactionStatus(normalizedPayload)
+    // mapTransactionStatus collapses VOIDED/REFUNDED → FAILED. Detect the raw
+    // reversal separately so we can retain a terminal status and tell partners.
+    const rawStatus = (normalizedPayload.status || '').toUpperCase().trim()
+    const isRefund = rawStatus === 'REFUNDED' || rawStatus.includes('REFUND')
+    const isReversalRaw = isRefund || rawStatus === 'VOIDED' || rawStatus.includes('VOID') || rawStatus.includes('REVERS')
 
     const amount = normalizedPayload.amount ? parseFloat(normalizedPayload.amount) : null
     const paymentMode = normalizedPayload.paymentMode || null
@@ -181,9 +186,12 @@ export async function POST(
 
     const { data: existingPosTransaction } = await supabase
       .from('razorpay_pos_transactions')
-      .select('id, wallet_credited, retailer_id')
+      .select('id, wallet_credited, retailer_id, display_status, partner_wallet_credited')
       .eq('txn_id', txnId)
       .maybeSingle()
+
+    // True capture→reversal transition (we previously stored this as SUCCESS).
+    const isReversalTransition = isReversalRaw && existingPosTransaction?.display_status === 'SUCCESS'
 
     const customerName = normalizedPayload.customerName || normalizedPayload.payerName || null
     const payerName = normalizedPayload.payerName || null
@@ -222,7 +230,10 @@ export async function POST(
     const posTransactionData: any = {
       txn_id: txnId,
       status: normalizedPayload.status || 'PENDING',
-      display_status: mappedStatus === 'CAPTURED' ? 'SUCCESS' : mappedStatus === 'FAILED' ? 'FAILED' : 'PENDING',
+      display_status: isReversalRaw ? (isRefund ? 'REFUNDED' : 'VOIDED')
+        : mappedStatus === 'CAPTURED' ? 'SUCCESS' : mappedStatus === 'FAILED' ? 'FAILED' : 'PENDING',
+      reversed_at: isReversalRaw ? (createdTime || new Date()).toISOString() : null,
+      reversal_reason: isReversalRaw ? `razorpay-webhook:${rawStatus}` : null,
       amount: amount || 0,
       payment_mode: paymentMode,
       device_serial: deviceSerial,
@@ -441,8 +452,37 @@ export async function POST(
     // with bounded retries. Fire-and-forget: never blocks the webhook response.
     {
       const rawPayload = normalizedPayload._source === 'pos_notification' ? payload : normalizedPayload
-      const bodyPayload = { ...rawPayload, mappedStatus }
-      void deliverPartnerCallback({ supabase, tid, txnId, payload: bodyPayload, logPrefix: `Partner Callback/${merchantSlug}` })
+      if (isReversalTransition) {
+        void deliverPartnerReversal({
+          supabase,
+          tid,
+          deviceSerial,
+          txnId,
+          payload: {
+            event: 'pos.transaction.reversed',
+            action: 'remove',
+            txn_id: txnId,
+            rrn: rrNumber,
+            terminal_id: tid,
+            tid,
+            device_serial: deviceSerial,
+            amount: amount || 0,
+            previous_status: 'CAPTURED',
+            status: isRefund ? 'REFUNDED' : 'VOIDED',
+            reversed_at: (createdTime || new Date()).toISOString(),
+            reason: `razorpay-webhook:${rawStatus}`,
+            was_settled: !!(existingPosTransaction?.partner_wallet_credited || existingPosTransaction?.wallet_credited),
+            _brand: 'RAZORPAY',
+          },
+          logPrefix: `Partner Reversal/${merchantSlug}`,
+        })
+        if (existingPosTransaction?.partner_wallet_credited || existingPosTransaction?.wallet_credited) {
+          console.warn(`[Webhook/${merchantSlug}] REVERSAL AFTER SETTLEMENT — clawback needed txn=${txnId} amount=${amount}`)
+        }
+      } else {
+        const bodyPayload = { ...rawPayload, mappedStatus }
+        void deliverPartnerCallback({ supabase, tid, txnId, payload: bodyPayload, logPrefix: `Partner Callback/${merchantSlug}` })
+      }
     }
 
     const walletCredited = (posResult as { wallet_credited?: boolean })?.wallet_credited ?? false

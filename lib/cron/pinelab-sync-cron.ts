@@ -16,7 +16,7 @@ async function runSync() {
 
     const elapsed = Date.now() - startMs
     const summary = data.results
-      .map(r => `${r.merchant}: fetched=${r.fetched} +${r.created} new ${r.updated} upd${r.errors.length ? ` ERR=${r.errors.length}` : ''}`)
+      .map(r => `${r.merchant}: fetched=${r.fetched} +${r.created} new ${r.updated} upd${r.reversed ? ` ${r.reversed} rev` : ''}${r.errors.length ? ` ERR=${r.errors.length}` : ''}`)
       .join(' | ')
     console.log(`[PinelabCron] ${summary} (${elapsed}ms)`)
 

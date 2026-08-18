@@ -1271,17 +1271,15 @@ function SchemeManagementPageContent() {
                                   </>
                                 ) : (
                                   <>
-                                    <th className="px-2 py-1.5 text-right">RT T+1</th>
-                                    <th className="px-2 py-1.5 text-right">RT T+0</th>
-                                    <th className="px-2 py-1.5 text-right">DT T+1</th>
-                                    <th className="px-2 py-1.5 text-right">DT T+0</th>
                                     <th className="px-2 py-1.5 text-right">MD T+1</th>
                                     <th className="px-2 py-1.5 text-right">MD T+0</th>
+                                    <th className="px-2 py-1.5 text-right">Margin T+1</th>
+                                    <th className="px-2 py-1.5 text-right">Margin T+0</th>
                                   </>
                                 )}
                                 <th className="px-2 py-1.5 text-center">GST</th>
                                 <th className="px-2 py-1.5 text-right">Vendor</th>
-                                <th className="px-2 py-1.5 text-right">Co. MDR</th>
+                                <th className="px-2 py-1.5 text-right">Co. Cost</th>
                                 <th className="px-2 py-1.5"></th>
                               </tr>
                             </thead>
@@ -1299,12 +1297,10 @@ function SchemeManagementPageContent() {
                                     </>
                                   ) : (
                                     <>
-                                      <td className="px-2 py-1.5 text-right">{r.retailer_mdr_t1}%</td>
-                                      <td className="px-2 py-1.5 text-right">{r.retailer_mdr_t0}%</td>
-                                      <td className="px-2 py-1.5 text-right">{r.distributor_mdr_t1}%</td>
-                                      <td className="px-2 py-1.5 text-right">{r.distributor_mdr_t0}%</td>
                                       <td className="px-2 py-1.5 text-right">{r.md_mdr_t1}%</td>
                                       <td className="px-2 py-1.5 text-right">{r.md_mdr_t0}%</td>
+                                      <td className="px-2 py-1.5 text-right text-blue-600 dark:text-blue-400">{(((r.md_mdr_t1 || 0) - (r.company_mdr_rate || 0))).toFixed(2)}%</td>
+                                      <td className="px-2 py-1.5 text-right text-blue-600 dark:text-blue-400">{(((r.md_mdr_t0 || 0) - (r.company_mdr_rate || 0))).toFixed(2)}%</td>
                                     </>
                                   )}
                                   <td className="px-2 py-1.5 text-center">{r.gst_inclusive ? '✓' : '-'}</td>
@@ -1952,7 +1948,7 @@ function SchemeManagementPageContent() {
                     }
                     return (
                       <>
-                        <p className="text-xs text-gray-500">You set the <strong>MD's commission rate</strong> (Admin → MD). MDs set their DT's rate; DTs set the retailer rate. T+0 = T+1 + 1% (auto if left 0).</p>
+                        <p className="text-xs text-gray-500">You set the <strong>MD MDR</strong> (the cost passed to the MD). Your company cost is the Company MDR Rate below; company margin is MD MDR − Company MDR Rate. MDs set their DT's rate; DTs set the retailer rate. T+0 = T+1 + 1% (auto if left 0).</p>
                         <div className="grid grid-cols-2 gap-3">
                           <div>
                             <label className="block text-xs font-medium mb-1">MD MDR T+1 (%)</label>
@@ -1969,6 +1965,16 @@ function SchemeManagementPageContent() {
                               onChange={(e) => setMdrForm({ ...mdrForm, md_mdr_t0: parseFloat(e.target.value) || 0 })}
                               className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
                           </div>
+                        </div>
+                        <div className="mt-2 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                          <p className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Company Margin Preview</p>
+                          <div className="grid grid-cols-2 gap-2 text-xs">
+                            <div className="text-center"><div className="text-gray-500">Margin T+1 (MD − Company cost)</div><div className={`font-semibold ${(mdrForm.md_mdr_t1 - mdrForm.company_mdr_rate) < 0 ? 'text-red-600' : 'text-blue-600'}`}>{(mdrForm.md_mdr_t1 - mdrForm.company_mdr_rate).toFixed(2)}%</div></div>
+                            <div className="text-center"><div className="text-gray-500">Margin T+0 (MD − Company cost)</div><div className={`font-semibold ${(mdrForm.md_mdr_t0 - mdrForm.company_mdr_rate) < 0 ? 'text-red-600' : 'text-blue-600'}`}>{(mdrForm.md_mdr_t0 - mdrForm.company_mdr_rate).toFixed(2)}%</div></div>
+                          </div>
+                          {(mdrForm.md_mdr_t1 < mdrForm.company_mdr_rate || mdrForm.md_mdr_t0 < mdrForm.company_mdr_rate) && (
+                            <p className="text-xs text-red-600 mt-1">MD MDR must be ≥ Company MDR Rate, else the company loses margin.</p>
+                          )}
                         </div>
                       </>
                     )

@@ -19,6 +19,7 @@ interface Transaction {
   customer_name?: string
   mobile?: string
   card_number?: string
+  pan_number?: string
   customer_number: string
   bill_amount: number
   charge: number
@@ -468,7 +469,7 @@ export default function BillPaymentTransactionReport({ userRole, userName }: Bil
           <table className="w-full">
             <thead className="bg-gray-50 dark:bg-gray-900">
               <tr>
-                {['Date', 'Transaction ID', 'Provider', 'User', 'Customer Name', 'Mobile', 'Card / Consumer No', 'Bill Amount', 'Charge', 'GST', 'Total Debit', 'Reference No', 'Status'].map(col => (
+                {['Date', 'Transaction ID', 'Provider', 'User', 'Customer Name', 'Mobile', 'Card / Consumer No', 'PAN', 'Bill Amount', 'Charge', 'GST', 'Total Debit', 'Reference No', 'Status'].map(col => (
                   <th key={col} className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase whitespace-nowrap">{col}</th>
                 ))}
               </tr>
@@ -528,6 +529,7 @@ export default function BillPaymentTransactionReport({ userRole, userName }: Bil
                     <td className="px-4 py-3 text-sm text-gray-700 dark:text-gray-300 whitespace-nowrap">{txn.customer_name || '-'}</td>
                     <td className="px-4 py-3 text-sm font-mono text-gray-700 dark:text-gray-300 whitespace-nowrap">{txn.mobile || '-'}</td>
                     <td className="px-4 py-3 text-sm font-mono text-gray-700 dark:text-gray-300 whitespace-nowrap">{txn.card_number && txn.card_number !== '-' ? txn.card_number : (txn.customer_number || '-')}</td>
+                    <td className="px-4 py-3 text-sm font-mono text-gray-700 dark:text-gray-300 whitespace-nowrap">{txn.pan_number && txn.pan_number !== '-' ? txn.pan_number : '-'}</td>
                     <td className="px-4 py-3 text-sm font-semibold text-gray-900 dark:text-white whitespace-nowrap">{formatCurrency(txn.bill_amount)}</td>
                     <td className="px-4 py-3 text-sm text-gray-700 dark:text-gray-300 whitespace-nowrap">{formatCurrency(txn.charge)}</td>
                     <td className="px-4 py-3 text-sm text-gray-700 dark:text-gray-300 whitespace-nowrap">{formatCurrency(txn.gst)}</td>

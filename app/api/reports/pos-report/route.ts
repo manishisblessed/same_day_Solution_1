@@ -190,6 +190,8 @@ export async function GET(request: NextRequest) {
       if (dateFrom) q = q.gte('transaction_time', dateFrom)
       if (dateTo) q = q.lte('transaction_time', dateTo)
       if (status) q = q.eq('display_status', status.toUpperCase())
+      // Hide reversed/failed from portal reports (retained in DB + partner API)
+      q = q.not('display_status', 'in', '(FAILED,VOIDED,REFUNDED,CANCELLED)')
       if (search) q = q.ilike('txn_id', `%${sanitize(search)}%`)
       return q
     }

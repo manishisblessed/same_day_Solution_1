@@ -13,6 +13,7 @@ export interface PartnerAuthResult {
     permissions: string[]
     bbps_enabled: boolean
     bbps2_pay2new_enabled: boolean
+    credit_card1_plus_enabled: boolean
     settlement_enabled: boolean
     settlement2_enabled: boolean
     aeps_enabled: boolean
@@ -186,6 +187,7 @@ export async function authenticatePartner(
         ip_whitelist,
         bbps_enabled,
         bbps2_pay2new_enabled,
+        credit_card1_plus_enabled,
         settlement_enabled,
         settlement2_enabled,
         aeps_enabled,
@@ -299,6 +301,7 @@ export async function authenticatePartner(
       permissions: parsePartnerKeyPermissions(keyRecord.permissions),
       bbps_enabled: partner.bbps_enabled === true,
       bbps2_pay2new_enabled: partner.bbps2_pay2new_enabled === true,
+      credit_card1_plus_enabled: partner.credit_card1_plus_enabled === true,
       settlement_enabled: partner.settlement_enabled === true,
       settlement2_enabled: partner.settlement2_enabled === true,
       aeps_enabled: partner.aeps_enabled === true,

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { authenticatePartner, PartnerAuthError, partnerCanUseApi } from '@/lib/partner-auth'
 import { pay2newPayBill } from '@/services/pay2new'
+import { isBillerRateLimitError, BILLER_RATE_LIMIT_MESSAGE } from '@/lib/provider-error'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -51,7 +52,7 @@ export async function POST(request: NextRequest) {
 
     const {
       number, amount, product_code, product_name,
-      bill_fetch_ref, customer_number, customer_name,
+      bill_fetch_ref, pan_number, customer_number, customer_name,
       optional1, optional2, optional3, optional4, pincode,
     } = body
 
@@ -70,10 +71,30 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // PAN is mandatory for bill payments above ₹49,999
+    const PAN_MANDATORY_ABOVE = 49999
+    const normalizedPan = String(pan_number || '').trim().toUpperCase()
+    if (amountNum > PAN_MANDATORY_ABOVE && !/^[A-Z]{5}[0-9]{4}[A-Z]$/.test(normalizedPan)) {
+      return NextResponse.json(
+        { success: false, error: { code: 'PAN_REQUIRED', message: 'PAN number is mandatory for payments above ₹49,999' } },
+        { status: 400 }
+      )
+    }
+
+    // CC1++ gate: high-value (> ₹49,999) Pay2New CC payments require the
+    // credit_card1_plus add-on flag enabled on the partner account.
+    if (amountNum > PAN_MANDATORY_ABOVE && !partner.credit_card1_plus_enabled) {
+      return NextResponse.json(
+        { success: false, error: { code: 'CC1_PLUS_REQUIRED', message: 'Credit Card-1++ is not enabled for this partner account. Contact admin to make payments above ₹49,999.' } },
+        { status: 403 }
+      )
+    }
+
     const supabase = getSupabase()
 
     // Resolve scheme charges for partner
     let serviceCharge = 0
+    let resolvedSchemeId: string | null = null
     const schemeCategory = 'Credit Card'
 
     try {
@@ -89,6 +110,7 @@ export async function POST(request: NextRequest) {
         console.error('[Partner Pay2New Pay] Scheme RPC error:', schemeError)
       } else if (schemeResult && schemeResult.length > 0) {
         const resolved = schemeResult[0]
+        resolvedSchemeId = resolved.scheme_id
 
         const { data: chargeResult, error: chargeError } = await (supabase as any).rpc('calculate_bbps_charge_from_scheme', {
           p_scheme_id: resolved.scheme_id,
@@ -126,6 +148,30 @@ export async function POST(request: NextRequest) {
       }
     } catch (schemeErr) {
       console.error('[Partner Pay2New Pay] Scheme resolution failed:', schemeErr)
+    }
+
+    // CC1++ gate: high-value payments require a scheme slab that covers the amount.
+    if (amountNum > PAN_MANDATORY_ABOVE) {
+      let hasCoveringSlab = false
+      if (resolvedSchemeId) {
+        const { data: coverSlabs } = await (supabase as any)
+          .from('scheme_bbps_commissions')
+          .select('category')
+          .eq('scheme_id', resolvedSchemeId)
+          .eq('status', 'active')
+          .lte('min_amount', amountNum)
+          .gte('max_amount', amountNum)
+        hasCoveringSlab = (coverSlabs || []).some((s: any) => {
+          const sc = s.category
+          return !sc || sc === '' || sc.toLowerCase() === 'all' || sc.toLowerCase() === 'all categories' || sc === schemeCategory
+        })
+      }
+      if (!hasCoveringSlab) {
+        return NextResponse.json(
+          { success: false, error: { code: 'NO_SCHEME_SLAB', message: 'No scheme slab configured for this amount. Contact admin to add a Credit Card slab covering payments above ₹49,999.' } },
+          { status: 400 }
+        )
+      }
     }
 
     const gstAmount = Math.round(serviceCharge * GST_PERCENT / 100 * 100) / 100
@@ -186,6 +232,15 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Persist PAN to the dedicated ledger column (shown in bill payment report).
+    if (normalizedPan) {
+      await supabase
+        .from('partner_wallet_ledger')
+        .update({ pan_number: normalizedPan })
+        .eq('partner_id', partner.id)
+        .eq('reference_id', request_id)
+    }
+
     const refund = async (reason: string) => {
       const { error: refundErr } = await supabase.rpc('refund_partner_wallet', {
         p_partner_id: partner.id,
@@ -206,6 +261,7 @@ export async function POST(request: NextRequest) {
         product_code: String(product_code),
         request_id,
         bill_fetch_ref,
+        pan_number: normalizedPan,
         optional1: optional1 || '',
         optional2: optional2 || '',
         optional3: optional3 || '',
@@ -236,8 +292,17 @@ export async function POST(request: NextRequest) {
         .eq('partner_id', partner.id)
         .eq('reference_id', request_id)
         .is('payout_transaction_id', null)
+      const rateLimited = isBillerRateLimitError(result.error)
       return NextResponse.json(
-        { success: false, error: { code: 'PAYMENT_FAILED', message: result.error || 'Payment failed' }, request_id },
+        {
+          success: false,
+          error: {
+            code: rateLimited ? 'BILLER_RATE_LIMITED' : 'PAYMENT_FAILED',
+            message: rateLimited ? BILLER_RATE_LIMIT_MESSAGE : (result.error || 'Payment failed'),
+          },
+          retryable: rateLimited || undefined,
+          request_id,
+        },
         { status: 200 }
       )
     }

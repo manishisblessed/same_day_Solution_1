@@ -13,6 +13,7 @@ const EMPTY_SUMMARY = {
   captured_count: 0,
   failed_count: 0,
   refunded_count: 0,
+  voided_count: 0,
   captured_amount: '0.00',
   terminal_count: 0,
 }
@@ -350,6 +351,8 @@ export async function POST(request: NextRequest) {
         currency: tx.currency || rd.currencyCode || 'INR',
         receipt_url: tx.receipt_url || rd.customerReceiptUrl || rd.receiptUrl || null,
         posting_date: tx.posting_date || null,
+        reversed_at: tx.reversed_at || null,
+        reversal_reason: tx.reversal_reason || null,
         _source: 'pos_transactions',
       })
     }
@@ -388,6 +391,8 @@ export async function POST(request: NextRequest) {
         currency: tx.currency || rd.currencyCode || 'INR',
         receipt_url: tx.receipt_url || rd.customerReceiptUrl || rd.receiptUrl || null,
         posting_date: tx.posting_date || null,
+        reversed_at: tx.reversed_at || null,
+        reversal_reason: tx.reversal_reason || null,
         _source: 'razorpay_pos_transactions',
       })
     }
@@ -422,6 +427,7 @@ export async function POST(request: NextRequest) {
     const capturedCount = filteredRows.filter(t => getStatusStr(t) === 'CAPTURED').length
     const failedCount = filteredRows.filter(t => getStatusStr(t) === 'FAILED').length
     const refundedCount = filteredRows.filter(t => getStatusStr(t) === 'REFUNDED').length
+    const voidedCount = filteredRows.filter(t => getStatusStr(t) === 'VOIDED').length
     const capturedAmount = filteredRows
       .filter(t => getStatusStr(t) === 'CAPTURED')
       .reduce((s, t) => s + getAmt(t), 0)
@@ -454,6 +460,7 @@ export async function POST(request: NextRequest) {
         captured_count: capturedCount,
         failed_count: failedCount,
         refunded_count: refundedCount,
+        voided_count: voidedCount,
         captured_amount: capturedAmount.toFixed(2),
         terminal_count: uniqueTerminals.size,
       },

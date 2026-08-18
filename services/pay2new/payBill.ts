@@ -18,6 +18,7 @@ export interface BillPayParams {
   product_code: string
   request_id: string
   bill_fetch_ref: string
+  pan_number?: string
   optional1?: string
   optional2?: string
   optional3?: string
@@ -44,6 +45,7 @@ export async function pay2newPayBill(params: BillPayParams): Promise<{
     product_code: params.product_code,
     request_id: params.request_id,
     bill_fetch_ref: params.bill_fetch_ref,
+    pan_number: params.pan_number || '',
     optional1: params.optional1 || '',
     optional2: params.optional2 || '',
     optional3: params.optional3 || '',

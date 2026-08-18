@@ -97,8 +97,8 @@ export async function GET(request: NextRequest) {
         const displayStatus = statusFilter.toUpperCase() === 'CAPTURED' ? 'SUCCESS' : statusFilter.toUpperCase()
         q = q.eq('display_status', displayStatus)
       } else {
-        // Null-safe: keep rows where display_status is NULL or not FAILED
-        q = q.or('display_status.is.null,display_status.neq.FAILED')
+        // Default: hide failed + reversed (voided/refunded/cancelled) from exports too.
+        q = q.not('display_status', 'in', '(FAILED,VOIDED,REFUNDED,CANCELLED)')
       }
 
       if (dateFrom) {

@@ -386,13 +386,13 @@ export async function POST(request: NextRequest) {
         if (isPartner) {
           return NextResponse.json({ error: 'Only administrators can change partner services' }, { status: 403 })
         }
-        const { partner_id, bbps_enabled, bbps2_pay2new_enabled, settlement_enabled, settlement2_enabled, aeps_enabled, rechargekit_cc_enabled } = body
+        const { partner_id, bbps_enabled, bbps2_pay2new_enabled, credit_card1_plus_enabled, settlement_enabled, settlement2_enabled, aeps_enabled, rechargekit_cc_enabled } = body
         if (!partner_id) {
           return NextResponse.json({ error: 'partner_id is required' }, { status: 400 })
         }
-        if (bbps_enabled === undefined && bbps2_pay2new_enabled === undefined && settlement_enabled === undefined && settlement2_enabled === undefined && aeps_enabled === undefined && rechargekit_cc_enabled === undefined) {
+        if (bbps_enabled === undefined && bbps2_pay2new_enabled === undefined && credit_card1_plus_enabled === undefined && settlement_enabled === undefined && settlement2_enabled === undefined && aeps_enabled === undefined && rechargekit_cc_enabled === undefined) {
           return NextResponse.json(
-            { error: 'At least one service flag is required (bbps_enabled, bbps2_pay2new_enabled, settlement_enabled, settlement2_enabled, aeps_enabled, rechargekit_cc_enabled)' },
+            { error: 'At least one service flag is required (bbps_enabled, bbps2_pay2new_enabled, credit_card1_plus_enabled, settlement_enabled, settlement2_enabled, aeps_enabled, rechargekit_cc_enabled)' },
             { status: 400 }
           )
         }
@@ -400,6 +400,7 @@ export async function POST(request: NextRequest) {
         const updates: Record<string, unknown> = { updated_at: new Date().toISOString() }
         if (typeof bbps_enabled === 'boolean') updates.bbps_enabled = bbps_enabled
         if (typeof bbps2_pay2new_enabled === 'boolean') updates.bbps2_pay2new_enabled = bbps2_pay2new_enabled
+        if (typeof credit_card1_plus_enabled === 'boolean') updates.credit_card1_plus_enabled = credit_card1_plus_enabled
         if (typeof settlement_enabled === 'boolean') updates.settlement_enabled = settlement_enabled
         if (typeof settlement2_enabled === 'boolean') updates.settlement2_enabled = settlement2_enabled
         if (typeof aeps_enabled === 'boolean') updates.aeps_enabled = aeps_enabled
@@ -419,7 +420,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({
           success: true,
           message: 'Partner API services updated',
-          data: { partner_id, bbps_enabled, bbps2_pay2new_enabled, settlement_enabled, settlement2_enabled, rechargekit_cc_enabled },
+          data: { partner_id, bbps_enabled, bbps2_pay2new_enabled, credit_card1_plus_enabled, settlement_enabled, settlement2_enabled, rechargekit_cc_enabled },
         })
       }
 

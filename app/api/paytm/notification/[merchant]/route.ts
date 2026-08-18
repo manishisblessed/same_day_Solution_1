@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { verifyChecksum } from '@/lib/paytm'
+import { deliverPartnerCallback, deliverPartnerReversal } from '@/lib/partner-webhook/deliver'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -128,8 +129,13 @@ export async function POST(
       paytmStatus === 'CAPTURED' ||
       resultCodeId === '0000' ||
       data.respCode === '01'
+    const paytmTxnType = (data.txnType || data.TXNTYPE || '').toString().toUpperCase()
+    const isRefund = paytmTxnType.includes('REFUND') || paytmStatus.includes('REFUND')
+    const isReversalRaw = isRefund || paytmTxnType.includes('VOID') || paytmTxnType.includes('REVERS') || paytmStatus.includes('VOID') || paytmStatus.includes('REVERS')
     let mappedStatus = 'PENDING'
-    if (isSuccess) {
+    if (isReversalRaw) {
+      mappedStatus = isRefund ? 'REFUNDED' : 'VOIDED'
+    } else if (isSuccess) {
       mappedStatus = 'CAPTURED'
     } else if (paytmStatus.includes('FAIL') || paytmStatus === 'DECLINED') {
       mappedStatus = 'FAILED'
@@ -163,14 +169,19 @@ export async function POST(
 
     const { data: existingTxn } = await supabase
       .from('razorpay_pos_transactions')
-      .select('id, wallet_credited, retailer_id')
+      .select('id, wallet_credited, retailer_id, display_status, partner_wallet_credited')
       .eq('txn_id', prefixedTxnId)
       .maybeSingle()
 
+    const isReversalTransition = isReversalRaw && existingTxn?.display_status === 'SUCCESS'
+
     const posTransactionData: any = {
       txn_id: prefixedTxnId,
-      status: paytmStatus || (mappedStatus === 'CAPTURED' ? 'SUCCESS' : 'PENDING'),
-      display_status: mappedStatus === 'CAPTURED' ? 'SUCCESS' : mappedStatus === 'FAILED' ? 'FAILED' : 'PENDING',
+      status: paytmStatus || mappedStatus,
+      display_status: isReversalRaw ? (isRefund ? 'REFUNDED' : 'VOIDED')
+        : mappedStatus === 'CAPTURED' ? 'SUCCESS' : mappedStatus === 'FAILED' ? 'FAILED' : 'PENDING',
+      reversed_at: isReversalRaw ? createdTime.toISOString() : null,
+      reversal_reason: isReversalRaw ? `paytm-webhook:${paytmStatus || paytmTxnType}` : null,
       amount: amount || 0,
       payment_mode: paymentMode.toUpperCase(),
       device_serial: deviceSerial,
@@ -283,36 +294,43 @@ export async function POST(
       }
     }
 
-    // Forward to partner webhook if applicable
-    if (tid) {
-      try {
-        const { data: partnerRows } = await supabase
-          .from('partner_pos_machines')
-          .select('partner_id')
-          .eq('terminal_id', tid)
-          .eq('status', 'active')
-          .limit(1)
-
-        if (partnerRows?.length === 1) {
-          const { data: partnerRecord } = await supabase
-            .from('partners')
-            .select('webhook_url')
-            .eq('id', partnerRows[0].partner_id)
-            .eq('status', 'active')
-            .maybeSingle()
-
-          if (partnerRecord?.webhook_url) {
-            fetch(partnerRecord.webhook_url, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ ...payload, mappedStatus, _brand: 'PAYTM' }),
-              signal: AbortSignal.timeout(10000),
-            }).catch(err => console.error(`[Paytm/${merchantSlug}] Partner callback failed:`, err.message))
-          }
-        }
-      } catch (err) {
-        console.error(`[Paytm/${merchantSlug}] Partner lookup error:`, err)
+    // Forward to partner webhook — signed, retried, logged.
+    if (isReversalTransition) {
+      void deliverPartnerReversal({
+        supabase,
+        tid,
+        deviceSerial,
+        txnId: prefixedTxnId,
+        payload: {
+          event: 'pos.transaction.reversed',
+          action: 'remove',
+          txn_id: prefixedTxnId,
+          rrn,
+          terminal_id: tid,
+          tid,
+          device_serial: deviceSerial,
+          mid,
+          amount: amount || 0,
+          previous_status: 'CAPTURED',
+          status: isRefund ? 'REFUNDED' : 'VOIDED',
+          reversed_at: createdTime.toISOString(),
+          reason: `paytm-webhook:${paytmStatus || paytmTxnType}`,
+          was_settled: !!(existingTxn?.partner_wallet_credited || existingTxn?.wallet_credited),
+          _brand: 'PAYTM',
+        },
+        logPrefix: `Partner Reversal/${merchantSlug}`,
+      })
+      if (existingTxn?.partner_wallet_credited || existingTxn?.wallet_credited) {
+        console.warn(`[Paytm/${merchantSlug}] REVERSAL AFTER SETTLEMENT — clawback needed txn=${prefixedTxnId} amount=${amount}`)
       }
+    } else if (tid) {
+      void deliverPartnerCallback({
+        supabase,
+        tid,
+        txnId: prefixedTxnId,
+        payload: { ...payload, mappedStatus, _brand: 'PAYTM' },
+        logPrefix: `Partner Callback/${merchantSlug}`,
+      })
     }
 
     return NextResponse.json({

@@ -18,6 +18,7 @@ export interface SyncResult {
   created: number
   updated: number
   skipped: number
+  reversed: number
   errors: string[]
 }
 
@@ -145,13 +146,55 @@ async function fetchTransactions(
   throw lastError || new Error('Pinelab API fetch failed')
 }
 
-function mapStatus(txnStatus: string): { status: string; displayStatus: string } {
+/**
+ * Fetch every Pinelab transaction in a window for one merchant, deduped across
+ * the CARD/UPI/catch-all passes. Exposed for the reversal backfill script.
+ */
+export async function fetchPinelabTransactionsForMerchant(
+  config: PinelabMerchantConfig,
+  fromDate: string,
+  toDate: string
+): Promise<PinelabTransaction[]> {
+  const baseUrl = getBaseUrl(config.env)
+  const authHeader = buildAuthHeader(config.clientId, config.clientSecret)
+  const modes: Array<string | undefined> = ['CARD', 'UPI', undefined]
+  const seen = new Set<string>()
+  const out: PinelabTransaction[] = []
+  for (const paymentMode of modes) {
+    let page = 0
+    let totalPages = 1
+    while (page < totalPages) {
+      const resp = await fetchTransactions(baseUrl, authHeader, fromDate, toDate, page, 500, paymentMode)
+      totalPages = resp.totalPages
+      for (const t of resp.transactions) {
+        if (!t.transactionId || seen.has(t.transactionId)) continue
+        seen.add(t.transactionId)
+        out.push(t)
+      }
+      page++
+    }
+  }
+  return out
+}
+
+export function mapStatus(txnStatus: string, txnType?: string): { status: string; displayStatus: string } {
   const s = (txnStatus || '').toUpperCase()
+  const t = (txnType || '').toUpperCase()
+
+  // Refunds/voids/reversals can arrive either as a txnStatus or a txnType.
+  if (t.includes('REFUND') || s.includes('REFUND')) return { status: 'REFUNDED', displayStatus: 'REFUNDED' }
+  if (t.includes('VOID') || t.includes('REVERS') || s.includes('VOID') || s.includes('REVERS')) {
+    return { status: 'VOIDED', displayStatus: 'VOIDED' }
+  }
+
   if (s === 'SUCCESS') return { status: 'AUTHORIZED', displayStatus: 'SUCCESS' }
   if (s === 'FAILED') return { status: 'FAILED', displayStatus: 'FAILED' }
-  if (s === 'CANCELLED') return { status: 'CANCELLED', displayStatus: 'FAILED' }
+  if (s === 'CANCELLED') return { status: 'CANCELLED', displayStatus: 'CANCELLED' }
   return { status: 'PENDING', displayStatus: 'PENDING' }
 }
+
+/** display_status values that represent a terminal reversal of a captured txn. */
+export const REVERSAL_DISPLAY_STATUSES = ['VOIDED', 'REFUNDED']
 
 function cleanNull(val: string | undefined | null): string | null {
   if (!val || val === 'null' || val === 'INVALID') return null
@@ -169,8 +212,9 @@ function parseIstDate(raw: string): Date | null {
   return isNaN(parsed.getTime()) ? null : parsed
 }
 
-function mapToDbRecord(txn: PinelabTransaction, merchantSlug: string, merchantName: string) {
-  const { status, displayStatus } = mapStatus(txn.txnStatus)
+export function mapToDbRecord(txn: PinelabTransaction, merchantSlug: string, merchantName: string) {
+  const { status, displayStatus } = mapStatus(txn.txnStatus, txn.txnType)
+  const isReversal = REVERSAL_DISPLAY_STATUSES.includes(displayStatus)
   const amount = parseFloat(txn.amount || txn.authTransactionAmount || '0')
   const ad = txn.additionalDetails || {}
 
@@ -229,6 +273,60 @@ function mapToDbRecord(txn: PinelabTransaction, merchantSlug: string, merchantNa
     acquiring_bank: txn.acquirer || null,
     settlement_type: 'T1',
     partner_id: null,
+    reversed_at: isReversal ? transactionTime.toISOString() : null,
+    reversal_reason: isReversal ? `pinelab:${txn.txnStatus || ''}${txn.txnType ? `/${txn.txnType}` : ''}` : null,
+  }
+}
+
+/**
+ * Propagate a captured→reversed transition to the owning partner via a signed
+ * `pos.transaction.reversed` webhook. Best-effort; never throws.
+ */
+async function emitReversal(
+  supabase: ReturnType<typeof getSupabaseAdmin>,
+  prefixedId: string,
+  dbRecord: ReturnType<typeof mapToDbRecord>,
+  existing: { partner_wallet_credited?: boolean | null; wallet_credited?: boolean | null },
+  result: SyncResult
+): Promise<void> {
+  const wasSettled = !!(existing.partner_wallet_credited || existing.wallet_credited)
+  if (wasSettled) {
+    // Money already moved to a wallet — reversal requires a manual clawback.
+    // We surface it loudly; automated debit is intentionally out of scope.
+    console.warn(`[PinelabSync] REVERSAL AFTER SETTLEMENT — clawback needed txn=${prefixedId} amount=${dbRecord.amount}`)
+    result.errors.push(`reversal-after-settlement:${prefixedId}`)
+  }
+
+  const reversalPayload = {
+    event: 'pos.transaction.reversed',
+    action: 'remove',
+    txn_id: prefixedId,
+    rrn: dbRecord.rrn,
+    terminal_id: dbRecord.tid,
+    tid: dbRecord.tid,
+    device_serial: dbRecord.device_serial,
+    mid: dbRecord.mid_code,
+    amount: dbRecord.amount,
+    previous_status: 'CAPTURED',
+    status: dbRecord.display_status === 'REFUNDED' ? 'REFUNDED' : 'VOIDED',
+    reversed_at: dbRecord.reversed_at,
+    reason: dbRecord.reversal_reason,
+    was_settled: wasSettled,
+    _brand: 'PINELAB',
+  }
+
+  try {
+    const { deliverPartnerReversal } = await import('@/lib/partner-webhook/deliver')
+    await deliverPartnerReversal({
+      supabase,
+      tid: dbRecord.tid,
+      deviceSerial: dbRecord.device_serial,
+      txnId: prefixedId,
+      payload: reversalPayload,
+      logPrefix: 'Partner Reversal/pinelab',
+    })
+  } catch (err: any) {
+    result.errors.push(`Reversal notify ${prefixedId}: ${err?.message || err}`)
   }
 }
 
@@ -238,7 +336,7 @@ async function syncMerchant(
   fromDate: string,
   toDate: string
 ): Promise<SyncResult> {
-  const result: SyncResult = { merchant: merchantSlug, fetched: 0, created: 0, updated: 0, skipped: 0, errors: [] }
+  const result: SyncResult = { merchant: merchantSlug, fetched: 0, created: 0, updated: 0, skipped: 0, reversed: 0, errors: [] }
   const supabase = getSupabaseAdmin()
   const baseUrl = getBaseUrl(config.env)
   const authHeader = buildAuthHeader(config.clientId, config.clientSecret)
@@ -251,21 +349,10 @@ async function syncMerchant(
   // that have no partner across the whole sync window)
   const partnerDeviceCache = new Map<string, string | null>()
 
-  // Hard cleanup: never keep Pinelab FAILED/CANCELLED/PENDING for this merchant.
-  // Covers rows re-inserted by an older cron process (e.g. EC2 before deploy).
-  {
-    const { error: cleanupErr, count } = await supabase
-      .from('razorpay_pos_transactions')
-      .delete({ count: 'exact' })
-      .eq('merchant_slug', merchantSlug)
-      .like('txn_id', 'PL_%')
-      .in('display_status', ['FAILED', 'PENDING', 'CANCELLED'])
-    if (cleanupErr) {
-      result.errors.push(`failed-cleanup: ${cleanupErr.message}`)
-    } else if (count && count > 0) {
-      console.log(`[PinelabSync] Removed ${count} non-SUCCESS ${merchantSlug} rows`)
-    }
-  }
+  // NOTE: We intentionally do NOT delete non-SUCCESS rows anymore. Voided/
+  // reversed/refunded transactions are retained with a terminal status and
+  // propagated to partners (see reversal handling below), so the Partner API
+  // and dashboard stay consistent and reconciliation partners get a signal.
 
   for (const paymentMode of modes) {
     let page = 0
@@ -292,29 +379,77 @@ async function syncMerchant(
           }
           seenTxnIds.add(prefixedId)
 
-          // Razorpay POS only notifies on successful payments. Pinelab Transaction
-          // Summary returns FAILED/CANCELLED too — skip those so they don't inflate reports.
-          const txnStatus = (txn.txnStatus || '').toUpperCase()
-          if (txnStatus !== 'SUCCESS') {
-            // Remove any previously synced non-success rows for this txn
-            const { error: delErr } = await supabase
-              .from('razorpay_pos_transactions')
-              .delete()
-              .eq('txn_id', prefixedId)
-            if (delErr) {
-              result.errors.push(`Delete non-success ${prefixedId}: ${delErr.message}`)
-            }
-            result.skipped++
-            continue
-          }
+          const dbRecord = mapToDbRecord(txn, merchantSlug, config.merchantName)
+          const isReversal = REVERSAL_DISPLAY_STATUSES.includes(dbRecord.display_status)
+          const isSuccess = dbRecord.display_status === 'SUCCESS'
 
           const { data: existing } = await supabase
             .from('razorpay_pos_transactions')
-            .select('id, status, display_status, transaction_time, card_type, card_brand, issuing_bank, partner_id')
+            .select('id, status, display_status, transaction_time, card_type, card_brand, issuing_bank, partner_id, partner_wallet_credited, wallet_credited, tid, device_serial, amount')
             .eq('txn_id', prefixedId)
             .maybeSingle()
 
-          const dbRecord = mapToDbRecord(txn, merchantSlug, config.merchantName)
+          // ── Reversal / void / refund handling ──────────────────────────────
+          // Previously these rows were hard-deleted (silent gap for partners).
+          // Now we retain them with a terminal status and, when a transaction we
+          // had recorded as SUCCESS transitions to reversed, notify the partner.
+          if (isReversal) {
+            if (existing) {
+              const wasSuccess = existing.display_status === 'SUCCESS'
+              const alreadyReversed = REVERSAL_DISPLAY_STATUSES.includes(existing.display_status)
+              const { partner_id: _omitPartnerId, ...reversalUpdate } = dbRecord
+              const { error: updErr } = await supabase
+                .from('razorpay_pos_transactions')
+                .update({ ...reversalUpdate, updated_at: new Date().toISOString() })
+                .eq('txn_id', prefixedId)
+              if (updErr) {
+                result.errors.push(`Reverse ${prefixedId}: ${updErr.message}`)
+              } else if (wasSuccess) {
+                // True transition CAPTURED → reversed: propagate to the partner.
+                result.reversed++
+                await emitReversal(supabase, prefixedId, dbRecord, existing, result)
+              } else if (!alreadyReversed) {
+                result.updated++
+              } else {
+                result.skipped++
+              }
+            } else {
+              // Never seen before and already reversed: store it as a terminal
+              // record (visible as VOIDED/REFUNDED) but do not emit a reversal
+              // event — the partner never received a capture for it.
+              const { error: insErr } = await supabase
+                .from('razorpay_pos_transactions')
+                .insert(dbRecord)
+              if (insErr) result.errors.push(`Insert reversed ${prefixedId}: ${insErr.message}`)
+              else result.created++
+            }
+            continue
+          }
+
+          // Non-SUCCESS, non-reversal (FAILED / PENDING / CANCELLED): retain as-is.
+          if (!isSuccess) {
+            if (existing) {
+              if (existing.display_status !== dbRecord.display_status) {
+                const { partner_id: _omit, ...upd } = dbRecord
+                const { error: e } = await supabase
+                  .from('razorpay_pos_transactions')
+                  .update({ ...upd, updated_at: new Date().toISOString() })
+                  .eq('txn_id', prefixedId)
+                if (e) result.errors.push(`Update ${prefixedId}: ${e.message}`)
+                else result.updated++
+              } else {
+                result.skipped++
+              }
+            } else {
+              const { error: e } = await supabase
+                .from('razorpay_pos_transactions')
+                .insert(dbRecord)
+              if (e) result.errors.push(`Insert ${prefixedId}: ${e.message}`)
+              else result.created++
+            }
+            continue
+          }
+
           // Row id for partner attach/instant settlement below
           let rowId: string | null = existing?.id || null
 
@@ -460,7 +595,7 @@ export async function runPinelabSync(opts?: {
     } catch (err: any) {
       results.push({
         merchant: slug,
-        fetched: 0, created: 0, updated: 0, skipped: 0,
+        fetched: 0, created: 0, updated: 0, skipped: 0, reversed: 0,
         errors: [err.message],
       })
     }

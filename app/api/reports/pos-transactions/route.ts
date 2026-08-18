@@ -131,6 +131,8 @@ export async function GET(request: NextRequest) {
     if (dateFrom) query = query.gte('transaction_time', dateFrom)
     if (dateTo) query = query.lte('transaction_time', dateTo)
     if (status) query = query.eq('status', status)
+    // Hide reversed/failed from portal reports (retained in DB + partner API)
+    query = query.not('display_status', 'in', '(FAILED,VOIDED,REFUNDED,CANCELLED)')
 
     // For grouped reports, we need all data (no pagination)
     // For flat reports, apply pagination

@@ -2592,7 +2592,7 @@ function SchemeManagementTab({ user }: { user: any }) {
   const { showToast } = useToast()
 
   // Admin-assigned configs (for auto-populating "Your Cost" as read-only)
-  const [adminConfigs, setAdminConfigs] = useState<{ bbps: any[], payout: any[], shadval: any[] }>({ bbps: [], payout: [], shadval: [] })
+  const [adminConfigs, setAdminConfigs] = useState<{ bbps: any[], payout: any[], shadval: any[], mdr: any[] }>({ bbps: [], payout: [], shadval: [], mdr: [] })
 
   const [schemeForm, setSchemeForm] = useState({
     name: '',
@@ -2784,12 +2784,13 @@ function SchemeManagementTab({ user }: { user: any }) {
         assignedSchemes = (data || []).map(s => ({ ...s, _assigned: true }))
 
         // Pre-fetch admin-assigned configs for "Your Cost" auto-population
-        const [bbpsRes, payoutRes, shadvalRes] = await Promise.all([
+        const [bbpsRes, payoutRes, shadvalRes, mdrRes] = await Promise.all([
           secureDb.from('scheme_bbps_commissions').select('*').in('scheme_id', assignedIds).eq('status', 'active'),
           secureDb.from('scheme_payout_charges').select('*').in('scheme_id', assignedIds).eq('status', 'active'),
           secureDb.from('scheme_shadval_settlement_charges').select('*').in('scheme_id', assignedIds).eq('status', 'active'),
+          secureDb.from('scheme_mdr_rates').select('*').in('scheme_id', assignedIds).eq('status', 'active'),
         ])
-        setAdminConfigs({ bbps: bbpsRes.data || [], payout: payoutRes.data || [], shadval: shadvalRes.data || [] })
+        setAdminConfigs({ bbps: bbpsRes.data || [], payout: payoutRes.data || [], shadval: shadvalRes.data || [], mdr: mdrRes.data || [] })
       }
 
       let filtered = [...(ownSchemes || []), ...assignedSchemes]
@@ -3025,6 +3026,33 @@ function SchemeManagementTab({ user }: { user: any }) {
     return fallback ? { value: fallback.md_purchase_charge || 0, type: fallback.md_purchase_charge_type || 'flat' } : null
   }
 
+  // Look up the MD's MDR cost from the Admin scheme (the md_mdr_* rate the admin
+  // assigned to this MD). Also surfaces the company cost to inject on save so the
+  // full cascade is preserved downstream.
+  const getAdminMdrCost = (params: { mode?: string, card_type?: string, brand_type?: string, card_classification?: string, merchant_slug?: string }) => {
+    const configs = adminConfigs.mdr || []
+    const norm = (v: any) => (v === undefined || v === null || v === '' ? null : String(v).toLowerCase())
+    const matches = (c: any, strict: boolean) => {
+      if (params.mode && c.mode !== params.mode) return false
+      if (strict) {
+        if (norm(c.card_type) !== norm(params.card_type)) return false
+        if (norm(c.brand_type) !== norm(params.brand_type)) return false
+        if (norm(c.card_classification) !== norm(params.card_classification)) return false
+        if (norm(c.merchant_slug) !== norm(params.merchant_slug)) return false
+      }
+      return true
+    }
+    const match = configs.find(c => matches(c, true)) || configs.find(c => matches(c, false))
+    if (!match) return null
+    return {
+      md_t1: parseFloat(match.md_mdr_t1) || 0,
+      md_t0: parseFloat(match.md_mdr_t0) || 0,
+      company_mdr_rate: parseFloat(match.company_mdr_rate) || 0,
+      gst_inclusive: !!match.gst_inclusive,
+      vendor_rate: parseFloat(match.vendor_rate) || 0,
+    }
+  }
+
   const handleSaveConfig = async () => {
     setSavingConfig(true)
     try {
@@ -3072,13 +3100,27 @@ function SchemeManagementTab({ user }: { user: any }) {
         if (isPartnerPlan) {
           configData.partner_mdr = mdrForm.partner_mdr; configData.retailer_mdr_t1 = 0; configData.retailer_mdr_t0 = 0; configData.distributor_mdr_t1 = 0; configData.distributor_mdr_t0 = 0; configData.md_mdr_t1 = 0; configData.md_mdr_t0 = 0
         } else {
-          // MD sets only the Distributor's commission rate (MD → DT). Retailer
-          // rate is set downstream by the DT; MD rate is set upstream by Admin.
-          configData.retailer_mdr_t1 = 0; configData.retailer_mdr_t0 = 0; configData.distributor_mdr_t1 = mdrForm.distributor_mdr_t1; configData.distributor_mdr_t0 = mdrForm.distributor_mdr_t0; configData.md_mdr_t1 = 0; configData.md_mdr_t0 = 0; configData.partner_mdr = null
+          // MD sets the Distributor MDR (the cost passed to the DT). The MD's own
+          // cost (md_mdr) and the company cost are inherited from the Admin's
+          // scheme so downstream commission math has the complete chain. Retailer
+          // rate is set further downstream by the DT.
+          const adminMdrCost = getAdminMdrCost({ mode: mdrForm.mode, card_type: mdrForm.card_type, brand_type: mdrForm.brand_type, card_classification: mdrForm.card_classification, merchant_slug: mdrForm.merchant_slug })
+          configData.retailer_mdr_t1 = 0
+          configData.retailer_mdr_t0 = 0
+          configData.distributor_mdr_t1 = mdrForm.distributor_mdr_t1
+          configData.distributor_mdr_t0 = mdrForm.distributor_mdr_t0
+          configData.md_mdr_t1 = adminMdrCost?.md_t1 || 0
+          configData.md_mdr_t0 = adminMdrCost?.md_t0 || 0
+          configData.partner_mdr = null
+          configData.gst_inclusive = mdrForm.gst_inclusive
+          configData.vendor_rate = mdrForm.vendor_rate
+          configData.company_mdr_rate = adminMdrCost?.company_mdr_rate ?? mdrForm.company_mdr_rate
         }
-        configData.gst_inclusive = mdrForm.gst_inclusive
-        configData.vendor_rate = mdrForm.vendor_rate
-        configData.company_mdr_rate = mdrForm.company_mdr_rate
+        if (isPartnerPlan) {
+          configData.gst_inclusive = mdrForm.gst_inclusive
+          configData.vendor_rate = mdrForm.vendor_rate
+          configData.company_mdr_rate = mdrForm.company_mdr_rate
+        }
       } else if (configType === 'aeps') {
         configData = { ...aepsForm }
       } else if (configType === 'aeps_settlement') {
@@ -3469,12 +3511,12 @@ function SchemeManagementTab({ user }: { user: any }) {
                                 <th className="px-2 py-1.5 text-right">MDR %</th>
                               ) : (
                                 <>
-                                  <th className="px-2 py-1.5 text-right">Ret T+1</th>
-                                  <th className="px-2 py-1.5 text-right">Ret T+0</th>
-                                  <th className="px-2 py-1.5 text-right">Dist T+1</th>
-                                  <th className="px-2 py-1.5 text-right">Dist T+0</th>
-                                  <th className="px-2 py-1.5 text-right">MD T+1</th>
-                                  <th className="px-2 py-1.5 text-right">MD T+0</th>
+                                  <th className="px-2 py-1.5 text-right">Your Cost T+1</th>
+                                  <th className="px-2 py-1.5 text-right">Your Cost T+0</th>
+                                  <th className="px-2 py-1.5 text-right">DT Rate T+1</th>
+                                  <th className="px-2 py-1.5 text-right">DT Rate T+0</th>
+                                  <th className="px-2 py-1.5 text-right">Margin T+1</th>
+                                  <th className="px-2 py-1.5 text-right">Margin T+0</th>
                                 </>
                               )}
                               <th className="px-2 py-1.5 text-center">GST</th>
@@ -3492,12 +3534,12 @@ function SchemeManagementTab({ user }: { user: any }) {
                                   <td className="px-2 py-1.5 text-right font-semibold text-orange-700 dark:text-orange-400">{c.partner_mdr ?? 0}%</td>
                                 ) : (
                                   <>
-                                    <td className="px-2 py-1.5 text-right">{c.retailer_mdr_t1}%</td>
-                                    <td className="px-2 py-1.5 text-right">{c.retailer_mdr_t0}%</td>
+                                    <td className="px-2 py-1.5 text-right text-gray-500">{c.md_mdr_t1}%</td>
+                                    <td className="px-2 py-1.5 text-right text-gray-500">{c.md_mdr_t0}%</td>
                                     <td className="px-2 py-1.5 text-right">{c.distributor_mdr_t1}%</td>
                                     <td className="px-2 py-1.5 text-right">{c.distributor_mdr_t0}%</td>
-                                    <td className="px-2 py-1.5 text-right">{c.md_mdr_t1}%</td>
-                                    <td className="px-2 py-1.5 text-right">{c.md_mdr_t0}%</td>
+                                    <td className="px-2 py-1.5 text-right text-blue-600 dark:text-blue-400">{(((c.distributor_mdr_t1 || 0) - (c.md_mdr_t1 || 0))).toFixed(2)}%</td>
+                                    <td className="px-2 py-1.5 text-right text-blue-600 dark:text-blue-400">{(((c.distributor_mdr_t0 || 0) - (c.md_mdr_t0 || 0))).toFixed(2)}%</td>
                                   </>
                                 )}
                                 <td className="px-2 py-1.5 text-center">{c.gst_inclusive ? '✓' : '-'}</td>
@@ -4034,10 +4076,23 @@ function SchemeManagementTab({ user }: { user: any }) {
                       </div>
                     )
                   }
+                  const adminMdrCost = getAdminMdrCost({ mode: mdrForm.mode, card_type: mdrForm.card_type, brand_type: mdrForm.brand_type, card_classification: mdrForm.card_classification, merchant_slug: mdrForm.merchant_slug })
+                  const mdCostT1 = adminMdrCost?.md_t1 || 0
+                  const mdCostT0 = adminMdrCost?.md_t0 || 0
                   return (
                     <>
-                      <p className="text-xs text-gray-500">You set the <strong>Distributor's commission rate</strong> (MD → DT). DTs set the retailer rate. T+0 = T+1 + 1% (auto if left 0).</p>
+                      <p className="text-xs text-gray-500">You set the <strong>Distributor MDR</strong> (the cost passed to your DT). Your cost is set upstream by Admin; your margin is Distributor MDR − Your Cost. T+0 = T+1 + 1% (auto if left 0).</p>
                       <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-xs font-medium mb-1 text-gray-500">Your Cost (from Admin Scheme) T+1 (%)</label>
+                          <input type="number" value={mdCostT1} readOnly disabled
+                            className="w-full px-3 py-2 border rounded-lg text-sm bg-gray-100 dark:bg-gray-900 dark:border-gray-700 text-gray-500" />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium mb-1 text-gray-500">Your Cost (from Admin Scheme) T+0 (%)</label>
+                          <input type="number" value={mdCostT0} readOnly disabled
+                            className="w-full px-3 py-2 border rounded-lg text-sm bg-gray-100 dark:bg-gray-900 dark:border-gray-700 text-gray-500" />
+                        </div>
                         <div>
                           <label className="block text-xs font-medium mb-1">Distributor MDR T+1 (%)</label>
                           <input type="number" step="0.01" value={mdrForm.distributor_mdr_t1}
@@ -4053,6 +4108,16 @@ function SchemeManagementTab({ user }: { user: any }) {
                             onChange={(e) => setMdrForm({ ...mdrForm, distributor_mdr_t0: parseFloat(e.target.value) || 0 })}
                             className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
                         </div>
+                      </div>
+                      <div className="mt-2 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                        <p className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Your Margin Preview</p>
+                        <div className="grid grid-cols-2 gap-2 text-xs">
+                          <div className="text-center"><div className="text-gray-500">MD Margin T+1 (DT − Your cost)</div><div className={`font-semibold ${(mdrForm.distributor_mdr_t1 - mdCostT1) < 0 ? 'text-red-600' : 'text-blue-600'}`}>{(mdrForm.distributor_mdr_t1 - mdCostT1).toFixed(2)}%</div></div>
+                          <div className="text-center"><div className="text-gray-500">MD Margin T+0 (DT − Your cost)</div><div className={`font-semibold ${(mdrForm.distributor_mdr_t0 - mdCostT0) < 0 ? 'text-red-600' : 'text-blue-600'}`}>{(mdrForm.distributor_mdr_t0 - mdCostT0).toFixed(2)}%</div></div>
+                        </div>
+                        {(mdrForm.distributor_mdr_t1 < mdCostT1 || mdrForm.distributor_mdr_t0 < mdCostT0) && (
+                          <p className="text-xs text-red-600 mt-1">Distributor MDR must be ≥ your cost, else you lose margin.</p>
+                        )}
                       </div>
                     </>
                   )

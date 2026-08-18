@@ -28,8 +28,35 @@ export function signPartnerPayload(secret: string, timestamp: string, body: stri
 }
 
 /**
+ * Best-effort audit log of an outbound delivery. Never throws.
+ */
+async function logDelivery(
+  supabase: SupabaseClient | undefined,
+  row: {
+    delivery_id: string
+    partner_id: string | null
+    txn_id: string
+    event: string
+    webhook_url: string
+    status_code: number | null
+    success: boolean
+    attempts: number
+    error: string | null
+    payload: unknown
+  }
+): Promise<void> {
+  if (!supabase) return
+  try {
+    await supabase.from('partner_webhook_deliveries').insert(row)
+  } catch (err: any) {
+    console.warn(`[Partner Callback] delivery log failed txnId=${row.txn_id}: ${err?.message || err}`)
+  }
+}
+
+/**
  * POST a payload to a partner URL with signing + bounded retries.
- * Best-effort: never throws. Logs the final outcome.
+ * Best-effort: never throws. Logs the final outcome (and persists it to
+ * partner_webhook_deliveries when a supabase client + partnerId are provided).
  */
 export async function sendSignedCallback(opts: {
   url: string
@@ -38,8 +65,10 @@ export async function sendSignedCallback(opts: {
   txnId: string
   event?: string
   logPrefix?: string
+  supabase?: SupabaseClient
+  partnerId?: string | null
 }): Promise<void> {
-  const { url, secret, payload, txnId, event = 'pos.transaction', logPrefix = 'Partner Callback' } = opts
+  const { url, secret, payload, txnId, event = 'pos.transaction', logPrefix = 'Partner Callback', supabase, partnerId = null } = opts
 
   const body = JSON.stringify(payload)
   const timestamp = Math.floor(Date.now() / 1000).toString()
@@ -55,6 +84,9 @@ export async function sendSignedCallback(opts: {
     headers['X-Sameday-Signature'] = signPartnerPayload(secret, timestamp, body)
   }
 
+  let lastStatus: number | null = null
+  let lastError: string | null = null
+
   for (let attempt = 0; attempt < RETRY_DELAYS_MS.length; attempt++) {
     if (RETRY_DELAYS_MS[attempt] > 0) await sleep(RETRY_DELAYS_MS[attempt])
     try {
@@ -64,16 +96,27 @@ export async function sendSignedCallback(opts: {
         body,
         signal: AbortSignal.timeout(CALLBACK_TIMEOUT_MS),
       })
+      lastStatus = res.status
       if (res.ok) {
-        console.log(`[${logPrefix}] delivered txnId=${txnId} delivery=${deliveryId} attempt=${attempt + 1} signed=${!!secret} → HTTP ${res.status}`)
+        console.log(`[${logPrefix}] delivered txnId=${txnId} event=${event} delivery=${deliveryId} attempt=${attempt + 1} signed=${!!secret} → HTTP ${res.status}`)
+        await logDelivery(supabase, {
+          delivery_id: deliveryId, partner_id: partnerId, txn_id: txnId, event, webhook_url: url,
+          status_code: res.status, success: true, attempts: attempt + 1, error: null, payload,
+        })
         return
       }
-      console.warn(`[${logPrefix}] non-2xx txnId=${txnId} delivery=${deliveryId} attempt=${attempt + 1} → HTTP ${res.status}`)
+      lastError = `HTTP ${res.status}`
+      console.warn(`[${logPrefix}] non-2xx txnId=${txnId} event=${event} delivery=${deliveryId} attempt=${attempt + 1} → HTTP ${res.status}`)
     } catch (err: any) {
-      console.warn(`[${logPrefix}] attempt failed txnId=${txnId} delivery=${deliveryId} attempt=${attempt + 1}: ${err?.message || err}`)
+      lastError = err?.message || String(err)
+      console.warn(`[${logPrefix}] attempt failed txnId=${txnId} event=${event} delivery=${deliveryId} attempt=${attempt + 1}: ${lastError}`)
     }
   }
-  console.error(`[${logPrefix}] giving up txnId=${txnId} delivery=${deliveryId} after ${RETRY_DELAYS_MS.length} attempts`)
+  console.error(`[${logPrefix}] giving up txnId=${txnId} event=${event} delivery=${deliveryId} after ${RETRY_DELAYS_MS.length} attempts`)
+  await logDelivery(supabase, {
+    delivery_id: deliveryId, partner_id: partnerId, txn_id: txnId, event, webhook_url: url,
+    status_code: lastStatus, success: false, attempts: RETRY_DELAYS_MS.length, error: lastError, payload,
+  })
 }
 
 /**
@@ -85,9 +128,10 @@ export async function deliverPartnerCallback(opts: {
   tid: string | null | undefined
   txnId: string
   payload: unknown
+  event?: string
   logPrefix?: string
 }): Promise<void> {
-  const { supabase, tid, txnId, payload, logPrefix = 'Partner Callback' } = opts
+  const { supabase, tid, txnId, payload, event = 'pos.transaction', logPrefix = 'Partner Callback' } = opts
 
   if (!tid) {
     console.warn(`[${logPrefix}] Skip txnId=${txnId}: no tid in payload (callback requires terminal_id match)`)
@@ -137,7 +181,70 @@ export async function deliverPartnerCallback(opts: {
       secret: (partnerRecord as { webhook_secret?: string | null }).webhook_secret ?? null,
       payload,
       txnId,
+      event,
       logPrefix,
+      supabase,
+      partnerId,
+    })
+  } catch (err: any) {
+    console.error(`[${logPrefix}] Lookup error txnId=${txnId}: ${err?.message || err}`)
+  }
+}
+
+/**
+ * Notify the owning partner that a previously-captured POS transaction has been
+ * voided/reversed/refunded upstream, so they can mirror the removal in their
+ * books. Emits the `pos.transaction.reversed` event, signed + retried + logged.
+ *
+ * Partner resolution is the robust path (pos_machines OR partner_pos_machines),
+ * matching how the transaction was attached — so reversals reach the partner
+ * even when the terminal lives only in pos_machines.
+ *
+ * Fire-and-forget friendly: never throws.
+ */
+export async function deliverPartnerReversal(opts: {
+  supabase: SupabaseClient
+  tid: string | null | undefined
+  deviceSerial?: string | null
+  txnId: string
+  payload: unknown
+  logPrefix?: string
+}): Promise<void> {
+  const { supabase, tid, deviceSerial = null, txnId, payload, logPrefix = 'Partner Reversal' } = opts
+
+  try {
+    const { resolvePartnerIdForDevice } = await import('@/lib/partner-settlement')
+    const partnerId = await resolvePartnerIdForDevice(deviceSerial, tid ?? null)
+    if (!partnerId) {
+      console.warn(`[${logPrefix}] Skip txnId=${txnId} tid=${tid} serial=${deviceSerial}: no owning partner resolved`)
+      return
+    }
+
+    const { data: partnerRecord, error: pErr } = await supabase
+      .from('partners')
+      .select('webhook_url, webhook_secret')
+      .eq('id', partnerId)
+      .eq('status', 'active')
+      .maybeSingle()
+
+    if (pErr) {
+      console.error(`[${logPrefix}] partners query error partner_id=${partnerId}: ${pErr.message}`)
+      return
+    }
+    if (!partnerRecord?.webhook_url) {
+      console.warn(`[${logPrefix}] Skip txnId=${txnId} partner_id=${partnerId}: webhook_url empty or partner not active`)
+      return
+    }
+
+    await sendSignedCallback({
+      url: partnerRecord.webhook_url,
+      secret: (partnerRecord as { webhook_secret?: string | null }).webhook_secret ?? null,
+      payload,
+      txnId,
+      event: 'pos.transaction.reversed',
+      logPrefix,
+      supabase,
+      partnerId,
     })
   } catch (err: any) {
     console.error(`[${logPrefix}] Lookup error txnId=${txnId}: ${err?.message || err}`)

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import * as crypto from 'crypto'
+import { deliverPartnerCallback, deliverPartnerReversal } from '@/lib/partner-webhook/deliver'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -119,14 +120,27 @@ export async function POST(
 
     // Map Pine Labs status to unified status
     const hostResponse = (payload.HostResponse || payload.ResponseCode || payload.status || '').toString()
+    const txnStatusStr = (payload.TransactionStatus || '').toString().toUpperCase()
+    const txnTypeStr = (payload.TransactionType || '').toString().toUpperCase()
     let mappedStatus = 'PENDING'
-    if (hostResponse === '00' || hostResponse === 'APPROVED' || payload.TransactionStatus === 'Approved') {
+    if (txnTypeStr.includes('REFUND') || txnStatusStr.includes('REFUND')) {
+      mappedStatus = 'REFUNDED'
+    } else if (txnStatusStr === 'VOID' || txnTypeStr.includes('VOID') || txnTypeStr.includes('REVERS') || txnStatusStr.includes('REVERS')) {
+      mappedStatus = 'VOIDED'
+    } else if (hostResponse === '00' || hostResponse === 'APPROVED' || payload.TransactionStatus === 'Approved') {
       mappedStatus = 'CAPTURED'
     } else if (hostResponse === 'DECLINED' || hostResponse === '05' || hostResponse === '51' || payload.TransactionStatus === 'Declined') {
       mappedStatus = 'FAILED'
-    } else if (payload.TransactionStatus === 'Void' || payload.TransactionType === 'VOID') {
-      mappedStatus = 'FAILED'
     }
+
+    // Terminal reversal states (partner already saw the capture → must be told).
+    const isReversal = mappedStatus === 'VOIDED' || mappedStatus === 'REFUNDED'
+    const displayStatus =
+      mappedStatus === 'CAPTURED' ? 'SUCCESS'
+      : mappedStatus === 'VOIDED' ? 'VOIDED'
+      : mappedStatus === 'REFUNDED' ? 'REFUNDED'
+      : mappedStatus === 'FAILED' ? 'FAILED'
+      : 'PENDING'
 
     const deviceSerial = payload.TerminalId || payload.terminalId || payload.DeviceSerial || null
     const tid = payload.TerminalId || payload.TID || payload.terminalId || null
@@ -149,14 +163,19 @@ export async function POST(
 
     const { data: existingTxn } = await supabase
       .from('razorpay_pos_transactions')
-      .select('id, wallet_credited, retailer_id')
+      .select('id, wallet_credited, retailer_id, display_status, partner_wallet_credited')
       .eq('txn_id', `PL_${txnId}`)
       .maybeSingle()
 
+    // True capture→reversal transition: we previously recorded this as SUCCESS.
+    const isReversalTransition = isReversal && existingTxn?.display_status === 'SUCCESS'
+
     const posTransactionData: any = {
       txn_id: `PL_${txnId}`,
-      status: hostResponse === '00' ? 'AUTHORIZED' : hostResponse,
-      display_status: mappedStatus === 'CAPTURED' ? 'SUCCESS' : mappedStatus === 'FAILED' ? 'FAILED' : 'PENDING',
+      status: hostResponse === '00' && mappedStatus === 'CAPTURED' ? 'AUTHORIZED' : mappedStatus,
+      display_status: displayStatus,
+      reversed_at: isReversal ? createdTime.toISOString() : null,
+      reversal_reason: isReversal ? `pinelab-webhook:${txnStatusStr || txnTypeStr || hostResponse}` : null,
       amount: amount || 0,
       payment_mode: paymentMode.toUpperCase(),
       device_serial: deviceSerial,
@@ -269,36 +288,45 @@ export async function POST(
       }
     }
 
-    // Forward to partner webhook if applicable
-    if (tid) {
-      try {
-        const { data: partnerRows } = await supabase
-          .from('partner_pos_machines')
-          .select('partner_id')
-          .eq('terminal_id', tid)
-          .eq('status', 'active')
-          .limit(1)
-
-        if (partnerRows?.length === 1) {
-          const { data: partnerRecord } = await supabase
-            .from('partners')
-            .select('webhook_url')
-            .eq('id', partnerRows[0].partner_id)
-            .eq('status', 'active')
-            .maybeSingle()
-
-          if (partnerRecord?.webhook_url) {
-            fetch(partnerRecord.webhook_url, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ ...payload, mappedStatus, _brand: 'PINELAB' }),
-              signal: AbortSignal.timeout(10000),
-            }).catch(err => console.error(`[PineLab/${merchantSlug}] Partner callback failed:`, err.message))
-          }
-        }
-      } catch (err) {
-        console.error(`[PineLab/${merchantSlug}] Partner lookup error:`, err)
+    // Forward to partner webhook — signed, retried, logged.
+    // A capture→reversal transition emits a distinct `pos.transaction.reversed`
+    // event so the partner removes/reverses it in their books.
+    if (isReversalTransition) {
+      void deliverPartnerReversal({
+        supabase,
+        tid,
+        deviceSerial,
+        txnId: `PL_${txnId}`,
+        payload: {
+          event: 'pos.transaction.reversed',
+          action: 'remove',
+          txn_id: `PL_${txnId}`,
+          rrn,
+          terminal_id: tid,
+          tid,
+          device_serial: deviceSerial,
+          mid,
+          amount: amount || 0,
+          previous_status: 'CAPTURED',
+          status: mappedStatus,
+          reversed_at: createdTime.toISOString(),
+          reason: `pinelab-webhook:${txnStatusStr || txnTypeStr || hostResponse}`,
+          was_settled: !!(existingTxn?.partner_wallet_credited || existingTxn?.wallet_credited),
+          _brand: 'PINELAB',
+        },
+        logPrefix: `Partner Reversal/${merchantSlug}`,
+      })
+      if (existingTxn?.partner_wallet_credited || existingTxn?.wallet_credited) {
+        console.warn(`[PineLab/${merchantSlug}] REVERSAL AFTER SETTLEMENT — clawback needed txn=PL_${txnId} amount=${amount}`)
       }
+    } else if (tid) {
+      void deliverPartnerCallback({
+        supabase,
+        tid,
+        txnId: `PL_${txnId}`,
+        payload: { ...payload, mappedStatus, _brand: 'PINELAB' },
+        logPrefix: `Partner Callback/${merchantSlug}`,
+      })
     }
 
     return NextResponse.json({

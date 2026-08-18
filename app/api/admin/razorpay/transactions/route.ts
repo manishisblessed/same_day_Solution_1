@@ -71,10 +71,12 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // Build query - Admin sees ALL transactions
+    // Build query - Admin listing. Hide failed + reversed (voided/refunded/cancelled)
+    // from the portal; they remain in the DB and flow to partners via the API.
     const { data: transactions, error, count } = await supabase
       .from('razorpay_pos_transactions')
       .select('*', { count: 'exact' })
+      .not('display_status', 'in', '(FAILED,VOIDED,REFUNDED,CANCELLED)')
       .order('transaction_time', { ascending: false, nullsFirst: false })
       .range(offset, offset + limit - 1)
 

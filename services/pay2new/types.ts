@@ -68,6 +68,7 @@ export interface Pay2NewBillPaymentRequest {
   product_code: string
   request_id: string
   bill_fetch_ref: string
+  pan_number?: string
   optional1?: string
   optional2?: string
   optional3?: string

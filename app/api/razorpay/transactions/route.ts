@@ -6,6 +6,11 @@ import { createClient } from '@supabase/supabase-js'
 export const runtime = 'nodejs' // Force Node.js runtime (Supabase not compatible with Edge Runtime)
 export const dynamic = 'force-dynamic'
 
+// Statuses hidden from every portal transaction view (dashboard, reports, exports).
+// These rows are RETAINED in the DB and remain fully available to partners via
+// /api/partner/pos-transactions + the pos.transaction.reversed webhook.
+const PORTAL_HIDDEN_STATUSES = '(FAILED,VOIDED,REFUNDED,CANCELLED)'
+
 /**
  * GET /api/razorpay/transactions
  * Role-based API to fetch Razorpay POS transactions
@@ -123,6 +128,7 @@ export async function GET(request: NextRequest) {
         const displayStatus = statusFilter.toUpperCase() === 'CAPTURED' ? 'SUCCESS' : statusFilter.toUpperCase()
         query = query.eq('display_status', displayStatus)
       }
+      query = query.not('display_status', 'in', PORTAL_HIDDEN_STATUSES)
 
       query = query.range(offset, offset + limit - 1)
 
@@ -242,6 +248,7 @@ export async function GET(request: NextRequest) {
             const displayStatus = statusFilter.toUpperCase() === 'CAPTURED' ? 'SUCCESS' : statusFilter.toUpperCase()
             q = q.eq('display_status', displayStatus)
           }
+          q = q.not('display_status', 'in', PORTAL_HIDDEN_STATUSES)
           if (tidFilter) q = q.eq('tid', tidFilter)
           if (targetDeviceSerial) q = q.eq('device_serial', targetDeviceSerial)
           return q
@@ -382,6 +389,7 @@ export async function GET(request: NextRequest) {
             const displayStatus = statusFilter.toUpperCase() === 'CAPTURED' ? 'SUCCESS' : statusFilter.toUpperCase()
             q = q.eq('display_status', displayStatus)
           }
+          q = q.not('display_status', 'in', PORTAL_HIDDEN_STATUSES)
           if (tidFilter) q = q.eq('tid', tidFilter)
           return q
         })
@@ -525,6 +533,7 @@ export async function GET(request: NextRequest) {
       const displayStatus = statusFilter.toUpperCase() === 'CAPTURED' ? 'SUCCESS' : statusFilter.toUpperCase()
       query = query.eq('display_status', displayStatus)
     }
+    query = query.not('display_status', 'in', PORTAL_HIDDEN_STATUSES)
 
     if (!exportAll) {
       query = query.range(offset, offset + limit - 1)

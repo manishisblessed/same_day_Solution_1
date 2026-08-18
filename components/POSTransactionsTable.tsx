@@ -674,8 +674,6 @@ export default function POSTransactionsTable({
                   <option value="all">All Status</option>
                   <option value="AUTHORIZED">Authorized</option>
                   <option value="CAPTURED">Captured</option>
-                  <option value="FAILED">Failed</option>
-                  <option value="REFUNDED">Refunded</option>
                 </select>
               </div>
               <div>

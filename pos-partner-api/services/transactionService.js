@@ -37,6 +37,7 @@ async function getTransactions({
     captured_count: 0,
     failed_count: 0,
     refunded_count: 0,
+    voided_count: 0,
     captured_amount: '0.00',
     terminal_count: 0,
   };
@@ -147,6 +148,8 @@ async function getTransactions({
       COALESCE(pt.currency, pt.raw_payload->>'currencyCode', 'INR') AS currency,
       COALESCE(pt.receipt_url, pt.raw_payload->>'customerReceiptUrl') AS receipt_url,
       pt.posting_date,
+      pt.reversed_at,
+      pt.reversal_reason,
       'pos_transactions' AS _source
     FROM pos_transactions pt
     WHERE ${ptWhere}
@@ -232,6 +235,8 @@ async function getTransactions({
       COALESCE(rpt.currency, rpt.raw_data->>'currencyCode', 'INR') AS currency,
       COALESCE(rpt.receipt_url, rpt.raw_data->>'customerReceiptUrl', rpt.raw_data->>'receiptUrl') AS receipt_url,
       rpt.posting_date,
+      rpt.reversed_at,
+      rpt.reversal_reason,
       'razorpay_pos_transactions' AS _source
     FROM razorpay_pos_transactions rpt
     WHERE ${rptWhere}
@@ -293,6 +298,7 @@ async function getTransactions({
   let capturedCount = 0;
   let failedCount = 0;
   let refundedCount = 0;
+  let voidedCount = 0;
   let capturedAmount = 0;
   const terminalSet = new Set();
 
@@ -304,6 +310,7 @@ async function getTransactions({
     if (st === 'CAPTURED') capturedCount++;
     if (st === 'FAILED') failedCount++;
     if (st === 'REFUNDED') refundedCount++;
+    if (st === 'VOIDED') voidedCount++;
     if (st === 'CAPTURED') capturedAmount += amt;
     if (row.terminal_id) terminalSet.add(row.terminal_id);
   }
@@ -323,6 +330,7 @@ async function getTransactions({
       captured_count: capturedCount,
       failed_count: failedCount,
       refunded_count: refundedCount,
+      voided_count: voidedCount,
       captured_amount: capturedAmount.toFixed(2),
       terminal_count: terminalSet.size,
     },

@@ -43,3 +43,17 @@ export function maskProviderBalanceError(message?: string | null): string {
   if (!msg) return msg
   return PROVIDER_INFRA_PATTERNS.some((re) => re.test(msg)) ? SERVICE_DOWN_MESSAGE : msg
 }
+
+/**
+ * Biller-side rate limiting (e.g. Pay2New "Too many requests for that Biller").
+ * The bill_fetch_ref itself is valid — the biller has throttled fetch/pay calls.
+ * Surface a clear, retryable message instead of the raw provider text.
+ */
+export const BILLER_RATE_LIMIT_MESSAGE =
+  'This biller is temporarily busy and has rate-limited requests. Please wait a minute, fetch the bill again, and retry.'
+
+const BILLER_RATE_LIMIT_PATTERN = /too\s+many\s+requests/i
+
+export function isBillerRateLimitError(message?: string | null): boolean {
+  return BILLER_RATE_LIMIT_PATTERN.test((message || '').trim())
+}

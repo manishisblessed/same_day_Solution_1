@@ -74,19 +74,39 @@ export async function getRechargekitCcOperators(): Promise<{
       { operator_category: RECHARGEKIT_CC_OPERATOR_CATEGORY }
     )
 
-    if (!result.ok || !result.data) {
-      return {
-        success: false,
-        error: result.error || 'Failed to fetch operators',
-        raw: result.data,
-      }
-    }
-
-    const list = extractList(result.data)
+    // The operator-list endpoint uses `error === 0` success semantics (like
+    // balanceCheck), NOT the payment status 1/2/3 codes. The generic client can
+    // flag a valid list as a "business failure" when the body carries a non-1/2
+    // `status` field, so always inspect the raw body for a list first.
+    const body = result.data as any
+    const list = extractList(body)
       .map(normalizeOperator)
       .filter((o): o is RechargekitOperator => o !== null)
 
-    return { success: true, operators: list, raw: result.data }
+    if (list.length > 0) {
+      return { success: true, operators: list, raw: body }
+    }
+
+    // No list parsed. If the provider call failed (auth 401/403, 5xx, or a
+    // business error such as "access denied" / "no operator found"), surface
+    // the real reason instead of masking it as an empty catalogue.
+    if (!result.ok) {
+      return {
+        success: false,
+        error: result.error || 'Failed to fetch operators',
+        raw: body,
+      }
+    }
+
+    // HTTP-OK response with a genuinely empty catalogue for this category.
+    console.warn(
+      '[Rechargekit] Empty CC operator list for category',
+      RECHARGEKIT_CC_OPERATOR_CATEGORY,
+      body && typeof body === 'object'
+        ? { error: body.error ?? body.status, msg: body.msg ?? body.message }
+        : undefined
+    )
+    return { success: true, operators: [], raw: body }
   } catch (e: any) {
     return { success: false, error: e?.message || 'Failed to fetch Rechargekit operators' }
   }

@@ -136,8 +136,9 @@ export async function GET(request: NextRequest) {
       const displayStatus = statusFilter.toUpperCase() === 'CAPTURED' ? 'SUCCESS' : statusFilter.toUpperCase()
       query = query.eq('display_status', displayStatus)
     } else {
-      // Null-safe: keep rows where display_status is NULL or not FAILED
-      query = query.or('display_status.is.null,display_status.neq.FAILED')
+      // Default: hide failed + reversed (voided/refunded/cancelled). These stay in
+      // the DB and flow to partners via the API; not shown in the admin tab by default.
+      query = query.not('display_status', 'in', '(FAILED,VOIDED,REFUNDED,CANCELLED)')
     }
 
     // Apply date range filter (IST boundaries — +05:30 offset)

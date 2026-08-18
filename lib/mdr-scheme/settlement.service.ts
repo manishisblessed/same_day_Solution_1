@@ -43,6 +43,12 @@ export async function calculateMDR(
     let retailer_mdr: number | null = null;
     let distributor_mdr: number | null = null;
     let md_mdr: number = 0;
+    // Company cost (vendor/company rate) at the bottom of the cascade. Company
+    // keeps (md_mdr − company_cost); the company_cost portion is the provider cost.
+    let company_cost: number = 0;
+    // Charge-based margin cascade applies only to the new scheme_mdr_rates model.
+    // Legacy retailer_schemes/global_schemes keep the per-tier own-rate model.
+    let useCascade: boolean = false;
     let usedSchemeId: string | null = null;
     let usedSchemeType: 'global' | 'custom' = 'global';
 
@@ -166,6 +172,7 @@ export async function calculateMDR(
         }
 
         if (mdrRate) {
+          useCascade = true;
           const partnerMdr = mdrRate.partner_mdr != null ? parseFloat(mdrRate.partner_mdr) : null;
           if (partnerMdr != null) {
             // Unified single-tier partner plan: the whole fee is company revenue,
@@ -178,10 +185,12 @@ export async function calculateMDR(
             retailer_mdr = parseFloat(mdrRate.retailer_mdr_t0) || 0;
             distributor_mdr = parseFloat(mdrRate.distributor_mdr_t0) || 0;
             md_mdr = parseFloat(mdrRate.md_mdr_t0) || 0;
+            company_cost = parseFloat(mdrRate.company_mdr_rate) || 0;
           } else {
             retailer_mdr = parseFloat(mdrRate.retailer_mdr_t1) || 0;
             distributor_mdr = parseFloat(mdrRate.distributor_mdr_t1) || 0;
             md_mdr = parseFloat(mdrRate.md_mdr_t1) || 0;
+            company_cost = parseFloat(mdrRate.company_mdr_rate) || 0;
           }
           usedSchemeId = resolved.scheme_id;
           usedSchemeType = (resolved.scheme_type === 'global' ? 'global' : 'custom') as 'global' | 'custom';
@@ -235,34 +244,59 @@ export async function calculateMDR(
       usedSchemeType = scheme_type || 'global';
     }
 
-    // Explicit per-tier commission model (NEXTGEN parity): each tier earns its
-    // OWN rate directly off the gross. The company keeps whatever remains after
-    // the retailer fee is reduced by the distributor + MD commissions.
-    //   retailer_fee           = amount * retailer_mdr%   (charged to retailer)
-    //   distributor_commission = amount * distributor_mdr%
-    //   md_commission          = amount * md_mdr%
-    //   company_earning        = retailer_fee − distributor_commission − md_commission
+    // retailer_fee is charged to the retailer in both models.
     const retailer_fee = Number(
       ((input.amount * retailer_mdr) / 100).toFixed(4)
     );
-    const distributor_commission = Number(
-      ((input.amount * distributor_mdr) / 100).toFixed(4)
-    );
-    const md_commission = Number(
-      ((input.amount * md_mdr) / 100).toFixed(4)
-    );
 
-    const company_earning = Number(
-      (retailer_fee - distributor_commission - md_commission).toFixed(4)
-    );
+    let distributor_commission: number;
+    let md_commission: number;
+    let company_earning: number;
 
-    // The retailer rate must cover both upline tiers, else the company loses
-    // money on the transaction.
-    if (company_earning < 0) {
-      return {
-        success: false,
-        error: `Invalid scheme: retailer MDR (${retailer_mdr}%) must be >= distributor MDR (${distributor_mdr}%) + MD MDR (${md_mdr}%).`,
-      };
+    if (useCascade) {
+      // Charge-based margin cascade (matches BBPS/Settlement model). Each level's
+      // MDR rate is its COST (set by its parent); each level earns the margin
+      // between the rate it charges downstream and its own cost:
+      //   distributor_commission = amount * (retailer_mdr − distributor_mdr)%   (DT margin)
+      //   md_commission          = amount * (distributor_mdr − md_mdr)%         (MD margin)
+      //   company_earning        = amount * (md_mdr − company_cost)%            (company margin)
+      // Partner plans keep distributor_mdr = md_mdr = 0, so the whole fee is
+      // company_earning (minus company_cost) — matching the unified-rate behaviour.
+      const isPartnerRate = distributor_mdr === 0 && md_mdr === 0;
+
+      // Cascade must be monotonically non-increasing, else a level would earn a
+      // negative margin (company loses money on the transaction).
+      if (!isPartnerRate && (retailer_mdr < distributor_mdr || distributor_mdr < md_mdr || md_mdr < company_cost)) {
+        return {
+          success: false,
+          error: `Invalid MDR cascade: require retailer (${retailer_mdr}%) >= distributor (${distributor_mdr}%) >= MD (${md_mdr}%) >= company cost (${company_cost}%).`,
+        };
+      }
+
+      const dtRatePct = isPartnerRate ? 0 : Math.max(retailer_mdr - distributor_mdr, 0);
+      const mdRatePct = isPartnerRate ? 0 : Math.max(distributor_mdr - md_mdr, 0);
+      const companyRatePct = isPartnerRate
+        ? Math.max(retailer_mdr - company_cost, 0)
+        : Math.max(md_mdr - company_cost, 0);
+
+      distributor_commission = Number(((input.amount * dtRatePct) / 100).toFixed(4));
+      md_commission = Number(((input.amount * mdRatePct) / 100).toFixed(4));
+      company_earning = Number(((input.amount * companyRatePct) / 100).toFixed(4));
+    } else {
+      // Legacy per-tier own-rate model: each tier earns its OWN rate off gross,
+      // company keeps whatever remains after retailer fee less DT + MD commissions.
+      distributor_commission = Number(((input.amount * distributor_mdr) / 100).toFixed(4));
+      md_commission = Number(((input.amount * md_mdr) / 100).toFixed(4));
+      company_earning = Number(
+        (retailer_fee - distributor_commission - md_commission).toFixed(4)
+      );
+
+      if (company_earning < 0) {
+        return {
+          success: false,
+          error: `Invalid scheme: retailer MDR (${retailer_mdr}%) must be >= distributor MDR (${distributor_mdr}%) + MD MDR (${md_mdr}%).`,
+        };
+      }
     }
 
     // Calculate retailer settlement amount

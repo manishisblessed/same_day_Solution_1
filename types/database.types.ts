@@ -542,7 +542,7 @@ export interface RazorpayPOSTransaction {
   id: string
   txn_id: string
   status: string
-  display_status: 'SUCCESS' | 'FAILED' | 'PENDING'
+  display_status: 'SUCCESS' | 'FAILED' | 'PENDING' | 'VOIDED' | 'REFUNDED' | 'CANCELLED'
   amount: number
   payment_mode: string | null
   device_serial: string | null
@@ -596,6 +596,9 @@ export interface RazorpayPOSTransaction {
   partner_mdr_amount?: number | null
   partner_net_amount?: number | null
   partner_auto_settled_at?: string | null
+  // Reversal tracking (void/reversal/refund of a previously-captured txn)
+  reversed_at?: string | null
+  reversal_reason?: string | null
 }
 
 // Pulse Pay (formerly InstaCash) Batch Types

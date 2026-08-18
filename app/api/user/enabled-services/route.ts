@@ -14,6 +14,7 @@ const SERVICE_KEYS = [
   'bbps',
   'bbps2',
   'credit_card1',
+  'credit_card1_plus',
   'credit_card2',
   'recharge',
   'travel',
