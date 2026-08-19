@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { verifyChecksum } from '@/lib/paytm'
+import { verifyChecksum, fetchPaytmStatusBody } from '@/lib/paytm'
 import { deliverPartnerCallback, deliverPartnerReversal } from '@/lib/partner-webhook/deliver'
 
 export const runtime = 'nodejs'
@@ -85,18 +85,45 @@ export async function POST(
       console.warn(`[Paytm/${merchantSlug}] No signature present in callback head`)
     }
 
+    // The live ECR S2S callback is the lean "soundbox" shape (txnId/orderId/respCode)
+    // and omits RRN, acquirementId and card details. Enrich from Status Enquiry using
+    // OUR id (sent back as orderId) so the stored row has the full transaction data.
+    // Best-effort: never fail the callback if enrichment errors.
+    const ourMtxnId = data.merchantTransactionId || data.orderId
+    const missingDetail = !(data.retrievalReferenceNo || data.rrn) || !data.acquirementId
+    if (ourMtxnId && missingDetail) {
+      try {
+        const statusBody = await fetchPaytmStatusBody(ourMtxnId, { tid: data.paytmTid || data.tid })
+        const sInfo: any = statusBody?.resultInfo || {}
+        if (sInfo.resultStatus === 'SUCCESS' || sInfo.resultCodeId === '0000') {
+          for (const k of Object.keys(statusBody)) {
+            const v = (statusBody as any)[k]
+            if (v != null && v !== '' && (data[k] === undefined || data[k] === null || data[k] === '')) {
+              data[k] = v
+            }
+          }
+          console.log(`[Paytm/${merchantSlug}] Enriched ${ourMtxnId} from status enquiry`)
+        }
+      } catch (e: any) {
+        console.warn(`[Paytm/${merchantSlug}] Status enrichment failed for ${ourMtxnId}: ${e?.message}`)
+      }
+    }
+
     // resultInfo is nested in the ECR S2S callback: { resultStatus, resultCode, resultCodeId, resultMsg }
     const resultInfo: any = data.resultInfo || {}
 
     // Extract transaction ID. The real ECR S2S callback uses merchantTransactionId
     // (our generated id) + acquirementId (Paytm's txn id). Older/soundbox payloads
     // may use txnId/orderId — support all.
+    // Key on OUR id so callback rows reconcile to the sale we initiated. The live
+    // ECR S2S callback returns our merchantTransactionId as `orderId`, while `txnId`
+    // is Paytm's acquirer id — so orderId must take priority over txnId.
     const txnId =
       data.merchantTransactionId ||
+      data.orderId ||
       data.txnId ||
       data.transactionId ||
       data.acquirementId ||
-      data.orderId ||
       data.id
     if (!txnId) {
       console.error(`[Paytm/${merchantSlug}] Missing transaction ID`, payload)
@@ -203,7 +230,7 @@ export async function POST(
       card_type: cardType,
       currency: data.currency || data.CURRENCY || 'INR',
       rrn: rrn,
-      external_ref: data.acquirementId || data.orderId || data.merchantTransactionId || null,
+      external_ref: data.acquirementId || data.txnId || null,
       settlement_status: mappedStatus === 'CAPTURED' ? 'PENDING' : null,
       receipt_url: data.receiptUrl || null,
       posting_date: createdTime.toISOString(),

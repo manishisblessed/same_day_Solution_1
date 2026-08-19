@@ -107,6 +107,27 @@ export async function callPaytmApi({ endpoint, body }: PaytmApiOptions) {
 }
 
 /**
+ * Status Enquiry helper — returns the `body` of Paytm's ECR V2 status response
+ * for a given merchantTransactionId. Used by the status route and to enrich the
+ * lean soundbox-style S2S callback (which omits RRN, acquirementId and card data).
+ */
+export async function fetchPaytmStatusBody(
+  merchantTransactionId: string,
+  opts: { tid?: string; mid?: string; event?: string } = {}
+): Promise<Record<string, any>> {
+  const config = getPaytmConfig()
+  const body: Record<string, any> = {
+    paytmMid: opts.mid || config.mid,
+    paytmTid: opts.tid || config.tid,
+    transactionDateTime: formatTimestamp(),
+    merchantTransactionId,
+  }
+  if (opts.event) body.event = opts.event
+  const data = await callPaytmApi({ endpoint: '/ecr/V2/payment/status', body })
+  return data?.body || {}
+}
+
+/**
  * Generate a unique alphanumeric transaction ID (8-32 chars).
  */
 export function generateMerchantTxnId(prefix = 'SDS'): string {
