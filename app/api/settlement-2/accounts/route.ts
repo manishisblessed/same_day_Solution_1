@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { authorizeSubPartner } from '@/lib/partner-access'
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
-import { initiateBankTransfer, checkTransactionStatus, getBalance } from '@/services/shadval-pay'
+import { checkTransactionStatus, verifyAccount, getVerificationBalance } from '@/services/shadval-pay'
 import { verifyBankPennyLess, generateOrderId } from '@/services/ekyc'
 import { createClient } from '@supabase/supabase-js'
 import { isAccountVerificationEnabled, ACCOUNT_VERIFICATION_DISABLED_MESSAGE } from '@/lib/settings/account-verification'
@@ -126,7 +126,7 @@ export async function GET(request: NextRequest) {
 
 /**
  * POST /api/settlement-2/accounts
- * Add & verify a bank account via penny drop (Rs.1 transfer)
+ * Add & verify a bank account via the account verification API (verification wallet)
  * Debit Rs.4 verification charge from retailer wallet → company revenue
  */
 export async function POST(request: NextRequest) {
@@ -336,14 +336,15 @@ export async function POST(request: NextRequest) {
       return addCorsHeaders(request, response)
     }
 
-    // PENNY prefix distinguishes payout-based penny-drop refs from legacy SV2_VERIFY_ refs
-    // (which used the async verification API and can't be status-checked).
-    const refId = `SV2_PENNY_${user.partner_id}_${Date.now()}`
+    // VERIFY prefix marks refs verified through the dedicated verification API
+    // (verification wallet). Distinct from legacy SV2_PENNY_ payout-based refs.
+    const refId = `SV2_VERIFY_${user.partner_id}_${Date.now()}`
 
-    // Pre-flight: check payout wallet balance (penny drop sends Rs.1 via the payout API)
-    const balanceCheck = await getBalance()
+    // Pre-flight: check the VERIFICATION wallet balance (account verification is
+    // billed to the verification wallet, not the main/payout wallet).
+    const balanceCheck = await getVerificationBalance()
     if (balanceCheck.status !== 'SUCCESS') {
-      console.log('[Settlement-2 Accounts] Payout service pre-check failed:', balanceCheck.code, balanceCheck.message)
+      console.log('[Settlement-2 Accounts] Verification service pre-check failed:', balanceCheck.code, balanceCheck.message)
       const response = NextResponse.json({
         success: false,
         error: 'Verification service is currently unavailable. Please try again later. No charge deducted.',
@@ -412,42 +413,30 @@ export async function POST(request: NextRequest) {
       else console.error('[Settlement-2 Accounts] Revenue credit error:', revError)
     }
 
-    // Penny drop: send Rs.1 via the payout API. Unlike the async verification API
-    // (which only ever replies "Request Submitted" with no way to fetch the result),
-    // the payout API returns SUCCESS/FAILED/PENDING synchronously, confirms the
-    // beneficiary name, and PENDING refs can be polled via check_status.
-    console.log('[Settlement-2 Accounts] Initiating penny-drop verification:', {
+    // Verify via the dedicated account verification API (billed to the
+    // verification wallet). It returns SUCCESS/FAILED synchronously along with
+    // the bank-registered name — no money leaves the main/payout wallet.
+    console.log('[Settlement-2 Accounts] Initiating account verification:', {
       ref: refId,
       account: account_number.substring(0, 4) + '****',
       ifsc: ifsc_code,
       retailer: user.partner_id,
     })
 
-    const apiResult = await initiateBankTransfer({
-      amount: 1,
-      mode: 'IMPS',
-      fund_account: {
-        name: trimmedName,
-        ifsc: ifsc_code.toUpperCase(),
-        account_number,
-      },
-      contact_details: {
-        name: contact_name || trimmedName,
-        email: contact_email || user.email || '',
-        mobile: contact_mobile,
-      },
-      reference_id: refId,
+    const apiResult = await verifyAccount({
+      account_number,
+      ifsc_code: ifsc_code.toUpperCase(),
+      ref_num: refId,
       latitude: '28.6139',
       longitude: '77.2090',
-      narration: 'Account Verification',
     })
 
-    console.log('[Settlement-2 Accounts] Penny-drop response:', JSON.stringify({
+    console.log('[Settlement-2 Accounts] Verification response:', JSON.stringify({
       status: apiResult.status,
       code: apiResult.code,
       msg: apiResult.message,
-      utr: apiResult.data?.utr,
-      name: apiResult.data?.fund_account?.name,
+      verification_status: apiResult.data?.verification_status,
+      name: apiResult.data?.name_at_bank,
     }))
 
     // Refund if service is unavailable (not user's fault)
@@ -513,21 +502,25 @@ export async function POST(request: NextRequest) {
       return addCorsHeaders(request, response)
     }
 
-    // Determine verification result from the penny-drop transfer.
-    // SUCCESS  -> Rs.1 landed in the account: it exists and is active. Verified.
-    // PENDING  -> bank is processing; poll check_status via Re-check.
+    // Determine verification result from the verification API.
+    // SUCCESS + verification_status=true -> account exists & active. Verified.
+    // PENDING  -> bank is processing; re-run verification via Re-check.
     // FAILED   -> definitive rejection with a reason from the bank.
-    const isSuccess = apiResult.status === 'SUCCESS'
+    const isSuccess = apiResult.status === 'SUCCESS' && apiResult.data?.verification_status === true
     const isPending = apiResult.status === 'PENDING'
     const isFailed = !isSuccess && !isPending
-    // The payout API echoes back the name we sent — fetch the REAL bank-registered
-    // name via penny-less lookup so "Verified by bank" shows the actual holder name.
+    // The verification API returns the real bank-registered name directly. Fall
+    // back to a penny-less name lookup only if the provider didn't include one.
     let verifiedName: string | null = null
     if (isSuccess) {
-      verifiedName = await fetchNameAtBank(account_number, ifsc_code.toUpperCase())
+      verifiedName = apiResult.data?.name_at_bank?.trim()
+        ?.replace(/[^A-Za-z\s\-]/g, '').replace(/\s+/g, ' ').trim() || null
+      if (!verifiedName) {
+        verifiedName = await fetchNameAtBank(account_number, ifsc_code.toUpperCase())
+      }
     }
     const resolvedOrderId = apiResult.data?.order_id || null
-    const resolvedUtr = apiResult.data?.utr || null
+    const resolvedUtr = null
     const verificationStatus = isSuccess ? 'SUCCESS' : isPending ? 'PENDING' : 'FAILED'
 
     // Build user-friendly failure detail
@@ -749,38 +742,28 @@ export async function PATCH(request: NextRequest) {
       }
       // anything else (FAILED / not found) -> FAILED
     } else {
-      // Legacy ref from the old async verification API — its result can never be fetched.
-      // Run a fresh Rs.1 penny drop at no extra charge to the retailer (they already paid).
-      newRefId = `SV2_PENNY_${user.partner_id}_${Date.now()}`
-      const pennyResult = await initiateBankTransfer({
-        amount: 1,
-        mode: 'IMPS',
-        fund_account: {
-          name: account.account_holder_name || 'NA',
-          ifsc: account.ifsc_code,
-          account_number: account.account_number,
-        },
-        contact_details: {
-          name: account.contact_name || account.account_holder_name || 'NA',
-          email: account.contact_email || user.email || '',
-          mobile: account.contact_mobile || user.phone || '9999999999',
-        },
-        reference_id: newRefId,
+      // Verification-API ref (or legacy async ref): re-run the account
+      // verification against the verification wallet — no payout is made.
+      newRefId = `SV2_VERIFY_${user.partner_id}_${Date.now()}`
+      const verifyResult = await verifyAccount({
+        account_number: account.account_number,
+        ifsc_code: account.ifsc_code,
+        ref_num: newRefId,
         latitude: '28.6139',
         longitude: '77.2090',
-        narration: 'Account Verification Re-check',
       })
-      providerMessage = pennyResult.message || ''
-      if (pennyResult.status === 'SUCCESS') {
+      providerMessage = verifyResult.message || ''
+      if (verifyResult.status === 'SUCCESS' && verifyResult.data?.verification_status === true) {
         isVerified = true
-        resolvedOrderId = pennyResult.data?.order_id || null
-        resolvedUtr = pennyResult.data?.utr || null
-      } else if (pennyResult.status === 'PENDING' || pennyResult.code === 'NETWORK_ERROR' || pennyResult.code === 'PROVIDER_ERROR') {
+        resolvedOrderId = verifyResult.data?.order_id || null
+        verifiedName = verifyResult.data?.name_at_bank?.trim()
+          ?.replace(/[^A-Za-z\s\-]/g, '').replace(/\s+/g, ' ').trim() || null
+      } else if (verifyResult.status === 'PENDING' || verifyResult.code === 'NETWORK_ERROR' || verifyResult.code === 'PROVIDER_ERROR') {
         isStillPending = true
       }
     }
 
-    if (isVerified) {
+    if (isVerified && !verifiedName) {
       verifiedName = await fetchNameAtBank(account.account_number, account.ifsc_code)
     }
 
