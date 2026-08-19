@@ -41,26 +41,38 @@ export async function POST(request: NextRequest) {
       body,
     })
 
-    const resultInfo = data?.body?.resultInfo || {}
+    const b = data?.body || {}
+    const resultInfo = b.resultInfo || {}
     const resultCode = resultInfo.resultCodeId || resultInfo.resultCode
     const resultStatus = resultInfo.resultStatus
-    const isFinal = resultStatus === 'S' || resultStatus === 'F'
+
+    // Paytm V2 status resultInfo carries the PAYMENT outcome.
+    // Success => resultStatus "SUCCESS"/"TXN_SUCCESS"/"S" or resultCodeId "0000".
+    const rStatusUp = (resultStatus || '').toString().toUpperCase()
+    const rCodeId = (resultInfo.resultCodeId || '').toString()
+    const isSuccess =
+      rStatusUp === 'SUCCESS' || rStatusUp === 'TXN_SUCCESS' || rStatusUp === 'S' || rCodeId === '0000'
+    const isFailure =
+      !isSuccess &&
+      (rStatusUp === 'FAILURE' || rStatusUp === 'FAIL' || rStatusUp === 'F' || rStatusUp.includes('FAIL'))
+    const isFinal = isSuccess || isFailure
 
     return NextResponse.json({
-      success: resultStatus === 'S',
+      success: isSuccess,
       isFinal,
       merchantTransactionId,
       resultStatus,
       resultCode,
       resultMsg: resultInfo.resultMsg,
-      transactionId: data?.body?.paytmTxnId || data?.body?.transactionId,
-      amount: data?.body?.transactionAmount,
-      paymentMode: data?.body?.paymentMode,
-      rrn: data?.body?.rrn || data?.body?.bankReferenceNo,
-      cardNumber: data?.body?.maskedCardNumber,
-      cardType: data?.body?.cardType,
-      bankName: data?.body?.bankName,
-      authCode: data?.body?.authCode,
+      transactionId: b.acquirementId || b.paytmTxnId || b.transactionId,
+      amount: b.transactionAmount,
+      paymentMode: b.payMethod || b.paymentMode,
+      rrn: b.retrievalReferenceNo || b.rrn || b.bankReferenceNo,
+      cardNumber: b.issuerMaskCardNo || b.lastFourDigitsCard || b.maskedCardNumber,
+      cardType: b.cardType,
+      cardScheme: b.cardScheme,
+      bankName: b.issuingBankName || b.acquiringBank || b.bankName,
+      authCode: b.authCode,
       raw: data,
     })
   } catch (error: any) {
