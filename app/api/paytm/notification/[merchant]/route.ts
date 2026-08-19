@@ -85,6 +85,23 @@ export async function POST(
       console.warn(`[Paytm/${merchantSlug}] No signature present in callback head`)
     }
 
+    // Paytm sends THREE callbacks per CARD transaction: PRE_AUTH, a plain success,
+    // and CAPTURE. Per Paytm's integration guidance we must record ONLY the CAPTURE
+    // event and ignore the other two. UPI/QR sends a single callback with no txnType
+    // (record it). Reversal/refund/void events must never be dropped.
+    const txnTypeUp = (data.txnType || data.TXNTYPE || '').toString().toUpperCase()
+    const pmUp = (data.paymentMode || data.PAYMENTMODE || '').toString().toUpperCase()
+    const isCardTxn = pmUp.includes('CARD')
+    const isReversalEvent =
+      txnTypeUp.includes('REFUND') || txnTypeUp.includes('VOID') || txnTypeUp.includes('REVERS')
+    if (!isReversalEvent && (txnTypeUp === 'PRE_AUTH' || (isCardTxn && txnTypeUp !== 'CAPTURE'))) {
+      console.log(`[Paytm/${merchantSlug}] Ignoring non-CAPTURE event (txnType=${txnTypeUp || 'none'}, mode=${pmUp}) order=${data.orderId || data.merchantTransactionId}`)
+      return NextResponse.json(
+        { received: true, processed: false, ignored: true, reason: `non-CAPTURE event: ${txnTypeUp || 'none'}` },
+        { status: 200 }
+      )
+    }
+
     // The live ECR S2S callback is the lean "soundbox" shape (txnId/orderId/respCode)
     // and omits RRN, acquirementId and card details. Enrich from Status Enquiry using
     // OUR id (sent back as orderId) so the stored row has the full transaction data.
