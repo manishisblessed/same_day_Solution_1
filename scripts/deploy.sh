@@ -43,27 +43,34 @@ echo "=== SameDay Backend Deploy ==="
 echo "REPO_DIR=$REPO_DIR"
 cd "$REPO_DIR"
 
-echo "[1/5] Force-syncing to origin/${BRANCH} (reset --hard, no clean)..."
+echo "[1/7] Force-syncing to origin/${BRANCH} (reset --hard, no clean)..."
 git fetch origin "$BRANCH"
 git reset --hard "origin/${BRANCH}"
 
-echo "[2/6] Installing dependencies..."
+# Remove the previous build output BEFORE installing. A stale .next can be
+# multiple GB; leaving it in place while `npm ci` reinstalls node_modules has
+# filled the disk mid-install and produced a corrupt/partial `next` package
+# (phantom "Cannot find module" build failures). `next build` regenerates it.
+echo "[2/7] Freeing build space (removing stale .next)..."
+rm -rf .next
+
+echo "[3/7] Installing dependencies..."
 npm ci
 
-echo "[3/6] Applying DB migrations (db/migrations)..."
+echo "[4/7] Applying DB migrations (db/migrations)..."
 npm run migrate:deploy
 
-echo "[4/6] Building..."
+echo "[5/7] Building..."
 npm run build
 
-echo "[5/6] Restarting PM2 process '${PM2_APP}'..."
+echo "[6/7] Restarting PM2 process '${PM2_APP}'..."
 if pm2 describe "$PM2_APP" >/dev/null 2>&1; then
   pm2 reload "$PM2_APP" --update-env
 else
   pm2 start npm --name "$PM2_APP" -- start
 fi
 
-echo "[6/6] Persisting PM2 process list..."
+echo "[7/7] Persisting PM2 process list..."
 pm2 save
 
 echo "=== Deploy complete ==="
