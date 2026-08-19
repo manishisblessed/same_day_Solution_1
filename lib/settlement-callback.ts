@@ -145,12 +145,18 @@ async function logAttempt(
  */
 export async function sendSettlementCallback(
   partnerId: string,
-  transaction: any
+  transaction: any,
+  options?: { allowPending?: boolean }
 ): Promise<{ sent: boolean; httpStatus?: number; error?: string }> {
   if (!partnerId || !transaction) return { sent: false, error: 'Missing data' }
 
-  // Only callback for terminal states (or any non-PENDING if you prefer)
-  if (transaction.status === 'PENDING') return { sent: false, error: 'Still pending' }
+  // By default only terminal states are pushed. Callers can opt in to a PENDING
+  // acknowledgment (event `settlement.status_update`) so the partner instantly
+  // gets the reference_id/order_id to store; the terminal SUCCESS with UTR
+  // follows automatically once the reconciliation sweep resolves it.
+  if (transaction.status === 'PENDING' && !options?.allowPending) {
+    return { sent: false, error: 'Still pending' }
+  }
 
   try {
     const webhook = await getPartnerWebhook(partnerId)

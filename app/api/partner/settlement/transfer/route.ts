@@ -357,18 +357,22 @@ export async function POST(request: NextRequest) {
       if (commResult.errors.length) console.error('[Partner Settlement Transfer] Commission errors:', commResult.errors)
     }
 
-    // Fire settlement callback to partner webhook (non-blocking)
-    if (finalStatus !== 'PENDING') {
-      const updatedTx = {
-        ...txRecord,
-        status: finalStatus,
-        order_id: apiResult.data?.order_id || null,
-        utr: apiResult.data?.utr || null,
-        status_message: apiResult.message,
-        provider_timestamp: apiResult.data?.timestamp || null,
-      }
-      sendSettlementCallback(partner.id, updatedTx).catch(() => {})
+    // Fire settlement callback to partner webhook (non-blocking).
+    // Terminal states (SUCCESS/FAILED) push immediately. For PENDING we push an
+    // acknowledgment (settlement.status_update) so the partner instantly records
+    // the reference_id/order_id; the reconciliation cron then pushes the terminal
+    // SUCCESS-with-UTR automatically — making the flow fully hands-off with no
+    // manual "check" needed. No financial effect: callbacks are notifications and
+    // the partner dedupes on X-Sameday-Delivery.
+    const updatedTx = {
+      ...txRecord,
+      status: finalStatus,
+      order_id: apiResult.data?.order_id || null,
+      utr: apiResult.data?.utr || null,
+      status_message: apiResult.message,
+      provider_timestamp: apiResult.data?.timestamp || null,
     }
+    sendSettlementCallback(partner.id, updatedTx, { allowPending: finalStatus === 'PENDING' }).catch(() => {})
 
     const responseBody = {
       success: !isFailed,

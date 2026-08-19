@@ -1227,19 +1227,22 @@ export default function POSPartnerAPIManagement() {
               </div>
               <div className="p-6 space-y-4">
                 <p className="text-sm text-gray-500 dark:text-gray-400">
-                  Enter the partner&apos;s callback URL where POS transaction notifications will be forwarded after processing.
+                  Enter the partner&apos;s callback URL where event notifications will be forwarded after processing.
+                  This one URL receives POS, Settlement and Payout events (routed by the <code>X-Sameday-Event</code> header).
                   Leave empty to disable callbacks.
                 </p>
                 <div>
-                  <label className="text-xs font-medium text-gray-500 mb-1 block">POS Transaction Callback URL</label>
+                  <label className="text-xs font-medium text-gray-500 mb-1 block">Events Callback URL (POS · Settlement · Payout)</label>
                   <input
                     type="url"
                     value={webhookUrlValue}
                     onChange={(e) => setWebhookUrlValue(e.target.value)}
-                    placeholder="https://example.com/api/pos-callback"
+                    placeholder="https://example.com/api/callback"
                     className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-sm font-mono"
                   />
-                  <p className="text-[11px] text-gray-400 mt-1">Event: <code>pos.transaction</code></p>
+                  <p className="text-[11px] text-gray-400 mt-1">
+                    Events: <code>pos.transaction</code>, <code>pos.transaction.reversed</code>, <code>settlement.success</code> / <code>settlement.failed</code> / <code>settlement.status_update</code>, <code>payout.*</code>
+                  </p>
                 </div>
                 <div className="pt-2 border-t border-gray-200 dark:border-gray-700">
                   <label className="text-xs font-medium text-gray-500 mb-1 block">RechargeKit (Credit Card) Callback URL</label>

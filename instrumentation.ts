@@ -69,6 +69,14 @@ export async function register() {
     } catch (err) {
       console.error('[Instrumentation] Failed to initialize Pinelab Sync cron:', err)
     }
+
+    try {
+      const { initPartnerSettlementCheckCron } = await import('@/lib/cron/partner-settlement-check-cron')
+      await initPartnerSettlementCheckCron()
+      console.log('[Instrumentation] Partner Settlement Check Cron initialized successfully')
+    } catch (err) {
+      console.error('[Instrumentation] Failed to initialize Partner Settlement Check cron:', err)
+    }
   }
 
   if (env['NEXT_RUNTIME'] === 'edge') {
