@@ -36,7 +36,7 @@ export async function POST(request: NextRequest) {
     }
 
     const data = await callPaytmApi({
-      endpoint: '/ecr/payment/void',
+      endpoint: '/ecr/void',
       body,
     })
 

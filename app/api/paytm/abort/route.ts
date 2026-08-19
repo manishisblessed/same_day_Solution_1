@@ -5,12 +5,14 @@ export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 /**
- * Paytm POS Abort API
+ * Paytm POS Abort / Cancel API
  *
- * Cancels an in-progress / pending Sale request on the EDC terminal (e.g. when the
- * customer walks away or the terminal is stuck showing a payment popup). Use the
- * SAME merchantTransactionId that was sent in the Sale request. This is distinct
- * from Void (which cancels an already-completed sale).
+ * Paytm's ECR gateway does NOT expose a REST endpoint to abort an in-flight sale
+ * (that is a device/SDK-level "Cancel Transaction" command). The server-side way
+ * to cancel a transaction is Void (/ecr/void), which reverses a same-day sale.
+ *
+ * This route wraps Paytm Void: pass the ORIGINAL sale's merchantTransactionId
+ * (that is the Order Id Paytm's Void API expects in the body).
  *
  * Body: { merchantTransactionId, transactionDateTime?, tid?, mid? }
  */
@@ -39,13 +41,16 @@ export async function POST(request: NextRequest) {
     }
 
     const data = await callPaytmApi({
-      endpoint: '/ecr/payment/abort',
+      endpoint: '/ecr/void',
       body,
     })
 
     const resultInfo = data?.body?.resultInfo || {}
-    // "A"/ACCEPTED_SUCCESS = abort accepted by terminal
-    const accepted = resultInfo.resultStatus === 'A' || resultInfo.resultStatus === 'ACCEPTED_SUCCESS'
+    const accepted =
+      resultInfo.resultStatus === 'A' ||
+      resultInfo.resultStatus === 'ACCEPTED_SUCCESS' ||
+      resultInfo.resultStatus === 'S' ||
+      resultInfo.resultStatus === 'SUCCESS'
 
     return NextResponse.json({
       success: accepted,
