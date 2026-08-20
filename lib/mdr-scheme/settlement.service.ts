@@ -183,12 +183,16 @@ export async function calculateMDR(
             console.log(`[MDR] Partner Plan MDR: ${partnerMdr}% (unified rate)`);
           } else if (input.settlement_type === 'T0') {
             retailer_mdr = parseFloat(mdrRate.retailer_mdr_t0) || 0;
-            distributor_mdr = parseFloat(mdrRate.distributor_mdr_t0) || 0;
+            // In the cascade model distributor_mdr is the distributor's COST/buy
+            // rate. Prefer the unambiguous distributor_cost_mdr_* column, falling
+            // back to the legacy-named distributor_mdr_* until the rename migration
+            // is deployed everywhere.
+            distributor_mdr = parseFloat(mdrRate.distributor_cost_mdr_t0 ?? mdrRate.distributor_mdr_t0) || 0;
             md_mdr = parseFloat(mdrRate.md_mdr_t0) || 0;
             company_cost = parseFloat(mdrRate.company_mdr_rate) || 0;
           } else {
             retailer_mdr = parseFloat(mdrRate.retailer_mdr_t1) || 0;
-            distributor_mdr = parseFloat(mdrRate.distributor_mdr_t1) || 0;
+            distributor_mdr = parseFloat(mdrRate.distributor_cost_mdr_t1 ?? mdrRate.distributor_mdr_t1) || 0;
             md_mdr = parseFloat(mdrRate.md_mdr_t1) || 0;
             company_cost = parseFloat(mdrRate.company_mdr_rate) || 0;
           }
@@ -252,6 +256,12 @@ export async function calculateMDR(
     let distributor_commission: number;
     let md_commission: number;
     let company_earning: number;
+    // Authoritative EARNED rate for each upline tier, regardless of scheme model.
+    // This is what the tier is actually paid as a % of gross — NOT the raw
+    // distributor_mdr field, whose meaning differs between the cascade (cost) and
+    // legacy (earn) models. Downstream (ledger labels, APIs) must use these.
+    let distributor_earn_pct: number;
+    let md_earn_pct: number;
 
     if (useCascade) {
       // Charge-based margin cascade (matches BBPS/Settlement model). Each level's
@@ -279,9 +289,19 @@ export async function calculateMDR(
         ? Math.max(retailer_mdr - company_cost, 0)
         : Math.max(md_mdr - company_cost, 0);
 
+      // Zero distributor margin is legitimate (e.g. a pass-through plan where the
+      // retailer rate equals the distributor cost), but it's a common
+      // misconfiguration too — surface it so a silently-unpaid distributor is
+      // visible in logs rather than mistaken for a bug later.
+      if (!isPartnerRate && distributorId && dtRatePct === 0) {
+        console.warn(`[MDR] Cascade distributor margin is 0% (retailer_mdr=${retailer_mdr}% == distributor_cost=${distributor_mdr}%) for retailer=${input.retailer_id}, scheme=${usedSchemeId}. Distributor will earn nothing on this transaction.`);
+      }
+
       distributor_commission = Number(((input.amount * dtRatePct) / 100).toFixed(4));
       md_commission = Number(((input.amount * mdRatePct) / 100).toFixed(4));
       company_earning = Number(((input.amount * companyRatePct) / 100).toFixed(4));
+      distributor_earn_pct = dtRatePct;
+      md_earn_pct = mdRatePct;
     } else {
       // Legacy per-tier own-rate model: each tier earns its OWN rate off gross,
       // company keeps whatever remains after retailer fee less DT + MD commissions.
@@ -290,6 +310,9 @@ export async function calculateMDR(
       company_earning = Number(
         (retailer_fee - distributor_commission - md_commission).toFixed(4)
       );
+      // Legacy model: the raw rate IS the earned rate.
+      distributor_earn_pct = distributor_mdr;
+      md_earn_pct = md_mdr;
 
       if (company_earning < 0) {
         return {
@@ -316,6 +339,8 @@ export async function calculateMDR(
         distributor_commission,
         md_commission,
         distributor_margin: distributor_commission,
+        distributor_earn_pct,
+        md_earn_pct,
         company_earning,
         retailer_settlement_amount,
         scheme_type: usedSchemeType,

@@ -113,20 +113,33 @@ async function handleResetPassword(request: NextRequest) {
       )
     }
 
-    // Find the auth user by email
-    const { data: { users }, error: listError } = await supabase.auth.admin.listUsers()
-    if (listError) {
-      console.error('Error listing users:', listError)
-      return NextResponse.json(
-        { error: 'Failed to find user account' },
-        { status: 500 }
-      )
+    // Find the auth user by email (paginate — listUsers returns only 50 per page by default)
+    const targetEmail = targetUser.email.trim().toLowerCase()
+    let authUser: { id: string; email?: string } | undefined
+    const perPage = 1000
+    for (let page = 1; page <= 100; page++) {
+      const { data, error: listError } = await supabase.auth.admin.listUsers({ page, perPage })
+      if (listError) {
+        console.error('Error listing users:', listError)
+        return NextResponse.json(
+          { error: 'Failed to find user account' },
+          { status: 500 }
+        )
+      }
+
+      const pageUsers = data?.users || []
+      authUser = pageUsers.find(u => (u.email || '').trim().toLowerCase() === targetEmail)
+      if (authUser) break
+      if (pageUsers.length < perPage) break // last page reached
     }
 
-    const authUser = users.find(u => u.email === targetUser.email)
     if (!authUser) {
       return NextResponse.json(
-        { error: 'User authentication account not found' },
+        {
+          error: 'User authentication account not found',
+          message: `No login account exists for ${targetUser.email}. The profile exists but has no auth account — recreate the user's login credentials.`,
+          code: 'AUTH_ACCOUNT_MISSING'
+        },
         { status: 404 }
       )
     }

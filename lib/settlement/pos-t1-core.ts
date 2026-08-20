@@ -244,7 +244,9 @@ export async function runPosT1Settlement(
         p_scheme_id: r.scheme_id || null,
         p_scheme_type: r.scheme_type || null,
         p_distributor_id: commission > 0 ? meta.distributorId : null,
-        p_distributor_mdr: r.distributor_mdr,
+        // Pass the EARNED rate (not the raw distributor_mdr, which is a cost in the
+        // cascade model) so the ledger "Rate:" label reflects what was actually paid.
+        p_distributor_mdr: r.distributor_earn_pct,
         p_distributor_commission: commission,
         p_distributor_tds: commissionTds,
         p_tid: txn.tid || txn.device_serial || null,
@@ -252,7 +254,7 @@ export async function runPosT1Settlement(
         p_retailer_ref: `AUTO-T1-${txn.txn_id}`,
         p_commission_ref: `AUTO-T1-COMM-${txn.txn_id}`,
         p_master_distributor_id: mdCommission > 0 ? meta.masterDistributorId : null,
-        p_md_mdr: r.md_mdr,
+        p_md_mdr: r.md_earn_pct,
         p_md_commission: mdCommission,
         p_md_commission_ref: `AUTO-T1-MDCOMM-${txn.txn_id}`,
         p_md_tds: mdTds,

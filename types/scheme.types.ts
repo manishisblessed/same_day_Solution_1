@@ -153,8 +153,13 @@ export interface SchemeMDRRate {
   
   retailer_mdr_t1: number;
   retailer_mdr_t0: number;
+  /** @deprecated ambiguous name; equals distributor_cost_mdr_t1 (distributor COST). */
   distributor_mdr_t1: number;
+  /** @deprecated ambiguous name; equals distributor_cost_mdr_t0 (distributor COST). */
   distributor_mdr_t0: number;
+  /** Canonical distributor COST/buy rate. Distributor earns retailer_mdr − this. */
+  distributor_cost_mdr_t1?: number;
+  distributor_cost_mdr_t0?: number;
   md_mdr_t1: number;
   md_mdr_t0: number;
   partner_mdr: number | null;
@@ -437,8 +442,11 @@ export interface CreateMDRRateInput {
   merchant_slug?: string | null;
   retailer_mdr_t1: number;
   retailer_mdr_t0: number;
+  /** Distributor COST/buy rate. May be sent as distributor_mdr_* (legacy) or distributor_cost_mdr_* (canonical). */
   distributor_mdr_t1: number;
   distributor_mdr_t0: number;
+  distributor_cost_mdr_t1?: number;
+  distributor_cost_mdr_t0?: number;
   md_mdr_t1?: number;
   md_mdr_t0?: number;
   partner_mdr?: number | null;

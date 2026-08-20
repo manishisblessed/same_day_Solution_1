@@ -43,9 +43,20 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Sub-partner not found' }, { status: 404 })
     }
 
-    // Find auth user by email and update password
-    const { data: authUsers } = await supabase.auth.admin.listUsers()
-    const authUser = authUsers?.users?.find((u: any) => u.email === subPartner.email)
+    // Find auth user by email and update password (paginate — listUsers returns only 50 per page by default)
+    const subPartnerEmail = (subPartner.email || '').trim().toLowerCase()
+    let authUser: { id: string; email?: string } | undefined
+    const perPage = 1000
+    for (let page = 1; page <= 100; page++) {
+      const { data, error: listError } = await supabase.auth.admin.listUsers({ page, perPage })
+      if (listError) {
+        return NextResponse.json({ error: 'Failed to find user account' }, { status: 500 })
+      }
+      const pageUsers = (data?.users || []) as any[]
+      authUser = pageUsers.find((u: any) => (u.email || '').trim().toLowerCase() === subPartnerEmail)
+      if (authUser) break
+      if (pageUsers.length < perPage) break
+    }
 
     if (!authUser) {
       return NextResponse.json({ error: 'Auth user not found for this sub-partner' }, { status: 404 })

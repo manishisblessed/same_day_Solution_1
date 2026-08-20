@@ -650,14 +650,28 @@ export async function GET(request: NextRequest) {
           type: resolved.scheme_type,
           resolved_via: resolved.resolved_via,
         },
-        mdr_rate: rate ? {
-          retailer_mdr: settlementType === 'T+0' ? parseFloat(rate.retailer_mdr_t0) : parseFloat(rate.retailer_mdr_t1),
-          distributor_mdr: settlementType === 'T+0' ? parseFloat(rate.distributor_mdr_t0) : parseFloat(rate.distributor_mdr_t1),
-          md_mdr: settlementType === 'T+0' ? parseFloat(rate.md_mdr_t0) : parseFloat(rate.md_mdr_t1),
-          mode: rate.mode,
-          card_type: rate.card_type,
-          brand_type: rate.brand_type,
-        } : null,
+        mdr_rate: rate ? (() => {
+          const retailer_mdr = settlementType === 'T+0' ? parseFloat(rate.retailer_mdr_t0) : parseFloat(rate.retailer_mdr_t1);
+          // scheme_mdr_rates is the cascade model: distributor_mdr here is the
+          // distributor COST, and the distributor EARNS (retailer_mdr − cost).
+          const distributor_cost = settlementType === 'T+0'
+            ? parseFloat(rate.distributor_cost_mdr_t0 ?? rate.distributor_mdr_t0)
+            : parseFloat(rate.distributor_cost_mdr_t1 ?? rate.distributor_mdr_t1);
+          const md_cost = settlementType === 'T+0' ? parseFloat(rate.md_mdr_t0) : parseFloat(rate.md_mdr_t1);
+          return {
+            retailer_mdr,
+            // Deprecated ambiguous field kept for back-compat; equals distributor_cost.
+            distributor_mdr: distributor_cost,
+            distributor_cost_mdr: distributor_cost,
+            /** What the distributor is actually paid, as % of gross. */
+            distributor_earn_pct: Math.max(retailer_mdr - distributor_cost, 0),
+            md_mdr: md_cost,
+            md_earn_pct: Math.max(distributor_cost - md_cost, 0),
+            mode: rate.mode,
+            card_type: rate.card_type,
+            brand_type: rate.brand_type,
+          };
+        })() : null,
         all_rates: filteredRates,
         _debug: { resolution_method: resolutionMethod, client_mode: clientMode },
       })

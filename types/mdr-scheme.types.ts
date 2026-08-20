@@ -134,25 +134,37 @@ export interface SchemeQueryParams {
  */
 export interface MDRCalculationResult {
   retailer_mdr: number;
+  /**
+   * Raw distributor rate as stored in the resolved scheme. WARNING: its meaning
+   * depends on the scheme model — in the cascade model (scheme_mdr_rates) it is
+   * the distributor's COST/buy rate; in the legacy model it is the distributor's
+   * EARN rate. Do NOT use this to derive the payout — use `distributor_earn_pct`.
+   */
   distributor_mdr: number;
-  /** Master Distributor MDR (explicit commission rate for the MD tier). */
+  /** Master Distributor MDR (raw rate; same caveat as distributor_mdr). */
   md_mdr: number;
   retailer_fee: number;
   distributor_fee: number;
-  /** MD commission fee = amount * md_mdr% (gross, before TDS). */
+  /** MD commission fee = amount * md_earn_pct% (gross, before TDS). */
   md_fee: number;
   /**
-   * Explicit per-tier gross commissions (NEXTGEN model). Each tier earns its
-   * own rate directly off the gross — NOT the leftover margin between tiers.
-   *   distributor_commission = amount * distributor_mdr%
-   *   md_commission          = amount * md_mdr%
+   * Gross commissions actually payable per tier (before TDS), already computed
+   * correctly for whichever scheme model resolved:
+   *   cascade → amount * (retailer_mdr − distributor_cost)%
+   *   legacy  → amount * distributor_mdr%
    */
   distributor_commission: number;
   md_commission: number;
   /**
-   * Backward-compat alias for the distributor payout. Under the explicit
-   * per-tier model this equals `distributor_commission` (what the DT is paid),
-   * not the old retailer−distributor leftover.
+   * Authoritative EARNED rate (% of gross) for each tier, model-independent.
+   * This is the single source of truth for "what rate was this tier paid" and
+   * is what ledger labels / APIs must display — never the raw distributor_mdr.
+   */
+  distributor_earn_pct: number;
+  md_earn_pct: number;
+  /**
+   * Backward-compat alias for the distributor payout; equals
+   * `distributor_commission` (what the DT is paid).
    */
   distributor_margin: number;
   /** Company net = retailer_fee − distributor_commission − md_commission. */

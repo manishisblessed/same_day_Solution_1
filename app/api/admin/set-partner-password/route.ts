@@ -85,17 +85,25 @@ async function handleSetPartnerPassword(request: NextRequest) {
       )
     }
 
-    // Check if auth user already exists
-    const { data: { users }, error: listError } = await supabase.auth.admin.listUsers()
-    if (listError) {
-      console.error('Error listing users:', listError)
-      return NextResponse.json(
-        { error: 'Failed to find user account' },
-        { status: 500 }
-      )
-    }
+    // Check if auth user already exists (paginate — listUsers returns only 50 per page by default)
+    const partnerEmail = (partner.email || '').trim().toLowerCase()
+    let existingAuthUser: { id: string; email?: string } | undefined
+    const perPage = 1000
+    for (let page = 1; page <= 100; page++) {
+      const { data, error: listError } = await supabase.auth.admin.listUsers({ page, perPage })
+      if (listError) {
+        console.error('Error listing users:', listError)
+        return NextResponse.json(
+          { error: 'Failed to find user account' },
+          { status: 500 }
+        )
+      }
 
-    const existingAuthUser = users.find(u => u.email === partner.email)
+      const pageUsers = data?.users || []
+      existingAuthUser = pageUsers.find(u => (u.email || '').trim().toLowerCase() === partnerEmail)
+      if (existingAuthUser) break
+      if (pageUsers.length < perPage) break
+    }
 
     if (existingAuthUser) {
       // Update existing user's password
