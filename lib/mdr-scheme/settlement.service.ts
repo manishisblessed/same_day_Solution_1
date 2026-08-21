@@ -293,7 +293,7 @@ export async function calculateMDR(
       // retailer rate equals the distributor cost), but it's a common
       // misconfiguration too — surface it so a silently-unpaid distributor is
       // visible in logs rather than mistaken for a bug later.
-      if (!isPartnerRate && distributorId && dtRatePct === 0) {
+      if (!isPartnerRate && input.distributor_id && dtRatePct === 0) {
         console.warn(`[MDR] Cascade distributor margin is 0% (retailer_mdr=${retailer_mdr}% == distributor_cost=${distributor_mdr}%) for retailer=${input.retailer_id}, scheme=${usedSchemeId}. Distributor will earn nothing on this transaction.`);
       }
 
