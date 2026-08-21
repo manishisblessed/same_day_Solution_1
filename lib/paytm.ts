@@ -3,20 +3,39 @@ import * as crypto from 'crypto'
 
 const PAYTM_URLS = {
   staging: 'https://securegw-stage.paytm.in',
-  production: 'https://securegw-edc.paytm.in',
+  production: 'https://securegw-edc.paytmpayments.in',
 } as const
 
 export function getPaytmConfig() {
   const env = (process.env.PAYTM_ENV || 'staging') as keyof typeof PAYTM_URLS
   return {
     mid: process.env.PAYTM_MID!,
-    merchantKey: process.env.PAYTM_MERCHANT_KEY!,
+    merchantKey: resolveMerchantKey(),
     tid: process.env.PAYTM_TID!,
     channelId: process.env.PAYTM_CHANNEL_ID || 'EDC',
     callbackUrl: process.env.PAYTM_CALLBACK_URL || '',
     baseUrl: process.env.PAYTM_BASE_URL || PAYTM_URLS[env] || PAYTM_URLS.staging,
     env,
   }
+}
+
+/**
+ * Resolve the Paytm merchant key, immune to .env parsing quirks.
+ *
+ * Paytm production child-MID keys are 16-char AES keys that frequently contain
+ * `#`, `&`, `%`, `@` and may even start with `#`. Depending on the env loader,
+ * `#` can be treated as a comment (truncating the key -> 0330 Invalid checksum)
+ * and wrapping quotes can be read literally (-> Invalid key length). To sidestep
+ * all of that, prefer PAYTM_MERCHANT_KEY_B64 (base64 of the raw key, which only
+ * uses [A-Za-z0-9+/=] and is safe for every loader). Falls back to the raw
+ * PAYTM_MERCHANT_KEY (which must be UNQUOTED, on a single line).
+ */
+function resolveMerchantKey(): string {
+  const b64 = process.env.PAYTM_MERCHANT_KEY_B64
+  if (b64 && b64.trim()) {
+    return Buffer.from(b64.trim(), 'base64').toString('utf-8')
+  }
+  return process.env.PAYTM_MERCHANT_KEY!
 }
 
 export function formatTimestamp(date = new Date()): string {
