@@ -2353,6 +2353,7 @@ const ALL_SERVICES = [
   { key: 'doorstep_banking', label: 'Doorstep Banking', icon: '🚪', short: 'Doorstep' },
   { key: 'settlement', label: 'Settlement-1 / Payout', icon: '🏦', short: 'Settle-1' },
   { key: 'settlement2', label: 'Settlement-2', icon: '💱', short: 'Settle-2' },
+  { key: 'api_payment', label: 'API Payment (POS Card Sale)', icon: '💳', short: 'API Pay' },
 ] as const
 
 const SERVICE_FIELDS = ALL_SERVICES.map(s => `${s.key}_enabled`)

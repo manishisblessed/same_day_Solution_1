@@ -35,6 +35,7 @@ export interface Retailer {
   cash_management_enabled?: boolean
   lic_enabled?: boolean
   insurance_enabled?: boolean
+  api_payment_enabled?: boolean
   // Bank account details (mandatory)
   bank_name?: string
   account_number?: string
@@ -102,6 +103,7 @@ export interface Distributor {
   cash_management_enabled?: boolean
   lic_enabled?: boolean
   insurance_enabled?: boolean
+  api_payment_enabled?: boolean
   approved_mdr_rate?: number // MDR rate approved by master distributor (e.g., 0.015 for 1.5%)
   mdr_approved_by?: string // Master distributor partner_id who approved
   mdr_approved_at?: string // Timestamp when MDR was approved
@@ -171,6 +173,7 @@ export interface MasterDistributor {
   cash_management_enabled?: boolean
   lic_enabled?: boolean
   insurance_enabled?: boolean
+  api_payment_enabled?: boolean
   approved_mdr_rate?: number // MDR rate approved by company/admin (e.g., 0.01 for 1%)
   mdr_approved_by?: string // Admin user ID who approved
   mdr_approved_at?: string // Timestamp when MDR was approved
@@ -252,6 +255,7 @@ export interface Partner {
   cash_management_enabled?: boolean
   lic_enabled?: boolean
   insurance_enabled?: boolean
+  api_payment_enabled?: boolean
   created_at: string
   updated_at: string
 }
@@ -536,7 +540,7 @@ export interface BBPSBiller {
 }
 
 // Razorpay POS Transaction Types (Phase 1)
-export type InstaCashSettlementMode = 'INSTACASH' | 'AUTO_T1'
+export type InstaCashSettlementMode = 'INSTACASH' | 'AUTO_T1' | 'MANUAL'
 
 export interface RazorpayPOSTransaction {
   id: string
@@ -599,6 +603,10 @@ export interface RazorpayPOSTransaction {
   // Reversal tracking (void/reversal/refund of a previously-captured txn)
   reversed_at?: string | null
   reversal_reason?: string | null
+  // Manual settlement tracking (paid by hand while T+1 was paused)
+  manual_settled_at?: string | null
+  manual_settled_by?: string | null
+  manual_settlement_note?: string | null
 }
 
 // Pulse Pay (formerly InstaCash) Batch Types

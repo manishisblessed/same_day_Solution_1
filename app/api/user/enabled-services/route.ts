@@ -25,6 +25,7 @@ const SERVICE_KEYS = [
   'doorstep_banking',
   'settlement',
   'settlement2',
+  'api_payment',
 ] as const
 
 /**

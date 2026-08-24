@@ -63,20 +63,25 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Nothing to update. Provide paused or settlement_mode.' }, { status: 400 })
     }
 
-    // When T+1 is being (re)enabled for a retailer, stamp the settlement start
-    // date the FIRST time only, so we never sweep the whole historical backlog.
-    // start_at is intentionally never moved forward on later resumes.
+    // Stamp the settlement start date on retailer (re)enablement to the START OF
+    // THE ENABLE DAY, so the retailer settles only what they transact from the day
+    // they become active onward, and the prior backlog is excluded:
+    //  - First-ever enablement, or a genuine resume from a PAUSED state -> start of
+    //    today. Example: paused through 20 Aug, resumed on 21 Aug -> only 21 Aug's
+    //    transactions settle (on 22 Aug); everything up to 20 Aug (the pause window,
+    //    assumed settled MANUALLY) is excluded. This is the hard guard against
+    //    double-crediting days already paid out by hand.
+    // A plain settlement_mode change on an already-active retailer must NOT move
+    // start_at (it would wrongly exclude that day's legit backlog).
     const enablingRetailer = table === 'retailers' && updates.t1_settlement_paused === false
     let stampedStartAt: string | null = null
     if (enablingRetailer) {
       const { data: cur } = await supabase
         .from('retailers')
-        .select('t1_settlement_start_at')
+        .select('t1_settlement_start_at, t1_settlement_paused')
         .eq('partner_id', partner_id)
         .maybeSingle()
-      if (!cur?.t1_settlement_start_at) {
-        // Start of today: everything captured today onwards settles (tomorrow),
-        // while the prior backlog (before today) is excluded.
+      if (!cur?.t1_settlement_start_at || cur.t1_settlement_paused === true) {
         stampedStartAt = new Date(new Date().setHours(0, 0, 0, 0)).toISOString()
         updates.t1_settlement_start_at = stampedStartAt
       }
@@ -92,9 +97,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to update' }, { status: 500 })
     }
 
-    // Exclude the pre-enablement backlog: transactions captured before T+1 was
-    // first switched on are permanently marked so they never auto-settle and
-    // never clog the settlement queue.
+    // Exclude the pre-start backlog: transactions captured before the (new)
+    // settlement start — i.e. the pre-enablement history or the just-ended pause
+    // window (assumed manually settled) — are permanently marked so they never
+    // auto-settle and never clog the settlement queue.
     if (stampedStartAt) {
       const { error: excludeError, count } = await supabase
         .from('razorpay_pos_transactions')

@@ -26,6 +26,7 @@ import { BBPS_CATEGORY_GROUPS } from '@/lib/bbps/category-groups'
 import PayoutTransfer from '@/components/PayoutTransfer'
 import ShadvalPayTransfer from '@/components/ShadvalPayTransfer'
 import AEPSDashboard from '@/components/AEPSDashboard'
+import ApiPaymentTab from '@/components/ApiPaymentTab'
 import AEPSWalletLedger from '@/components/AEPSWalletLedger'
 import AEPSTransactionHistory from '@/components/AEPSTransactionHistory'
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
@@ -62,7 +63,7 @@ import SubPartnersManagement from '@/components/partner/SubPartnersManagement'
 import ExportDropdown, { type ExportFormat } from '@/components/ExportDropdown'
 import { exportTable } from '@/lib/export/table-export'
 
-type TabType = 'dashboard' | 'wallet' | 'services' | 'aeps' | 'bbps' | 'bbps-2' | 'credit-card' | 'credit-card-2' | 'payout' | 'settlement-2' | 'transactions' | 'ledger' | 'aeps-ledger' | 'mdr-schemes' | 'reports' | 'settings' | 'pos-machines' | 'subscriptions' | 'api-management' | 'analytics' | 'api-dashboard' | 'reconciliation' | 'sub-partners'
+type TabType = 'dashboard' | 'wallet' | 'services' | 'aeps' | 'bbps' | 'bbps-2' | 'credit-card' | 'credit-card-2' | 'api-payment' | 'payout' | 'settlement-2' | 'transactions' | 'ledger' | 'aeps-ledger' | 'mdr-schemes' | 'reports' | 'settings' | 'pos-machines' | 'subscriptions' | 'api-management' | 'analytics' | 'api-dashboard' | 'reconciliation' | 'sub-partners'
 
 function PartnerDashboardContent() {
   const { user, loading: authLoading } = useAuth()
@@ -88,7 +89,7 @@ function PartnerDashboardContent() {
   
   const getInitialTab = (): TabType => {
     const tab = searchParams?.get('tab')
-    if (tab && ['dashboard', 'wallet', 'services', 'aeps', 'bbps', 'bbps-2', 'credit-card', 'credit-card-2', 'payout', 'settlement-2', 'transactions', 'ledger', 'aeps-ledger', 'mdr-schemes', 'reports', 'settings', 'pos-machines', 'subscriptions', 'api-management', 'analytics', 'api-dashboard', 'reconciliation', 'sub-partners'].includes(tab)) {
+    if (tab && ['dashboard', 'wallet', 'services', 'aeps', 'bbps', 'bbps-2', 'credit-card', 'credit-card-2', 'api-payment', 'payout', 'settlement-2', 'transactions', 'ledger', 'aeps-ledger', 'mdr-schemes', 'reports', 'settings', 'pos-machines', 'subscriptions', 'api-management', 'analytics', 'api-dashboard', 'reconciliation', 'sub-partners'].includes(tab)) {
       return tab as TabType
     }
     return 'dashboard'
@@ -126,7 +127,7 @@ function PartnerDashboardContent() {
 
   useEffect(() => {
     const tab = searchParams?.get('tab')
-    if (tab && ['dashboard', 'wallet', 'services', 'aeps', 'bbps', 'bbps-2', 'credit-card', 'credit-card-2', 'payout', 'settlement-2', 'transactions', 'ledger', 'aeps-ledger', 'mdr-schemes', 'reports', 'settings', 'pos-machines', 'subscriptions', 'api-management', 'analytics', 'api-dashboard', 'reconciliation', 'sub-partners'].includes(tab)) {
+    if (tab && ['dashboard', 'wallet', 'services', 'aeps', 'bbps', 'bbps-2', 'credit-card', 'credit-card-2', 'api-payment', 'payout', 'settlement-2', 'transactions', 'ledger', 'aeps-ledger', 'mdr-schemes', 'reports', 'settings', 'pos-machines', 'subscriptions', 'api-management', 'analytics', 'api-dashboard', 'reconciliation', 'sub-partners'].includes(tab)) {
       if (tab !== activeTab) {
         setActiveTab(tab as TabType)
       }
@@ -486,6 +487,7 @@ function PartnerDashboardContent() {
           {activeTab === 'bbps-2' && <Pay2NewBBPSTab />}
           {activeTab === 'credit-card' && <PartnerCreditCardTab />}
           {activeTab === 'credit-card-2' && <PartnerCreditCard2Tab />}
+          {activeTab === 'api-payment' && <ApiPaymentTab />}
           {activeTab === 'payout' && <PayoutTransfer title="Settlement-1" />}
           {activeTab === 'settlement-2' && <ShadvalPayTransfer title="Settlement-2 - Bank Transfer" />}
           {activeTab === 'transactions' && <POSTransactionsTable autoPoll={true} pollInterval={15000} />}

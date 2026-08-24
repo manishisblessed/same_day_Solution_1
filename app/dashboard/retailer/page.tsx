@@ -53,10 +53,11 @@ import PayoutTransactionReport from '@/components/reports/PayoutTransactionRepor
 import BillPaymentTransactionReport from '@/components/reports/BillPaymentTransactionReport'
 import PartnerSubscriptionsTab from '@/components/PartnerSubscriptionsTab'
 import AEPSDashboard from '@/components/AEPSDashboard'
+import ApiPaymentTab from '@/components/ApiPaymentTab'
 import AEPSWalletLedger from '@/components/AEPSWalletLedger'
 import AEPSTransactionHistory from '@/components/AEPSTransactionHistory'
 
-type TabType = 'dashboard' | 'wallet' | 'services' | 'aeps' | 'bbps' | 'bbps-2' | 'credit-card' | 'credit-card-2' | 'payout' | 'settlement-2' | 'transactions' | 'ledger' | 'aeps-ledger' | 'mdr-schemes' | 'reports' | 'settings' | 'pos-machines' | 'subscriptions'
+type TabType = 'dashboard' | 'wallet' | 'services' | 'aeps' | 'bbps' | 'bbps-2' | 'credit-card' | 'credit-card-2' | 'api-payment' | 'payout' | 'settlement-2' | 'transactions' | 'ledger' | 'aeps-ledger' | 'mdr-schemes' | 'reports' | 'settings' | 'pos-machines' | 'subscriptions'
 
 function RetailerDashboardContent() {
   const { user, loading: authLoading } = useAuth()
@@ -68,7 +69,7 @@ function RetailerDashboardContent() {
   
   const getInitialTab = (): TabType => {
     const tab = searchParams?.get('tab')
-    if (tab && ['dashboard', 'wallet', 'services', 'aeps', 'bbps', 'bbps-2', 'credit-card', 'credit-card-2', 'payout', 'settlement-2', 'transactions', 'ledger', 'aeps-ledger', 'mdr-schemes', 'reports', 'settings', 'pos-machines', 'subscriptions'].includes(tab)) {
+    if (tab && ['dashboard', 'wallet', 'services', 'aeps', 'bbps', 'bbps-2', 'credit-card', 'credit-card-2', 'api-payment', 'payout', 'settlement-2', 'transactions', 'ledger', 'aeps-ledger', 'mdr-schemes', 'reports', 'settings', 'pos-machines', 'subscriptions'].includes(tab)) {
       return tab as TabType
     }
     return 'dashboard'
@@ -120,7 +121,7 @@ function RetailerDashboardContent() {
 
   useEffect(() => {
     const tab = searchParams?.get('tab')
-    if (tab && ['dashboard', 'wallet', 'services', 'aeps', 'bbps', 'bbps-2', 'credit-card', 'credit-card-2', 'payout', 'settlement-2', 'transactions', 'ledger', 'aeps-ledger', 'mdr-schemes', 'reports', 'settings', 'pos-machines', 'subscriptions'].includes(tab)) {
+    if (tab && ['dashboard', 'wallet', 'services', 'aeps', 'bbps', 'bbps-2', 'credit-card', 'credit-card-2', 'api-payment', 'payout', 'settlement-2', 'transactions', 'ledger', 'aeps-ledger', 'mdr-schemes', 'reports', 'settings', 'pos-machines', 'subscriptions'].includes(tab)) {
       if (tab !== activeTab) {
         setActiveTab(tab as TabType)
       }
@@ -578,6 +579,7 @@ function RetailerDashboardContent() {
           {activeTab === 'bbps-2' && <Pay2NewBBPSTab />}
           {activeTab === 'credit-card' && <CreditCardTab />}
           {activeTab === 'credit-card-2' && <CreditCard2Tab />}
+          {activeTab === 'api-payment' && <ApiPaymentTab />}
           {activeTab === 'payout' && <PayoutTransfer title="Settlement-1 - Bank Transfer" />}
           {activeTab === 'settlement-2' && <ShadvalPayTransfer title="Settlement-2 - Bank Transfer" />}
           {activeTab === 'transactions' && (

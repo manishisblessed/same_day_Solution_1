@@ -6,7 +6,7 @@ import Link from 'next/link'
 import { 
   LayoutDashboard, ShoppingCart, Activity, 
   Settings, TrendingUp, CreditCard, X, Menu,
-  Wallet, Receipt, Banknote, Percent, BookOpen, Repeat, Fingerprint, Send
+  Wallet, Receipt, Banknote, Percent, BookOpen, Repeat, Fingerprint, Send, Zap
 } from 'lucide-react'
 import { apiFetch } from '@/lib/api-client'
 import { useAuth } from '@/contexts/AuthContext'
@@ -29,6 +29,7 @@ const sidebarItems: SidebarItem[] = [
   { id: 'bbps-2', label: 'BBPS-2', icon: CreditCard, href: '/dashboard/retailer?tab=bbps-2' },
   { id: 'credit-card', label: 'Credit Card', icon: CreditCard, href: '/dashboard/retailer?tab=credit-card' },
   { id: 'credit-card-2', label: 'Credit Card-2', icon: CreditCard, href: '/dashboard/retailer?tab=credit-card-2' },
+  { id: 'api-payment', label: 'API Payment', icon: Zap, href: '/dashboard/retailer?tab=api-payment' },
   { id: 'payout', label: 'Settlement-1', icon: Banknote, href: '/dashboard/retailer?tab=payout' },
   { id: 'settlement-2', label: 'Settlement-2', icon: Send, href: '/dashboard/retailer?tab=settlement-2' },
   { id: 'transactions', label: 'Transactions', icon: CreditCard, href: '/dashboard/retailer?tab=transactions' },
@@ -50,6 +51,7 @@ const SERVICE_TAB_MAP: Record<string, string[]> = {
   'bbps-2':       ['bbps2'],
   'credit-card':  ['credit_card1'],
   'credit-card-2': ['credit_card2'],
+  'api-payment':  ['api_payment'],
   payout:         ['settlement'],
   'settlement-2': ['settlement2'],
   transactions:   ['mini_atm_pos'],
