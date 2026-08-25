@@ -22,13 +22,29 @@ import { refundShadvalSettlement, isGenuineProviderSuccess } from '@/lib/settlem
  *      genuinely succeeded (UTR present) — reconciling to SUCCESS instead.
  *   3. Success never credits anything (money was already debited at transfer);
  *      it only records the UTR and fires the partner callback.
+ *   4. TIMEOUT SAFETY (Option C, default): a still-PENDING payout is NEVER
+ *      auto-failed/refunded on timeout. It is HELD as PENDING until the provider
+ *      confirms failure/reversal (which refunds it) or an admin refunds it
+ *      manually after confirming the reversal on Shadval. This is the guard
+ *      against refunding the user before Shadval has actually reversed the money.
  */
 
 export interface ResolvePendingOptions {
   /** Only touch transactions older than this many minutes. Default 1. */
   staleMinutes?: number
-  /** Force-fail (and refund, if not actually paid) transactions older than this. Default 60. */
+  /** Age (minutes) after which a still-PENDING transaction is either held for
+   *  review or (only if refundOnHardTimeout) force-failed + refunded. Default 60. */
   hardTimeoutMinutes?: number
+  /**
+   * SAFETY (Option C). When false (default) a transaction the provider still
+   * reports as PENDING is NEVER auto-failed/auto-refunded on timeout — it is
+   * HELD as PENDING (money stays debited) until either the provider confirms a
+   * failure/reversal (poll path refunds it) or an admin refunds it manually via
+   * /admin/reversals after confirming the reversal on the Shadval side. This
+   * prevents refunding the user before Shadval has actually reversed the money,
+   * which would cause a double-money loss if the payout later settles.
+   */
+  refundOnHardTimeout?: boolean
   /** Max rows per sweep. Default 50. */
   limit?: number
 }
@@ -38,6 +54,8 @@ export interface ResolvePendingResult {
   resolved: number
   refunded: number
   stillPending: number
+  /** Transactions past the hard timeout that were HELD (not refunded) — need review. */
+  timeoutHeld: number
   results: Array<{ id: string; ref: string; previous_status: string; new_status: string; action: string }>
 }
 
@@ -47,6 +65,7 @@ export async function resolvePendingPartnerSettlements(
 ): Promise<ResolvePendingResult> {
   const staleMinutes = options.staleMinutes ?? 1
   const hardTimeoutMinutes = options.hardTimeoutMinutes ?? 60
+  const refundOnHardTimeout = options.refundOnHardTimeout ?? false
   const limit = options.limit ?? 50
 
   const staleThreshold = new Date(Date.now() - staleMinutes * 60 * 1000).toISOString()
@@ -64,7 +83,7 @@ export async function resolvePendingPartnerSettlements(
     throw new Error(`Failed to fetch pending transactions: ${fetchErr.message}`)
   }
 
-  const result: ResolvePendingResult = { checked: 0, resolved: 0, refunded: 0, stillPending: 0, results: [] }
+  const result: ResolvePendingResult = { checked: 0, resolved: 0, refunded: 0, stillPending: 0, timeoutHeld: 0, results: [] }
 
   if (!pendingTxs || pendingTxs.length === 0) return result
 
@@ -162,10 +181,36 @@ export async function resolvePendingPartnerSettlements(
       }
     }
 
-    // Hard timeout: force-fail transactions older than hardTimeoutMinutes
+    // Hard timeout handling for transactions older than hardTimeoutMinutes.
     if (tx.created_at < hardTimeoutThreshold) {
       const txAgeMin = Math.round((Date.now() - new Date(tx.created_at).getTime()) / 60000)
 
+      // SAFETY (Option C) — default path: DO NOT auto-fail/auto-refund a payout
+      // the provider still reports as PENDING. Refunding before Shadval has
+      // actually reversed the money risks a double-money loss if the payout
+      // later settles. Hold the row as PENDING (money stays debited) and flag it
+      // for provider-confirmed resolution or manual admin refund.
+      if (!refundOnHardTimeout) {
+        const holdMarker = '[HOLD: awaiting provider reversal — no auto-refund]'
+        const alreadyFlagged = (tx.status_message || '').includes(holdMarker)
+        if (!alreadyFlagged) {
+          await supabase
+            .from('shadval_settlement')
+            .update({
+              status_message: `Pending ${txAgeMin} min — ${holdMarker}`,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', tx.id)
+            .eq('status', 'PENDING')
+        }
+        result.timeoutHeld++
+        result.stillPending++
+        result.results.push({ id: tx.id, ref: tx.reference_id, previous_status: 'PENDING', new_status: 'PENDING', action: `timeout_hold_no_refund_${txAgeMin}min` })
+        continue
+      }
+
+      // LEGACY behaviour — only when refundOnHardTimeout is explicitly enabled:
+      // force-fail + refund (still protected by the anti-loss provider re-check).
       const { data: claimed } = await supabase
         .from('shadval_settlement')
         .update({

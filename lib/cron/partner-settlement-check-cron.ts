@@ -30,10 +30,13 @@ async function runCheck(): Promise<void> {
     const outcome = await resolvePendingPartnerSettlements(supabase, {
       staleMinutes: STALE_MINUTES,
       hardTimeoutMinutes: HARD_TIMEOUT_MINUTES,
+      // Option C: never auto-refund on timeout. A still-PENDING payout is held
+      // until the provider confirms a reversal or an admin refunds it manually.
+      refundOnHardTimeout: false,
       limit: 50,
     })
     if (outcome.checked > 0) {
-      console.log(`[Partner-Settlement-Cron] checked=${outcome.checked} resolved=${outcome.resolved} refunded=${outcome.refunded} stillPending=${outcome.stillPending}`)
+      console.log(`[Partner-Settlement-Cron] checked=${outcome.checked} resolved=${outcome.resolved} refunded=${outcome.refunded} stillPending=${outcome.stillPending} timeoutHeld=${outcome.timeoutHeld}`)
     }
   } catch (err: any) {
     console.error('[Partner-Settlement-Cron] Error:', err?.message || err)

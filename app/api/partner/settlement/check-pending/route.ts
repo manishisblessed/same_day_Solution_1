@@ -23,7 +23,10 @@ function getSupabase() {
  *
  * Resolves stuck PENDING settlement transactions:
  * - With reference_id: queries Shadval Pay status API
- * - Older than HARD_TIMEOUT_MINUTES without resolution: auto-fails + refunds
+ * - On provider-confirmed failure/reversal: refunds the wallet
+ * - Older than HARD_TIMEOUT_MINUTES without resolution: HELD as PENDING (no
+ *   auto-refund) until the provider confirms a reversal or an admin refunds it
+ *   manually — see Option C safety in resolvePendingPartnerSettlements
  * - Fires partner callback on status change
  *
  * The actual reconciliation logic lives in `resolvePendingPartnerSettlements`
@@ -54,6 +57,9 @@ export async function POST(request: NextRequest) {
       outcome = await resolvePendingPartnerSettlements(supabase, {
         staleMinutes: STALE_MINUTES,
         hardTimeoutMinutes: HARD_TIMEOUT_MINUTES,
+        // Option C: never auto-refund on timeout — hold for provider-confirmed
+        // reversal or manual admin refund.
+        refundOnHardTimeout: false,
         limit: 50,
       })
     } catch (err: any) {
@@ -65,7 +71,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: true, message: 'No pending settlement transactions', checked: 0, resolved: 0, refunded: 0 })
     }
 
-    console.log(`[Settlement Check-Pending] Done: checked=${outcome.checked} resolved=${outcome.resolved} refunded=${outcome.refunded} stillPending=${outcome.stillPending}`)
+    console.log(`[Settlement Check-Pending] Done: checked=${outcome.checked} resolved=${outcome.resolved} refunded=${outcome.refunded} stillPending=${outcome.stillPending} timeoutHeld=${outcome.timeoutHeld}`)
 
     return NextResponse.json({
       success: true,
@@ -73,6 +79,7 @@ export async function POST(request: NextRequest) {
       resolved: outcome.resolved,
       refunded: outcome.refunded,
       still_pending: outcome.stillPending,
+      timeout_held: outcome.timeoutHeld,
       results: isAuthorizedCron ? outcome.results : undefined,
     })
   } catch (error: any) {
