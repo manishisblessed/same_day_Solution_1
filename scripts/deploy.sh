@@ -51,8 +51,13 @@ git reset --hard "origin/${BRANCH}"
 # multiple GB; leaving it in place while `npm ci` reinstalls node_modules has
 # filled the disk mid-install and produced a corrupt/partial `next` package
 # (phantom "Cannot find module" build failures). `next build` regenerates it.
-echo "[2/7] Freeing build space (removing stale .next)..."
+echo "[2/7] Freeing build space (stale .next + caches)..."
+df -h / | tail -1
 rm -rf .next
+npm cache clean --force >/dev/null 2>&1 || true
+pm2 flush >/dev/null 2>&1 || true
+sudo journalctl --vacuum-size=100M >/dev/null 2>&1 || true
+df -h / | tail -1
 
 echo "[3/7] Installing dependencies..."
 npm ci

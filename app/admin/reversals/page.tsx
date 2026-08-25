@@ -70,6 +70,28 @@ type RefundSummary = {
   total_refunded_amount: number
 }
 
+type DoubleMoneyHit = {
+  id: string
+  reference_id: string
+  retailer_id: string
+  wallet: 'partner' | 'retailer'
+  refunded: number
+  provider_utr?: string
+  provider_txn_status?: string
+  status_message?: string
+  created_at: string
+}
+
+type ReconResult = {
+  window_days: number
+  checked: number
+  refund_ok: number
+  unverified: number
+  double_money_count: number
+  total_loss: number
+  double_money: DoubleMoneyHit[]
+}
+
 const RESULT_META: Record<ItemResult['result'], { label: string; className: string; Icon: any }> = {
   refunded: { label: 'Refunded', className: 'bg-green-100 text-green-700', Icon: CheckCircle },
   already_refunded: { label: 'Already Refunded', className: 'bg-blue-100 text-blue-700', Icon: ShieldCheck },
@@ -132,6 +154,11 @@ export default function AdminCapabilities() {
   const [results, setResults] = useState<ItemResult[] | null>(null)
   const [summary, setSummary] = useState<RefundSummary | null>(null)
   const [lastWasDryRun, setLastWasDryRun] = useState(false)
+
+  // Double-money reconciliation
+  const [reconciling, setReconciling] = useState(false)
+  const [recon, setRecon] = useState<ReconResult | null>(null)
+  const [reconDays, setReconDays] = useState(7)
 
   useEffect(() => {
     if (!authLoading && (!user || (user.role !== 'admin' && (user as any).role !== 'finance_executive'))) {
@@ -240,6 +267,26 @@ export default function AdminCapabilities() {
       showToast('Failed to process refund', 'error')
     } finally {
       setRefunding(false)
+    }
+  }
+
+  const runReconcile = async () => {
+    setReconciling(true)
+    try {
+      const res = await apiFetch('/api/admin/reversal/shadval-reconcile', {
+        method: 'POST',
+        body: JSON.stringify({ days: reconDays }),
+      })
+      const data = await res.json()
+      if (data.success) {
+        setRecon(data)
+        if (data.double_money_count > 0) showToast(`${data.double_money_count} double-money found · ${fmtINR(data.total_loss)} at risk`, 'error')
+        else showToast(`Reconciliation clean — checked ${data.checked} in last ${data.window_days}d`, 'success')
+      } else showToast(data.error || 'Reconciliation failed', 'error')
+    } catch (e: any) {
+      showToast(e?.message || 'Reconciliation failed', 'error')
+    } finally {
+      setReconciling(false)
     }
   }
 
@@ -398,6 +445,87 @@ export default function AdminCapabilities() {
             <StatCard label="Refundable ₹" value={fmtINR(stats.refundable_amount)} icon={IndianRupee} tint="bg-emerald-50 text-emerald-700" small />
           </div>
         )}
+
+        {/* Double-money reconciliation */}
+        <div className="bg-white rounded-lg shadow p-4 mb-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <h3 className="font-semibold text-gray-800 flex items-center gap-2">
+                <ShieldCheck className="w-5 h-5 text-emerald-600" /> Double-Money Reconciliation
+              </h3>
+              <p className="text-xs text-gray-500 mt-0.5">
+                Re-checks refunded Settlement-2 transactions against the provider. Flags any that actually SUCCEEDED at the bank but were refunded (a loss). Read-only — raises admin alerts, moves no money.
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <label className="text-xs text-gray-500">Last</label>
+              <select value={reconDays} onChange={(e) => setReconDays(Number(e.target.value))} className="px-2 py-2 border rounded-lg text-sm">
+                <option value={2}>2 days</option>
+                <option value={7}>7 days</option>
+                <option value={30}>30 days</option>
+                <option value={90}>90 days</option>
+              </select>
+              <button
+                onClick={runReconcile}
+                disabled={reconciling}
+                className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50 text-sm"
+              >
+                {reconciling ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Activity className="w-4 h-4" />}
+                {reconciling ? 'Checking…' : 'Run Reconciliation'}
+              </button>
+            </div>
+          </div>
+
+          {recon && (
+            <div className="mt-4">
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-3">
+                <MiniStat v={recon.checked} l="Checked" c="bg-gray-50 text-gray-700" />
+                <MiniStat v={recon.refund_ok} l="Refund OK" c="bg-green-50 text-green-700" />
+                <MiniStat v={recon.double_money_count} l="Double-money" c="bg-red-50 text-red-700" />
+                <MiniStat v={recon.unverified} l="Unverified" c="bg-amber-50 text-amber-700" />
+                <MiniStat v={fmtINR(recon.total_loss)} l="Loss ₹" c="bg-red-50 text-red-700" small />
+              </div>
+              {recon.double_money.length > 0 ? (
+                <div className="overflow-x-auto border border-red-200 rounded-lg">
+                  <table className="w-full text-sm">
+                    <thead className="bg-red-50 text-red-700">
+                      <tr>
+                        <th className="text-left px-3 py-2 font-medium">Reference</th>
+                        <th className="text-left px-3 py-2 font-medium">Wallet</th>
+                        <th className="text-right px-3 py-2 font-medium">Refunded</th>
+                        <th className="text-left px-3 py-2 font-medium">Provider UTR</th>
+                        <th className="text-left px-3 py-2 font-medium">Provider Status</th>
+                        <th className="text-left px-3 py-2 font-medium">Created</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {recon.double_money.map((h) => (
+                        <tr key={h.id} className="bg-red-50/30">
+                          <td className="px-3 py-2 font-mono text-xs">{h.reference_id}</td>
+                          <td className="px-3 py-2 capitalize">
+                            {h.wallet}
+                            <div className="text-[10px] text-gray-400 font-mono truncate max-w-[140px]" title={h.retailer_id}>{h.retailer_id}</div>
+                          </td>
+                          <td className="px-3 py-2 text-right font-medium">{fmtINR(h.refunded)}</td>
+                          <td className="px-3 py-2 font-mono text-xs">{h.provider_utr || '—'}</td>
+                          <td className="px-3 py-2 text-xs">{h.provider_txn_status || '—'}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-gray-600">{fmtDate(h.created_at)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  <div className="px-3 py-2 bg-amber-50 text-amber-800 text-xs">
+                    These succeeded at the bank but were refunded. Claw back with <span className="font-mono">scripts/reconcile-shadval-double-money.js</span>. Admin alerts were raised.
+                  </div>
+                </div>
+              ) : (
+                <div className="text-sm text-green-700 bg-green-50 rounded-lg px-3 py-2 flex items-center gap-2">
+                  <CheckCircle className="w-4 h-4" /> No double-money found in the last {recon.window_days} days.
+                </div>
+              )}
+            </div>
+          )}
+        </div>
 
         {/* Manual entry (collapsible) */}
         <div className="bg-white rounded-lg shadow mb-6">

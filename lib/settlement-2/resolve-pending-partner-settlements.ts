@@ -1,7 +1,8 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { checkTransactionStatus } from '@/services/shadval-pay'
 import { sendSettlementCallback } from '@/lib/settlement-callback'
-import { refundShadvalSettlement, isGenuineProviderSuccess } from '@/lib/settlement-2/shadval-refund'
+import { refundShadvalSettlement, isGenuineProviderSuccess, computeShadvalRefundAmount } from '@/lib/settlement-2/shadval-refund'
+import { raiseSettlementAlert, resolveSettlementAlerts } from '@/lib/settlement-alerts'
 
 /**
  * Shared reconciliation for partner Settlement-2 (shadval) PENDING transfers.
@@ -29,6 +30,12 @@ import { refundShadvalSettlement, isGenuineProviderSuccess } from '@/lib/settlem
  *      against refunding the user before Shadval has actually reversed the money.
  */
 
+/** Authoritative account-type check — partners table is the source of truth. */
+async function isPartnerAccount(supabase: SupabaseClient, id: string): Promise<boolean> {
+  const { data } = await supabase.from('partners').select('id').eq('id', id).maybeSingle()
+  return !!data
+}
+
 export interface ResolvePendingOptions {
   /** Only touch transactions older than this many minutes. Default 1. */
   staleMinutes?: number
@@ -45,6 +52,11 @@ export interface ResolvePendingOptions {
    * which would cause a double-money loss if the payout later settles.
    */
   refundOnHardTimeout?: boolean
+  /**
+   * Age (minutes) at which a still-PENDING (held) transaction raises an admin
+   * alert so it is never silently stuck. Defaults to hardTimeoutMinutes.
+   */
+  holdAlertMinutes?: number
   /** Max rows per sweep. Default 50. */
   limit?: number
 }
@@ -66,6 +78,7 @@ export async function resolvePendingPartnerSettlements(
   const staleMinutes = options.staleMinutes ?? 1
   const hardTimeoutMinutes = options.hardTimeoutMinutes ?? 60
   const refundOnHardTimeout = options.refundOnHardTimeout ?? false
+  const holdAlertMinutes = options.holdAlertMinutes ?? hardTimeoutMinutes
   const limit = options.limit ?? 50
 
   const staleThreshold = new Date(Date.now() - staleMinutes * 60 * 1000).toISOString()
@@ -126,6 +139,9 @@ export async function resolvePendingPartnerSettlements(
               result.results.push({ id: tx.id, ref: tx.reference_id, previous_status: 'PENDING', new_status: 'PENDING', action: 'already_claimed' })
               continue
             }
+
+            // The transaction is now terminal — clear any open HOLD alert.
+            resolveSettlementAlerts(supabase, [tx.id], 'auto-resolved-terminal').catch(() => {})
 
             if (isFailed) {
               // Route to the correct wallet (partner vs retailer) via the shared
@@ -203,6 +219,32 @@ export async function resolvePendingPartnerSettlements(
             .eq('id', tx.id)
             .eq('status', 'PENDING')
         }
+
+        // Raise an admin alert so a held transaction is never silently stuck.
+        // Dedup is handled by settlement_alerts (one open alert per txn_id).
+        if (txAgeMin >= holdAlertMinutes) {
+          const isPartner = await isPartnerAccount(supabase, tx.retailer_id)
+          const heldAmount = computeShadvalRefundAmount(tx)
+          raiseSettlementAlert(supabase, {
+            alertType: 'SETTLEMENT2_HOLD_PENDING',
+            retailerId: isPartner ? undefined : tx.retailer_id,
+            partnerId: isPartner ? tx.retailer_id : undefined,
+            txnId: tx.id,
+            amount: heldAmount,
+            reason: `Settlement-2 held ${txAgeMin} min, still PENDING at provider — ${tx.reference_id} → ${tx.account_holder_name || ''} ${tx.account_number || ''} (${tx.mode || ''}). Awaiting provider reversal; verify on Shadval.`,
+            details: {
+              reference_id: tx.reference_id,
+              order_id: tx.order_id,
+              account_number: tx.account_number,
+              ifsc_code: tx.ifsc_code,
+              account_holder_name: tx.account_holder_name,
+              mode: tx.mode,
+              age_minutes: txAgeMin,
+              created_at: tx.created_at,
+            },
+          }).catch(() => {})
+        }
+
         result.timeoutHeld++
         result.stillPending++
         result.results.push({ id: tx.id, ref: tx.reference_id, previous_status: 'PENDING', new_status: 'PENDING', action: `timeout_hold_no_refund_${txAgeMin}min` })
@@ -223,6 +265,8 @@ export async function resolvePendingPartnerSettlements(
         .select('id')
 
       if (claimed && claimed.length > 0) {
+        // Terminal now — clear any open HOLD alert.
+        resolveSettlementAlerts(supabase, [tx.id], 'auto-resolved-terminal').catch(() => {})
         // Unified reference (REFUND_<ref>) — NOT REFUND_TIMEOUT_ — so this can
         // never double-credit on top of a status-poll/verify refund. The helper
         // also treats any legacy REFUND_TIMEOUT_ entry as already refunded.

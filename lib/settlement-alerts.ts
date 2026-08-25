@@ -24,6 +24,7 @@ export async function raiseSettlementAlert(
   input: SettlementAlertInput
 ): Promise<void> {
   try {
+    const alertType = input.alertType || (input.partnerId ? 'PARTNER_SETTLEMENT_FAILED' : 'MDR_RATE_MISSING')
     const { data: existing } = await supabase
       .from('settlement_alerts')
       .select('id')
@@ -32,13 +33,21 @@ export async function raiseSettlementAlert(
       .maybeSingle()
 
     if (existing) {
+      // Refresh the open alert so its type/reason/details reflect the latest
+      // finding (e.g. a HOLD alert being upgraded to a DOUBLE_MONEY alert).
       await supabase
         .from('settlement_alerts')
-        .update({ last_seen_at: new Date().toISOString(), reason: input.reason })
+        .update({
+          last_seen_at: new Date().toISOString(),
+          alert_type: alertType,
+          reason: input.reason,
+          amount: input.amount,
+          details: input.details ?? null,
+        })
         .eq('id', existing.id)
     } else {
       await supabase.from('settlement_alerts').insert({
-        alert_type: input.alertType || (input.partnerId ? 'PARTNER_SETTLEMENT_FAILED' : 'MDR_RATE_MISSING'),
+        alert_type: alertType,
         retailer_id: input.retailerId || null,
         partner_id: input.partnerId || null,
         txn_id: input.txnId,

@@ -60,6 +60,16 @@ jobs:
             # 3) Keep the server helper script in sync (for manual runs).
             if [ -f scripts/deploy.sh ]; then cp -f scripts/deploy.sh ~/deploy.sh && chmod +x ~/deploy.sh; fi
 
+            # 3b) Free build space. A stale .next (with webpack pack cache) plus
+            #     npm/pm2 caches grow to several GB and have filled the disk
+            #     mid-build (ENOSPC). All of this is regenerated, safe to delete.
+            echo "Disk before cleanup:"; df -h / | tail -1
+            rm -rf .next
+            npm cache clean --force >/dev/null 2>&1 || true
+            pm2 flush >/dev/null 2>&1 || true
+            sudo journalctl --vacuum-size=100M >/dev/null 2>&1 || true
+            echo "Disk after cleanup:"; df -h / | tail -1
+
             # 4) Build & restart.
             echo "Installing dependencies..."
             npm ci

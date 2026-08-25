@@ -62,13 +62,22 @@ const nextConfig = {
   // Amplify handles the build output automatically
   // output: 'standalone',
   // Webpack configuration to ensure path aliases work correctly and optimize performance
-  webpack: (config, { isServer }) => {
+  webpack: (config, { dev }) => {
     // Ensure path aliases are resolved correctly
     config.resolve.alias = {
       ...config.resolve.alias,
       '@': require('path').resolve(__dirname),
     }
-    
+
+    // Disable webpack's persistent filesystem cache for production builds.
+    // On the disk-constrained EC2 the .next/cache pack files grew to several
+    // GB and caused `ENOSPC: no space left on device` mid-build. The cache
+    // only speeds up incremental rebuilds; the server does a clean build on
+    // every deploy, so it is pure disk overhead here.
+    if (!dev) {
+      config.cache = false
+    }
+
     return config
   },
   // CORS headers for static assets (fonts, etc.)

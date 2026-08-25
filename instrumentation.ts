@@ -77,6 +77,14 @@ export async function register() {
     } catch (err) {
       console.error('[Instrumentation] Failed to initialize Partner Settlement Check cron:', err)
     }
+
+    try {
+      const { initShadvalReconciliationCron } = await import('@/lib/cron/shadval-reconciliation-cron')
+      await initShadvalReconciliationCron()
+      console.log('[Instrumentation] Shadval Reconciliation Cron initialized successfully')
+    } catch (err) {
+      console.error('[Instrumentation] Failed to initialize Shadval Reconciliation cron:', err)
+    }
   }
 
   if (env['NEXT_RUNTIME'] === 'edge') {
