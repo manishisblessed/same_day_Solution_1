@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
+import { financeHasTab } from '@/lib/auth-roles'
 import { useRouter } from 'next/navigation'
 import { Lock, Eye, EyeOff, Loader2, CheckCircle, AlertCircle, User } from 'lucide-react'
 import { apiFetch } from '@/lib/api-client'
@@ -13,6 +14,8 @@ export default function FinanceSettingsPage() {
   useEffect(() => {
     if (!authLoading && (!user || user.role !== 'finance_executive')) {
       router.push('/finance-same/login')
+    } else if (!authLoading && user && !financeHasTab(user, 'settings')) {
+      router.push('/finance-same')
     }
   }, [user, authLoading, router])
 
@@ -55,7 +58,7 @@ export default function FinanceSettingsPage() {
     }
   }
 
-  if (authLoading || !user) {
+  if (authLoading || !user || !financeHasTab(user, 'settings')) {
     return (
       <div className="flex items-center justify-center min-h-[40vh]">
         <Loader2 className="w-8 h-8 animate-spin text-emerald-600" />

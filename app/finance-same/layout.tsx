@@ -3,18 +3,19 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useAuth } from '@/contexts/AuthContext'
+import { financeHasTab } from '@/lib/auth-roles'
 import FinanceHeader from '@/components/FinanceHeader'
 import FinanceSidebar from '@/components/FinanceSidebar'
 import SessionTimer from '@/components/SessionTimer'
 import SessionKickedOverlay from '@/components/SessionKickedOverlay'
 
 const mobileLinks = [
-  { href: '/finance-same', label: 'Home' },
-  { href: '/finance-same/reconciliation', label: 'Recon' },
-  { href: '/finance-same/reports', label: 'Reports' },
-  { href: '/finance-same/settlement', label: 'T+1' },
-  { href: '/finance-same/wallet-ledger', label: 'Ledger' },
-  { href: '/finance-same/settings', label: 'Settings' },
+  { href: '/finance-same', label: 'Home', tab: 'home' },
+  { href: '/finance-same/reconciliation', label: 'Recon', tab: 'reconciliation' },
+  { href: '/finance-same/reports', label: 'Reports', tab: 'reports' },
+  { href: '/finance-same/settlement', label: 'T+1', tab: 'settlement' },
+  { href: '/finance-same/wallet-ledger', label: 'Ledger', tab: 'wallet-ledger' },
+  { href: '/finance-same/settings', label: 'Settings', tab: 'settings' },
 ]
 
 export default function FinanceLayout({ children }: { children: React.ReactNode }) {
@@ -39,7 +40,7 @@ export default function FinanceLayout({ children }: { children: React.ReactNode 
       {showChrome ? (
         <div className="pt-16 flex flex-col md:flex-row min-h-[calc(100vh-4rem)]">
           <div className="md:hidden flex flex-wrap gap-1.5 px-3 py-2 border-b border-gray-200 dark:border-gray-700 bg-white/90 dark:bg-gray-900/90">
-            {mobileLinks.map((l) => (
+            {mobileLinks.filter((l) => financeHasTab(user, l.tab)).map((l) => (
               <Link
                 key={l.href}
                 href={l.href}

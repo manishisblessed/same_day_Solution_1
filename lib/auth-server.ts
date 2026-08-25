@@ -86,6 +86,7 @@ async function getUserRole(_supabase: any, email: string, userId: string): Promi
       role: 'finance_executive',
       name: finance.data.name,
       phone: finance.data.phone ?? undefined,
+      finance_tabs: Array.isArray(finance.data.tabs) ? finance.data.tabs : [],
     }
   }
   if (masterDistributor.data && !masterDistributor.error) {

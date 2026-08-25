@@ -8,7 +8,7 @@ import {
   Settings,
   Activity, X, Menu, CreditCard, Receipt, CheckCircle2, ArrowUpCircle,
   Building2, FileBarChart, Layers, Key, Timer, History, Repeat, ScrollText, Wallet,
-  Fingerprint, Server, TrendingUp, Scale, BarChart3, RotateCcw
+  Fingerprint, Server, TrendingUp, Scale, BarChart3, RotateCcw, UserPlus, CalendarDays
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { supabase } from '@/lib/supabase/client'
@@ -26,8 +26,11 @@ interface SidebarItem {
 
 const sidebarItems: SidebarItem[] = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, href: '/admin?tab=dashboard' },
+  { id: 'onboarding', label: 'Onboarding & Invites', icon: UserPlus, href: '/admin/onboarding' },
+  { id: 'daily-report', label: 'Daily Report', icon: CalendarDays, href: '/admin/reports/daily' },
   { id: 'business-analytics', label: 'Business Analytics', icon: BarChart3, href: '/admin/business-analytics' },
   { id: 'pos-transactions', label: 'POS Transactions', icon: Receipt, href: '/admin/razorpay-transactions' },
+  { id: 'pos-reconciliation', label: 'POS Reconciliation', icon: Scale, href: '/admin/pos-reconciliation' },
   { id: 'retailers', label: 'Retailers', icon: Users, href: '/admin?tab=retailers' },
   { id: 'distributors', label: 'Distributors', icon: Package, href: '/admin?tab=distributors' },
   { id: 'master-distributors', label: 'Master Distributors', icon: Crown, href: '/admin?tab=master-distributors' },

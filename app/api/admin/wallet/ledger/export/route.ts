@@ -18,7 +18,8 @@ export const dynamic = 'force-dynamic'
  * - transaction_type: filter by transaction type
  * - date_from, date_to: date range
  * - q: search description
- * - limit: max rows (default 10000)
+ * - limit: optional cap on total rows; omit to export the COMPLETE filtered set.
+ *   CSV is streamed page-by-page (any size); Excel/PDF are buffered but uncapped.
  */
 export async function GET(request: NextRequest) {
   try {
@@ -29,7 +30,10 @@ export async function GET(request: NextRequest) {
 
     const sp = request.nextUrl.searchParams
     const format = sp.get('format') || 'csv'
-    const limit = Math.min(50000, Math.max(1, parseInt(sp.get('limit') || '10000', 10)))
+    // No practical cap: export the full filtered result set. `limit` is optional; if
+    // omitted we fetch everything matching the filters via pagination.
+    const rawLimit = parseInt(sp.get('limit') || '0', 10)
+    const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? rawLimit : Infinity
     const userId = sp.get('user_id')?.trim() || ''
     const userRole = sp.get('user_role')?.trim() || ''
     const walletType = sp.get('wallet_type') || 'primary'
@@ -51,97 +55,107 @@ export async function GET(request: NextRequest) {
       if (partnerRow) isPartnerScope = true
     }
 
-    let entries: any[] = []
+    const isPartner = isPartnerScope && scope === 'all'
 
-    if (isPartnerScope && scope === 'all') {
-      let pq = supabase.from('partner_wallet_ledger').select('*')
-      if (userId) pq = pq.eq('partner_id', userId)
-      if (serviceType && serviceType !== 'all') pq = pq.eq('service_type', serviceType)
-      if (transactionType && transactionType !== 'all') pq = pq.eq('transaction_type', transactionType)
-      if (status && status !== 'all') pq = pq.eq('status', status)
-      if (dateFrom) pq = pq.gte('created_at', `${dateFrom}T00:00:00`)
-      if (dateTo) pq = pq.lte('created_at', `${dateTo}T23:59:59`)
-      if (q) pq = pq.ilike('description', `%${q.replace(/%/g, '\\%')}%`)
+    if (scope === 'platform' && !getPlatformRevenueWalletConfig()) {
+      return NextResponse.json({ error: 'Platform revenue wallet not configured' }, { status: 400 })
+    }
 
-      const { data, error } = await pq.order('created_at', { ascending: false }).limit(limit)
-      if (error) {
-        console.error('[admin/wallet/ledger/export] partner_wallet_ledger', error)
-        return NextResponse.json({ error: error.message }, { status: 500 })
+    // Single query factory reused by both the streaming (CSV) and buffered (Excel/PDF)
+    // paths. Must return a fresh, ordered builder each call so pagination is deterministic.
+    const buildQuery = () => {
+      if (isPartner) {
+        let pq = supabase.from('partner_wallet_ledger').select('*')
+        if (userId) pq = pq.eq('partner_id', userId)
+        if (serviceType && serviceType !== 'all') pq = pq.eq('service_type', serviceType)
+        if (transactionType && transactionType !== 'all') pq = pq.eq('transaction_type', transactionType)
+        if (status && status !== 'all') pq = pq.eq('status', status)
+        if (dateFrom) pq = pq.gte('created_at', `${dateFrom}T00:00:00`)
+        if (dateTo) pq = pq.lte('created_at', `${dateTo}T23:59:59`)
+        if (q) pq = pq.ilike('description', `%${q.replace(/%/g, '\\%')}%`)
+        return pq.order('created_at', { ascending: false })
       }
-      entries = (data || []).map((r: any) => ({
-        ...r,
-        retailer_id: r.partner_id,
-        user_role: 'partner',
-        wallet_type: 'partner_api',
-      }))
-    } else {
       let query = supabase
         .from('wallet_ledger')
         .select('id, retailer_id, user_role, wallet_type, fund_category, service_type, transaction_type, credit, debit, opening_balance, closing_balance, balance_after, description, reference_id, status, created_at')
-
       if (scope === 'platform') {
         const cfg = getPlatformRevenueWalletConfig()
-        if (!cfg) {
-          return NextResponse.json({ error: 'Platform revenue wallet not configured' }, { status: 400 })
-        }
-        query = query.eq('retailer_id', cfg.revenueUserId)
+        if (cfg) query = query.eq('retailer_id', cfg.revenueUserId)
       } else if (userId) {
         query = query.eq('retailer_id', userId)
       }
-
-      if (userRole && userRole !== 'all') {
-        query = query.eq('user_role', userRole)
-      }
-      if (walletType && walletType !== 'all') {
-        query = query.eq('wallet_type', walletType)
-      }
-      if (serviceType && serviceType !== 'all') {
-        query = query.eq('service_type', serviceType)
-      }
-      if (transactionType && transactionType !== 'all') {
-        query = query.eq('transaction_type', transactionType)
-      }
-      if (status && status !== 'all') {
-        query = query.eq('status', status)
-      }
-      if (dateFrom) {
-        query = query.gte('created_at', `${dateFrom}T00:00:00`)
-      }
-      if (dateTo) {
-        query = query.lte('created_at', `${dateTo}T23:59:59`)
-      }
-      if (q) {
-        query = query.ilike('description', `%${q.replace(/%/g, '\\%')}%`)
-      }
-
-      const { data, error } = await query.order('created_at', { ascending: false }).limit(limit)
-
-      if (error) {
-        console.error('[admin/wallet/ledger/export]', error)
-        return NextResponse.json({ error: error.message }, { status: 500 })
-      }
-
-      entries = data || []
+      if (userRole && userRole !== 'all') query = query.eq('user_role', userRole)
+      if (walletType && walletType !== 'all') query = query.eq('wallet_type', walletType)
+      if (serviceType && serviceType !== 'all') query = query.eq('service_type', serviceType)
+      if (transactionType && transactionType !== 'all') query = query.eq('transaction_type', transactionType)
+      if (status && status !== 'all') query = query.eq('status', status)
+      if (dateFrom) query = query.gte('created_at', `${dateFrom}T00:00:00`)
+      if (dateTo) query = query.lte('created_at', `${dateTo}T23:59:59`)
+      if (q) query = query.ilike('description', `%${q.replace(/%/g, '\\%')}%`)
+      return query.order('created_at', { ascending: false })
     }
 
-    // Resolve wallet owner names (RT/DT/MD/partner)
-    const uniqueIds = [...new Set(entries.map((e: any) => e.retailer_id).filter(Boolean))]
-    const nameMap: Record<string, string> = {}
-    if (uniqueIds.length > 0) {
-      const [retRes, distRes, mdRes, partRes] = await Promise.all([
-        supabase.from('retailers').select('partner_id, name, business_name').in('partner_id', uniqueIds),
-        supabase.from('distributors').select('partner_id, name, business_name').in('partner_id', uniqueIds),
-        supabase.from('master_distributors').select('partner_id, name, business_name').in('partner_id', uniqueIds),
-        supabase.from('partners').select('id, name, business_name').in('id', uniqueIds),
-      ])
-      for (const r of retRes.data || []) nameMap[r.partner_id] = r.name || r.business_name || ''
-      for (const d of distRes.data || []) nameMap[d.partner_id] = d.name || d.business_name || ''
-      for (const m of mdRes.data || []) nameMap[m.partner_id] = m.name || m.business_name || ''
-      for (const p of partRes.data || []) nameMap[p.id] = p.name || p.business_name || ''
-    }
+    const mapRow = isPartner
+      ? (r: any) => ({ ...r, retailer_id: r.partner_id, user_role: 'partner', wallet_type: 'partner_api' })
+      : (r: any) => r
 
     const filePrefix = scope === 'platform' ? 'revenue-wallet-statement' : 'wallet-ledger'
     const fileDate = new Date().toISOString().split('T')[0]
+
+    // CSV: stream the complete filtered result set page-by-page with (near-)constant
+    // memory, so exports of any size (1K … millions of rows) succeed without buffering.
+    if (format !== 'excel' && format !== 'pdf') {
+      const encoder = new TextEncoder()
+      const csvHeader =
+        'Date & Time,User ID,User Name,Role,Wallet,Transaction Type,Service,Credit (₹),Debit (₹),Opening Balance (₹),Closing Balance (₹),Status,Reference ID,Description\n'
+
+      const stream = new ReadableStream({
+        async start(controller) {
+          controller.enqueue(encoder.encode('\uFEFF' + csvHeader))
+          const PAGE_SIZE = 1000
+          let from = 0
+          let fetched = 0
+          try {
+            while (fetched < limit) {
+              const pageSize = Math.min(PAGE_SIZE, limit - fetched)
+              const { data, error } = await buildQuery().range(from, from + pageSize - 1)
+              if (error) throw new Error(error.message)
+              const rows = (data || []).map(mapRow)
+              if (rows.length === 0) break
+              const nameMap = await resolveNames(supabase, rows.map((r: any) => r.retailer_id))
+              const chunk = rows.map((e: any) => csvLine(e, nameMap)).join('\n') + '\n'
+              controller.enqueue(encoder.encode(chunk))
+              fetched += rows.length
+              if (rows.length < pageSize) break
+              from += rows.length
+            }
+            controller.close()
+          } catch (err: any) {
+            console.error('[admin/wallet/ledger/export] stream', err)
+            controller.error(err)
+          }
+        },
+      })
+
+      return new NextResponse(stream, {
+        status: 200,
+        headers: {
+          'Content-Type': 'text/csv; charset=utf-8',
+          'Content-Disposition': `attachment; filename="${filePrefix}-${fileDate}.csv"`,
+          'Cache-Control': 'no-store',
+        },
+      })
+    }
+
+    // Excel / PDF: need the whole document assembled in memory, but still fetch the
+    // complete filtered set via pagination (no 1000-row cap).
+    const { data: allRows, error: fetchErr } = await fetchAllRows(buildQuery, limit)
+    if (fetchErr) {
+      console.error('[admin/wallet/ledger/export]', fetchErr)
+      return NextResponse.json({ error: fetchErr.message }, { status: 500 })
+    }
+    const entries = allRows.map(mapRow)
+    const nameMap = await resolveNames(supabase, entries.map((e: any) => e.retailer_id))
 
     if (format === 'pdf') {
       const pdfHeaders = ['Date & Time', 'User ID', 'User Name', 'Role', 'Wallet', 'Txn Type', 'Service', 'Credit', 'Debit', 'Opening', 'Closing', 'Status', 'Ref ID']
@@ -269,45 +283,87 @@ export async function GET(request: NextRequest) {
       })
     }
 
-    // Default: CSV format
-    const csvHeader =
-      'Date & Time,User ID,User Name,Role,Wallet,Transaction Type,Service,Credit (₹),Debit (₹),Opening Balance (₹),Closing Balance (₹),Status,Reference ID,Description\n'
-    const csvRows = entries.map((e: any) => {
-      const credit = Number(e.credit) || 0
-      const debit = Number(e.debit) || 0
-      const opening = Number(e.opening_balance) || 0
-      const balance = Number(e.closing_balance ?? e.balance_after ?? 0)
-      return [
-        `"${formatDate(e.created_at)}"`,
-        `"${escapeCsv(e.retailer_id || '')}"`,
-        `"${escapeCsv(nameMap[e.retailer_id] || '')}"`,
-        `"${escapeCsv(e.user_role || '')}"`,
-        `"${escapeCsv(e.wallet_type || '')}"`,
-        `"${escapeCsv(e.transaction_type || '')}"`,
-        `"${escapeCsv(e.service_type || '')}"`,
-        credit.toFixed(2),
-        debit.toFixed(2),
-        opening.toFixed(2),
-        balance.toFixed(2),
-        `"${escapeCsv(e.status || '')}"`,
-        `"${escapeCsv(e.reference_id || '')}"`,
-        `"${escapeCsv(e.description || '')}"`,
-      ].join(',')
-    }).join('\n')
-
-    const csv = '\uFEFF' + csvHeader + csvRows
-
-    return new NextResponse(csv, {
-      status: 200,
-      headers: {
-        'Content-Type': 'text/csv; charset=utf-8',
-        'Content-Disposition': `attachment; filename="${filePrefix}-${fileDate}.csv"`,
-      },
-    })
+    return NextResponse.json({ error: 'Unsupported format' }, { status: 400 })
   } catch (e: any) {
     console.error('[admin/wallet/ledger/export]', e)
     return NextResponse.json({ error: e.message || 'Server error' }, { status: 500 })
   }
+}
+
+/**
+ * Fetches ALL rows matching a query, working around PostgREST's per-request row cap
+ * (db-max-rows, default 1000) by paginating with .range(). `buildQuery` must return a
+ * fresh, ordered query builder on every call so each page is deterministic.
+ * `maxRows` optionally caps the total (Infinity = fetch everything).
+ */
+async function fetchAllRows(
+  buildQuery: () => any,
+  maxRows: number = Infinity
+): Promise<{ data: any[]; error: any }> {
+  const PAGE_SIZE = 1000
+  const all: any[] = []
+  let from = 0
+
+  while (all.length < maxRows) {
+    const remaining = maxRows - all.length
+    const pageSize = Math.min(PAGE_SIZE, remaining)
+    const to = from + pageSize - 1
+
+    const { data, error } = await buildQuery().range(from, to)
+    if (error) return { data: all, error }
+
+    const rows = data || []
+    all.push(...rows)
+
+    // Last page reached when fewer rows than requested came back.
+    if (rows.length < pageSize) break
+    from += rows.length
+  }
+
+  return { data: all, error: null }
+}
+
+/** Resolve wallet-owner display names (RT/DT/MD/partner) for a batch of ids. */
+async function resolveNames(supabase: any, ids: string[]): Promise<Record<string, string>> {
+  const uniqueIds = [...new Set(ids.filter(Boolean))]
+  const nameMap: Record<string, string> = {}
+  if (uniqueIds.length === 0) return nameMap
+
+  const [retRes, distRes, mdRes, partRes] = await Promise.all([
+    supabase.from('retailers').select('partner_id, name, business_name').in('partner_id', uniqueIds),
+    supabase.from('distributors').select('partner_id, name, business_name').in('partner_id', uniqueIds),
+    supabase.from('master_distributors').select('partner_id, name, business_name').in('partner_id', uniqueIds),
+    supabase.from('partners').select('id, name, business_name').in('id', uniqueIds),
+  ])
+  for (const r of retRes.data || []) nameMap[r.partner_id] = r.name || r.business_name || ''
+  for (const d of distRes.data || []) nameMap[d.partner_id] = d.name || d.business_name || ''
+  for (const m of mdRes.data || []) nameMap[m.partner_id] = m.name || m.business_name || ''
+  for (const p of partRes.data || []) nameMap[p.id] = p.name || p.business_name || ''
+  return nameMap
+}
+
+/** Build one CSV row for a ledger entry. */
+function csvLine(e: any, nameMap: Record<string, string>): string {
+  const credit = Number(e.credit) || 0
+  const debit = Number(e.debit) || 0
+  const opening = Number(e.opening_balance) || 0
+  const balance = Number(e.closing_balance ?? e.balance_after ?? 0)
+  return [
+    `"${formatDate(e.created_at)}"`,
+    `"${escapeCsv(e.retailer_id || '')}"`,
+    `"${escapeCsv(nameMap[e.retailer_id] || '')}"`,
+    `"${escapeCsv(e.user_role || '')}"`,
+    `"${escapeCsv(e.wallet_type || '')}"`,
+    `"${escapeCsv(e.transaction_type || '')}"`,
+    `"${escapeCsv(e.service_type || '')}"`,
+    credit.toFixed(2),
+    debit.toFixed(2),
+    opening.toFixed(2),
+    balance.toFixed(2),
+    `"${escapeCsv(e.status || '')}"`,
+    `"${escapeCsv(e.reference_id || '')}"`,
+    `"${escapeCsv(e.description || '')}"`,
+  ].join(',')
 }
 
 function formatDate(isoString: string): string {

@@ -15,6 +15,7 @@ import {
 } from 'lucide-react'
 import { motion } from 'framer-motion'
 import { apiFetch } from '@/lib/api-client'
+import { FINANCE_TABS } from '@/lib/auth-roles'
 import TwoFactorSetup from '@/components/TwoFactorSetup'
 
 export default function AdminSettings() {
@@ -62,11 +63,14 @@ export default function AdminSettings() {
   const [showFinanceModal, setShowFinanceModal] = useState(false)
   const [creatingFinance, setCreatingFinance] = useState(false)
   const [showFinancePassword, setShowFinancePassword] = useState(false)
+  const [editingFinanceUser, setEditingFinanceUser] = useState<any>(null)
   const [financeForm, setFinanceForm] = useState({
     name: '',
     email: '',
     phone: '',
     password: '',
+    tabs: [] as string[],
+    is_active: true,
   })
 
   // Reset password modal state
@@ -109,6 +113,7 @@ export default function AdminSettings() {
     { id: 'dashboard', label: 'Dashboard' },
     { id: 'business-analytics', label: 'Business Analytics' },
     { id: 'pos-transactions', label: 'POS Transactions' },
+    { id: 'pos-reconciliation', label: 'POS Reconciliation' },
     { id: 'retailers', label: 'Retailers' },
     { id: 'distributors', label: 'Distributors' },
     { id: 'master-distributors', label: 'Master Distributors' },
@@ -473,39 +478,80 @@ export default function AdminSettings() {
     }
   }
 
+  const resetFinanceForm = () => {
+    setFinanceForm({ name: '', email: '', phone: '', password: '', tabs: [], is_active: true })
+    setEditingFinanceUser(null)
+    setShowFinancePassword(false)
+  }
+
+  const openEditFinanceUser = (fu: any) => {
+    setEditingFinanceUser(fu)
+    setFinanceForm({
+      name: fu.name || '',
+      email: fu.email || '',
+      phone: fu.phone || '',
+      password: '',
+      tabs: Array.isArray(fu.tabs) ? fu.tabs : [],
+      is_active: fu.is_active !== false,
+    })
+    setShowFinancePassword(false)
+    setShowFinanceModal(true)
+  }
+
   const handleCreateFinanceUser = async (e: React.FormEvent) => {
     e.preventDefault()
     setMessage(null)
-    if (!financeForm.name.trim() || !financeForm.email.trim() || !financeForm.password) {
-      setMessage({ type: 'error', text: 'Name, email, and password are required' })
+    if (!financeForm.name.trim() || !financeForm.email.trim()) {
+      setMessage({ type: 'error', text: 'Name and email are required' })
       return
     }
-    if (financeForm.password.length < 8) {
-      setMessage({ type: 'error', text: 'Password must be at least 8 characters' })
-      return
+    if (!editingFinanceUser) {
+      if (!financeForm.password) {
+        setMessage({ type: 'error', text: 'Password is required' })
+        return
+      }
+      if (financeForm.password.length < 8) {
+        setMessage({ type: 'error', text: 'Password must be at least 8 characters' })
+        return
+      }
     }
     setCreatingFinance(true)
     try {
       const response = await apiFetch('/api/admin/finance-users', {
-        method: 'POST',
-        body: JSON.stringify({
-          name: financeForm.name.trim(),
-          email: financeForm.email.trim().toLowerCase(),
-          phone: financeForm.phone.trim() || undefined,
-          password: financeForm.password,
-        }),
+        method: editingFinanceUser ? 'PUT' : 'POST',
+        body: JSON.stringify(
+          editingFinanceUser
+            ? {
+                id: editingFinanceUser.id,
+                name: financeForm.name.trim(),
+                phone: financeForm.phone.trim(),
+                tabs: financeForm.tabs,
+                is_active: financeForm.is_active,
+              }
+            : {
+                name: financeForm.name.trim(),
+                email: financeForm.email.trim().toLowerCase(),
+                phone: financeForm.phone.trim() || undefined,
+                password: financeForm.password,
+                tabs: financeForm.tabs,
+              }
+        ),
       })
       const data = await response.json()
       if (!response.ok) {
-        throw new Error(data.error || 'Failed to create finance user')
+        throw new Error(data.error || 'Failed to save finance user')
       }
-      setMessage({ type: 'success', text: 'Finance executive created. They can sign in at /finance-same/login' })
+      setMessage({
+        type: 'success',
+        text: editingFinanceUser
+          ? 'Finance executive updated.'
+          : 'Finance executive created. They can sign in at /finance-same/login',
+      })
       setShowFinanceModal(false)
-      setShowFinancePassword(false)
-      setFinanceForm({ name: '', email: '', phone: '', password: '' })
+      resetFinanceForm()
       fetchFinanceUsers()
     } catch (error: any) {
-      setMessage({ type: 'error', text: error.message || 'Failed to create finance user' })
+      setMessage({ type: 'error', text: error.message || 'Failed to save finance user' })
     } finally {
       setCreatingFinance(false)
     }
@@ -1120,8 +1166,7 @@ export default function AdminSettings() {
                 <button
                   type="button"
                   onClick={() => {
-                    setFinanceForm({ name: '', email: '', phone: '', password: '' })
-                    setShowFinancePassword(false)
+                    resetFinanceForm()
                     setShowFinanceModal(true)
                   }}
                   className="btn-primary flex items-center gap-2 px-4 py-2"
@@ -1141,6 +1186,7 @@ export default function AdminSettings() {
                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700 dark:text-gray-300">Name</th>
                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700 dark:text-gray-300">Email</th>
                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700 dark:text-gray-300">Mobile</th>
+                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700 dark:text-gray-300">Tabs</th>
                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700 dark:text-gray-300">Status</th>
                         <th className="text-right py-3 px-4 text-sm font-semibold text-gray-700 dark:text-gray-300">Actions</th>
                       </tr>
@@ -1151,6 +1197,17 @@ export default function AdminSettings() {
                           <td className="py-3 px-4 text-sm text-gray-900 dark:text-white">{fu.name}</td>
                           <td className="py-3 px-4 text-sm text-gray-600 dark:text-gray-400">{fu.email}</td>
                           <td className="py-3 px-4 text-sm text-gray-600 dark:text-gray-400">{fu.phone || '—'}</td>
+                          <td className="py-3 px-4 text-sm text-gray-600 dark:text-gray-400">
+                            {Array.isArray(fu.tabs) && fu.tabs.length > 0 ? (
+                              fu.tabs.length >= FINANCE_TABS.length ? (
+                                <span className="px-2 py-0.5 text-xs font-medium rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400">All tabs</span>
+                              ) : (
+                                <span className="px-2 py-0.5 text-xs font-medium rounded-full bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400">{fu.tabs.length} tab{fu.tabs.length > 1 ? 's' : ''}</span>
+                              )
+                            ) : (
+                              <span className="text-gray-400 text-xs">Home only</span>
+                            )}
+                          </td>
                           <td className="py-3 px-4">
                             <span
                               className={`px-2 py-1 text-xs font-semibold rounded-full ${
@@ -1163,19 +1220,28 @@ export default function AdminSettings() {
                             </span>
                           </td>
                           <td className="py-3 px-4 text-right">
-                            <button
-                              onClick={() => openResetPwModal({ id: fu.id, email: fu.email, name: fu.name }, 'finance_executive')}
-                              className="p-2 text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-900/20 rounded transition-colors"
-                              title="Reset Password"
-                            >
-                              <Key className="w-4 h-4" />
-                            </button>
+                            <div className="flex items-center justify-end gap-1">
+                              <button
+                                onClick={() => openEditFinanceUser(fu)}
+                                className="p-2 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded transition-colors"
+                                title="Edit tabs & details"
+                              >
+                                <Edit className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => openResetPwModal({ id: fu.id, email: fu.email, name: fu.name }, 'finance_executive')}
+                                className="p-2 text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-900/20 rounded transition-colors"
+                                title="Reset Password"
+                              >
+                                <Key className="w-4 h-4" />
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))}
                       {financeUsers.length === 0 && (
                         <tr>
-                          <td colSpan={5} className="py-8 text-center text-gray-500 dark:text-gray-400">
+                          <td colSpan={6} className="py-8 text-center text-gray-500 dark:text-gray-400">
                             No finance users yet. Click &quot;Add finance user&quot; to create one.
                           </td>
                         </tr>
@@ -1324,25 +1390,28 @@ export default function AdminSettings() {
           </div>
 
           {showFinanceModal && (
-            <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+            <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 overflow-y-auto">
               <motion.div
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
-                className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-md w-full p-6"
+                className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-lg w-full my-8 max-h-[90vh] flex flex-col"
               >
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-lg font-bold text-gray-900 dark:text-white">Add finance executive</h3>
+                <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
+                  <h3 className="text-lg font-bold text-gray-900 dark:text-white">
+                    {editingFinanceUser ? 'Edit finance executive' : 'Add finance executive'}
+                  </h3>
                   <button
                     type="button"
                     onClick={() => {
                       setShowFinanceModal(false)
-                      setShowFinancePassword(false)
+                      resetFinanceForm()
                     }}
                     className="text-gray-400 hover:text-gray-600 p-1"
                   >
                     <X className="w-5 h-5" />
                   </button>
                 </div>
+                <div className="overflow-y-auto flex-1 px-6 py-4">
                 <form onSubmit={handleCreateFinanceUser} className="space-y-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Name *</label>
@@ -1359,9 +1428,10 @@ export default function AdminSettings() {
                     <input
                       type="email"
                       required
+                      disabled={!!editingFinanceUser}
                       value={financeForm.email}
                       onChange={(e) => setFinanceForm({ ...financeForm, email: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white disabled:bg-gray-50 dark:disabled:bg-gray-900 disabled:cursor-not-allowed"
                     />
                   </div>
                   <div>
@@ -1374,44 +1444,118 @@ export default function AdminSettings() {
                       placeholder="Optional"
                     />
                   </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Password *</label>
-                    <div className="relative">
-                      <input
-                        type={showFinancePassword ? 'text' : 'password'}
-                        required
-                        value={financeForm.password}
-                        onChange={(e) => setFinanceForm({ ...financeForm, password: e.target.value })}
-                        className="w-full pl-3 pr-11 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
-                        minLength={8}
-                        autoComplete="new-password"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowFinancePassword(!showFinancePassword)}
-                        className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 rounded-md"
-                        aria-label={showFinancePassword ? 'Hide password' : 'Show password'}
-                      >
-                        {showFinancePassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                      </button>
+                  {!editingFinanceUser && (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Password *</label>
+                      <div className="relative">
+                        <input
+                          type={showFinancePassword ? 'text' : 'password'}
+                          required
+                          value={financeForm.password}
+                          onChange={(e) => setFinanceForm({ ...financeForm, password: e.target.value })}
+                          className="w-full pl-3 pr-11 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+                          minLength={8}
+                          autoComplete="new-password"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowFinancePassword(!showFinancePassword)}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 rounded-md"
+                          aria-label={showFinancePassword ? 'Hide password' : 'Show password'}
+                        >
+                          {showFinancePassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
+                      </div>
                     </div>
+                  )}
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      Portal tabs <span className="text-gray-400 font-normal">(Home is always accessible)</span>
+                    </label>
+                    <div className="border border-gray-300 dark:border-gray-700 rounded-lg p-3 bg-white dark:bg-gray-900">
+                      <label className="flex items-center gap-2 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 p-1.5 rounded text-sm border-b border-gray-100 dark:border-gray-700 mb-1">
+                        <input
+                          type="checkbox"
+                          checked={financeForm.tabs.length === FINANCE_TABS.length}
+                          onChange={(e) =>
+                            setFinanceForm({
+                              ...financeForm,
+                              tabs: e.target.checked ? FINANCE_TABS.map((t) => t.id) : [],
+                            })
+                          }
+                          className="w-4 h-4 text-primary-600 rounded focus:ring-primary-500 flex-shrink-0"
+                        />
+                        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Select all</span>
+                      </label>
+                      <div className="grid grid-cols-2 gap-1">
+                        {FINANCE_TABS.map((tab) => (
+                          <label
+                            key={tab.id}
+                            className="flex items-center gap-2 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 p-1.5 rounded text-sm"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={financeForm.tabs.includes(tab.id)}
+                              onChange={(e) =>
+                                setFinanceForm({
+                                  ...financeForm,
+                                  tabs: e.target.checked
+                                    ? [...financeForm.tabs, tab.id]
+                                    : financeForm.tabs.filter((t) => t !== tab.id),
+                                })
+                              }
+                              className="w-4 h-4 text-primary-600 rounded focus:ring-primary-500 flex-shrink-0"
+                            />
+                            <span className="text-sm text-gray-700 dark:text-gray-300 truncate">{tab.label}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
+                      <span className="font-medium">Selected:</span>{' '}
+                      {financeForm.tabs.length === 0 ? (
+                        <span className="text-gray-400">Home only</span>
+                      ) : financeForm.tabs.length === FINANCE_TABS.length ? (
+                        <span className="text-primary-600 dark:text-primary-400">All tabs</span>
+                      ) : (
+                        <span className="text-primary-600 dark:text-primary-400">{financeForm.tabs.join(', ')}</span>
+                      )}
+                    </p>
                   </div>
+
+                  {editingFinanceUser && (
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        id="finance_is_active"
+                        checked={financeForm.is_active}
+                        onChange={(e) => setFinanceForm({ ...financeForm, is_active: e.target.checked })}
+                        className="w-4 h-4 text-primary-600 rounded focus:ring-primary-500"
+                      />
+                      <label htmlFor="finance_is_active" className="text-sm text-gray-700 dark:text-gray-300">
+                        Active (login enabled)
+                      </label>
+                    </div>
+                  )}
+
                   <div className="flex justify-end gap-2 pt-2">
                     <button
                       type="button"
                       onClick={() => {
                         setShowFinanceModal(false)
-                        setShowFinancePassword(false)
+                        resetFinanceForm()
                       }}
                       className="px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300"
                     >
                       Cancel
                     </button>
                     <button type="submit" disabled={creatingFinance} className="btn-primary px-4 py-2">
-                      {creatingFinance ? 'Creating…' : 'Create'}
+                      {creatingFinance ? 'Saving…' : editingFinanceUser ? 'Update' : 'Create'}
                     </button>
                   </div>
                 </form>
+                </div>
               </motion.div>
             </div>
           )}

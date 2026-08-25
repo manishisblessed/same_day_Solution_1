@@ -2,6 +2,7 @@
 
 import { useEffect } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
+import { financeHasTab } from '@/lib/auth-roles'
 import { useRouter } from 'next/navigation'
 import T1SettlementControl from '@/components/T1SettlementControl'
 import { Loader2 } from 'lucide-react'
@@ -13,10 +14,12 @@ export default function FinanceSettlementPage() {
   useEffect(() => {
     if (!loading && (!user || user.role !== 'finance_executive')) {
       router.push('/finance-same/login')
+    } else if (!loading && user && !financeHasTab(user, 'settlement')) {
+      router.push('/finance-same')
     }
   }, [user, loading, router])
 
-  if (loading || !user || user.role !== 'finance_executive') {
+  if (loading || !user || user.role !== 'finance_executive' || !financeHasTab(user, 'settlement')) {
     return (
       <div className="flex items-center justify-center min-h-[40vh]">
         <Loader2 className="w-8 h-8 animate-spin text-emerald-600" />

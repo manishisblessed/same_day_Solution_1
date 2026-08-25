@@ -209,7 +209,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Validate departments array
-    const validDepartments = ['dashboard', 'business-analytics', 'pos-transactions', 'retailers', 'distributors', 'master-distributors', 'scheme-management', 'partners', 'pos-machines', 'pos-history', 'pos-tracking-report', 'pos-rental-report', 'pos-partner-api', 'razorpay-transactions', 'services', 'aeps', 'reports', 'service-transaction-report', 'pos-report', 'bill-payment-report', 'aeps-report', 'settlement-report', 'business-report', 'settlement', 'settlement-2-approvals', 'revenue-wallet', 'wallet-ledger', 'push-pull-report', 'wallet', 'commission', 'mdr', 'limits', 'reversals', 'capabilities', 'disputes', 'users', 'performance', 'subscriptions', 'portal-management', 'legal-agreements', 'settings', 'all']
+    const validDepartments = ['dashboard', 'business-analytics', 'pos-transactions', 'pos-reconciliation', 'retailers', 'distributors', 'master-distributors', 'scheme-management', 'partners', 'pos-machines', 'pos-history', 'pos-tracking-report', 'pos-rental-report', 'pos-partner-api', 'razorpay-transactions', 'services', 'aeps', 'reports', 'service-transaction-report', 'pos-report', 'bill-payment-report', 'aeps-report', 'settlement-report', 'business-report', 'settlement', 'settlement-2-approvals', 'revenue-wallet', 'wallet-ledger', 'push-pull-report', 'wallet', 'commission', 'mdr', 'limits', 'reversals', 'capabilities', 'disputes', 'users', 'performance', 'subscriptions', 'portal-management', 'legal-agreements', 'settings', 'all']
     if (!departments || !Array.isArray(departments) || departments.length === 0) {
       const response = NextResponse.json(
         { error: 'At least one department must be selected' },
@@ -404,7 +404,7 @@ export async function PUT(request: NextRequest) {
         )
         return addCorsHeaders(request, response)
       }
-      const validDepartments = ['dashboard', 'business-analytics', 'pos-transactions', 'retailers', 'distributors', 'master-distributors', 'scheme-management', 'partners', 'pos-machines', 'pos-history', 'pos-tracking-report', 'pos-rental-report', 'pos-partner-api', 'razorpay-transactions', 'services', 'aeps', 'reports', 'service-transaction-report', 'pos-report', 'bill-payment-report', 'aeps-report', 'settlement-report', 'business-report', 'settlement', 'settlement-2-approvals', 'revenue-wallet', 'wallet-ledger', 'push-pull-report', 'wallet', 'commission', 'mdr', 'limits', 'reversals', 'capabilities', 'disputes', 'users', 'performance', 'subscriptions', 'portal-management', 'legal-agreements', 'settings', 'all']
+      const validDepartments = ['dashboard', 'business-analytics', 'pos-transactions', 'pos-reconciliation', 'retailers', 'distributors', 'master-distributors', 'scheme-management', 'partners', 'pos-machines', 'pos-history', 'pos-tracking-report', 'pos-rental-report', 'pos-partner-api', 'razorpay-transactions', 'services', 'aeps', 'reports', 'service-transaction-report', 'pos-report', 'bill-payment-report', 'aeps-report', 'settlement-report', 'business-report', 'settlement', 'settlement-2-approvals', 'revenue-wallet', 'wallet-ledger', 'push-pull-report', 'wallet', 'commission', 'mdr', 'limits', 'reversals', 'capabilities', 'disputes', 'users', 'performance', 'subscriptions', 'portal-management', 'legal-agreements', 'settings', 'all']
       for (const dept of departments) {
         if (!validDepartments.includes(dept)) {
           const response = NextResponse.json(

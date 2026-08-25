@@ -13,19 +13,23 @@ import {
   Settings,
 } from 'lucide-react'
 import { useState } from 'react'
+import { useAuth } from '@/contexts/AuthContext'
+import { financeHasTab } from '@/lib/auth-roles'
 
 const items = [
-  { href: '/finance-same', label: 'Home', icon: LayoutDashboard, exact: true },
-  { href: '/finance-same/reconciliation', label: 'Reconciliation', icon: Scale },
-  { href: '/finance-same/reports', label: 'Service reports', icon: FileBarChart },
-  { href: '/finance-same/settlement', label: 'T+1 settlement', icon: Timer },
-  { href: '/finance-same/wallet-ledger', label: 'Wallet ledger', icon: ScrollText },
-  { href: '/finance-same/settings', label: 'Settings', icon: Settings },
+  { href: '/finance-same', label: 'Home', icon: LayoutDashboard, exact: true, tab: 'home' },
+  { href: '/finance-same/reconciliation', label: 'Reconciliation', icon: Scale, tab: 'reconciliation' },
+  { href: '/finance-same/reports', label: 'Service reports', icon: FileBarChart, tab: 'reports' },
+  { href: '/finance-same/settlement', label: 'T+1 settlement', icon: Timer, tab: 'settlement' },
+  { href: '/finance-same/wallet-ledger', label: 'Wallet ledger', icon: ScrollText, tab: 'wallet-ledger' },
+  { href: '/finance-same/settings', label: 'Settings', icon: Settings, tab: 'settings' },
 ]
 
 export default function FinanceSidebar() {
   const pathname = usePathname()
+  const { user } = useAuth()
   const [collapsed, setCollapsed] = useState(false)
+  const visibleItems = items.filter((item) => financeHasTab(user, item.tab))
 
   const active = (href: string, exact?: boolean) => {
     if (exact) return pathname === href
@@ -49,7 +53,7 @@ export default function FinanceSidebar() {
         </button>
       </div>
       <nav className="flex-1 px-2 pb-4 space-y-1">
-        {items.map(({ href, label, icon: Icon, exact }) => (
+        {visibleItems.map(({ href, label, icon: Icon, exact }) => (
           <Link
             key={href}
             href={href}

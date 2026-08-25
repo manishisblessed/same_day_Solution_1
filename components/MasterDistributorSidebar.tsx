@@ -6,7 +6,8 @@ import Link from 'next/link'
 import Image from 'next/image'
 import { 
   LayoutDashboard, Crown, Activity, 
-  Settings, TrendingUp, Users, Network, Package, X, Menu, Layers, CreditCard, Repeat
+  Settings, TrendingUp, Users, Network, Package, X, Menu, Layers, CreditCard, Repeat,
+  UserPlus, CheckCircle2, CalendarDays
 } from 'lucide-react'
 import { apiFetch } from '@/lib/api-client'
 import { useAuth } from '@/contexts/AuthContext'
@@ -27,6 +28,9 @@ const sidebarItems: SidebarItem[] = [
   { id: 'subscriptions', label: 'Subscriptions', icon: Repeat, href: '/dashboard/master-distributor?tab=subscriptions' },
   { id: 'scheme-management', label: 'Scheme Management', icon: Layers, href: '/dashboard/master-distributor?tab=scheme-management' },
   { id: 'network', label: 'Network', icon: Network, href: '/dashboard/master-distributor?tab=network' },
+  { id: 'onboarding', label: 'Onboard Partners', icon: UserPlus, href: '/dashboard/onboarding' },
+  { id: 'approvals', label: 'Approvals', icon: CheckCircle2, href: '/dashboard/approvals' },
+  { id: 'daily-report', label: 'Daily Report', icon: CalendarDays, href: '/dashboard/reports/daily' },
   { id: 'reports', label: 'Reports', icon: TrendingUp, href: '/dashboard/master-distributor?tab=reports' },
   { id: 'settings', label: 'Settings', icon: Settings, href: '/dashboard/master-distributor?tab=settings' },
 ]

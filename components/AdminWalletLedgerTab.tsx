@@ -162,7 +162,7 @@ export default function AdminWalletLedgerTab() {
     try {
       const params = buildParams()
       params.set('format', format)
-      params.set('limit', '50000')
+      // No limit -> backend exports the complete filtered result set (paginated server-side).
 
       const res = await apiFetch(`/api/admin/wallet/ledger/export?${params}`)
       if (!res.ok) {

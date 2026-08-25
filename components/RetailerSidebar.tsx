@@ -6,7 +6,7 @@ import Link from 'next/link'
 import { 
   LayoutDashboard, ShoppingCart, Activity, 
   Settings, TrendingUp, CreditCard, X, Menu,
-  Wallet, Receipt, Banknote, Percent, BookOpen, Repeat, Fingerprint, Send, Zap
+  Wallet, Receipt, Banknote, Percent, BookOpen, Repeat, Fingerprint, Send, Zap, CalendarDays
 } from 'lucide-react'
 import { apiFetch } from '@/lib/api-client'
 import { useAuth } from '@/contexts/AuthContext'
@@ -39,6 +39,7 @@ const sidebarItems: SidebarItem[] = [
   { id: 'subscriptions', label: 'Subscriptions', icon: Repeat, href: '/dashboard/retailer?tab=subscriptions' },
   { id: 'mdr-schemes', label: 'MDR Schemes', icon: Percent, href: '/dashboard/retailer?tab=mdr-schemes' },
   { id: 'reports', label: 'Reports', icon: TrendingUp, href: '/dashboard/retailer?tab=reports' },
+  { id: 'daily-report', label: 'Daily Report', icon: CalendarDays, href: '/dashboard/reports/daily' },
 ]
 
 // Map sidebar item id → which admin service key(s) control its visibility.

@@ -288,6 +288,8 @@ export interface AuthUser {
   sub_partner_id?: string
   /** Sub-partner tab permissions */
   permissions?: Record<string, boolean>
+  /** Finance portal tab keys this finance_executive can access (empty = Home only) */
+  finance_tabs?: string[]
 }
 
 export interface FinanceUser {
@@ -296,9 +298,86 @@ export interface FinanceUser {
   name: string
   phone?: string | null
   is_active: boolean
+  /** Portal tab keys this user can access (empty = Home only) */
+  tabs?: string[]
   created_at: string
   updated_at: string
   created_by?: string | null
+}
+
+// ── Onboarding Invite Wizard ──────────────────────────────────────────────
+export type OnboardingTargetRole = 'master_distributor' | 'distributor' | 'retailer'
+
+export type InviteStatus =
+  | 'pending'
+  | 'registered'
+  | 'verified'
+  | 'resubmit'
+  | 'approved'
+  | 'rejected'
+  | 'expired'
+
+export interface OnboardingInvite {
+  id: string
+  token: string
+  phone: string
+  email: string
+  name?: string | null
+  target_role: OnboardingTargetRole
+  invited_by_role: string
+  invited_by_id?: string | null
+  invited_by_email?: string | null
+  invited_by_name?: string | null
+  parent_master_distributor_id?: string | null
+  parent_distributor_id?: string | null
+  status: InviteStatus
+  phone_verified_at?: string | null
+  email_verified_at?: string | null
+  aadhaar_verified_at?: string | null
+  registered_at?: string | null
+  verified_at?: string | null
+  approved_at?: string | null
+  rejected_at?: string | null
+  rejected_reason?: string | null
+  created_partner_id?: string | null
+  expires_at: string
+  created_at: string
+  updated_at: string
+}
+
+export type VerificationStatus = 'Success' | 'Failure' | 'Uploaded' | 'Pending' | 'Rejected'
+
+export interface OnboardingVerification {
+  id: string
+  invite_id: string
+  type: string
+  status: VerificationStatus
+  verified_name?: string | null
+  response_payload?: Record<string, any>
+  created_partner_id?: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface DeclarationApproval {
+  id: string
+  invite_id: string
+  approver_role: string
+  approver_id: string
+  approver_email?: string | null
+  onboardee_role: string
+  status: 'pending' | 'approved' | 'rejected' | 'expired'
+  approver_signature_url?: string | null
+  approver_selfie_url?: string | null
+  approval_lat?: number | null
+  approval_lng?: number | null
+  approval_ip?: string | null
+  approval_user_agent?: string | null
+  declaration_doc_url?: string | null
+  approved_at?: string | null
+  rejected_reason?: string | null
+  created_at: string
+  updated_at: string
 }
 
 export interface POSMachine {

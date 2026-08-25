@@ -7,7 +7,7 @@ import AdminSidebar from '@/components/AdminSidebar'
 import {
   RotateCcw, Search, Layers, CheckCircle, XCircle, AlertTriangle, ShieldCheck,
   Download, RefreshCw, Filter, Calendar, ChevronDown, ChevronUp, Activity,
-  Wallet, Building2, IndianRupee, ListChecks,
+  Wallet, Building2, IndianRupee, ListChecks, Menu,
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { apiFetch } from '@/lib/api-client'
@@ -103,6 +103,9 @@ export default function AdminCapabilities() {
   const router = useRouter()
   const { showToast } = useToast()
 
+  // Layout
+  const [sidebarOpen, setSidebarOpen] = useState(false)
+
   // Filters
   const [startDate, setStartDate] = useState(() => toYMD(new Date(Date.now() - 30 * 864e5)))
   const [endDate, setEndDate] = useState(() => toYMD(new Date()))
@@ -148,7 +151,17 @@ export default function AdminCapabilities() {
         limit: '500',
       })
       const res = await apiFetch(`/api/admin/reversal/shadval-search?${params.toString()}`)
-      const data = await res.json()
+      const text = await res.text()
+      let data: any = null
+      try { data = JSON.parse(text) } catch { /* non-JSON (e.g. HTML error page) */ }
+
+      if (!res.ok || !data) {
+        showToast(data?.error || `Search failed (HTTP ${res.status})`, 'error')
+        setRows([])
+        setStats(null)
+        return
+      }
+
       if (data.success) {
         setRows(data.transactions || [])
         setStats(data.stats || null)
@@ -157,8 +170,8 @@ export default function AdminCapabilities() {
       } else {
         showToast(data.error || 'Search failed', 'error')
       }
-    } catch {
-      showToast('Failed to search transactions', 'error')
+    } catch (e: any) {
+      showToast(e?.message || 'Failed to search transactions', 'error')
     } finally {
       setSearching(false)
     }
@@ -283,11 +296,18 @@ export default function AdminCapabilities() {
   const allSelected = rows.length > 0 && selected.size === rows.length
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <AdminSidebar isOpen={true} onClose={() => {}} />
-      <div className="ml-64 p-6">
+    <div className="flex min-h-screen bg-gray-50 dark:bg-gray-900 overflow-x-hidden">
+      <AdminSidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+      <div className="flex-1 lg:ml-56 min-w-0 overflow-x-hidden pt-16">
+        <button
+          onClick={() => setSidebarOpen(true)}
+          className="lg:hidden fixed top-20 left-2 z-30 p-2 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700"
+        >
+          <Menu className="w-5 h-5 text-gray-600 dark:text-gray-300" />
+        </button>
+        <div className="p-4 sm:p-6">
         {/* Header */}
-        <div className="mb-6 flex items-start justify-between">
+        <div className="mb-6 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
           <div>
             <h1 className="text-3xl font-bold text-gray-900 mb-1 flex items-center gap-2">
               <RotateCcw className="w-7 h-7 text-blue-600" /> Reversals &amp; Refunds
@@ -509,6 +529,7 @@ export default function AdminCapabilities() {
             </table>
           </div>
         </div>
+        </div>
       </div>
 
       {/* Sticky bulk action bar */}
@@ -516,7 +537,7 @@ export default function AdminCapabilities() {
         {selected.size > 0 && (
           <motion.div
             initial={{ y: 80, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 80, opacity: 0 }}
-            className="fixed bottom-0 left-64 right-0 bg-white border-t shadow-2xl px-6 py-4 flex items-center justify-between z-40"
+            className="fixed bottom-0 left-0 lg:left-56 right-0 bg-white border-t shadow-2xl px-4 sm:px-6 py-4 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 z-40"
           >
             <div className="flex items-center gap-4">
               <span className="font-semibold text-gray-900">{selected.size} selected</span>

@@ -163,7 +163,11 @@ export async function POST(request: NextRequest) {
 
     if (existing?.is_verified && existing?.is_active) {
       return NextResponse.json(
-        { success: false, error: { code: 'DUPLICATE', message: 'This account is already verified and active' } },
+        {
+          success: false,
+          error: { code: 'DUPLICATE', message: 'This account is already verified and active' },
+          account_id: existing.id,
+        },
         { status: 400 }
       )
     }

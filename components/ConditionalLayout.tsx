@@ -14,7 +14,8 @@ export default function ConditionalLayout({ children }: { children: React.ReactN
 
   const isAdminRoute = pathname?.startsWith('/admin')
   const isDashboardRoute = pathname?.startsWith('/dashboard')
-  const shouldShowLayout = mounted && !isAdminRoute && !isDashboardRoute
+  const isOnboardRoute = pathname?.startsWith('/onboard')
+  const shouldShowLayout = mounted && !isAdminRoute && !isDashboardRoute && !isOnboardRoute
 
   return (
     <>

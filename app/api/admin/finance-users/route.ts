@@ -1,8 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient, SupabaseClient } from '@supabase/supabase-js'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
+import { FINANCE_TAB_IDS } from '@/lib/auth-roles'
 
 export const dynamic = 'force-dynamic'
+
+/** Normalize an incoming tabs array: keep only known keys, expand 'all', dedupe. */
+function sanitizeTabs(input: unknown): string[] {
+  if (!Array.isArray(input)) return []
+  if (input.includes('all')) return [...FINANCE_TAB_IDS]
+  return FINANCE_TAB_IDS.filter((id) => input.includes(id))
+}
 
 let supabaseAdmin: SupabaseClient | null = null
 
@@ -67,7 +75,7 @@ export async function GET(request: NextRequest) {
     const supabase = getSupabaseAdmin()
     const { data, error } = await supabase
       .from('finance_users')
-      .select('id, email, name, phone, is_active, created_at, updated_at, created_by')
+      .select('id, email, name, phone, tabs, is_active, created_at, updated_at, created_by')
       .order('created_at', { ascending: false })
 
     if (error) {
@@ -103,6 +111,7 @@ export async function POST(request: NextRequest) {
     const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : ''
     const password = typeof body.password === 'string' ? body.password : ''
     const phone = typeof body.phone === 'string' ? body.phone.trim() : ''
+    const tabs = sanitizeTabs(body.tabs)
 
     if (!name || !email || !password) {
       return NextResponse.json({ error: 'Name, email, and password are required' }, { status: 400 })
@@ -129,10 +138,11 @@ export async function POST(request: NextRequest) {
         email,
         name,
         phone: phone || null,
+        tabs,
         is_active: true,
         created_by: gate.adminId,
       })
-      .select('id, email, name, phone, is_active, created_at')
+      .select('id, email, name, phone, tabs, is_active, created_at')
       .single()
 
     if (insertError) {
@@ -147,6 +157,58 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: true, user: row })
   } catch (e: any) {
     console.error('[finance-users POST]', e)
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+  }
+}
+
+/**
+ * PUT — update a finance executive's name, phone, tab access, or active state.
+ * Body: { id, name?, phone?, tabs?, is_active? }
+ */
+export async function PUT(request: NextRequest) {
+  try {
+    const { user: admin } = await getCurrentUserWithFallback(request)
+    if (!admin || admin.role !== 'admin') {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 403 })
+    }
+
+    const gate = await assertAdminCanManageUsers(admin.email)
+    if (!gate.ok) {
+      return NextResponse.json({ error: gate.error }, { status: gate.status })
+    }
+
+    const body = await request.json()
+    const id = typeof body.id === 'string' ? body.id : ''
+    if (!id) {
+      return NextResponse.json({ error: 'Finance user id is required' }, { status: 400 })
+    }
+
+    const updates: Record<string, unknown> = {}
+    if (typeof body.name === 'string' && body.name.trim()) updates.name = body.name.trim()
+    if (typeof body.phone === 'string') updates.phone = body.phone.trim() || null
+    if (body.tabs !== undefined) updates.tabs = sanitizeTabs(body.tabs)
+    if (typeof body.is_active === 'boolean') updates.is_active = body.is_active
+
+    if (Object.keys(updates).length === 0) {
+      return NextResponse.json({ error: 'No valid fields to update' }, { status: 400 })
+    }
+
+    const supabase = getSupabaseAdmin()
+    const { data: row, error: updateError } = await supabase
+      .from('finance_users')
+      .update(updates)
+      .eq('id', id)
+      .select('id, email, name, phone, tabs, is_active, created_at')
+      .single()
+
+    if (updateError) {
+      console.error('[finance-users PUT]', updateError)
+      return NextResponse.json({ error: updateError.message || 'Failed to update finance user' }, { status: 400 })
+    }
+
+    return NextResponse.json({ success: true, user: row })
+  } catch (e: any) {
+    console.error('[finance-users PUT]', e)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }

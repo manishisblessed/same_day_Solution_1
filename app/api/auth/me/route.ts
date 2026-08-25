@@ -109,7 +109,10 @@ export async function POST(request: NextRequest) {
           : resolvedRole === 'sub_partner' ? data.parent_partner_id
           : data.partner_id,
     }
-    if (resolvedRole === 'finance_executive' && data.phone) user.phone = data.phone
+    if (resolvedRole === 'finance_executive') {
+      if (data.phone) user.phone = data.phone
+      user.finance_tabs = Array.isArray(data.tabs) ? data.tabs : []
+    }
     if (resolvedRole === 'sub_partner') {
       user.sub_partner_id = data.id
       user.permissions = data.permissions || {}
