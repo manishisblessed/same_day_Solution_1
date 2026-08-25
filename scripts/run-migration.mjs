@@ -25,12 +25,41 @@ const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 const ROOT = path.join(__dirname, '..')
 
-// Load DATABASE_URL from .env.local if not already in the environment.
-try {
-  require('dotenv').config({ path: path.join(ROOT, '.env.local') })
-} catch {
-  // dotenv is optional if DATABASE_URL is already exported into the env.
+// Minimal .env parser: fills process.env from a KEY=VALUE file without
+// overriding values already present. Handles surrounding quotes, `export `
+// prefixes and CRLF line endings — robust where dotenv silently no-ops.
+function loadEnvFile(filePath) {
+  if (!filePath || !fs.existsSync(filePath)) return
+  const content = fs.readFileSync(filePath, 'utf8')
+  for (const rawLine of content.split(/\r?\n/)) {
+    const line = rawLine.trim()
+    if (!line || line.startsWith('#')) continue
+    const m = line.match(/^(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/)
+    if (!m) continue
+    const key = m[1]
+    if (process.env[key] !== undefined && process.env[key] !== '') continue
+    let value = m[2].trim()
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1)
+    }
+    process.env[key] = value
+  }
 }
+
+// Load .env.local: prefer dotenv, then a manual parse as a safety net.
+const ENV_FILES = [
+  path.join(ROOT, '.env.local'),
+  path.join(process.cwd(), '.env.local'),
+]
+try {
+  for (const f of ENV_FILES) require('dotenv').config({ path: f })
+} catch {
+  // dotenv is optional; the manual parser below covers this case.
+}
+for (const f of ENV_FILES) loadEnvFile(f)
 
 const args = process.argv.slice(2)
 const STATUS_ONLY = args.includes('--status')
@@ -84,7 +113,7 @@ async function main() {
   const connectionString = process.env.DATABASE_URL
   if (!connectionString) {
     throw new Error(
-      'DATABASE_URL not set (checked environment and .env.local).'
+      'DATABASE_URL not set. Checked environment and: ' + ENV_FILES.join(', ')
     )
   }
 
