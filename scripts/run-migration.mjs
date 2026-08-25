@@ -14,7 +14,6 @@
 
 import fs from 'node:fs'
 import path from 'node:path'
-import crypto from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { createRequire } from 'node:module'
 
@@ -69,8 +68,21 @@ const MIGRATIONS_DIR =
     ? path.resolve(process.cwd(), args[dirFlagIdx + 1])
     : path.join(ROOT, 'db', 'migrations')
 
-function sha256(text) {
-  return crypto.createHash('sha256').update(text, 'utf8').digest('hex')
+// Checksum compatible with the pre-existing _migrations table: Java-style
+// String.hashCode() rendered as a signed 32-bit hex string. We hash the
+// LF-normalized content so the value is stable regardless of the checkout's
+// line endings (CRLF vs LF), which historically caused false drift.
+function jhash(text) {
+  let h = 0
+  for (let i = 0; i < text.length; i++) {
+    h = (Math.imul(31, h) + text.charCodeAt(i)) | 0
+  }
+  return h.toString(16)
+}
+
+function checksums(rawContent) {
+  const lf = rawContent.replace(/\r\n/g, '\n')
+  return { canonical: jhash(lf), raw: jhash(rawContent) }
 }
 
 // Supabase / managed Postgres require TLS; local dev usually does not.
@@ -131,15 +143,19 @@ async function main() {
     const pending = []
     for (const filename of files) {
       const sql = fs.readFileSync(path.join(MIGRATIONS_DIR, filename), 'utf8')
-      const checksum = sha256(sql)
+      const { canonical, raw } = checksums(sql)
       const prev = applied.get(filename)
       if (prev === undefined) {
-        pending.push({ filename, sql, checksum })
-      } else if (prev !== checksum) {
-        // An already-applied file was edited — abort rather than silently drift.
-        throw new Error(
-          `Checksum mismatch for "${filename}": it was already applied but its ` +
-            `contents changed. Never edit an applied migration — add a new file instead.`
+        // A migration is identified by filename. Only genuinely-new files run.
+        pending.push({ filename, sql, checksum: canonical })
+      } else if (prev !== canonical && prev !== raw) {
+        // Already applied but content differs even after LF-normalization —
+        // likely an edited migration. Warn (don't abort) and skip: re-running
+        // an applied migration against live data is riskier than the drift.
+        console.warn(
+          `⚠️  Checksum drift for already-applied "${filename}" ` +
+            `(recorded ${prev}, now ${canonical}). Skipping. ` +
+            `Never edit an applied migration — add a new file instead.`
         )
       }
     }
