@@ -32,7 +32,7 @@ export async function GET(request: NextRequest) {
     since.setDate(since.getDate() - days)
     const sinceISO = since.toISOString()
 
-    const [ledgerRes, apiKeysRes, partnerRes] = await Promise.all([
+    const [ledgerRes, apiKeysRes, partnerRes, webhooksRes] = await Promise.all([
       supabase
         .from('partner_wallet_ledger')
         .select('id, status, transaction_type, created_at, credit, debit')
@@ -50,6 +50,13 @@ export async function GET(request: NextRequest) {
         .select('webhook_url')
         .eq('id', partnerId)
         .maybeSingle(),
+
+      supabase
+        .from('partner_webhooks')
+        .select('url, is_active, created_at')
+        .eq('partner_id', partnerId)
+        .eq('is_active', true)
+        .order('created_at', { ascending: true }),
     ])
 
     if (ledgerRes.error) {
@@ -95,6 +102,9 @@ export async function GET(request: NextRequest) {
       active: keys.filter(k => k.is_active).length,
     }
 
+    const activeWebhooks = webhooksRes.data || []
+    const webhookUrl = activeWebhooks[0]?.url || partnerRes.data?.webhook_url || null
+
     return NextResponse.json({
       totalApiCalls,
       successCount,
@@ -103,7 +113,8 @@ export async function GET(request: NextRequest) {
       dailyUsage,
       usageByType,
       apiKeys,
-      webhookUrl: partnerRes.data?.webhook_url || null,
+      webhookUrl,
+      webhookCount: activeWebhooks.length,
     })
   } catch (e: any) {
     console.error('[api-stats] GET', e)

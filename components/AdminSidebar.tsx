@@ -76,20 +76,35 @@ export default function AdminSidebar({ isOpen, onClose }: { isOpen: boolean; onC
   }, [])
 
   useEffect(() => {
-    const fetchAdminDepartments = async () => {
-      if (user?.email) {
-        try {
-          const { data } = await secureDb
-            .from('admin_users')
-            .select('admin_type, departments, department')
-            .eq('email', user.email)
-            .single()
-          if (data) {
-            setAdminType(data.admin_type || '')
-            setAdminDepartments(data.departments || (data.department ? [data.department] : []))
-          }
-        } catch {}
+    if (!user?.email) return
+    const cacheKey = `admin_nav_perms:${user.email}`
+
+    // Hydrate instantly from the last-known permissions so the sidebar never
+    // renders empty (the "stuck for a few seconds" flash) while we refetch.
+    try {
+      const cached = sessionStorage.getItem(cacheKey)
+      if (cached) {
+        const parsed = JSON.parse(cached)
+        setAdminType(parsed.adminType || '')
+        setAdminDepartments(Array.isArray(parsed.departments) ? parsed.departments : [])
       }
+    } catch {}
+
+    const fetchAdminDepartments = async () => {
+      try {
+        const { data } = await secureDb
+          .from('admin_users')
+          .select('admin_type, departments, department')
+          .eq('email', user.email)
+          .single()
+        if (data) {
+          const adminType = data.admin_type || ''
+          const departments = data.departments || (data.department ? [data.department] : [])
+          setAdminType(adminType)
+          setAdminDepartments(departments)
+          try { sessionStorage.setItem(cacheKey, JSON.stringify({ adminType, departments })) } catch {}
+        }
+      } catch {}
     }
     fetchAdminDepartments()
   }, [user])

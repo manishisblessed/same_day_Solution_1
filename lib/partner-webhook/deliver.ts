@@ -27,6 +27,76 @@ export function signPartnerPayload(secret: string, timestamp: string, body: stri
   return crypto.createHmac('sha256', secret).update(`${timestamp}.${body}`, 'utf8').digest('hex')
 }
 
+/** Event categories a partner webhook endpoint can subscribe to. */
+export type WebhookCategory = 'pos' | 'settlement' | 'payout' | 'rechargekit'
+
+export interface ResolvedEndpoint {
+  /** partner_webhooks.id, or null when resolved from a legacy single-URL column. */
+  id: string | null
+  url: string
+  secret: string | null
+}
+
+/** Map a concrete event name to its subscription category. */
+export function eventCategory(event: string): WebhookCategory | null {
+  if (event.startsWith('pos.')) return 'pos'
+  if (event.startsWith('settlement.')) return 'settlement'
+  if (event.startsWith('payout.')) return 'payout'
+  if (event.startsWith('rechargekit')) return 'rechargekit'
+  return null
+}
+
+/**
+ * Resolve every active webhook endpoint an active partner has subscribed to a
+ * given event category. All endpoints share the partner's single webhook_secret
+ * (one signing key, many URLs).
+ *
+ * Falls back to the legacy single-URL columns only when the partner has no rows
+ * in partner_webhooks at all (safe rollout before/without backfill).
+ */
+export async function resolvePartnerEndpoints(
+  supabase: SupabaseClient,
+  partnerId: string,
+  category: WebhookCategory
+): Promise<ResolvedEndpoint[]> {
+  const { data: partner, error: pErr } = await supabase
+    .from('partners')
+    .select('webhook_secret, webhook_url, rechargekit_webhook_url, status')
+    .eq('id', partnerId)
+    .eq('status', 'active')
+    .maybeSingle()
+
+  if (pErr || !partner) return []
+  const secret = (partner as { webhook_secret?: string | null }).webhook_secret ?? null
+
+  const { data: rows } = await supabase
+    .from('partner_webhooks')
+    .select('id, url, events, is_active')
+    .eq('partner_id', partnerId)
+    .eq('is_active', true)
+
+  if (rows && rows.length > 0) {
+    const seen = new Set<string>()
+    const endpoints: ResolvedEndpoint[] = []
+    for (const r of rows as Array<{ id?: string; url?: string | null; events?: string[] | null }>) {
+      if (!r.url || seen.has(r.url)) continue
+      if (!Array.isArray(r.events) || !r.events.includes(category)) continue
+      seen.add(r.url)
+      endpoints.push({ id: r.id ?? null, url: String(r.url), secret })
+    }
+    return endpoints
+  }
+
+  // Legacy fallback: partner not yet migrated to partner_webhooks.
+  const legacy = category === 'rechargekit'
+    ? (partner as { rechargekit_webhook_url?: string | null }).rechargekit_webhook_url
+    : (partner as { webhook_url?: string | null }).webhook_url
+  if (legacy && String(legacy).trim()) {
+    return [{ id: null, url: String(legacy).trim(), secret }]
+  }
+  return []
+}
+
 /**
  * Best-effort audit log of an outbound delivery. Never throws.
  */
@@ -35,6 +105,7 @@ async function logDelivery(
   row: {
     delivery_id: string
     partner_id: string | null
+    webhook_id: string | null
     txn_id: string
     event: string
     webhook_url: string
@@ -67,8 +138,9 @@ export async function sendSignedCallback(opts: {
   logPrefix?: string
   supabase?: SupabaseClient
   partnerId?: string | null
+  webhookId?: string | null
 }): Promise<void> {
-  const { url, secret, payload, txnId, event = 'pos.transaction', logPrefix = 'Partner Callback', supabase, partnerId = null } = opts
+  const { url, secret, payload, txnId, event = 'pos.transaction', logPrefix = 'Partner Callback', supabase, partnerId = null, webhookId = null } = opts
 
   const body = JSON.stringify(payload)
   const timestamp = Math.floor(Date.now() / 1000).toString()
@@ -100,7 +172,7 @@ export async function sendSignedCallback(opts: {
       if (res.ok) {
         console.log(`[${logPrefix}] delivered txnId=${txnId} event=${event} delivery=${deliveryId} attempt=${attempt + 1} signed=${!!secret} → HTTP ${res.status}`)
         await logDelivery(supabase, {
-          delivery_id: deliveryId, partner_id: partnerId, txn_id: txnId, event, webhook_url: url,
+          delivery_id: deliveryId, partner_id: partnerId, webhook_id: webhookId, txn_id: txnId, event, webhook_url: url,
           status_code: res.status, success: true, attempts: attempt + 1, error: null, payload,
         })
         return
@@ -114,7 +186,7 @@ export async function sendSignedCallback(opts: {
   }
   console.error(`[${logPrefix}] giving up txnId=${txnId} event=${event} delivery=${deliveryId} after ${RETRY_DELAYS_MS.length} attempts`)
   await logDelivery(supabase, {
-    delivery_id: deliveryId, partner_id: partnerId, txn_id: txnId, event, webhook_url: url,
+    delivery_id: deliveryId, partner_id: partnerId, webhook_id: webhookId, txn_id: txnId, event, webhook_url: url,
     status_code: lastStatus, success: false, attempts: RETRY_DELAYS_MS.length, error: lastError, payload,
   })
 }
@@ -160,32 +232,17 @@ export async function deliverPartnerCallback(opts: {
     }
 
     const partnerId = partnerRows[0].partner_id
-    const { data: partnerRecord, error: pErr } = await supabase
-      .from('partners')
-      .select('webhook_url, webhook_secret')
-      .eq('id', partnerId)
-      .eq('status', 'active')
-      .maybeSingle()
-
-    if (pErr) {
-      console.error(`[${logPrefix}] partners query error partner_id=${partnerId}: ${pErr.message}`)
-      return
-    }
-    if (!partnerRecord?.webhook_url) {
-      console.warn(`[${logPrefix}] Skip txnId=${txnId} tid=${tid} partner_id=${partnerId}: webhook_url empty or partner not active`)
+    const endpoints = await resolvePartnerEndpoints(supabase, partnerId, eventCategory(event) ?? 'pos')
+    if (endpoints.length === 0) {
+      console.warn(`[${logPrefix}] Skip txnId=${txnId} tid=${tid} partner_id=${partnerId}: no active webhook endpoints for this event`)
       return
     }
 
-    await sendSignedCallback({
-      url: partnerRecord.webhook_url,
-      secret: (partnerRecord as { webhook_secret?: string | null }).webhook_secret ?? null,
-      payload,
-      txnId,
-      event,
-      logPrefix,
-      supabase,
-      partnerId,
-    })
+    await Promise.all(
+      endpoints.map((ep) =>
+        sendSignedCallback({ url: ep.url, secret: ep.secret, payload, txnId, event, logPrefix, supabase, partnerId, webhookId: ep.id })
+      )
+    )
   } catch (err: any) {
     console.error(`[${logPrefix}] Lookup error txnId=${txnId}: ${err?.message || err}`)
   }
@@ -220,32 +277,27 @@ export async function deliverPartnerReversal(opts: {
       return
     }
 
-    const { data: partnerRecord, error: pErr } = await supabase
-      .from('partners')
-      .select('webhook_url, webhook_secret')
-      .eq('id', partnerId)
-      .eq('status', 'active')
-      .maybeSingle()
-
-    if (pErr) {
-      console.error(`[${logPrefix}] partners query error partner_id=${partnerId}: ${pErr.message}`)
-      return
-    }
-    if (!partnerRecord?.webhook_url) {
-      console.warn(`[${logPrefix}] Skip txnId=${txnId} partner_id=${partnerId}: webhook_url empty or partner not active`)
+    const endpoints = await resolvePartnerEndpoints(supabase, partnerId, 'pos')
+    if (endpoints.length === 0) {
+      console.warn(`[${logPrefix}] Skip txnId=${txnId} partner_id=${partnerId}: no active POS webhook endpoints`)
       return
     }
 
-    await sendSignedCallback({
-      url: partnerRecord.webhook_url,
-      secret: (partnerRecord as { webhook_secret?: string | null }).webhook_secret ?? null,
-      payload,
-      txnId,
-      event: 'pos.transaction.reversed',
-      logPrefix,
-      supabase,
-      partnerId,
-    })
+    await Promise.all(
+      endpoints.map((ep) =>
+        sendSignedCallback({
+          url: ep.url,
+          secret: ep.secret,
+          payload,
+          txnId,
+          event: 'pos.transaction.reversed',
+          logPrefix,
+          supabase,
+          partnerId,
+          webhookId: ep.id,
+        })
+      )
+    )
   } catch (err: any) {
     console.error(`[${logPrefix}] Lookup error txnId=${txnId}: ${err?.message || err}`)
   }

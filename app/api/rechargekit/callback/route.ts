@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient, SupabaseClient } from '@supabase/supabase-js'
 import * as crypto from 'crypto'
-import { sendSignedCallback } from '@/lib/partner-webhook/deliver'
+import { sendSignedCallback, resolvePartnerEndpoints } from '@/lib/partner-webhook/deliver'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -156,18 +156,12 @@ async function handlePartnerRechargekitCallback(
       .eq('id', entry.id)
   }
 
-  // Forward a signed webhook to the partner (fire-and-forget) if configured.
+  // Forward a signed webhook to every partner endpoint subscribed to rechargekit
+  // events (fire-and-forget). All endpoints share the partner's single secret.
   try {
-    const { data: partnerRow } = await supabaseAdmin
-      .from('partners')
-      .select('rechargekit_webhook_url, webhook_secret')
-      .eq('id', partnerId)
-      .eq('status', 'active')
-      .maybeSingle()
+    const endpoints = await resolvePartnerEndpoints(supabaseAdmin, partnerId, 'rechargekit')
 
-    const ccWebhookUrl = (partnerRow as { rechargekit_webhook_url?: string | null })?.rechargekit_webhook_url
-
-    if (ccWebhookUrl) {
+    if (endpoints.length > 0) {
       const payload = {
         event: 'rechargekit.cc.status',
         request_id: requestId,
@@ -179,16 +173,21 @@ async function handlePartnerRechargekitCallback(
         message: providerMsg || null,
         timestamp: new Date().toISOString(),
       }
-      void sendSignedCallback({
-        url: ccWebhookUrl,
-        secret: (partnerRow as { webhook_secret?: string | null }).webhook_secret ?? null,
-        payload,
-        txnId: requestId,
-        event: 'rechargekit.cc.status',
-        logPrefix: 'Rechargekit Partner Callback',
-      })
+      for (const ep of endpoints) {
+        void sendSignedCallback({
+          url: ep.url,
+          secret: ep.secret,
+          payload,
+          txnId: requestId,
+          event: 'rechargekit.cc.status',
+          logPrefix: 'Rechargekit Partner Callback',
+          supabase: supabaseAdmin,
+          partnerId,
+          webhookId: ep.id,
+        })
+      }
     } else {
-      console.log(`[Rechargekit Callback] Partner ${partnerId} has no rechargekit_webhook_url — finalized without forward (partner can poll status). request_id=${requestId}`)
+      console.log(`[Rechargekit Callback] Partner ${partnerId} has no rechargekit webhook endpoint — finalized without forward (partner can poll status). request_id=${requestId}`)
     }
   } catch (whErr: any) {
     console.error('[Rechargekit Callback] Partner webhook forward error:', whErr?.message || whErr)

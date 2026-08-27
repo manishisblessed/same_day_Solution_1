@@ -26,7 +26,11 @@ export function getSupabaseUrl(): string {
 }
 
 export function getSupabaseServiceKey(): string {
-  const key = _env['SUPABASE_SERVICE_ROLE_KEY'];
+  // Prefer the runtime value (bracket notation, read from process.env at request
+  // time). Fall back to the build-time inlined value (dot notation is replaced by
+  // webpack DefinePlugin at build) so this works on hosts (e.g. Amplify SSR) that
+  // only expose the key at build time — the same path every admin route relies on.
+  const key = _env['SUPABASE_SERVICE_ROLE_KEY'] || process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!key) {
     throw new Error('SUPABASE_SERVICE_ROLE_KEY is not available at runtime');
   }

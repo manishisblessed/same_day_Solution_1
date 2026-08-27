@@ -109,8 +109,13 @@ export default function AdminSettings() {
     (Array.isArray(adminInfo?.departments) &&
       (adminInfo.departments.includes('settings') || adminInfo.departments.includes('all')))
 
+  // Mirrors every section in the Admin sidebar (see components/AdminSidebar.tsx)
+  // so a sub-admin can be granted access to ANY tab. Keep this list in sync with
+  // the sidebar item ids and with validDepartments in app/api/admin/sub-admins/route.ts.
   const availableDepartments = [
     { id: 'dashboard', label: 'Dashboard' },
+    { id: 'onboarding', label: 'Onboarding & Invites' },
+    { id: 'daily-report', label: 'Daily Report' },
     { id: 'business-analytics', label: 'Business Analytics' },
     { id: 'pos-transactions', label: 'POS Transactions' },
     { id: 'pos-reconciliation', label: 'POS Reconciliation' },
@@ -142,6 +147,7 @@ export default function AdminSettings() {
     { id: 'portal-management', label: 'Portal Management' },
     { id: 'legal-agreements', label: 'Legal Agreements' },
     { id: 'reversals', label: 'Reversals' },
+    { id: 'settings', label: 'Settings (grants full admin)' },
     { id: 'all', label: 'Select All' }
   ]
 

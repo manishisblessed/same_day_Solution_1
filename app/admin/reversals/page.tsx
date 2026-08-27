@@ -129,7 +129,9 @@ export default function AdminCapabilities() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
 
   // Filters
-  const [startDate, setStartDate] = useState(() => toYMD(new Date(Date.now() - 30 * 864e5)))
+  // Default to today so the page auto-searches a small, fast window on open.
+  // Users widen the range on demand via the date pickers / preset buttons.
+  const [startDate, setStartDate] = useState(() => toYMD(new Date()))
   const [endDate, setEndDate] = useState(() => toYMD(new Date()))
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'PENDING' | 'FAILED' | 'SUCCESS' | 'REFUNDABLE'>('REFUNDABLE')
   const [searchText, setSearchText] = useState('')

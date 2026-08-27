@@ -21,6 +21,17 @@ interface PartnerKey {
   created_at: string
 }
 
+interface PartnerWebhook {
+  id: string
+  partner_id: string
+  url: string
+  events: string[]
+  label: string | null
+  is_active: boolean
+  created_at: string
+  updated_at?: string
+}
+
 interface Partner {
   id: string
   name: string
@@ -31,6 +42,7 @@ interface Partner {
   ip_whitelist: string[] | null
   webhook_url: string | null
   rechargekit_webhook_url?: string | null
+  webhooks?: PartnerWebhook[]
   webhook_secret_masked?: string | null
   has_webhook_secret?: boolean
   bbps_enabled?: boolean
@@ -59,6 +71,39 @@ function parseKeyPermissions(raw: string[] | string | null | undefined): string[
   return []
 }
 
+// The "Events (POS · Settlement · Payout)" channel maps to these categories.
+const EVENTS_GROUP = ['pos', 'settlement', 'payout'] as const
+
+function hasEventsGroup(events: string[]): boolean {
+  return EVENTS_GROUP.every((e) => events.includes(e))
+}
+function hasRechargekit(events: string[]): boolean {
+  return events.includes('rechargekit')
+}
+function toggleEventsGroup(events: string[], on: boolean): string[] {
+  const set = new Set(events)
+  if (on) EVENTS_GROUP.forEach((e) => set.add(e))
+  else EVENTS_GROUP.forEach((e) => set.delete(e))
+  return Array.from(set)
+}
+function toggleRechargekit(events: string[], on: boolean): string[] {
+  const set = new Set(events)
+  if (on) set.add('rechargekit')
+  else set.delete('rechargekit')
+  return Array.from(set)
+}
+function describeEvents(events: string[]): string {
+  const parts: string[] = []
+  if (hasEventsGroup(events)) parts.push('POS · Settlement · Payout')
+  else {
+    if (events.includes('pos')) parts.push('POS')
+    if (events.includes('settlement')) parts.push('Settlement')
+    if (events.includes('payout')) parts.push('Payout')
+  }
+  if (hasRechargekit(events)) parts.push('RechargeKit')
+  return parts.length ? parts.join(' + ') : 'No events'
+}
+
 export default function POSPartnerAPIManagement() {
   const [partners, setPartners] = useState<Partner[]>([])
   const [loading, setLoading] = useState(true)
@@ -72,10 +117,11 @@ export default function POSPartnerAPIManagement() {
   const [showNewKeyResult, setShowNewKeyResult] = useState<any>(null)
   const [selectedPartner, setSelectedPartner] = useState<Partner | null>(null)
   
-  // Webhook modal
+  // Webhook modal — multiple endpoints per partner (one shared signing secret)
   const [showWebhookModal, setShowWebhookModal] = useState(false)
-  const [webhookUrlValue, setWebhookUrlValue] = useState('')
-  const [rechargekitWebhookUrlValue, setRechargekitWebhookUrlValue] = useState('')
+  const [webhookDrafts, setWebhookDrafts] = useState<Record<string, { url: string; events: string[] }>>({})
+  const [newWebhookUrl, setNewWebhookUrl] = useState('')
+  const [newWebhookEvents, setNewWebhookEvents] = useState<string[]>([...EVENTS_GROUP])
 
   // Webhook signing secret reveal modal
   const [showSecretResult, setShowSecretResult] = useState<{ partner_name: string; webhook_secret: string } | null>(null)
@@ -91,7 +137,7 @@ export default function POSPartnerAPIManagement() {
   const [exportLimitValue, setExportLimitValue] = useState(10)
   const [actionLoading, setActionLoading] = useState(false)
 
-  const fetchPartners = useCallback(async () => {
+  const fetchPartners = useCallback(async (): Promise<Partner[]> => {
     setLoading(true)
     setError(null)
     try {
@@ -110,7 +156,7 @@ export default function POSPartnerAPIManagement() {
         } else {
           setError(`Server returned an unexpected response (${res.status}). Please try again later.`)
         }
-        return
+        return []
       }
       
       if (!res.ok) {
@@ -122,17 +168,21 @@ export default function POSPartnerAPIManagement() {
         } else {
           setError(result.error || `Failed to fetch partners (${res.status})`)
         }
-        return
+        return []
       }
       
       if (result.success) {
-        setPartners(result.data || [])
+        const list: Partner[] = result.data || []
+        setPartners(list)
+        return list
       } else {
         setError(result.error || 'Failed to fetch partners')
+        return []
       }
     } catch (err: any) {
       console.error('Error fetching partners:', err)
       setError(err.message || 'Failed to load partners. Please check your connection and try again.')
+      return []
     } finally {
       setLoading(false)
     }
@@ -224,42 +274,110 @@ export default function POSPartnerAPIManagement() {
     }
   }
 
-  // ─── Update Webhook URL ────────────────────────────────
-  const handleUpdateWebhookUrl = async () => {
+  // ─── Webhook endpoints (multiple per partner, one shared secret) ──────
+  const openWebhookModal = (partner: Partner) => {
+    setSelectedPartner(partner)
+    const drafts: Record<string, { url: string; events: string[] }> = {}
+    for (const w of partner.webhooks || []) {
+      drafts[w.id] = { url: w.url, events: [...w.events] }
+    }
+    setWebhookDrafts(drafts)
+    setNewWebhookUrl('')
+    setNewWebhookEvents([...EVENTS_GROUP])
+    setShowWebhookModal(true)
+  }
+
+  const syncSelectedAfterFetch = async () => {
     if (!selectedPartner) return
-    const partnerName = selectedPartner.name
-    const result = await doAction({
-      action: 'update_webhook_url',
-      partner_id: selectedPartner.id,
-      webhook_url: webhookUrlValue.trim(),
-    })
-    if (result) {
-      setShowWebhookModal(false)
-      showSuccess(`Webhook URL updated for ${partnerName}`)
-      // First-time URL set auto-provisions a signing secret — reveal it once.
-      if (result.data?.webhook_secret) {
-        setShowSecretResult({ partner_name: partnerName, webhook_secret: result.data.webhook_secret })
-      }
-      fetchPartners()
+    const list = await fetchPartners()
+    const fresh = list.find((p) => p.id === selectedPartner.id)
+    if (fresh) {
+      setSelectedPartner(fresh)
+      const drafts: Record<string, { url: string; events: string[] }> = {}
+      for (const w of fresh.webhooks || []) drafts[w.id] = { url: w.url, events: [...w.events] }
+      setWebhookDrafts(drafts)
     }
   }
 
-  // ─── Update RechargeKit (CC) Webhook URL ───────────────
-  const handleUpdateRechargekitWebhookUrl = async (urlOverride?: string) => {
+  const handleAddWebhook = async () => {
     if (!selectedPartner) return
+    if (!newWebhookUrl.trim()) {
+      setError('Enter a webhook URL')
+      return
+    }
+    if (newWebhookEvents.length === 0) {
+      setError('Select at least one event group for the webhook')
+      return
+    }
     const partnerName = selectedPartner.name
     const result = await doAction({
-      action: 'update_rechargekit_webhook_url',
+      action: 'add_webhook',
       partner_id: selectedPartner.id,
-      webhook_url: (urlOverride ?? rechargekitWebhookUrlValue).trim(),
+      url: newWebhookUrl.trim(),
+      events: newWebhookEvents,
     })
     if (result) {
-      setShowWebhookModal(false)
-      showSuccess(`RechargeKit webhook URL updated for ${partnerName}`)
+      showSuccess(`Webhook endpoint added for ${partnerName}`)
+      setNewWebhookUrl('')
+      setNewWebhookEvents([...EVENTS_GROUP])
+      // First endpoint auto-provisions the shared signing secret — reveal once.
       if (result.data?.webhook_secret) {
         setShowSecretResult({ partner_name: partnerName, webhook_secret: result.data.webhook_secret })
       }
-      fetchPartners()
+      await syncSelectedAfterFetch()
+    }
+  }
+
+  const handleSaveWebhook = async (webhookId: string) => {
+    if (!selectedPartner) return
+    const draft = webhookDrafts[webhookId]
+    if (!draft) return
+    if (!draft.url.trim()) {
+      setError('Webhook URL cannot be empty')
+      return
+    }
+    if (draft.events.length === 0) {
+      setError('Select at least one event group for the webhook')
+      return
+    }
+    const result = await doAction({
+      action: 'update_webhook',
+      partner_id: selectedPartner.id,
+      webhook_id: webhookId,
+      url: draft.url.trim(),
+      events: draft.events,
+    })
+    if (result) {
+      showSuccess('Webhook endpoint updated')
+      await syncSelectedAfterFetch()
+    }
+  }
+
+  const handleToggleWebhookActive = async (webhookId: string, isActive: boolean) => {
+    if (!selectedPartner) return
+    const result = await doAction({
+      action: 'update_webhook',
+      partner_id: selectedPartner.id,
+      webhook_id: webhookId,
+      is_active: isActive,
+    })
+    if (result) {
+      showSuccess(isActive ? 'Webhook enabled' : 'Webhook disabled')
+      await syncSelectedAfterFetch()
+    }
+  }
+
+  const handleDeleteWebhook = async (webhookId: string) => {
+    if (!selectedPartner) return
+    if (!confirm('Remove this webhook endpoint? Callbacks to this URL will stop immediately.')) return
+    const result = await doAction({
+      action: 'delete_webhook',
+      partner_id: selectedPartner.id,
+      webhook_id: webhookId,
+    })
+    if (result) {
+      showSuccess('Webhook endpoint removed')
+      await syncSelectedAfterFetch()
     }
   }
 
@@ -587,16 +705,11 @@ export default function POSPartnerAPIManagement() {
                           Manage IP Whitelist
                         </button>
                         <button
-                          onClick={() => {
-                            setSelectedPartner(partner)
-                            setWebhookUrlValue(partner.webhook_url || '')
-                            setRechargekitWebhookUrlValue(partner.rechargekit_webhook_url || '')
-                            setShowWebhookModal(true)
-                          }}
+                          onClick={() => openWebhookModal(partner)}
                           className="flex items-center gap-2 px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors text-sm"
                         >
                           <Link2 className="w-4 h-4" />
-                          Manage Webhook URL
+                          Manage Webhooks
                         </button>
                         <button
                           onClick={() => handleToggleStatus(partner)}
@@ -996,24 +1109,43 @@ export default function POSPartnerAPIManagement() {
                         </div>
                       </div>
 
-                      {/* Webhook URL Section */}
+                      {/* Webhook Endpoints Section */}
                       <div className="p-4 bg-gray-50 dark:bg-gray-900/50 rounded-lg">
-                        <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2">
-                          <Link2 className="w-4 h-4" />
-                          Callback Webhook URL
-                        </h4>
-                        {partner.webhook_url ? (
+                        <div className="flex items-center justify-between mb-2">
+                          <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-2">
+                            <Link2 className="w-4 h-4" />
+                            Callback Webhook Endpoints
+                            <span className="px-2 py-0.5 bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400 rounded-full text-xs font-semibold">
+                              {(partner.webhooks || []).length}
+                            </span>
+                          </h4>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); openWebhookModal(partner) }}
+                            className="flex items-center gap-1.5 px-2.5 py-1 bg-orange-600 text-white rounded-lg hover:bg-orange-700 text-xs"
+                          >
+                            <Plus className="w-3.5 h-3.5" /> Manage
+                          </button>
+                        </div>
+                        {(partner.webhooks || []).length > 0 ? (
                           <div className="space-y-2">
-                            <div className="flex items-center gap-2">
-                              <CheckCircle className="w-3 h-3 text-green-500 flex-shrink-0" />
-                              <code className="text-sm font-mono text-gray-700 dark:text-gray-300 break-all">{partner.webhook_url}</code>
-                            </div>
-                            <p className="text-xs text-green-600 dark:text-green-400 font-medium">
-                              POS transaction callbacks will be forwarded to this URL (signed with HMAC-SHA256)
-                            </p>
-                            <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-gray-200 dark:border-gray-700 mt-2">
+                            {(partner.webhooks || []).map((wh) => (
+                              <div key={wh.id} className="flex items-start gap-2">
+                                {wh.is_active ? (
+                                  <CheckCircle className="w-3 h-3 text-green-500 flex-shrink-0 mt-1" />
+                                ) : (
+                                  <XCircle className="w-3 h-3 text-gray-400 flex-shrink-0 mt-1" />
+                                )}
+                                <div className="min-w-0">
+                                  <code className="text-sm font-mono text-gray-700 dark:text-gray-300 break-all">{wh.url}</code>
+                                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                                    {describeEvents(wh.events)}{!wh.is_active && ' · disabled'}
+                                  </p>
+                                </div>
+                              </div>
+                            ))}
+                            <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-gray-200 dark:border-gray-700 mt-2">
                               <Lock className="w-3.5 h-3.5 text-gray-500 flex-shrink-0" />
-                              <span className="text-xs text-gray-500">Signing secret:</span>
+                              <span className="text-xs text-gray-500">Shared signing secret:</span>
                               {partner.has_webhook_secret ? (
                                 <code className="text-xs font-mono text-gray-700 dark:text-gray-300">{partner.webhook_secret_masked}</code>
                               ) : (
@@ -1039,7 +1171,7 @@ export default function POSPartnerAPIManagement() {
                           <div>
                             <p className="text-sm text-yellow-600 dark:text-yellow-400 flex items-center gap-1">
                               <AlertCircle className="w-4 h-4" />
-                              No webhook URL configured — transaction callbacks disabled
+                              No webhook endpoints configured — transaction callbacks disabled
                             </p>
                           </div>
                         )}
@@ -1051,8 +1183,8 @@ export default function POSPartnerAPIManagement() {
                         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 text-sm">
                           <div><span className="text-gray-500">Phone:</span> {partner.phone}</div>
                           <div><span className="text-gray-500">Created:</span> {formatDate(partner.created_at)}</div>
-                          <div className="sm:col-span-2 md:col-span-1"><span className="text-gray-500">Webhook:</span>{' '}
-                            <span className="break-all">{partner.webhook_url || 'Not set'}</span>
+                          <div className="sm:col-span-2 md:col-span-1"><span className="text-gray-500">Webhooks:</span>{' '}
+                            <span className="break-all">{(partner.webhooks || []).length} endpoint(s)</span>
                           </div>
                         </div>
                       </div>
@@ -1206,7 +1338,7 @@ export default function POSPartnerAPIManagement() {
         )}
       </AnimatePresence>
 
-      {/* ─── Webhook URL Modal ──────────────────────────────── */}
+      {/* ─── Webhook Endpoints Modal (multiple URLs, one shared secret) ─── */}
       <AnimatePresence>
         {showWebhookModal && selectedPartner && (
           <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
@@ -1214,12 +1346,12 @@ export default function POSPartnerAPIManagement() {
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-white dark:bg-gray-800 rounded-2xl w-full max-w-lg shadow-2xl"
+              className="bg-white dark:bg-gray-800 rounded-2xl w-full max-w-xl shadow-2xl max-h-[90vh] overflow-y-auto"
             >
-              <div className="px-6 py-4 bg-gradient-to-r from-orange-500 to-amber-600 rounded-t-2xl flex items-center justify-between">
+              <div className="px-6 py-4 bg-gradient-to-r from-orange-500 to-amber-600 rounded-t-2xl flex items-center justify-between sticky top-0 z-10">
                 <h3 className="text-lg font-bold text-white flex items-center gap-2">
                   <Link2 className="w-5 h-5" />
-                  Webhook URL — {selectedPartner.name}
+                  Webhooks — {selectedPartner.name}
                 </h3>
                 <button onClick={() => setShowWebhookModal(false)} className="p-1 hover:bg-white/20 rounded-lg">
                   <X className="w-5 h-5 text-white" />
@@ -1227,106 +1359,148 @@ export default function POSPartnerAPIManagement() {
               </div>
               <div className="p-6 space-y-4">
                 <p className="text-sm text-gray-500 dark:text-gray-400">
-                  Enter the partner&apos;s callback URL where event notifications will be forwarded after processing.
-                  This one URL receives POS, Settlement and Payout events (routed by the <code>X-Sameday-Event</code> header).
-                  Leave empty to disable callbacks.
+                  Add one or more callback URLs. Each endpoint independently subscribes to the
+                  <strong> Events (POS · Settlement · Payout)</strong> channel and/or the
+                  <strong> RechargeKit (Credit Card)</strong> channel. Every endpoint is signed with the
+                  same shared secret (routed by the <code>X-Sameday-Event</code> header).
                 </p>
-                <div>
-                  <label className="text-xs font-medium text-gray-500 mb-1 block">Events Callback URL (POS · Settlement · Payout)</label>
+
+                {/* Shared signing secret */}
+                <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-3">
+                  <div className="flex items-center gap-2">
+                    <Lock className="w-3.5 h-3.5 text-gray-500 flex-shrink-0" />
+                    <span className="text-xs text-gray-500">Shared signing secret:</span>
+                    <code className="text-xs font-mono text-gray-700 dark:text-gray-300">
+                      {selectedPartner.has_webhook_secret ? selectedPartner.webhook_secret_masked : 'not set'}
+                    </code>
+                    <button
+                      onClick={() => handleRotateWebhookSecret(selectedPartner)}
+                      disabled={actionLoading}
+                      className="ml-auto flex items-center gap-1.5 px-2.5 py-1 bg-gray-900 dark:bg-gray-700 text-white rounded-lg hover:bg-gray-800 text-xs disabled:opacity-50"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5" />
+                      {selectedPartner.has_webhook_secret ? 'Rotate & reveal' : 'Generate'}
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-gray-400 mt-2">
+                    One secret signs all endpoints below. Rotating it invalidates the old secret everywhere.
+                  </p>
+                </div>
+
+                {/* Existing endpoints */}
+                <div className="space-y-3">
+                  <h4 className="text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wide">
+                    Configured endpoints ({(selectedPartner.webhooks || []).length})
+                  </h4>
+                  {(selectedPartner.webhooks || []).length === 0 && (
+                    <p className="text-sm text-gray-400 italic">No endpoints yet — add one below.</p>
+                  )}
+                  {(selectedPartner.webhooks || []).map((wh) => {
+                    const draft = webhookDrafts[wh.id] || { url: wh.url, events: wh.events }
+                    return (
+                      <div key={wh.id} className={`border rounded-lg p-3 space-y-2 ${wh.is_active ? 'border-gray-200 dark:border-gray-700' : 'border-gray-200 dark:border-gray-700 opacity-70'}`}>
+                        <input
+                          type="url"
+                          value={draft.url}
+                          onChange={(e) => setWebhookDrafts((prev) => ({ ...prev, [wh.id]: { ...draft, url: e.target.value } }))}
+                          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-sm font-mono"
+                        />
+                        <div className="flex flex-wrap gap-3">
+                          <label className="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={hasEventsGroup(draft.events)}
+                              onChange={(e) => setWebhookDrafts((prev) => ({ ...prev, [wh.id]: { ...draft, events: toggleEventsGroup(draft.events, e.target.checked) } }))}
+                              className="rounded"
+                            />
+                            Events (POS · Settlement · Payout)
+                          </label>
+                          <label className="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={hasRechargekit(draft.events)}
+                              onChange={(e) => setWebhookDrafts((prev) => ({ ...prev, [wh.id]: { ...draft, events: toggleRechargekit(draft.events, e.target.checked) } }))}
+                              className="rounded"
+                            />
+                            RechargeKit (Credit Card)
+                          </label>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => handleSaveWebhook(wh.id)}
+                            disabled={actionLoading}
+                            className="flex items-center gap-1.5 px-3 py-1.5 bg-orange-600 text-white rounded-lg hover:bg-orange-700 text-xs disabled:opacity-50"
+                          >
+                            <Check className="w-3.5 h-3.5" /> Save
+                          </button>
+                          <button
+                            onClick={() => handleToggleWebhookActive(wh.id, !wh.is_active)}
+                            disabled={actionLoading}
+                            className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-300 text-xs disabled:opacity-50"
+                          >
+                            {wh.is_active ? <><EyeOff className="w-3.5 h-3.5" /> Disable</> : <><Eye className="w-3.5 h-3.5" /> Enable</>}
+                          </button>
+                          <button
+                            onClick={() => handleDeleteWebhook(wh.id)}
+                            disabled={actionLoading}
+                            className="ml-auto flex items-center gap-1.5 px-3 py-1.5 text-red-600 hover:bg-red-100 dark:hover:bg-red-900/30 rounded-lg text-xs disabled:opacity-50"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" /> Remove
+                          </button>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+
+                {/* Add new endpoint */}
+                <div className="border-t border-gray-200 dark:border-gray-700 pt-4 space-y-2">
+                  <h4 className="text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wide flex items-center gap-1.5">
+                    <Plus className="w-3.5 h-3.5" /> Add endpoint
+                  </h4>
                   <input
                     type="url"
-                    value={webhookUrlValue}
-                    onChange={(e) => setWebhookUrlValue(e.target.value)}
+                    value={newWebhookUrl}
+                    onChange={(e) => setNewWebhookUrl(e.target.value)}
                     placeholder="https://example.com/api/callback"
-                    className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-sm font-mono"
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-sm font-mono"
                   />
-                  <p className="text-[11px] text-gray-400 mt-1">
-                    Events: <code>pos.transaction</code>, <code>pos.transaction.reversed</code>, <code>settlement.success</code> / <code>settlement.failed</code> / <code>settlement.status_update</code>, <code>payout.*</code>
-                  </p>
-                </div>
-                <div className="pt-2 border-t border-gray-200 dark:border-gray-700">
-                  <label className="text-xs font-medium text-gray-500 mb-1 block">RechargeKit (Credit Card) Callback URL</label>
-                  <div className="flex gap-2">
-                    <input
-                      type="url"
-                      value={rechargekitWebhookUrlValue}
-                      onChange={(e) => setRechargekitWebhookUrlValue(e.target.value)}
-                      placeholder="https://example.com/api/rechargekit-callback"
-                      className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-sm font-mono"
-                    />
-                    <button
-                      onClick={() => handleUpdateRechargekitWebhookUrl()}
-                      disabled={actionLoading || !rechargekitWebhookUrlValue.trim()}
-                      className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 text-sm disabled:opacity-50 whitespace-nowrap"
-                    >
-                      Save
-                    </button>
-                    {selectedPartner.rechargekit_webhook_url && (
-                      <button
-                        onClick={() => { setRechargekitWebhookUrlValue(''); handleUpdateRechargekitWebhookUrl('') }}
-                        disabled={actionLoading}
-                        className="px-3 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 text-sm disabled:opacity-50"
-                      >
-                        Remove
-                      </button>
-                    )}
+                  <div className="flex flex-wrap gap-3">
+                    <label className="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={hasEventsGroup(newWebhookEvents)}
+                        onChange={(e) => setNewWebhookEvents(toggleEventsGroup(newWebhookEvents, e.target.checked))}
+                        className="rounded"
+                      />
+                      Events (POS · Settlement · Payout)
+                    </label>
+                    <label className="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={hasRechargekit(newWebhookEvents)}
+                        onChange={(e) => setNewWebhookEvents(toggleRechargekit(newWebhookEvents, e.target.checked))}
+                        className="rounded"
+                      />
+                      RechargeKit (Credit Card)
+                    </label>
                   </div>
-                  <p className="text-[11px] text-gray-400 mt-1">
-                    Event: <code>rechargekit.cc.status</code> · signed with the same secret below.
-                    {selectedPartner.rechargekit_webhook_url && (
-                      <> Current: <code className="break-all">{selectedPartner.rechargekit_webhook_url}</code></>
-                    )}
-                  </p>
+                  <button
+                    onClick={handleAddWebhook}
+                    disabled={actionLoading || !newWebhookUrl.trim() || newWebhookEvents.length === 0}
+                    className="w-full py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 text-sm disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    {actionLoading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+                    Add Webhook
+                  </button>
                 </div>
-                {selectedPartner.webhook_url && (
-                  <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-3 space-y-2">
-                    <div>
-                      <p className="text-xs text-gray-500 mb-1">Current URL:</p>
-                      <code className="text-xs text-gray-700 dark:text-gray-300 break-all">{selectedPartner.webhook_url}</code>
-                    </div>
-                    <div className="flex items-center gap-2 pt-2 border-t border-gray-200 dark:border-gray-700">
-                      <Lock className="w-3.5 h-3.5 text-gray-500 flex-shrink-0" />
-                      <span className="text-xs text-gray-500">Signing secret:</span>
-                      <code className="text-xs font-mono text-gray-700 dark:text-gray-300">
-                        {selectedPartner.has_webhook_secret ? selectedPartner.webhook_secret_masked : 'not set'}
-                      </code>
-                      <button
-                        onClick={() => handleRotateWebhookSecret(selectedPartner)}
-                        disabled={actionLoading}
-                        className="ml-auto flex items-center gap-1.5 px-2.5 py-1 bg-gray-900 dark:bg-gray-700 text-white rounded-lg hover:bg-gray-800 text-xs disabled:opacity-50"
-                      >
-                        <RefreshCw className="w-3.5 h-3.5" />
-                        {selectedPartner.has_webhook_secret ? 'Rotate & reveal' : 'Generate'}
-                      </button>
-                    </div>
-                  </div>
-                )}
-                <div className="flex gap-3">
+
+                <div className="pt-2">
                   <button
                     onClick={() => setShowWebhookModal(false)}
-                    className="flex-1 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 text-sm"
+                    className="w-full py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 text-sm"
                   >
-                    Cancel
-                  </button>
-                  {selectedPartner.webhook_url && (
-                    <button
-                      onClick={() => {
-                        setWebhookUrlValue('')
-                        handleUpdateWebhookUrl()
-                      }}
-                      disabled={actionLoading}
-                      className="py-2 px-4 bg-red-600 text-white rounded-lg hover:bg-red-700 text-sm disabled:opacity-50"
-                    >
-                      Remove
-                    </button>
-                  )}
-                  <button
-                    onClick={handleUpdateWebhookUrl}
-                    disabled={actionLoading || !webhookUrlValue.trim()}
-                    className="flex-1 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 text-sm disabled:opacity-50 flex items-center justify-center gap-2"
-                  >
-                    {actionLoading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
-                    Save Webhook URL
+                    Done
                   </button>
                 </div>
               </div>

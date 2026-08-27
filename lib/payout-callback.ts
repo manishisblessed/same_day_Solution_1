@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 import * as crypto from 'crypto'
-import { signPartnerPayload } from '@/lib/partner-webhook/deliver'
+import { signPartnerPayload, resolvePartnerEndpoints } from '@/lib/partner-webhook/deliver'
 
 const CALLBACK_TIMEOUT_MS = 10_000
 const MAX_RETRIES = 3
@@ -62,18 +62,6 @@ function buildPayload(tx: any): PayoutCallbackPayload {
   }
 }
 
-async function getPartnerWebhook(partnerId: string): Promise<{ url: string; secret: string | null } | null> {
-  const supabase = getSupabase()
-  const { data } = await supabase
-    .from('partners')
-    .select('webhook_url, webhook_secret')
-    .eq('id', partnerId)
-    .eq('status', 'active')
-    .maybeSingle()
-  if (!data?.webhook_url) return null
-  return { url: data.webhook_url, secret: (data as { webhook_secret?: string | null }).webhook_secret ?? null }
-}
-
 async function postCallback(
   url: string,
   body: string,
@@ -111,42 +99,53 @@ export async function sendPayoutCallback(
   if (['pending', 'processing'].includes(status)) return { sent: false, error: 'Still processing' }
 
   try {
-    const webhook = await getPartnerWebhook(partnerId)
-    if (!webhook) return { sent: false, error: 'No webhook_url configured' }
+    const endpoints = await resolvePartnerEndpoints(getSupabase(), partnerId, 'payout')
+    if (endpoints.length === 0) return { sent: false, error: 'No webhook endpoint configured' }
 
     const payload = buildPayload(transaction)
 
     // Sign once — stable across retries (idempotency via X-Sameday-Delivery).
+    // All endpoints share the partner's single secret; each gets its own id.
     const body = JSON.stringify(payload)
     const timestamp = Math.floor(Date.now() / 1000).toString()
-    const deliveryId = crypto.randomUUID()
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-      'X-Sameday-Event': payload.event,
-      'X-Sameday-Timestamp': timestamp,
-      'X-Sameday-Delivery': deliveryId,
-    }
-    if (webhook.secret) {
-      headers['X-Sameday-Signature'] = signPartnerPayload(webhook.secret, timestamp, body)
-    }
 
+    let anyOk = false
     let lastResult: { ok: boolean; httpStatus?: number; error?: string } = { ok: false }
 
-    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-      lastResult = await postCallback(webhook.url, body, headers)
-
-      if (lastResult.ok) {
-        console.log('[PayoutCallback] Delivered', { partnerId, txId: transaction.id, status: transaction.status, attempt, delivery: deliveryId, signed: !!webhook.secret })
-        return { sent: true, httpStatus: lastResult.httpStatus }
+    for (const endpoint of endpoints) {
+      const deliveryId = crypto.randomUUID()
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'X-Sameday-Event': payload.event,
+        'X-Sameday-Timestamp': timestamp,
+        'X-Sameday-Delivery': deliveryId,
+      }
+      if (endpoint.secret) {
+        headers['X-Sameday-Signature'] = signPartnerPayload(endpoint.secret, timestamp, body)
       }
 
-      if (attempt < MAX_RETRIES) {
-        await new Promise(r => setTimeout(r, attempt * 1000))
+      for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+        lastResult = await postCallback(endpoint.url, body, headers)
+
+        if (lastResult.ok) {
+          anyOk = true
+          console.log('[PayoutCallback] Delivered', { partnerId, txId: transaction.id, status: transaction.status, url: endpoint.url, attempt, delivery: deliveryId, signed: !!endpoint.secret })
+          break
+        }
+
+        if (attempt < MAX_RETRIES) {
+          await new Promise(r => setTimeout(r, attempt * 1000))
+        }
+      }
+
+      if (!lastResult.ok) {
+        console.error('[PayoutCallback] All retries exhausted', { partnerId, txId: transaction.id, url: endpoint.url, error: lastResult.error })
       }
     }
 
-    console.error('[PayoutCallback] All retries exhausted', { partnerId, txId: transaction.id, error: lastResult.error })
-    return { sent: false, httpStatus: lastResult.httpStatus, error: lastResult.error || 'All retries failed' }
+    return anyOk
+      ? { sent: true, httpStatus: lastResult.httpStatus }
+      : { sent: false, httpStatus: lastResult.httpStatus, error: lastResult.error || 'All deliveries failed' }
   } catch (err: any) {
     console.error('[PayoutCallback] Unexpected error', { partnerId, error: err.message })
     return { sent: false, error: err.message }

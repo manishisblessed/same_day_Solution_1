@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 import * as crypto from 'crypto'
-import { signPartnerPayload } from '@/lib/partner-webhook/deliver'
+import { signPartnerPayload, resolvePartnerEndpoints } from '@/lib/partner-webhook/deliver'
 
 const CALLBACK_TIMEOUT_MS = 10_000
 const MAX_RETRIES = 3
@@ -62,21 +62,6 @@ function buildPayload(tx: any): SettlementCallbackPayload {
       timestamp: tx.provider_timestamp || tx.updated_at || null,
     },
   }
-}
-
-/**
- * Look up a partner's webhook_url + signing secret.
- */
-async function getPartnerWebhook(partnerId: string): Promise<{ url: string; secret: string | null } | null> {
-  const supabase = getSupabase()
-  const { data } = await supabase
-    .from('partners')
-    .select('webhook_url, webhook_secret')
-    .eq('id', partnerId)
-    .eq('status', 'active')
-    .maybeSingle()
-  if (!data?.webhook_url) return null
-  return { url: data.webhook_url, secret: (data as { webhook_secret?: string | null }).webhook_secret ?? null }
 }
 
 /**
@@ -159,58 +144,71 @@ export async function sendSettlementCallback(
   }
 
   try {
-    const webhook = await getPartnerWebhook(partnerId)
-    if (!webhook) return { sent: false, error: 'No webhook_url configured' }
+    const endpoints = await resolvePartnerEndpoints(getSupabase(), partnerId, 'settlement')
+    if (endpoints.length === 0) return { sent: false, error: 'No webhook endpoint configured' }
 
     const payload = buildPayload(transaction)
 
-    // Sign once — timestamp/delivery/signature stay stable across retries so the
-    // partner can dedupe on X-Sameday-Delivery and the signature stays valid.
+    // Sign once — timestamp/signature stay stable across retries so the partner
+    // can dedupe on X-Sameday-Delivery and the signature stays valid. All
+    // endpoints share the partner's single secret; each gets its own delivery id.
     const body = JSON.stringify(payload)
     const timestamp = Math.floor(Date.now() / 1000).toString()
-    const deliveryId = crypto.randomUUID()
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-      'X-Sameday-Event': payload.event,
-      'X-Sameday-Timestamp': timestamp,
-      'X-Sameday-Delivery': deliveryId,
-    }
-    if (webhook.secret) {
-      headers['X-Sameday-Signature'] = signPartnerPayload(webhook.secret, timestamp, body)
-    }
 
+    let anyOk = false
     let lastResult: { ok: boolean; httpStatus?: number; error?: string } = { ok: false }
 
-    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-      lastResult = await postCallback(webhook.url, body, headers)
-
-      await logAttempt(transaction.id, partnerId, webhook.url, payload, lastResult, attempt)
-
-      if (lastResult.ok) {
-        console.log('[SettlementCallback] Delivered', {
-          partnerId,
-          ref: transaction.reference_id,
-          status: transaction.status,
-          attempt,
-          delivery: deliveryId,
-          signed: !!webhook.secret,
-          httpStatus: lastResult.httpStatus,
-        })
-        return { sent: true, httpStatus: lastResult.httpStatus }
+    for (const endpoint of endpoints) {
+      const deliveryId = crypto.randomUUID()
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'X-Sameday-Event': payload.event,
+        'X-Sameday-Timestamp': timestamp,
+        'X-Sameday-Delivery': deliveryId,
+      }
+      if (endpoint.secret) {
+        headers['X-Sameday-Signature'] = signPartnerPayload(endpoint.secret, timestamp, body)
       }
 
-      // Brief backoff before retry (1s, 2s, 3s)
-      if (attempt < MAX_RETRIES) {
-        await new Promise(r => setTimeout(r, attempt * 1000))
+      for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+        lastResult = await postCallback(endpoint.url, body, headers)
+
+        await logAttempt(transaction.id, partnerId, endpoint.url, payload, lastResult, attempt)
+
+        if (lastResult.ok) {
+          anyOk = true
+          console.log('[SettlementCallback] Delivered', {
+            partnerId,
+            ref: transaction.reference_id,
+            status: transaction.status,
+            url: endpoint.url,
+            attempt,
+            delivery: deliveryId,
+            signed: !!endpoint.secret,
+            httpStatus: lastResult.httpStatus,
+          })
+          break
+        }
+
+        // Brief backoff before retry (1s, 2s, 3s)
+        if (attempt < MAX_RETRIES) {
+          await new Promise(r => setTimeout(r, attempt * 1000))
+        }
+      }
+
+      if (!lastResult.ok) {
+        console.error('[SettlementCallback] All retries exhausted', {
+          partnerId,
+          ref: transaction.reference_id,
+          url: endpoint.url,
+          error: lastResult.error,
+        })
       }
     }
 
-    console.error('[SettlementCallback] All retries exhausted', {
-      partnerId,
-      ref: transaction.reference_id,
-      error: lastResult.error,
-    })
-    return { sent: false, httpStatus: lastResult.httpStatus, error: lastResult.error || 'All retries failed' }
+    return anyOk
+      ? { sent: true, httpStatus: lastResult.httpStatus }
+      : { sent: false, httpStatus: lastResult.httpStatus, error: lastResult.error || 'All deliveries failed' }
   } catch (err: any) {
     console.error('[SettlementCallback] Unexpected error', { partnerId, error: err.message })
     return { sent: false, error: err.message }

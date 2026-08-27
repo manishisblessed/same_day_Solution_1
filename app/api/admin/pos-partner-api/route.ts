@@ -51,6 +51,35 @@ function generateWebhookSecret() {
   return 'whsec_' + crypto.randomBytes(32).toString('hex')
 }
 
+/** Event categories a webhook endpoint may subscribe to. */
+const WEBHOOK_EVENT_CATEGORIES = ['pos', 'settlement', 'payout', 'rechargekit'] as const
+
+/** Validate + normalize a webhook events array. Returns categories or an error. */
+function normalizeWebhookEvents(events: unknown): { events?: string[]; error?: string } {
+  if (!Array.isArray(events) || events.length === 0) {
+    return { error: 'events must be a non-empty array (pos, settlement, payout, rechargekit)' }
+  }
+  const raw = events.map((e) => String(e).trim().toLowerCase()).filter(Boolean)
+  const invalid = raw.filter((e) => !WEBHOOK_EVENT_CATEGORIES.includes(e as any))
+  if (invalid.length > 0) {
+    return { error: `Invalid event(s): ${invalid.join(', ')}. Allowed: ${WEBHOOK_EVENT_CATEGORIES.join(', ')}` }
+  }
+  return { events: Array.from(new Set(raw)) }
+}
+
+/** Validate a webhook URL (format + public address). Returns an error or null. */
+function validateWebhookUrl(url: string): string | null {
+  try {
+    new URL(url)
+  } catch {
+    return 'Invalid URL format'
+  }
+  if (isPrivateUrl(url)) {
+    return 'Invalid webhook URL: private/internal addresses are not allowed'
+  }
+  return null
+}
+
 /**
  * GET /api/admin/pos-partner-api
  * List all POS API partners with their API keys (masked secrets)
@@ -126,6 +155,15 @@ export async function GET(request: NextRequest) {
     }
     const { data: merchantLinks } = await merchantLinksQuery
 
+    let webhooksQuery = supabase
+      .from('partner_webhooks')
+      .select('id, partner_id, url, events, label, is_active, created_at, updated_at')
+      .order('created_at', { ascending: true })
+    if (isPartner) {
+      webhooksQuery = webhooksQuery.eq('partner_id', user.partner_id)
+    }
+    const { data: webhooks } = await webhooksQuery
+
     // Combine data
     const enrichedPartners = (partners || []).map((p: any) => {
       // Never expose the raw webhook signing secret in the list view — only a
@@ -141,10 +179,12 @@ export async function GET(request: NextRequest) {
       const linked_merchants = (merchantLinks || [])
         .filter((m: any) => m.partner_id === p.id)
         .map((m: any) => m.merchant_id)
+      const partnerWebhooks = (webhooks || []).filter((w: any) => w.partner_id === p.id)
       return {
         ...partnerRest,
         webhook_secret_masked: webhook_secret ? webhook_secret.substring(0, 11) + '••••••••' : null,
         has_webhook_secret: !!webhook_secret,
+        webhooks: partnerWebhooks,
         api_keys: keys,
         export_limit: limits?.daily_limit || 10,
         linked_merchants,
@@ -669,6 +709,164 @@ export async function POST(request: NextRequest) {
             secret_note: 'Share this securely with the partner. It will not be shown again.',
           },
         })
+      }
+
+      // ─── ADD WEBHOOK ENDPOINT ────────────────────────────
+      case 'add_webhook': {
+        let { partner_id, url, events, label } = body
+        if (isPartner) {
+          partner_id = user.partner_id
+        }
+        if (!partner_id) {
+          return NextResponse.json({ error: 'partner_id is required' }, { status: 400 })
+        }
+        const awScope = assertPartnerScope(partner_id)
+        if (awScope) return awScope
+
+        const cleanUrl = typeof url === 'string' ? url.trim() : ''
+        if (!cleanUrl) {
+          return NextResponse.json({ error: 'url is required' }, { status: 400 })
+        }
+        const urlErr = validateWebhookUrl(cleanUrl)
+        if (urlErr) return NextResponse.json({ error: urlErr }, { status: 400 })
+
+        const { events: normEvents, error: evErr } = normalizeWebhookEvents(events)
+        if (evErr) return NextResponse.json({ error: evErr }, { status: 400 })
+
+        // Auto-provision the shared signing secret the first time any endpoint is
+        // added so signed delivery works immediately. One secret per partner.
+        let generatedSecret: string | null = null
+        const { data: existingP } = await supabase
+          .from('partners')
+          .select('webhook_secret')
+          .eq('id', partner_id)
+          .maybeSingle()
+        if (!existingP?.webhook_secret) {
+          generatedSecret = generateWebhookSecret()
+          await supabase
+            .from('partners')
+            .update({ webhook_secret: generatedSecret, updated_at: new Date().toISOString() })
+            .eq('id', partner_id)
+        }
+
+        const { data: created, error: awErr } = await supabase
+          .from('partner_webhooks')
+          .insert({
+            partner_id,
+            url: cleanUrl,
+            events: normEvents,
+            label: typeof label === 'string' && label.trim() ? label.trim() : null,
+            is_active: true,
+          })
+          .select('id, partner_id, url, events, label, is_active, created_at, updated_at')
+          .single()
+
+        if (awErr) throw awErr
+
+        return NextResponse.json({
+          success: true,
+          message: 'Webhook endpoint added',
+          data: {
+            webhook: created,
+            ...(generatedSecret
+              ? {
+                  webhook_secret: generatedSecret,
+                  secret_note: 'Save this signing secret — it is shown only once. It signs ALL of this partner\'s webhook endpoints.',
+                }
+              : {}),
+          },
+        })
+      }
+
+      // ─── UPDATE WEBHOOK ENDPOINT ─────────────────────────
+      case 'update_webhook': {
+        let { partner_id, webhook_id, url, events, label, is_active } = body
+        if (isPartner) {
+          partner_id = user.partner_id
+        }
+        if (!partner_id || !webhook_id) {
+          return NextResponse.json({ error: 'partner_id and webhook_id are required' }, { status: 400 })
+        }
+        const uwScope = assertPartnerScope(partner_id)
+        if (uwScope) return uwScope
+
+        // Ownership: the webhook must belong to this partner.
+        const { data: existingWh } = await supabase
+          .from('partner_webhooks')
+          .select('id, partner_id')
+          .eq('id', webhook_id)
+          .maybeSingle()
+        if (!existingWh || existingWh.partner_id !== partner_id) {
+          return NextResponse.json({ error: 'Webhook endpoint not found' }, { status: 404 })
+        }
+
+        const updatePayload: Record<string, unknown> = { updated_at: new Date().toISOString() }
+
+        if (url !== undefined) {
+          const cleanUrl = typeof url === 'string' ? url.trim() : ''
+          if (!cleanUrl) {
+            return NextResponse.json({ error: 'url cannot be empty' }, { status: 400 })
+          }
+          const urlErr = validateWebhookUrl(cleanUrl)
+          if (urlErr) return NextResponse.json({ error: urlErr }, { status: 400 })
+          updatePayload.url = cleanUrl
+        }
+
+        if (events !== undefined) {
+          const { events: normEvents, error: evErr } = normalizeWebhookEvents(events)
+          if (evErr) return NextResponse.json({ error: evErr }, { status: 400 })
+          updatePayload.events = normEvents
+        }
+
+        if (label !== undefined) {
+          updatePayload.label = typeof label === 'string' && label.trim() ? label.trim() : null
+        }
+
+        if (typeof is_active === 'boolean') {
+          updatePayload.is_active = is_active
+        }
+
+        const { data: updated, error: upWhErr } = await supabase
+          .from('partner_webhooks')
+          .update(updatePayload)
+          .eq('id', webhook_id)
+          .select('id, partner_id, url, events, label, is_active, created_at, updated_at')
+          .single()
+
+        if (upWhErr) throw upWhErr
+
+        return NextResponse.json({ success: true, message: 'Webhook endpoint updated', data: { webhook: updated } })
+      }
+
+      // ─── DELETE WEBHOOK ENDPOINT ─────────────────────────
+      case 'delete_webhook': {
+        let { partner_id, webhook_id } = body
+        if (isPartner) {
+          partner_id = user.partner_id
+        }
+        if (!partner_id || !webhook_id) {
+          return NextResponse.json({ error: 'partner_id and webhook_id are required' }, { status: 400 })
+        }
+        const dwScope = assertPartnerScope(partner_id)
+        if (dwScope) return dwScope
+
+        const { data: existingWh } = await supabase
+          .from('partner_webhooks')
+          .select('id, partner_id')
+          .eq('id', webhook_id)
+          .maybeSingle()
+        if (!existingWh || existingWh.partner_id !== partner_id) {
+          return NextResponse.json({ error: 'Webhook endpoint not found' }, { status: 404 })
+        }
+
+        const { error: delErr } = await supabase
+          .from('partner_webhooks')
+          .delete()
+          .eq('id', webhook_id)
+
+        if (delErr) throw delErr
+
+        return NextResponse.json({ success: true, message: 'Webhook endpoint removed', data: { webhook_id } })
       }
 
       // ─── REVOKE API KEY ─────────────────────────────────

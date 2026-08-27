@@ -7,6 +7,20 @@
  *   admin -> master_distributor -> distributor -> retailer
  *
  * Roles are stored lowercase snake_case here (unlike NEXTGEN's SCREAMING_SNAKE).
+ *
+ * TODO (requested hierarchy parity with NEXTGEN — SEPARATE LARGE EFFORT):
+ * The target org structure is  master_admin -> admin -> super_distributor (SD)
+ * -> master_distributor (MD) -> distributor (DT) -> retailer (RT).
+ * That is NOT a small edit — it requires, across the whole app:
+ *   1) a new `super_distributor` role + `super_distributors` table (schema +
+ *      RLS + wallet/commission/settlement wiring like the other tiers),
+ *   2) splitting admin into master_admin vs admin (auth, admin_users.admin_type,
+ *      login + gating), and letting admin only onboard SDs (like NEXTGEN's
+ *      getAllowedRoles),
+ *   3) updating NETWORK_TIERS / canOnboard / defaultChildRole / parentRoleOf
+ *      here + the invite parent-picker + create-partner APIs,
+ *   4) migrating existing MD/DT/RT parent links to sit under an SD.
+ * Do this as a dedicated, well-tested migration — do not bolt it on piecemeal.
  */
 
 export type NetworkRole = 'retailer' | 'distributor' | 'master_distributor'

@@ -238,9 +238,12 @@ export async function GET(request: NextRequest) {
     const pageSize = Math.min(100, Math.max(1, parseInt(sp.get('pageSize') || '25', 10) || 25))
 
     const supabase = getSupabaseAdmin()
+    // No `count: 'exact'` — a full-table COUNT on every load is what made this
+    // endpoint (and the Onboarding page) slow. We over-fetch by one row to derive
+    // hasMore instead, which is cheap.
     let query = supabase
       .from(INVITE_TABLE)
-      .select('*', { count: 'exact' })
+      .select('*')
       .order('created_at', { ascending: false })
 
     const isAdmin = user.role === 'admin' || user.role === 'finance_executive'
@@ -251,18 +254,28 @@ export async function GET(request: NextRequest) {
     if (role) query = query.eq('target_role', role)
 
     const from = (page - 1) * pageSize
-    const { data, error, count } = await query.range(from, from + pageSize - 1)
+    const { data, error } = await query.range(from, from + pageSize) // +1 for hasMore
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 })
     }
 
+    const rows = data || []
+    const hasMore = rows.length > pageSize
+    const pageRows = hasMore ? rows.slice(0, pageSize) : rows
+
+    // Statuses where the onboarding link is still actionable by the invitee.
+    const ACTIVE_LINK_STATUSES = ['pending', 'registered', 'verified', 'resubmit']
+    const invites = pageRows.map((inv: any) => ({
+      ...inv,
+      onboardingLink: inv.token && ACTIVE_LINK_STATUSES.includes(inv.status) ? inviteLink(inv.token) : null,
+    }))
+
     return NextResponse.json({
       success: true,
-      invites: data || [],
-      total: count || 0,
+      invites,
       page,
       pageSize,
-      totalPages: Math.max(1, Math.ceil((count || 0) / pageSize)),
+      hasMore,
     })
   } catch (error: any) {
     console.error('[onboarding/invite GET] error:', error)
