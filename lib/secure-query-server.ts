@@ -216,6 +216,10 @@ async function applyOwnershipScope(
 
   switch (table) {
     case 'partners': {
+      // A master partner may read its own row AND its child partners (read-only reports).
+      if (user.role === 'master_partner') {
+        return { query: query.or(`id.eq.${user.partner_id},master_partner_id.eq.${user.partner_id}`) }
+      }
       if (user.role === 'partner' || user.role === 'sub_partner') {
         return { query: query.eq('id', user.partner_id) }
       }
@@ -224,7 +228,7 @@ async function applyOwnershipScope(
       return { query, forbidden: 'No access to partners' }
     }
     case 'sub_partners': {
-      if (user.role === 'partner') return { query: query.eq('parent_partner_id', user.partner_id) }
+      if (user.role === 'partner' || user.role === 'master_partner') return { query: query.eq('parent_partner_id', user.partner_id) }
       if (user.role === 'sub_partner') return { query: query.eq('id', user.sub_partner_id) }
       return { query, forbidden: 'No access to sub_partners' }
     }
@@ -240,7 +244,7 @@ async function applyOwnershipScope(
         if (hier.retailerIds.length === 0) return { query: query.eq('master_distributor_id', user.partner_id) }
         return { query: query.in('partner_id', hier.retailerIds) }
       }
-      if (user.role === 'partner' || user.role === 'sub_partner') {
+      if (user.role === 'partner' || user.role === 'master_partner' || user.role === 'sub_partner') {
         return { query: query.eq('partner_id', user.partner_id) }
       }
       return { query, forbidden: 'No access to retailers' }
@@ -267,7 +271,7 @@ async function applyOwnershipScope(
         return { query, forbidden: 'Cannot write distributors' }
       }
       // partner / others: no broad list
-      if (user.role === 'partner' || user.role === 'sub_partner') {
+      if (user.role === 'partner' || user.role === 'master_partner' || user.role === 'sub_partner') {
         return { query: query.eq('partner_id', user.partner_id) }
       }
       return { query }
@@ -311,7 +315,7 @@ async function applyOwnershipScope(
       if (user.role === 'retailer') return { query: query.eq('rt_user_id', self) }
       if (user.role === 'distributor') return { query: query.eq('dt_user_id', self) }
       if (user.role === 'master_distributor') return { query: query.eq('md_user_id', self) }
-      if (user.role === 'partner' || user.role === 'sub_partner') {
+      if (user.role === 'partner' || user.role === 'master_partner' || user.role === 'sub_partner') {
         // partners rarely query this; allow by any role column matching partner id
         return { query: query.or(`rt_user_id.eq.${self},dt_user_id.eq.${self},md_user_id.eq.${self}`) }
       }

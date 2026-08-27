@@ -56,15 +56,17 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    if (!['retailer', 'distributor', 'master_distributor', 'partner', 'sub_partner'].includes(user.role)) {
+    if (!['retailer', 'distributor', 'master_distributor', 'partner', 'master_partner', 'sub_partner'].includes(user.role)) {
       return NextResponse.json({
         services: Object.fromEntries(SERVICE_KEYS.map((k) => [k, false])),
         hasAnyEnabled: false,
       })
     }
 
-    // Sub-partners inherit their parent partner's service flags
-    const lookupRole = user.role === 'sub_partner' ? 'partner' : user.role
+    // Sub-partners inherit their parent partner's service flags.
+    // Master partners are partners rows, so they read from the partners table too.
+    const lookupRole =
+      user.role === 'sub_partner' || user.role === 'master_partner' ? 'partner' : user.role
     const lookupPartnerId = user.partner_id ?? null
 
     const tableName =

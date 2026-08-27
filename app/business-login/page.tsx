@@ -98,7 +98,7 @@ export default function BusinessLogin() {
       } else if (user.role === 'retailer') dest = '/dashboard/retailer'
       else if (user.role === 'distributor') dest = '/dashboard/distributor'
       else if (user.role === 'master_distributor') dest = '/dashboard/master-distributor'
-      else if (user.role === 'partner' || user.role === 'sub_partner') dest = '/dashboard/partner'
+      else if (user.role === 'partner' || user.role === 'master_partner' || user.role === 'sub_partner') dest = '/dashboard/partner'
       if (dest) {
         redirectingRef.current = true
         // Wait for the SSR session cookie so middleware doesn't bounce us back (1-attempt login).

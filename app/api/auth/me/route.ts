@@ -99,13 +99,18 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ user: null, error: 'No active account' }, { status: 404 })
     }
 
+    // A partners row flagged is_master_partner logs in as the master_partner role.
+    if (resolvedRole === 'partner' && data.is_master_partner) {
+      resolvedRole = 'master_partner'
+    }
+
     const user: any = {
       id: userId,
       email,
       role: resolvedRole,
       name: data.name,
       partner_id:
-        resolvedRole === 'partner' ? data.id
+        resolvedRole === 'partner' || resolvedRole === 'master_partner' ? data.id
           : resolvedRole === 'sub_partner' ? data.parent_partner_id
           : data.partner_id,
     }

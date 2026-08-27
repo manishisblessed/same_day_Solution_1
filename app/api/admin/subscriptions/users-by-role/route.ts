@@ -17,21 +17,27 @@ export async function GET(request: NextRequest) {
 
     const url = new URL(request.url)
     const role = url.searchParams.get('role')?.toLowerCase()
-    if (!role || !['partner', 'master_distributor', 'distributor', 'retailer'].includes(role)) {
-      return NextResponse.json({ error: 'role must be partner, master_distributor, distributor, or retailer' }, { status: 400 })
+    if (!role || !['partner', 'master_partner', 'master_distributor', 'distributor', 'retailer'].includes(role)) {
+      return NextResponse.json({ error: 'role must be partner, master_partner, master_distributor, distributor, or retailer' }, { status: 400 })
     }
 
-    const table = role === 'partner' ? 'partners' : role === 'master_distributor' ? 'master_distributors' : role === 'distributor' ? 'distributors' : 'retailers'
-    const { data, error } = await supabaseAdmin
-      .from(table)
-      .select('partner_id, name')
-      .order('name')
+    const isPartnersTable = role === 'partner' || role === 'master_partner'
+    const table = isPartnersTable ? 'partners' : role === 'master_distributor' ? 'master_distributors' : role === 'distributor' ? 'distributors' : 'retailers'
+    // partners PK is `id`; other role tables key on `partner_id`.
+    const idField = isPartnersTable ? 'id' : 'partner_id'
+
+    let query = supabaseAdmin.from(table).select(`${idField}, name`).order('name')
+    // partner and master_partner share the partners table — keep the groups distinct.
+    if (role === 'partner') query = query.eq('is_master_partner', false)
+    else if (role === 'master_partner') query = query.eq('is_master_partner', true)
+
+    const { data, error } = await query
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
     const users = (data || []).map((row: any) => ({
-      partner_id: row.partner_id,
-      name: row.name || row.partner_id,
+      partner_id: row[idField],
+      name: row.name || row[idField],
     }))
 
     return NextResponse.json({ users })

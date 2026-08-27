@@ -120,7 +120,7 @@ async function getUserRole(_supabase: any, email: string, userId: string): Promi
     return {
       id: userId,
       email: email,
-      role: 'partner',
+      role: partner.data.is_master_partner ? 'master_partner' : 'partner',
       partner_id: partner.data.id,
       name: partner.data.name,
     }

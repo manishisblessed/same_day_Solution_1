@@ -45,9 +45,18 @@ const ROLE_LABELS: Record<string, string> = {
   master_distributor: 'Master Distributor',
   distributor: 'Distributor',
   retailer: 'Retailer',
+  partner: 'Partner',
+  master_partner: 'Master Partner',
   admin: 'Admin',
   finance_executive: 'Finance',
 }
+
+/**
+ * Independent (non-network) roles that admin can onboard through the invite
+ * wizard. These live in the `partners` table and have NO MD/DT/RT parent — a
+ * plain partner is later linked to a Master Partner in /admin/master-partners.
+ */
+export const INDEPENDENT_ONBOARD_ROLES = ['partner', 'master_partner']
 
 export function roleLabel(role: string): string {
   return ROLE_LABELS[role] || role
@@ -62,6 +71,11 @@ export function roleLabel(role: string): string {
  *   retailer           -> nobody
  */
 export function canOnboard(creatorRole: string, targetRole: string): boolean {
+  // Only admin may onboard independent partners / master partners.
+  if (INDEPENDENT_ONBOARD_ROLES.includes(targetRole)) {
+    return creatorRole === 'admin'
+  }
+
   if (!NETWORK_TIERS.includes(targetRole as NetworkRole)) return false
 
   if (creatorRole === 'admin' || creatorRole === 'finance_executive') {

@@ -57,13 +57,14 @@ import BillPaymentTransactionReport from '@/components/reports/BillPaymentTransa
 import APIDashboardTab from '@/components/partner/APIDashboardTab'
 import BusinessAnalyticsTab from '@/components/partner/BusinessAnalyticsTab'
 import ReconciliationTab from '@/components/partner/ReconciliationTab'
+import MasterPartnerReportTab from '@/components/partner/MasterPartnerReportTab'
 import { Crown, Sparkles, BarChart3, Zap, Scale, Server, Users2 } from 'lucide-react'
 import { useToast } from '@/components/Toast'
 import SubPartnersManagement from '@/components/partner/SubPartnersManagement'
 import ExportDropdown, { type ExportFormat } from '@/components/ExportDropdown'
 import { exportTable } from '@/lib/export/table-export'
 
-type TabType = 'dashboard' | 'wallet' | 'services' | 'aeps' | 'bbps' | 'bbps-2' | 'credit-card' | 'credit-card-2' | 'api-payment' | 'payout' | 'settlement-2' | 'transactions' | 'ledger' | 'aeps-ledger' | 'mdr-schemes' | 'reports' | 'settings' | 'pos-machines' | 'subscriptions' | 'api-management' | 'analytics' | 'api-dashboard' | 'reconciliation' | 'sub-partners'
+type TabType = 'dashboard' | 'wallet' | 'services' | 'aeps' | 'bbps' | 'bbps-2' | 'credit-card' | 'credit-card-2' | 'api-payment' | 'payout' | 'settlement-2' | 'transactions' | 'ledger' | 'aeps-ledger' | 'mdr-schemes' | 'reports' | 'settings' | 'pos-machines' | 'subscriptions' | 'api-management' | 'analytics' | 'api-dashboard' | 'reconciliation' | 'sub-partners' | 'master-report'
 
 function PartnerDashboardContent() {
   const { user, loading: authLoading } = useAuth()
@@ -89,7 +90,7 @@ function PartnerDashboardContent() {
   
   const getInitialTab = (): TabType => {
     const tab = searchParams?.get('tab')
-    if (tab && ['dashboard', 'wallet', 'services', 'aeps', 'bbps', 'bbps-2', 'credit-card', 'credit-card-2', 'api-payment', 'payout', 'settlement-2', 'transactions', 'ledger', 'aeps-ledger', 'mdr-schemes', 'reports', 'settings', 'pos-machines', 'subscriptions', 'api-management', 'analytics', 'api-dashboard', 'reconciliation', 'sub-partners'].includes(tab)) {
+    if (tab && ['dashboard', 'wallet', 'services', 'aeps', 'bbps', 'bbps-2', 'credit-card', 'credit-card-2', 'api-payment', 'payout', 'settlement-2', 'transactions', 'ledger', 'aeps-ledger', 'mdr-schemes', 'reports', 'settings', 'pos-machines', 'subscriptions', 'api-management', 'analytics', 'api-dashboard', 'reconciliation', 'sub-partners', 'master-report'].includes(tab)) {
       return tab as TabType
     }
     return 'dashboard'
@@ -116,7 +117,7 @@ function PartnerDashboardContent() {
       // Add a small delay to ensure session state is fully synchronized
       const timer = setTimeout(() => {
         setAuthChecked(true)
-        if (!user || (user.role !== 'partner' && user.role !== 'sub_partner')) {
+        if (!user || (user.role !== 'partner' && user.role !== 'master_partner' && user.role !== 'sub_partner')) {
           console.log('Auth check failed, redirecting to login. User:', user?.role || 'null')
           router.push('/business-login')
         }
@@ -127,7 +128,7 @@ function PartnerDashboardContent() {
 
   useEffect(() => {
     const tab = searchParams?.get('tab')
-    if (tab && ['dashboard', 'wallet', 'services', 'aeps', 'bbps', 'bbps-2', 'credit-card', 'credit-card-2', 'api-payment', 'payout', 'settlement-2', 'transactions', 'ledger', 'aeps-ledger', 'mdr-schemes', 'reports', 'settings', 'pos-machines', 'subscriptions', 'api-management', 'analytics', 'api-dashboard', 'reconciliation', 'sub-partners'].includes(tab)) {
+    if (tab && ['dashboard', 'wallet', 'services', 'aeps', 'bbps', 'bbps-2', 'credit-card', 'credit-card-2', 'api-payment', 'payout', 'settlement-2', 'transactions', 'ledger', 'aeps-ledger', 'mdr-schemes', 'reports', 'settings', 'pos-machines', 'subscriptions', 'api-management', 'analytics', 'api-dashboard', 'reconciliation', 'sub-partners', 'master-report'].includes(tab)) {
       if (tab !== activeTab) {
         setActiveTab(tab as TabType)
       }
@@ -506,6 +507,7 @@ function PartnerDashboardContent() {
           {activeTab === 'api-management' && <APIManagementTab user={user} />}
           {activeTab === 'analytics' && <BusinessAnalyticsTab />}
           {activeTab === 'reconciliation' && <ReconciliationTab />}
+          {activeTab === 'master-report' && <MasterPartnerReportTab />}
           {activeTab === 'settings' && <SettingsTab user={user} />}
           {activeTab === 'sub-partners' && <SubPartnersManagement user={user} />}
         </div>

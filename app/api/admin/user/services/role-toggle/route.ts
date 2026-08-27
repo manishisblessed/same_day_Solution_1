@@ -35,8 +35,8 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
     const { user_role, service_type, enabled } = body
 
-    if (!['retailer', 'distributor', 'master_distributor', 'partner'].includes(user_role)) {
-      return NextResponse.json({ error: 'user_role must be "retailer", "distributor", "master_distributor", or "partner"' }, { status: 400 })
+    if (!['retailer', 'distributor', 'master_distributor', 'partner', 'master_partner'].includes(user_role)) {
+      return NextResponse.json({ error: 'user_role must be "retailer", "distributor", "master_distributor", "partner", or "master_partner"' }, { status: 400 })
     }
     if (!VALID_SERVICES.includes(service_type)) {
       return NextResponse.json({ error: `Invalid service_type. Must be one of: ${VALID_SERVICES.join(', ')}` }, { status: 400 })
@@ -47,13 +47,19 @@ export async function POST(request: NextRequest) {
 
     const tableName = user_role === 'retailer' ? 'retailers' :
                        user_role === 'distributor' ? 'distributors' :
-                       user_role === 'partner' ? 'partners' : 'master_distributors'
+                       (user_role === 'partner' || user_role === 'master_partner') ? 'partners' : 'master_distributors'
     const fieldName = `${service_type}_enabled`
     const ipAddress = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'unknown'
-    // Partners table uses 'id' as primary key, others use 'partner_id'
-    const idColumn = user_role === 'partner' ? 'id' : 'partner_id'
+    // Partners table (partner + master_partner) uses 'id' as primary key, others use 'partner_id'
+    const idColumn = (user_role === 'partner' || user_role === 'master_partner') ? 'id' : 'partner_id'
 
-    const { data: allRows } = await supabase.from(tableName).select(idColumn)
+    // partner and master_partner share the partners table — filter so a bulk
+    // toggle for one group never flips the other group's rows.
+    let rowsQuery = supabase.from(tableName).select(idColumn)
+    if (user_role === 'partner') rowsQuery = rowsQuery.eq('is_master_partner', false)
+    else if (user_role === 'master_partner') rowsQuery = rowsQuery.eq('is_master_partner', true)
+
+    const { data: allRows } = await rowsQuery
     const totalInRole = allRows?.length ?? 0
 
     let updatedCount = 0

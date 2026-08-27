@@ -8,6 +8,120 @@ import { getSupabaseAdmin } from '@/lib/supabase/server-admin'
 
 let isRunning = false
 
+/**
+ * Credit the Master Channel Partner (MCP) override for a batch of just-settled
+ * POS transactions belonging to one child partner.
+ *
+ * POS-only: this runs solely inside the partner POS T+1 settlement. The override
+ * is a FLAT ₹ per transaction, resolved from the amount slab of the scheme admin
+ * assigned to this child partner, and is capped at the company's own margin
+ * (the partner MDR fee) on each transaction so company earnings never go negative.
+ * The credit lands in the master partner's SAME partner_wallets balance.
+ *
+ * Idempotent: deterministic batch reference + per-transaction commit flags.
+ * Never throws — logs and returns on any error so partner settlement is unaffected.
+ */
+async function creditMasterPartnerOverride(
+  supabase: any,
+  partnerId: string,
+  settleDate: string,
+  batchHash: string,
+  claimedTxns: any[],
+  sourceTxns: any[],
+  creditPartnerWallet: (
+    partnerId: string,
+    amount: number,
+    referenceId: string,
+    description: string,
+    serviceType?: string
+  ) => Promise<{ success: boolean; wallet_credit_id?: string; error?: string }>
+): Promise<void> {
+  try {
+    const { data: assignment } = await supabase
+      .from('master_partner_partner_assignments')
+      .select('master_partner_id, scheme_id, status, master_partner_schemes!inner(status)')
+      .eq('partner_id', partnerId)
+      .eq('status', 'active')
+      .maybeSingle()
+
+    const masterPartnerId = assignment?.master_partner_id
+    const schemeActive = (assignment as any)?.master_partner_schemes?.status === 'active'
+    if (!assignment || !masterPartnerId || !schemeActive) return
+
+    const { data: slabRows } = await supabase
+      .from('master_partner_scheme_slabs')
+      .select('min_amount, max_amount, charge')
+      .eq('scheme_id', assignment.scheme_id)
+      .eq('is_active', true)
+
+    const slabs = (slabRows || []).map((s: any) => ({
+      min: Number(s.min_amount),
+      max: Number(s.max_amount),
+      charge: Number(s.charge),
+    }))
+    if (slabs.length === 0) return
+
+    const pickCharge = (amount: number): number => {
+      const match = slabs
+        .filter((s: { min: number; max: number; charge: number }) => s.min <= amount && s.max >= amount)
+        .sort((a: { charge: number }, b: { charge: number }) => a.charge - b.charge)[0]
+      return match ? match.charge : 0
+    }
+
+    let overrideTotal = 0
+    const perTxn: { id: string; commission: number }[] = []
+    for (const item of claimedTxns) {
+      const src = sourceTxns.find((t: any) => t.id === item.id)
+      const amt = Number(src?.amount || 0)
+      let commission = pickCharge(amt)
+      // Safety cap: never exceed the company's margin (partner MDR fee) on this txn.
+      const companyMargin = Number(item.mdrAmount || 0)
+      if (commission > companyMargin) commission = companyMargin
+      commission = Math.round(commission * 100) / 100
+      if (commission > 0) {
+        overrideTotal += commission
+        perTxn.push({ id: item.id, commission })
+      }
+    }
+    overrideTotal = Math.round(overrideTotal * 100) / 100
+    if (overrideTotal <= 0 || perTxn.length === 0) return
+
+    const overrideRef = `MCP-T1-${settleDate}-${masterPartnerId}-${batchHash}`
+    const mcpResult = await creditPartnerWallet(
+      masterPartnerId,
+      overrideTotal,
+      overrideRef,
+      `Master Channel Partner POS override - ${perTxn.length} txn(s) from partner ${partnerId}, Total: ₹${overrideTotal.toFixed(2)}`,
+      'pos_master_override'
+    )
+
+    const isDuplicate = /duplicate/i.test(mcpResult.error || '')
+    if (mcpResult.success || isDuplicate) {
+      for (const p of perTxn) {
+        await supabase
+          .from('razorpay_pos_transactions')
+          .update({
+            master_partner_commission_credited: true,
+            master_partner_commission_id: mcpResult.wallet_credit_id || null,
+            master_partner_commission_amount: p.commission,
+          })
+          .eq('id', p.id)
+          .eq('master_partner_commission_credited', false)
+      }
+      console.log(
+        `[Partner T1-Cron] MCP override for master ${masterPartnerId}: ₹${overrideTotal.toFixed(2)} over ${perTxn.length} txn(s) (ref: ${overrideRef})`
+      )
+    } else {
+      console.error(
+        `[Partner T1-Cron] MCP override credit failed for partner ${partnerId} → master ${masterPartnerId}:`,
+        mcpResult.error
+      )
+    }
+  } catch (err: any) {
+    console.error(`[Partner T1-Cron] MCP override error for partner ${partnerId}:`, err?.message)
+  }
+}
+
 async function updateRunStatus(
   status: 'success' | 'partial' | 'failed',
   message: string,
@@ -223,6 +337,20 @@ export async function runPartnerT1Settlement(): Promise<{ processed: number; fai
             }
 
             await resolveSettlementAlerts(supabase, claimedTxns.map((t: any) => t.txn_id), 'partner-t1-settled')
+
+            // --- Master Channel Partner override (POS ONLY) ---
+            // If this partner reports under a master partner, credit the master
+            // partner a flat ₹ per-transaction override resolved from the assigned
+            // scheme's amount slabs. Idempotent via a deterministic batch reference.
+            await creditMasterPartnerOverride(
+              supabase,
+              partnerId,
+              settleDate,
+              batchHash,
+              claimedTxns,
+              transactions,
+              creditPartnerWallet
+            )
 
             totalProcessed += claimedTxns.length
             console.log(

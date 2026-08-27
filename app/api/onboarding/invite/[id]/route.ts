@@ -12,6 +12,13 @@ const ROLE_TABLE: Record<string, string> = {
   master_distributor: 'master_distributors',
   distributor: 'distributors',
   retailer: 'retailers',
+  partner: 'partners',
+  master_partner: 'partners',
+}
+
+// The partners table keys on UUID id; network role tables key on partner_id.
+function idColumnForRole(role: string): string {
+  return role === 'partner' || role === 'master_partner' ? 'id' : 'partner_id'
 }
 
 /**
@@ -83,7 +90,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
             verified_at: now,
             verified_by: user.id,
           })
-          .eq('partner_id', invite.created_partner_id)
+          .eq(idColumnForRole(invite.target_role), invite.created_partner_id)
       }
 
       const ctx = getRequestContext(request)
@@ -108,7 +115,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
         await supabase
           .from(table)
           .update({ status: 'inactive', verification_status: 'rejected', verified_at: now, verified_by: user.id })
-          .eq('partner_id', invite.created_partner_id)
+          .eq(idColumnForRole(invite.target_role), invite.created_partner_id)
       }
 
       return NextResponse.json({ success: true, status: 'rejected' })

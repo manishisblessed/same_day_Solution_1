@@ -30,7 +30,7 @@ export async function GET(request: NextRequest) {
     const access = authorizeSubPartner(user)
     if (!access.ok) return addCorsHeaders(request, access.response)
 
-    if (!['retailer', 'distributor', 'master_distributor', 'partner'].includes(user.role)) {
+    if (!['retailer', 'distributor', 'master_distributor', 'partner', 'master_partner'].includes(user.role)) {
       const response = NextResponse.json(
         { error: 'Forbidden: Invalid user role' },
         { status: 403 }
@@ -50,7 +50,7 @@ export async function GET(request: NextRequest) {
       return addCorsHeaders(request, response)
     }
 
-    if (user.role === 'partner' && walletType === 'primary') {
+    if ((user.role === 'partner' || user.role === 'master_partner') && walletType === 'primary') {
       const { data: partnerBal, error: partnerErr } = await supabase.rpc('get_partner_wallet_balance', {
         p_partner_id: user.partner_id,
       })

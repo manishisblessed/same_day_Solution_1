@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
+import { isPartnerActor } from '@/lib/partner-access'
 import { createClient } from '@supabase/supabase-js'
 
 export const runtime = 'nodejs'
@@ -14,7 +15,7 @@ const PERIOD_DAYS: Record<string, number> = {
 export async function GET(request: NextRequest) {
   try {
     const { user } = await getCurrentUserWithFallback(request)
-    if (!user || (user.role !== 'partner' && user.role !== 'sub_partner') || !user.partner_id) {
+    if (!user || (!isPartnerActor(user.role) && user.role !== 'sub_partner') || !user.partner_id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 

@@ -35,6 +35,8 @@ const ROLE_LABEL: Record<string, string> = {
   master_distributor: 'Master Distributor',
   distributor: 'Distributor',
   retailer: 'Retailer',
+  partner: 'Partner',
+  master_partner: 'Master Partner',
 }
 
 const ACTIVE_LINK_STATUSES = ['pending', 'registered', 'verified', 'resubmit']
@@ -219,6 +221,8 @@ export default function InviteManager({ adminMode = false }: { adminMode?: boole
                 <option value="master_distributor">Master Distributor</option>
                 <option value="distributor">Distributor</option>
                 <option value="retailer">Retailer</option>
+                <option value="partner">Partner</option>
+                <option value="master_partner">Master Partner</option>
               </select>
             </div>
           ) : (

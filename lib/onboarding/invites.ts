@@ -124,7 +124,7 @@ export async function findDuplicateIdentity(
   args: { email: string; phone: string; excludeInviteId?: string }
 ): Promise<string | null> {
   const email = args.email.toLowerCase()
-  const roleTables = ['retailers', 'distributors', 'master_distributors'] as const
+  const roleTables = ['retailers', 'distributors', 'master_distributors', 'partners'] as const
 
   for (const table of roleTables) {
     const { data } = await supabase

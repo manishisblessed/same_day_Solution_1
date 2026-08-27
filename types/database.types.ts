@@ -4,6 +4,7 @@ export type UserRole =
   | 'master_distributor'
   | 'admin'
   | 'partner'
+  | 'master_partner'
   | 'sub_partner'
   | 'finance_executive'
 

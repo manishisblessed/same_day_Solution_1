@@ -20,7 +20,7 @@ import {
   Building2, Briefcase, Phone, Mail, Clock, Percent, IndianRupee,
   FileBarChart, Printer, Sheet, BadgeIndianRupee, Banknote,
   CheckCircle2, AlertTriangle, XCircle, Zap, Globe, Smartphone, FileDown,
-  Shield, ShieldCheck, Loader2, CheckCircle, ChevronDown, ChevronUp, Info, Ban
+  Shield, ShieldCheck, Loader2, CheckCircle, ChevronDown, ChevronUp, Info, Ban, Network
 } from 'lucide-react'
 import TransactionsTable from '@/components/TransactionsTable'
 import POSTransactionsTable from '@/components/POSTransactionsTable'
@@ -2368,7 +2368,7 @@ function ServicesManagementTab() {
   const [allUsers, setAllUsers] = useState<any[]>([])
   const [usersLoading, setUsersLoading] = useState(false)
   const [userSearch, setUserSearch] = useState('')
-  const [roleFilter, setRoleFilter] = useState<'all' | 'retailer' | 'distributor' | 'master_distributor' | 'partner'>('all')
+  const [roleFilter, setRoleFilter] = useState<'all' | 'retailer' | 'distributor' | 'master_distributor' | 'partner' | 'master_partner'>('all')
   const [serviceFilter, setServiceFilter] = useState<string>('all')
   const [selectedUsers, setSelectedUsers] = useState<Set<string>>(new Set())
   const [userPage, setUserPage] = useState(1)
@@ -2465,7 +2465,7 @@ function ServicesManagementTab() {
         retailer: 'partner_id, name, email, phone, business_name, status, created_at' + retailerKycFields,
         distributor: 'partner_id, name, email, phone, business_name, status, created_at, master_distributor_id' + commonExtra,
         master_distributor: 'partner_id, name, email, phone, business_name, status, created_at' + commonExtra,
-        partner: 'id, name, email, phone, business_name, status, created_at',
+        partner: 'id, name, email, phone, business_name, status, created_at, is_master_partner',
       }
 
       const defaultServices: Record<string, boolean> = {}
@@ -2476,7 +2476,10 @@ function ServicesManagementTab() {
         const roleBase = baseFieldsByRole[role] || baseFieldsByRole.retailer
         const fields = `${roleBase}, ${allFieldsList}`
         const fallbackFields = roleBase
-        
+        // Partners and master partners share the partners table — derive the role
+        // per-row from is_master_partner so each appears as a distinct group.
+        const resolveRole = (u: any) => (isPartner && u?.is_master_partner ? 'master_partner' : role)
+
         const { data, error } = await secureDb.from(table).select(fields).order('created_at', { ascending: false })
         if (error) {
           console.warn(`Service columns not found in ${table}, fetching without them:`, error.message)
@@ -2484,13 +2487,13 @@ function ServicesManagementTab() {
           return (fallbackData || []).map(u => {
             // Partners use 'id' instead of 'partner_id', normalize to partner_id for consistency
             const partnerId = isPartner ? (u as any).id : (u as any).partner_id
-            return { ...u, partner_id: partnerId, role, ...defaultServices }
+            return { ...u, partner_id: partnerId, role: resolveRole(u), ...defaultServices }
           })
         }
         return (data || []).map(u => {
           // Partners use 'id' instead of 'partner_id', normalize to partner_id for consistency
           const partnerId = isPartner ? (u as any).id : (u as any).partner_id
-          const user = { ...u, partner_id: partnerId, role }
+          const user = { ...u, partner_id: partnerId, role: resolveRole(u) }
           ALL_SERVICES.forEach(s => {
             const field = `${s.key}_enabled`
             user[field] = u[field] ?? false
@@ -2645,12 +2648,14 @@ function ServicesManagementTab() {
       distributor: { total: 0, services: {} },
       master_distributor: { total: 0, services: {} },
       partner: { total: 0, services: {} },
+      master_partner: { total: 0, services: {} },
     }
     ALL_SERVICES.forEach(s => {
       counts.retailer.services[s.key] = 0
       counts.distributor.services[s.key] = 0
       counts.master_distributor.services[s.key] = 0
       counts.partner.services[s.key] = 0
+      counts.master_partner.services[s.key] = 0
     })
     allUsers.forEach(u => {
       if (counts[u.role]) {
@@ -2686,6 +2691,7 @@ function ServicesManagementTab() {
       case 'distributor': return 'Distributor'
       case 'master_distributor': return 'Master Distributor'
       case 'partner': return 'Partner'
+      case 'master_partner': return 'Master Partner'
       default: return role
     }
   }
@@ -2696,6 +2702,7 @@ function ServicesManagementTab() {
       case 'distributor': return 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400'
       case 'master_distributor': return 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400'
       case 'partner': return 'bg-pink-100 text-pink-800 dark:bg-pink-900/30 dark:text-pink-400'
+      case 'master_partner': return 'bg-fuchsia-100 text-fuchsia-800 dark:bg-fuchsia-900/30 dark:text-fuchsia-400'
       default: return 'bg-gray-100 text-gray-800'
     }
   }
@@ -2785,15 +2792,16 @@ function ServicesManagementTab() {
               Role-wise Service Activation
             </h3>
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
-              {(['retailer', 'distributor', 'master_distributor', 'partner'] as const).map((role) => {
+              {(['retailer', 'distributor', 'master_distributor', 'partner', 'master_partner'] as const).map((role) => {
                 const counts = roleCounts[role]
-                const roleIcons: Record<string, any> = { retailer: Users, distributor: Package, master_distributor: Crown, partner: Shield }
+                const roleIcons: Record<string, any> = { retailer: Users, distributor: Package, master_distributor: Crown, partner: Shield, master_partner: Network }
                 const RoleIcon = roleIcons[role]
                 const gradients: Record<string, string> = {
                   retailer: 'from-blue-500 to-blue-600',
                   distributor: 'from-purple-500 to-purple-600',
                   master_distributor: 'from-amber-500 to-amber-600',
                   partner: 'from-pink-500 to-pink-600',
+                  master_partner: 'from-fuchsia-500 to-fuchsia-600',
                 }
                 return (
                   <motion.div
@@ -2897,6 +2905,7 @@ function ServicesManagementTab() {
                   <option value="distributor">Distributors</option>
                   <option value="master_distributor">Master Distributors</option>
                   <option value="partner">Partners</option>
+                  <option value="master_partner">Master Partners</option>
                 </select>
                 <select
                   value={serviceFilter}

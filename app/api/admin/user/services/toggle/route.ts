@@ -51,7 +51,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'user_id, user_role, service_type, and enabled are required' }, { status: 400 })
     }
 
-    if (!['retailer', 'distributor', 'master_distributor', 'partner'].includes(user_role)) {
+    if (!['retailer', 'distributor', 'master_distributor', 'partner', 'master_partner'].includes(user_role)) {
       return NextResponse.json({ error: 'Invalid user_role' }, { status: 400 })
     }
 
@@ -63,10 +63,10 @@ export async function POST(request: NextRequest) {
 
     const tableName = user_role === 'retailer' ? 'retailers' :
                      user_role === 'distributor' ? 'distributors' :
-                     user_role === 'partner' ? 'partners' : 'master_distributors'
+                     (user_role === 'partner' || user_role === 'master_partner') ? 'partners' : 'master_distributors'
     const fieldName = getFieldName(service_type)
-    // Partners table uses 'id' as primary key, others use 'partner_id'
-    const idColumn = user_role === 'partner' ? 'id' : 'partner_id'
+    // Partners table (partner + master_partner) uses 'id' as primary key, others use 'partner_id'
+    const idColumn = (user_role === 'partner' || user_role === 'master_partner') ? 'id' : 'partner_id'
 
     const { data: user, error: fetchError } = await supabase
       .from(tableName)

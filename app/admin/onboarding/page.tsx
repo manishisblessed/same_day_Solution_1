@@ -13,7 +13,8 @@ export default function AdminOnboardingPage() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
 
   useEffect(() => {
-    if (!loading && user && user.role !== 'admin' && user.role !== 'finance_executive') {
+    // Onboarding is admin-only. Finance has no rights to onboard any user.
+    if (!loading && user && user.role !== 'admin') {
       router.replace('/admin')
     }
   }, [user, loading, router])

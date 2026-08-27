@@ -6,6 +6,19 @@ export type PartnerAccessResult =
   | { ok: false; response: NextResponse }
 
 /**
+ * True for account types that own a partner wallet and consume partner services:
+ * a normal `partner` and a `master_partner` (Master Channel Partner). A master
+ * partner is a partners row (is_master_partner=true) that reuses the entire
+ * partner stack, so every partner service route must treat it like a partner.
+ *
+ * Note: `sub_partner` is intentionally excluded here — it is normalized to
+ * `partner` by authorizeSubPartner() only where a route opts in.
+ */
+export function isPartnerActor(role?: string | null): boolean {
+  return role === 'partner' || role === 'master_partner'
+}
+
+/**
  * Authorize a partner-scoped endpoint for both `partner` and `sub_partner` roles.
  *
  * Sub-partners share their parent partner's `partner_id`, wallet, and TPIN. Once authorized

@@ -18,7 +18,7 @@ function getSupabaseAdmin(): SupabaseClient {
 export async function POST(request: NextRequest) {
   try {
     const { user } = await getCurrentUserWithFallback(request)
-    if (!user || user.role !== 'partner') {
+    if (!user || (user.role !== 'partner' && user.role !== 'master_partner')) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 })
     }
 

@@ -16,7 +16,7 @@ export async function GET(request: NextRequest) {
     const access = authorizeSubPartner(user, 'subscriptions')
     if (!access.ok) return access.response
 
-    const role = user.role === 'partner' ? 'retailer' : user.role
+    const role = (user.role === 'partner' || user.role === 'master_partner') ? 'retailer' : user.role
     if (!['retailer', 'distributor', 'master_distributor'].includes(role)) {
       return NextResponse.json({ error: 'Access denied' }, { status: 403 })
     }

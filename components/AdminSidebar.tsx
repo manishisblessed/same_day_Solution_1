@@ -8,7 +8,7 @@ import {
   Settings,
   Activity, X, Menu, CreditCard, Receipt, CheckCircle2, ArrowUpCircle,
   Building2, FileBarChart, Layers, Key, Timer, History, Repeat, ScrollText, Wallet,
-  Fingerprint, Server, TrendingUp, Scale, BarChart3, RotateCcw, UserPlus, CalendarDays
+  Fingerprint, Server, TrendingUp, Scale, BarChart3, RotateCcw, UserPlus, CalendarDays, Network
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { supabase } from '@/lib/supabase/client'
@@ -41,6 +41,7 @@ const sidebarItems: SidebarItem[] = [
   { id: 'pos-tracking-report', label: 'POS Tracking Report', icon: FileBarChart, href: '/admin?tab=pos-tracking-report' },
   { id: 'pos-rental-report', label: 'POS Rental Report', icon: TrendingUp, href: '/admin/pos-rental-report' },
   { id: 'pos-partner-api', label: 'POS Partner API', icon: Key, href: '/admin?tab=pos-partner-api' },
+  { id: 'master-partners', label: 'Master Partners', icon: Network, href: '/admin/master-partners' },
   { id: 'services', label: 'Services', icon: Activity, href: '/admin?tab=services' },
   { id: 'aeps', label: 'AEPS Management', icon: Fingerprint, href: '/admin?tab=aeps' },
   { id: 'reports', label: 'Reports & Analytics', icon: FileBarChart, href: '/admin?tab=reports' },

@@ -15,11 +15,19 @@ const ROLE_TABLE: Record<string, string> = {
   master_distributor: 'master_distributors',
   distributor: 'distributors',
   retailer: 'retailers',
+  partner: 'partners',
+  master_partner: 'partners',
 }
 const ROLE_PREFIX: Record<string, string> = {
   master_distributor: 'MD',
   distributor: 'DIS',
   retailer: 'RET',
+}
+
+// partner / master_partner live in the `partners` table, which keys on a UUID
+// `id` (no string partner_id column) and needs is_master_partner set.
+function isPartnersRole(role: string): boolean {
+  return role === 'partner' || role === 'master_partner'
 }
 
 function partnerIdFor(role: string): string {
@@ -121,7 +129,7 @@ export async function POST(request: NextRequest, { params }: { params: { token: 
     const shopName = String(body.shopName || byType.get('BUSINESS_NAME')?.verified_name || '').trim()
 
     // ── Duplicate identity guard across role tables ──
-    const roleTables = ['retailers', 'distributors', 'master_distributors'] as const
+    const roleTables = ['retailers', 'distributors', 'master_distributors', 'partners'] as const
     for (const table of roleTables) {
       if (pan?.pan) {
         const { data: dupPan } = await supabase.from(table).select('id').eq('pan_number', pan.pan).limit(1)
@@ -143,7 +151,10 @@ export async function POST(request: NextRequest, { params }: { params: { token: 
 
     // ── Build partner row ──
     const table = ROLE_TABLE[invite.target_role]
-    const partnerId = partnerIdFor(invite.target_role)
+    const partnersTable = isPartnersRole(invite.target_role)
+    // Network roles use a human string partner_id; the partners table uses a
+    // DB-generated UUID id, so we leave partner_id off and read id back post-insert.
+    const partnerId = partnersTable ? '' : partnerIdFor(invite.target_role)
     const now = new Date().toISOString()
 
     const row: Record<string, any> = {
@@ -195,6 +206,16 @@ export async function POST(request: NextRequest, { params }: { params: { token: 
     if (invite.target_role !== 'retailer') delete row.distributor_id
     if (invite.target_role === 'master_distributor') delete row.master_distributor_id
 
+    // partners table: UUID id (drop the empty partner_id), no MD/DT parent
+    // columns, business_name is NOT NULL, and a master partner flags itself.
+    if (partnersTable) {
+      delete row.partner_id
+      delete row.master_distributor_id
+      delete row.distributor_id
+      row.business_name = row.business_name || name
+      row.is_master_partner = invite.target_role === 'master_partner'
+    }
+
     const { data: partner, error: insErr } = await supabase.from(table).insert([row]).select().single()
     if (insErr) {
       // Rollback the auth user.
@@ -211,6 +232,9 @@ export async function POST(request: NextRequest, { params }: { params: { token: 
       )
     }
 
+    // Network roles record the string partner_id; partners record the UUID id.
+    const createdPartnerId = partnersTable ? partner.id : partnerId
+
     // ── Backfill invite + verifications ──
     const allVerified =
       has('PAN_360') && has('AADHAAR_DIGILOCKER') && has('BANK_PENNY_DROP') && has('DOCUMENT_SELFIE', 'Uploaded')
@@ -222,7 +246,7 @@ export async function POST(request: NextRequest, { params }: { params: { token: 
         status: newStatus,
         registered_at: now,
         verified_at: allVerified ? now : null,
-        created_partner_id: partnerId,
+        created_partner_id: createdPartnerId,
         name,
         updated_at: now,
       })
@@ -230,13 +254,13 @@ export async function POST(request: NextRequest, { params }: { params: { token: 
 
     await supabase
       .from(VERIFICATION_TABLE)
-      .update({ created_partner_id: partnerId })
+      .update({ created_partner_id: createdPartnerId })
       .eq('invite_id', invite.id)
 
     return NextResponse.json({
       success: true,
       status: newStatus,
-      partner_id: partnerId,
+      partner_id: createdPartnerId,
       message: 'Registration submitted. Your account is pending admin approval.',
     })
   } catch (error: any) {

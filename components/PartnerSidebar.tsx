@@ -21,6 +21,8 @@ interface SidebarItem {
   href: string
   badge?: number
   vip?: boolean
+  /** Only shown to a Master Channel Partner (role master_partner). */
+  masterOnly?: boolean
 }
 
 const sidebarItems: SidebarItem[] = [
@@ -45,6 +47,7 @@ const sidebarItems: SidebarItem[] = [
   { id: 'api-dashboard', label: 'API Dashboard', icon: Server, href: '/dashboard/partner?tab=api-dashboard' },
   { id: 'analytics', label: 'Business Analytics', icon: BarChart3, href: '/dashboard/partner?tab=analytics' },
   { id: 'reconciliation', label: 'Reconciliation', icon: Scale, href: '/dashboard/partner?tab=reconciliation' },
+  { id: 'master-report', label: 'My Partners', icon: Users2, href: '/dashboard/partner?tab=master-report', masterOnly: true },
   // VIP Features
   { id: 'api-management', label: 'API Management', icon: Key, href: '/dashboard/partner?tab=api-management', vip: true },
   { id: 'sub-partners', label: 'Team', icon: Users2, href: '/dashboard/partner?tab=sub-partners', vip: true },
@@ -95,7 +98,7 @@ export default function PartnerSidebar({ isOpen, onClose }: { isOpen: boolean; o
     fetchServices(user.partner_id, user.role)
     retryCount.current = 0
     // Check if sub-partners feature is enabled for this partner
-    if (user.role === 'partner' || user.role === 'sub_partner') {
+    if (user.role === 'partner' || user.role === 'master_partner' || user.role === 'sub_partner') {
       apiFetch('/api/partner/sub-partners')
         .then(r => r.json())
         .then(d => { if (d.success) setSubPartnersEnabled(d.enabled === true) })
@@ -129,6 +132,11 @@ export default function PartnerSidebar({ isOpen, onClose }: { isOpen: boolean; o
     // Hide Team tab if sub-partners feature is not enabled for this partner
     if (!subPartnersEnabled) {
       items = items.filter((item) => item.id !== 'sub-partners')
+    }
+
+    // Master-partner-only tabs (e.g. the read-only "My Partners" reports).
+    if (user?.role !== 'master_partner') {
+      items = items.filter((item) => !item.masterOnly)
     }
 
     // Sub-partners: filter by their permissions

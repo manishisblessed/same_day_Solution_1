@@ -18,9 +18,9 @@ function getSupabaseAdmin(): SupabaseClient {
 async function getPartnerUser(request: NextRequest) {
   const { user } = await getCurrentUserWithFallback(request)
   if (!user) return null
-  // Only full partners (not sub-partners) can manage sub-partners,
+  // Only full partners / master partners (not sub-partners) can manage sub-partners,
   // unless the sub-partner has the 'sub-partners' permission
-  if (user.role === 'partner') return user
+  if (user.role === 'partner' || user.role === 'master_partner') return user
   if (user.role === 'sub_partner' && user.permissions?.['sub-partners']) return user
   return null
 }
@@ -69,8 +69,8 @@ export async function POST(request: NextRequest) {
   try {
     const user = await getPartnerUser(request)
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 403 })
-    // Only full partners can create sub-partners
-    if (user.role !== 'partner') {
+    // Only full partners / master partners can create sub-partners
+    if (user.role !== 'partner' && user.role !== 'master_partner') {
       return NextResponse.json({ error: 'Only the main partner account can create sub-partners' }, { status: 403 })
     }
 
