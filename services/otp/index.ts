@@ -11,6 +11,7 @@
 import crypto from 'crypto'
 import { getEnv } from '@/lib/env'
 import { sendEmail, isEmailConfigured } from '@/services/email'
+import { renderOtpEmail } from '@/lib/email/templates'
 
 export type OtpChannel = 'SMS' | 'EMAIL'
 
@@ -132,10 +133,7 @@ export async function sendOtp(
   const sent = await sendEmail({
     to: destination,
     subject: 'Your Same Day Solution verification code',
-    html: `<p>Hi${context.name ? ` ${context.name}` : ''},</p>
-      <p>Your onboarding email verification code is:</p>
-      <p style="font-size:28px;font-weight:700;letter-spacing:4px">${code}</p>
-      <p>This code expires in 10 minutes.</p>`,
+    html: renderOtpEmail({ code, name: context.name }),
   })
   return { ok: sent.ok, provider: 'resend', emailCode: code, error: sent.error }
 }

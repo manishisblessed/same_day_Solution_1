@@ -10,6 +10,9 @@ import {
   findDuplicateIdentity,
 } from '@/lib/onboarding/invites'
 import { sendEmail } from '@/services/email'
+import { renderInviteEmail } from '@/lib/email/templates'
+import { sendSms, inviteSmsBody } from '@/services/sms'
+import { computeOnboardingProgress } from '@/lib/onboarding/progress'
 import { sendOtp } from '@/services/otp'
 import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger'
 
@@ -176,34 +179,50 @@ export async function POST(request: NextRequest) {
 
     const link = inviteLink(token)
 
-    // ── Notify invitee (email + SMS). Best-effort. ──
-    sendEmail({
-      to: email,
-      subject: `You're invited to join Same Day Solution as a ${roleLabel(targetRole)}`,
-      html: `<p>Hi${name ? ` ${name}` : ''},</p>
-        <p>${user.name || 'Your upline'} has invited you to onboard as a <strong>${roleLabel(targetRole)}</strong>.</p>
-        <p>Click the link below to complete your KYC and registration:</p>
-        <p><a href="${link}" style="background:#4F46E5;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none">Start Onboarding</a></p>
-        <p>Or copy this link: ${link}</p>
-        <p>This link expires on ${new Date(insert.expires_at).toLocaleDateString('en-IN')}.</p>`,
-    }).catch(() => {})
+    // ── Notify invitee over the chosen channels (default: both). ──
+    const channels: string[] = Array.isArray(body.channels) && body.channels.length
+      ? body.channels.map((c: any) => String(c).toLowerCase())
+      : ['email', 'sms']
+    const rl = roleLabel(targetRole)
+    let emailSent = false
+    let smsSent = false
 
-    // Fire an SMS invite (mock/twilio) — non-blocking. We don't verify here.
-    if (needsUplineApproval(user.role)) {
-      // no-op: approval happens later in the wizard
+    if (channels.includes('email')) {
+      const r = await sendEmail({
+        to: email,
+        subject: `You're invited to join Same Day Solution as a ${rl}`,
+        html: renderInviteEmail({
+          name,
+          inviterName: user.name,
+          roleLabel: rl,
+          link,
+          expiresOn: new Date(insert.expires_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }),
+        }),
+      }).catch(() => ({ ok: false }))
+      emailSent = !!r.ok
+    }
+
+    if (channels.includes('sms')) {
+      const r = await sendSms({
+        to: phone,
+        body: inviteSmsBody({ inviterName: user.name, roleLabel: rl, link }),
+      }).catch(() => ({ ok: false }))
+      smsSent = !!r.ok
     }
 
     const ctx = getRequestContext(request)
     logActivityFromContext(ctx, user, {
       activity_type: 'onboarding_invite_create',
       activity_category: 'admin',
-      activity_description: `Invited ${roleLabel(targetRole)} ${email}`,
+      activity_description: `Invited ${rl} ${email} (email:${emailSent} sms:${smsSent})`,
     }).catch(() => {})
 
     return NextResponse.json({
       success: true,
       invite,
       link,
+      emailSent,
+      smsSent,
       requiresUplineApproval: needsUplineApproval(user.role),
     })
   } catch (error: any) {
@@ -263,12 +282,39 @@ export async function GET(request: NextRequest) {
     const hasMore = rows.length > pageSize
     const pageRows = hasMore ? rows.slice(0, pageSize) : rows
 
+    // Batch-load verifications for this page so we can show each applicant's
+    // live progress (which step they've reached) without an N+1 query.
+    const ids = pageRows.map((r: any) => r.id)
+    const verifByInvite = new Map<string, Record<string, string>>()
+    if (ids.length > 0) {
+      const { data: verifs } = await supabase
+        .from('onboarding_verifications')
+        .select('invite_id, type, status')
+        .in('invite_id', ids)
+      for (const v of verifs || []) {
+        const m = verifByInvite.get(v.invite_id) || {}
+        m[v.type] = v.status
+        verifByInvite.set(v.invite_id, m)
+      }
+    }
+
     // Statuses where the onboarding link is still actionable by the invitee.
     const ACTIVE_LINK_STATUSES = ['pending', 'registered', 'verified', 'resubmit']
-    const invites = pageRows.map((inv: any) => ({
-      ...inv,
-      onboardingLink: inv.token && ACTIVE_LINK_STATUSES.includes(inv.status) ? inviteLink(inv.token) : null,
-    }))
+    const invites = pageRows.map((inv: any) => {
+      const prog = computeOnboardingProgress(inv, verifByInvite.get(inv.id) || {}, inv.target_role)
+      return {
+        ...inv,
+        onboardingLink: inv.token && ACTIVE_LINK_STATUSES.includes(inv.status) ? inviteLink(inv.token) : null,
+        progress: {
+          currentLabel: inv.status === 'approved' ? 'Approved' : prog.currentLabel,
+          currentKey: prog.currentKey,
+          percent: inv.status === 'approved' ? 100 : prog.percent,
+          completedCount: prog.completedCount,
+          totalCount: prog.totalCount,
+          complete: prog.complete,
+        },
+      }
+    })
 
     return NextResponse.json({
       success: true,

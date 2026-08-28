@@ -3,11 +3,16 @@
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { AnimatePresence, motion } from 'framer-motion'
-import { Check, Loader2, Lock, Mail, PartyPopper, ShieldCheck, Smartphone } from 'lucide-react'
+import {
+  Check, Loader2, Lock, Mail, PartyPopper, ShieldCheck, Smartphone,
+  Sparkles, CreditCard, Landmark, Store, Camera, FileText, FileSignature,
+  Rocket, Clock, ShieldCheck as ShieldIcon, HelpCircle,
+} from 'lucide-react'
 import SelfieCapture from '@/components/onboarding/SelfieCapture'
 import LivenessVideoCapture from '@/components/onboarding/LivenessVideoCapture'
 import DocumentUploadField from '@/components/onboarding/DocumentUploadField'
 import { getApiUrl } from '@/lib/api-client'
+import { computeOnboardingProgress } from '@/lib/onboarding/progress'
 
 interface DocSpec {
   type: string
@@ -47,6 +52,12 @@ const STEPS = [
 ]
 
 const DIGILOCKER_STORAGE_KEY = 'onboard_digilocker'
+
+// Icon per step (aligned 1:1 with STEPS).
+const STEP_ICONS = [
+  Sparkles, Smartphone, Mail, ShieldCheck, CreditCard, Landmark,
+  Store, Camera, FileText, FileSignature, Rocket,
+]
 
 // ── Motion primitives ───────────────────────────────────────────────────────
 
@@ -149,6 +160,7 @@ function OnboardWizard() {
   const [direction, setDirection] = useState(1)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
+  const resumedRef = useRef(false)
 
   // Restore the token after the DigiLocker round-trip (the redirect URL must
   // not carry a query string, so the token is stashed in localStorage).
@@ -204,11 +216,22 @@ function OnboardWizard() {
     }
     setFatal('')
     reload()
-      .then(() => {
+      .then((data) => {
+        if (resumedRef.current) return
+        resumedRef.current = true
         // Returning from DigiLocker? Jump straight back to the Aadhaar step.
         try {
-          if (localStorage.getItem(DIGILOCKER_STORAGE_KEY)) setStep(3)
+          if (localStorage.getItem(DIGILOCKER_STORAGE_KEY)) {
+            setStep(3)
+            return
+          }
         } catch {}
+        // Resume at the first step the applicant hasn't completed yet, so a
+        // refresh never re-asks for a mobile/email/Aadhaar they already passed.
+        const vmap: Record<string, string> = {}
+        for (const it of data?.verifications || []) vmap[it.type] = it.status
+        const prog = computeOnboardingProgress(data?.invite || {}, vmap, data?.invite?.target_role)
+        setStep(prog.currentIndex)
       })
       .catch((e) => setFatal(e.message))
       .finally(() => setLoading(false))
@@ -275,13 +298,27 @@ function OnboardWizard() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50">
-      <div className="mx-auto max-w-2xl px-4 py-8">
-        <motion.div initial={{ opacity: 0, y: -14 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }} className="mb-6 text-center">
-          <h1 className="text-2xl font-bold text-gray-900">Same Day Solution Onboarding</h1>
-          <p className="text-sm text-gray-500">
-            Joining as <span className="font-semibold text-indigo-600">{invite.target_role_label}</span>
-          </p>
+    <div className="relative min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50">
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-40 bg-gradient-to-b from-indigo-600/10 to-transparent" />
+      <div className="relative mx-auto max-w-2xl px-4 py-8">
+        <motion.div
+          initial={{ opacity: 0, y: -14 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5 }}
+          className="mb-5 flex items-center justify-between gap-3"
+        >
+          <div className="flex items-center gap-3">
+            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-600 to-purple-600 text-sm font-black tracking-tight text-white shadow-lg shadow-indigo-600/30">
+              SDS
+            </div>
+            <div>
+              <h1 className="text-lg font-extrabold leading-tight text-gray-900 sm:text-xl">Same Day Solution</h1>
+              <p className="text-xs font-medium text-gray-500">Partner Onboarding</p>
+            </div>
+          </div>
+          <span className="shrink-0 rounded-full bg-indigo-100 px-3 py-1 text-xs font-semibold text-indigo-700 ring-1 ring-indigo-200">
+            {invite.target_role_label}
+          </span>
         </motion.div>
 
         <Stepper current={step} />
@@ -291,7 +328,7 @@ function OnboardWizard() {
           initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.45, delay: 0.1 }}
-          className="mt-6 overflow-hidden rounded-2xl bg-white p-6 shadow-xl ring-1 ring-gray-100"
+          className="mt-5 overflow-hidden rounded-3xl bg-white/90 p-6 shadow-2xl shadow-indigo-900/5 ring-1 ring-gray-100 backdrop-blur sm:p-7"
         >
           <AnimatePresence mode="wait" custom={direction}>
             <motion.div
@@ -316,6 +353,11 @@ function OnboardWizard() {
             </motion.div>
           </AnimatePresence>
         </motion.div>
+
+        <div className="mt-5 flex flex-col items-center gap-1 text-center text-[11px] text-gray-400">
+          <span className="flex items-center gap-1.5"><ShieldIcon className="h-3.5 w-3.5 text-emerald-500" /> Bank-grade encryption · Your data is secure</span>
+          <span className="flex items-center gap-1.5"><HelpCircle className="h-3.5 w-3.5" /> Need help? support@samedaysolution.in</span>
+        </div>
       </div>
     </div>
   )
@@ -328,48 +370,45 @@ function Centered({ children }: { children: React.ReactNode }) {
 }
 
 function Stepper({ current }: { current: number }) {
-  const progress = current / (STEPS.length - 1)
+  const total = STEPS.length
+  const percent = Math.round(((current + 1) / total) * 100)
+  const Icon = STEP_ICONS[current] || Sparkles
+
   return (
-    <div className="relative rounded-xl bg-white/70 p-3 shadow-sm ring-1 ring-gray-100 backdrop-blur">
-      <div className="absolute left-6 right-6 top-[22px] h-0.5 bg-gray-200">
+    <div className="rounded-3xl bg-white/90 p-4 shadow-lg shadow-indigo-900/5 ring-1 ring-gray-100 backdrop-blur">
+      {/* Current step headline */}
+      <div className="flex items-center gap-3">
         <motion.div
-          className="h-full bg-gradient-to-r from-green-500 to-indigo-600"
-          initial={false}
-          animate={{ width: `${progress * 100}%` }}
-          transition={{ type: 'spring', stiffness: 120, damping: 20 }}
-        />
-      </div>
-      <div className="relative flex items-start justify-between overflow-x-auto text-[10px]">
-        {STEPS.map((label, i) => {
-          const done = i < current
-          const active = i === current
-          return (
-            <div key={label} className="flex flex-1 flex-col items-center px-0.5">
-              <motion.div
-                animate={{
-                  scale: active ? 1.2 : 1,
-                  backgroundColor: done ? '#22c55e' : active ? '#4f46e5' : '#e5e7eb',
-                  color: done || active ? '#ffffff' : '#6b7280',
-                }}
-                transition={springPop}
-                className="z-10 flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold shadow-sm"
-              >
-                <AnimatePresence mode="wait" initial={false}>
-                  {done ? (
-                    <motion.span key="check" initial={{ scale: 0, rotate: -90 }} animate={{ scale: 1, rotate: 0 }} transition={springPop}>
-                      <Check className="h-3.5 w-3.5" strokeWidth={3} />
-                    </motion.span>
-                  ) : (
-                    <motion.span key="num" initial={{ scale: 0 }} animate={{ scale: 1 }} transition={springPop}>
-                      {i + 1}
-                    </motion.span>
-                  )}
-                </AnimatePresence>
-              </motion.div>
-              <span className={`mt-1 truncate ${active ? 'font-semibold text-indigo-600' : 'text-gray-400'}`}>{label}</span>
-            </div>
-          )
-        })}
+          key={current}
+          initial={{ scale: 0.6, rotate: -12, opacity: 0 }}
+          animate={{ scale: 1, rotate: 0, opacity: 1 }}
+          transition={springPop}
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-600 to-purple-600 text-white shadow-md shadow-indigo-600/30"
+        >
+          <Icon className="h-5 w-5" />
+        </motion.div>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-baseline justify-between gap-2">
+            <p className="truncate text-sm font-bold text-gray-900">{STEPS[current]}</p>
+            <span className="shrink-0 text-xs font-medium text-gray-400">
+              Step {current + 1} of {total}
+            </span>
+          </div>
+          {/* Segmented progress bar */}
+          <div className="mt-2 flex gap-1">
+            {STEPS.map((label, i) => (
+              <div key={label} className="h-1.5 flex-1 overflow-hidden rounded-full bg-gray-200">
+                <motion.div
+                  className={`h-full rounded-full ${i < current ? 'bg-emerald-500' : 'bg-indigo-600'}`}
+                  initial={false}
+                  animate={{ width: i <= current ? '100%' : '0%' }}
+                  transition={{ duration: 0.4, delay: i === current ? 0.1 : 0 }}
+                />
+              </div>
+            ))}
+          </div>
+          <p className="mt-1.5 text-[11px] font-medium text-indigo-600">{percent}% complete</p>
+        </div>
       </div>
     </div>
   )
@@ -412,29 +451,64 @@ const listStagger = {
 }
 
 function WelcomeStep({ invite, requiresUplineApproval, next }: StepProps) {
-  const items = [
-    'Verify mobile & email',
-    'Complete PAN, Aadhaar & bank KYC',
-    'Capture a live selfie & short video',
-    'Upload documents & sign the declaration',
-    ...(requiresUplineApproval ? ['Your upline approves your declaration'] : []),
+  const features = [
+    { icon: Smartphone, title: 'Verify contact', desc: 'Mobile & email OTP' },
+    { icon: ShieldCheck, title: 'Complete KYC', desc: 'PAN, Aadhaar & bank' },
+    { icon: Camera, title: 'Live capture', desc: 'Selfie & short video' },
+    { icon: FileSignature, title: 'Sign & submit', desc: 'Documents & declaration' },
   ]
   return (
     <div>
-      <h2 className="text-lg font-bold text-gray-900">Welcome{invite.name ? `, ${invite.name}` : ''}!</h2>
-      <p className="mt-2 text-sm text-gray-600">
-        You&apos;ve been invited by <strong>{invite.invited_by_name || 'your upline'}</strong> to onboard as a{' '}
-        <strong>{invite.target_role_label}</strong>. This takes about 10 minutes. Keep your PAN, Aadhaar-linked mobile,
-        and bank details ready.
+      <motion.div
+        initial={{ scale: 0, rotate: -20 }}
+        animate={{ scale: 1, rotate: 0 }}
+        transition={springPop}
+        className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-100 to-purple-100 text-indigo-600"
+      >
+        <Sparkles className="h-7 w-7" />
+      </motion.div>
+      <h2 className="mt-4 text-center text-xl font-extrabold text-gray-900">
+        Welcome{invite.name ? `, ${invite.name.split(' ')[0]}` : ''}!
+      </h2>
+      <p className="mt-2 text-center text-sm text-gray-600">
+        <strong>{invite.invited_by_name || 'Your upline'}</strong> invited you to join as a{' '}
+        <strong className="text-indigo-600">{invite.target_role_label}</strong>. It takes about 10 minutes — keep your
+        PAN, Aadhaar-linked mobile and bank details handy.
       </p>
-      <ul className="mt-4 space-y-1.5 text-sm text-gray-500">
-        {items.map((item, i) => (
-          <motion.li key={item} custom={i} variants={listStagger} initial="hidden" animate="show" className="flex items-center gap-2">
-            <span className="h-1.5 w-1.5 rounded-full bg-indigo-400" />
-            {item}
-          </motion.li>
+
+      <div className="mt-5 grid grid-cols-2 gap-2.5">
+        {features.map((f, i) => (
+          <motion.div
+            key={f.title}
+            custom={i}
+            variants={listStagger}
+            initial="hidden"
+            animate="show"
+            className="rounded-2xl border border-gray-100 bg-gray-50/70 p-3 transition-colors hover:border-indigo-200 hover:bg-indigo-50/50"
+          >
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white text-indigo-600 shadow-sm">
+              <f.icon className="h-4 w-4" />
+            </div>
+            <p className="mt-2 text-sm font-semibold text-gray-800">{f.title}</p>
+            <p className="text-xs text-gray-500">{f.desc}</p>
+          </motion.div>
         ))}
-      </ul>
+      </div>
+
+      <div className="mt-4 flex flex-wrap justify-center gap-2">
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700 ring-1 ring-emerald-100">
+          <Clock className="h-3.5 w-3.5" /> ~10 minutes
+        </span>
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700 ring-1 ring-indigo-100">
+          <ShieldIcon className="h-3.5 w-3.5" /> Bank-grade security
+        </span>
+        {requiresUplineApproval && (
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-3 py-1 text-xs font-medium text-amber-700 ring-1 ring-amber-100">
+            <FileSignature className="h-3.5 w-3.5" /> Upline approval
+          </span>
+        )}
+      </div>
+
       <NavButtons onNext={next} nextLabel="Get Started" />
     </div>
   )

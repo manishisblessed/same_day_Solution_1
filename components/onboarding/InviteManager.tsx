@@ -6,9 +6,18 @@ import { useAuth } from '@/contexts/AuthContext'
 import {
   UserPlus, Send, Loader2, RefreshCw, Pencil, Link2, Share2, Copy,
   CheckCircle2, XCircle, X, Search, ExternalLink, Clock, Eye, FileText,
-  ShieldCheck, Landmark, User, Video as VideoIcon,
+  ShieldCheck, Landmark, User, Video as VideoIcon, Mail, MessageSquare,
 } from 'lucide-react'
 import { useToast } from '@/components/Toast'
+
+interface InviteProgress {
+  currentLabel: string
+  currentKey: string
+  percent: number
+  completedCount: number
+  totalCount: number
+  complete: boolean
+}
 
 interface InviteRow {
   id: string
@@ -20,6 +29,7 @@ interface InviteRow {
   created_at: string
   created_partner_id?: string | null
   onboardingLink?: string | null
+  progress?: InviteProgress
 }
 
 const STATUS_STYLES: Record<string, string> = {
@@ -92,6 +102,22 @@ export default function InviteManager({ adminMode = false }: { adminMode?: boole
   const [creating, setCreating] = useState(false)
   const [err, setErr] = useState('')
   const [lastLink, setLastLink] = useState('')
+  const [channels, setChannels] = useState({ email: true, sms: true })
+
+  const selectedChannels = () => {
+    const c: string[] = []
+    if (channels.email) c.push('email')
+    if (channels.sms) c.push('sms')
+    return c
+  }
+
+  const sentToast = (data: any, prefix: string) => {
+    const parts: string[] = []
+    if (data.emailSent) parts.push('email')
+    if (data.smsSent) parts.push('SMS')
+    if (parts.length) showToast(`${prefix} via ${parts.join(' & ')}`, 'success')
+    else showToast(`${prefix} — link ready, but delivery failed. Copy & share manually.`, 'info')
+  }
 
   const isAdmin = user?.role === 'admin' || user?.role === 'finance_executive'
 
@@ -146,15 +172,20 @@ export default function InviteManager({ adminMode = false }: { adminMode?: boole
       setErr(`Select the ${targetRole === 'distributor' ? 'Master Distributor' : 'Distributor'} to place this partner under.`)
       return
     }
+    const chans = selectedChannels()
+    if (chans.length === 0) {
+      setErr('Choose at least one way to notify the invitee (Email or SMS).')
+      return
+    }
     setCreating(true)
     try {
-      const body: any = { email, phone, name, role: targetRole }
+      const body: any = { email, phone, name, role: targetRole, channels: chans }
       if (isAdmin && targetRole === 'distributor') body.parent_master_distributor_id = parentId
       if (isAdmin && targetRole === 'retailer') body.parent_distributor_id = parentId
       const res = await apiFetch('/api/onboarding/invite', { method: 'POST', body: JSON.stringify(body) })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Failed to create invite')
-      showToast('Invite created and link sent', 'success')
+      sentToast(data, 'Invite sent')
       setLastLink(data.link)
       setEmail('')
       setPhone('')
@@ -173,6 +204,10 @@ export default function InviteManager({ adminMode = false }: { adminMode?: boole
     setBusyId(id)
     try {
       const body: any = { action, ...(extra || {}) }
+      // Resend / reshare go out over both channels by default.
+      if (action === 'resend' || action === 'reshare') {
+        body.channels = ['email', 'sms']
+      }
       if (action === 'reject') {
         const reason = prompt('Reason for rejection?')
         if (reason === null) return
@@ -184,7 +219,7 @@ export default function InviteManager({ adminMode = false }: { adminMode?: boole
 
       if ((action === 'resend' || action === 'reshare') && data.onboardingLink) {
         await copyLink(data.onboardingLink, showToast)
-        showToast(data.emailSent ? 'Fresh link sent & copied' : 'Link generated & copied (email failed)', data.emailSent ? 'success' : 'info')
+        sentToast(data, 'Fresh link sent & copied')
       } else if (action === 'approve') {
         showToast('Invite approved', 'success')
       } else if (action === 'reject') {
@@ -285,10 +320,22 @@ export default function InviteManager({ adminMode = false }: { adminMode?: boole
           </div>
         )}
 
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          <span className="text-xs font-medium text-gray-500">Notify via:</span>
+          <label className="inline-flex cursor-pointer items-center gap-1.5 text-sm text-gray-700 dark:text-gray-300">
+            <input type="checkbox" checked={channels.email} onChange={(e) => setChannels((c) => ({ ...c, email: e.target.checked }))} className="h-4 w-4 accent-indigo-600" />
+            <Mail className="h-4 w-4 text-gray-400" /> Email
+          </label>
+          <label className="inline-flex cursor-pointer items-center gap-1.5 text-sm text-gray-700 dark:text-gray-300">
+            <input type="checkbox" checked={channels.sms} onChange={(e) => setChannels((c) => ({ ...c, sms: e.target.checked }))} className="h-4 w-4 accent-indigo-600" />
+            <MessageSquare className="h-4 w-4 text-gray-400" /> SMS
+          </label>
+        </div>
+
         <button
           onClick={createInvite}
           disabled={creating || !email || !phone || (isAdmin && !role) || (needsParent && !parentId)}
-          className="mt-4 inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-5 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:bg-gray-300"
+          className="mt-3 inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-5 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:bg-gray-300"
         >
           {creating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
           {creating ? 'Sending…' : 'Send Invite'}
@@ -315,6 +362,7 @@ export default function InviteManager({ adminMode = false }: { adminMode?: boole
                   <th className="py-2 pr-3">Name / Email</th>
                   <th className="py-2 pr-3">Role</th>
                   <th className="py-2 pr-3">Status</th>
+                  <th className="py-2 pr-3">Progress</th>
                   <th className="py-2 pr-3">Partner ID</th>
                   <th className="py-2 pl-3 text-right">Actions</th>
                 </tr>
@@ -337,6 +385,24 @@ export default function InviteManager({ adminMode = false }: { adminMode?: boole
                       <td className="py-2.5 pr-3">
                         <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${STATUS_STYLES[inv.status] || 'bg-gray-100'}`}>{inv.status}</span>
                       </td>
+                      <td className="py-2.5 pr-3">
+                        {inv.progress ? (
+                          <div className="min-w-[120px]">
+                            <div className="mb-1 flex items-center justify-between gap-2 text-xs">
+                              <span className="font-medium text-gray-600 dark:text-gray-300">{inv.progress.currentLabel}</span>
+                              <span className="text-gray-400">{inv.progress.percent}%</span>
+                            </div>
+                            <div className="h-1.5 w-full overflow-hidden rounded-full bg-gray-200 dark:bg-gray-700">
+                              <div
+                                className={`h-full rounded-full ${inv.progress.complete ? 'bg-emerald-500' : 'bg-indigo-500'}`}
+                                style={{ width: `${Math.max(4, inv.progress.percent)}%` }}
+                              />
+                            </div>
+                          </div>
+                        ) : (
+                          <span className="text-xs text-gray-300">—</span>
+                        )}
+                      </td>
                       <td className="py-2.5 pr-3 text-xs text-gray-500">{inv.created_partner_id || '—'}</td>
                       <td className="py-2.5 pl-3">
                         <div className="flex items-center justify-end gap-1">
@@ -350,7 +416,7 @@ export default function InviteManager({ adminMode = false }: { adminMode?: boole
                           {canEdit && (
                             <>
                               <IconBtn title="Edit email / phone / name" onClick={() => setEditing(inv)}><Pencil className="h-4 w-4" /></IconBtn>
-                              <IconBtn title="Resend link" tone="indigo" disabled={rowBusy} onClick={() => act(inv.id, 'resend')}>
+                              <IconBtn title="Resend link (Email + SMS)" tone="indigo" disabled={rowBusy} onClick={() => act(inv.id, 'resend')}>
                                 {rowBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
                               </IconBtn>
                             </>
@@ -515,12 +581,25 @@ function KycReviewModal({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4 dark:border-gray-700">
-          <div>
+          <div className="min-w-0 flex-1">
             <h3 className="text-lg font-bold text-gray-900 dark:text-white">KYC Review — {invite.name || invite.email}</h3>
-            <p className="text-xs text-gray-400">
+            <p className="truncate text-xs text-gray-400">
               {ROLE_LABEL[invite.target_role] || invite.target_role} · {invite.email} · {invite.phone}
               {invite.created_partner_id ? ` · Partner ID: ${invite.created_partner_id}` : ''}
             </p>
+            {invite.progress && (
+              <div className="mt-2 flex items-center gap-2">
+                <div className="h-1.5 w-40 max-w-full overflow-hidden rounded-full bg-gray-200 dark:bg-gray-700">
+                  <div
+                    className={`h-full rounded-full ${invite.progress.complete ? 'bg-emerald-500' : 'bg-indigo-500'}`}
+                    style={{ width: `${Math.max(4, invite.progress.percent)}%` }}
+                  />
+                </div>
+                <span className="text-xs font-medium text-gray-500">
+                  {invite.progress.complete ? 'All steps complete' : `Reached: ${invite.progress.currentLabel}`} · {invite.progress.percent}%
+                </span>
+              </div>
+            )}
           </div>
           <button onClick={onClose} className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-gray-700">
             <X className="h-5 w-5" />
@@ -702,7 +781,11 @@ function EditInviteModal({ invite, onClose, onSaved }: { invite: InviteRow; onCl
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Failed to update invite')
-      showToast(data.emailSent ? 'Invite updated & new link sent' : 'Invite updated (email failed — use Resend)', data.emailSent ? 'success' : 'info')
+      const parts = [data.emailSent && 'email', data.smsSent && 'SMS'].filter(Boolean)
+      showToast(
+        parts.length ? `Invite updated & new link sent via ${parts.join(' & ')}` : 'Invite updated — delivery failed, use Resend',
+        parts.length ? 'success' : 'info'
+      )
       onSaved()
     } catch (e: any) {
       setErr(e.message)

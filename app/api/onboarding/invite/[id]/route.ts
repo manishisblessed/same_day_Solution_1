@@ -5,6 +5,8 @@ import { ONBOARD_CAPABLE_ROLES, roleLabel } from '@/lib/hierarchy'
 import { INVITE_TABLE, inviteLink, generateInviteToken, inviteExpiryDate, findDuplicateIdentity } from '@/lib/onboarding/invites'
 import { isS3Configured, presignGetUrl } from '@/services/s3-kyc'
 import { sendEmail } from '@/services/email'
+import { renderInviteEmail } from '@/lib/email/templates'
+import { sendSms, inviteSmsBody } from '@/services/sms'
 import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger'
 
 export const dynamic = 'force-dynamic'
@@ -150,18 +152,36 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
         .eq('id', invite.id)
 
       const link = inviteLink(token)
-      let emailSent = true
-      try {
-        await sendEmail({
+      const channels: string[] = Array.isArray(body.channels) && body.channels.length
+        ? body.channels.map((c: any) => String(c).toLowerCase())
+        : ['email', 'sms']
+      const rl = roleLabel(invite.target_role)
+      let emailSent = false
+      let smsSent = false
+
+      if (channels.includes('email')) {
+        const r = await sendEmail({
           to: invite.email,
           subject: 'Your Same Day Solution onboarding link',
-          html: `<p>Hi${invite.name ? ` ${invite.name}` : ''},</p><p>Here is your onboarding link:</p><p><a href="${link}">${link}</a></p><p>This link expires on ${new Date(inviteExpiryDate()).toLocaleDateString('en-IN')}.</p>`,
-        })
-      } catch {
-        emailSent = false
+          html: renderInviteEmail({
+            name: invite.name,
+            inviterName: invite.invited_by_name,
+            roleLabel: rl,
+            link,
+            expiresOn: new Date(inviteExpiryDate()).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }),
+          }),
+        }).catch(() => ({ ok: false }))
+        emailSent = !!r.ok
+      }
+      if (channels.includes('sms')) {
+        const r = await sendSms({
+          to: invite.phone,
+          body: inviteSmsBody({ inviterName: invite.invited_by_name, roleLabel: rl, link }),
+        }).catch(() => ({ ok: false }))
+        smsSent = !!r.ok
       }
 
-      return NextResponse.json({ success: true, status: nextStatus, link, onboardingLink: link, emailSent })
+      return NextResponse.json({ success: true, status: nextStatus, link, onboardingLink: link, emailSent, smsSent })
     }
 
     if (action === 'update') {
@@ -197,16 +217,28 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
       if (updErr) return NextResponse.json({ error: updErr.message }, { status: 400 })
 
       const link = inviteLink(token)
-      let emailSent = true
-      try {
-        await sendEmail({
-          to: email,
-          subject: `You're invited to join Same Day Solution as a ${roleLabel(invite.target_role)}`,
-          html: `<p>Hi${name ? ` ${name}` : ''},</p><p>Click below to complete your onboarding:</p><p><a href="${link}">${link}</a></p>`,
-        })
-      } catch {
-        emailSent = false
-      }
+      const rl = roleLabel(invite.target_role)
+      let emailSent = false
+      let smsSent = false
+
+      const r = await sendEmail({
+        to: email,
+        subject: `You're invited to join Same Day Solution as a ${rl}`,
+        html: renderInviteEmail({
+          name,
+          inviterName: invite.invited_by_name,
+          roleLabel: rl,
+          link,
+          expiresOn: new Date(inviteExpiryDate()).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }),
+        }),
+      }).catch(() => ({ ok: false }))
+      emailSent = !!r.ok
+
+      const sr = await sendSms({
+        to: phone,
+        body: inviteSmsBody({ inviterName: invite.invited_by_name, roleLabel: rl, link }),
+      }).catch(() => ({ ok: false }))
+      smsSent = !!sr.ok
 
       const ctx = getRequestContext(request)
       logActivityFromContext(ctx, user, {
@@ -215,7 +247,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
         activity_description: `Edited invite contact for ${email}`,
       }).catch(() => {})
 
-      return NextResponse.json({ success: true, status: 'pending', link, onboardingLink: link, emailSent })
+      return NextResponse.json({ success: true, status: 'pending', link, onboardingLink: link, emailSent, smsSent })
     }
 
     return NextResponse.json({ error: 'Unknown action' }, { status: 400 })
