@@ -5,6 +5,7 @@ import { useSearchParams } from 'next/navigation'
 import SelfieCapture from '@/components/onboarding/SelfieCapture'
 import LivenessVideoCapture from '@/components/onboarding/LivenessVideoCapture'
 import DocumentUploadField from '@/components/onboarding/DocumentUploadField'
+import { getApiUrl } from '@/lib/api-client'
 
 interface DocSpec {
   type: string
@@ -59,8 +60,9 @@ function OnboardWizard() {
 
   const api = useCallback(
     async (path: string, options?: RequestInit) => {
-      const res = await fetch(`/api/onboard/${encodeURIComponent(token)}${path}`, {
+      const res = await fetch(getApiUrl(`/api/onboard/${encodeURIComponent(token)}${path}`), {
         ...options,
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json', ...(options?.headers || {}) },
       })
       const data = await res.json().catch(() => ({}))
@@ -595,7 +597,7 @@ function DocumentsStep({ documents, api, reload, next, back, has, err, setErr }:
         {required.map((d) => (
           <div key={d.type}>
             {d.hasTemplate && (
-              <a href={`/api/onboard/${encodeURIComponent(new URLSearchParams(window.location.search).get('token') || '')}/pg-form/download`} className="mb-1 inline-block text-xs text-indigo-600 hover:underline">
+              <a href={getApiUrl(`/api/onboard/${encodeURIComponent(new URLSearchParams(window.location.search).get('token') || '')}/pg-form/download`)} className="mb-1 inline-block text-xs text-indigo-600 hover:underline">
                 Download {d.label} template
               </a>
             )}
@@ -674,7 +676,7 @@ function DeclarationStep({ api, reload, next, back, has, requiresUplineApproval,
       <ErrorBanner err={err} />
       <div className="mt-4 space-y-4">
         <div>
-          <a href={`/api/onboard/${encodeURIComponent(token)}/declaration/download`} className="text-sm text-indigo-600 hover:underline">
+          <a href={getApiUrl(`/api/onboard/${encodeURIComponent(token)}/declaration/download`)} className="text-sm text-indigo-600 hover:underline">
             1. Download self-declaration
           </a>
           <p className="text-xs text-gray-400">Sign it physically, then upload below.</p>
