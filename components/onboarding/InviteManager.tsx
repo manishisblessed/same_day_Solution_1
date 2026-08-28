@@ -5,7 +5,8 @@ import { apiFetch } from '@/lib/api-client'
 import { useAuth } from '@/contexts/AuthContext'
 import {
   UserPlus, Send, Loader2, RefreshCw, Pencil, Link2, Share2, Copy,
-  CheckCircle2, XCircle, X, Search, ExternalLink, Clock,
+  CheckCircle2, XCircle, X, Search, ExternalLink, Clock, Eye, FileText,
+  ShieldCheck, Landmark, User, Video as VideoIcon,
 } from 'lucide-react'
 import { useToast } from '@/components/Toast'
 
@@ -78,6 +79,7 @@ export default function InviteManager({ adminMode = false }: { adminMode?: boole
   const [loading, setLoading] = useState(true)
   const [busyId, setBusyId] = useState<string | null>(null)
   const [editing, setEditing] = useState<InviteRow | null>(null)
+  const [reviewing, setReviewing] = useState<InviteRow | null>(null)
 
   const [role, setRole] = useState('')
   const [email, setEmail] = useState('')
@@ -323,6 +325,7 @@ export default function InviteManager({ adminMode = false }: { adminMode?: boole
                   const canEdit = inv.status === 'pending'
                   const canReshare = inv.status === 'expired' && !inv.created_partner_id
                   const canApprove = adminMode && isAdmin && ['registered', 'verified'].includes(inv.status)
+                  const canReview = adminMode && isAdmin && ['registered', 'verified', 'approved', 'rejected', 'resubmit'].includes(inv.status)
                   return (
                     <tr key={inv.id} className="border-b last:border-0 dark:border-gray-700">
                       <td className="py-2.5 pr-3">
@@ -357,6 +360,9 @@ export default function InviteManager({ adminMode = false }: { adminMode?: boole
                               {rowBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                             </IconBtn>
                           )}
+                          {canReview && (
+                            <IconBtn title="View KYC details" tone="indigo" onClick={() => setReviewing(inv)}><Eye className="h-4 w-4" /></IconBtn>
+                          )}
                           {canApprove && (
                             <>
                               <IconBtn title="Approve" tone="emerald" disabled={rowBusy} onClick={() => act(inv.id, 'approve')}><CheckCircle2 className="h-4 w-4" /></IconBtn>
@@ -387,6 +393,278 @@ export default function InviteManager({ adminMode = false }: { adminMode?: boole
           }}
         />
       )}
+
+      {reviewing && (
+        <KycReviewModal
+          invite={reviewing}
+          canApprove={adminMode && isAdmin && ['registered', 'verified'].includes(reviewing.status)}
+          onAction={async (action) => {
+            await act(reviewing.id, action)
+            setReviewing(null)
+          }}
+          onClose={() => setReviewing(null)}
+        />
+      )}
+    </div>
+  )
+}
+
+// ── Admin KYC review ─────────────────────────────────────────────────────────
+
+interface VerificationRow {
+  type: string
+  status: string
+  verified_name?: string | null
+  response_payload?: Record<string, any> | null
+  media_url?: string | null
+  updated_at?: string
+}
+
+const DOC_LABELS: Record<string, string> = {
+  DOCUMENT_SELFIE: 'Live Selfie',
+  ONBOARD_VIDEO: 'Liveness Video',
+  SELF_DECLARATION: 'Signed Self-Declaration',
+}
+
+function docTitle(type: string): string {
+  if (DOC_LABELS[type]) return DOC_LABELS[type]
+  if (type.startsWith('DOCUMENT_')) {
+    return type
+      .replace('DOCUMENT_', '')
+      .toLowerCase()
+      .replace(/_/g, ' ')
+      .replace(/\b\w/g, (c) => c.toUpperCase())
+  }
+  return type
+}
+
+function KycField({ label, value }: { label: string; value?: string | null }) {
+  if (!value) return null
+  return (
+    <div className="min-w-0">
+      <p className="text-[11px] uppercase tracking-wide text-gray-400">{label}</p>
+      <p className="truncate text-sm font-medium text-gray-800 dark:text-gray-200">{value}</p>
+    </div>
+  )
+}
+
+function StatusPill({ status }: { status: string }) {
+  const ok = status === 'Success' || status === 'Uploaded'
+  return (
+    <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${ok ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
+      {status}
+    </span>
+  )
+}
+
+function KycReviewModal({
+  invite,
+  canApprove,
+  onAction,
+  onClose,
+}: {
+  invite: InviteRow
+  canApprove: boolean
+  onAction: (action: 'approve' | 'reject') => Promise<void>
+  onClose: () => void
+}) {
+  const [loading, setLoading] = useState(true)
+  const [err, setErr] = useState('')
+  const [rows, setRows] = useState<VerificationRow[]>([])
+  const [acting, setActing] = useState<'approve' | 'reject' | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    apiFetch(`/api/onboarding/invite/${invite.id}`)
+      .then((r) => r.json())
+      .then((d) => {
+        if (cancelled) return
+        if (!d.success) throw new Error(d.error || 'Failed to load KYC details')
+        setRows(d.verifications || [])
+      })
+      .catch((e) => !cancelled && setErr(e.message))
+      .finally(() => !cancelled && setLoading(false))
+    return () => {
+      cancelled = true
+    }
+  }, [invite.id])
+
+  const byType = new Map(rows.map((r) => [r.type, r]))
+  const pan = byType.get('PAN_360')
+  const aadhaar = byType.get('AADHAAR_DIGILOCKER')
+  const bank = byType.get('BANK_PENNY_DROP')
+  const gst = byType.get('GST')
+  const business = byType.get('BUSINESS_NAME')
+  const mediaRows = rows.filter(
+    (r) => r.media_url && (r.type.startsWith('DOCUMENT_') || r.type === 'ONBOARD_VIDEO' || r.type === 'SELF_DECLARATION')
+  )
+
+  async function run(action: 'approve' | 'reject') {
+    setActing(action)
+    try {
+      await onAction(action)
+    } finally {
+      setActing(null)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
+      <div
+        className="flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl dark:bg-gray-800"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4 dark:border-gray-700">
+          <div>
+            <h3 className="text-lg font-bold text-gray-900 dark:text-white">KYC Review — {invite.name || invite.email}</h3>
+            <p className="text-xs text-gray-400">
+              {ROLE_LABEL[invite.target_role] || invite.target_role} · {invite.email} · {invite.phone}
+              {invite.created_partner_id ? ` · Partner ID: ${invite.created_partner_id}` : ''}
+            </p>
+          </div>
+          <button onClick={onClose} className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-gray-700">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-6 py-4">
+          {loading ? (
+            <div className="flex items-center justify-center py-16 text-gray-400">
+              <Loader2 className="h-6 w-6 animate-spin" />
+            </div>
+          ) : err ? (
+            <div className="rounded-lg bg-rose-50 px-4 py-3 text-sm text-rose-700">{err}</div>
+          ) : (
+            <div className="space-y-5">
+              {/* Identity verifications */}
+              <section>
+                <h4 className="mb-2 flex items-center gap-1.5 text-sm font-bold text-gray-700 dark:text-gray-300">
+                  <ShieldCheck className="h-4 w-4 text-indigo-600" /> Identity Verifications
+                </h4>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div className="rounded-xl border border-gray-200 p-3 dark:border-gray-700">
+                    <div className="mb-2 flex items-center justify-between">
+                      <span className="flex items-center gap-1.5 text-sm font-semibold text-gray-800 dark:text-gray-200"><User className="h-4 w-4 text-gray-400" /> PAN</span>
+                      {pan ? <StatusPill status={pan.status} /> : <span className="text-xs text-gray-400">Not done</span>}
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <KycField label="PAN" value={pan?.response_payload?.pan} />
+                      <KycField label="Name" value={pan?.verified_name || pan?.response_payload?.registered_name} />
+                      <KycField label="DOB" value={pan?.response_payload?.date_of_birth} />
+                      <KycField label="Aadhaar linked" value={pan?.response_payload?.aadhaar_linked !== undefined ? String(pan.response_payload.aadhaar_linked) : null} />
+                    </div>
+                  </div>
+                  <div className="rounded-xl border border-gray-200 p-3 dark:border-gray-700">
+                    <div className="mb-2 flex items-center justify-between">
+                      <span className="flex items-center gap-1.5 text-sm font-semibold text-gray-800 dark:text-gray-200"><ShieldCheck className="h-4 w-4 text-gray-400" /> Aadhaar (DigiLocker)</span>
+                      {aadhaar ? <StatusPill status={aadhaar.status} /> : <span className="text-xs text-gray-400">Not done</span>}
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <KycField label="Name" value={aadhaar?.response_payload?.name} />
+                      <KycField label="UID" value={aadhaar?.response_payload?.uid} />
+                      <KycField label="DOB" value={aadhaar?.response_payload?.dob} />
+                      <KycField label="Gender" value={aadhaar?.response_payload?.gender} />
+                    </div>
+                    <KycField label="Address" value={aadhaar?.response_payload?.address} />
+                  </div>
+                  <div className="rounded-xl border border-gray-200 p-3 dark:border-gray-700">
+                    <div className="mb-2 flex items-center justify-between">
+                      <span className="flex items-center gap-1.5 text-sm font-semibold text-gray-800 dark:text-gray-200"><Landmark className="h-4 w-4 text-gray-400" /> Bank (Penny Drop)</span>
+                      {bank ? <StatusPill status={bank.status} /> : <span className="text-xs text-gray-400">Not done</span>}
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <KycField label="Name at bank" value={bank?.response_payload?.nameAtBank} />
+                      <KycField label="Account" value={bank?.response_payload?.account_number} />
+                      <KycField label="IFSC" value={bank?.response_payload?.ifsc} />
+                      <KycField label="UTR" value={bank?.response_payload?.utr} />
+                    </div>
+                  </div>
+                  <div className="rounded-xl border border-gray-200 p-3 dark:border-gray-700">
+                    <div className="mb-2 flex items-center justify-between">
+                      <span className="flex items-center gap-1.5 text-sm font-semibold text-gray-800 dark:text-gray-200"><FileText className="h-4 w-4 text-gray-400" /> Business / GST</span>
+                      {gst ? <StatusPill status={gst.status} /> : <span className="text-xs text-gray-400">GST not provided</span>}
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <KycField label="Business name" value={business?.verified_name} />
+                      <KycField label="GSTIN" value={gst?.response_payload?.GSTIN} />
+                      <KycField label="Legal name" value={gst?.response_payload?.legal_name_of_business} />
+                      <KycField label="GST status" value={gst?.response_payload?.gst_in_status} />
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              {/* Media & documents */}
+              <section>
+                <h4 className="mb-2 flex items-center gap-1.5 text-sm font-bold text-gray-700 dark:text-gray-300">
+                  <VideoIcon className="h-4 w-4 text-indigo-600" /> Selfie, Video &amp; Documents
+                </h4>
+                {mediaRows.length === 0 ? (
+                  <p className="rounded-lg bg-gray-50 px-3 py-2 text-sm text-gray-400 dark:bg-gray-900">No media available yet.</p>
+                ) : (
+                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                    {mediaRows.map((m) => {
+                      const url = m.media_url as string
+                      const isVideo = m.type === 'ONBOARD_VIDEO' || /\.(webm|mp4)(\?|$)/i.test(url)
+                      const isPdf = /\.pdf(\?|$)/i.test(url)
+                      return (
+                        <div key={m.type} className="overflow-hidden rounded-xl border border-gray-200 dark:border-gray-700">
+                          <div className="flex h-32 items-center justify-center bg-gray-50 dark:bg-gray-900">
+                            {isVideo ? (
+                              // eslint-disable-next-line jsx-a11y/media-has-caption
+                              <video src={url} controls className="h-full w-full object-contain" preload="metadata" />
+                            ) : isPdf ? (
+                              <a href={url} target="_blank" rel="noopener noreferrer" className="flex flex-col items-center gap-1 text-indigo-600 hover:underline">
+                                <FileText className="h-8 w-8" />
+                                <span className="text-xs font-medium">Open PDF</span>
+                              </a>
+                            ) : (
+                              <a href={url} target="_blank" rel="noopener noreferrer" className="h-full w-full">
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img src={url} alt={docTitle(m.type)} className="h-full w-full object-cover" />
+                              </a>
+                            )}
+                          </div>
+                          <div className="flex items-center justify-between gap-1 px-2 py-1.5">
+                            <span className="truncate text-xs font-medium text-gray-600 dark:text-gray-300">{docTitle(m.type)}</span>
+                            <a href={url} target="_blank" rel="noopener noreferrer" className="shrink-0 text-gray-400 hover:text-indigo-600">
+                              <ExternalLink className="h-3.5 w-3.5" />
+                            </a>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </section>
+            </div>
+          )}
+        </div>
+
+        <div className="flex items-center justify-end gap-2 border-t border-gray-100 px-6 py-4 dark:border-gray-700">
+          <button onClick={onClose} className="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700 dark:border-gray-600 dark:text-gray-300">
+            Close
+          </button>
+          {canApprove && (
+            <>
+              <button
+                onClick={() => run('reject')}
+                disabled={!!acting || loading}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-rose-600 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-700 disabled:bg-gray-300"
+              >
+                {acting === 'reject' ? <Loader2 className="h-4 w-4 animate-spin" /> : <XCircle className="h-4 w-4" />} Reject
+              </button>
+              <button
+                onClick={() => run('approve')}
+                disabled={!!acting || loading}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:bg-gray-300"
+              >
+                {acting === 'approve' ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />} Approve KYC
+              </button>
+            </>
+          )}
+        </div>
+      </div>
     </div>
   )
 }

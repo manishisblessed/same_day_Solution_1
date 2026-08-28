@@ -60,8 +60,13 @@ async function callEkycHub<T>(
     try {
       data = JSON.parse(text)
     } catch {
-      console.error(`[eKYC Hub] Invalid JSON from ${endpoint}:`, text.substring(0, 200))
-      throw new Error('Invalid response from eKYC Hub API')
+      console.error(`[eKYC Hub] Invalid JSON from ${endpoint} (HTTP ${response.status}):`, text.substring(0, 200))
+      if (response.status === 403) {
+        throw new Error(
+          'eKYC Hub rejected the request (403 Forbidden). Check that the server IP is whitelisted in the eKYC Hub panel and that request parameters contain no nested URLs/query strings.'
+        )
+      }
+      throw new Error(`Invalid response from eKYC Hub API (HTTP ${response.status})`)
     }
 
     console.log(`[eKYC Hub] ${endpoint} status:`, (data as any).status)

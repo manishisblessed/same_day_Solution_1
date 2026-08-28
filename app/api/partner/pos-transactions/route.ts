@@ -228,7 +228,15 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    console.log(`[Partner API Txn] partner: ${partner.name} (${partner.id}), TIDs: [${tids.join(',')}], serials: [${serials.join(',')}], windows: ${assignmentHistory.length}`)
+    console.log(`[Partner API Txn] ${JSON.stringify({
+      partner: partner.name,
+      partnerId: partner.id,
+      tidCount: tids.length,
+      serialCount: serials.length,
+      windows: assignmentHistory.length,
+      tids,
+      serials,
+    })}`)
 
     if (tids.length === 0 && serials.length === 0) {
       return NextResponse.json({

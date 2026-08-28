@@ -43,20 +43,22 @@ function encodeRfc3986(str: string): string {
 }
 
 /**
- * Generate a presigned S3 PUT URL valid for `expiresSec` seconds.
- * The client uploads the file with a plain HTTP PUT to this URL.
+ * Generate a presigned S3 URL valid for `expiresSec` seconds.
+ * PUT: the client uploads the file with a plain HTTP PUT to this URL.
+ * GET: short-lived read access for admin KYC review.
  */
-export function presignPutUrl(params: {
+function presignUrl(params: {
+  method: 'PUT' | 'GET'
   key: string
-  contentType: string
   expiresSec?: number
+  useKms?: boolean
 }): string {
   const bucket = getEnv('S3_KYC_BUCKET') as string
   const region = getEnv('AWS_REGION') as string
   const accessKey = getEnv('AWS_ACCESS_KEY_ID') as string
   const secretKey = getEnv('AWS_SECRET_ACCESS_KEY') as string
   const sessionToken = getEnv('AWS_SESSION_TOKEN')
-  const kmsKeyId = getEnv('S3_KMS_KEY_ID')
+  const kmsKeyId = params.useKms ? getEnv('S3_KMS_KEY_ID') : undefined
   const expiresSec = params.expiresSec ?? 300
 
   const host = `${bucket}.s3.${region}.amazonaws.com`
@@ -89,7 +91,7 @@ export function presignPutUrl(params: {
   const canonicalHeaders = `host:${host}\n`
   const payloadHash = 'UNSIGNED-PAYLOAD'
   const canonicalRequest = [
-    'PUT',
+    params.method,
     canonicalUri,
     canonicalQuery,
     canonicalHeaders,
@@ -114,6 +116,19 @@ export function presignPutUrl(params: {
     .digest('hex')
 
   return `https://${host}${canonicalUri}?${canonicalQuery}&X-Amz-Signature=${signature}`
+}
+
+export function presignPutUrl(params: {
+  key: string
+  contentType: string
+  expiresSec?: number
+}): string {
+  return presignUrl({ method: 'PUT', key: params.key, expiresSec: params.expiresSec, useKms: true })
+}
+
+/** Short-lived read URL so admins can review private KYC media. */
+export function presignGetUrl(params: { key: string; expiresSec?: number }): string {
+  return presignUrl({ method: 'GET', key: params.key, expiresSec: params.expiresSec ?? 600 })
 }
 
 /**

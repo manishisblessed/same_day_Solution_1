@@ -3,6 +3,7 @@ import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { getSupabaseAdmin } from '@/lib/supabase/server-admin'
 import { ONBOARD_CAPABLE_ROLES, roleLabel } from '@/lib/hierarchy'
 import { INVITE_TABLE, inviteLink, generateInviteToken, inviteExpiryDate, findDuplicateIdentity } from '@/lib/onboarding/invites'
+import { isS3Configured, presignGetUrl } from '@/services/s3-kyc'
 import { sendEmail } from '@/services/email'
 import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger'
 
@@ -253,7 +254,22 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
       .select('*')
       .eq('invite_id', invite.id)
 
-    return NextResponse.json({ success: true, invite, verifications: verifications || [] })
+    // Attach a viewable media URL: S3 objects get a short-lived signed GET,
+    // Supabase storage rows already carry a public URL.
+    const enriched = (verifications || []).map((v: any) => {
+      const payload = v.response_payload || {}
+      let media_url: string | null = null
+      if (payload.storage === 's3' && payload.key && isS3Configured()) {
+        try {
+          media_url = presignGetUrl({ key: payload.key, expiresSec: 900 })
+        } catch {}
+      } else if (typeof payload.url === 'string' && payload.url) {
+        media_url = payload.url
+      }
+      return { ...v, media_url }
+    })
+
+    return NextResponse.json({ success: true, invite, verifications: enriched })
   } catch (error: any) {
     return NextResponse.json({ error: error.message || 'Failed' }, { status: 500 })
   }

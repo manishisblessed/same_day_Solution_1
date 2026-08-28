@@ -110,9 +110,20 @@ export async function POST(request: NextRequest, { params }: { params: { token: 
       }
 
       case 'AADHAAR_INIT': {
-        const redirect_url = String(body.redirect_url || '').trim()
+        // eKYC Hub's WAF returns 403 for redirect URLs containing a nested
+        // query string, so strip everything after "?" — the wizard restores
+        // its token from localStorage when DigiLocker redirects back.
+        const redirect_url = String(body.redirect_url || '').trim().split('?')[0]
         if (!redirect_url) return NextResponse.json({ error: 'redirect_url required' }, { status: 400 })
         const result = await createDigilockerURL('aadhaar', redirect_url, generateOrderId('DIGILOCKER'))
+        const ok = result.status === 'Success' && !!result.url
+        if (!ok) {
+          console.error('[onboard verify] AADHAAR_INIT failed:', result)
+          return NextResponse.json(
+            { success: false, error: result.message || 'Could not start DigiLocker verification' },
+            { status: 502 }
+          )
+        }
         await upsertVerification(supabase, {
           inviteId: invite.id,
           type: 'AADHAAR_DIGILOCKER_INIT',

@@ -1,7 +1,9 @@
 'use client'
 
-import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
+import { AnimatePresence, motion } from 'framer-motion'
+import { Check, Loader2, Lock, Mail, PartyPopper, ShieldCheck, Smartphone } from 'lucide-react'
 import SelfieCapture from '@/components/onboarding/SelfieCapture'
 import LivenessVideoCapture from '@/components/onboarding/LivenessVideoCapture'
 import DocumentUploadField from '@/components/onboarding/DocumentUploadField'
@@ -44,10 +46,99 @@ const STEPS = [
   'Finish',
 ]
 
+const DIGILOCKER_STORAGE_KEY = 'onboard_digilocker'
+
+// ── Motion primitives ───────────────────────────────────────────────────────
+
+const springPop = { type: 'spring', stiffness: 500, damping: 30 } as const
+
+interface ButtonProps {
+  children: React.ReactNode
+  onClick?: () => void
+  disabled?: boolean
+  busy?: boolean
+  className?: string
+}
+
+function PrimaryButton({ children, disabled, busy, className = '', onClick }: ButtonProps) {
+  return (
+    <motion.button
+      whileHover={disabled || busy ? undefined : { scale: 1.03, y: -1 }}
+      whileTap={disabled || busy ? undefined : { scale: 0.96 }}
+      transition={springPop}
+      disabled={disabled || busy}
+      onClick={onClick}
+      className={`inline-flex items-center justify-center gap-2 rounded-xl px-6 py-2.5 text-sm font-semibold text-white shadow-lg shadow-indigo-600/20 transition-colors ${
+        disabled || busy ? 'bg-gray-300 shadow-none' : 'bg-indigo-600 hover:bg-indigo-700'
+      } ${className}`}
+    >
+      {busy && <Loader2 className="h-4 w-4 animate-spin" />}
+      {children}
+    </motion.button>
+  )
+}
+
+function GhostButton({ children, className = '', onClick }: ButtonProps) {
+  return (
+    <motion.button
+      whileHover={{ scale: 1.04 }}
+      whileTap={{ scale: 0.95 }}
+      transition={springPop}
+      onClick={onClick}
+      className={`rounded-xl px-4 py-2 text-sm font-medium text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-800 ${className}`}
+    >
+      {children}
+    </motion.button>
+  )
+}
+
+function SuccessNote({ children }: { children: React.ReactNode }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, scale: 0.9, y: 6 }}
+      animate={{ opacity: 1, scale: 1, y: 0 }}
+      transition={springPop}
+      className="mt-4 flex items-center gap-2 rounded-xl bg-green-50 px-4 py-3 text-sm font-medium text-green-700 ring-1 ring-green-200"
+    >
+      <motion.span
+        initial={{ scale: 0, rotate: -90 }}
+        animate={{ scale: 1, rotate: 0 }}
+        transition={{ ...springPop, delay: 0.1 }}
+        className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-green-500 text-white"
+      >
+        <Check className="h-3 w-3" strokeWidth={3} />
+      </motion.span>
+      <span>{children}</span>
+    </motion.div>
+  )
+}
+
+function ErrorBanner({ err }: { err: string }) {
+  return (
+    <AnimatePresence>
+      {err && (
+        <motion.div
+          key={err}
+          initial={{ opacity: 0, height: 0 }}
+          animate={{ opacity: 1, height: 'auto', x: [0, -8, 8, -5, 5, 0] }}
+          exit={{ opacity: 0, height: 0 }}
+          transition={{ x: { duration: 0.4 }, default: { duration: 0.25 } }}
+          className="overflow-hidden"
+        >
+          <div className="mb-3 mt-2 rounded-xl bg-red-50 px-4 py-2.5 text-sm text-red-700 ring-1 ring-red-200">{err}</div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  )
+}
+
+// ── Wizard shell ────────────────────────────────────────────────────────────
+
 function OnboardWizard() {
   const searchParams = useSearchParams()
-  const token = searchParams.get('token') || ''
+  const urlToken = searchParams.get('token') || ''
 
+  const [token, setToken] = useState(urlToken)
   const [loading, setLoading] = useState(true)
   const [fatal, setFatal] = useState('')
   const [invite, setInvite] = useState<InviteData | null>(null)
@@ -55,8 +146,30 @@ function OnboardWizard() {
   const [requiresUplineApproval, setRequiresUplineApproval] = useState(false)
   const [verified, setVerified] = useState<Record<string, string>>({})
   const [step, setStep] = useState(0)
+  const [direction, setDirection] = useState(1)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
+
+  // Restore the token after the DigiLocker round-trip (the redirect URL must
+  // not carry a query string, so the token is stashed in localStorage).
+  useEffect(() => {
+    if (urlToken) {
+      setToken(urlToken)
+      return
+    }
+    try {
+      const pending = localStorage.getItem(DIGILOCKER_STORAGE_KEY)
+      if (pending) {
+        const saved = JSON.parse(pending)?.token
+        if (saved) {
+          setToken(saved)
+          window.history.replaceState(null, '', `/onboard?token=${encodeURIComponent(saved)}`)
+          return
+        }
+      }
+    } catch {}
+    setToken('')
+  }, [urlToken])
 
   const api = useCallback(
     async (path: string, options?: RequestInit) => {
@@ -89,7 +202,14 @@ function OnboardWizard() {
       setLoading(false)
       return
     }
+    setFatal('')
     reload()
+      .then(() => {
+        // Returning from DigiLocker? Jump straight back to the Aadhaar step.
+        try {
+          if (localStorage.getItem(DIGILOCKER_STORAGE_KEY)) setStep(3)
+        } catch {}
+      })
       .catch((e) => setFatal(e.message))
       .finally(() => setLoading(false))
   }, [token, reload])
@@ -97,22 +217,40 @@ function OnboardWizard() {
   const has = (type: string, status = 'Success') => verified[type] === status
 
   if (loading) {
-    return <Centered><p className="text-gray-500">Loading your onboarding…</p></Centered>
+    return (
+      <Centered>
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col items-center gap-3">
+          <motion.div
+            animate={{ rotate: 360 }}
+            transition={{ repeat: Infinity, duration: 1, ease: 'linear' }}
+            className="h-10 w-10 rounded-full border-4 border-indigo-100 border-t-indigo-600"
+          />
+          <p className="text-gray-500">Loading your onboarding…</p>
+        </motion.div>
+      </Centered>
+    )
   }
   if (fatal) {
     return (
       <Centered>
-        <div className="max-w-md text-center">
-          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-red-100 text-2xl">!</div>
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="max-w-md text-center">
+          <motion.div
+            initial={{ scale: 0 }}
+            animate={{ scale: 1 }}
+            transition={springPop}
+            className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-red-100 text-2xl"
+          >
+            !
+          </motion.div>
           <h1 className="text-xl font-bold text-gray-800">Unable to continue</h1>
           <p className="mt-2 text-gray-500">{fatal}</p>
-        </div>
+        </motion.div>
       </Centered>
     )
   }
   if (!invite) return null
 
-  const stepProps = {
+  const stepProps: StepProps = {
     invite,
     documents,
     requiresUplineApproval,
@@ -126,10 +264,12 @@ function OnboardWizard() {
     setErr,
     next: () => {
       setErr('')
+      setDirection(1)
       setStep((s) => Math.min(STEPS.length - 1, s + 1))
     },
     back: () => {
       setErr('')
+      setDirection(-1)
       setStep((s) => Math.max(0, s - 1))
     },
   }
@@ -137,28 +277,45 @@ function OnboardWizard() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50">
       <div className="mx-auto max-w-2xl px-4 py-8">
-        <div className="mb-6 text-center">
+        <motion.div initial={{ opacity: 0, y: -14 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }} className="mb-6 text-center">
           <h1 className="text-2xl font-bold text-gray-900">Same Day Solution Onboarding</h1>
           <p className="text-sm text-gray-500">
             Joining as <span className="font-semibold text-indigo-600">{invite.target_role_label}</span>
           </p>
-        </div>
+        </motion.div>
 
         <Stepper current={step} />
 
-        <div className="mt-6 rounded-2xl bg-white p-6 shadow-xl ring-1 ring-gray-100">
-          {step === 0 && <WelcomeStep {...stepProps} />}
-          {step === 1 && <OtpStep {...stepProps} channel="SMS" title="Verify Mobile Number" destination={invite.phone} />}
-          {step === 2 && <OtpStep {...stepProps} channel="EMAIL" title="Verify Email Address" destination={invite.email} />}
-          {step === 3 && <AadhaarStep {...stepProps} />}
-          {step === 4 && <PanStep {...stepProps} />}
-          {step === 5 && <BankStep {...stepProps} />}
-          {step === 6 && <BusinessStep {...stepProps} />}
-          {step === 7 && <BiometricStep {...stepProps} />}
-          {step === 8 && <DocumentsStep {...stepProps} />}
-          {step === 9 && <DeclarationStep {...stepProps} />}
-          {step === 10 && <FinishStep {...stepProps} />}
-        </div>
+        <motion.div
+          layout
+          initial={{ opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.45, delay: 0.1 }}
+          className="mt-6 overflow-hidden rounded-2xl bg-white p-6 shadow-xl ring-1 ring-gray-100"
+        >
+          <AnimatePresence mode="wait" custom={direction}>
+            <motion.div
+              key={step}
+              custom={direction}
+              initial={{ opacity: 0, x: direction * 48 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: direction * -48 }}
+              transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
+            >
+              {step === 0 && <WelcomeStep {...stepProps} />}
+              {step === 1 && <OtpStep {...stepProps} channel="SMS" title="Verify Mobile Number" destination={invite.phone} />}
+              {step === 2 && <OtpStep {...stepProps} channel="EMAIL" title="Verify Email Address" destination={invite.email} />}
+              {step === 3 && <AadhaarStep {...stepProps} />}
+              {step === 4 && <PanStep {...stepProps} />}
+              {step === 5 && <BankStep {...stepProps} />}
+              {step === 6 && <BusinessStep {...stepProps} />}
+              {step === 7 && <BiometricStep {...stepProps} />}
+              {step === 8 && <DocumentsStep {...stepProps} />}
+              {step === 9 && <DeclarationStep {...stepProps} />}
+              {step === 10 && <FinishStep {...stepProps} />}
+            </motion.div>
+          </AnimatePresence>
+        </motion.div>
       </div>
     </div>
   )
@@ -171,20 +328,49 @@ function Centered({ children }: { children: React.ReactNode }) {
 }
 
 function Stepper({ current }: { current: number }) {
+  const progress = current / (STEPS.length - 1)
   return (
-    <div className="flex items-center justify-between overflow-x-auto rounded-xl bg-white/70 p-2 text-[10px]">
-      {STEPS.map((label, i) => (
-        <div key={label} className="flex flex-1 flex-col items-center px-1">
-          <div
-            className={`flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold ${
-              i < current ? 'bg-green-500 text-white' : i === current ? 'bg-indigo-600 text-white' : 'bg-gray-200 text-gray-500'
-            }`}
-          >
-            {i < current ? '✓' : i + 1}
-          </div>
-          <span className={`mt-1 truncate ${i === current ? 'font-semibold text-indigo-600' : 'text-gray-400'}`}>{label}</span>
-        </div>
-      ))}
+    <div className="relative rounded-xl bg-white/70 p-3 shadow-sm ring-1 ring-gray-100 backdrop-blur">
+      <div className="absolute left-6 right-6 top-[22px] h-0.5 bg-gray-200">
+        <motion.div
+          className="h-full bg-gradient-to-r from-green-500 to-indigo-600"
+          initial={false}
+          animate={{ width: `${progress * 100}%` }}
+          transition={{ type: 'spring', stiffness: 120, damping: 20 }}
+        />
+      </div>
+      <div className="relative flex items-start justify-between overflow-x-auto text-[10px]">
+        {STEPS.map((label, i) => {
+          const done = i < current
+          const active = i === current
+          return (
+            <div key={label} className="flex flex-1 flex-col items-center px-0.5">
+              <motion.div
+                animate={{
+                  scale: active ? 1.2 : 1,
+                  backgroundColor: done ? '#22c55e' : active ? '#4f46e5' : '#e5e7eb',
+                  color: done || active ? '#ffffff' : '#6b7280',
+                }}
+                transition={springPop}
+                className="z-10 flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold shadow-sm"
+              >
+                <AnimatePresence mode="wait" initial={false}>
+                  {done ? (
+                    <motion.span key="check" initial={{ scale: 0, rotate: -90 }} animate={{ scale: 1, rotate: 0 }} transition={springPop}>
+                      <Check className="h-3.5 w-3.5" strokeWidth={3} />
+                    </motion.span>
+                  ) : (
+                    <motion.span key="num" initial={{ scale: 0 }} animate={{ scale: 1 }} transition={springPop}>
+                      {i + 1}
+                    </motion.span>
+                  )}
+                </AnimatePresence>
+              </motion.div>
+              <span className={`mt-1 truncate ${active ? 'font-semibold text-indigo-600' : 'text-gray-400'}`}>{label}</span>
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
 }
@@ -205,37 +391,34 @@ interface StepProps {
   back: () => void
 }
 
-function ErrorBanner({ err }: { err: string }) {
-  if (!err) return null
-  return <div className="mb-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{err}</div>
-}
-
 function NavButtons({ onBack, onNext, nextLabel = 'Continue', nextDisabled, busy }: any) {
   return (
-    <div className="mt-6 flex justify-between">
-      {onBack ? (
-        <button onClick={onBack} className="rounded-lg px-4 py-2 text-sm font-medium text-gray-500 hover:text-gray-800">
-          Back
-        </button>
-      ) : (
-        <span />
+    <div className="mt-6 flex items-center justify-between">
+      {onBack ? <GhostButton onClick={onBack}>Back</GhostButton> : <span />}
+      {onNext && (
+        <PrimaryButton onClick={onNext} disabled={nextDisabled} busy={busy}>
+          {busy ? 'Please wait…' : nextLabel}
+        </PrimaryButton>
       )}
-      <button
-        onClick={onNext}
-        disabled={nextDisabled || busy}
-        className={`rounded-lg px-6 py-2 text-sm font-semibold text-white ${
-          nextDisabled || busy ? 'bg-gray-300' : 'bg-indigo-600 hover:bg-indigo-700'
-        }`}
-      >
-        {busy ? 'Please wait…' : nextLabel}
-      </button>
     </div>
   )
 }
 
 // ── Steps ───────────────────────────────────────────────────────────────────
 
+const listStagger = {
+  hidden: { opacity: 0, x: -10 },
+  show: (i: number) => ({ opacity: 1, x: 0, transition: { delay: 0.15 + i * 0.08 } }),
+}
+
 function WelcomeStep({ invite, requiresUplineApproval, next }: StepProps) {
+  const items = [
+    'Verify mobile & email',
+    'Complete PAN, Aadhaar & bank KYC',
+    'Capture a live selfie & short video',
+    'Upload documents & sign the declaration',
+    ...(requiresUplineApproval ? ['Your upline approves your declaration'] : []),
+  ]
   return (
     <div>
       <h2 className="text-lg font-bold text-gray-900">Welcome{invite.name ? `, ${invite.name}` : ''}!</h2>
@@ -244,26 +427,107 @@ function WelcomeStep({ invite, requiresUplineApproval, next }: StepProps) {
         <strong>{invite.target_role_label}</strong>. This takes about 10 minutes. Keep your PAN, Aadhaar-linked mobile,
         and bank details ready.
       </p>
-      <ul className="mt-4 space-y-1 text-sm text-gray-500">
-        <li>• Verify mobile &amp; email</li>
-        <li>• Complete PAN, Aadhaar &amp; bank KYC</li>
-        <li>• Capture a live selfie &amp; short video</li>
-        <li>• Upload documents &amp; sign the declaration</li>
-        {requiresUplineApproval && <li>• Your upline approves your declaration</li>}
+      <ul className="mt-4 space-y-1.5 text-sm text-gray-500">
+        {items.map((item, i) => (
+          <motion.li key={item} custom={i} variants={listStagger} initial="hidden" animate="show" className="flex items-center gap-2">
+            <span className="h-1.5 w-1.5 rounded-full bg-indigo-400" />
+            {item}
+          </motion.li>
+        ))}
       </ul>
       <NavButtons onNext={next} nextLabel="Get Started" />
     </div>
   )
 }
 
-function OtpStep({ api, reload, next, busy, setBusy, err, setErr, channel, title, destination, invite }: StepProps & { channel: 'SMS' | 'EMAIL'; title: string; destination: string }) {
+// ── OTP input: 6 animated boxes, paste support, auto-submit ────────────────
+
+function OtpInput({
+  value,
+  onChange,
+  disabled,
+  autoFocus = true,
+}: {
+  value: string
+  onChange: (v: string) => void
+  disabled?: boolean
+  autoFocus?: boolean
+}) {
+  const refs = useRef<(HTMLInputElement | null)[]>([])
+
+  useEffect(() => {
+    if (autoFocus) refs.current[0]?.focus()
+  }, [autoFocus])
+
+  const setDigits = (digits: string, focusIndex?: number) => {
+    const clean = digits.replace(/\D/g, '').slice(0, 6)
+    onChange(clean)
+    const target = focusIndex !== undefined ? focusIndex : Math.min(clean.length, 5)
+    requestAnimationFrame(() => refs.current[target]?.focus())
+  }
+
+  return (
+    <div className="flex justify-center gap-2 sm:gap-3" onPaste={(e) => { e.preventDefault(); setDigits(e.clipboardData.getData('text')) }}>
+      {Array.from({ length: 6 }).map((_, i) => {
+        const digit = value[i] || ''
+        return (
+          <motion.input
+            key={i}
+            ref={(el) => { refs.current[i] = el }}
+            value={digit}
+            disabled={disabled}
+            inputMode="numeric"
+            autoComplete={i === 0 ? 'one-time-code' : 'off'}
+            animate={digit ? { scale: [1, 1.15, 1], borderColor: '#4f46e5' } : { scale: 1 }}
+            transition={{ duration: 0.18 }}
+            whileFocus={{ scale: 1.08, boxShadow: '0 0 0 4px rgba(79,70,229,0.15)' }}
+            onChange={(e) => {
+              const raw = e.target.value.replace(/\D/g, '')
+              if (!raw) {
+                setDigits(value.slice(0, i) + value.slice(i + 1), i)
+                return
+              }
+              if (raw.length > 1) {
+                // Multiple chars (paste / fast typing) — fill from this box.
+                setDigits(value.slice(0, i) + raw)
+                return
+              }
+              setDigits(value.slice(0, i) + raw + value.slice(i + 1))
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Backspace' && !digit && i > 0) {
+                e.preventDefault()
+                setDigits(value.slice(0, i - 1), i - 1)
+              }
+              if (e.key === 'ArrowLeft' && i > 0) refs.current[i - 1]?.focus()
+              if (e.key === 'ArrowRight' && i < 5) refs.current[i + 1]?.focus()
+            }}
+            className="h-12 w-10 rounded-xl border-2 border-gray-200 bg-gray-50 text-center text-xl font-bold text-gray-900 outline-none transition-colors focus:border-indigo-500 focus:bg-white disabled:opacity-50 sm:h-14 sm:w-12"
+          />
+        )
+      })}
+    </div>
+  )
+}
+
+function OtpStep({ api, reload, next, back, busy, setBusy, err, setErr, channel, title, destination, invite }: StepProps & { channel: 'SMS' | 'EMAIL'; title: string; destination: string }) {
   const [sent, setSent] = useState(false)
   const [code, setCode] = useState('')
   const [mock, setMock] = useState(false)
+  const [cooldown, setCooldown] = useState(0)
+  const [success, setSuccess] = useState(false)
+  const verifyingRef = useRef(false)
   const alreadyVerified = channel === 'SMS' ? !!invite.phone_verified_at : !!invite.email_verified_at
+
+  useEffect(() => {
+    if (cooldown <= 0) return
+    const t = setTimeout(() => setCooldown((c) => c - 1), 1000)
+    return () => clearTimeout(t)
+  }, [cooldown])
 
   async function send() {
     setErr('')
+    setCode('')
     setBusy(true)
     try {
       const r = await api('/otp/send', { method: 'POST', body: JSON.stringify({ channel }) })
@@ -273,6 +537,7 @@ function OtpStep({ api, reload, next, busy, setBusy, err, setErr, channel, title
       }
       setSent(true)
       setMock(!!r.mock)
+      setCooldown(30)
     } catch (e: any) {
       setErr(e.message)
     } finally {
@@ -280,48 +545,94 @@ function OtpStep({ api, reload, next, busy, setBusy, err, setErr, channel, title
     }
   }
 
-  async function verify() {
-    setErr('')
-    setBusy(true)
-    try {
-      await api('/otp/verify', { method: 'POST', body: JSON.stringify({ channel, code }) })
-      await reload()
-      next()
-    } catch (e: any) {
-      setErr(e.message)
-    } finally {
-      setBusy(false)
+  const verify = useCallback(
+    async (fullCode: string) => {
+      setErr('')
+      setBusy(true)
+      try {
+        await api('/otp/verify', { method: 'POST', body: JSON.stringify({ channel, code: fullCode }) })
+        setSuccess(true)
+        await reload()
+        // Brief success beat before sliding to the next step.
+        setTimeout(() => next(), 700)
+      } catch (e: any) {
+        setErr(e.message)
+        setCode('')
+      } finally {
+        setBusy(false)
+      }
+    },
+    [api, channel, next, reload, setBusy, setErr]
+  )
+
+  // Auto-submit the moment the 6th digit lands.
+  useEffect(() => {
+    if (sent && code.length === 6 && !verifyingRef.current && !success) {
+      verifyingRef.current = true
+      verify(code).finally(() => {
+        verifyingRef.current = false
+      })
     }
-  }
+  }, [code, sent, success, verify])
+
+  const Icon = channel === 'SMS' ? Smartphone : Mail
 
   return (
     <div>
-      <h2 className="text-lg font-bold text-gray-900">{title}</h2>
-      <p className="mt-1 text-sm text-gray-500">We&apos;ll send a code to {destination}</p>
-      <ErrorBanner err={err} />
-      {alreadyVerified ? (
-        <div className="mt-4 rounded-lg bg-green-50 px-3 py-2 text-sm text-green-700">Already verified</div>
-      ) : !sent ? (
-        <button onClick={send} disabled={busy} className="mt-4 rounded-lg bg-indigo-600 px-5 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:bg-gray-300">
-          {busy ? 'Sending…' : 'Send Code'}
-        </button>
-      ) : (
-        <div className="mt-4 space-y-3">
-          {mock && <p className="rounded bg-amber-50 px-2 py-1 text-xs text-amber-700">Test mode — use code 123456</p>}
-          <input
-            value={code}
-            onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-            placeholder="Enter 6-digit code"
-            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-center text-lg tracking-widest focus:border-indigo-500 focus:outline-none"
-          />
-          <button onClick={send} className="text-xs text-indigo-600 hover:underline">Resend code</button>
+      <div className="flex items-center gap-3">
+        <motion.div initial={{ scale: 0, rotate: -20 }} animate={{ scale: 1, rotate: 0 }} transition={springPop} className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-100 text-indigo-600">
+          <Icon className="h-5 w-5" />
+        </motion.div>
+        <div>
+          <h2 className="text-lg font-bold text-gray-900">{title}</h2>
+          <p className="text-sm text-gray-500">We&apos;ll send a code to {destination}</p>
         </div>
+      </div>
+      <ErrorBanner err={err} />
+
+      {alreadyVerified || success ? (
+        <SuccessNote>{success ? 'Verified! Taking you to the next step…' : 'Already verified'}</SuccessNote>
+      ) : !sent ? (
+        <div className="mt-6 flex justify-center">
+          <PrimaryButton onClick={send} busy={busy} className="px-10 py-3 text-base">
+            {busy ? 'Sending…' : 'Send Code'}
+          </PrimaryButton>
+        </div>
+      ) : (
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="mt-6 space-y-4">
+          <AnimatePresence>
+            {mock && (
+              <motion.p
+                initial={{ opacity: 0, y: -6 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0 }}
+                className="rounded-lg bg-amber-50 px-3 py-1.5 text-center text-xs text-amber-700 ring-1 ring-amber-200"
+              >
+                Test mode — use code 123456
+              </motion.p>
+            )}
+          </AnimatePresence>
+          <OtpInput value={code} onChange={setCode} disabled={busy} />
+          <div className="flex items-center justify-center gap-2 text-xs text-gray-400">
+            {busy ? (
+              <span className="flex items-center gap-1.5 text-indigo-600"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Verifying…</span>
+            ) : cooldown > 0 ? (
+              <span>Resend code in {cooldown}s</span>
+            ) : (
+              <motion.button whileTap={{ scale: 0.94 }} onClick={send} className="font-medium text-indigo-600 hover:underline">
+                Resend code
+              </motion.button>
+            )}
+          </div>
+          <p className="text-center text-[11px] text-gray-400">The code verifies automatically when all 6 digits are entered.</p>
+        </motion.div>
       )}
+
       <NavButtons
-        onNext={alreadyVerified ? next : sent ? verify : send}
-        nextLabel={alreadyVerified ? 'Continue' : sent ? 'Verify' : 'Send Code'}
-        nextDisabled={sent && !alreadyVerified && code.length !== 6}
-        busy={busy}
+        onBack={back}
+        onNext={alreadyVerified ? next : undefined}
+        nextLabel="Continue"
+        busy={busy && !sent}
       />
     </div>
   )
@@ -332,7 +643,7 @@ function AadhaarStep({ api, reload, next, back, has, busy, setBusy, err, setErr 
 
   useEffect(() => {
     // Resume DigiLocker after redirect back.
-    const pending = typeof window !== 'undefined' ? localStorage.getItem('onboard_digilocker') : null
+    const pending = typeof window !== 'undefined' ? localStorage.getItem(DIGILOCKER_STORAGE_KEY) : null
     if (pending && !done) {
       try {
         const { verification_id, reference_id } = JSON.parse(pending)
@@ -341,11 +652,11 @@ function AadhaarStep({ api, reload, next, back, has, busy, setBusy, err, setErr 
           .then(() => reload())
           .catch((e) => setErr(e.message))
           .finally(() => {
-            localStorage.removeItem('onboard_digilocker')
+            localStorage.removeItem(DIGILOCKER_STORAGE_KEY)
             setBusy(false)
           })
       } catch {
-        localStorage.removeItem('onboard_digilocker')
+        localStorage.removeItem(DIGILOCKER_STORAGE_KEY)
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -355,9 +666,13 @@ function AadhaarStep({ api, reload, next, back, has, busy, setBusy, err, setErr 
     setErr('')
     setBusy(true)
     try {
-      const redirect = `${window.location.origin}/onboard?token=${encodeURIComponent(new URLSearchParams(window.location.search).get('token') || '')}`
+      const token = new URLSearchParams(window.location.search).get('token') || ''
+      // eKYC Hub's firewall rejects redirect URLs with query strings, so the
+      // token travels via localStorage instead and is restored on return.
+      const redirect = `${window.location.origin}/onboard`
       const r = await api('/verify', { method: 'POST', body: JSON.stringify({ type: 'AADHAAR_INIT', redirect_url: redirect }) })
-      localStorage.setItem('onboard_digilocker', JSON.stringify({ verification_id: r.verification_id, reference_id: r.reference_id }))
+      if (!r.url) throw new Error(r.error || 'Could not start DigiLocker verification')
+      localStorage.setItem(DIGILOCKER_STORAGE_KEY, JSON.stringify({ verification_id: r.verification_id, reference_id: r.reference_id, token }))
       window.location.href = r.url
     } catch (e: any) {
       setErr(e.message)
@@ -367,15 +682,25 @@ function AadhaarStep({ api, reload, next, back, has, busy, setBusy, err, setErr 
 
   return (
     <div>
-      <h2 className="text-lg font-bold text-gray-900">Aadhaar Verification</h2>
-      <p className="mt-1 text-sm text-gray-500">Verify your Aadhaar securely via DigiLocker.</p>
+      <div className="flex items-center gap-3">
+        <motion.div initial={{ scale: 0, rotate: -20 }} animate={{ scale: 1, rotate: 0 }} transition={springPop} className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-100 text-indigo-600">
+          <ShieldCheck className="h-5 w-5" />
+        </motion.div>
+        <div>
+          <h2 className="text-lg font-bold text-gray-900">Aadhaar Verification</h2>
+          <p className="text-sm text-gray-500">Verify your Aadhaar securely via DigiLocker.</p>
+        </div>
+      </div>
       <ErrorBanner err={err} />
       {done ? (
-        <div className="mt-4 rounded-lg bg-green-50 px-3 py-2 text-sm text-green-700">Aadhaar verified</div>
+        <SuccessNote>Aadhaar verified</SuccessNote>
       ) : (
-        <button onClick={startDigilocker} disabled={busy} className="mt-4 rounded-lg bg-indigo-600 px-5 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:bg-gray-300">
-          {busy ? 'Please wait…' : 'Verify via DigiLocker'}
-        </button>
+        <div className="mt-6 flex justify-center">
+          <PrimaryButton onClick={startDigilocker} busy={busy} className="px-8 py-3 text-base">
+            <Lock className="h-4 w-4" />
+            {busy ? 'Please wait…' : 'Verify via DigiLocker'}
+          </PrimaryButton>
+        </div>
       )}
       <NavButtons onBack={back} onNext={next} nextDisabled={!done} busy={busy} />
     </div>
@@ -407,20 +732,18 @@ function PanStep({ api, reload, next, back, has, busy, setBusy, err, setErr }: S
       <h2 className="text-lg font-bold text-gray-900">PAN Verification</h2>
       <ErrorBanner err={err} />
       {done ? (
-        <div className="mt-4 rounded-lg bg-green-50 px-3 py-2 text-sm text-green-700">
-          PAN verified{name ? ` — ${name}` : ''}
-        </div>
+        <SuccessNote>PAN verified{name ? ` — ${name}` : ''}</SuccessNote>
       ) : (
         <div className="mt-4 flex gap-2">
           <input
             value={pan}
             onChange={(e) => setPan(e.target.value.toUpperCase().slice(0, 10))}
             placeholder="ABCDE1234F"
-            className="flex-1 rounded-lg border border-gray-300 px-3 py-2 uppercase focus:border-indigo-500 focus:outline-none"
+            className="flex-1 rounded-xl border-2 border-gray-200 px-3 py-2 uppercase tracking-wider transition-colors focus:border-indigo-500 focus:outline-none"
           />
-          <button onClick={verify} disabled={busy || pan.length !== 10} className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:bg-gray-300">
+          <PrimaryButton onClick={verify} disabled={pan.length !== 10} busy={busy} className="px-5">
             Verify
-          </button>
+          </PrimaryButton>
         </div>
       )}
       <NavButtons onBack={back} onNext={next} nextDisabled={!done} busy={busy} />
@@ -454,14 +777,14 @@ function BankStep({ api, reload, next, back, has, busy, setBusy, err, setErr }: 
       <h2 className="text-lg font-bold text-gray-900">Bank Account Verification</h2>
       <ErrorBanner err={err} />
       {done ? (
-        <div className="mt-4 rounded-lg bg-green-50 px-3 py-2 text-sm text-green-700">Bank verified{name ? ` — ${name}` : ''}</div>
+        <SuccessNote>Bank verified{name ? ` — ${name}` : ''}</SuccessNote>
       ) : (
         <div className="mt-4 space-y-2">
-          <input value={acc} onChange={(e) => setAcc(e.target.value.replace(/\D/g, ''))} placeholder="Account number" className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-indigo-500 focus:outline-none" />
-          <input value={ifsc} onChange={(e) => setIfsc(e.target.value.toUpperCase())} placeholder="IFSC code" className="w-full rounded-lg border border-gray-300 px-3 py-2 uppercase focus:border-indigo-500 focus:outline-none" />
-          <button onClick={verify} disabled={busy || !acc || !ifsc} className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:bg-gray-300">
+          <input value={acc} onChange={(e) => setAcc(e.target.value.replace(/\D/g, ''))} placeholder="Account number" className="w-full rounded-xl border-2 border-gray-200 px-3 py-2 transition-colors focus:border-indigo-500 focus:outline-none" />
+          <input value={ifsc} onChange={(e) => setIfsc(e.target.value.toUpperCase())} placeholder="IFSC code" className="w-full rounded-xl border-2 border-gray-200 px-3 py-2 uppercase transition-colors focus:border-indigo-500 focus:outline-none" />
+          <PrimaryButton onClick={verify} disabled={!acc || !ifsc} busy={busy}>
             Verify (Penny Drop)
-          </button>
+          </PrimaryButton>
         </div>
       )}
       <NavButtons onBack={back} onNext={next} nextDisabled={!done} busy={busy} />
@@ -497,8 +820,8 @@ function BusinessStep({ api, reload, next, back, has, busy, setBusy, err, setErr
       <p className="mt-1 text-sm text-gray-500">GST is optional. Business/shop name is required.</p>
       <ErrorBanner err={err} />
       <div className="mt-4 space-y-2">
-        <input value={shopName} onChange={(e) => setShopName(e.target.value)} placeholder="Shop / Business name *" className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-indigo-500 focus:outline-none" />
-        <input value={gst} onChange={(e) => setGst(e.target.value.toUpperCase().slice(0, 15))} placeholder="GSTIN (optional)" className="w-full rounded-lg border border-gray-300 px-3 py-2 uppercase focus:border-indigo-500 focus:outline-none" />
+        <input value={shopName} onChange={(e) => setShopName(e.target.value)} placeholder="Shop / Business name *" className="w-full rounded-xl border-2 border-gray-200 px-3 py-2 transition-colors focus:border-indigo-500 focus:outline-none" />
+        <input value={gst} onChange={(e) => setGst(e.target.value.toUpperCase().slice(0, 15))} placeholder="GSTIN (optional)" className="w-full rounded-xl border-2 border-gray-200 px-3 py-2 uppercase transition-colors focus:border-indigo-500 focus:outline-none" />
       </div>
       <NavButtons onBack={back} onNext={saveBusiness} nextDisabled={shopName.trim().length < 2 && !saved} busy={busy} />
     </div>
@@ -567,9 +890,9 @@ function BiometricStep({ api, reload, next, back, has, setErr, err }: StepProps)
       <div className="mt-6 border-t pt-4">
         <h3 className="mb-2 text-sm font-semibold text-gray-700">2. Liveness Video</h3>
         {videoDone ? (
-          <p className="text-sm font-medium text-green-600">Liveness video recorded</p>
+          <SuccessNote>Liveness video recorded</SuccessNote>
         ) : !videoCfg ? (
-          <button onClick={initVideo} className="rounded-lg bg-indigo-600 px-5 py-2 text-sm font-semibold text-white hover:bg-indigo-700">Start Liveness Check</button>
+          <PrimaryButton onClick={initVideo}>Start Liveness Check</PrimaryButton>
         ) : (
           <LivenessVideoCapture prompt={videoCfg.prompt} maxDurationSec={videoCfg.maxDurationSec} onRecorded={handleVideo} recorded={uploading} />
         )}
@@ -594,15 +917,15 @@ function DocumentsStep({ documents, api, reload, next, back, has, err, setErr }:
       <h2 className="text-lg font-bold text-gray-900">Upload Documents</h2>
       <ErrorBanner err={err} />
       <div className="mt-4 space-y-2">
-        {required.map((d) => (
-          <div key={d.type}>
+        {required.map((d, i) => (
+          <motion.div key={d.type} custom={i} variants={listStagger} initial="hidden" animate="show">
             {d.hasTemplate && (
               <a href={getApiUrl(`/api/onboard/${encodeURIComponent(new URLSearchParams(window.location.search).get('token') || '')}/pg-form/download`)} className="mb-1 inline-block text-xs text-indigo-600 hover:underline">
                 Download {d.label} template
               </a>
             )}
             <DocumentUploadField label={d.label} required gps={d.gps} uploaded={has(`DOCUMENT_${d.type}`, 'Uploaded')} onUpload={(dataUrl, coords) => uploadDoc(d.type, dataUrl, coords)} />
-          </div>
+          </motion.div>
         ))}
       </div>
       {optional.length > 0 && (
@@ -686,28 +1009,60 @@ function DeclarationStep({ api, reload, next, back, has, requiresUplineApproval,
         </div>
 
         {requiresUplineApproval && (
-          <div className="rounded-lg border border-gray-200 p-3">
+          <div className="rounded-xl border border-gray-200 p-3">
             <p className="text-sm font-medium text-gray-700">2. Upline Approval</p>
             {!approval ? (
-              <button onClick={sendForApproval} disabled={!declUploaded || busy} className="mt-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:bg-gray-300">
+              <PrimaryButton onClick={sendForApproval} disabled={!declUploaded} busy={busy} className="mt-2 px-4 py-2">
                 Send for Approval
-              </button>
+              </PrimaryButton>
             ) : approval.status === 'approved' ? (
-              <p className="mt-1 text-sm font-medium text-green-600">Approved by your upline</p>
+              <SuccessNote>Approved by your upline</SuccessNote>
             ) : approval.status === 'rejected' ? (
               <p className="mt-1 text-sm font-medium text-red-600">Rejected by your upline. Contact them.</p>
             ) : (
-              <p className="mt-1 text-sm text-amber-600">Waiting for upline approval…</p>
+              <p className="mt-1 flex items-center gap-2 text-sm text-amber-600">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" /> Waiting for upline approval…
+              </p>
             )}
           </div>
         )}
 
-        <label className="flex items-start gap-2 text-sm text-gray-600">
-          <input type="checkbox" checked={agreed} onChange={(e) => (e.target.checked ? acceptAgreement() : setAgreed(false))} className="mt-1" />
+        <label className="flex cursor-pointer items-start gap-2 text-sm text-gray-600">
+          <input type="checkbox" checked={agreed} onChange={(e) => (e.target.checked ? acceptAgreement() : setAgreed(false))} className="mt-1 accent-indigo-600" />
           <span>I accept the partner agreement, terms of service and privacy policy.</span>
         </label>
       </div>
       <NavButtons onBack={back} onNext={next} nextDisabled={!canProceed} busy={busy} />
+    </div>
+  )
+}
+
+// ── Finish: registration + celebratory confetti ─────────────────────────────
+
+function Confetti() {
+  const pieces = useMemo(
+    () =>
+      Array.from({ length: 28 }).map((_, i) => ({
+        id: i,
+        x: (Math.random() - 0.5) * 320,
+        delay: Math.random() * 0.35,
+        rotate: Math.random() * 540 - 270,
+        color: ['#4f46e5', '#22c55e', '#f59e0b', '#ec4899', '#06b6d4'][i % 5],
+        size: 6 + Math.random() * 6,
+      })),
+    []
+  )
+  return (
+    <div className="pointer-events-none absolute inset-x-0 top-0 flex justify-center overflow-visible">
+      {pieces.map((p) => (
+        <motion.span
+          key={p.id}
+          initial={{ opacity: 1, x: 0, y: -10, rotate: 0 }}
+          animate={{ opacity: [1, 1, 0], x: p.x, y: 260 + Math.random() * 80, rotate: p.rotate }}
+          transition={{ duration: 1.6 + Math.random() * 0.6, delay: p.delay, ease: 'easeOut' }}
+          style={{ width: p.size, height: p.size * 0.45, backgroundColor: p.color, borderRadius: 2, position: 'absolute' }}
+        />
+      ))}
     </div>
   )
 }
@@ -755,11 +1110,25 @@ function FinishStep({ api, invite, busy, setBusy, err, setErr }: StepProps) {
 
   if (done) {
     return (
-      <div className="text-center">
-        <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-green-100 text-3xl">✓</div>
-        <h2 className="text-xl font-bold text-gray-900">Registration Submitted!</h2>
-        <p className="mt-2 text-sm text-gray-600">{done.message}</p>
-        <p className="mt-1 text-xs text-gray-400">Your partner ID: {done.partner_id}</p>
+      <div className="relative py-4 text-center">
+        <Confetti />
+        <motion.div
+          initial={{ scale: 0, rotate: -30 }}
+          animate={{ scale: 1, rotate: 0 }}
+          transition={{ type: 'spring', stiffness: 260, damping: 16 }}
+          className="mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-gradient-to-br from-green-400 to-emerald-600 text-white shadow-lg shadow-green-500/30"
+        >
+          <Check className="h-10 w-10" strokeWidth={3} />
+        </motion.div>
+        <motion.h2 initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="flex items-center justify-center gap-2 text-xl font-bold text-gray-900">
+          Registration Submitted! <PartyPopper className="h-5 w-5 text-amber-500" />
+        </motion.h2>
+        <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.35 }} className="mt-2 text-sm text-gray-600">
+          {done.message}
+        </motion.p>
+        <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.5 }} className="mt-1 text-xs text-gray-400">
+          Your partner ID: {done.partner_id}
+        </motion.p>
       </div>
     )
   }
@@ -769,14 +1138,14 @@ function FinishStep({ api, invite, busy, setBusy, err, setErr }: StepProps) {
       <h2 className="text-lg font-bold text-gray-900">Personal Details &amp; Password</h2>
       <ErrorBanner err={err} />
       <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
-        <input value={form.name} onChange={(e) => set('name', e.target.value)} placeholder="Full name *" className="rounded-lg border border-gray-300 px-3 py-2 sm:col-span-2 focus:border-indigo-500 focus:outline-none" />
-        <input value={form.address} onChange={(e) => set('address', e.target.value)} placeholder="Address" className="rounded-lg border border-gray-300 px-3 py-2 sm:col-span-2 focus:border-indigo-500 focus:outline-none" />
-        <input value={form.city} onChange={(e) => set('city', e.target.value)} placeholder="City" className="rounded-lg border border-gray-300 px-3 py-2 focus:border-indigo-500 focus:outline-none" />
-        <input value={form.state} onChange={(e) => set('state', e.target.value)} placeholder="State" className="rounded-lg border border-gray-300 px-3 py-2 focus:border-indigo-500 focus:outline-none" />
-        <input value={form.pincode} onChange={(e) => set('pincode', e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="Pincode" className="rounded-lg border border-gray-300 px-3 py-2 focus:border-indigo-500 focus:outline-none" />
+        <input value={form.name} onChange={(e) => set('name', e.target.value)} placeholder="Full name *" className="rounded-xl border-2 border-gray-200 px-3 py-2 transition-colors focus:border-indigo-500 focus:outline-none sm:col-span-2" />
+        <input value={form.address} onChange={(e) => set('address', e.target.value)} placeholder="Address" className="rounded-xl border-2 border-gray-200 px-3 py-2 transition-colors focus:border-indigo-500 focus:outline-none sm:col-span-2" />
+        <input value={form.city} onChange={(e) => set('city', e.target.value)} placeholder="City" className="rounded-xl border-2 border-gray-200 px-3 py-2 transition-colors focus:border-indigo-500 focus:outline-none" />
+        <input value={form.state} onChange={(e) => set('state', e.target.value)} placeholder="State" className="rounded-xl border-2 border-gray-200 px-3 py-2 transition-colors focus:border-indigo-500 focus:outline-none" />
+        <input value={form.pincode} onChange={(e) => set('pincode', e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="Pincode" className="rounded-xl border-2 border-gray-200 px-3 py-2 transition-colors focus:border-indigo-500 focus:outline-none" />
         <div />
-        <input type="password" value={form.password} onChange={(e) => set('password', e.target.value)} placeholder="Password *" className="rounded-lg border border-gray-300 px-3 py-2 focus:border-indigo-500 focus:outline-none" />
-        <input type="password" value={form.confirm} onChange={(e) => set('confirm', e.target.value)} placeholder="Confirm password *" className="rounded-lg border border-gray-300 px-3 py-2 focus:border-indigo-500 focus:outline-none" />
+        <input type="password" value={form.password} onChange={(e) => set('password', e.target.value)} placeholder="Password *" className="rounded-xl border-2 border-gray-200 px-3 py-2 transition-colors focus:border-indigo-500 focus:outline-none" />
+        <input type="password" value={form.confirm} onChange={(e) => set('confirm', e.target.value)} placeholder="Confirm password *" className="rounded-xl border-2 border-gray-200 px-3 py-2 transition-colors focus:border-indigo-500 focus:outline-none" />
       </div>
       <p className="mt-1 text-xs text-gray-400">8-20 chars, with a letter, number and special character.</p>
       <NavButtons onNext={submit} nextLabel="Submit Registration" nextDisabled={!form.name || !form.password} busy={busy} />

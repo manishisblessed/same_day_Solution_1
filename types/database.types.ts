@@ -307,7 +307,7 @@ export interface FinanceUser {
 }
 
 // ── Onboarding Invite Wizard ──────────────────────────────────────────────
-export type OnboardingTargetRole = 'master_distributor' | 'distributor' | 'retailer'
+export type OnboardingTargetRole = 'master_distributor' | 'distributor' | 'retailer' | 'partner' | 'master_partner'
 
 export type InviteStatus =
   | 'pending'

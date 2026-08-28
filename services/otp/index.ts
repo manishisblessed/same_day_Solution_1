@@ -10,7 +10,7 @@
 
 import crypto from 'crypto'
 import { getEnv } from '@/lib/env'
-import { sendEmail } from '@/services/email'
+import { sendEmail, isEmailConfigured } from '@/services/email'
 
 export type OtpChannel = 'SMS' | 'EMAIL'
 
@@ -125,8 +125,8 @@ export async function sendOtp(
 
   // EMAIL
   const code = generateOtpCode()
-  if (!isResendConfigured()) {
-    console.warn('[otp] Resend not configured — MOCK EMAIL OTP (123456)')
+  if (!isEmailConfigured()) {
+    console.warn('[otp] No email provider (Resend/SMTP) configured — MOCK EMAIL OTP (123456)')
     return { ok: true, provider: 'mock', emailCode: MOCK_OTP_CODE }
   }
   const sent = await sendEmail({
