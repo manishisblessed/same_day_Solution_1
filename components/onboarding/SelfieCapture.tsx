@@ -41,6 +41,7 @@ export default function SelfieCapture({ onCapture, captured }: SelfieCaptureProp
   const [active, setActive] = useState(false)
   const [error, setError] = useState('')
   const [preview, setPreview] = useState('')
+  const [retaking, setRetaking] = useState(false)
 
   useEffect(() => {
     return () => stopCamera()
@@ -90,12 +91,13 @@ export default function SelfieCapture({ onCapture, captured }: SelfieCaptureProp
     ctx.drawImage(video, 0, 0)
     const dataUrl = canvas.toDataURL('image/jpeg', 0.85)
     setPreview(dataUrl)
+    setRetaking(false)
     onCapture(dataUrl)
     stopCamera()
     setActive(false)
   }
 
-  if (preview || captured) {
+  if ((preview || captured) && !retaking) {
     return (
       <div className="flex flex-col items-center gap-3">
         <div className="relative">
@@ -115,6 +117,7 @@ export default function SelfieCapture({ onCapture, captured }: SelfieCaptureProp
           type="button"
           onClick={() => {
             setPreview('')
+            setRetaking(true)
             startCamera()
           }}
           className="inline-flex items-center gap-1.5 text-xs font-medium text-indigo-600 hover:underline"

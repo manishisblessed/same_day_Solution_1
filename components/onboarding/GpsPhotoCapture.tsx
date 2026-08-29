@@ -10,6 +10,7 @@ interface GpsPhotoCaptureProps {
   /** 'environment' for shop photos, 'user' for the shop selfie. */
   facing?: 'user' | 'environment'
   uploaded?: boolean
+  hint?: string
   onUpload: (dataUrl: string, coords: { lat: number; lng: number; acc?: number }) => Promise<void> | void
 }
 
@@ -44,6 +45,7 @@ export default function GpsPhotoCapture({
   required,
   facing = 'environment',
   uploaded,
+  hint,
   onUpload,
 }: GpsPhotoCaptureProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -54,6 +56,7 @@ export default function GpsPhotoCapture({
   const [error, setError] = useState('')
   const [ok, setOk] = useState(!!uploaded)
   const [preview, setPreview] = useState('')
+  const [coords, setCoords] = useState<{ lat: number; lng: number; acc?: number } | null>(null)
 
   useEffect(() => {
     return () => stopCamera()
@@ -111,6 +114,7 @@ export default function GpsPhotoCapture({
       ctx.drawImage(video, 0, 0)
       const dataUrl = canvas.toDataURL('image/jpeg', 0.85)
       setPreview(dataUrl)
+      setCoords({ lat: geo.latitude, lng: geo.longitude, acc: geo.accuracy })
       stopCamera()
       setActive(false)
       setStatus('Uploading…')
@@ -144,6 +148,7 @@ export default function GpsPhotoCapture({
             <p className="flex items-center gap-1 text-xs text-gray-400">
               <MapPin className="h-3 w-3" /> Live photo · location captured
             </p>
+            {hint && <p className="text-xs text-gray-400">{hint}</p>}
           </div>
         </div>
         {ok && (
@@ -162,6 +167,13 @@ export default function GpsPhotoCapture({
             <div className="flex h-24 w-full max-w-xs items-center justify-center rounded-xl bg-green-50 ring-2 ring-green-400/60">
               <CheckCircle2 className="h-10 w-10 text-green-500" />
             </div>
+          )}
+          {coords && (
+            <p className="flex items-center gap-1 text-xs font-medium text-gray-600">
+              <MapPin className="h-3 w-3 text-green-600" />
+              {coords.lat.toFixed(6)}, {coords.lng.toFixed(6)}
+              {coords.acc != null && <span className="text-gray-400">· ±{Math.round(coords.acc)}m</span>}
+            </p>
           )}
           <button type="button" onClick={retake} className="inline-flex items-center gap-1.5 text-xs font-medium text-indigo-600 hover:underline">
             <RefreshCw className="h-3.5 w-3.5" /> Retake

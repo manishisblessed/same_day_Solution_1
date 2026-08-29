@@ -6,7 +6,7 @@ import { AnimatePresence, motion } from 'framer-motion'
 import {
   Check, Loader2, Lock, Mail, PartyPopper, ShieldCheck, Smartphone,
   Sparkles, CreditCard, Landmark, Store, Camera, FileText, FileSignature,
-  Rocket, Clock, ShieldCheck as ShieldIcon, HelpCircle,
+  Rocket, Clock, ShieldCheck as ShieldIcon, HelpCircle, RefreshCw,
 } from 'lucide-react'
 import SelfieCapture from '@/components/onboarding/SelfieCapture'
 import LivenessVideoCapture from '@/components/onboarding/LivenessVideoCapture'
@@ -21,6 +21,7 @@ interface DocSpec {
   required: boolean
   gps?: boolean
   hasTemplate?: boolean
+  hint?: string
 }
 
 interface InviteData {
@@ -141,6 +142,15 @@ function ErrorBanner({ err }: { err: string }) {
         </motion.div>
       )}
     </AnimatePresence>
+  )
+}
+
+function GuidanceNote({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="mt-3 flex items-start gap-2 rounded-xl bg-indigo-50/70 px-3 py-2 text-xs leading-relaxed text-indigo-700 ring-1 ring-indigo-100">
+      <HelpCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+      <span>{children}</span>
+    </div>
   )
 }
 
@@ -752,6 +762,11 @@ function OtpStep({ api, reload, next, back, busy, setBusy, err, setErr, channel,
           <p className="text-sm text-gray-500">We&apos;ll send a code to {destination}</p>
         </div>
       </div>
+      <GuidanceNote>
+        {channel === 'SMS'
+          ? 'Enter the 6-digit OTP sent to this mobile number. Make sure the number is active and reachable.'
+          : 'Enter the 6-digit code sent to this email. Check your spam/promotions folder if you don’t see it.'}
+      </GuidanceNote>
       <ErrorBanner err={err} />
 
       {alreadyVerified || success ? (
@@ -804,6 +819,8 @@ function OtpStep({ api, reload, next, back, busy, setBusy, err, setErr, channel,
 
 function AadhaarStep({ api, reload, next, back, has, busy, setBusy, err, setErr }: StepProps) {
   const done = has('AADHAAR_DIGILOCKER')
+  const [editing, setEditing] = useState(false)
+  const showDone = done && !editing
 
   useEffect(() => {
     // Resume DigiLocker after redirect back.
@@ -855,9 +872,17 @@ function AadhaarStep({ api, reload, next, back, has, busy, setBusy, err, setErr 
           <p className="text-sm text-gray-500">Verify your Aadhaar securely via DigiLocker.</p>
         </div>
       </div>
+      <GuidanceNote>Use your own Aadhaar. The name on your Aadhaar must match the name on your PAN.</GuidanceNote>
       <ErrorBanner err={err} />
-      {done ? (
-        <SuccessNote>Aadhaar verified</SuccessNote>
+      {showDone ? (
+        <div>
+          <SuccessNote>Aadhaar verified</SuccessNote>
+          <div className="mt-2 flex justify-center">
+            <button type="button" onClick={() => setEditing(true)} className="inline-flex items-center gap-1.5 text-xs font-medium text-indigo-600 hover:underline">
+              <RefreshCw className="h-3.5 w-3.5" /> Re-verify Aadhaar
+            </button>
+          </div>
+        </div>
       ) : (
         <div className="mt-6 flex justify-center">
           <PrimaryButton onClick={startDigilocker} busy={busy} className="px-8 py-3 text-base">
@@ -871,10 +896,12 @@ function AadhaarStep({ api, reload, next, back, has, busy, setBusy, err, setErr 
   )
 }
 
-function PanStep({ api, reload, next, back, has, busy, setBusy, err, setErr }: StepProps) {
+function PanStep({ api, reload, next, back, has, verifiedNames, busy, setBusy, err, setErr }: StepProps) {
   const [pan, setPan] = useState('')
-  const [name, setName] = useState('')
+  const [name, setName] = useState(verifiedNames['PAN_360'] || '')
+  const [editing, setEditing] = useState(false)
   const done = has('PAN_360')
+  const showDone = done && !editing
 
   async function verify() {
     setErr('')
@@ -883,6 +910,7 @@ function PanStep({ api, reload, next, back, has, busy, setBusy, err, setErr }: S
       const r = await api('/verify', { method: 'POST', body: JSON.stringify({ type: 'PAN_360', pan }) })
       if (!r.success) throw new Error(r.error || 'PAN verification failed')
       setName(r.data?.registered_name || '')
+      setEditing(false)
       await reload()
     } catch (e: any) {
       setErr(e.message)
@@ -894,9 +922,17 @@ function PanStep({ api, reload, next, back, has, busy, setBusy, err, setErr }: S
   return (
     <div>
       <StepHeader icon={CreditCard} title="PAN Verification" subtitle="Enter your 10-character PAN to verify instantly." />
+      <GuidanceNote>Enter your own PAN. The name on your PAN must match the name on your Aadhaar.</GuidanceNote>
       <ErrorBanner err={err} />
-      {done ? (
-        <VerifiedCard label="PAN verified" name={name} />
+      {showDone ? (
+        <div>
+          <VerifiedCard label="PAN verified" name={name} />
+          <div className="mt-2">
+            <button type="button" onClick={() => setEditing(true)} className="inline-flex items-center gap-1.5 text-xs font-medium text-indigo-600 hover:underline">
+              <RefreshCw className="h-3.5 w-3.5" /> Change PAN
+            </button>
+          </div>
+        </div>
       ) : (
         <div className="mt-5 space-y-3">
           <Field
@@ -920,11 +956,13 @@ function PanStep({ api, reload, next, back, has, busy, setBusy, err, setErr }: S
   )
 }
 
-function BankStep({ api, reload, next, back, has, busy, setBusy, err, setErr }: StepProps) {
+function BankStep({ api, reload, next, back, has, verifiedNames, busy, setBusy, err, setErr }: StepProps) {
   const [acc, setAcc] = useState('')
   const [ifsc, setIfsc] = useState('')
-  const [name, setName] = useState('')
+  const [name, setName] = useState(verifiedNames['BANK_PENNY_DROP'] || '')
+  const [editing, setEditing] = useState(false)
   const done = has('BANK_PENNY_DROP')
+  const showDone = done && !editing
 
   async function verify() {
     setErr('')
@@ -933,6 +971,7 @@ function BankStep({ api, reload, next, back, has, busy, setBusy, err, setErr }: 
       const r = await api('/verify', { method: 'POST', body: JSON.stringify({ type: 'BANK_PENNY_DROP', account_number: acc, ifsc }) })
       if (!r.success) throw new Error(r.error || 'Bank verification failed')
       setName(r.data?.nameAtBank || '')
+      setEditing(false)
       await reload()
     } catch (e: any) {
       setErr(e.message)
@@ -944,9 +983,17 @@ function BankStep({ api, reload, next, back, has, busy, setBusy, err, setErr }: 
   return (
     <div>
       <StepHeader icon={Landmark} title="Bank Account Verification" subtitle="We send ₹1 (penny drop) to confirm your account name." />
+      <GuidanceNote>The account holder name should match your Aadhaar/PAN name (or your GST business name). Use your own active bank account.</GuidanceNote>
       <ErrorBanner err={err} />
-      {done ? (
-        <VerifiedCard label="Bank verified" name={name} />
+      {showDone ? (
+        <div>
+          <VerifiedCard label="Bank verified" name={name} />
+          <div className="mt-2">
+            <button type="button" onClick={() => setEditing(true)} className="inline-flex items-center gap-1.5 text-xs font-medium text-indigo-600 hover:underline">
+              <RefreshCw className="h-3.5 w-3.5" /> Change bank account
+            </button>
+          </div>
+        </div>
       ) : (
         <div className="mt-5 space-y-3">
           <Field
@@ -1035,6 +1082,7 @@ function BusinessStep({ api, reload, next, back, has, busy, setBusy, err, setErr
   return (
     <div>
       <StepHeader icon={Store} title="Business Details" subtitle="Verify your GST to auto-fill the name, or enter it manually. GST is optional." />
+      <GuidanceNote>Enter your shop/business name as you want it on record. If you have GST, verify it to auto-fill the legal business name — it should match your bank/KYC name.</GuidanceNote>
       <ErrorBanner err={err} />
       <div className="mt-5 space-y-4">
         <div>
@@ -1099,8 +1147,9 @@ function BusinessStep({ api, reload, next, back, has, busy, setBusy, err, setErr
 }
 
 function BiometricStep({ api, reload, next, back, has, setErr, err }: StepProps) {
+  const [redoVideo, setRedoVideo] = useState(false)
   const selfieDone = has('DOCUMENT_SELFIE', 'Uploaded')
-  const videoDone = has('ONBOARD_VIDEO', 'Uploaded')
+  const videoDone = has('ONBOARD_VIDEO', 'Uploaded') && !redoVideo
   const [videoCfg, setVideoCfg] = useState<{ prompt: string; maxDurationSec: number; mode: string; uploadUrl?: string; key?: string; uploadToken: string } | null>(null)
   const [uploading, setUploading] = useState(false)
 
@@ -1164,6 +1213,8 @@ function BiometricStep({ api, reload, next, back, has, setErr, err }: StepProps)
         await api('/video/complete', { method: 'POST', body: JSON.stringify({ dataUrl, uploadToken: videoCfg.uploadToken, durationSec }) })
       }
       await reload()
+      setRedoVideo(false)
+      setVideoCfg(null)
     } catch (e: any) {
       setErr(e.message || 'Could not save video. Please re-record.')
     } finally {
@@ -1174,6 +1225,7 @@ function BiometricStep({ api, reload, next, back, has, setErr, err }: StepProps)
   return (
     <div>
       <StepHeader icon={Camera} title="Live Selfie & Video" subtitle="A quick liveness check to confirm it’s really you." />
+      <GuidanceNote>Face clearly visible in good lighting, no cap or sunglasses. For the video, look at the camera and read the number aloud.</GuidanceNote>
       <ErrorBanner err={err} />
 
       <div className="mt-5 rounded-2xl border border-gray-200 bg-gray-50/50 p-4">
@@ -1194,7 +1246,16 @@ function BiometricStep({ api, reload, next, back, has, setErr, err }: StepProps)
           <h3 className="text-sm font-semibold text-gray-800">Liveness Video</h3>
         </div>
         {videoDone ? (
-          <SuccessNote>Liveness video recorded</SuccessNote>
+          <div>
+            <SuccessNote>Liveness video recorded</SuccessNote>
+            <button
+              type="button"
+              onClick={() => { setRedoVideo(true); initVideo() }}
+              className="mt-2 inline-flex items-center gap-1.5 text-xs font-medium text-indigo-600 hover:underline"
+            >
+              <RefreshCw className="h-3.5 w-3.5" /> Re-record video
+            </button>
+          </div>
         ) : !videoCfg ? (
           <PrimaryButton onClick={initVideo} className="w-full py-3">Start Liveness Check</PrimaryButton>
         ) : (
@@ -1220,6 +1281,7 @@ function DocumentsStep({ documents, api, reload, next, back, has, err, setErr }:
   return (
     <div>
       <StepHeader icon={FileText} title="Upload Documents" subtitle="Clear photos or PDFs. Shop photos are captured live with your location." />
+      <GuidanceNote>Upload clear, readable files. Shop photos/selfie are taken live and tagged with your GPS location. Tap “Replace” or “Retake” to change any item.</GuidanceNote>
       <ErrorBanner err={err} />
       <div className="mt-5 space-y-2">
         {required.map((d, i) => (
@@ -1235,10 +1297,11 @@ function DocumentsStep({ documents, api, reload, next, back, has, err, setErr }:
                 required
                 facing={d.type.includes('SELFIE') ? 'user' : 'environment'}
                 uploaded={has(`DOCUMENT_${d.type}`, 'Uploaded')}
+                hint={d.hint}
                 onUpload={(dataUrl, coords) => uploadDoc(d.type, dataUrl, coords)}
               />
             ) : (
-              <DocumentUploadField label={d.label} required uploaded={has(`DOCUMENT_${d.type}`, 'Uploaded')} onUpload={(dataUrl, coords) => uploadDoc(d.type, dataUrl, coords)} />
+              <DocumentUploadField label={d.label} required uploaded={has(`DOCUMENT_${d.type}`, 'Uploaded')} hint={d.hint} onUpload={(dataUrl, coords) => uploadDoc(d.type, dataUrl, coords)} />
             )}
           </motion.div>
         ))}
@@ -1248,7 +1311,7 @@ function DocumentsStep({ documents, api, reload, next, back, has, err, setErr }:
           <p className="mt-4 text-xs font-semibold uppercase text-gray-400">Optional</p>
           <div className="mt-2 space-y-2">
             {optional.map((d) => (
-              <DocumentUploadField key={d.type} label={d.label} gps={d.gps} uploaded={has(`DOCUMENT_${d.type}`, 'Uploaded')} onUpload={(dataUrl, coords) => uploadDoc(d.type, dataUrl, coords)} />
+              <DocumentUploadField key={d.type} label={d.label} gps={d.gps} uploaded={has(`DOCUMENT_${d.type}`, 'Uploaded')} hint={d.hint} onUpload={(dataUrl, coords) => uploadDoc(d.type, dataUrl, coords)} />
             ))}
           </div>
         </>

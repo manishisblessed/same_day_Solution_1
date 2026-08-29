@@ -1,13 +1,14 @@
 'use client'
 
 import { useState } from 'react'
-import { FileText, MapPin, Upload, Loader2, CheckCircle2 } from 'lucide-react'
+import { FileText, MapPin, Upload, Loader2, CheckCircle2, RefreshCw } from 'lucide-react'
 
 interface DocumentUploadFieldProps {
   label: string
   required?: boolean
   gps?: boolean
   uploaded?: boolean
+  hint?: string
   /** Called with (dataUrl, coords) once a file is chosen. */
   onUpload: (dataUrl: string, coords?: { lat: number; lng: number }) => Promise<void> | void
 }
@@ -21,6 +22,7 @@ export default function DocumentUploadField({
   required,
   gps,
   uploaded,
+  hint,
   onUpload,
 }: DocumentUploadFieldProps) {
   const [busy, setBusy] = useState(false)
@@ -74,14 +76,28 @@ export default function DocumentUploadField({
               <MapPin className="h-3 w-3" /> Location will be captured
             </p>
           )}
+          {hint && !ok && <p className="text-xs text-gray-400">{hint}</p>}
           {error && <p className="text-xs text-red-600">{error}</p>}
         </div>
       </div>
       <div className="shrink-0">
         {ok ? (
-          <span className="inline-flex items-center gap-1 rounded-full bg-green-100 px-3 py-1 text-xs font-semibold text-green-700">
-            <CheckCircle2 className="h-3.5 w-3.5" /> Uploaded
-          </span>
+          <div className="flex flex-col items-end gap-1">
+            <span className="inline-flex items-center gap-1 rounded-full bg-green-100 px-3 py-1 text-xs font-semibold text-green-700">
+              <CheckCircle2 className="h-3.5 w-3.5" /> Uploaded
+            </span>
+            <label className="inline-flex cursor-pointer items-center gap-1 text-xs font-medium text-indigo-600 hover:underline">
+              <RefreshCw className="h-3 w-3" /> Replace
+              <input
+                type="file"
+                accept={gps ? 'image/*' : 'image/*,application/pdf'}
+                capture={gps ? 'environment' : undefined}
+                onChange={handleFile}
+                disabled={busy}
+                className="hidden"
+              />
+            </label>
+          </div>
         ) : (
           <label className={`inline-flex cursor-pointer items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold shadow-sm transition-colors ${busy ? 'bg-gray-200 text-gray-500' : 'bg-indigo-600 text-white hover:bg-indigo-700'}`}>
             {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}

@@ -7,8 +7,11 @@ import {
   UserPlus, Send, Loader2, RefreshCw, Pencil, Link2, Share2, Copy,
   CheckCircle2, XCircle, X, Search, ExternalLink, Clock, Eye, FileText,
   ShieldCheck, Landmark, User, Video as VideoIcon, Mail, MessageSquare,
+  Download, ZoomIn,
 } from 'lucide-react'
+import JSZip from 'jszip'
 import { useToast } from '@/components/Toast'
+import { ONBOARD_STEPS, computeOnboardingProgress } from '@/lib/onboarding/progress'
 
 interface InviteProgress {
   currentLabel: string
@@ -373,11 +376,24 @@ export default function InviteManager({ adminMode = false }: { adminMode?: boole
                   const canEdit = inv.status === 'pending'
                   const canReshare = inv.status === 'expired' && !inv.created_partner_id
                   const canApprove = adminMode && isAdmin && ['registered', 'verified'].includes(inv.status)
-                  const canReview = adminMode && isAdmin && ['registered', 'verified', 'approved', 'rejected', 'resubmit'].includes(inv.status)
+                  // Any parent who can see the invite may track it; the detail API
+                  // scopes access to their own downline (MD→DT, DT→RT, admin→all).
+                  const canReview = ['registered', 'verified', 'approved', 'rejected', 'resubmit'].includes(inv.status)
                   return (
                     <tr key={inv.id} className="border-b last:border-0 dark:border-gray-700">
                       <td className="py-2.5 pr-3">
-                        <div className="font-medium text-gray-800 dark:text-gray-200">{inv.name || '—'}</div>
+                        {canReview ? (
+                          <button
+                            onClick={() => setReviewing(inv)}
+                            className="group flex items-center gap-1 text-left font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+                            title="View onboarding progress & documents"
+                          >
+                            {inv.name || '—'}
+                            <Eye className="h-3.5 w-3.5 opacity-0 transition-opacity group-hover:opacity-100" />
+                          </button>
+                        ) : (
+                          <div className="font-medium text-gray-800 dark:text-gray-200">{inv.name || '—'}</div>
+                        )}
                         <div className="text-xs text-gray-400">{inv.email}</div>
                         <div className="text-xs text-gray-400">{inv.phone}</div>
                       </td>
@@ -537,7 +553,10 @@ function KycReviewModal({
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState('')
   const [rows, setRows] = useState<VerificationRow[]>([])
+  const [detail, setDetail] = useState<any>(null)
   const [acting, setActing] = useState<'approve' | 'reject' | null>(null)
+  const [zipping, setZipping] = useState(false)
+  const [lightbox, setLightbox] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -547,6 +566,7 @@ function KycReviewModal({
         if (cancelled) return
         if (!d.success) throw new Error(d.error || 'Failed to load KYC details')
         setRows(d.verifications || [])
+        setDetail(d.invite || null)
       })
       .catch((e) => !cancelled && setErr(e.message))
       .finally(() => !cancelled && setLoading(false))
@@ -565,12 +585,92 @@ function KycReviewModal({
     (r) => r.media_url && (r.type.startsWith('DOCUMENT_') || r.type === 'ONBOARD_VIDEO' || r.type === 'SELF_DECLARATION')
   )
 
+  const verifiedMap: Record<string, string> = {}
+  rows.forEach((r) => { verifiedMap[r.type] = r.status })
+  const stepInvite: any = detail || invite
+  const progress = computeOnboardingProgress(stepInvite, verifiedMap, stepInvite.target_role)
+
+  function stepDetail(key: string): string {
+    switch (key) {
+      case 'mobile': return stepInvite.phone || invite.phone || ''
+      case 'email': return stepInvite.email || invite.email || ''
+      case 'aadhaar': return aadhaar?.response_payload?.name || ''
+      case 'pan': return pan?.response_payload?.pan || pan?.verified_name || ''
+      case 'bank': return bank?.response_payload?.nameAtBank || bank?.response_payload?.account_number || ''
+      case 'business': return business?.verified_name || gst?.response_payload?.legal_name_of_business || ''
+      case 'selfie_video':
+        return [verifiedMap['DOCUMENT_SELFIE'] === 'Uploaded' && 'Selfie', verifiedMap['ONBOARD_VIDEO'] === 'Uploaded' && 'Video']
+          .filter(Boolean).join(' + ')
+      case 'documents': {
+        const n = mediaRows.filter((m) => m.type.startsWith('DOCUMENT_') && m.type !== 'DOCUMENT_SELFIE').length
+        return n ? `${n} file${n > 1 ? 's' : ''} uploaded` : ''
+      }
+      case 'declaration': return verifiedMap['SELF_DECLARATION'] === 'Uploaded' ? 'Signed' : ''
+      case 'finish': return stepInvite.created_partner_id || ''
+      default: return ''
+    }
+  }
+
   async function run(action: 'approve' | 'reject') {
     setActing(action)
     try {
       await onAction(action)
     } finally {
       setActing(null)
+    }
+  }
+
+  function mediaExt(m: VerificationRow): string {
+    const clean = (m.media_url as string).split('?')[0]
+    const match = clean.match(/\.([a-z0-9]+)$/i)
+    if (match) return match[1].toLowerCase()
+    if (m.type === 'ONBOARD_VIDEO') return 'webm'
+    if (m.type === 'SELF_DECLARATION') return 'pdf'
+    return 'jpg'
+  }
+
+  function saveBlob(blob: Blob, filename: string) {
+    const href = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = href
+    a.download = filename
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    setTimeout(() => URL.revokeObjectURL(href), 2000)
+  }
+
+  async function downloadOne(m: VerificationRow) {
+    const res = await fetch(m.media_url as string)
+    if (!res.ok) throw new Error('Download failed')
+    saveBlob(await res.blob(), `${docTitle(m.type)}.${mediaExt(m)}`)
+  }
+
+  async function downloadAll() {
+    setErr('')
+    setZipping(true)
+    try {
+      const base = (invite.name || invite.email || 'onboarding').replace(/[^\w.-]+/g, '_')
+      const zip = new JSZip()
+      const folder = zip.folder(base) || zip
+      let added = 0
+      for (const m of mediaRows) {
+        try {
+          const res = await fetch(m.media_url as string)
+          if (!res.ok) continue
+          folder.file(`${docTitle(m.type)}.${mediaExt(m)}`, await res.blob())
+          added++
+        } catch {
+          /* skip unreachable file, keep zipping the rest */
+        }
+      }
+      if (!added) throw new Error('Could not fetch any media files.')
+      const content = await zip.generateAsync({ type: 'blob' })
+      saveBlob(content, `${base}-KYC.zip`)
+    } catch (e: any) {
+      setErr(e.message || 'Download all failed')
+    } finally {
+      setZipping(false)
     }
   }
 
@@ -615,6 +715,58 @@ function KycReviewModal({
             <div className="rounded-lg bg-rose-50 px-4 py-3 text-sm text-rose-700">{err}</div>
           ) : (
             <div className="space-y-5">
+              {/* Step-by-step onboarding progress */}
+              <section>
+                <div className="mb-2 flex items-center justify-between">
+                  <h4 className="flex items-center gap-1.5 text-sm font-bold text-gray-700 dark:text-gray-300">
+                    <Clock className="h-4 w-4 text-indigo-600" /> Onboarding Progress
+                  </h4>
+                  <span className="text-xs font-semibold text-gray-500">
+                    {progress.completedCount}/{progress.totalCount} steps · {progress.percent}%
+                    {progress.complete && <span className="ml-1 text-emerald-600">· Completed</span>}
+                  </span>
+                </div>
+                <ol className="overflow-hidden rounded-xl border border-gray-200 dark:border-gray-700">
+                  {ONBOARD_STEPS.map((s, i) => {
+                    if (s.key === 'welcome') return null
+                    const done = progress.states[i]
+                    const current = !progress.complete && i === progress.currentIndex
+                    const info = stepDetail(s.key)
+                    return (
+                      <li
+                        key={s.key}
+                        className={`flex items-center gap-2.5 border-b border-gray-100 px-3 py-2 last:border-0 dark:border-gray-700/60 ${
+                          current ? 'bg-indigo-50/70 dark:bg-indigo-900/20' : ''
+                        }`}
+                      >
+                        <span className="shrink-0">
+                          {done ? (
+                            <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                          ) : current ? (
+                            <span className="flex h-4 w-4 items-center justify-center">
+                              <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-indigo-500" />
+                            </span>
+                          ) : (
+                            <span className="block h-4 w-4 rounded-full border-2 border-gray-200 dark:border-gray-600" />
+                          )}
+                        </span>
+                        <span className="flex-1 truncate text-sm text-gray-700 dark:text-gray-300">
+                          {s.label}
+                          {info && <span className="ml-1.5 text-xs text-gray-400">— {info}</span>}
+                        </span>
+                        <span
+                          className={`shrink-0 text-xs font-semibold ${
+                            done ? 'text-emerald-600' : current ? 'text-indigo-600' : 'text-gray-300 dark:text-gray-500'
+                          }`}
+                        >
+                          {done ? 'Done' : current ? 'In progress' : 'Pending'}
+                        </span>
+                      </li>
+                    )
+                  })}
+                </ol>
+              </section>
+
               {/* Identity verifications */}
               <section>
                 <h4 className="mb-2 flex items-center gap-1.5 text-sm font-bold text-gray-700 dark:text-gray-300">
@@ -675,9 +827,22 @@ function KycReviewModal({
 
               {/* Media & documents */}
               <section>
-                <h4 className="mb-2 flex items-center gap-1.5 text-sm font-bold text-gray-700 dark:text-gray-300">
-                  <VideoIcon className="h-4 w-4 text-indigo-600" /> Selfie, Video &amp; Documents
-                </h4>
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <h4 className="flex items-center gap-1.5 text-sm font-bold text-gray-700 dark:text-gray-300">
+                    <VideoIcon className="h-4 w-4 text-indigo-600" /> Selfie, Video &amp; Documents
+                    {mediaRows.length > 0 && <span className="text-xs font-normal text-gray-400">({mediaRows.length})</span>}
+                  </h4>
+                  {mediaRows.length > 0 && (
+                    <button
+                      onClick={downloadAll}
+                      disabled={zipping}
+                      className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700 disabled:bg-gray-300"
+                    >
+                      {zipping ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+                      {zipping ? 'Zipping…' : 'Download all'}
+                    </button>
+                  )}
+                </div>
                 {mediaRows.length === 0 ? (
                   <p className="rounded-lg bg-gray-50 px-3 py-2 text-sm text-gray-400 dark:bg-gray-900">No media available yet.</p>
                 ) : (
@@ -698,18 +863,51 @@ function KycReviewModal({
                                 <span className="text-xs font-medium">Open PDF</span>
                               </a>
                             ) : (
-                              <a href={url} target="_blank" rel="noopener noreferrer" className="h-full w-full">
+                              <button
+                                type="button"
+                                onClick={() => setLightbox(url)}
+                                className="group relative h-full w-full"
+                                title="Click to enlarge"
+                              >
                                 {/* eslint-disable-next-line @next/next/no-img-element */}
                                 <img src={url} alt={docTitle(m.type)} className="h-full w-full object-cover" />
-                              </a>
+                                <span className="absolute inset-0 flex items-center justify-center bg-black/0 text-white/0 transition-colors group-hover:bg-black/30 group-hover:text-white">
+                                  <ZoomIn className="h-6 w-6" />
+                                </span>
+                              </button>
                             )}
                           </div>
                           <div className="flex items-center justify-between gap-1 px-2 py-1.5">
                             <span className="truncate text-xs font-medium text-gray-600 dark:text-gray-300">{docTitle(m.type)}</span>
-                            <a href={url} target="_blank" rel="noopener noreferrer" className="shrink-0 text-gray-400 hover:text-indigo-600">
-                              <ExternalLink className="h-3.5 w-3.5" />
-                            </a>
+                            <div className="flex shrink-0 items-center gap-1.5">
+                              <button
+                                onClick={() => downloadOne(m).catch((e) => setErr(e.message))}
+                                title="Download"
+                                className="text-gray-400 hover:text-indigo-600"
+                              >
+                                <Download className="h-3.5 w-3.5" />
+                              </button>
+                              <a href={url} target="_blank" rel="noopener noreferrer" title="Open in new tab" className="text-gray-400 hover:text-indigo-600">
+                                <ExternalLink className="h-3.5 w-3.5" />
+                              </a>
+                            </div>
                           </div>
+                          {(m.response_payload?.lat != null || m.response_payload?.ip) && (
+                            <div className="space-y-0.5 border-t border-gray-100 px-2 py-1 text-[10px] leading-tight text-gray-400 dark:border-gray-700">
+                              {m.response_payload?.lat != null && m.response_payload?.lng != null && (
+                                <a
+                                  href={`https://maps.google.com/?q=${m.response_payload.lat},${m.response_payload.lng}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="block truncate text-indigo-500 hover:underline"
+                                >
+                                  📍 {Number(m.response_payload.lat).toFixed(5)}, {Number(m.response_payload.lng).toFixed(5)}
+                                  {m.response_payload?.accuracy != null ? ` · ±${Math.round(Number(m.response_payload.accuracy))}m` : ''}
+                                </a>
+                              )}
+                              {m.response_payload?.ip && <div className="truncate">IP: {m.response_payload.ip}</div>}
+                            </div>
+                          )}
                         </div>
                       )
                     })}
@@ -744,6 +942,39 @@ function KycReviewModal({
           )}
         </div>
       </div>
+
+      {lightbox && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 p-4"
+          onClick={(e) => {
+            e.stopPropagation()
+            setLightbox(null)
+          }}
+        >
+          <button
+            onClick={(e) => { e.stopPropagation(); setLightbox(null) }}
+            className="absolute right-4 top-4 rounded-lg bg-white/10 p-2 text-white hover:bg-white/20"
+          >
+            <X className="h-5 w-5" />
+          </button>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={lightbox}
+            alt="Preview"
+            onClick={(e) => e.stopPropagation()}
+            className="max-h-[90vh] max-w-[90vw] rounded-lg object-contain shadow-2xl"
+          />
+          <a
+            href={lightbox}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            className="absolute bottom-4 right-4 inline-flex items-center gap-1.5 rounded-lg bg-white/10 px-3 py-2 text-sm text-white hover:bg-white/20"
+          >
+            <ExternalLink className="h-4 w-4" /> Open original
+          </a>
+        </div>
+      )}
     </div>
   )
 }
