@@ -16,8 +16,8 @@ export type OnboardStepKey =
   | 'email'
   | 'aadhaar'
   | 'pan'
-  | 'bank'
   | 'business'
+  | 'bank'
   | 'selfie_video'
   | 'documents'
   | 'declaration'
@@ -36,8 +36,8 @@ export const ONBOARD_STEPS: OnboardStepDef[] = [
   { key: 'email', label: 'Email', gating: true },
   { key: 'aadhaar', label: 'Aadhaar', gating: true },
   { key: 'pan', label: 'PAN', gating: true },
-  { key: 'bank', label: 'Bank', gating: true },
   { key: 'business', label: 'Business', gating: true },
+  { key: 'bank', label: 'Bank', gating: true },
   { key: 'selfie_video', label: 'Selfie & Video', gating: true },
   { key: 'documents', label: 'Documents', gating: true },
   { key: 'declaration', label: 'Declaration', gating: true },

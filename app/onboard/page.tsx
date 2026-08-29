@@ -45,8 +45,8 @@ const STEPS = [
   'Email',
   'Aadhaar',
   'PAN',
-  'Bank',
   'Business',
+  'Bank',
   'Selfie & Video',
   'Documents',
   'Declaration',
@@ -57,8 +57,8 @@ const DIGILOCKER_STORAGE_KEY = 'onboard_digilocker'
 
 // Icon per step (aligned 1:1 with STEPS).
 const STEP_ICONS = [
-  Sparkles, Smartphone, Mail, ShieldCheck, CreditCard, Landmark,
-  Store, Camera, FileText, FileSignature, Rocket,
+  Sparkles, Smartphone, Mail, ShieldCheck, CreditCard, Store,
+  Landmark, Camera, FileText, FileSignature, Rocket,
 ]
 
 // ── Motion primitives ───────────────────────────────────────────────────────
@@ -442,8 +442,8 @@ function OnboardWizard() {
               {step === 2 && <OtpStep {...stepProps} channel="EMAIL" title="Verify Email Address" destination={invite.email} />}
               {step === 3 && <AadhaarStep {...stepProps} />}
               {step === 4 && <PanStep {...stepProps} />}
-              {step === 5 && <BankStep {...stepProps} />}
-              {step === 6 && <BusinessStep {...stepProps} />}
+              {step === 5 && <BusinessStep {...stepProps} />}
+              {step === 6 && <BankStep {...stepProps} />}
               {step === 7 && <BiometricStep {...stepProps} />}
               {step === 8 && <DocumentsStep {...stepProps} />}
               {step === 9 && <DeclarationStep {...stepProps} />}
@@ -1141,7 +1141,15 @@ function BusinessStep({ api, reload, next, back, has, busy, setBusy, err, setErr
           hint={gstVerified ? 'Auto-filled from GST — edit if needed.' : undefined}
         />
       </div>
-      <NavButtons onBack={back} onNext={saveBusiness} nextDisabled={shopName.trim().length < 2 && !saved} busy={busy} />
+      {gst.trim().length > 0 && !gstVerified && (
+        <p className="mt-2 text-xs text-amber-600">Verify the GSTIN you entered, or clear it, to continue.</p>
+      )}
+      <NavButtons
+        onBack={back}
+        onNext={saveBusiness}
+        nextDisabled={(shopName.trim().length < 2 && !saved) || (gst.trim().length > 0 && !gstVerified)}
+        busy={busy}
+      />
     </div>
   )
 }
@@ -1274,8 +1282,10 @@ function DocumentsStep({ documents, api, reload, next, back, has, err, setErr }:
     await api('/documents', { method: 'POST', body: JSON.stringify({ type, dataUrl, lat: coords?.lat, lng: coords?.lng, acc: coords?.acc }) })
     await reload()
   }
-  const required = documents.filter((d) => d.required)
-  const optional = documents.filter((d) => !d.required)
+  // PG_FORM is collected on the Declaration & Agreement step instead.
+  const docs = documents.filter((d) => d.type !== 'PG_FORM')
+  const required = docs.filter((d) => d.required)
+  const optional = docs.filter((d) => !d.required)
   const allRequiredDone = required.every((d) => has(`DOCUMENT_${d.type}`, 'Uploaded'))
 
   return (
@@ -1321,9 +1331,11 @@ function DocumentsStep({ documents, api, reload, next, back, has, err, setErr }:
   )
 }
 
-function DeclarationStep({ api, reload, next, back, has, requiresUplineApproval, busy, setBusy, err, setErr }: StepProps) {
+function DeclarationStep({ documents, api, reload, next, back, has, requiresUplineApproval, busy, setBusy, err, setErr }: StepProps) {
   const token = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('token') || '' : ''
   const declUploaded = has('SELF_DECLARATION', 'Uploaded')
+  const pgSpec = documents.find((d) => d.type === 'PG_FORM')
+  const pgUploaded = has('DOCUMENT_PG_FORM', 'Uploaded')
   const [approval, setApproval] = useState<{ status: string } | null>(null)
   const [agreed, setAgreed] = useState(false)
   const pollRef = useRef<any>(null)
@@ -1331,6 +1343,12 @@ function DeclarationStep({ api, reload, next, back, has, requiresUplineApproval,
   const uploadDeclaration = async (dataUrl: string) => {
     setErr('')
     await api('/documents', { method: 'POST', body: JSON.stringify({ type: 'SELF_DECLARATION', dataUrl }) })
+    await reload()
+  }
+
+  const uploadPgForm = async (dataUrl: string) => {
+    setErr('')
+    await api('/documents', { method: 'POST', body: JSON.stringify({ type: 'PG_FORM', dataUrl }) })
     await reload()
   }
 
@@ -1369,7 +1387,8 @@ function DeclarationStep({ api, reload, next, back, has, requiresUplineApproval,
   }
 
   const approvalOk = !requiresUplineApproval || approval?.status === 'approved'
-  const canProceed = declUploaded && approvalOk && agreed
+  const pgOk = !pgSpec || pgUploaded
+  const canProceed = declUploaded && pgOk && approvalOk && agreed
 
   return (
     <div>
@@ -1385,6 +1404,18 @@ function DeclarationStep({ api, reload, next, back, has, requiresUplineApproval,
             <DocumentUploadField label="Signed Self-Declaration" required uploaded={declUploaded} onUpload={(dataUrl) => uploadDeclaration(dataUrl)} />
           </div>
         </div>
+
+        {pgSpec && (
+          <div className="rounded-2xl border border-gray-200 bg-gray-50/50 p-4">
+            <a href={getApiUrl(`/api/onboard/${encodeURIComponent(token)}/pg-form/download`)} className="inline-flex items-center gap-1.5 text-sm font-semibold text-indigo-600 hover:underline">
+              <FileText className="h-4 w-4" /> Download {pgSpec.label} (prefilled — sign &amp; upload)
+            </a>
+            <p className="mt-0.5 text-xs text-gray-400">{pgSpec.hint || 'Download the prefilled form, sign it, then upload the signed copy.'}</p>
+            <div className="mt-3">
+              <DocumentUploadField label={pgSpec.label} required uploaded={pgUploaded} onUpload={(dataUrl) => uploadPgForm(dataUrl)} />
+            </div>
+          </div>
+        )}
 
         {requiresUplineApproval && (
           <div className="rounded-xl border border-gray-200 p-3">
