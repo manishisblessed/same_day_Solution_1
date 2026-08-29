@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { Video, Upload, RefreshCw, CheckCircle2, Square } from 'lucide-react'
+import { Video, RefreshCw, CheckCircle2, Square } from 'lucide-react'
 
 interface LivenessVideoCaptureProps {
   prompt: string
@@ -12,37 +12,23 @@ interface LivenessVideoCaptureProps {
 
 function mediaErrorMessage(e: any): string {
   if (typeof window !== 'undefined' && !window.isSecureContext) {
-    return 'Camera needs a secure (HTTPS) connection. You can still upload a short video below.'
+    return 'Camera needs a secure (HTTPS) connection. Please open this page over HTTPS and retry.'
   }
   if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
-    return 'This browser can’t record video. Please upload a short clip below.'
+    return 'This browser can’t record video. Please use an up-to-date Chrome, Safari or Edge and retry.'
   }
   switch (e?.name) {
     case 'NotAllowedError':
     case 'SecurityError':
-      return 'Camera/microphone permission is blocked. Click the camera icon in your browser’s address bar, choose “Allow”, then retry — or upload a clip below.'
+      return 'Camera/microphone permission was denied. Click the camera icon in your browser’s address bar, choose “Allow”, then tap Open Camera again.'
     case 'NotFoundError':
     case 'OverconstrainedError':
-      return 'No camera/microphone found. Please upload a short clip below.'
+      return 'No camera/microphone found. Connect them and retry.'
     case 'NotReadableError':
-      return 'Your camera is being used by another app. Close it and retry — or upload a clip below.'
+      return 'Your camera is being used by another app. Close it and tap Open Camera again.'
     default:
-      return 'Camera/microphone unavailable. Please upload a short clip below.'
+      return 'Could not start the camera/microphone. Please allow access and retry.'
   }
-}
-
-function readDuration(dataUrl: string, fallback: number): Promise<number> {
-  return new Promise((resolve) => {
-    try {
-      const v = document.createElement('video')
-      v.preload = 'metadata'
-      v.onloadedmetadata = () => resolve(isFinite(v.duration) && v.duration > 0 ? v.duration : fallback)
-      v.onerror = () => resolve(fallback)
-      v.src = dataUrl
-    } catch {
-      resolve(fallback)
-    }
-  })
 }
 
 /**
@@ -151,21 +137,6 @@ export default function LivenessVideoCapture({
     setRecording(false)
   }
 
-  async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    if (!file) return
-    setError('')
-    const dataUrl: string = await new Promise((resolve, reject) => {
-      const reader = new FileReader()
-      reader.onload = () => resolve(String(reader.result))
-      reader.onerror = () => reject(new Error('Failed to read file'))
-      reader.readAsDataURL(file)
-    })
-    const dur = await readDuration(dataUrl, Math.min(maxDurationSec, 8))
-    onRecorded(dataUrl, Math.max(1, Math.round(dur)))
-    setDone(true)
-  }
-
   if (done || recorded) {
     return (
       <div className="flex flex-col items-center gap-2 rounded-2xl bg-green-50 px-4 py-5 ring-1 ring-green-200">
@@ -239,12 +210,6 @@ export default function LivenessVideoCapture({
           {error}
         </p>
       )}
-
-      <label className="flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-medium text-gray-600 transition-colors hover:border-indigo-300 hover:text-indigo-600">
-        <Upload className="h-4 w-4" />
-        Upload a short video instead
-        <input type="file" accept="video/*" capture="user" onChange={onFile} className="hidden" />
-      </label>
     </div>
   )
 }

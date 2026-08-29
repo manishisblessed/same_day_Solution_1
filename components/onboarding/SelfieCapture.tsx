@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { Camera, RefreshCw, Upload, CheckCircle2 } from 'lucide-react'
+import { Camera, RefreshCw, CheckCircle2 } from 'lucide-react'
 
 interface SelfieCaptureProps {
   onCapture: (dataUrl: string) => void
@@ -11,22 +11,22 @@ interface SelfieCaptureProps {
 /** Map a getUserMedia failure to a clear, actionable message. */
 function cameraErrorMessage(e: any): string {
   if (typeof window !== 'undefined' && !window.isSecureContext) {
-    return 'Camera needs a secure (HTTPS) connection. You can still upload a photo below.'
+    return 'Camera needs a secure (HTTPS) connection. Please open this page over HTTPS and retry.'
   }
   if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
-    return 'This browser can’t open the camera. Please upload a photo below.'
+    return 'This browser can’t open the camera. Please use an up-to-date Chrome, Safari or Edge and retry.'
   }
   switch (e?.name) {
     case 'NotAllowedError':
     case 'SecurityError':
-      return 'Camera permission is blocked. Click the camera icon in your browser’s address bar, choose “Allow”, then retry — or upload a photo below.'
+      return 'Camera permission was denied. Click the camera icon in your browser’s address bar, choose “Allow”, then tap Open Camera again.'
     case 'NotFoundError':
     case 'OverconstrainedError':
-      return 'No camera was found on this device. Please upload a photo below.'
+      return 'No camera was found on this device. Connect a camera and retry.'
     case 'NotReadableError':
-      return 'Your camera is being used by another app. Close it and retry — or upload a photo below.'
+      return 'Your camera is being used by another app. Close it and tap Open Camera again.'
     default:
-      return 'Camera unavailable. Please upload a photo below.'
+      return 'Could not start the camera. Please allow camera access and retry.'
   }
 }
 
@@ -95,19 +95,6 @@ export default function SelfieCapture({ onCapture, captured }: SelfieCaptureProp
     setActive(false)
   }
 
-  function onFile(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    if (!file) return
-    setError('')
-    const reader = new FileReader()
-    reader.onload = () => {
-      const dataUrl = String(reader.result)
-      setPreview(dataUrl)
-      onCapture(dataUrl)
-    }
-    reader.readAsDataURL(file)
-  }
-
   if (preview || captured) {
     return (
       <div className="flex flex-col items-center gap-3">
@@ -173,12 +160,6 @@ export default function SelfieCapture({ onCapture, captured }: SelfieCaptureProp
           {error}
         </p>
       )}
-
-      <label className="flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-medium text-gray-600 transition-colors hover:border-indigo-300 hover:text-indigo-600">
-        <Upload className="h-4 w-4" />
-        Upload a photo instead
-        <input type="file" accept="image/*" capture="user" onChange={onFile} className="hidden" />
-      </label>
     </div>
   )
 }

@@ -88,9 +88,12 @@ function addSecurityHeaders(response: NextResponse): void {
   response.headers.set('X-Frame-Options', 'DENY')
   response.headers.set('X-XSS-Protection', '1; mode=block')
   response.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin')
+  // camera/microphone must be allowed for the site itself (self) so the KYC
+  // liveness selfie/video capture can prompt for permission. Empty allowlists
+  // "camera=()" disable them everywhere and block getUserMedia without a prompt.
   response.headers.set(
     'Permissions-Policy',
-    'camera=(), microphone=(), geolocation=(self), payment=()'
+    'camera=(self), microphone=(self), geolocation=(self), payment=()'
   )
 
   // Content Security Policy — blocks injected scripts/styles from untrusted sources.
