@@ -6,7 +6,7 @@ import { AnimatePresence, motion } from 'framer-motion'
 import {
   Check, Loader2, Lock, Mail, PartyPopper, ShieldCheck, Smartphone,
   Sparkles, CreditCard, Landmark, Store, Camera, FileText, FileSignature,
-  Rocket, Clock, ShieldCheck as ShieldIcon, HelpCircle, RefreshCw,
+  Rocket, Clock, ShieldCheck as ShieldIcon, HelpCircle, RefreshCw, Eye, EyeOff,
 } from 'lucide-react'
 import SelfieCapture from '@/components/onboarding/SelfieCapture'
 import LivenessVideoCapture from '@/components/onboarding/LivenessVideoCapture'
@@ -1480,6 +1480,8 @@ function FinishStep({ api, invite, prefill, busy, setBusy, err, setErr }: StepPr
     confirm: '',
   })
   const [done, setDone] = useState<{ partner_id: string; message: string } | null>(null)
+  const [showPwd, setShowPwd] = useState(false)
+  const [showConfirm, setShowConfirm] = useState(false)
 
   // Prefill can arrive after the step mounts (async load); backfill any field the
   // applicant hasn't already edited.
@@ -1566,8 +1568,18 @@ function FinishStep({ api, invite, prefill, busy, setBusy, err, setErr }: StepPr
         <input value={form.pincode} readOnly={locked('pincode')} onChange={locked('pincode') ? undefined : (e) => set('pincode', e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="Pincode" title={locked('pincode') ? lockTitle : undefined} className={locked('pincode') ? lockedCls : baseCls} />
         <input value={invite.email} readOnly title="Login email (from your invite)" className="cursor-not-allowed rounded-xl border-2 border-gray-200 bg-gray-50 px-3 py-2 text-gray-600 focus:outline-none" />
         <input value={invite.phone} readOnly title="Verified mobile number" className="cursor-not-allowed rounded-xl border-2 border-gray-200 bg-gray-50 px-3 py-2 text-gray-600 focus:outline-none sm:col-span-2" />
-        <input type="password" value={form.password} onChange={(e) => set('password', e.target.value)} placeholder="Password *" className="rounded-xl border-2 border-gray-200 px-3 py-2 transition-colors focus:border-indigo-500 focus:outline-none" />
-        <input type="password" value={form.confirm} onChange={(e) => set('confirm', e.target.value)} placeholder="Confirm password *" className="rounded-xl border-2 border-gray-200 px-3 py-2 transition-colors focus:border-indigo-500 focus:outline-none" />
+        <div className="relative">
+          <input type={showPwd ? 'text' : 'password'} value={form.password} onChange={(e) => set('password', e.target.value)} placeholder="Password *" className="w-full rounded-xl border-2 border-gray-200 py-2 pl-3 pr-10 transition-colors focus:border-indigo-500 focus:outline-none" />
+          <button type="button" onClick={() => setShowPwd((s) => !s)} title={showPwd ? 'Hide password' : 'Show password'} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-indigo-600">
+            {showPwd ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+          </button>
+        </div>
+        <div className="relative">
+          <input type={showConfirm ? 'text' : 'password'} value={form.confirm} onChange={(e) => set('confirm', e.target.value)} placeholder="Confirm password *" className="w-full rounded-xl border-2 border-gray-200 py-2 pl-3 pr-10 transition-colors focus:border-indigo-500 focus:outline-none" />
+          <button type="button" onClick={() => setShowConfirm((s) => !s)} title={showConfirm ? 'Hide password' : 'Show password'} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-indigo-600">
+            {showConfirm ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+          </button>
+        </div>
       </div>
       <p className="mt-1 text-xs text-gray-400">Name &amp; address are auto-filled from your verified KYC and can’t be edited. Password: 8-20 chars, with a letter, number and special character.</p>
       <NavButtons onNext={submit} nextLabel="Submit Registration" nextDisabled={!form.name || !form.password} busy={busy} />
