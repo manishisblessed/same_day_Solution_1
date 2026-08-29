@@ -130,9 +130,15 @@ export async function GET(request: NextRequest) {
       return addCorsHeaders(request, response)
     }
 
+    // Finance executives are backed by a sub-admin row too; keep them out of the
+    // Sub-Admins list so the "Finance team" tab stays the single place to manage them.
+    const { data: financeRows } = await supabase.from('finance_users').select('email')
+    const financeEmails = new Set((financeRows || []).map((f: any) => (f.email || '').toLowerCase()))
+    const visibleAdmins = (admins || []).filter((a: any) => !financeEmails.has((a.email || '').toLowerCase()))
+
     const response = NextResponse.json({
       success: true,
-      admins: admins || []
+      admins: visibleAdmins
     })
     return addCorsHeaders(request, response)
   } catch (error: any) {

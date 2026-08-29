@@ -1494,7 +1494,7 @@ export default function AdminSettings() {
                         />
                         <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Select all</span>
                       </label>
-                      <div className="grid grid-cols-2 gap-1">
+                      <div className="grid grid-cols-2 gap-1 max-h-64 overflow-y-auto">
                         {FINANCE_TABS.map((tab) => (
                           <label
                             key={tab.id}

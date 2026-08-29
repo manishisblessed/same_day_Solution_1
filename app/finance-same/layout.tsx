@@ -1,7 +1,8 @@
 'use client'
 
+import { useEffect } from 'react'
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import { useAuth } from '@/contexts/AuthContext'
 import { financeHasTab } from '@/lib/auth-roles'
 import FinanceHeader from '@/components/FinanceHeader'
@@ -20,9 +21,18 @@ const mobileLinks = [
 
 export default function FinanceLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
+  const router = useRouter()
   const { user, loading } = useAuth()
   const isLoginPage = pathname === '/finance-same/login'
   const showChrome = !isLoginPage && !loading && user?.role === 'finance_executive'
+
+  // Finance executives are now backed by a scoped admin account and use the
+  // admin portal; the standalone finance portal is superseded.
+  useEffect(() => {
+    if (!loading && !isLoginPage && user?.role === 'admin') {
+      router.replace('/admin')
+    }
+  }, [loading, isLoginPage, user, router])
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-gray-50 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900">

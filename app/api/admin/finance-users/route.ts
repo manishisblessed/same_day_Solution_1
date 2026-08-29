@@ -12,6 +12,79 @@ function sanitizeTabs(input: unknown): string[] {
   return FINANCE_TAB_IDS.filter((id) => input.includes(id))
 }
 
+// Legacy single-department values permitted by the admin_users.department CHECK
+// constraint. We deliberately avoid 'all', 'settings' and 'users' so a finance
+// executive can never be treated as an effective super-admin (isEffectiveSuperAdmin)
+// or user manager (assertAdminCanManageUsers). Navigation is driven by the
+// `departments` array, so this legacy value is otherwise inconsequential.
+const SAFE_LEGACY_DEPTS = ['wallet', 'commission', 'mdr', 'limits', 'services', 'reversals', 'disputes', 'reports']
+
+function legacyDepartmentFor(departments: string[]): string {
+  return departments.find((d) => SAFE_LEGACY_DEPTS.includes(d)) || 'reports'
+}
+
+/**
+ * Resolve the Supabase Auth user id for an email so the backing admin_users row
+ * id matches the auth id (required for admin_audit_log.admin_id FK). Best-effort.
+ */
+async function resolveAuthUserId(supabase: SupabaseClient, email: string): Promise<string | null> {
+  const lower = email.toLowerCase()
+  for (let page = 1; page <= 50; page++) {
+    const { data } = await supabase.auth.admin.listUsers({ page, perPage: 1000 })
+    const users = data?.users || []
+    const match = users.find((u: any) => (u.email || '').toLowerCase() === lower)
+    if (match) return match.id
+    if (users.length < 1000) break
+  }
+  return null
+}
+
+/**
+ * Create or update the admin_users sub-admin row that backs a finance executive.
+ * This is what gives them access to the existing admin portal + /api/admin/*
+ * routes: getUserRole matches admin_users first, so they resolve as role 'admin'
+ * with `departments` limited to their granted tabs (Settings is never included).
+ */
+async function syncFinanceAdminRow(
+  supabase: SupabaseClient,
+  opts: { authId?: string; email: string; name?: string; tabs?: string[]; is_active?: boolean; createdBy?: string }
+): Promise<{ ok: boolean; error?: string }> {
+  const { data: existing } = await supabase
+    .from('admin_users')
+    .select('id')
+    .eq('email', opts.email)
+    .maybeSingle()
+
+  if (existing) {
+    const updates: Record<string, unknown> = { admin_type: 'sub_admin' }
+    if (opts.name !== undefined) updates.name = opts.name
+    if (opts.tabs !== undefined) {
+      updates.departments = opts.tabs
+      updates.department = legacyDepartmentFor(opts.tabs)
+    }
+    if (opts.is_active !== undefined) updates.is_active = opts.is_active
+    const { error } = await supabase.from('admin_users').update(updates).eq('id', existing.id)
+    return error ? { ok: false, error: error.message } : { ok: true }
+  }
+
+  const authId = opts.authId || (await resolveAuthUserId(supabase, opts.email))
+  if (!authId) return { ok: false, error: 'Could not resolve auth user id for finance executive' }
+
+  const departments = opts.tabs || []
+  const { error } = await supabase.from('admin_users').insert({
+    id: authId,
+    email: opts.email,
+    name: opts.name || opts.email,
+    admin_type: 'sub_admin',
+    department: legacyDepartmentFor(departments),
+    departments,
+    permissions: {},
+    is_active: opts.is_active ?? true,
+    created_by: opts.createdBy || null,
+  })
+  return error ? { ok: false, error: error.message } : { ok: true }
+}
+
 let supabaseAdmin: SupabaseClient | null = null
 
 function getSupabaseAdmin(): SupabaseClient {
@@ -154,6 +227,26 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Back the finance executive with a department-scoped sub-admin row so the
+    // existing admin portal + /api/admin/* routes work for them.
+    const sync = await syncFinanceAdminRow(supabase, {
+      authId: authData.user.id,
+      email,
+      name,
+      tabs,
+      is_active: true,
+      createdBy: gate.adminId,
+    })
+    if (!sync.ok) {
+      await supabase.from('finance_users').delete().eq('id', row.id)
+      await supabase.auth.admin.deleteUser(authData.user.id)
+      console.error('[finance-users POST] admin_users sync failed', sync.error)
+      return NextResponse.json(
+        { error: sync.error || 'Failed to grant portal access' },
+        { status: 400 }
+      )
+    }
+
     return NextResponse.json({ success: true, user: row })
   } catch (e: any) {
     console.error('[finance-users POST]', e)
@@ -204,6 +297,18 @@ export async function PUT(request: NextRequest) {
     if (updateError) {
       console.error('[finance-users PUT]', updateError)
       return NextResponse.json({ error: updateError.message || 'Failed to update finance user' }, { status: 400 })
+    }
+
+    // Keep the backing sub-admin row (departments/name/active state) in sync.
+    const sync = await syncFinanceAdminRow(supabase, {
+      email: row.email,
+      name: row.name,
+      tabs: Array.isArray(row.tabs) ? row.tabs : [],
+      is_active: row.is_active,
+      createdBy: gate.adminId,
+    })
+    if (!sync.ok) {
+      console.error('[finance-users PUT] admin_users sync failed', sync.error)
     }
 
     return NextResponse.json({ success: true, user: row })

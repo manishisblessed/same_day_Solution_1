@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseAdmin } from '@/lib/supabase/server-admin'
-import { loadInviteByToken, OPEN_INVITE_STATUSES, INVITE_TABLE, upsertVerification } from '@/lib/onboarding/invites'
+import { loadInviteByToken, OPEN_INVITE_STATUSES, INVITE_TABLE, upsertVerification, getVerifications } from '@/lib/onboarding/invites'
+import { namesMatch } from '@/lib/onboarding/nameMatch'
 import {
   verifyPAN360,
   verifyBankPennyDrop,
@@ -11,6 +12,21 @@ import {
 } from '@/services/ekyc'
 
 export const dynamic = 'force-dynamic'
+
+/** Reference names already verified for this invite (for cross-checking). */
+async function referenceNames(supabase: any, inviteId: string) {
+  const rows = await getVerifications(supabase, inviteId)
+  const pick = (type: string) => {
+    const r = rows.find((v: any) => v.type === type && v.status === 'Success')
+    return r?.verified_name || null
+  }
+  return {
+    aadhaar: pick('AADHAAR_DIGILOCKER'),
+    pan: pick('PAN_360'),
+    bank: pick('BANK_PENNY_DROP'),
+    gst: pick('GST'),
+  }
+}
 
 /**
  * POST /api/onboard/[token]/verify
@@ -42,15 +58,28 @@ export async function POST(request: NextRequest, { params }: { params: { token: 
           return NextResponse.json({ error: 'Valid PAN required (e.g. ABCDE1234F)' }, { status: 400 })
         }
         const result = await verifyPAN360(pan, generateOrderId('PAN360'))
-        const ok = result.status === 'Success'
+        let ok = result.status === 'Success'
+        const panName = (result as any).registered_name || null
+
+        // Cross-check: PAN name must match the Aadhaar name.
+        let mismatch: string | null = null
+        if (ok) {
+          const ref = await referenceNames(supabase, invite.id)
+          if (ref.aadhaar && panName && !namesMatch(ref.aadhaar, panName).match) {
+            ok = false
+            mismatch = `The name on this PAN (${panName}) does not match your Aadhaar name (${ref.aadhaar}). Please use your own PAN — the PAN and Aadhaar must belong to the same person.`
+          }
+        }
+
         const saved = await upsertVerification(supabase, {
           inviteId: invite.id,
           type: 'PAN_360',
           status: ok ? 'Success' : 'Failure',
-          verifiedName: (result as any).registered_name || null,
-          payload: result as any,
+          verifiedName: panName,
+          payload: mismatch ? ({ ...(result as any), name_mismatch: true, mismatch_reason: mismatch } as any) : (result as any),
         })
         if (!saved.ok) return NextResponse.json({ error: `Could not save PAN result: ${saved.error}` }, { status: 500 })
+        if (mismatch) return NextResponse.json({ success: false, error: mismatch })
         if (!ok) return NextResponse.json({ success: false, error: result.message || 'PAN verification failed' })
         return NextResponse.json({
           success: true,
@@ -71,15 +100,33 @@ export async function POST(request: NextRequest, { params }: { params: { token: 
           return NextResponse.json({ error: 'Account number and IFSC required' }, { status: 400 })
         }
         const result = await verifyBankPennyDrop(account_number, ifsc, generateOrderId('BANK'))
-        const ok = result.status === 'Success'
+        let ok = result.status === 'Success'
+        const bankName = (result as any).nameAtBank || null
+
+        // Cross-check: account holder name must match the Aadhaar / PAN name,
+        // or the GST business name when GST is already verified.
+        let mismatch: string | null = null
+        if (ok) {
+          const ref = await referenceNames(supabase, invite.id)
+          const candidates = [ref.aadhaar, ref.pan, ref.gst].filter(Boolean) as string[]
+          if (candidates.length && bankName && !candidates.some((c) => namesMatch(c, bankName).match)) {
+            ok = false
+            const expected = [ref.aadhaar && `Aadhaar: ${ref.aadhaar}`, ref.pan && `PAN: ${ref.pan}`, ref.gst && `GST: ${ref.gst}`]
+              .filter(Boolean)
+              .join(', ')
+            mismatch = `The account holder name (${bankName}) does not match your verified identity (${expected}). Use a bank account in your own name (or your verified GST business name).`
+          }
+        }
+
         const saved = await upsertVerification(supabase, {
           inviteId: invite.id,
           type: 'BANK_PENNY_DROP',
           status: ok ? 'Success' : 'Failure',
-          verifiedName: (result as any).nameAtBank || null,
-          payload: { ...result, account_number, ifsc },
+          verifiedName: bankName,
+          payload: { ...result, account_number, ifsc, ...(mismatch ? { name_mismatch: true, mismatch_reason: mismatch } : {}) },
         })
         if (!saved.ok) return NextResponse.json({ error: `Could not save bank result: ${saved.error}` }, { status: 500 })
+        if (mismatch) return NextResponse.json({ success: false, error: mismatch })
         if (!ok) return NextResponse.json({ success: false, error: result.message || 'Bank verification failed' })
         return NextResponse.json({
           success: true,
@@ -156,13 +203,26 @@ export async function POST(request: NextRequest, { params }: { params: { token: 
           generateOrderId('DIGILOCKER'),
           'AADHAAR'
         )
-        const ok = result.status === 'Success'
+        let ok = result.status === 'Success'
+        const aadhaarName = (result as any).name || null
+
+        // Cross-check: if PAN was already verified (e.g. re-verifying Aadhaar),
+        // the Aadhaar name must still match the PAN name.
+        let mismatch: string | null = null
+        if (ok) {
+          const ref = await referenceNames(supabase, invite.id)
+          if (ref.pan && aadhaarName && !namesMatch(ref.pan, aadhaarName).match) {
+            ok = false
+            mismatch = `This Aadhaar name (${aadhaarName}) does not match your verified PAN name (${ref.pan}). The Aadhaar and PAN must belong to the same person.`
+          }
+        }
+
         const saved = await upsertVerification(supabase, {
           inviteId: invite.id,
           type: 'AADHAAR_DIGILOCKER',
           status: ok ? 'Success' : 'Failure',
-          verifiedName: (result as any).name || null,
-          payload: result as any,
+          verifiedName: aadhaarName,
+          payload: mismatch ? ({ ...(result as any), name_mismatch: true, mismatch_reason: mismatch } as any) : (result as any),
         })
         if (!saved.ok) return NextResponse.json({ error: `Could not save Aadhaar result: ${saved.error}` }, { status: 500 })
         if (ok) {
@@ -171,6 +231,7 @@ export async function POST(request: NextRequest, { params }: { params: { token: 
             .update({ aadhaar_verified_at: new Date().toISOString() })
             .eq('id', invite.id)
         }
+        if (mismatch) return NextResponse.json({ success: false, error: mismatch })
         if (!ok) return NextResponse.json({ success: false, error: result.message || 'Aadhaar verification failed' })
         return NextResponse.json({
           success: true,

@@ -15,28 +15,50 @@ export function isAdminOnly(user: AuthUser | null | undefined): boolean {
 }
 
 /**
- * Assignable finance portal tabs (Home is always accessible and not listed here).
+ * Assignable sections for a finance executive.
  *
- * TODO (finance parity with sub-admins): we must be able to assign ANY tab to a
- * finance executive, just like sub-admins get any admin section. Today this list
- * is limited to the 5 pages that exist in the separate finance portal
- * (/finance-same/*). Per the agreed Option B (keep the separate finance portal),
- * enabling a new tab requires, for each section:
- *   1) add its { id, label } here,
- *   2) build the page at app/finance-same/<id>/page.tsx (reuse the admin section
- *      component; gate with financeHasTab),
- *   3) add it to FinanceSidebar items + layout mobileLinks,
- *   4) expose a finance-accessible API under /api/finance/* (admin /api/admin/*
- *      is IP-allowlisted, so don't rely on it) gated with isAdminOrFinance.
- * FINANCE_TAB_IDS / sanitizeTabs in app/api/admin/finance-users/route.ts already
- * derive from this list, so validation + persistence pick up new ids for free.
+ * Finance execs get full sub-admin parity: any admin section can be granted
+ * EXCEPT Settings (and the catch-all "all"). Ids/labels mirror the admin
+ * portal navigation (see AdminSidebar) and the sub-admin `departments`
+ * vocabulary, so a granted tab maps 1:1 to the admin_users.departments entry
+ * that gates the corresponding admin page + sidebar item.
  */
 export const FINANCE_TABS: Array<{ id: string; label: string }> = [
-  { id: 'reconciliation', label: 'Reconciliation' },
-  { id: 'reports', label: 'Service reports' },
-  { id: 'settlement', label: 'T+1 settlement' },
+  { id: 'dashboard', label: 'Dashboard' },
+  { id: 'onboarding', label: 'Onboarding & Invites' },
+  { id: 'daily-report', label: 'Daily Report' },
+  { id: 'business-analytics', label: 'Business Analytics' },
+  { id: 'pos-transactions', label: 'POS Transactions' },
+  { id: 'pos-reconciliation', label: 'POS Reconciliation' },
+  { id: 'retailers', label: 'Retailers' },
+  { id: 'distributors', label: 'Distributors' },
+  { id: 'master-distributors', label: 'Master Distributors' },
+  { id: 'scheme-management', label: 'Scheme Management' },
+  { id: 'partners', label: 'Partners' },
+  { id: 'pos-machines', label: 'POS Machines' },
+  { id: 'pos-history', label: 'POS History' },
+  { id: 'pos-tracking-report', label: 'POS Tracking Report' },
+  { id: 'pos-rental-report', label: 'POS Rental Report' },
+  { id: 'pos-partner-api', label: 'POS Partner API' },
+  { id: 'master-partners', label: 'Master Partners' },
+  { id: 'services', label: 'Services' },
+  { id: 'aeps', label: 'AEPS Management' },
+  { id: 'reports', label: 'Reports & Analytics' },
+  { id: 'service-transaction-report', label: 'Service Transaction Report' },
+  { id: 'pos-report', label: 'POS Report' },
+  { id: 'bill-payment-report', label: 'Bill Payment Report' },
+  { id: 'aeps-report', label: 'AEPS Report' },
+  { id: 'settlement-report', label: 'Settlement Report' },
+  { id: 'settlement', label: 'Settlement' },
+  { id: 'settlement-2-approvals', label: 'Settlement-2 Approvals' },
+  { id: 'revenue-wallet', label: 'Revenue Wallet' },
   { id: 'wallet-ledger', label: 'Wallet ledger' },
-  { id: 'settings', label: 'Settings' },
+  { id: 'push-pull-report', label: 'Push/Pull Report' },
+  { id: 'performance', label: 'Performance' },
+  { id: 'subscriptions', label: 'Subscriptions' },
+  { id: 'portal-management', label: 'Portal Management' },
+  { id: 'legal-agreements', label: 'Legal Agreements' },
+  { id: 'reversals', label: 'Reversals' },
 ]
 
 export const FINANCE_TAB_IDS = FINANCE_TABS.map((t) => t.id)

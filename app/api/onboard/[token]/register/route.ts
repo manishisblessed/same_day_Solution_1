@@ -8,6 +8,7 @@ import {
 } from '@/lib/onboarding/invites'
 import { needsUplineApproval } from '@/lib/hierarchy'
 import { getRequiredDocTypes, docLabel } from '@/lib/onboarding/requiredDocuments'
+import { namesMatch } from '@/lib/onboarding/nameMatch'
 
 export const dynamic = 'force-dynamic'
 
@@ -102,6 +103,21 @@ export async function POST(request: NextRequest, { params }: { params: { token: 
     }
     if (!has('SELF_DECLARATION', 'Uploaded')) {
       gateErrors.push('Signed self-declaration is missing')
+    }
+
+    // ── Name consistency gate (Aadhaar==PAN, Bank matches Aadhaar/PAN/GST) ──
+    const aadhaarName = byType.get('AADHAAR_DIGILOCKER')?.verified_name || null
+    const panName = byType.get('PAN_360')?.verified_name || null
+    const bankName = byType.get('BANK_PENNY_DROP')?.verified_name || null
+    const gstName = byType.get('GST')?.verified_name || null
+    if (aadhaarName && panName && !namesMatch(aadhaarName, panName).match) {
+      gateErrors.push(`Aadhaar name (${aadhaarName}) and PAN name (${panName}) do not match — they must be the same person`)
+    }
+    if (bankName) {
+      const cands = [aadhaarName, panName, gstName].filter(Boolean) as string[]
+      if (cands.length && !cands.some((c) => namesMatch(c, bankName).match)) {
+        gateErrors.push(`Bank account holder name (${bankName}) does not match your Aadhaar/PAN${gstName ? '/GST' : ''} name`)
+      }
     }
 
     // ── Upline approval gate ──

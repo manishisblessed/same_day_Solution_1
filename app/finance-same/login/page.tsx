@@ -66,12 +66,19 @@ export default function FinanceLoginPage() {
 
   const redirectingRef = useRef(false)
   useEffect(() => {
-    if (user?.role === 'finance_executive' && !redirectingRef.current) {
+    if ((user?.role === 'finance_executive' || user?.role === 'admin') && !redirectingRef.current) {
       redirectingRef.current = true
       ;(async () => {
         await waitForServerSession()
         const params = new URLSearchParams(window.location.search)
-        router.push(params.get('redirect')?.startsWith('/finance-same') ? params.get('redirect')! : '/finance-same')
+        const redirect = params.get('redirect')
+        // Finance executives are backed by a scoped admin account, so they now
+        // resolve as role 'admin' and use the admin portal.
+        if (user?.role === 'admin') {
+          router.push(redirect?.startsWith('/admin') ? redirect : '/admin')
+        } else {
+          router.push(redirect?.startsWith('/finance-same') ? redirect : '/finance-same')
+        }
       })()
     }
   }, [user, router])
