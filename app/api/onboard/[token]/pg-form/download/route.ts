@@ -119,7 +119,7 @@ export async function GET(_request: NextRequest, { params }: { params: { token: 
       return new NextResponse(new Uint8Array(pdf), {
         headers: {
           'Content-Type': 'application/pdf',
-          'Content-Disposition': `attachment; filename="pg-form-${invite.id}.pdf"`,
+          'Content-Disposition': `attachment; filename="self-declaration-${invite.id}.pdf"`,
         },
       })
     }
@@ -128,7 +128,7 @@ export async function GET(_request: NextRequest, { params }: { params: { token: 
   return new NextResponse(html, {
     headers: {
       'Content-Type': 'text/html; charset=utf-8',
-      'Content-Disposition': `attachment; filename="pg-form-${invite.id}.html"`,
+      'Content-Disposition': `attachment; filename="self-declaration-${invite.id}.html"`,
     },
   })
 }

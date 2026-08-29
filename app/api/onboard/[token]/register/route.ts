@@ -6,9 +6,12 @@ import {
   VERIFICATION_TABLE,
   getVerifications,
 } from '@/lib/onboarding/invites'
-import { needsUplineApproval } from '@/lib/hierarchy'
+import { needsUplineApproval, roleLabel } from '@/lib/hierarchy'
 import { getRequiredDocTypes, docLabel } from '@/lib/onboarding/requiredDocuments'
 import { namesMatch } from '@/lib/onboarding/nameMatch'
+import { appUrl } from '@/lib/onboarding/invites'
+import { sendEmail } from '@/services/email'
+import { renderBrandedEmail } from '@/lib/email/templates'
 
 export const dynamic = 'force-dynamic'
 
@@ -272,6 +275,28 @@ export async function POST(request: NextRequest, { params }: { params: { token: 
       .from(VERIFICATION_TABLE)
       .update({ created_partner_id: createdPartnerId })
       .eq('invite_id', invite.id)
+
+    // ── Email the login credentials (username + password) to the applicant ──
+    // Fire-and-forget: never fail registration if the mailer is down.
+    const loginUrl = `${appUrl()}/business-login`
+    sendEmail({
+      to: invite.email,
+      subject: 'Your Same Day Solution login credentials',
+      html: renderBrandedEmail({
+        previewText: 'Your account has been created — here are your login details',
+        heading: 'Your account is ready',
+        intro: `Hi <strong>${name}</strong>, your ${roleLabel(invite.target_role)} registration has been submitted and is pending admin approval. Use the credentials below to sign in once your account is approved.`,
+        bullets: [
+          `Username (email): <strong>${invite.email}</strong>`,
+          `Password: <strong>${password}</strong>`,
+          `Partner ID: <strong>${createdPartnerId}</strong>`,
+        ],
+        ctaLabel: 'Go to Login',
+        ctaUrl: loginUrl,
+        secondaryNote:
+          'For your security, please sign in and change your password after your first login. Do not share these credentials with anyone.',
+      }),
+    }).catch((e) => console.error('[onboard register] credentials email failed:', e?.message))
 
     return NextResponse.json({
       success: true,

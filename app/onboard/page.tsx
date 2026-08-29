@@ -39,6 +39,16 @@ interface InviteData {
   invited_by_role?: string
 }
 
+interface PrefillData {
+  name: string
+  email: string
+  phone: string
+  address: string
+  city: string
+  state: string
+  pincode: string
+}
+
 const STEPS = [
   'Welcome',
   'Mobile',
@@ -246,6 +256,7 @@ function OnboardWizard() {
   const [verified, setVerified] = useState<Record<string, string>>({})
   const [verifiedNames, setVerifiedNames] = useState<Record<string, string>>({})
   const [savedGstin, setSavedGstin] = useState('')
+  const [prefill, setPrefill] = useState<PrefillData | null>(null)
   const [step, setStep] = useState(0)
   const [direction, setDirection] = useState(1)
   const [busy, setBusy] = useState(false)
@@ -292,6 +303,7 @@ function OnboardWizard() {
     setInvite(data.invite)
     setDocuments(data.documents || [])
     setRequiresUplineApproval(!!data.requiresUplineApproval)
+    if (data.prefill) setPrefill(data.prefill)
     const v: Record<string, string> = {}
     const names: Record<string, string> = {}
     for (const item of data.verifications || []) {
@@ -376,6 +388,7 @@ function OnboardWizard() {
     verified,
     verifiedNames,
     savedGstin,
+    prefill,
     has,
     api,
     reload,
@@ -519,6 +532,7 @@ interface StepProps {
   verified: Record<string, string>
   verifiedNames: Record<string, string>
   savedGstin: string
+  prefill: PrefillData | null
   has: (type: string, status?: string) => boolean
   api: (path: string, options?: RequestInit) => Promise<any>
   reload: () => Promise<any>
@@ -1455,17 +1469,31 @@ function Confetti() {
   )
 }
 
-function FinishStep({ api, invite, busy, setBusy, err, setErr }: StepProps) {
+function FinishStep({ api, invite, prefill, busy, setBusy, err, setErr }: StepProps) {
   const [form, setForm] = useState({
-    name: invite.name || '',
-    address: '',
-    city: '',
-    state: '',
-    pincode: '',
+    name: prefill?.name || invite.name || '',
+    address: prefill?.address || '',
+    city: prefill?.city || '',
+    state: prefill?.state || '',
+    pincode: prefill?.pincode || '',
     password: '',
     confirm: '',
   })
   const [done, setDone] = useState<{ partner_id: string; message: string } | null>(null)
+
+  // Prefill can arrive after the step mounts (async load); backfill any field the
+  // applicant hasn't already edited.
+  useEffect(() => {
+    if (!prefill) return
+    setForm((f) => ({
+      ...f,
+      name: f.name || prefill.name || '',
+      address: f.address || prefill.address || '',
+      city: f.city || prefill.city || '',
+      state: f.state || prefill.state || '',
+      pincode: f.pincode || prefill.pincode || '',
+    }))
+  }, [prefill])
 
   const set = (k: string, v: string) => setForm((f) => ({ ...f, [k]: v }))
 
@@ -1531,7 +1559,8 @@ function FinishStep({ api, invite, busy, setBusy, err, setErr }: StepProps) {
         <input value={form.city} onChange={(e) => set('city', e.target.value)} placeholder="City" className="rounded-xl border-2 border-gray-200 px-3 py-2 transition-colors focus:border-indigo-500 focus:outline-none" />
         <input value={form.state} onChange={(e) => set('state', e.target.value)} placeholder="State" className="rounded-xl border-2 border-gray-200 px-3 py-2 transition-colors focus:border-indigo-500 focus:outline-none" />
         <input value={form.pincode} onChange={(e) => set('pincode', e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="Pincode" className="rounded-xl border-2 border-gray-200 px-3 py-2 transition-colors focus:border-indigo-500 focus:outline-none" />
-        <div />
+        <input value={invite.email} readOnly title="Login email (from your invite)" className="cursor-not-allowed rounded-xl border-2 border-gray-200 bg-gray-50 px-3 py-2 text-gray-600 focus:outline-none" />
+        <input value={invite.phone} readOnly title="Verified mobile number" className="cursor-not-allowed rounded-xl border-2 border-gray-200 bg-gray-50 px-3 py-2 text-gray-600 focus:outline-none sm:col-span-2" />
         <input type="password" value={form.password} onChange={(e) => set('password', e.target.value)} placeholder="Password *" className="rounded-xl border-2 border-gray-200 px-3 py-2 transition-colors focus:border-indigo-500 focus:outline-none" />
         <input type="password" value={form.confirm} onChange={(e) => set('confirm', e.target.value)} placeholder="Confirm password *" className="rounded-xl border-2 border-gray-200 px-3 py-2 transition-colors focus:border-indigo-500 focus:outline-none" />
       </div>

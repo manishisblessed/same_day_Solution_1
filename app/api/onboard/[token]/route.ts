@@ -41,6 +41,44 @@ export async function GET(_request: NextRequest, { params }: { params: { token: 
 
     const verifications = await getVerifications(supabase, invite.id)
 
+    // Best-effort prefill for the final "Personal details" step, derived from the
+    // verified KYC data (PAN name + Aadhaar/DigiLocker address) so the applicant
+    // only has to set a password.
+    const byType = new Map(verifications.map((v) => [v.type, v]))
+    const pan = byType.get('PAN_360')?.response_payload as any
+    const aadhaar = byType.get('AADHAAR_DIGILOCKER')?.response_payload as any
+    const bank = byType.get('BANK_PENNY_DROP')?.response_payload as any
+    const split = (aadhaar?.split_address || {}) as any
+
+    let addressStr = ''
+    if (typeof aadhaar?.address === 'string') {
+      addressStr = aadhaar.address
+    } else if (split && Object.keys(split).length) {
+      addressStr = [split.house, split.street, split.landmark, split.po, split.subdist]
+        .filter(Boolean)
+        .join(', ')
+    }
+    let pincode = split.pincode || ''
+    if (!pincode && addressStr) {
+      const m = addressStr.match(/\b(\d{6})\b/)
+      if (m) pincode = m[1]
+    }
+
+    const prefill = {
+      name:
+        invite.name ||
+        pan?.registered_name ||
+        aadhaar?.name ||
+        bank?.nameAtBank ||
+        '',
+      email: invite.email,
+      phone: invite.phone,
+      address: addressStr,
+      city: split.vtc || split.dist || split.subdist || '',
+      state: split.state || aadhaar?.state || '',
+      pincode,
+    }
+
     return NextResponse.json({
       success: true,
       invite: {
@@ -58,6 +96,7 @@ export async function GET(_request: NextRequest, { params }: { params: { token: 
         invited_by_role: invite.invited_by_role,
         expires_at: invite.expires_at,
       },
+      prefill,
       requiresUplineApproval: needsUplineApproval(invite.invited_by_role),
       documents: ONBOARD_DOCUMENTS,
       selfDeclarationType: SELF_DECLARATION_TYPE,
