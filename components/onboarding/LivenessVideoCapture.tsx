@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import { Video, Upload, RefreshCw, CheckCircle2, Square } from 'lucide-react'
 
 interface LivenessVideoCaptureProps {
   prompt: string
@@ -9,9 +10,45 @@ interface LivenessVideoCaptureProps {
   recorded?: boolean
 }
 
+function mediaErrorMessage(e: any): string {
+  if (typeof window !== 'undefined' && !window.isSecureContext) {
+    return 'Camera needs a secure (HTTPS) connection. You can still upload a short video below.'
+  }
+  if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
+    return 'This browser can’t record video. Please upload a short clip below.'
+  }
+  switch (e?.name) {
+    case 'NotAllowedError':
+    case 'SecurityError':
+      return 'Camera/microphone permission is blocked. Click the camera icon in your browser’s address bar, choose “Allow”, then retry — or upload a clip below.'
+    case 'NotFoundError':
+    case 'OverconstrainedError':
+      return 'No camera/microphone found. Please upload a short clip below.'
+    case 'NotReadableError':
+      return 'Your camera is being used by another app. Close it and retry — or upload a clip below.'
+    default:
+      return 'Camera/microphone unavailable. Please upload a short clip below.'
+  }
+}
+
+function readDuration(dataUrl: string, fallback: number): Promise<number> {
+  return new Promise((resolve) => {
+    try {
+      const v = document.createElement('video')
+      v.preload = 'metadata'
+      v.onloadedmetadata = () => resolve(isFinite(v.duration) && v.duration > 0 ? v.duration : fallback)
+      v.onerror = () => resolve(fallback)
+      v.src = dataUrl
+    } catch {
+      resolve(fallback)
+    }
+  })
+}
+
 /**
  * ~10s liveness video capture using MediaRecorder. The user reads a
- * server-issued challenge number aloud while recording.
+ * server-issued challenge number aloud while recording. Falls back to a file
+ * upload when a camera/mic isn't available.
  */
 export default function LivenessVideoCapture({
   prompt,
@@ -42,6 +79,10 @@ export default function LivenessVideoCapture({
 
   async function startCamera() {
     setError('')
+    if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
+      setError(mediaErrorMessage({}))
+      return
+    }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: 'user' },
@@ -54,8 +95,8 @@ export default function LivenessVideoCapture({
         await videoRef.current.play()
       }
       setActive(true)
-    } catch {
-      setError('Camera/microphone unavailable. Please allow permissions and retry.')
+    } catch (e: any) {
+      setError(mediaErrorMessage(e))
     }
   }
 
@@ -105,19 +146,35 @@ export default function LivenessVideoCapture({
     setRecording(false)
   }
 
+  async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setError('')
+    const dataUrl: string = await new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(String(reader.result))
+      reader.onerror = () => reject(new Error('Failed to read file'))
+      reader.readAsDataURL(file)
+    })
+    const dur = await readDuration(dataUrl, Math.min(maxDurationSec, 8))
+    onRecorded(dataUrl, Math.max(1, Math.round(dur)))
+    setDone(true)
+  }
+
   if (done || recorded) {
     return (
-      <div className="text-center">
-        <p className="text-sm font-medium text-green-600">Liveness video recorded</p>
+      <div className="flex flex-col items-center gap-2 rounded-2xl bg-green-50 px-4 py-5 ring-1 ring-green-200">
+        <CheckCircle2 className="h-8 w-8 text-green-500" />
+        <p className="text-sm font-semibold text-green-700">Liveness video recorded</p>
         <button
           type="button"
           onClick={() => {
             setDone(false)
             startCamera()
           }}
-          className="mt-1 text-xs text-indigo-600 hover:underline"
+          className="inline-flex items-center gap-1.5 text-xs font-medium text-indigo-600 hover:underline"
         >
-          Re-record
+          <RefreshCw className="h-3.5 w-3.5" /> Re-record
         </button>
       </div>
     )
@@ -125,47 +182,64 @@ export default function LivenessVideoCapture({
 
   return (
     <div className="space-y-3">
-      <div className="rounded-lg bg-amber-50 p-3 text-center text-sm font-medium text-amber-800">
-        {prompt}
+      <div className="rounded-xl bg-amber-50 px-4 py-3 text-center ring-1 ring-amber-200">
+        <p className="text-xs font-medium uppercase tracking-wide text-amber-600">Read aloud on camera</p>
+        <p className="mt-0.5 text-lg font-bold tracking-widest text-amber-800">{prompt}</p>
       </div>
+
       {active ? (
-        <div className="text-center">
-          <video ref={videoRef} playsInline muted className="mx-auto h-56 w-full max-w-xs rounded-lg bg-black object-cover" />
-          {recording ? (
-            <div className="mt-3">
-              <span className="mr-3 inline-flex items-center text-sm font-semibold text-red-600">
-                <span className="mr-1 h-2 w-2 animate-pulse rounded-full bg-red-600" /> {elapsed}s / {maxDurationSec}s
+        <div className="flex flex-col items-center">
+          <div className="relative overflow-hidden rounded-2xl bg-black shadow-lg ring-1 ring-black/10">
+            <video ref={videoRef} playsInline muted className="h-56 w-full max-w-xs object-cover" />
+            {recording && (
+              <span className="absolute left-3 top-3 inline-flex items-center gap-1.5 rounded-full bg-black/60 px-2.5 py-1 text-xs font-semibold text-white">
+                <span className="h-2 w-2 animate-pulse rounded-full bg-red-500" /> {elapsed}s / {maxDurationSec}s
               </span>
-              <button
-                type="button"
-                onClick={stopRecording}
-                className="rounded-lg bg-gray-800 px-4 py-2 text-sm font-semibold text-white"
-              >
-                Stop
-              </button>
-            </div>
+            )}
+          </div>
+          {recording ? (
+            <button
+              type="button"
+              onClick={stopRecording}
+              className="mt-4 inline-flex items-center gap-2 rounded-xl bg-gray-900 px-6 py-2.5 text-sm font-semibold text-white shadow-lg transition-colors hover:bg-black"
+            >
+              <Square className="h-4 w-4" fill="currentColor" /> Stop
+            </button>
           ) : (
             <button
               type="button"
               onClick={startRecording}
-              className="mt-3 rounded-lg bg-red-600 px-5 py-2 text-sm font-semibold text-white hover:bg-red-700"
+              className="mt-4 inline-flex items-center gap-2 rounded-xl bg-red-600 px-6 py-2.5 text-sm font-semibold text-white shadow-lg shadow-red-600/25 transition-colors hover:bg-red-700"
             >
-              Start Recording
+              <span className="h-2.5 w-2.5 rounded-full bg-white" /> Start Recording
             </button>
           )}
         </div>
       ) : (
-        <div className="text-center">
-          <button
-            type="button"
-            onClick={startCamera}
-            className="rounded-lg bg-indigo-600 px-5 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
-          >
-            Open Camera
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={startCamera}
+          className="group flex w-full flex-col items-center gap-2 rounded-2xl border-2 border-dashed border-indigo-200 bg-indigo-50/50 px-4 py-6 text-center transition-colors hover:border-indigo-400 hover:bg-indigo-50"
+        >
+          <span className="flex h-12 w-12 items-center justify-center rounded-full bg-indigo-100 text-indigo-600 transition-transform group-hover:scale-110">
+            <Video className="h-6 w-6" />
+          </span>
+          <span className="text-sm font-semibold text-gray-800">Open Camera</span>
+          <span className="text-xs text-gray-500">Record a short liveness video</span>
+        </button>
       )}
-      {error && <p className="text-center text-xs text-red-600">{error}</p>}
+
+      {error && (
+        <p className="rounded-lg bg-red-50 px-3 py-2 text-center text-xs leading-relaxed text-red-600 ring-1 ring-red-100">
+          {error}
+        </p>
+      )}
+
+      <label className="flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-medium text-gray-600 transition-colors hover:border-indigo-300 hover:text-indigo-600">
+        <Upload className="h-4 w-4" />
+        Upload a short video instead
+        <input type="file" accept="video/*" capture="user" onChange={onFile} className="hidden" />
+      </label>
     </div>
   )
 }

@@ -143,6 +143,83 @@ function ErrorBanner({ err }: { err: string }) {
   )
 }
 
+// ── Form primitives ─────────────────────────────────────────────────────────
+
+function StepHeader({ icon: Icon, title, subtitle }: { icon: React.ComponentType<{ className?: string }>; title: string; subtitle?: string }) {
+  return (
+    <div className="flex items-center gap-3">
+      <motion.div
+        initial={{ scale: 0, rotate: -20 }}
+        animate={{ scale: 1, rotate: 0 }}
+        transition={springPop}
+        className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 text-white shadow-lg shadow-indigo-600/25"
+      >
+        <Icon className="h-5 w-5" />
+      </motion.div>
+      <div>
+        <h2 className="text-lg font-bold text-gray-900">{title}</h2>
+        {subtitle && <p className="text-sm text-gray-500">{subtitle}</p>}
+      </div>
+    </div>
+  )
+}
+
+interface FieldProps {
+  label: string
+  value: string
+  onChange: (v: string) => void
+  placeholder?: string
+  icon?: React.ComponentType<{ className?: string }>
+  hint?: string
+  required?: boolean
+  optional?: boolean
+  mono?: boolean
+  maxLength?: number
+  autoCapitalize?: boolean
+  inputMode?: 'text' | 'numeric'
+}
+
+function Field({
+  label, value, onChange, placeholder, icon: Icon, hint, required, optional, mono, maxLength, autoCapitalize, inputMode,
+}: FieldProps) {
+  return (
+    <label className="block">
+      <span className="mb-1.5 flex items-center gap-1 text-sm font-medium text-gray-700">
+        {label}
+        {required && <span className="text-red-500">*</span>}
+        {optional && <span className="text-xs font-normal text-gray-400">(optional)</span>}
+      </span>
+      <div className="relative">
+        {Icon && (
+          <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
+            <Icon className="h-4 w-4" />
+          </span>
+        )}
+        <input
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder}
+          maxLength={maxLength}
+          inputMode={inputMode}
+          className={`w-full rounded-xl border-2 border-gray-200 bg-gray-50/60 py-2.5 text-gray-900 transition-all placeholder:text-gray-400 focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-4 focus:ring-indigo-500/10 ${
+            Icon ? 'pl-9 pr-3' : 'px-3'
+          } ${mono ? 'font-mono tracking-wider' : ''} ${autoCapitalize ? 'uppercase' : ''}`}
+        />
+      </div>
+      {hint && <span className="mt-1 block text-xs text-gray-400">{hint}</span>}
+    </label>
+  )
+}
+
+function VerifiedCard({ label, name }: { label: string; name?: string }) {
+  return (
+    <SuccessNote>
+      {label}
+      {name ? ` — ${name}` : ''}
+    </SuccessNote>
+  )
+}
+
 // ── Wizard shell ────────────────────────────────────────────────────────────
 
 function OnboardWizard() {
@@ -803,20 +880,25 @@ function PanStep({ api, reload, next, back, has, busy, setBusy, err, setErr }: S
 
   return (
     <div>
-      <h2 className="text-lg font-bold text-gray-900">PAN Verification</h2>
+      <StepHeader icon={CreditCard} title="PAN Verification" subtitle="Enter your 10-character PAN to verify instantly." />
       <ErrorBanner err={err} />
       {done ? (
-        <SuccessNote>PAN verified{name ? ` — ${name}` : ''}</SuccessNote>
+        <VerifiedCard label="PAN verified" name={name} />
       ) : (
-        <div className="mt-4 flex gap-2">
-          <input
+        <div className="mt-5 space-y-3">
+          <Field
+            label="PAN Number"
             value={pan}
-            onChange={(e) => setPan(e.target.value.toUpperCase().slice(0, 10))}
+            onChange={(v) => setPan(v.toUpperCase().slice(0, 10))}
             placeholder="ABCDE1234F"
-            className="flex-1 rounded-xl border-2 border-gray-200 px-3 py-2 uppercase tracking-wider transition-colors focus:border-indigo-500 focus:outline-none"
+            icon={CreditCard}
+            mono
+            autoCapitalize
+            maxLength={10}
+            hint="Format: 5 letters, 4 digits, 1 letter"
           />
-          <PrimaryButton onClick={verify} disabled={pan.length !== 10} busy={busy} className="px-5">
-            Verify
+          <PrimaryButton onClick={verify} disabled={pan.length !== 10} busy={busy} className="w-full py-3">
+            {busy ? 'Verifying…' : 'Verify PAN'}
           </PrimaryButton>
         </div>
       )}
@@ -848,16 +930,33 @@ function BankStep({ api, reload, next, back, has, busy, setBusy, err, setErr }: 
 
   return (
     <div>
-      <h2 className="text-lg font-bold text-gray-900">Bank Account Verification</h2>
+      <StepHeader icon={Landmark} title="Bank Account Verification" subtitle="We send ₹1 (penny drop) to confirm your account name." />
       <ErrorBanner err={err} />
       {done ? (
-        <SuccessNote>Bank verified{name ? ` — ${name}` : ''}</SuccessNote>
+        <VerifiedCard label="Bank verified" name={name} />
       ) : (
-        <div className="mt-4 space-y-2">
-          <input value={acc} onChange={(e) => setAcc(e.target.value.replace(/\D/g, ''))} placeholder="Account number" className="w-full rounded-xl border-2 border-gray-200 px-3 py-2 transition-colors focus:border-indigo-500 focus:outline-none" />
-          <input value={ifsc} onChange={(e) => setIfsc(e.target.value.toUpperCase())} placeholder="IFSC code" className="w-full rounded-xl border-2 border-gray-200 px-3 py-2 uppercase transition-colors focus:border-indigo-500 focus:outline-none" />
-          <PrimaryButton onClick={verify} disabled={!acc || !ifsc} busy={busy}>
-            Verify (Penny Drop)
+        <div className="mt-5 space-y-3">
+          <Field
+            label="Account Number"
+            value={acc}
+            onChange={(v) => setAcc(v.replace(/\D/g, ''))}
+            placeholder="000000000000"
+            icon={Landmark}
+            inputMode="numeric"
+            mono
+          />
+          <Field
+            label="IFSC Code"
+            value={ifsc}
+            onChange={(v) => setIfsc(v.toUpperCase())}
+            placeholder="HDFC0001234"
+            icon={CreditCard}
+            autoCapitalize
+            mono
+            maxLength={11}
+          />
+          <PrimaryButton onClick={verify} disabled={!acc || !ifsc} busy={busy} className="w-full py-3">
+            {busy ? 'Verifying…' : 'Verify Account'}
           </PrimaryButton>
         </div>
       )}
@@ -890,12 +989,29 @@ function BusinessStep({ api, reload, next, back, has, busy, setBusy, err, setErr
 
   return (
     <div>
-      <h2 className="text-lg font-bold text-gray-900">Business Details</h2>
-      <p className="mt-1 text-sm text-gray-500">GST is optional. Business/shop name is required.</p>
+      <StepHeader icon={Store} title="Business Details" subtitle="Tell us about your shop. GST is optional." />
       <ErrorBanner err={err} />
-      <div className="mt-4 space-y-2">
-        <input value={shopName} onChange={(e) => setShopName(e.target.value)} placeholder="Shop / Business name *" className="w-full rounded-xl border-2 border-gray-200 px-3 py-2 transition-colors focus:border-indigo-500 focus:outline-none" />
-        <input value={gst} onChange={(e) => setGst(e.target.value.toUpperCase().slice(0, 15))} placeholder="GSTIN (optional)" className="w-full rounded-xl border-2 border-gray-200 px-3 py-2 uppercase transition-colors focus:border-indigo-500 focus:outline-none" />
+      <div className="mt-5 space-y-3">
+        <Field
+          label="Shop / Business Name"
+          value={shopName}
+          onChange={setShopName}
+          placeholder="e.g. Sharma Digital Services"
+          icon={Store}
+          required
+        />
+        <Field
+          label="GSTIN"
+          value={gst}
+          onChange={(v) => setGst(v.toUpperCase().slice(0, 15))}
+          placeholder="22ABCDE1234F1Z5"
+          icon={FileText}
+          optional
+          autoCapitalize
+          mono
+          maxLength={15}
+          hint="Adding GST auto-verifies your business."
+        />
       </div>
       <NavButtons onBack={back} onNext={saveBusiness} nextDisabled={shopName.trim().length < 2 && !saved} busy={busy} />
     </div>
@@ -955,22 +1071,35 @@ function BiometricStep({ api, reload, next, back, has, setErr, err }: StepProps)
 
   return (
     <div>
-      <h2 className="text-lg font-bold text-gray-900">Live Selfie &amp; Video</h2>
+      <StepHeader icon={Camera} title="Live Selfie & Video" subtitle="A quick liveness check to confirm it’s really you." />
       <ErrorBanner err={err} />
-      <div className="mt-4">
-        <h3 className="mb-2 text-sm font-semibold text-gray-700">1. Live Selfie</h3>
+
+      <div className="mt-5 rounded-2xl border border-gray-200 bg-gray-50/50 p-4">
+        <div className="mb-3 flex items-center gap-2">
+          <span className={`flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold ${selfieDone ? 'bg-green-500 text-white' : 'bg-indigo-600 text-white'}`}>
+            {selfieDone ? <Check className="h-3.5 w-3.5" strokeWidth={3} /> : '1'}
+          </span>
+          <h3 className="text-sm font-semibold text-gray-800">Live Selfie</h3>
+        </div>
         <SelfieCapture onCapture={handleSelfie} captured={selfieDone} />
       </div>
-      <div className="mt-6 border-t pt-4">
-        <h3 className="mb-2 text-sm font-semibold text-gray-700">2. Liveness Video</h3>
+
+      <div className="mt-4 rounded-2xl border border-gray-200 bg-gray-50/50 p-4">
+        <div className="mb-3 flex items-center gap-2">
+          <span className={`flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold ${videoDone ? 'bg-green-500 text-white' : 'bg-indigo-600 text-white'}`}>
+            {videoDone ? <Check className="h-3.5 w-3.5" strokeWidth={3} /> : '2'}
+          </span>
+          <h3 className="text-sm font-semibold text-gray-800">Liveness Video</h3>
+        </div>
         {videoDone ? (
           <SuccessNote>Liveness video recorded</SuccessNote>
         ) : !videoCfg ? (
-          <PrimaryButton onClick={initVideo}>Start Liveness Check</PrimaryButton>
+          <PrimaryButton onClick={initVideo} className="w-full py-3">Start Liveness Check</PrimaryButton>
         ) : (
           <LivenessVideoCapture prompt={videoCfg.prompt} maxDurationSec={videoCfg.maxDurationSec} onRecorded={handleVideo} recorded={uploading} />
         )}
       </div>
+
       <NavButtons onBack={back} onNext={next} nextDisabled={!selfieDone || !videoDone} />
     </div>
   )
@@ -988,9 +1117,9 @@ function DocumentsStep({ documents, api, reload, next, back, has, err, setErr }:
 
   return (
     <div>
-      <h2 className="text-lg font-bold text-gray-900">Upload Documents</h2>
+      <StepHeader icon={FileText} title="Upload Documents" subtitle="Clear photos or PDFs. GPS docs capture your location." />
       <ErrorBanner err={err} />
-      <div className="mt-4 space-y-2">
+      <div className="mt-5 space-y-2">
         {required.map((d, i) => (
           <motion.div key={d.type} custom={i} variants={listStagger} initial="hidden" animate="show">
             {d.hasTemplate && (
@@ -1069,15 +1198,15 @@ function DeclarationStep({ api, reload, next, back, has, requiresUplineApproval,
 
   return (
     <div>
-      <h2 className="text-lg font-bold text-gray-900">Declaration &amp; Agreement</h2>
+      <StepHeader icon={FileSignature} title="Declaration & Agreement" subtitle="Final step — sign, upload, and accept the terms." />
       <ErrorBanner err={err} />
-      <div className="mt-4 space-y-4">
-        <div>
-          <a href={getApiUrl(`/api/onboard/${encodeURIComponent(token)}/declaration/download`)} className="text-sm text-indigo-600 hover:underline">
-            1. Download self-declaration
+      <div className="mt-5 space-y-4">
+        <div className="rounded-2xl border border-gray-200 bg-gray-50/50 p-4">
+          <a href={getApiUrl(`/api/onboard/${encodeURIComponent(token)}/declaration/download`)} className="inline-flex items-center gap-1.5 text-sm font-semibold text-indigo-600 hover:underline">
+            <FileText className="h-4 w-4" /> Download self-declaration
           </a>
-          <p className="text-xs text-gray-400">Sign it physically, then upload below.</p>
-          <div className="mt-2">
+          <p className="mt-0.5 text-xs text-gray-400">Sign it physically, then upload below.</p>
+          <div className="mt-3">
             <DocumentUploadField label="Signed Self-Declaration" required uploaded={declUploaded} onUpload={(dataUrl) => uploadDeclaration(dataUrl)} />
           </div>
         </div>
@@ -1101,9 +1230,9 @@ function DeclarationStep({ api, reload, next, back, has, requiresUplineApproval,
           </div>
         )}
 
-        <label className="flex cursor-pointer items-start gap-2 text-sm text-gray-600">
-          <input type="checkbox" checked={agreed} onChange={(e) => (e.target.checked ? acceptAgreement() : setAgreed(false))} className="mt-1 accent-indigo-600" />
-          <span>I accept the partner agreement, terms of service and privacy policy.</span>
+        <label className={`flex cursor-pointer items-start gap-3 rounded-2xl border p-4 text-sm transition-colors ${agreed ? 'border-indigo-300 bg-indigo-50/60 text-gray-800' : 'border-gray-200 bg-white text-gray-600 hover:border-indigo-200'}`}>
+          <input type="checkbox" checked={agreed} onChange={(e) => (e.target.checked ? acceptAgreement() : setAgreed(false))} className="mt-0.5 h-4 w-4 accent-indigo-600" />
+          <span>I accept the <span className="font-medium text-indigo-600">partner agreement</span>, terms of service and privacy policy.</span>
         </label>
       </div>
       <NavButtons onBack={back} onNext={next} nextDisabled={!canProceed} busy={busy} />

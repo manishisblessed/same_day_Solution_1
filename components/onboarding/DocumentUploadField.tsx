@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { FileText, MapPin, Upload, Loader2, CheckCircle2 } from 'lucide-react'
 
 interface DocumentUploadFieldProps {
   label: string
@@ -59,21 +60,31 @@ export default function DocumentUploadField({
   }
 
   return (
-    <div className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 p-3">
-      <div className="min-w-0">
-        <p className="truncate text-sm font-medium text-gray-800">
-          {label} {required && <span className="text-red-500">*</span>}
-        </p>
-        {gps && <p className="text-xs text-gray-400">Location will be captured</p>}
-        {error && <p className="text-xs text-red-600">{error}</p>}
+    <div className={`flex items-center justify-between gap-3 rounded-xl border p-3 transition-colors ${ok ? 'border-green-200 bg-green-50/50' : 'border-gray-200 bg-white hover:border-indigo-200'}`}>
+      <div className="flex min-w-0 items-center gap-3">
+        <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${ok ? 'bg-green-100 text-green-600' : 'bg-gray-100 text-gray-500'}`}>
+          {ok ? <CheckCircle2 className="h-5 w-5" /> : <FileText className="h-5 w-5" />}
+        </span>
+        <div className="min-w-0">
+          <p className="truncate text-sm font-medium text-gray-800">
+            {label} {required && <span className="text-red-500">*</span>}
+          </p>
+          {gps && (
+            <p className="flex items-center gap-1 text-xs text-gray-400">
+              <MapPin className="h-3 w-3" /> Location will be captured
+            </p>
+          )}
+          {error && <p className="text-xs text-red-600">{error}</p>}
+        </div>
       </div>
       <div className="shrink-0">
         {ok ? (
-          <span className="inline-flex items-center rounded-full bg-green-100 px-3 py-1 text-xs font-semibold text-green-700">
-            Uploaded
+          <span className="inline-flex items-center gap-1 rounded-full bg-green-100 px-3 py-1 text-xs font-semibold text-green-700">
+            <CheckCircle2 className="h-3.5 w-3.5" /> Uploaded
           </span>
         ) : (
-          <label className={`cursor-pointer rounded-lg px-3 py-1.5 text-xs font-semibold ${busy ? 'bg-gray-200 text-gray-500' : 'bg-indigo-600 text-white hover:bg-indigo-700'}`}>
+          <label className={`inline-flex cursor-pointer items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold shadow-sm transition-colors ${busy ? 'bg-gray-200 text-gray-500' : 'bg-indigo-600 text-white hover:bg-indigo-700'}`}>
+            {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
             {busy ? 'Uploading…' : 'Upload'}
             <input
               type="file"

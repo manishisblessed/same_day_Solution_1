@@ -1,15 +1,39 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import { Camera, RefreshCw, Upload, CheckCircle2 } from 'lucide-react'
 
 interface SelfieCaptureProps {
   onCapture: (dataUrl: string) => void
   captured?: boolean
 }
 
+/** Map a getUserMedia failure to a clear, actionable message. */
+function cameraErrorMessage(e: any): string {
+  if (typeof window !== 'undefined' && !window.isSecureContext) {
+    return 'Camera needs a secure (HTTPS) connection. You can still upload a photo below.'
+  }
+  if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
+    return 'This browser can’t open the camera. Please upload a photo below.'
+  }
+  switch (e?.name) {
+    case 'NotAllowedError':
+    case 'SecurityError':
+      return 'Camera permission is blocked. Click the camera icon in your browser’s address bar, choose “Allow”, then retry — or upload a photo below.'
+    case 'NotFoundError':
+    case 'OverconstrainedError':
+      return 'No camera was found on this device. Please upload a photo below.'
+    case 'NotReadableError':
+      return 'Your camera is being used by another app. Close it and retry — or upload a photo below.'
+    default:
+      return 'Camera unavailable. Please upload a photo below.'
+  }
+}
+
 /**
- * Live front-camera selfie capture. Falls back to the native file/camera input
- * if getUserMedia is unavailable (e.g. in-app browsers).
+ * Live front-camera selfie capture. Falls back to a prominent file/camera
+ * upload if getUserMedia is unavailable (desktops without a webcam, blocked
+ * permissions, in-app browsers, etc.).
  */
 export default function SelfieCapture({ onCapture, captured }: SelfieCaptureProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -30,6 +54,10 @@ export default function SelfieCapture({ onCapture, captured }: SelfieCaptureProp
 
   async function startCamera() {
     setError('')
+    if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
+      setError(cameraErrorMessage({}))
+      return
+    }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: 'user' },
@@ -42,7 +70,7 @@ export default function SelfieCapture({ onCapture, captured }: SelfieCaptureProp
       }
       setActive(true)
     } catch (e: any) {
-      setError('Camera unavailable. Use the upload option below.')
+      setError(cameraErrorMessage(e))
     }
   }
 
@@ -65,6 +93,7 @@ export default function SelfieCapture({ onCapture, captured }: SelfieCaptureProp
   function onFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
+    setError('')
     const reader = new FileReader()
     reader.onload = () => {
       const dataUrl = String(reader.result)
@@ -74,57 +103,77 @@ export default function SelfieCapture({ onCapture, captured }: SelfieCaptureProp
     reader.readAsDataURL(file)
   }
 
+  if (preview || captured) {
+    return (
+      <div className="flex flex-col items-center gap-3">
+        <div className="relative">
+          {preview ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={preview} alt="Selfie" className="h-40 w-40 rounded-2xl object-cover shadow-md ring-4 ring-green-400/60" />
+          ) : (
+            <div className="flex h-40 w-40 items-center justify-center rounded-2xl bg-green-50 ring-4 ring-green-400/60">
+              <CheckCircle2 className="h-12 w-12 text-green-500" />
+            </div>
+          )}
+          <span className="absolute -bottom-2 left-1/2 -translate-x-1/2 rounded-full bg-green-500 px-3 py-0.5 text-[11px] font-semibold text-white shadow">
+            Captured
+          </span>
+        </div>
+        <button
+          type="button"
+          onClick={() => {
+            setPreview('')
+            startCamera()
+          }}
+          className="inline-flex items-center gap-1.5 text-xs font-medium text-indigo-600 hover:underline"
+        >
+          <RefreshCw className="h-3.5 w-3.5" /> Retake
+        </button>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-3">
-      {preview || captured ? (
-        <div className="text-center">
-          {preview && (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={preview} alt="Selfie" className="mx-auto h-40 w-40 rounded-lg object-cover ring-2 ring-green-500" />
-          )}
-          <p className="mt-2 text-sm font-medium text-green-600">Selfie captured</p>
-          <button
-            type="button"
-            onClick={() => {
-              setPreview('')
-              startCamera()
-            }}
-            className="mt-1 text-xs text-indigo-600 hover:underline"
-          >
-            Retake
-          </button>
-        </div>
-      ) : active ? (
-        <div className="text-center">
-          <video ref={videoRef} playsInline muted className="mx-auto h-56 w-full max-w-xs rounded-lg bg-black object-cover" />
+      {active ? (
+        <div className="flex flex-col items-center">
+          <div className="relative overflow-hidden rounded-2xl bg-black shadow-lg ring-1 ring-black/10">
+            <video ref={videoRef} playsInline muted className="h-56 w-full max-w-xs object-cover" />
+            <div className="pointer-events-none absolute inset-3 rounded-xl border-2 border-dashed border-white/40" />
+          </div>
           <button
             type="button"
             onClick={snap}
-            className="mt-3 rounded-lg bg-indigo-600 px-5 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
+            className="mt-4 inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-6 py-2.5 text-sm font-semibold text-white shadow-lg shadow-indigo-600/25 transition-colors hover:bg-indigo-700"
           >
-            Capture
+            <Camera className="h-4 w-4" /> Capture Selfie
           </button>
         </div>
       ) : (
-        <div className="text-center">
-          <button
-            type="button"
-            onClick={startCamera}
-            className="rounded-lg bg-indigo-600 px-5 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
-          >
-            Open Camera
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={startCamera}
+          className="group flex w-full flex-col items-center gap-2 rounded-2xl border-2 border-dashed border-indigo-200 bg-indigo-50/50 px-4 py-6 text-center transition-colors hover:border-indigo-400 hover:bg-indigo-50"
+        >
+          <span className="flex h-12 w-12 items-center justify-center rounded-full bg-indigo-100 text-indigo-600 transition-transform group-hover:scale-110">
+            <Camera className="h-6 w-6" />
+          </span>
+          <span className="text-sm font-semibold text-gray-800">Open Camera</span>
+          <span className="text-xs text-gray-500">Take a live selfie</span>
+        </button>
       )}
 
-      {error && <p className="text-center text-xs text-red-600">{error}</p>}
+      {error && (
+        <p className="rounded-lg bg-red-50 px-3 py-2 text-center text-xs leading-relaxed text-red-600 ring-1 ring-red-100">
+          {error}
+        </p>
+      )}
 
-      <div className="text-center">
-        <label className="cursor-pointer text-xs text-gray-500 hover:text-indigo-600">
-          Or upload a photo
-          <input type="file" accept="image/*" capture="user" onChange={onFile} className="hidden" />
-        </label>
-      </div>
+      <label className="flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-medium text-gray-600 transition-colors hover:border-indigo-300 hover:text-indigo-600">
+        <Upload className="h-4 w-4" />
+        Upload a photo instead
+        <input type="file" accept="image/*" capture="user" onChange={onFile} className="hidden" />
+      </label>
     </div>
   )
 }
