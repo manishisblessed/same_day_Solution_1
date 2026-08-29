@@ -68,6 +68,7 @@ export async function POST(request: NextRequest) {
       case 'master_distributor': tableName = 'master_distributors'; break
       case 'admin': tableName = 'admin_users'; break
       case 'partner': tableName = 'partners'; break
+      case 'master_partner': tableName = 'partners'; break
       case 'sub_partner': tableName = 'sub_partners'; break
       case 'finance_executive': tableName = 'finance_users'; break
       default:
@@ -77,6 +78,7 @@ export async function POST(request: NextRequest) {
     let q = admin.from(tableName).select('*').eq('email', email)
     if (roleHint === 'finance_executive') q = q.eq('is_active', true)
     else if (roleHint !== 'admin') q = q.eq('status', 'active')
+    if (roleHint === 'master_partner') q = q.eq('is_master_partner', true)
 
     let { data, error } = await q.maybeSingle()
     let resolvedRole = roleHint

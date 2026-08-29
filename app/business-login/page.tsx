@@ -16,7 +16,7 @@ type BannerType = 'expired' | 'replaced' | null
 export default function BusinessLogin() {
   const { user, login, login2FA, loading: authLoading } = useAuth()
   const router = useRouter()
-  const [userType, setUserType] = useState<'retailer' | 'distributor' | 'master-distributor' | 'partner' | null>(null)
+  const [userType, setUserType] = useState<'retailer' | 'distributor' | 'master-distributor' | 'partner' | 'master-partner' | null>(null)
   const [formData, setFormData] = useState({
     email: '',
     password: '',
@@ -149,7 +149,10 @@ export default function BusinessLogin() {
     setLoading(true)
 
     try {
-      let role: string = userType === 'master-distributor' ? 'master_distributor' : userType!
+      let role: string =
+        userType === 'master-distributor' ? 'master_distributor'
+        : userType === 'master-partner' ? 'master_partner'
+        : userType!
       await login(formData.email, formData.password, role as any, captchaToken)
 
       // Wait until middleware can see the session cookie before navigating,
@@ -167,7 +170,7 @@ export default function BusinessLogin() {
         dest = '/dashboard/distributor'
       } else if (userType === 'master-distributor') {
         dest = '/dashboard/master-distributor'
-      } else if (userType === 'partner') {
+      } else if (userType === 'partner' || userType === 'master-partner') {
         dest = '/dashboard/partner'
       }
       if (dest) {
@@ -198,7 +201,10 @@ export default function BusinessLogin() {
     }
     setLoading(true)
     try {
-      let role: string = userType === 'master-distributor' ? 'master_distributor' : userType!
+      let role: string =
+        userType === 'master-distributor' ? 'master_distributor'
+        : userType === 'master-partner' ? 'master_partner'
+        : userType!
       await login2FA(formData.email, formData.password, role, totpCode.trim(), useBackupCode)
 
       await waitForServerSession()
@@ -209,7 +215,7 @@ export default function BusinessLogin() {
       else if (userType === 'retailer') dest = '/dashboard/retailer'
       else if (userType === 'distributor') dest = '/dashboard/distributor'
       else if (userType === 'master-distributor') dest = '/dashboard/master-distributor'
-      else if (userType === 'partner') dest = '/dashboard/partner'
+      else if (userType === 'partner' || userType === 'master-partner') dest = '/dashboard/partner'
       if (dest) {
         router.push(dest)
         setTimeout(() => setLoading(false), 3000)
@@ -246,6 +252,12 @@ export default function BusinessLogin() {
       title: 'Partner',
       icon: '🤝',
       description: 'VIP Partner Portal - Access premium features and advanced tools',
+    },
+    {
+      id: 'master-partner',
+      title: 'Master Partner',
+      icon: '👑',
+      description: 'Login to master partner dashboard to manage your partner network',
     },
   ]
 
