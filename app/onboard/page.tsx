@@ -1549,22 +1549,27 @@ function FinishStep({ api, invite, prefill, busy, setBusy, err, setErr }: StepPr
     )
   }
 
+  const locked = (k: 'name' | 'address' | 'city' | 'state' | 'pincode') => !!(prefill && (prefill as any)[k])
+  const baseCls = 'rounded-xl border-2 border-gray-200 px-3 py-2 transition-colors focus:border-indigo-500 focus:outline-none'
+  const lockedCls = 'cursor-not-allowed rounded-xl border-2 border-gray-200 bg-gray-50 px-3 py-2 text-gray-600 focus:outline-none'
+  const lockTitle = 'Verified from your KYC — not editable'
+
   return (
     <div>
       <h2 className="text-lg font-bold text-gray-900">Personal Details &amp; Password</h2>
       <ErrorBanner err={err} />
       <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
-        <input value={form.name} onChange={(e) => set('name', e.target.value)} placeholder="Full name *" className="rounded-xl border-2 border-gray-200 px-3 py-2 transition-colors focus:border-indigo-500 focus:outline-none sm:col-span-2" />
-        <input value={form.address} onChange={(e) => set('address', e.target.value)} placeholder="Address" className="rounded-xl border-2 border-gray-200 px-3 py-2 transition-colors focus:border-indigo-500 focus:outline-none sm:col-span-2" />
-        <input value={form.city} onChange={(e) => set('city', e.target.value)} placeholder="City" className="rounded-xl border-2 border-gray-200 px-3 py-2 transition-colors focus:border-indigo-500 focus:outline-none" />
-        <input value={form.state} onChange={(e) => set('state', e.target.value)} placeholder="State" className="rounded-xl border-2 border-gray-200 px-3 py-2 transition-colors focus:border-indigo-500 focus:outline-none" />
-        <input value={form.pincode} onChange={(e) => set('pincode', e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="Pincode" className="rounded-xl border-2 border-gray-200 px-3 py-2 transition-colors focus:border-indigo-500 focus:outline-none" />
+        <input value={form.name} readOnly={locked('name')} onChange={locked('name') ? undefined : (e) => set('name', e.target.value)} placeholder="Full name *" title={locked('name') ? lockTitle : undefined} className={(locked('name') ? lockedCls : baseCls) + ' sm:col-span-2'} />
+        <input value={form.address} readOnly={locked('address')} onChange={locked('address') ? undefined : (e) => set('address', e.target.value)} placeholder="Address" title={locked('address') ? lockTitle : undefined} className={(locked('address') ? lockedCls : baseCls) + ' sm:col-span-2'} />
+        <input value={form.city} readOnly={locked('city')} onChange={locked('city') ? undefined : (e) => set('city', e.target.value)} placeholder="City" title={locked('city') ? lockTitle : undefined} className={locked('city') ? lockedCls : baseCls} />
+        <input value={form.state} readOnly={locked('state')} onChange={locked('state') ? undefined : (e) => set('state', e.target.value)} placeholder="State" title={locked('state') ? lockTitle : undefined} className={locked('state') ? lockedCls : baseCls} />
+        <input value={form.pincode} readOnly={locked('pincode')} onChange={locked('pincode') ? undefined : (e) => set('pincode', e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="Pincode" title={locked('pincode') ? lockTitle : undefined} className={locked('pincode') ? lockedCls : baseCls} />
         <input value={invite.email} readOnly title="Login email (from your invite)" className="cursor-not-allowed rounded-xl border-2 border-gray-200 bg-gray-50 px-3 py-2 text-gray-600 focus:outline-none" />
         <input value={invite.phone} readOnly title="Verified mobile number" className="cursor-not-allowed rounded-xl border-2 border-gray-200 bg-gray-50 px-3 py-2 text-gray-600 focus:outline-none sm:col-span-2" />
         <input type="password" value={form.password} onChange={(e) => set('password', e.target.value)} placeholder="Password *" className="rounded-xl border-2 border-gray-200 px-3 py-2 transition-colors focus:border-indigo-500 focus:outline-none" />
         <input type="password" value={form.confirm} onChange={(e) => set('confirm', e.target.value)} placeholder="Confirm password *" className="rounded-xl border-2 border-gray-200 px-3 py-2 transition-colors focus:border-indigo-500 focus:outline-none" />
       </div>
-      <p className="mt-1 text-xs text-gray-400">8-20 chars, with a letter, number and special character.</p>
+      <p className="mt-1 text-xs text-gray-400">Name &amp; address are auto-filled from your verified KYC and can’t be edited. Password: 8-20 chars, with a letter, number and special character.</p>
       <NavButtons onNext={submit} nextLabel="Submit Registration" nextDisabled={!form.name || !form.password} busy={busy} />
     </div>
   )
