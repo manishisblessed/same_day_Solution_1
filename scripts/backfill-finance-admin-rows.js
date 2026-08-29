@@ -20,6 +20,7 @@ const supabase = createClient(supabaseUrl, supabaseServiceKey)
 
 // Grantable section ids (mirror lib/auth-roles.ts FINANCE_TABS). Excludes settings/all.
 const FINANCE_TAB_IDS = [
+  'finance-reconciliation', 'finance-reports', 'finance-settlement', 'finance-wallet-ledger',
   'dashboard', 'onboarding', 'daily-report', 'business-analytics', 'pos-transactions',
   'pos-reconciliation', 'retailers', 'distributors', 'master-distributors', 'scheme-management',
   'partners', 'pos-machines', 'pos-history', 'pos-tracking-report', 'pos-rental-report',

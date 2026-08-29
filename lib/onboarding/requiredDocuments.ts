@@ -24,7 +24,6 @@ export const ONBOARD_DOCUMENTS: DocSpec[] = [
   { type: 'CANCEL_CHEQUE', label: 'Cancelled Cheque', required: true, hint: 'Cheque of the same bank account you verified; name/IFSC must be visible.' },
   { type: 'ADDITIONAL_ID', label: 'Additional ID (DL / Voter / Passport)', required: true, hint: 'Any one government ID in your name; both sides, clear and readable.' },
   { type: 'FAMILY_REFERENCE', label: 'Family Reference KYC', required: true, hint: 'ID proof of a family member (parent/spouse/sibling) as reference.' },
-  { type: 'PG_FORM', label: 'Personal Guarantee Form', required: true, hasTemplate: true, hint: 'Download the prefilled form, sign it, then upload the signed copy.' },
   { type: 'GPS_PHOTO_OUTSIDE', label: 'Shop Photo (Outside)', required: true, gps: true, hint: 'Live photo of your shop front with signboard visible.' },
   { type: 'GPS_PHOTO_INSIDE', label: 'Shop Photo (Inside)', required: true, gps: true, hint: 'Live photo taken inside your shop.' },
   { type: 'GPS_SELFIE_DISTRIBUTOR', label: 'Selfie at Shop', required: true, gps: true, hint: 'Live selfie of you at your shop.' },

@@ -24,6 +24,12 @@ export function isAdminOnly(user: AuthUser | null | undefined): boolean {
  * that gates the corresponding admin page + sidebar item.
  */
 export const FINANCE_TABS: Array<{ id: string; label: string }> = [
+  // Finance-specific sections (distinct from their admin-portal equivalents),
+  // rendered by dedicated /admin/finance-* routes that reuse the finance components.
+  { id: 'finance-reconciliation', label: 'Reconciliation' },
+  { id: 'finance-reports', label: 'Service reports' },
+  { id: 'finance-settlement', label: 'T+1 settlement' },
+  { id: 'finance-wallet-ledger', label: 'Wallet ledger (Finance)' },
   { id: 'dashboard', label: 'Dashboard' },
   { id: 'onboarding', label: 'Onboarding & Invites' },
   { id: 'daily-report', label: 'Daily Report' },

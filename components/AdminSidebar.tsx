@@ -25,6 +25,12 @@ interface SidebarItem {
 }
 
 const sidebarItems: SidebarItem[] = [
+  // Finance-specific sections (only shown to finance-backed sub-admins that are
+  // granted them; hidden from super admins to avoid duplicating admin sections).
+  { id: 'finance-reconciliation', label: 'Reconciliation', icon: Scale, href: '/admin/finance-reconciliation' },
+  { id: 'finance-reports', label: 'Service reports', icon: FileBarChart, href: '/admin/finance-reports' },
+  { id: 'finance-settlement', label: 'T+1 settlement', icon: Timer, href: '/admin/finance-settlement' },
+  { id: 'finance-wallet-ledger', label: 'Wallet ledger (Finance)', icon: ScrollText, href: '/admin/finance-wallet-ledger' },
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, href: '/admin?tab=dashboard' },
   { id: 'onboarding', label: 'Onboarding & Invites', icon: UserPlus, href: '/admin/onboarding' },
   { id: 'daily-report', label: 'Daily Report', icon: CalendarDays, href: '/admin/reports/daily' },
@@ -110,9 +116,14 @@ export default function AdminSidebar({ isOpen, onClose }: { isOpen: boolean; onC
     fetchAdminDepartments()
   }, [user])
 
-  const filteredItems = adminType === 'super_admin'
-    ? sidebarItems
-    : sidebarItems.filter(item => adminDepartments.includes(item.id))
+  // Finance-* items are always department-gated (even for super admins) so they
+  // only appear for finance-backed sub-admins that were granted them.
+  const isFinanceItem = (id: string) => id.startsWith('finance-')
+  const filteredItems = sidebarItems.filter(item =>
+    isFinanceItem(item.id)
+      ? adminDepartments.includes(item.id)
+      : adminType === 'super_admin' || adminDepartments.includes(item.id)
+  )
 
   const currentTab = searchParams?.get('tab')
 

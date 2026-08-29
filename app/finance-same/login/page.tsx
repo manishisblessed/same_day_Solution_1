@@ -105,10 +105,8 @@ export default function FinanceLoginPage() {
     setLoading(true)
     try {
       await login(formData.email, formData.password, 'finance_executive', captchaToken)
-      // Ensure middleware can see the session cookie before navigating (1-attempt login).
-      await waitForServerSession()
-      const params = new URLSearchParams(window.location.search)
-      router.push(params.get('redirect')?.startsWith('/finance-same') ? params.get('redirect')! : '/finance-same')
+      // Navigation is handled by the role-aware redirect effect once `user`
+      // resolves (finance execs are backed by an admin account -> /admin).
     } catch (err: any) {
       if (err instanceof TwoFactorRequiredError) {
         setShow2FA(true)
@@ -130,9 +128,7 @@ export default function FinanceLoginPage() {
     setLoading(true)
     try {
       await login2FA(formData.email, formData.password, 'finance_executive', totpCode.trim(), useBackupCode)
-      await waitForServerSession()
-      const params = new URLSearchParams(window.location.search)
-      router.push(params.get('redirect')?.startsWith('/finance-same') ? params.get('redirect')! : '/finance-same')
+      // Navigation handled by the role-aware redirect effect once `user` resolves.
     } catch (err: any) {
       setError(err.message || 'Verification failed')
     } finally {

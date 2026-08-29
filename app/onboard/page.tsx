@@ -1331,11 +1331,9 @@ function DocumentsStep({ documents, api, reload, next, back, has, err, setErr }:
   )
 }
 
-function DeclarationStep({ documents, api, reload, next, back, has, requiresUplineApproval, busy, setBusy, err, setErr }: StepProps) {
+function DeclarationStep({ api, reload, next, back, has, requiresUplineApproval, busy, setBusy, err, setErr }: StepProps) {
   const token = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('token') || '' : ''
   const declUploaded = has('SELF_DECLARATION', 'Uploaded')
-  const pgSpec = documents.find((d) => d.type === 'PG_FORM')
-  const pgUploaded = has('DOCUMENT_PG_FORM', 'Uploaded')
   const [approval, setApproval] = useState<{ status: string } | null>(null)
   const [agreed, setAgreed] = useState(false)
   const pollRef = useRef<any>(null)
@@ -1343,12 +1341,6 @@ function DeclarationStep({ documents, api, reload, next, back, has, requiresUpli
   const uploadDeclaration = async (dataUrl: string) => {
     setErr('')
     await api('/documents', { method: 'POST', body: JSON.stringify({ type: 'SELF_DECLARATION', dataUrl }) })
-    await reload()
-  }
-
-  const uploadPgForm = async (dataUrl: string) => {
-    setErr('')
-    await api('/documents', { method: 'POST', body: JSON.stringify({ type: 'PG_FORM', dataUrl }) })
     await reload()
   }
 
@@ -1387,8 +1379,7 @@ function DeclarationStep({ documents, api, reload, next, back, has, requiresUpli
   }
 
   const approvalOk = !requiresUplineApproval || approval?.status === 'approved'
-  const pgOk = !pgSpec || pgUploaded
-  const canProceed = declUploaded && pgOk && approvalOk && agreed
+  const canProceed = declUploaded && approvalOk && agreed
 
   return (
     <div>
@@ -1396,26 +1387,14 @@ function DeclarationStep({ documents, api, reload, next, back, has, requiresUpli
       <ErrorBanner err={err} />
       <div className="mt-5 space-y-4">
         <div className="rounded-2xl border border-gray-200 bg-gray-50/50 p-4">
-          <a href={getApiUrl(`/api/onboard/${encodeURIComponent(token)}/declaration/download`)} className="inline-flex items-center gap-1.5 text-sm font-semibold text-indigo-600 hover:underline">
-            <FileText className="h-4 w-4" /> Download self-declaration
+          <a href={getApiUrl(`/api/onboard/${encodeURIComponent(token)}/pg-form/download`)} className="inline-flex items-center gap-1.5 text-sm font-semibold text-indigo-600 hover:underline">
+            <FileText className="h-4 w-4" /> Download Self-Declaration Form (prefilled — sign &amp; upload)
           </a>
-          <p className="mt-0.5 text-xs text-gray-400">Sign it physically, then upload below.</p>
+          <p className="mt-0.5 text-xs text-gray-400">Download the prefilled form, sign it, then upload the signed copy.</p>
           <div className="mt-3">
-            <DocumentUploadField label="Signed Self-Declaration" required uploaded={declUploaded} onUpload={(dataUrl) => uploadDeclaration(dataUrl)} />
+            <DocumentUploadField label="Signed Self-Declaration Form" required uploaded={declUploaded} onUpload={(dataUrl) => uploadDeclaration(dataUrl)} />
           </div>
         </div>
-
-        {pgSpec && (
-          <div className="rounded-2xl border border-gray-200 bg-gray-50/50 p-4">
-            <a href={getApiUrl(`/api/onboard/${encodeURIComponent(token)}/pg-form/download`)} className="inline-flex items-center gap-1.5 text-sm font-semibold text-indigo-600 hover:underline">
-              <FileText className="h-4 w-4" /> Download {pgSpec.label} (prefilled — sign &amp; upload)
-            </a>
-            <p className="mt-0.5 text-xs text-gray-400">{pgSpec.hint || 'Download the prefilled form, sign it, then upload the signed copy.'}</p>
-            <div className="mt-3">
-              <DocumentUploadField label={pgSpec.label} required uploaded={pgUploaded} onUpload={(dataUrl) => uploadPgForm(dataUrl)} />
-            </div>
-          </div>
-        )}
 
         {requiresUplineApproval && (
           <div className="rounded-xl border border-gray-200 p-3">
