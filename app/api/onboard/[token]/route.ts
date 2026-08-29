@@ -65,6 +65,7 @@ export async function GET(_request: NextRequest, { params }: { params: { token: 
         type: v.type,
         status: v.status,
         verified_name: v.verified_name,
+        ...(v.type === 'GST' ? { gstin: (v.response_payload as any)?.GSTIN || null } : {}),
       })),
     })
   } catch (error: any) {

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { authenticatePartner, PartnerAuthError } from '@/lib/partner-auth'
+import { logPartnerPosTxn } from '@/lib/logging/pos-txn-logger'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -228,7 +229,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    console.log(`[Partner API Txn] ${JSON.stringify({
+    logPartnerPosTxn({
       partner: partner.name,
       partnerId: partner.id,
       tidCount: tids.length,
@@ -236,7 +237,7 @@ export async function POST(request: NextRequest) {
       windows: assignmentHistory.length,
       tids,
       serials,
-    })}`)
+    })
 
     if (tids.length === 0 && serials.length === 0) {
       return NextResponse.json({

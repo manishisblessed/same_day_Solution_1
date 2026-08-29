@@ -47,6 +47,15 @@ export default function SelfieCapture({ onCapture, captured }: SelfieCaptureProp
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // Attach the stream only after the <video> is mounted (active === true);
+  // assigning srcObject before mount silently dropped the feed.
+  useEffect(() => {
+    if (active && streamRef.current && videoRef.current) {
+      videoRef.current.srcObject = streamRef.current
+      videoRef.current.play().catch(() => {})
+    }
+  }, [active])
+
   function stopCamera() {
     streamRef.current?.getTracks().forEach((t) => t.stop())
     streamRef.current = null
@@ -64,10 +73,6 @@ export default function SelfieCapture({ onCapture, captured }: SelfieCaptureProp
         audio: false,
       })
       streamRef.current = stream
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream
-        await videoRef.current.play()
-      }
       setActive(true)
     } catch (e: any) {
       setError(cameraErrorMessage(e))

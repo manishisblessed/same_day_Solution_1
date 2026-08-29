@@ -233,6 +233,8 @@ function OnboardWizard() {
   const [documents, setDocuments] = useState<DocSpec[]>([])
   const [requiresUplineApproval, setRequiresUplineApproval] = useState(false)
   const [verified, setVerified] = useState<Record<string, string>>({})
+  const [verifiedNames, setVerifiedNames] = useState<Record<string, string>>({})
+  const [savedGstin, setSavedGstin] = useState('')
   const [step, setStep] = useState(0)
   const [direction, setDirection] = useState(1)
   const [busy, setBusy] = useState(false)
@@ -280,8 +282,14 @@ function OnboardWizard() {
     setDocuments(data.documents || [])
     setRequiresUplineApproval(!!data.requiresUplineApproval)
     const v: Record<string, string> = {}
-    for (const item of data.verifications || []) v[item.type] = item.status
+    const names: Record<string, string> = {}
+    for (const item of data.verifications || []) {
+      v[item.type] = item.status
+      if (item.verified_name) names[item.type] = item.verified_name
+      if (item.type === 'GST' && item.gstin) setSavedGstin(item.gstin)
+    }
     setVerified(v)
+    setVerifiedNames(names)
     return data
   }, [api])
 
@@ -355,6 +363,8 @@ function OnboardWizard() {
     documents,
     requiresUplineApproval,
     verified,
+    verifiedNames,
+    savedGstin,
     has,
     api,
     reload,
@@ -496,6 +506,8 @@ interface StepProps {
   documents: DocSpec[]
   requiresUplineApproval: boolean
   verified: Record<string, string>
+  verifiedNames: Record<string, string>
+  savedGstin: string
   has: (type: string, status?: string) => boolean
   api: (path: string, options?: RequestInit) => Promise<any>
   reload: () => Promise<any>
@@ -965,18 +977,50 @@ function BankStep({ api, reload, next, back, has, busy, setBusy, err, setErr }: 
   )
 }
 
-function BusinessStep({ api, reload, next, back, has, busy, setBusy, err, setErr }: StepProps) {
-  const [shopName, setShopName] = useState('')
-  const [gst, setGst] = useState('')
+function BusinessStep({ api, reload, next, back, has, busy, setBusy, err, setErr, verifiedNames, savedGstin }: StepProps) {
+  const [shopName, setShopName] = useState(verifiedNames['BUSINESS_NAME'] || '')
+  const [gst, setGst] = useState(savedGstin || '')
+  const [gstVerified, setGstVerified] = useState(has('GST'))
+  const [gstName, setGstName] = useState(verifiedNames['GST'] || '')
+  const [gstBusy, setGstBusy] = useState(false)
+  const [gstErr, setGstErr] = useState('')
   const saved = has('BUSINESS_NAME')
+
+  // Rehydrate from saved data once the initial reload resolves (refresh/resume).
+  useEffect(() => {
+    if (verifiedNames['BUSINESS_NAME']) setShopName((s) => s || verifiedNames['BUSINESS_NAME'])
+    if (verifiedNames['GST']) setGstName((n) => n || verifiedNames['GST'])
+    if (has('GST')) setGstVerified(true)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [verifiedNames])
+
+  useEffect(() => {
+    if (savedGstin) setGst((g) => g || savedGstin)
+  }, [savedGstin])
+
+  async function verifyGst() {
+    setGstErr('')
+    setGstBusy(true)
+    try {
+      const r = await api('/verify', { method: 'POST', body: JSON.stringify({ type: 'GST', gst }) })
+      if (!r.success) throw new Error(r.error || 'GST verification failed')
+      const legal = r.data?.legal_name || r.data?.trade_name || ''
+      setGstVerified(true)
+      setGstName(legal)
+      if (legal) setShopName(legal)
+      await reload()
+    } catch (e: any) {
+      setGstVerified(false)
+      setGstErr(e.message)
+    } finally {
+      setGstBusy(false)
+    }
+  }
 
   async function saveBusiness() {
     setErr('')
     setBusy(true)
     try {
-      if (gst.trim().length === 15) {
-        await api('/verify', { method: 'POST', body: JSON.stringify({ type: 'GST', gst }) }).catch(() => {})
-      }
       await api('/business', { method: 'POST', body: JSON.stringify({ shopName }) })
       await reload()
       next()
@@ -989,9 +1033,55 @@ function BusinessStep({ api, reload, next, back, has, busy, setBusy, err, setErr
 
   return (
     <div>
-      <StepHeader icon={Store} title="Business Details" subtitle="Tell us about your shop. GST is optional." />
+      <StepHeader icon={Store} title="Business Details" subtitle="Verify your GST to auto-fill the name, or enter it manually. GST is optional." />
       <ErrorBanner err={err} />
-      <div className="mt-5 space-y-3">
+      <div className="mt-5 space-y-4">
+        <div>
+          <span className="mb-1.5 flex items-center gap-1 text-sm font-medium text-gray-700">
+            GSTIN <span className="text-xs font-normal text-gray-400">(optional)</span>
+          </span>
+          <div className="flex gap-2">
+            <div className="relative flex-1">
+              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
+                <FileText className="h-4 w-4" />
+              </span>
+              <input
+                value={gst}
+                onChange={(e) => {
+                  setGst(e.target.value.toUpperCase().slice(0, 15))
+                  setGstVerified(false)
+                  setGstErr('')
+                }}
+                placeholder="22ABCDE1234F1Z5"
+                maxLength={15}
+                disabled={gstVerified}
+                className={`w-full rounded-xl border-2 py-2.5 pl-9 pr-3 font-mono uppercase tracking-wider text-gray-900 transition-all placeholder:text-gray-400 focus:outline-none focus:ring-4 focus:ring-indigo-500/10 ${
+                  gstVerified ? 'border-green-300 bg-green-50/60' : 'border-gray-200 bg-gray-50/60 focus:border-indigo-500 focus:bg-white'
+                }`}
+              />
+            </div>
+            {gstVerified ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setGstVerified(false)
+                  setGstName('')
+                }}
+                className="shrink-0 rounded-xl border-2 border-gray-200 px-4 text-sm font-medium text-gray-500 transition-colors hover:bg-gray-100"
+              >
+                Change
+              </button>
+            ) : (
+              <PrimaryButton onClick={verifyGst} disabled={gst.length !== 15} busy={gstBusy} className="shrink-0 px-5">
+                {gstBusy ? '' : 'Verify'}
+              </PrimaryButton>
+            )}
+          </div>
+          {gstErr && <span className="mt-1 block text-xs text-red-500">{gstErr}</span>}
+          {gstVerified && <SuccessNote>GST verified{gstName ? ` — ${gstName}` : ''}</SuccessNote>}
+          {!gstVerified && !gstErr && <span className="mt-1 block text-xs text-gray-400">Verify GST to auto-fill your business name.</span>}
+        </div>
+
         <Field
           label="Shop / Business Name"
           value={shopName}
@@ -999,18 +1089,7 @@ function BusinessStep({ api, reload, next, back, has, busy, setBusy, err, setErr
           placeholder="e.g. Sharma Digital Services"
           icon={Store}
           required
-        />
-        <Field
-          label="GSTIN"
-          value={gst}
-          onChange={(v) => setGst(v.toUpperCase().slice(0, 15))}
-          placeholder="22ABCDE1234F1Z5"
-          icon={FileText}
-          optional
-          autoCapitalize
-          mono
-          maxLength={15}
-          hint="Adding GST auto-verifies your business."
+          hint={gstVerified ? 'Auto-filled from GST — edit if needed.' : undefined}
         />
       </div>
       <NavButtons onBack={back} onNext={saveBusiness} nextDisabled={shopName.trim().length < 2 && !saved} busy={busy} />

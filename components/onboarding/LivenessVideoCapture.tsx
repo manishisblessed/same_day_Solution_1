@@ -72,6 +72,16 @@ export default function LivenessVideoCapture({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // Attach the stream only after the <video> is mounted (active === true);
+  // assigning srcObject before mount silently dropped the feed.
+  useEffect(() => {
+    if (active && streamRef.current && videoRef.current) {
+      videoRef.current.srcObject = streamRef.current
+      videoRef.current.muted = true
+      videoRef.current.play().catch(() => {})
+    }
+  }, [active])
+
   function stop() {
     streamRef.current?.getTracks().forEach((t) => t.stop())
     streamRef.current = null
@@ -89,11 +99,6 @@ export default function LivenessVideoCapture({
         audio: true,
       })
       streamRef.current = stream
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream
-        videoRef.current.muted = true
-        await videoRef.current.play()
-      }
       setActive(true)
     } catch (e: any) {
       setError(mediaErrorMessage(e))
