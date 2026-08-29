@@ -209,11 +209,12 @@ export function presignGetUrl(params: { key: string; expiresSec?: number }): str
  */
 export function buildKycKey(
   inviteId: string,
-  kind: 'selfie' | 'video',
+  kind: string,
   ext: string
 ): string {
   const rand = crypto.randomBytes(6).toString('hex')
-  return `onboarding/${inviteId}/${kind}-${Date.now()}-${rand}.${ext}`
+  const safeKind = kind.toLowerCase().replace(/[^a-z0-9/_-]/g, '')
+  return `onboarding/${inviteId}/${safeKind}-${Date.now()}-${rand}.${ext}`
 }
 
 // ── Upload token (HMAC) — ties a presign to its completion ──────────────────

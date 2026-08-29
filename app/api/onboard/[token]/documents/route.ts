@@ -7,8 +7,10 @@ import {
   upsertVerification,
   getVerifications,
 } from '@/lib/onboarding/invites'
-import { uploadOnboardingFile, decodeDataUrl } from '@/lib/onboarding/storage'
+import { uploadOnboardingFile, decodeDataUrl, extForMime } from '@/lib/onboarding/storage'
 import { ONBOARD_DOCUMENTS, SELF_DECLARATION_TYPE, isGpsDoc } from '@/lib/onboarding/requiredDocuments'
+import { extractClientIpFromHeaders } from '@/lib/ip-utils'
+import { isS3Configured, putObjectToS3, buildKycKey } from '@/services/s3-kyc'
 
 export const dynamic = 'force-dynamic'
 
@@ -74,6 +76,32 @@ export async function POST(request: NextRequest, { params }: { params: { token: 
       return NextResponse.json({ error: 'File too large (max 10MB)' }, { status: 400 })
     }
 
+    const clientIp = extractClientIpFromHeaders(request.headers)
+    const geoPayload = {
+      lat: body.lat ?? null,
+      lng: body.lng ?? null,
+      accuracy: body.acc ?? null,
+      ip: clientIp,
+      uploadedAt: new Date().toISOString(),
+    }
+
+    // Store all onboarding documents on the private S3 KYC bucket. Supabase is
+    // only used locally when S3 isn't configured.
+    if (isS3Configured()) {
+      const key = buildKycKey(invite.id, `document-${type}`, extForMime(contentType))
+      const put = await putObjectToS3({ key, contentType, body: buffer, useKms: true })
+      if (!put.ok) {
+        return NextResponse.json({ error: `S3 upload failed: ${put.error}` }, { status: 502 })
+      }
+      await upsertVerification(supabase, {
+        inviteId: invite.id,
+        type: verificationTypeFor(type),
+        status: 'Uploaded',
+        payload: { storage: 's3', key, ...geoPayload },
+      })
+      return NextResponse.json({ ok: true, type, storage: 's3' })
+    }
+
     const uploaded = await uploadOnboardingFile(supabase, {
       inviteId: invite.id,
       kind: 'documents',
@@ -89,13 +117,7 @@ export async function POST(request: NextRequest, { params }: { params: { token: 
       inviteId: invite.id,
       type: verificationTypeFor(type),
       status: 'Uploaded',
-      payload: {
-        url: uploaded.url,
-        path: uploaded.path,
-        lat: body.lat ?? null,
-        lng: body.lng ?? null,
-        uploadedAt: new Date().toISOString(),
-      },
+      payload: { storage: 'supabase', url: uploaded.url, path: uploaded.path, ...geoPayload },
     })
 
     return NextResponse.json({ ok: true, type, url: uploaded.url })

@@ -11,6 +11,7 @@ import {
 import SelfieCapture from '@/components/onboarding/SelfieCapture'
 import LivenessVideoCapture from '@/components/onboarding/LivenessVideoCapture'
 import DocumentUploadField from '@/components/onboarding/DocumentUploadField'
+import GpsPhotoCapture from '@/components/onboarding/GpsPhotoCapture'
 import { getApiUrl } from '@/lib/api-client'
 import { computeOnboardingProgress } from '@/lib/onboarding/progress'
 
@@ -1207,9 +1208,9 @@ function BiometricStep({ api, reload, next, back, has, setErr, err }: StepProps)
 }
 
 function DocumentsStep({ documents, api, reload, next, back, has, err, setErr }: StepProps) {
-  const uploadDoc = async (type: string, dataUrl: string, coords?: { lat: number; lng: number }) => {
+  const uploadDoc = async (type: string, dataUrl: string, coords?: { lat: number; lng: number; acc?: number }) => {
     setErr('')
-    await api('/documents', { method: 'POST', body: JSON.stringify({ type, dataUrl, lat: coords?.lat, lng: coords?.lng }) })
+    await api('/documents', { method: 'POST', body: JSON.stringify({ type, dataUrl, lat: coords?.lat, lng: coords?.lng, acc: coords?.acc }) })
     await reload()
   }
   const required = documents.filter((d) => d.required)
@@ -1218,17 +1219,27 @@ function DocumentsStep({ documents, api, reload, next, back, has, err, setErr }:
 
   return (
     <div>
-      <StepHeader icon={FileText} title="Upload Documents" subtitle="Clear photos or PDFs. GPS docs capture your location." />
+      <StepHeader icon={FileText} title="Upload Documents" subtitle="Clear photos or PDFs. Shop photos are captured live with your location." />
       <ErrorBanner err={err} />
       <div className="mt-5 space-y-2">
         {required.map((d, i) => (
           <motion.div key={d.type} custom={i} variants={listStagger} initial="hidden" animate="show">
             {d.hasTemplate && (
-              <a href={getApiUrl(`/api/onboard/${encodeURIComponent(new URLSearchParams(window.location.search).get('token') || '')}/pg-form/download`)} className="mb-1 inline-block text-xs text-indigo-600 hover:underline">
-                Download {d.label} template
+              <a href={getApiUrl(`/api/onboard/${encodeURIComponent(new URLSearchParams(window.location.search).get('token') || '')}/pg-form/download`)} className="mb-1 inline-flex items-center gap-1 text-xs font-medium text-indigo-600 hover:underline">
+                <FileText className="h-3.5 w-3.5" /> Download {d.label} (prefilled — sign &amp; upload)
               </a>
             )}
-            <DocumentUploadField label={d.label} required gps={d.gps} uploaded={has(`DOCUMENT_${d.type}`, 'Uploaded')} onUpload={(dataUrl, coords) => uploadDoc(d.type, dataUrl, coords)} />
+            {d.gps ? (
+              <GpsPhotoCapture
+                label={d.label}
+                required
+                facing={d.type.includes('SELFIE') ? 'user' : 'environment'}
+                uploaded={has(`DOCUMENT_${d.type}`, 'Uploaded')}
+                onUpload={(dataUrl, coords) => uploadDoc(d.type, dataUrl, coords)}
+              />
+            ) : (
+              <DocumentUploadField label={d.label} required uploaded={has(`DOCUMENT_${d.type}`, 'Uploaded')} onUpload={(dataUrl, coords) => uploadDoc(d.type, dataUrl, coords)} />
+            )}
           </motion.div>
         ))}
       </div>
