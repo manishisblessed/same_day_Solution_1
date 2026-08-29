@@ -1107,15 +1107,26 @@ function BiometricStep({ api, reload, next, back, has, setErr, err }: StepProps)
     setErr('')
     try {
       const presign = await api('/selfie/presign', { method: 'POST', body: JSON.stringify({ contentType: 'image/jpeg' }) })
-      if (presign.mode === 's3') {
-        await fetch(presign.uploadUrl, { method: 'PUT', headers: { 'Content-Type': 'image/jpeg' }, body: await (await fetch(dataUrl)).blob() })
-        await api('/selfie/complete', { method: 'POST', body: JSON.stringify({ key: presign.key, uploadToken: presign.uploadToken }) })
-      } else {
+      let stored = false
+      // Try direct-to-S3 first; if the browser PUT is blocked (CORS/CSP) fall
+      // back to posting the image through our own origin (Supabase storage).
+      if (presign.mode === 's3' && presign.uploadUrl) {
+        try {
+          const blob = await (await fetch(dataUrl)).blob()
+          const put = await fetch(presign.uploadUrl, { method: 'PUT', headers: { 'Content-Type': 'image/jpeg' }, body: blob })
+          if (!put.ok) throw new Error(`S3 upload failed (${put.status})`)
+          await api('/selfie/complete', { method: 'POST', body: JSON.stringify({ key: presign.key, uploadToken: presign.uploadToken }) })
+          stored = true
+        } catch {
+          stored = false
+        }
+      }
+      if (!stored) {
         await api('/selfie/complete', { method: 'POST', body: JSON.stringify({ dataUrl }) })
       }
       await reload()
     } catch (e: any) {
-      setErr(e.message)
+      setErr(e.message || 'Could not save selfie. Please retake.')
     }
   }
 
@@ -1134,15 +1145,26 @@ function BiometricStep({ api, reload, next, back, has, setErr, err }: StepProps)
     setUploading(true)
     setErr('')
     try {
+      let stored = false
+      // Try direct-to-S3 first; if the browser PUT is blocked (CORS/CSP) fall
+      // back to posting the clip through our own origin (Supabase storage).
       if (videoCfg.mode === 's3' && videoCfg.uploadUrl) {
-        await fetch(videoCfg.uploadUrl, { method: 'PUT', headers: { 'Content-Type': 'video/webm' }, body: await (await fetch(dataUrl)).blob() })
-        await api('/video/complete', { method: 'POST', body: JSON.stringify({ key: videoCfg.key, uploadToken: videoCfg.uploadToken, durationSec }) })
-      } else {
+        try {
+          const blob = await (await fetch(dataUrl)).blob()
+          const put = await fetch(videoCfg.uploadUrl, { method: 'PUT', headers: { 'Content-Type': 'video/webm' }, body: blob })
+          if (!put.ok) throw new Error(`S3 upload failed (${put.status})`)
+          await api('/video/complete', { method: 'POST', body: JSON.stringify({ key: videoCfg.key, uploadToken: videoCfg.uploadToken, durationSec }) })
+          stored = true
+        } catch {
+          stored = false
+        }
+      }
+      if (!stored) {
         await api('/video/complete', { method: 'POST', body: JSON.stringify({ dataUrl, uploadToken: videoCfg.uploadToken, durationSec }) })
       }
       await reload()
     } catch (e: any) {
-      setErr(e.message)
+      setErr(e.message || 'Could not save video. Please re-record.')
     } finally {
       setUploading(false)
     }

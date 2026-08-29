@@ -126,6 +126,79 @@ export function presignPutUrl(params: {
   return presignUrl({ method: 'PUT', key: params.key, expiresSec: params.expiresSec, useKms: true })
 }
 
+/**
+ * Server-side S3 PutObject (SigV4, header-auth). Used as the reliable upload
+ * path when the browser can't PUT directly to S3 (missing bucket CORS), so KYC
+ * media is always stored on S3 — never elsewhere.
+ */
+export async function putObjectToS3(params: {
+  key: string
+  contentType: string
+  body: Buffer
+  useKms?: boolean
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const bucket = getEnv('S3_KYC_BUCKET') as string
+  const region = getEnv('AWS_REGION') as string
+  const accessKey = getEnv('AWS_ACCESS_KEY_ID') as string
+  const secretKey = getEnv('AWS_SECRET_ACCESS_KEY') as string
+  const sessionToken = getEnv('AWS_SESSION_TOKEN')
+  const kmsKeyId = params.useKms ? getEnv('S3_KMS_KEY_ID') : undefined
+
+  const host = `${bucket}.s3.${region}.amazonaws.com`
+  const canonicalUri = '/' + params.key.split('/').map(encodeRfc3986).join('/')
+  const now = new Date()
+  const { amzDate: amzDateStr, dateStamp } = amzDate(now)
+  const payloadHash = crypto.createHash('sha256').update(params.body).digest('hex')
+
+  const headers: Record<string, string> = {
+    host,
+    'content-type': params.contentType,
+    'x-amz-content-sha256': payloadHash,
+    'x-amz-date': amzDateStr,
+  }
+  if (sessionToken) headers['x-amz-security-token'] = sessionToken
+  if (kmsKeyId) {
+    headers['x-amz-server-side-encryption'] = 'aws:kms'
+    headers['x-amz-server-side-encryption-aws-kms-key-id'] = kmsKeyId
+  }
+
+  const sortedKeys = Object.keys(headers).sort()
+  const canonicalHeaders = sortedKeys.map((k) => `${k}:${headers[k]}\n`).join('')
+  const signedHeaders = sortedKeys.join(';')
+  const canonicalRequest = ['PUT', canonicalUri, '', canonicalHeaders, signedHeaders, payloadHash].join('\n')
+
+  const credentialScope = `${dateStamp}/${region}/s3/aws4_request`
+  const stringToSign = ['AWS4-HMAC-SHA256', amzDateStr, credentialScope, sha256Hex(canonicalRequest)].join('\n')
+  const kDate = hmac(`AWS4${secretKey}`, dateStamp)
+  const kRegion = hmac(kDate, region)
+  const kService = hmac(kRegion, 's3')
+  const kSigning = hmac(kService, 'aws4_request')
+  const signature = crypto.createHmac('sha256', kSigning).update(stringToSign, 'utf8').digest('hex')
+  const authorization = `AWS4-HMAC-SHA256 Credential=${accessKey}/${credentialScope}, SignedHeaders=${signedHeaders}, Signature=${signature}`
+
+  // Host is set automatically by the runtime; passing it explicitly is a
+  // forbidden header, so send everything except host.
+  const fetchHeaders: Record<string, string> = { Authorization: authorization }
+  for (const k of sortedKeys) {
+    if (k !== 'host') fetchHeaders[k] = headers[k]
+  }
+
+  try {
+    const res = await fetch(`https://${host}${canonicalUri}`, {
+      method: 'PUT',
+      headers: fetchHeaders,
+      body: params.body,
+    })
+    if (!res.ok) {
+      const text = await res.text().catch(() => '')
+      return { ok: false, error: `S3 responded ${res.status}: ${text.slice(0, 300)}` }
+    }
+    return { ok: true }
+  } catch (e: any) {
+    return { ok: false, error: e?.message || 'S3 upload failed' }
+  }
+}
+
 /** Short-lived read URL so admins can review private KYC media. */
 export function presignGetUrl(params: { key: string; expiresSec?: number }): string {
   return presignUrl({ method: 'GET', key: params.key, expiresSec: params.expiresSec ?? 600 })

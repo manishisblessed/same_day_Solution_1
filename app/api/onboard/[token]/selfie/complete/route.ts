@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseAdmin } from '@/lib/supabase/server-admin'
 import { loadInviteByToken, OPEN_INVITE_STATUSES, upsertVerification } from '@/lib/onboarding/invites'
-import { verifyUploadToken } from '@/services/s3-kyc'
-import { uploadOnboardingFile, decodeDataUrl } from '@/lib/onboarding/storage'
+import { verifyUploadToken, isS3Configured, putObjectToS3, buildKycKey } from '@/services/s3-kyc'
+import { uploadOnboardingFile, decodeDataUrl, extForMime } from '@/lib/onboarding/storage'
 
 export const dynamic = 'force-dynamic'
 
@@ -38,13 +38,31 @@ export async function POST(request: NextRequest, { params }: { params: { token: 
       return NextResponse.json({ ok: true, storage: 's3' })
     }
 
-    // Supabase fallback (base64)
+    // Base64 fallback (browser couldn't PUT directly to S3). We still store on
+    // S3 — server-side — so KYC media never lands anywhere but the bucket.
     const dataUrl = String(body.dataUrl || '')
     if (!dataUrl) return NextResponse.json({ error: 'No selfie provided' }, { status: 400 })
     const { buffer, contentType } = decodeDataUrl(dataUrl, 'image/jpeg')
     if (buffer.length > 5 * 1024 * 1024) {
       return NextResponse.json({ error: 'Selfie too large (max 5MB)' }, { status: 400 })
     }
+
+    if (isS3Configured()) {
+      const key = buildKycKey(invite.id, 'selfie', extForMime(contentType))
+      const put = await putObjectToS3({ key, contentType, body: buffer, useKms: true })
+      if (!put.ok) {
+        return NextResponse.json({ error: `S3 upload failed: ${put.error}` }, { status: 502 })
+      }
+      await upsertVerification(supabase, {
+        inviteId: invite.id,
+        type: 'DOCUMENT_SELFIE',
+        status: 'Uploaded',
+        payload: { storage: 's3', key, uploadedAt: new Date().toISOString() },
+      })
+      return NextResponse.json({ ok: true, storage: 's3' })
+    }
+
+    // Local/dev only (no S3 configured): keep the wizard usable via Supabase.
     const uploaded = await uploadOnboardingFile(supabase, {
       inviteId: invite.id,
       kind: 'selfie',
