@@ -20,7 +20,17 @@ export function getSupabaseAdmin(): SupabaseClient {
     return _supabaseAdmin
   }
 
-  _supabaseAdmin = createClient(getSupabaseUrl(), getSupabaseServiceKey())
+  // Next.js App Router patches global fetch and persists GET responses to
+  // `.next/cache/fetch-cache`. supabase-js reads go through fetch, so without
+  // this the server would serve a STALE snapshot of every table (e.g. an
+  // onboarding invite's verifications frozen at an old state), making freshly
+  // written rows invisible. Force no-store on all admin-client requests.
+  _supabaseAdmin = createClient(getSupabaseUrl(), getSupabaseServiceKey(), {
+    global: {
+      fetch: (input: any, init?: any) =>
+        fetch(input, { ...(init || {}), cache: 'no-store' }),
+    },
+  })
   return _supabaseAdmin
 }
 

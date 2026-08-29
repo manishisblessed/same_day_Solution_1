@@ -43,13 +43,14 @@ export async function POST(request: NextRequest, { params }: { params: { token: 
         }
         const result = await verifyPAN360(pan, generateOrderId('PAN360'))
         const ok = result.status === 'Success'
-        await upsertVerification(supabase, {
+        const saved = await upsertVerification(supabase, {
           inviteId: invite.id,
           type: 'PAN_360',
           status: ok ? 'Success' : 'Failure',
           verifiedName: (result as any).registered_name || null,
           payload: result as any,
         })
+        if (!saved.ok) return NextResponse.json({ error: `Could not save PAN result: ${saved.error}` }, { status: 500 })
         if (!ok) return NextResponse.json({ success: false, error: result.message || 'PAN verification failed' })
         return NextResponse.json({
           success: true,
@@ -71,13 +72,14 @@ export async function POST(request: NextRequest, { params }: { params: { token: 
         }
         const result = await verifyBankPennyDrop(account_number, ifsc, generateOrderId('BANK'))
         const ok = result.status === 'Success'
-        await upsertVerification(supabase, {
+        const saved = await upsertVerification(supabase, {
           inviteId: invite.id,
           type: 'BANK_PENNY_DROP',
           status: ok ? 'Success' : 'Failure',
           verifiedName: (result as any).nameAtBank || null,
           payload: { ...result, account_number, ifsc },
         })
+        if (!saved.ok) return NextResponse.json({ error: `Could not save bank result: ${saved.error}` }, { status: 500 })
         if (!ok) return NextResponse.json({ success: false, error: result.message || 'Bank verification failed' })
         return NextResponse.json({
           success: true,
@@ -90,13 +92,14 @@ export async function POST(request: NextRequest, { params }: { params: { token: 
         if (!gst) return NextResponse.json({ error: 'GSTIN required' }, { status: 400 })
         const result = await verifyGST(gst, generateOrderId('GST'))
         const ok = result.status === 'Success'
-        await upsertVerification(supabase, {
+        const saved = await upsertVerification(supabase, {
           inviteId: invite.id,
           type: 'GST',
           status: ok ? 'Success' : 'Failure',
           verifiedName: (result as any).legal_name_of_business || null,
           payload: result as any,
         })
+        if (!saved.ok) return NextResponse.json({ error: `Could not save GST result: ${saved.error}` }, { status: 500 })
         if (!ok) return NextResponse.json({ success: false, error: result.message || 'GST verification failed' })
         return NextResponse.json({
           success: true,
@@ -154,13 +157,14 @@ export async function POST(request: NextRequest, { params }: { params: { token: 
           'AADHAAR'
         )
         const ok = result.status === 'Success'
-        await upsertVerification(supabase, {
+        const saved = await upsertVerification(supabase, {
           inviteId: invite.id,
           type: 'AADHAAR_DIGILOCKER',
           status: ok ? 'Success' : 'Failure',
           verifiedName: (result as any).name || null,
           payload: result as any,
         })
+        if (!saved.ok) return NextResponse.json({ error: `Could not save Aadhaar result: ${saved.error}` }, { status: 500 })
         if (ok) {
           await supabase
             .from(INVITE_TABLE)
