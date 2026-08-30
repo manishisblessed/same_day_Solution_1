@@ -13,7 +13,7 @@ import {
 // ============================================================================
 // Types
 // ============================================================================
-interface Slab { min_amount: number; max_amount: number; charge: number }
+interface Slab { min_amount: number; max_amount: number; charge: number; rate_type?: 'flat' | 'percent'; commission_percent?: number | null }
 interface Scheme { id: string; name: string; description: string | null; status: string; slabs: Slab[] }
 interface Assignment { id: string; scheme_id: string; status: string; scheme_name: string | null }
 interface ChildPartner { id: string; name: string; business_name?: string; email?: string; phone?: string; status?: string; assignment: Assignment | null }
@@ -86,7 +86,7 @@ function MasterPartnersContent() {
             <Network className="w-7 h-7 text-primary-600" /> Master Channel Partners
           </h1>
           <p className="text-sm text-gray-500 mt-1">
-            Onboard master partners, assign child partners, and manage POS commission schemes (flat ₹ per transaction, POS only).
+            Onboard master partners, assign child partners, and manage POS commission schemes (flat ₹ or % per transaction, POS only).
           </p>
         </div>
 
@@ -327,13 +327,15 @@ function SchemesPanel({ schemes, onCreate, onEdit, onDelete }: { schemes: Scheme
                 </div>
               </div>
               <table className="w-full text-xs mt-2">
-                <thead><tr className="text-gray-400 text-left"><th className="py-1">Min</th><th className="py-1">Max</th><th className="py-1 text-right">Charge / txn</th></tr></thead>
+                <thead><tr className="text-gray-400 text-left"><th className="py-1">Min</th><th className="py-1">Max</th><th className="py-1 text-right">Commission / txn</th></tr></thead>
                 <tbody>
                   {s.slabs.map((sl, i) => (
                     <tr key={i} className="border-t border-gray-100 dark:border-gray-700">
                       <td className="py-1">{money(sl.min_amount)}</td>
                       <td className="py-1">{money(sl.max_amount)}</td>
-                      <td className="py-1 text-right font-medium text-gray-700 dark:text-gray-200">{money(sl.charge)}</td>
+                      <td className="py-1 text-right font-medium text-gray-700 dark:text-gray-200">
+                        {sl.rate_type === 'percent' ? `${Number(sl.commission_percent || 0)}%` : money(sl.charge)}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -350,17 +352,38 @@ function SchemeModal({ scheme, onClose, onDone, showToast }: { scheme: Scheme | 
   const [name, setName] = useState(scheme?.name || '')
   const [description, setDescription] = useState(scheme?.description || '')
   const [status, setStatus] = useState(scheme?.status || 'active')
-  const [slabs, setSlabs] = useState<Slab[]>(scheme?.slabs?.length ? scheme.slabs : [{ min_amount: 0, max_amount: 1000, charge: 0 }])
+  const [slabs, setSlabs] = useState<Slab[]>(
+    scheme?.slabs?.length
+      ? scheme.slabs.map((s) => ({ ...s, rate_type: s.rate_type || 'flat', commission_percent: s.commission_percent ?? 0 }))
+      : [{ min_amount: 0, max_amount: 1000, charge: 0, rate_type: 'flat', commission_percent: 0 }]
+  )
   const [saving, setSaving] = useState(false)
+  const [sample, setSample] = useState(1000)
 
-  const updateSlab = (i: number, key: keyof Slab, val: string) => {
+  const slabCommission = (sl: Slab, amount: number): number =>
+    sl.rate_type === 'percent' ? (amount * Number(sl.commission_percent || 0)) / 100 : Number(sl.charge || 0)
+
+  // Mirrors the settlement cron: among slabs matching the amount, pick the lowest payout.
+  const previewCommission = (amount: number): { payout: number; matched: boolean } => {
+    const matches = slabs.filter((sl) => sl.min_amount <= amount && sl.max_amount >= amount)
+    if (matches.length === 0) return { payout: 0, matched: false }
+    const payout = Math.min(...matches.map((sl) => slabCommission(sl, amount)))
+    return { payout: Math.round(payout * 100) / 100, matched: true }
+  }
+
+  const updateSlabNum = (i: number, key: 'min_amount' | 'max_amount' | 'charge' | 'commission_percent', val: string) => {
     const next = [...slabs]
     next[i] = { ...next[i], [key]: Number(val) }
     setSlabs(next)
   }
+  const updateRateType = (i: number, val: 'flat' | 'percent') => {
+    const next = [...slabs]
+    next[i] = { ...next[i], rate_type: val }
+    setSlabs(next)
+  }
   const addSlab = () => {
     const last = slabs[slabs.length - 1]
-    setSlabs([...slabs, { min_amount: last ? last.max_amount : 0, max_amount: (last ? last.max_amount : 0) + 1000, charge: 0 }])
+    setSlabs([...slabs, { min_amount: last ? last.max_amount : 0, max_amount: (last ? last.max_amount : 0) + 1000, charge: 0, rate_type: last?.rate_type || 'flat', commission_percent: 0 }])
   }
   const removeSlab = (i: number) => setSlabs(slabs.filter((_, idx) => idx !== i))
 
@@ -392,18 +415,50 @@ function SchemeModal({ scheme, onClose, onDone, showToast }: { scheme: Scheme | 
 
         <div>
           <div className="flex items-center justify-between mb-2">
-            <label className="text-xs font-medium text-gray-600 dark:text-gray-300">Amount Slabs (flat ₹ per transaction)</label>
+            <label className="text-xs font-medium text-gray-600 dark:text-gray-300">Amount Slabs (per-transaction commission)</label>
             <button onClick={addSlab} className="text-xs text-primary-600 flex items-center gap-1"><Plus className="w-3 h-3" /> Add slab</button>
+          </div>
+          <div className="grid grid-cols-[1fr_1fr_auto_1fr_auto] gap-2 text-[10px] uppercase tracking-wide text-gray-400 mb-1 px-0.5">
+            <span>Min ₹</span><span>Max ₹</span><span>Type</span><span>Rate</span><span></span>
           </div>
           <div className="space-y-2">
             {slabs.map((sl, i) => (
-              <div key={i} className="flex items-center gap-2">
-                <input type="number" placeholder="Min" className={inputCls} value={sl.min_amount} onChange={(e) => updateSlab(i, 'min_amount', e.target.value)} />
-                <input type="number" placeholder="Max" className={inputCls} value={sl.max_amount} onChange={(e) => updateSlab(i, 'max_amount', e.target.value)} />
-                <input type="number" placeholder="Charge" className={inputCls} value={sl.charge} onChange={(e) => updateSlab(i, 'charge', e.target.value)} />
+              <div key={i} className="grid grid-cols-[1fr_1fr_auto_1fr_auto] items-center gap-2">
+                <input type="number" placeholder="Min" className={inputCls} value={sl.min_amount} onChange={(e) => updateSlabNum(i, 'min_amount', e.target.value)} />
+                <input type="number" placeholder="Max" className={inputCls} value={sl.max_amount} onChange={(e) => updateSlabNum(i, 'max_amount', e.target.value)} />
+                <select className={inputCls} value={sl.rate_type || 'flat'} onChange={(e) => updateRateType(i, e.target.value as 'flat' | 'percent')}>
+                  <option value="flat">₹ Flat</option>
+                  <option value="percent">% Percent</option>
+                </select>
+                {sl.rate_type === 'percent' ? (
+                  <input type="number" step="0.01" min="0" max="100" placeholder="%" className={inputCls} value={sl.commission_percent ?? 0} onChange={(e) => updateSlabNum(i, 'commission_percent', e.target.value)} />
+                ) : (
+                  <input type="number" placeholder="Charge" className={inputCls} value={sl.charge} onChange={(e) => updateSlabNum(i, 'charge', e.target.value)} />
+                )}
                 <button onClick={() => removeSlab(i)} disabled={slabs.length === 1} className="p-2 text-red-500 hover:bg-red-50 rounded disabled:opacity-30"><Trash2 className="w-4 h-4" /></button>
               </div>
             ))}
+          </div>
+          <p className="text-[11px] text-gray-400 mt-2">Percent slabs pay the master partner that % of each POS transaction amount. Commission is always capped at the company&apos;s MDR margin on the transaction.</p>
+
+          <div className="mt-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/40 p-3">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-medium text-gray-600 dark:text-gray-300">Preview: on a</span>
+              <div className="relative">
+                <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-gray-400">₹</span>
+                <input type="number" min="0" className="w-28 pl-5 pr-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-primary-500 outline-none" value={sample} onChange={(e) => setSample(Number(e.target.value))} />
+              </div>
+              <span className="text-xs font-medium text-gray-600 dark:text-gray-300">txn, master partner earns</span>
+              {(() => {
+                const { payout, matched } = previewCommission(sample)
+                return matched ? (
+                  <span className="text-sm font-semibold text-emerald-600">{money(payout)}</span>
+                ) : (
+                  <span className="text-xs text-amber-600 flex items-center gap-1"><AlertCircle className="w-3.5 h-3.5" /> no matching slab</span>
+                )
+              })()}
+            </div>
+            <p className="text-[11px] text-gray-400 mt-1.5">Before the MDR-margin cap. Actual payout may be lower if the child partner&apos;s MDR margin on the txn is smaller.</p>
           </div>
         </div>
 

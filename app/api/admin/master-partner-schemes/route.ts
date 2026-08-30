@@ -11,21 +11,36 @@ export const dynamic = 'force-dynamic'
  * master partner override. Master partners themselves have NO access here.
  */
 
-function validateSlabs(slabs: any): { ok: true; slabs: Array<{ min_amount: number; max_amount: number; charge: number }> } | { ok: false; error: string } {
+type NormSlab = { min_amount: number; max_amount: number; charge: number; rate_type: 'flat' | 'percent'; commission_percent: number | null }
+
+function validateSlabs(slabs: any): { ok: true; slabs: NormSlab[] } | { ok: false; error: string } {
   if (!Array.isArray(slabs) || slabs.length === 0) {
     return { ok: false, error: 'At least one slab is required' }
   }
-  const norm = slabs.map((s: any) => ({
-    min_amount: Number(s.min_amount),
-    max_amount: Number(s.max_amount),
-    charge: Number(s.charge),
-  }))
-  for (const s of norm) {
-    if (!Number.isFinite(s.min_amount) || !Number.isFinite(s.max_amount) || !Number.isFinite(s.charge)) {
-      return { ok: false, error: 'Slab amounts and charge must be numbers' }
+  const norm: NormSlab[] = slabs.map((s: any) => {
+    const rate_type: 'flat' | 'percent' = s.rate_type === 'percent' ? 'percent' : 'flat'
+    return {
+      min_amount: Number(s.min_amount),
+      max_amount: Number(s.max_amount),
+      // Percent slabs store 0 charge; flat slabs ignore percent.
+      charge: rate_type === 'percent' ? 0 : Number(s.charge),
+      rate_type,
+      commission_percent: rate_type === 'percent' ? Number(s.commission_percent) : null,
     }
-    if (s.min_amount < 0 || s.max_amount <= s.min_amount || s.charge < 0) {
-      return { ok: false, error: 'Each slab needs min >= 0, max > min, charge >= 0' }
+  })
+  for (const s of norm) {
+    if (!Number.isFinite(s.min_amount) || !Number.isFinite(s.max_amount)) {
+      return { ok: false, error: 'Slab amounts must be numbers' }
+    }
+    if (s.min_amount < 0 || s.max_amount <= s.min_amount) {
+      return { ok: false, error: 'Each slab needs min >= 0 and max > min' }
+    }
+    if (s.rate_type === 'percent') {
+      if (!Number.isFinite(s.commission_percent as number) || (s.commission_percent as number) < 0 || (s.commission_percent as number) > 100) {
+        return { ok: false, error: 'Percent slabs need a commission % between 0 and 100' }
+      }
+    } else if (!Number.isFinite(s.charge) || s.charge < 0) {
+      return { ok: false, error: 'Flat slabs need a charge >= 0' }
     }
   }
   return { ok: true, slabs: norm }

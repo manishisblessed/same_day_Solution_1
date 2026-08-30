@@ -50,22 +50,29 @@ async function creditMasterPartnerOverride(
 
     const { data: slabRows } = await supabase
       .from('master_partner_scheme_slabs')
-      .select('min_amount, max_amount, charge')
+      .select('min_amount, max_amount, charge, rate_type, commission_percent')
       .eq('scheme_id', assignment.scheme_id)
       .eq('is_active', true)
 
-    const slabs = (slabRows || []).map((s: any) => ({
+    type McpSlab = { min: number; max: number; charge: number; rateType: 'flat' | 'percent'; percent: number }
+    const slabs: McpSlab[] = (slabRows || []).map((s: any) => ({
       min: Number(s.min_amount),
       max: Number(s.max_amount),
       charge: Number(s.charge),
+      rateType: s.rate_type === 'percent' ? 'percent' : 'flat',
+      percent: Number(s.commission_percent) || 0,
     }))
     if (slabs.length === 0) return
 
+    // Resolve this slab's commission for a given txn amount (flat ₹ or % of amount).
+    const slabCommission = (s: McpSlab, amount: number): number =>
+      s.rateType === 'percent' ? (amount * s.percent) / 100 : s.charge
+
     const pickCharge = (amount: number): number => {
       const match = slabs
-        .filter((s: { min: number; max: number; charge: number }) => s.min <= amount && s.max >= amount)
-        .sort((a: { charge: number }, b: { charge: number }) => a.charge - b.charge)[0]
-      return match ? match.charge : 0
+        .filter((s) => s.min <= amount && s.max >= amount)
+        .sort((a, b) => slabCommission(a, amount) - slabCommission(b, amount))[0]
+      return match ? slabCommission(match, amount) : 0
     }
 
     let overrideTotal = 0

@@ -119,7 +119,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
       }
 
       // Notify the applicant that their account is now active.
-      const loginUrl = `${appUrl()}/login`
+      const loginUrl = `${appUrl()}/business-login`
       const rl = roleLabel(invite.target_role)
       let emailSent = false
       let smsSent = false
@@ -372,7 +372,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
       let smsSent = false
 
       if (invite.status === 'approved') {
-        const loginUrl = `${appUrl()}/login`
+        const loginUrl = `${appUrl()}/business-login`
         const er = await sendEmail({
           to: invite.email,
           subject: `Your Same Day Solution ${rl} account is approved`,
