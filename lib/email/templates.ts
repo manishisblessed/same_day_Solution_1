@@ -130,6 +130,74 @@ export function renderInviteEmail(opts: {
   })
 }
 
+export function renderApprovalEmail(opts: {
+  name?: string | null
+  roleLabel: string
+  partnerId?: string | null
+  loginUrl: string
+}): string {
+  return renderBrandedEmail({
+    previewText: `Your ${opts.roleLabel} account has been approved`,
+    heading: `Welcome aboard! Your account is approved 🎉`,
+    intro: `Hi${opts.name ? ` <strong style="color:${INK};">${opts.name}</strong>` : ''}, great news — your KYC has been verified and your <strong style="color:${INK};">${opts.roleLabel}</strong> account with Same Day Solution is now <strong style="color:${INK};">active</strong>. You can log in and start transacting right away.`,
+    bullets: [
+      ...(opts.partnerId ? [`Your Partner ID: <strong style="color:${INK};">${opts.partnerId}</strong>`] : []),
+      'Log in with your registered email &amp; password',
+      'Set up services and start using your dashboard',
+    ],
+    ctaLabel: 'Log in to your account',
+    ctaUrl: opts.loginUrl,
+    secondaryNote: `Or open: <a href="${opts.loginUrl}" style="color:${BRAND};word-break:break-all;">${opts.loginUrl}</a>`,
+  })
+}
+
+export function renderResubmitEmail(opts: {
+  name?: string | null
+  roleLabel: string
+  link: string
+  expiresOn: string
+  items: { label: string; reason: string }[]
+}): string {
+  const itemsHtml = opts.items.length
+    ? `<table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;margin:14px 0 6px;border-collapse:separate;border-spacing:0 8px;">${opts.items
+        .map(
+          (it) =>
+            `<tr><td style="background:${BG};border-radius:10px;padding:12px 14px;font-family:Arial,Helvetica,sans-serif;">
+              <div style="font-size:14px;font-weight:bold;color:${INK};">${it.label}</div>
+              <div style="font-size:13px;color:${MUTED};margin-top:2px;"><span style="color:#B45309;font-weight:bold;">Reason:</span> ${it.reason}</div>
+            </td></tr>`
+        )
+        .join('')}</table>`
+    : ''
+
+  const inner = `
+    <h1 style="margin:0 0 12px;font-size:20px;font-weight:bold;color:${INK};">Action needed: re-submit a few details</h1>
+    <p style="margin:0;font-size:14px;line-height:1.65;color:${MUTED};">
+      Hi${opts.name ? ` <strong style="color:${INK};">${opts.name}</strong>` : ''}, thanks for completing your <strong style="color:${INK};">${opts.roleLabel}</strong> onboarding with Same Day Solution. Our team reviewed your application and a few items need to be corrected and re-submitted before we can approve your account:
+    </p>
+    ${itemsHtml}
+    <p style="margin:10px 0 0;font-size:14px;line-height:1.65;color:${MUTED};">Please reopen your onboarding using the button below, update only the flagged items, and re-submit for review. Everything else you already completed is saved.</p>
+    ${button('Update & Re-submit', opts.link)}
+    <p style="margin:8px 0 0;font-size:12px;line-height:1.6;color:${MUTED};">Or copy this link: <a href="${opts.link}" style="color:${BRAND};word-break:break-all;">${opts.link}</a><br/><br/>This link expires on <strong>${opts.expiresOn}</strong>. Please don't share it — it's unique to you.</p>`
+
+  return shell(`Update a few details to complete your ${opts.roleLabel} onboarding`, inner)
+}
+
+export function renderRejectionEmail(opts: {
+  name?: string | null
+  roleLabel: string
+  reason?: string | null
+}): string {
+  return renderBrandedEmail({
+    previewText: `Update on your ${opts.roleLabel} onboarding application`,
+    heading: `Your ${opts.roleLabel} application could not be approved`,
+    intro: `Hi${opts.name ? ` <strong style="color:${INK};">${opts.name}</strong>` : ''}, thank you for your interest in joining Same Day Solution as a <strong style="color:${INK};">${opts.roleLabel}</strong>. After reviewing your application, we're unable to approve it at this time.${
+      opts.reason ? ` <br/><br/><strong style="color:${INK};">Reason:</strong> ${opts.reason}` : ''
+    }`,
+    secondaryNote: `If you believe this is a mistake or you'd like to reapply, please contact your upline or write to ${SUPPORT_EMAIL}.`,
+  })
+}
+
 export function renderOtpEmail(opts: { code: string; name?: string | null }): string {
   const inner = `
     <h1 style="margin:0 0 12px;font-size:20px;font-weight:bold;color:${INK};">Your verification code</h1>

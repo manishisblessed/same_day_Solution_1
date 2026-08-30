@@ -2,7 +2,7 @@
  * Razorpay POS merchant companies (webhook path slug + admin filters).
  * Used by partner API responses and optional merchant_slug filters.
  */
-export const POS_MERCHANT_SLUGS = ['ashvam', 'teachway', 'newscenaric', 'lagoon', 'avika'] as const
+export const POS_MERCHANT_SLUGS = ['ashvam', 'teachway', 'newscenaric', 'lagoon', 'avika', 'samedaytours'] as const
 export type POSMerchantSlug = (typeof POS_MERCHANT_SLUGS)[number]
 
 const DISPLAY_NAMES: Record<string, string> = {
@@ -11,6 +11,7 @@ const DISPLAY_NAMES: Record<string, string> = {
   newscenaric: 'New Scenaric Travels',
   lagoon: 'LAGOON CRAFT LABS SOLUTIONS PRIVATE LIMITED',
   avika: 'Avika Departmental Private Limited',
+  samedaytours: 'SAMEDAY TOUR AND TRAVELS PRIVATE LIMITED',
 }
 
 const SHORT_NAMES: Record<string, string> = {
@@ -19,6 +20,7 @@ const SHORT_NAMES: Record<string, string> = {
   newscenaric: 'New Scenaric',
   lagoon: 'Lagoon',
   avika: 'Avika',
+  samedaytours: 'Sameday Tours',
 }
 
 export interface PosCompany {

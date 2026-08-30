@@ -2,10 +2,11 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { getSupabaseAdmin } from '@/lib/supabase/server-admin'
 import { ONBOARD_CAPABLE_ROLES, roleLabel } from '@/lib/hierarchy'
-import { INVITE_TABLE, inviteLink, generateInviteToken, inviteExpiryDate, findDuplicateIdentity } from '@/lib/onboarding/invites'
+import { INVITE_TABLE, VERIFICATION_TABLE, inviteLink, generateInviteToken, inviteExpiryDate, findDuplicateIdentity, appUrl, getVerifications } from '@/lib/onboarding/invites'
+import { docLabel } from '@/lib/onboarding/requiredDocuments'
 import { isS3Configured, presignGetUrl } from '@/services/s3-kyc'
 import { sendEmail } from '@/services/email'
-import { renderInviteEmail } from '@/lib/email/templates'
+import { renderInviteEmail, renderApprovalEmail, renderResubmitEmail, renderRejectionEmail } from '@/lib/email/templates'
 import { sendSms, inviteSmsBody } from '@/services/sms'
 import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger'
 
@@ -22,6 +23,27 @@ const ROLE_TABLE: Record<string, string> = {
 // The partners table keys on UUID id; network role tables key on partner_id.
 function idColumnForRole(role: string): string {
   return role === 'partner' || role === 'master_partner' ? 'id' : 'partner_id'
+}
+
+const IDENTITY_LABELS: Record<string, string> = {
+  PAN_360: 'PAN',
+  AADHAAR_DIGILOCKER: 'Aadhaar',
+  BANK_PENNY_DROP: 'Bank Account',
+  GST: 'GST',
+  BUSINESS_NAME: 'Business Name',
+  ONBOARD_VIDEO: 'Liveness Video',
+  SELF_DECLARATION: 'Signed Self-Declaration Form',
+}
+
+/** Human label for a verification type (identity, media or document). */
+function verificationLabel(type: string): string {
+  if (IDENTITY_LABELS[type]) return IDENTITY_LABELS[type]
+  if (type.startsWith('DOCUMENT_')) return docLabel(type.replace('DOCUMENT_', ''))
+  return type
+}
+
+function expiryLabel(): string {
+  return new Date(inviteExpiryDate()).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
 /**
@@ -96,6 +118,28 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
           .eq(idColumnForRole(invite.target_role), invite.created_partner_id)
       }
 
+      // Notify the applicant that their account is now active.
+      const loginUrl = `${appUrl()}/login`
+      const rl = roleLabel(invite.target_role)
+      let emailSent = false
+      let smsSent = false
+      const er = await sendEmail({
+        to: invite.email,
+        subject: `Your Same Day Solution ${rl} account is approved`,
+        html: renderApprovalEmail({
+          name: invite.name,
+          roleLabel: rl,
+          partnerId: invite.created_partner_id,
+          loginUrl,
+        }),
+      }).catch(() => ({ ok: false }))
+      emailSent = !!er.ok
+      const sr = await sendSms({
+        to: invite.phone,
+        body: `Congratulations${invite.name ? ` ${invite.name}` : ''}! Your Same Day Solution ${rl} account is approved and active${invite.created_partner_id ? ` (ID: ${invite.created_partner_id})` : ''}. Log in at ${loginUrl}`,
+      }).catch(() => ({ ok: false }))
+      smsSent = !!sr.ok
+
       const ctx = getRequestContext(request)
       logActivityFromContext(ctx, user, {
         activity_type: 'onboarding_invite_approve',
@@ -103,7 +147,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
         activity_description: `Approved onboarding for ${invite.email} (${invite.created_partner_id || 'n/a'})`,
       }).catch(() => {})
 
-      return NextResponse.json({ success: true, status: 'approved' })
+      return NextResponse.json({ success: true, status: 'approved', emailSent, smsSent })
     }
 
     if (action === 'reject') {
@@ -248,6 +292,133 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
       }).catch(() => {})
 
       return NextResponse.json({ success: true, status: 'pending', link, onboardingLink: link, emailSent, smsSent })
+    }
+
+    if (action === 'reject_items') {
+      if (!isAdmin) {
+        return NextResponse.json({ error: 'Only admin can request re-submission' }, { status: 403 })
+      }
+      const rawItems = Array.isArray(body.items) ? body.items : []
+      const items = rawItems
+        .map((i: any) => ({ type: String(i?.type || '').trim(), reason: String(i?.reason || '').trim() }))
+        .filter((i: any) => i.type && i.reason)
+      if (!items.length) {
+        return NextResponse.json({ error: 'Select at least one item and add a reason for each' }, { status: 400 })
+      }
+
+      const verifications = await getVerifications(supabase, invite.id)
+      const byType = new Map(verifications.map((v) => [v.type, v]))
+
+      for (const it of items) {
+        const existing = byType.get(it.type)
+        const payload = {
+          ...((existing?.response_payload as any) || {}),
+          rejection_reason: it.reason,
+          rejected_at: now,
+          rejected_by: user.id,
+        }
+        await supabase
+          .from(VERIFICATION_TABLE)
+          .update({ status: 'Rejected', response_payload: payload, updated_at: now })
+          .eq('invite_id', invite.id)
+          .eq('type', it.type)
+      }
+
+      // Reopen the invite for resubmission with a fresh, usable link.
+      const token = generateInviteToken()
+      await supabase
+        .from(INVITE_TABLE)
+        .update({ status: 'resubmit', token, expires_at: inviteExpiryDate(), rejected_reason: body.note ? String(body.note) : null, updated_at: now })
+        .eq('id', invite.id)
+
+      // If a partner row was already created, put it back into pending review.
+      const table = ROLE_TABLE[invite.target_role]
+      if (table && invite.created_partner_id) {
+        await supabase
+          .from(table)
+          .update({ status: 'pending_verification', verification_status: 'pending', updated_at: now })
+          .eq(idColumnForRole(invite.target_role), invite.created_partner_id)
+      }
+
+      const link = inviteLink(token)
+      const rl = roleLabel(invite.target_role)
+      const emailItems = items.map((i: any) => ({ label: verificationLabel(i.type), reason: i.reason }))
+      const er = await sendEmail({
+        to: invite.email,
+        subject: `Action needed: update your ${rl} onboarding`,
+        html: renderResubmitEmail({ name: invite.name, roleLabel: rl, link, expiresOn: expiryLabel(), items: emailItems }),
+      }).catch(() => ({ ok: false }))
+      const sr = await sendSms({
+        to: invite.phone,
+        body: `Same Day Solution: A few items in your ${rl} onboarding need correction (${emailItems.map((i: any) => i.label).join(', ')}). Update & re-submit: ${link}`,
+      }).catch(() => ({ ok: false }))
+
+      const ctx = getRequestContext(request)
+      logActivityFromContext(ctx, user, {
+        activity_type: 'onboarding_invite_reject_items',
+        activity_category: 'admin',
+        activity_description: `Requested resubmission for ${invite.email}: ${items.map((i: any) => i.type).join(', ')}`,
+      }).catch(() => {})
+
+      return NextResponse.json({ success: true, status: 'resubmit', link, onboardingLink: link, emailSent: !!er.ok, smsSent: !!sr.ok })
+    }
+
+    if (action === 'resend_decision') {
+      if (!isAdmin) {
+        return NextResponse.json({ error: 'Only admin can resend decision emails' }, { status: 403 })
+      }
+      const rl = roleLabel(invite.target_role)
+      let emailSent = false
+      let smsSent = false
+
+      if (invite.status === 'approved') {
+        const loginUrl = `${appUrl()}/login`
+        const er = await sendEmail({
+          to: invite.email,
+          subject: `Your Same Day Solution ${rl} account is approved`,
+          html: renderApprovalEmail({ name: invite.name, roleLabel: rl, partnerId: invite.created_partner_id, loginUrl }),
+        }).catch(() => ({ ok: false }))
+        emailSent = !!er.ok
+        const sr = await sendSms({
+          to: invite.phone,
+          body: `Congratulations${invite.name ? ` ${invite.name}` : ''}! Your Same Day Solution ${rl} account is approved and active${invite.created_partner_id ? ` (ID: ${invite.created_partner_id})` : ''}. Log in at ${loginUrl}`,
+        }).catch(() => ({ ok: false }))
+        smsSent = !!sr.ok
+      } else if (invite.status === 'rejected') {
+        const er = await sendEmail({
+          to: invite.email,
+          subject: `Update on your Same Day Solution ${rl} application`,
+          html: renderRejectionEmail({ name: invite.name, roleLabel: rl, reason: invite.rejected_reason }),
+        }).catch(() => ({ ok: false }))
+        emailSent = !!er.ok
+        const sr = await sendSms({
+          to: invite.phone,
+          body: `Same Day Solution: Your ${rl} application could not be approved.${invite.rejected_reason ? ` Reason: ${invite.rejected_reason}.` : ''} Contact your upline for details.`,
+        }).catch(() => ({ ok: false }))
+        smsSent = !!sr.ok
+      } else if (invite.status === 'resubmit') {
+        const verifications = await getVerifications(supabase, invite.id)
+        const emailItems = verifications
+          .filter((v) => v.status === 'Rejected')
+          .map((v) => ({ label: verificationLabel(v.type), reason: (v.response_payload as any)?.rejection_reason || 'Please re-upload a clear, valid copy.' }))
+        const link = inviteLink(invite.token)
+        const expiresOn = new Date(invite.expires_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
+        const er = await sendEmail({
+          to: invite.email,
+          subject: `Action needed: update your ${rl} onboarding`,
+          html: renderResubmitEmail({ name: invite.name, roleLabel: rl, link, expiresOn, items: emailItems }),
+        }).catch(() => ({ ok: false }))
+        emailSent = !!er.ok
+        const sr = await sendSms({
+          to: invite.phone,
+          body: `Same Day Solution: A few items in your ${rl} onboarding need correction. Update & re-submit: ${link}`,
+        }).catch(() => ({ ok: false }))
+        smsSent = !!sr.ok
+      } else {
+        return NextResponse.json({ error: `No decision email to resend for a "${invite.status}" invite` }, { status: 400 })
+      }
+
+      return NextResponse.json({ success: true, status: invite.status, emailSent, smsSent })
     }
 
     return NextResponse.json({ error: 'Unknown action' }, { status: 400 })

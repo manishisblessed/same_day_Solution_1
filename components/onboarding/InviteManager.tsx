@@ -480,8 +480,13 @@ export default function InviteManager({ adminMode = false }: { adminMode?: boole
         <KycReviewModal
           invite={reviewing}
           canApprove={adminMode && isAdmin && ['registered', 'verified'].includes(reviewing.status)}
+          canResend={adminMode && isAdmin && ['approved', 'rejected', 'resubmit'].includes(reviewing.status)}
           onAction={async (action) => {
             await act(reviewing.id, action)
+            setReviewing(null)
+          }}
+          onChanged={async () => {
+            await load()
             setReviewing(null)
           }}
           onClose={() => setReviewing(null)}
@@ -542,14 +547,19 @@ function StatusPill({ status }: { status: string }) {
 function KycReviewModal({
   invite,
   canApprove,
+  canResend,
   onAction,
+  onChanged,
   onClose,
 }: {
   invite: InviteRow
   canApprove: boolean
+  canResend: boolean
   onAction: (action: 'approve' | 'reject') => Promise<void>
+  onChanged: () => Promise<void>
   onClose: () => void
 }) {
+  const { showToast } = useToast()
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState('')
   const [rows, setRows] = useState<VerificationRow[]>([])
@@ -557,6 +567,92 @@ function KycReviewModal({
   const [acting, setActing] = useState<'approve' | 'reject' | null>(null)
   const [zipping, setZipping] = useState(false)
   const [lightbox, setLightbox] = useState<string | null>(null)
+  // Per-item re-submission flags: verification type -> remark shown to applicant.
+  const [rejects, setRejects] = useState<Record<string, string>>({})
+  const [sendingRejects, setSendingRejects] = useState(false)
+  const [resending, setResending] = useState(false)
+
+  const flagged = (type: string) => type in rejects
+  const toggleFlag = (type: string) =>
+    setRejects((p) => {
+      const n = { ...p }
+      if (type in n) delete n[type]
+      else n[type] = ''
+      return n
+    })
+  const setReason = (type: string, reason: string) => setRejects((p) => ({ ...p, [type]: reason }))
+  const rejectList = Object.entries(rejects).map(([type, reason]) => ({ type, reason: reason.trim() }))
+  const canSendRejects = rejectList.length > 0 && rejectList.every((r) => r.reason.length > 0)
+
+  async function submitRejects() {
+    if (!canSendRejects) {
+      setErr('Add a remark for each flagged item before sending.')
+      return
+    }
+    setErr('')
+    setSendingRejects(true)
+    try {
+      const res = await apiFetch(`/api/onboarding/invite/${invite.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ action: 'reject_items', items: rejectList }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Failed to request re-submission')
+      const parts = [data.emailSent && 'email', data.smsSent && 'SMS'].filter(Boolean)
+      showToast(parts.length ? `Re-submission requested — link sent via ${parts.join(' & ')}` : 'Re-submission requested — delivery pending', parts.length ? 'success' : 'info')
+      await onChanged()
+    } catch (e: any) {
+      setErr(e.message)
+    } finally {
+      setSendingRejects(false)
+    }
+  }
+
+  async function resendDecision() {
+    setErr('')
+    setResending(true)
+    try {
+      const res = await apiFetch(`/api/onboarding/invite/${invite.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ action: 'resend_decision' }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Failed to resend')
+      const parts = [data.emailSent && 'email', data.smsSent && 'SMS'].filter(Boolean)
+      showToast(parts.length ? `Email resent via ${parts.join(' & ')}` : 'Resend attempted — delivery pending', parts.length ? 'success' : 'info')
+    } catch (e: any) {
+      setErr(e.message)
+    } finally {
+      setResending(false)
+    }
+  }
+
+  function renderReject(type: string) {
+    if (!canApprove) return null
+    const on = flagged(type)
+    return (
+      <div className="mt-2">
+        <button
+          type="button"
+          onClick={() => toggleFlag(type)}
+          className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-semibold transition-colors ${
+            on ? 'bg-rose-100 text-rose-700 dark:bg-rose-900/40' : 'text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/20'
+          }`}
+        >
+          <XCircle className="h-3 w-3" /> {on ? 'Flagged — will ask to re-submit' : 'Reject / request change'}
+        </button>
+        {on && (
+          <textarea
+            value={rejects[type]}
+            onChange={(e) => setReason(type, e.target.value)}
+            placeholder="Remark for the applicant (why it must be re-submitted)…"
+            rows={2}
+            className="mt-1 w-full rounded-md border border-rose-200 px-2 py-1 text-xs focus:border-rose-400 focus:outline-none dark:border-rose-800 dark:bg-gray-900 dark:text-gray-200"
+          />
+        )}
+      </div>
+    )
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -784,6 +880,7 @@ function KycReviewModal({
                       <KycField label="DOB" value={pan?.response_payload?.date_of_birth} />
                       <KycField label="Aadhaar linked" value={pan?.response_payload?.aadhaar_linked !== undefined ? String(pan.response_payload.aadhaar_linked) : null} />
                     </div>
+                    {renderReject('PAN_360')}
                   </div>
                   <div className="rounded-xl border border-gray-200 p-3 dark:border-gray-700">
                     <div className="mb-2 flex items-center justify-between">
@@ -797,6 +894,7 @@ function KycReviewModal({
                       <KycField label="Gender" value={aadhaar?.response_payload?.gender} />
                     </div>
                     <KycField label="Address" value={aadhaar?.response_payload?.address} />
+                    {renderReject('AADHAAR_DIGILOCKER')}
                   </div>
                   <div className="rounded-xl border border-gray-200 p-3 dark:border-gray-700">
                     <div className="mb-2 flex items-center justify-between">
@@ -809,6 +907,7 @@ function KycReviewModal({
                       <KycField label="IFSC" value={bank?.response_payload?.ifsc} />
                       <KycField label="UTR" value={bank?.response_payload?.utr} />
                     </div>
+                    {renderReject('BANK_PENNY_DROP')}
                   </div>
                   <div className="rounded-xl border border-gray-200 p-3 dark:border-gray-700">
                     <div className="mb-2 flex items-center justify-between">
@@ -821,6 +920,7 @@ function KycReviewModal({
                       <KycField label="Legal name" value={gst?.response_payload?.legal_name_of_business} />
                       <KycField label="GST status" value={gst?.response_payload?.gst_in_status} />
                     </div>
+                    {renderReject('BUSINESS_NAME')}
                   </div>
                 </div>
               </section>
@@ -908,6 +1008,7 @@ function KycReviewModal({
                               {m.response_payload?.ip && <div className="truncate">IP: {m.response_payload.ip}</div>}
                             </div>
                           )}
+                          {canApprove && <div className="border-t border-gray-100 px-2 pb-2 pt-1 dark:border-gray-700">{renderReject(m.type)}</div>}
                         </div>
                       )
                     })}
@@ -918,28 +1019,57 @@ function KycReviewModal({
           )}
         </div>
 
-        <div className="flex items-center justify-end gap-2 border-t border-gray-100 px-6 py-4 dark:border-gray-700">
-          <button onClick={onClose} className="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700 dark:border-gray-600 dark:text-gray-300">
-            Close
-          </button>
-          {canApprove && (
-            <>
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-gray-100 px-6 py-4 dark:border-gray-700">
+          <div className="text-xs font-medium text-gray-500">
+            {rejectList.length > 0 && (
+              <span className="inline-flex items-center gap-1 rounded-md bg-rose-50 px-2 py-1 text-rose-600 dark:bg-rose-900/30">
+                <XCircle className="h-3.5 w-3.5" /> {rejectList.length} item{rejectList.length > 1 ? 's' : ''} flagged for re-submission
+              </span>
+            )}
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <button onClick={onClose} className="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700 dark:border-gray-600 dark:text-gray-300">
+              Close
+            </button>
+            {canResend && (
               <button
-                onClick={() => run('reject')}
-                disabled={!!acting || loading}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-rose-600 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-700 disabled:bg-gray-300"
+                onClick={resendDecision}
+                disabled={resending || loading}
+                title="Resend the last decision email/SMS to the applicant"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-4 py-2 text-sm font-semibold text-indigo-700 hover:bg-indigo-100 disabled:opacity-50 dark:border-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-300"
               >
-                {acting === 'reject' ? <Loader2 className="h-4 w-4 animate-spin" /> : <XCircle className="h-4 w-4" />} Reject
+                {resending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Resend {invite.status === 'approved' ? 'approval' : invite.status === 'rejected' ? 'rejection' : 're-submit'} email
               </button>
+            )}
+            {canApprove && rejectList.length > 0 && (
               <button
-                onClick={() => run('approve')}
-                disabled={!!acting || loading}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:bg-gray-300"
+                onClick={submitRejects}
+                disabled={!canSendRejects || sendingRejects || loading}
+                title={canSendRejects ? 'Send re-submission request with your remarks' : 'Add a remark for each flagged item'}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 disabled:bg-gray-300"
               >
-                {acting === 'approve' ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />} Approve KYC
+                {sendingRejects ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />} Request re-submission ({rejectList.length})
               </button>
-            </>
-          )}
+            )}
+            {canApprove && rejectList.length === 0 && (
+              <>
+                <button
+                  onClick={() => run('reject')}
+                  disabled={!!acting || loading}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-rose-600 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-700 disabled:bg-gray-300"
+                >
+                  {acting === 'reject' ? <Loader2 className="h-4 w-4 animate-spin" /> : <XCircle className="h-4 w-4" />} Reject
+                </button>
+                <button
+                  onClick={() => run('approve')}
+                  disabled={!!acting || loading}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:bg-gray-300"
+                >
+                  {acting === 'approve' ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />} Approve KYC
+                </button>
+              </>
+            )}
+          </div>
         </div>
       </div>
 

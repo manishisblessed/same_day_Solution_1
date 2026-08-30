@@ -71,6 +71,25 @@ const STEP_ICONS = [
   Landmark, Camera, FileText, FileSignature, Rocket,
 ]
 
+const REJECTION_LABELS: Record<string, string> = {
+  PAN_360: 'PAN',
+  AADHAAR_DIGILOCKER: 'Aadhaar',
+  BANK_PENNY_DROP: 'Bank Account',
+  GST: 'GST',
+  BUSINESS_NAME: 'Business Name',
+  ONBOARD_VIDEO: 'Liveness Video',
+  DOCUMENT_SELFIE: 'Live Selfie',
+  SELF_DECLARATION: 'Signed Self-Declaration Form',
+}
+
+function rejectionLabel(type: string): string {
+  if (REJECTION_LABELS[type]) return REJECTION_LABELS[type]
+  if (type.startsWith('DOCUMENT_')) {
+    return type.replace('DOCUMENT_', '').toLowerCase().replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+  }
+  return type
+}
+
 // ── Motion primitives ───────────────────────────────────────────────────────
 
 const springPop = { type: 'spring', stiffness: 500, damping: 30 } as const
@@ -160,6 +179,16 @@ function GuidanceNote({ children }: { children: React.ReactNode }) {
     <div className="mt-3 flex items-start gap-2 rounded-xl bg-indigo-50/70 px-3 py-2 text-xs leading-relaxed text-indigo-700 ring-1 ring-indigo-100">
       <HelpCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
       <span>{children}</span>
+    </div>
+  )
+}
+
+function RejectionNote({ reason }: { reason?: string }) {
+  if (!reason) return null
+  return (
+    <div className="mt-3 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-800">
+      <RefreshCw className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+      <span><span className="font-semibold">Needs correction:</span> {reason} — please update this and continue.</span>
     </div>
   )
 }
@@ -255,6 +284,7 @@ function OnboardWizard() {
   const [requiresUplineApproval, setRequiresUplineApproval] = useState(false)
   const [verified, setVerified] = useState<Record<string, string>>({})
   const [verifiedNames, setVerifiedNames] = useState<Record<string, string>>({})
+  const [rejections, setRejections] = useState<Record<string, string>>({})
   const [savedGstin, setSavedGstin] = useState('')
   const [prefill, setPrefill] = useState<PrefillData | null>(null)
   const [step, setStep] = useState(0)
@@ -306,13 +336,16 @@ function OnboardWizard() {
     if (data.prefill) setPrefill(data.prefill)
     const v: Record<string, string> = {}
     const names: Record<string, string> = {}
+    const rej: Record<string, string> = {}
     for (const item of data.verifications || []) {
       v[item.type] = item.status
       if (item.verified_name) names[item.type] = item.verified_name
+      if (item.status === 'Rejected' && item.rejection_reason) rej[item.type] = item.rejection_reason
       if (item.type === 'GST' && item.gstin) setSavedGstin(item.gstin)
     }
     setVerified(v)
     setVerifiedNames(names)
+    setRejections(rej)
     return data
   }, [api])
 
@@ -387,6 +420,8 @@ function OnboardWizard() {
     requiresUplineApproval,
     verified,
     verifiedNames,
+    rejections,
+    isResubmit: invite.status === 'resubmit',
     savedGstin,
     prefill,
     has,
@@ -431,6 +466,26 @@ function OnboardWizard() {
             {invite.target_role_label}
           </span>
         </motion.div>
+
+        {invite.status === 'resubmit' && Object.keys(rejections).length > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 shadow-sm"
+          >
+            <p className="flex items-center gap-2 text-sm font-bold text-amber-800">
+              <RefreshCw className="h-4 w-4" /> A few items need to be re-submitted
+            </p>
+            <p className="mt-0.5 text-xs text-amber-700">Please update the items below, then continue to re-submit for review. Everything else is saved.</p>
+            <ul className="mt-2 space-y-1">
+              {Object.entries(rejections).map(([type, reason]) => (
+                <li key={type} className="text-xs text-amber-800">
+                  <span className="font-semibold">{rejectionLabel(type)}:</span> {reason}
+                </li>
+              ))}
+            </ul>
+          </motion.div>
+        )}
 
         <Stepper current={step} />
 
@@ -531,6 +586,8 @@ interface StepProps {
   requiresUplineApproval: boolean
   verified: Record<string, string>
   verifiedNames: Record<string, string>
+  rejections: Record<string, string>
+  isResubmit: boolean
   savedGstin: string
   prefill: PrefillData | null
   has: (type: string, status?: string) => boolean
@@ -831,7 +888,7 @@ function OtpStep({ api, reload, next, back, busy, setBusy, err, setErr, channel,
   )
 }
 
-function AadhaarStep({ api, reload, next, back, has, busy, setBusy, err, setErr }: StepProps) {
+function AadhaarStep({ api, reload, next, back, has, rejections, busy, setBusy, err, setErr }: StepProps) {
   const done = has('AADHAAR_DIGILOCKER')
   const [editing, setEditing] = useState(false)
   const showDone = done && !editing
@@ -887,6 +944,7 @@ function AadhaarStep({ api, reload, next, back, has, busy, setBusy, err, setErr 
         </div>
       </div>
       <GuidanceNote>Use your own Aadhaar. The name on your Aadhaar must match the name on your PAN.</GuidanceNote>
+      <RejectionNote reason={rejections['AADHAAR_DIGILOCKER']} />
       <ErrorBanner err={err} />
       {showDone ? (
         <div>
@@ -910,7 +968,7 @@ function AadhaarStep({ api, reload, next, back, has, busy, setBusy, err, setErr 
   )
 }
 
-function PanStep({ api, reload, next, back, has, verifiedNames, busy, setBusy, err, setErr }: StepProps) {
+function PanStep({ api, reload, next, back, has, verifiedNames, rejections, busy, setBusy, err, setErr }: StepProps) {
   const [pan, setPan] = useState('')
   const [name, setName] = useState(verifiedNames['PAN_360'] || '')
   const [editing, setEditing] = useState(false)
@@ -937,6 +995,7 @@ function PanStep({ api, reload, next, back, has, verifiedNames, busy, setBusy, e
     <div>
       <StepHeader icon={CreditCard} title="PAN Verification" subtitle="Enter your 10-character PAN to verify instantly." />
       <GuidanceNote>Enter your own PAN. The name on your PAN must match the name on your Aadhaar.</GuidanceNote>
+      <RejectionNote reason={rejections['PAN_360']} />
       <ErrorBanner err={err} />
       {showDone ? (
         <div>
@@ -970,7 +1029,7 @@ function PanStep({ api, reload, next, back, has, verifiedNames, busy, setBusy, e
   )
 }
 
-function BankStep({ api, reload, next, back, has, verifiedNames, busy, setBusy, err, setErr }: StepProps) {
+function BankStep({ api, reload, next, back, has, verifiedNames, rejections, busy, setBusy, err, setErr }: StepProps) {
   const [acc, setAcc] = useState('')
   const [ifsc, setIfsc] = useState('')
   const [name, setName] = useState(verifiedNames['BANK_PENNY_DROP'] || '')
@@ -998,6 +1057,7 @@ function BankStep({ api, reload, next, back, has, verifiedNames, busy, setBusy, 
     <div>
       <StepHeader icon={Landmark} title="Bank Account Verification" subtitle="We send ₹1 (penny drop) to confirm your account name." />
       <GuidanceNote>The account holder name should match your Aadhaar/PAN name (or your GST business name). Use your own active bank account.</GuidanceNote>
+      <RejectionNote reason={rejections['BANK_PENNY_DROP']} />
       <ErrorBanner err={err} />
       {showDone ? (
         <div>
@@ -1039,7 +1099,7 @@ function BankStep({ api, reload, next, back, has, verifiedNames, busy, setBusy, 
   )
 }
 
-function BusinessStep({ api, reload, next, back, has, busy, setBusy, err, setErr, verifiedNames, savedGstin }: StepProps) {
+function BusinessStep({ api, reload, next, back, has, busy, setBusy, err, setErr, verifiedNames, rejections, savedGstin }: StepProps) {
   const [shopName, setShopName] = useState(verifiedNames['BUSINESS_NAME'] || '')
   const [gst, setGst] = useState(savedGstin || '')
   const [gstVerified, setGstVerified] = useState(has('GST'))
@@ -1097,6 +1157,7 @@ function BusinessStep({ api, reload, next, back, has, busy, setBusy, err, setErr
     <div>
       <StepHeader icon={Store} title="Business Details" subtitle="Verify your GST to auto-fill the name, or enter it manually. GST is optional." />
       <GuidanceNote>Enter your shop/business name as you want it on record. If you have GST, verify it to auto-fill the legal business name — it should match your bank/KYC name.</GuidanceNote>
+      <RejectionNote reason={rejections['BUSINESS_NAME'] || rejections['GST']} />
       <ErrorBanner err={err} />
       <div className="mt-5 space-y-4">
         <div>
@@ -1168,7 +1229,7 @@ function BusinessStep({ api, reload, next, back, has, busy, setBusy, err, setErr
   )
 }
 
-function BiometricStep({ api, reload, next, back, has, setErr, err }: StepProps) {
+function BiometricStep({ api, reload, next, back, has, rejections, setErr, err }: StepProps) {
   const [redoVideo, setRedoVideo] = useState(false)
   const selfieDone = has('DOCUMENT_SELFIE', 'Uploaded')
   const videoDone = has('ONBOARD_VIDEO', 'Uploaded') && !redoVideo
@@ -1248,6 +1309,8 @@ function BiometricStep({ api, reload, next, back, has, setErr, err }: StepProps)
     <div>
       <StepHeader icon={Camera} title="Live Selfie & Video" subtitle="A quick liveness check to confirm it’s really you." />
       <GuidanceNote>Face clearly visible in good lighting, no cap or sunglasses. For the video, look at the camera and read the number aloud.</GuidanceNote>
+      <RejectionNote reason={rejections['DOCUMENT_SELFIE']} />
+      <RejectionNote reason={rejections['ONBOARD_VIDEO']} />
       <ErrorBanner err={err} />
 
       <div className="mt-5 rounded-2xl border border-gray-200 bg-gray-50/50 p-4">
@@ -1290,7 +1353,7 @@ function BiometricStep({ api, reload, next, back, has, setErr, err }: StepProps)
   )
 }
 
-function DocumentsStep({ documents, api, reload, next, back, has, err, setErr }: StepProps) {
+function DocumentsStep({ documents, api, reload, next, back, has, rejections, err, setErr }: StepProps) {
   const uploadDoc = async (type: string, dataUrl: string, coords?: { lat: number; lng: number; acc?: number }) => {
     setErr('')
     await api('/documents', { method: 'POST', body: JSON.stringify({ type, dataUrl, lat: coords?.lat, lng: coords?.lng, acc: coords?.acc }) })
@@ -1315,6 +1378,7 @@ function DocumentsStep({ documents, api, reload, next, back, has, err, setErr }:
                 <FileText className="h-3.5 w-3.5" /> Download {d.label} (prefilled — sign &amp; upload)
               </a>
             )}
+            {rejections[`DOCUMENT_${d.type}`] && <RejectionNote reason={rejections[`DOCUMENT_${d.type}`]} />}
             {d.gps ? (
               <GpsPhotoCapture
                 label={d.label}
@@ -1335,7 +1399,10 @@ function DocumentsStep({ documents, api, reload, next, back, has, err, setErr }:
           <p className="mt-4 text-xs font-semibold uppercase text-gray-400">Optional</p>
           <div className="mt-2 space-y-2">
             {optional.map((d) => (
-              <DocumentUploadField key={d.type} label={d.label} gps={d.gps} uploaded={has(`DOCUMENT_${d.type}`, 'Uploaded')} hint={d.hint} onUpload={(dataUrl, coords) => uploadDoc(d.type, dataUrl, coords)} />
+              <div key={d.type}>
+                {rejections[`DOCUMENT_${d.type}`] && <RejectionNote reason={rejections[`DOCUMENT_${d.type}`]} />}
+                <DocumentUploadField label={d.label} gps={d.gps} uploaded={has(`DOCUMENT_${d.type}`, 'Uploaded')} hint={d.hint} onUpload={(dataUrl, coords) => uploadDoc(d.type, dataUrl, coords)} />
+              </div>
             ))}
           </div>
         </>
@@ -1345,7 +1412,7 @@ function DocumentsStep({ documents, api, reload, next, back, has, err, setErr }:
   )
 }
 
-function DeclarationStep({ api, reload, next, back, has, requiresUplineApproval, busy, setBusy, err, setErr }: StepProps) {
+function DeclarationStep({ api, reload, next, back, has, rejections, requiresUplineApproval, busy, setBusy, err, setErr }: StepProps) {
   const token = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('token') || '' : ''
   const declUploaded = has('SELF_DECLARATION', 'Uploaded')
   const [approval, setApproval] = useState<{ status: string } | null>(null)
@@ -1398,6 +1465,7 @@ function DeclarationStep({ api, reload, next, back, has, requiresUplineApproval,
   return (
     <div>
       <StepHeader icon={FileSignature} title="Declaration & Agreement" subtitle="Final step — sign, upload, and accept the terms." />
+      <RejectionNote reason={rejections['SELF_DECLARATION']} />
       <ErrorBanner err={err} />
       <div className="mt-5 space-y-4">
         <div className="rounded-2xl border border-gray-200 bg-gray-50/50 p-4">
@@ -1469,7 +1537,7 @@ function Confetti() {
   )
 }
 
-function FinishStep({ api, invite, prefill, busy, setBusy, err, setErr }: StepProps) {
+function FinishStep({ api, invite, prefill, isResubmit, busy, setBusy, err, setErr }: StepProps) {
   const [form, setForm] = useState({
     name: prefill?.name || invite.name || '',
     address: prefill?.address || '',
@@ -1480,8 +1548,22 @@ function FinishStep({ api, invite, prefill, busy, setBusy, err, setErr }: StepPr
     confirm: '',
   })
   const [done, setDone] = useState<{ partner_id: string; message: string } | null>(null)
+  const [resubmitted, setResubmitted] = useState(false)
   const [showPwd, setShowPwd] = useState(false)
   const [showConfirm, setShowConfirm] = useState(false)
+
+  async function submitResubmit() {
+    setErr('')
+    setBusy(true)
+    try {
+      await api('/resubmit', { method: 'POST' })
+      setResubmitted(true)
+    } catch (e: any) {
+      setErr(e.message)
+    } finally {
+      setBusy(false)
+    }
+  }
 
   // Prefill can arrive after the step mounts (async load); backfill any field the
   // applicant hasn't already edited.
@@ -1547,6 +1629,36 @@ function FinishStep({ api, invite, prefill, busy, setBusy, err, setErr }: StepPr
         <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.5 }} className="mt-1 text-xs text-gray-400">
           Your partner ID: {done.partner_id}
         </motion.p>
+      </div>
+    )
+  }
+
+  if (isResubmit) {
+    if (resubmitted) {
+      return (
+        <div className="relative py-4 text-center">
+          <Confetti />
+          <motion.div
+            initial={{ scale: 0, rotate: -30 }}
+            animate={{ scale: 1, rotate: 0 }}
+            transition={{ type: 'spring', stiffness: 260, damping: 16 }}
+            className="mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-gradient-to-br from-green-400 to-emerald-600 text-white shadow-lg shadow-green-500/30"
+          >
+            <Check className="h-10 w-10" strokeWidth={3} />
+          </motion.div>
+          <h2 className="text-xl font-bold text-gray-900">Re-submitted for review</h2>
+          <p className="mt-2 text-sm text-gray-600">Thanks! Your updated details have been sent back for review. You’ll be notified by email once approved.</p>
+        </div>
+      )
+    }
+    return (
+      <div>
+        <StepHeader icon={RefreshCw} title="Re-submit for review" subtitle="You’ve updated the flagged items — send them back for approval." />
+        <div className="mt-4 rounded-2xl border border-green-200 bg-green-50 p-4 text-sm text-green-800">
+          All flagged items have been updated. Click below to re-submit your application for review.
+        </div>
+        <ErrorBanner err={err} />
+        <NavButtons onNext={submitResubmit} nextLabel="Re-submit for review" busy={busy} />
       </div>
     )
   }

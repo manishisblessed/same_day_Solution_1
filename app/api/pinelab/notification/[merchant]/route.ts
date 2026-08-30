@@ -12,6 +12,7 @@ const VALID_MERCHANTS: Record<string, string> = {
   teachway: 'Teachway Education Private Limited',
   newscenaric: 'New Scenaric Travels',
   lagoon: 'LAGOON CRAFT LABS SOLUTIONS PRIVATE LIMITED',
+  samedaytours: 'SAMEDAY TOUR AND TRAVELS PRIVATE LIMITED',
 }
 
 /**

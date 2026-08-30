@@ -104,6 +104,7 @@ export async function GET(_request: NextRequest, { params }: { params: { token: 
         type: v.type,
         status: v.status,
         verified_name: v.verified_name,
+        rejection_reason: v.status === 'Rejected' ? (v.response_payload as any)?.rejection_reason || null : null,
         ...(v.type === 'GST' ? { gstin: (v.response_payload as any)?.GSTIN || null } : {}),
       })),
     })
