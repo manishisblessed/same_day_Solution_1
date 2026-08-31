@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
-import { authorizeSubPartner } from '@/lib/partner-access'
+import { authorizeSubPartner, normalizeMasterPartner } from '@/lib/partner-access'
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
 import { pay2newRecharge } from '@/services/pay2new'
 import { rateLimit, RATE_LIMITS } from '@/lib/rate-limit'
@@ -27,6 +27,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
 
     const { user } = await getCurrentUserWithFallback(request)
+    normalizeMasterPartner(user)
 
     if (!user) {
       const response = NextResponse.json({ error: 'Unauthorized' }, { status: 401 })

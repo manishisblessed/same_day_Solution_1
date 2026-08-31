@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
-import { authorizeSubPartner } from '@/lib/partner-access'
+import { authorizeSubPartner, normalizeMasterPartner } from '@/lib/partner-access'
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
 import { rateLimit, RATE_LIMITS } from '@/lib/rate-limit'
 import { checkPayoutVelocity, checkBeneficiaryCooling } from '@/lib/security/velocity'
@@ -79,7 +79,8 @@ export async function POST(request: NextRequest) {
     } = body
 
     const user = (await getCurrentUserWithFallback(request)).user
-    
+    normalizeMasterPartner(user)
+
     if (!user || !user.partner_id) {
       console.error('[Payout Transfer] No authenticated user found')
       const response = NextResponse.json(

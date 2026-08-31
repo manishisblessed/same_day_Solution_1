@@ -680,6 +680,11 @@ export interface RazorpayPOSTransaction {
   partner_mdr_amount?: number | null
   partner_net_amount?: number | null
   partner_auto_settled_at?: string | null
+  // Master Channel Partner POS override (net credited after TDS + TDS withheld)
+  master_partner_commission_amount?: number | null
+  master_partner_commission_tds?: number | null
+  master_partner_commission_credited?: boolean
+  master_partner_commission_id?: string | null
   // Reversal tracking (void/reversal/refund of a previously-captured txn)
   reversed_at?: string | null
   reversal_reason?: string | null

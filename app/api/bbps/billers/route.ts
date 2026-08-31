@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
-import { authorizeSubPartner } from '@/lib/partner-access'
+import { authorizeSubPartner, normalizeMasterPartner } from '@/lib/partner-access'
 import { getBillersByCategory } from '@/services/bbps'
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
 
@@ -16,6 +16,7 @@ export async function GET(request: NextRequest) {
   try {
     // Get current user with fallback
     const { user, method } = await getCurrentUserWithFallback(request)
+    normalizeMasterPartner(user)
     console.log('[BBPS Billers] Auth:', method, '|', user?.email || 'none')
     
     if (!user) {

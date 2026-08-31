@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
-import { authorizeSubPartner } from '@/lib/partner-access'
+import { authorizeSubPartner, normalizeMasterPartner } from '@/lib/partner-access'
 import { createClient } from '@supabase/supabase-js'
 import { payRequest, generateAgentTransactionId, getBBPSWalletBalance } from '@/services/bbps'
 import { paiseToRupees } from '@/lib/bbps/currency'
@@ -47,7 +47,8 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
     
     const { user } = await getCurrentUserWithFallback(request)
-    
+    normalizeMasterPartner(user)
+
     if (!user || !user.partner_id) {
       const response = NextResponse.json(
         { error: 'Authentication required' },

@@ -58,13 +58,15 @@ import APIDashboardTab from '@/components/partner/APIDashboardTab'
 import BusinessAnalyticsTab from '@/components/partner/BusinessAnalyticsTab'
 import ReconciliationTab from '@/components/partner/ReconciliationTab'
 import MasterPartnerReportTab from '@/components/partner/MasterPartnerReportTab'
+import MasterPartnerSchemesTab from '@/components/partner/MasterPartnerSchemesTab'
+import MasterPartnerTransactionsTab from '@/components/partner/MasterPartnerTransactionsTab'
 import { Crown, Sparkles, BarChart3, Zap, Scale, Server, Users2 } from 'lucide-react'
 import { useToast } from '@/components/Toast'
 import SubPartnersManagement from '@/components/partner/SubPartnersManagement'
 import ExportDropdown, { type ExportFormat } from '@/components/ExportDropdown'
 import { exportTable } from '@/lib/export/table-export'
 
-type TabType = 'dashboard' | 'wallet' | 'services' | 'aeps' | 'bbps' | 'bbps-2' | 'credit-card' | 'credit-card-2' | 'api-payment' | 'payout' | 'settlement-2' | 'transactions' | 'ledger' | 'aeps-ledger' | 'mdr-schemes' | 'reports' | 'settings' | 'pos-machines' | 'subscriptions' | 'api-management' | 'analytics' | 'api-dashboard' | 'reconciliation' | 'sub-partners' | 'master-report'
+type TabType = 'dashboard' | 'wallet' | 'services' | 'aeps' | 'bbps' | 'bbps-2' | 'credit-card' | 'credit-card-2' | 'api-payment' | 'payout' | 'settlement-2' | 'transactions' | 'ledger' | 'aeps-ledger' | 'mdr-schemes' | 'reports' | 'settings' | 'pos-machines' | 'subscriptions' | 'api-management' | 'analytics' | 'api-dashboard' | 'reconciliation' | 'sub-partners' | 'master-report' | 'master-schemes' | 'master-transactions'
 
 function PartnerDashboardContent() {
   const { user, loading: authLoading } = useAuth()
@@ -90,7 +92,7 @@ function PartnerDashboardContent() {
   
   const getInitialTab = (): TabType => {
     const tab = searchParams?.get('tab')
-    if (tab && ['dashboard', 'wallet', 'services', 'aeps', 'bbps', 'bbps-2', 'credit-card', 'credit-card-2', 'api-payment', 'payout', 'settlement-2', 'transactions', 'ledger', 'aeps-ledger', 'mdr-schemes', 'reports', 'settings', 'pos-machines', 'subscriptions', 'api-management', 'analytics', 'api-dashboard', 'reconciliation', 'sub-partners', 'master-report'].includes(tab)) {
+    if (tab && ['dashboard', 'wallet', 'services', 'aeps', 'bbps', 'bbps-2', 'credit-card', 'credit-card-2', 'api-payment', 'payout', 'settlement-2', 'transactions', 'ledger', 'aeps-ledger', 'mdr-schemes', 'reports', 'settings', 'pos-machines', 'subscriptions', 'api-management', 'analytics', 'api-dashboard', 'reconciliation', 'sub-partners', 'master-report', 'master-schemes', 'master-transactions'].includes(tab)) {
       return tab as TabType
     }
     return 'dashboard'
@@ -128,7 +130,7 @@ function PartnerDashboardContent() {
 
   useEffect(() => {
     const tab = searchParams?.get('tab')
-    if (tab && ['dashboard', 'wallet', 'services', 'aeps', 'bbps', 'bbps-2', 'credit-card', 'credit-card-2', 'api-payment', 'payout', 'settlement-2', 'transactions', 'ledger', 'aeps-ledger', 'mdr-schemes', 'reports', 'settings', 'pos-machines', 'subscriptions', 'api-management', 'analytics', 'api-dashboard', 'reconciliation', 'sub-partners', 'master-report'].includes(tab)) {
+    if (tab && ['dashboard', 'wallet', 'services', 'aeps', 'bbps', 'bbps-2', 'credit-card', 'credit-card-2', 'api-payment', 'payout', 'settlement-2', 'transactions', 'ledger', 'aeps-ledger', 'mdr-schemes', 'reports', 'settings', 'pos-machines', 'subscriptions', 'api-management', 'analytics', 'api-dashboard', 'reconciliation', 'sub-partners', 'master-report', 'master-schemes', 'master-transactions'].includes(tab)) {
       if (tab !== activeTab) {
         setActiveTab(tab as TabType)
       }
@@ -359,7 +361,7 @@ function PartnerDashboardContent() {
   }, [user])
 
   useEffect(() => {
-    if (user?.role === 'partner') {
+    if (user?.role === 'partner' || user?.role === 'master_partner') {
       fetchDashboardData().catch((error) => {
         console.error('Error in fetchDashboardData:', error)
         setLoading(false)
@@ -508,6 +510,8 @@ function PartnerDashboardContent() {
           {activeTab === 'analytics' && <BusinessAnalyticsTab />}
           {activeTab === 'reconciliation' && <ReconciliationTab />}
           {activeTab === 'master-report' && <MasterPartnerReportTab />}
+          {activeTab === 'master-schemes' && <MasterPartnerSchemesTab />}
+          {activeTab === 'master-transactions' && <MasterPartnerTransactionsTab />}
           {activeTab === 'settings' && <SettingsTab user={user} />}
           {activeTab === 'sub-partners' && <SubPartnersManagement user={user} />}
         </div>
@@ -1626,7 +1630,13 @@ function MDRSchemesTab({ user }: { user: any }) {
             effective_to,
             bbps_commissions:scheme_bbps_commissions (*),
             payout_charges:scheme_payout_charges (*),
-            mdr_rates:scheme_mdr_rates (*)
+            mdr_rates:scheme_mdr_rates (
+              id, scheme_id, mode, card_type, brand_type, card_classification, merchant_slug,
+              retailer_mdr_t1, retailer_mdr_t0, distributor_mdr_t1, distributor_mdr_t0,
+              distributor_cost_mdr_t1, distributor_cost_mdr_t0, md_mdr_t1, md_mdr_t0,
+              partner_mdr, gst_inclusive, vendor_rate, company_mdr_rate,
+              status, created_at, updated_at
+            )
           )
         `)
         .eq('entity_id', user.partner_id)

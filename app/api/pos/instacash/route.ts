@@ -18,7 +18,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
-import { authorizeSubPartner } from '@/lib/partner-access'
+import { authorizeSubPartner, normalizeMasterPartner } from '@/lib/partner-access'
 import { getSupabaseAdmin } from '@/lib/supabase/server-admin'
 import {
   calculateMDR as calculateSchemeMDR,
@@ -40,6 +40,7 @@ export async function POST(request: NextRequest) {
   try {
     // 1. Authenticate user
     const { user, method } = await getCurrentUserWithFallback(request)
+    normalizeMasterPartner(user)
     if (!user || !user.partner_id) {
       return NextResponse.json(
         { success: false, error: 'Unauthorized. Please log in.' },
@@ -717,6 +718,7 @@ export async function POST(request: NextRequest) {
 export async function GET(request: NextRequest) {
   try {
     const { user } = await getCurrentUserWithFallback(request)
+    normalizeMasterPartner(user)
     if (!user || !user.partner_id) {
       return NextResponse.json(
         { success: false, error: 'Unauthorized.' },

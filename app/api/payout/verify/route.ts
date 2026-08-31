@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
-import { authorizeSubPartner } from '@/lib/partner-access'
+import { authorizeSubPartner, normalizeMasterPartner } from '@/lib/partner-access'
 
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
 import { verifyBankAccount } from '@/services/payout'
@@ -42,6 +42,7 @@ export async function POST(request: NextRequest) {
     const { accountNumber, ifscCode, bankName, bankId } = body
 
     const user = (await getCurrentUserWithFallback(request)).user
+    normalizeMasterPartner(user)
     
     if (!user || !user.partner_id) {
       console.error('[Payout Verify] No authenticated user found')

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
-import { authorizeSubPartner } from '@/lib/partner-access'
+import { authorizeSubPartner, normalizeMasterPartner } from '@/lib/partner-access'
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
 import { getTransferStatus } from '@/services/payout'
 import { createClient } from '@supabase/supabase-js'
@@ -41,6 +41,7 @@ export async function GET(request: NextRequest) {
 
     // Authenticate via session cookie OR Bearer token (no spoofable user_id fallback).
     const { user } = await getCurrentUserWithFallback(request)
+    normalizeMasterPartner(user)
 
     if (!user || !user.partner_id) {
       const response = NextResponse.json(

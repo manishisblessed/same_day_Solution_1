@@ -1273,6 +1273,7 @@ function SchemeManagementPageContent() {
                                   <>
                                     <th className="px-2 py-1.5 text-right">MDR T+1</th>
                                     <th className="px-2 py-1.5 text-right">MDR T+0</th>
+                                    <th className="px-2 py-1.5 text-right">Master Comm</th>
                                   </>
                                 ) : (
                                   <>
@@ -1299,6 +1300,11 @@ function SchemeManagementPageContent() {
                                     <>
                                       <td className="px-2 py-1.5 text-right font-semibold text-orange-700 dark:text-orange-400">{r.partner_mdr ?? r.retailer_mdr_t1 ?? 0}%</td>
                                       <td className="px-2 py-1.5 text-right font-semibold text-orange-700 dark:text-orange-400">{r.retailer_mdr_t0 ?? 0}%</td>
+                                      <td className="px-2 py-1.5 text-right font-semibold text-purple-700 dark:text-purple-400">
+                                        {r.master_commission_percent != null && r.master_commission_percent !== '' && Number(r.master_commission_percent) > 0
+                                          ? `${Number(r.master_commission_percent)}%${r.master_commission_tds_percent != null ? ` · TDS ${Number(r.master_commission_tds_percent)}%` : ''}`
+                                          : '-'}
+                                      </td>
                                     </>
                                   ) : (
                                     <>

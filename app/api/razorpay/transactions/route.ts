@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
-import { authorizeSubPartner } from '@/lib/partner-access'
+import { authorizeSubPartner, normalizeMasterPartner } from '@/lib/partner-access'
 import { createClient } from '@supabase/supabase-js'
 
 export const runtime = 'nodejs' // Force Node.js runtime (Supabase not compatible with Edge Runtime)
@@ -64,6 +64,7 @@ export async function GET(request: NextRequest) {
     
     // Get current user with fallback
     const { user, method } = await getCurrentUserWithFallback(request)
+    normalizeMasterPartner(user)
     console.log('[Razorpay Transactions] Auth:', method, '|', user?.email || 'none', '| Role:', user?.role)
     
     if (!user) {

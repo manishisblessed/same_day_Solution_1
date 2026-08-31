@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
-import { authorizeSubPartner } from '@/lib/partner-access'
+import { authorizeSubPartner, normalizeMasterPartner } from '@/lib/partner-access'
 import { fetchBillerInfo } from '@/services/bbps/fetchBillerInfo'
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
 
@@ -17,6 +17,7 @@ export async function POST(request: NextRequest) {
     const { biller_id } = body
 
     const { user } = await getCurrentUserWithFallback(request)
+    normalizeMasterPartner(user)
 
     if (!user) {
       const response = NextResponse.json({ error: 'Authentication required' }, { status: 401 })

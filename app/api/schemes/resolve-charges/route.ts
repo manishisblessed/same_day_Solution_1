@@ -21,7 +21,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient, SupabaseClient } from '@supabase/supabase-js'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
-import { authorizeSubPartner } from '@/lib/partner-access'
+import { authorizeSubPartner, normalizeMasterPartner } from '@/lib/partner-access'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -344,6 +344,7 @@ export async function GET(request: NextRequest) {
     // themselves — the client-supplied user_id is ignored for them to prevent
     // enumerating other users' schemes / pricing slabs.
     const { user } = await getCurrentUserWithFallback(request)
+    normalizeMasterPartner(user)
     if (!user || !user.partner_id) {
       return NextResponse.json({ error: 'Authentication required', code: 'SESSION_EXPIRED' }, { status: 401 })
     }

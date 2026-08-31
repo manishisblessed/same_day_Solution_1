@@ -8,7 +8,7 @@ import {
   Settings, TrendingUp, CreditCard, X, Menu,
   Wallet, Receipt, Banknote, Percent, BookOpen,
   Crown, Sparkles, Key, BarChart3, Zap, Repeat,
-  Server, Scale, Fingerprint, Send, Users2
+  Server, Scale, Fingerprint, Send, Users2, FileText, ListChecks
 } from 'lucide-react'
 import { apiFetch } from '@/lib/api-client'
 import { useAuth } from '@/contexts/AuthContext'
@@ -48,6 +48,8 @@ const sidebarItems: SidebarItem[] = [
   { id: 'analytics', label: 'Business Analytics', icon: BarChart3, href: '/dashboard/partner?tab=analytics' },
   { id: 'reconciliation', label: 'Reconciliation', icon: Scale, href: '/dashboard/partner?tab=reconciliation' },
   { id: 'master-report', label: 'My Partners', icon: Users2, href: '/dashboard/partner?tab=master-report', masterOnly: true },
+  { id: 'master-schemes', label: 'Partner Schemes', icon: FileText, href: '/dashboard/partner?tab=master-schemes', masterOnly: true },
+  { id: 'master-transactions', label: 'Partner Transactions', icon: ListChecks, href: '/dashboard/partner?tab=master-transactions', masterOnly: true },
   // VIP Features
   { id: 'api-management', label: 'API Management', icon: Key, href: '/dashboard/partner?tab=api-management', vip: true },
   { id: 'sub-partners', label: 'Team', icon: Users2, href: '/dashboard/partner?tab=sub-partners', vip: true },

@@ -19,6 +19,20 @@ export function isPartnerActor(role?: string | null): boolean {
 }
 
 /**
+ * Master Channel Partners reuse the entire partner stack (same partner_id,
+ * wallet, TPIN, and scheme resolution), so a partner-service route should treat
+ * a `master_partner` exactly like a `partner`. Normalizing the role to `partner`
+ * at the top of a route makes every downstream role gate, RPC (`p_user_role`),
+ * and TPIN branch work unchanged. Call AFTER the user is fetched and BEFORE the
+ * route's role gate. No-op for every other role.
+ */
+export function normalizeMasterPartner(user: AuthUser | null): void {
+  if (user && user.role === 'master_partner') {
+    user.role = 'partner'
+  }
+}
+
+/**
  * Authorize a partner-scoped endpoint for both `partner` and `sub_partner` roles.
  *
  * Sub-partners share their parent partner's `partner_id`, wallet, and TPIN. Once authorized

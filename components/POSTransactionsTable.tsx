@@ -130,13 +130,14 @@ export default function POSTransactionsTable({
   // Partners: enabled when mode is T0_T1 or INSTANT (INSTANT partners can
   // manually settle transactions that missed the instant credit).
   useEffect(() => {
-    if ((user?.role !== 'retailer' && user?.role !== 'partner') || !user?.partner_id) return
+    const isPartnerLike = user?.role === 'partner' || user?.role === 'master_partner'
+    if ((user?.role !== 'retailer' && !isPartnerLike) || !user?.partner_id) return
     const fetchMode = async () => {
       try {
         const res = await apiFetch(`/api/pos/instacash?check_mode=1`)
         const data = await res.json()
         if (data.settlement_mode_allowed === 'T0_T1' ||
-            (user.role === 'partner' && data.settlement_mode_allowed === 'INSTANT')) {
+            (isPartnerLike && data.settlement_mode_allowed === 'INSTANT')) {
           setPulsepayEnabled(true)
         }
       } catch { /* ignore - default to hidden */ }

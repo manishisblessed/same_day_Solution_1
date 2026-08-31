@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
-import { authorizeSubPartner } from '@/lib/partner-access'
+import { authorizeSubPartner, normalizeMasterPartner } from '@/lib/partner-access'
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
 import { checkTransactionStatus } from '@/services/shadval-pay'
 import { createClient } from '@supabase/supabase-js'
@@ -31,6 +31,7 @@ export async function OPTIONS(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const { user } = await getCurrentUserWithFallback(request)
+    normalizeMasterPartner(user)
     const access = authorizeSubPartner(user, 'settlement-2')
     if (!access.ok) return access.response
     if (!user || !['retailer', 'distributor', 'partner'].includes(user.role)) {

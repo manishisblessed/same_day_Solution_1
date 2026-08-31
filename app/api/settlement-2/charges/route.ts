@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
-import { authorizeSubPartner } from '@/lib/partner-access'
+import { authorizeSubPartner, normalizeMasterPartner } from '@/lib/partner-access'
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
 import { createClient } from '@supabase/supabase-js'
 
@@ -57,6 +57,7 @@ async function getScopedSchemeIds(
 export async function GET(request: NextRequest) {
   try {
     const { user } = await getCurrentUserWithFallback(request)
+    normalizeMasterPartner(user)
     const access = authorizeSubPartner(user, 'settlement-2')
     if (!access.ok) return access.response
     if (!user || !['retailer', 'distributor', 'partner'].includes(user.role)) {
