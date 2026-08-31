@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
-import { authorizeSubPartner } from '@/lib/partner-access'
+import { authorizeSubPartner, normalizeMasterPartner } from '@/lib/partner-access'
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
 import { rateLimit, RATE_LIMITS } from '@/lib/rate-limit'
 import { createClient } from '@supabase/supabase-js'
@@ -61,6 +61,7 @@ export async function OPTIONS(request: NextRequest) {
 export async function GET(request: NextRequest) {
   try {
     const { user, method } = await getCurrentUserWithFallback(request)
+    normalizeMasterPartner(user)
 
     if (!user) {
       console.error('[TPIN GET] Auth failed: no user found, method:', method)
@@ -140,6 +141,7 @@ export async function POST(request: NextRequest) {
     const { tpin, current_tpin } = body
 
     const { user, method } = await getCurrentUserWithFallback(request)
+    normalizeMasterPartner(user)
 
     if (!user) {
       console.error('[TPIN POST] Auth failed: no user found, method:', method)

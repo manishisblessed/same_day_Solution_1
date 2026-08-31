@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
-import { authorizeSubPartner } from '@/lib/partner-access'
+import { authorizeSubPartner, normalizeMasterPartner } from '@/lib/partner-access'
 import { createClient } from '@supabase/supabase-js'
 import crypto from 'crypto'
 import { parsePartnerKeyPermissions } from '@/lib/partner-auth'
@@ -94,7 +94,8 @@ export async function GET(request: NextRequest) {
     const supabase = createClient(supabaseUrl, supabaseServiceKey)
 
     const { user, method } = await getCurrentUserWithFallback(request)
-    
+    normalizeMasterPartner(user)
+
     // Log authentication details for debugging
     console.log('[POS Partner API] Auth method:', method)
     console.log('[POS Partner API] User:', user ? { id: user.id, email: user.email, role: user.role } : 'null')
@@ -260,7 +261,8 @@ export async function POST(request: NextRequest) {
     const supabase = createClient(supabaseUrl, supabaseServiceKey)
 
     const { user, method } = await getCurrentUserWithFallback(request)
-    
+    normalizeMasterPartner(user)
+
     // Log authentication details for debugging
     console.log('[POS Partner API] Auth method:', method)
     console.log('[POS Partner API] User:', user ? { id: user.id, email: user.email, role: user.role } : 'null')
