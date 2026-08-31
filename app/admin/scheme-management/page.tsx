@@ -9,7 +9,7 @@ import { getAssignableRoles } from '@/lib/role-hierarchy'
 import AdminSidebar from '@/components/AdminSidebar'
 import { 
   Plus, Edit2, Trash2, ChevronDown, ChevronUp, Search, Filter,
-  Layers, CreditCard, Banknote, TrendingUp, Users, Link2,
+  Layers, CreditCard, Banknote, TrendingUp, Users, Link2, Network,
   Save, X, AlertCircle, CheckCircle, Globe, Star, Settings, Eye, DollarSign, Loader2
 } from 'lucide-react'
 import { useToast } from '@/components/Toast'
@@ -478,6 +478,8 @@ function SchemeManagementPageContent() {
     gst_inclusive: false,
     vendor_rate: 0,
     company_mdr_rate: 0,
+    master_commission_percent: 0,
+    master_commission_tds_percent: 2,
   })
 
   const [aepsForm, setAepsForm] = useState({
@@ -550,7 +552,7 @@ function SchemeManagementPageContent() {
       } else if (type === 'payout' || type === 'shadval_settlement') {
         setPayoutForm({ transfer_mode: editData.transfer_mode || 'IMPS', min_amount: editData.min_amount || 0, max_amount: editData.max_amount || 100000, retailer_charge: editData.retailer_charge || 0, retailer_charge_type: editData.retailer_charge_type || 'flat', retailer_commission: editData.retailer_commission || 0, retailer_commission_type: editData.retailer_commission_type || 'flat', distributor_commission: editData.distributor_commission || 0, distributor_commission_type: editData.distributor_commission_type || 'flat', md_commission: editData.md_commission || 0, md_commission_type: editData.md_commission_type || 'flat', company_charge: editData.company_charge || 0, company_charge_type: editData.company_charge_type || 'flat', md_purchase_charge: editData.md_purchase_charge || 0, md_purchase_charge_type: editData.md_purchase_charge_type || 'flat', dt_purchase_charge: editData.dt_purchase_charge || 0, dt_purchase_charge_type: editData.dt_purchase_charge_type || 'flat', rt_purchase_charge: editData.rt_purchase_charge || 0, rt_purchase_charge_type: editData.rt_purchase_charge_type || 'flat', gst_inclusive: editData.gst_inclusive || false, vendor_rate: editData.vendor_rate || 0, company_mdr_rate: editData.company_mdr_rate || 0 })
       } else if (type === 'mdr') {
-        setMdrForm({ mode: editData.mode || 'CARD', card_type: editData.card_type || '', brand_type: editData.brand_type || '', card_classification: editData.card_classification || '', merchant_slug: editData.merchant_slug || '', retailer_mdr_t1: editData.retailer_mdr_t1 || 0, retailer_mdr_t0: editData.retailer_mdr_t0 || 0, distributor_mdr_t1: editData.distributor_mdr_t1 || 0, distributor_mdr_t0: editData.distributor_mdr_t0 || 0, md_mdr_t1: editData.md_mdr_t1 || 0, md_mdr_t0: editData.md_mdr_t0 || 0, partner_mdr: editData.partner_mdr || 0, gst_inclusive: editData.gst_inclusive || false, vendor_rate: editData.vendor_rate || 0, company_mdr_rate: editData.company_mdr_rate || 0 })
+        setMdrForm({ mode: editData.mode || 'CARD', card_type: editData.card_type || '', brand_type: editData.brand_type || '', card_classification: editData.card_classification || '', merchant_slug: editData.merchant_slug || '', retailer_mdr_t1: editData.retailer_mdr_t1 || 0, retailer_mdr_t0: editData.retailer_mdr_t0 || 0, distributor_mdr_t1: editData.distributor_mdr_t1 || 0, distributor_mdr_t0: editData.distributor_mdr_t0 || 0, md_mdr_t1: editData.md_mdr_t1 || 0, md_mdr_t0: editData.md_mdr_t0 || 0, partner_mdr: editData.partner_mdr || 0, gst_inclusive: editData.gst_inclusive || false, vendor_rate: editData.vendor_rate || 0, company_mdr_rate: editData.company_mdr_rate || 0, master_commission_percent: editData.master_commission_percent || 0, master_commission_tds_percent: editData.master_commission_tds_percent ?? 2 })
       } else if (type === 'aeps') {
         setAepsForm({ transaction_type: editData.transaction_type || 'cash_withdrawal', min_amount: editData.min_amount || 0, max_amount: editData.max_amount || 100000, base_commission: editData.base_commission || 0, base_commission_type: editData.base_commission_type || 'percentage', company_earning: editData.company_earning || 0, company_earning_type: editData.company_earning_type || 'flat', md_commission: editData.md_commission || 0, md_commission_type: editData.md_commission_type || 'flat', distributor_commission: editData.distributor_commission || 0, distributor_commission_type: editData.distributor_commission_type || 'flat', retailer_commission: editData.retailer_commission || 0, retailer_commission_type: editData.retailer_commission_type || 'flat', tds_percentage: editData.tds_percentage ?? 5, gst_inclusive: editData.gst_inclusive || false, vendor_rate: editData.vendor_rate || 0, company_mdr_rate: editData.company_mdr_rate || 0 })
       } else if (type === 'aeps_settlement') {
@@ -559,7 +561,7 @@ function SchemeManagementPageContent() {
     } else {
       setBbpsForm({ bbps_type: 'bbps_1', category: '', min_amount: 0, max_amount: 100000, retailer_charge: 0, retailer_charge_type: 'flat', retailer_commission: 0, retailer_commission_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat', company_charge: 0, company_charge_type: 'flat', md_purchase_charge: 0, md_purchase_charge_type: 'flat', dt_purchase_charge: 0, dt_purchase_charge_type: 'flat', rt_purchase_charge: 0, rt_purchase_charge_type: 'flat', gst_inclusive: false, vendor_rate: 0, company_mdr_rate: 0 })
       setPayoutForm({ transfer_mode: 'IMPS', min_amount: 0, max_amount: 100000, retailer_charge: 0, retailer_charge_type: 'flat', retailer_commission: 0, retailer_commission_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat', company_charge: 0, company_charge_type: 'flat', md_purchase_charge: 0, md_purchase_charge_type: 'flat', dt_purchase_charge: 0, dt_purchase_charge_type: 'flat', rt_purchase_charge: 0, rt_purchase_charge_type: 'flat', gst_inclusive: false, vendor_rate: 0, company_mdr_rate: 0 })
-      setMdrForm({ mode: 'CARD', card_type: '', brand_type: '', card_classification: '', merchant_slug: '', retailer_mdr_t1: 0, retailer_mdr_t0: 0, distributor_mdr_t1: 0, distributor_mdr_t0: 0, md_mdr_t1: 0, md_mdr_t0: 0, partner_mdr: 0, gst_inclusive: false, vendor_rate: 0, company_mdr_rate: 0 })
+      setMdrForm({ mode: 'CARD', card_type: '', brand_type: '', card_classification: '', merchant_slug: '', retailer_mdr_t1: 0, retailer_mdr_t0: 0, distributor_mdr_t1: 0, distributor_mdr_t0: 0, md_mdr_t1: 0, md_mdr_t0: 0, partner_mdr: 0, gst_inclusive: false, vendor_rate: 0, company_mdr_rate: 0, master_commission_percent: 0, master_commission_tds_percent: 2 })
       setAepsForm({ transaction_type: 'cash_withdrawal', min_amount: 0, max_amount: 100000, base_commission: 0, base_commission_type: 'percentage', company_earning: 0, company_earning_type: 'flat', md_commission: 0, md_commission_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', retailer_commission: 0, retailer_commission_type: 'flat', tds_percentage: 5, gst_inclusive: false, vendor_rate: 0, company_mdr_rate: 0 })
       setAepsSettleForm({ min_amount: 0, max_amount: 100000, retailer_charge: 0, retailer_charge_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat', company_charge: 0, company_charge_type: 'flat', gst_inclusive: false, vendor_rate: 0, company_mdr_rate: 0 })
       setShadvalSettleForm({ transfer_mode: 'IMPS', min_amount: 0, max_amount: 100000, retailer_charge: 0, retailer_charge_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat', company_charge: 0, company_charge_type: 'flat', gst_inclusive: false, vendor_rate: 0, company_mdr_rate: 0 })
@@ -640,6 +642,9 @@ function SchemeManagementPageContent() {
           configData.gst_inclusive = mdrForm.gst_inclusive
           configData.vendor_rate = mdrForm.vendor_rate
           configData.company_mdr_rate = mdrForm.company_mdr_rate
+          // Master Channel Partner POS override lives on the Partner Plan rate.
+          configData.master_commission_percent = Number(mdrForm.master_commission_percent) > 0 ? Number(mdrForm.master_commission_percent) : null
+          configData.master_commission_tds_percent = Number(mdrForm.master_commission_tds_percent) || 0
         } else {
           // Admin sets only the MD's commission rate (Admin → MD). Retailer/
           // Distributor rates are set downstream by the MD and DT respectively.
@@ -1943,6 +1948,30 @@ function SchemeManagementPageContent() {
                             </div>
                           </div>
                           <p className="text-xs text-gray-500">T+0 rate auto-fills as T+1 + 1% if left at 0. Used for reconciliation and Net Pay calculation.</p>
+
+                          <div className="mt-2 pt-2 border-t border-orange-200 dark:border-orange-800">
+                            <div className="flex items-center gap-2 mb-2">
+                              <Network className="w-4 h-4 text-purple-600" />
+                              <span className="text-xs font-medium text-purple-700 dark:text-purple-400">Master Partner POS Commission (optional)</span>
+                            </div>
+                            <div className="grid grid-cols-2 gap-3">
+                              <div>
+                                <label className="block text-sm font-medium mb-1">Commission (%)</label>
+                                <input type="number" step="0.01" min="0" max="100" value={mdrForm.master_commission_percent}
+                                  onChange={(e) => setMdrForm({ ...mdrForm, master_commission_percent: parseFloat(e.target.value) || 0 })}
+                                  className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700"
+                                  placeholder="e.g. 0.5" />
+                              </div>
+                              <div>
+                                <label className="block text-sm font-medium mb-1">TDS on commission (%)</label>
+                                <input type="number" step="0.01" min="0" max="100" value={mdrForm.master_commission_tds_percent}
+                                  onChange={(e) => setMdrForm({ ...mdrForm, master_commission_tds_percent: parseFloat(e.target.value) || 0 })}
+                                  className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700"
+                                  placeholder="e.g. 2" />
+                              </div>
+                            </div>
+                            <p className="text-xs text-gray-500 mt-1">If the partner reports under a master partner, the master earns this % of each POS txn (net of TDS), capped at the company&apos;s MDR margin. Leave 0 for no master commission.</p>
+                          </div>
                         </div>
                       )
                     }

@@ -303,6 +303,8 @@ export async function upsertMDRRate(
       gst_inclusive: input.gst_inclusive ?? false,
       vendor_rate: input.vendor_rate ?? 0,
       company_mdr_rate: input.company_mdr_rate ?? 0,
+      master_commission_percent: input.master_commission_percent ?? null,
+      master_commission_tds_percent: input.master_commission_tds_percent ?? null,
       status: 'active',
     })
     .select()

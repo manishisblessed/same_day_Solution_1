@@ -9,11 +9,12 @@ export const dynamic = 'force-dynamic'
  * Admin-only management of Master Channel Partners (MCP).
  *
  * A master partner IS a partners row with is_master_partner = true. Child
- * partners point at it via partners.master_partner_id, and each child is
- * assigned a commission scheme (master_partner_partner_assignments).
+ * partners point at it via partners.master_partner_id (tracked in
+ * master_partner_partner_assignments). The POS commission the master earns is
+ * configured on the child's Partner Plan MDR rate in Scheme Management.
  *
- * GET  -> list master partners (+ their child partner assignments) and the
- *         pool of unassigned normal partners available to assign.
+ * GET  -> list master partners (+ their child partners) and the pool of
+ *         unassigned normal partners available to assign.
  * POST -> actions: create | promote | demote | set_status | assign | unassign
  */
 
@@ -25,14 +26,12 @@ export async function GET(request: NextRequest) {
     }
     const supabase = getSupabaseAdmin()
 
-    const [{ data: masters }, { data: partners }, { data: assignments }, { data: schemes }] = await Promise.all([
+    const [{ data: masters }, { data: partners }, { data: assignments }] = await Promise.all([
       supabase.from('partners').select('id, name, business_name, email, phone, status, created_at').eq('is_master_partner', true).order('created_at', { ascending: false }),
       supabase.from('partners').select('id, name, business_name, email, phone, status, master_partner_id').eq('is_master_partner', false).order('name', { ascending: true }),
       supabase.from('master_partner_partner_assignments').select('*'),
-      supabase.from('master_partner_schemes').select('id, name, status'),
     ])
 
-    const schemeById = new Map((schemes || []).map((s: any) => [s.id, s]))
     const assignmentByPartner = new Map((assignments || []).map((a: any) => [a.partner_id, a]))
 
     const mastersWithChildren = (masters || []).map((m: any) => {
@@ -42,9 +41,7 @@ export async function GET(request: NextRequest) {
           const a = assignmentByPartner.get(p.id)
           return {
             ...p,
-            assignment: a
-              ? { id: a.id, scheme_id: a.scheme_id, status: a.status, scheme_name: (schemeById.get(a.scheme_id) as any)?.name || null }
-              : null,
+            assignment: a ? { id: a.id, status: a.status } : null,
           }
         })
       return { ...m, children }
@@ -57,7 +54,6 @@ export async function GET(request: NextRequest) {
       data: {
         masters: mastersWithChildren,
         unassignedPartners,
-        schemes: schemes || [],
       },
     })
   } catch (err: any) {
@@ -158,25 +154,25 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ success: true })
       }
 
-      // Assign a child partner to a master partner + commission scheme.
+      // Assign a child partner under a master partner. The POS commission itself
+      // is configured on the child's Partner Plan MDR rate (Scheme Management),
+      // so no scheme is selected here.
       case 'assign': {
-        const { master_partner_id, partner_id, scheme_id } = body
-        if (!master_partner_id || !partner_id || !scheme_id) {
-          return NextResponse.json({ error: 'master_partner_id, partner_id and scheme_id are required' }, { status: 400 })
+        const { master_partner_id, partner_id } = body
+        if (!master_partner_id || !partner_id) {
+          return NextResponse.json({ error: 'master_partner_id and partner_id are required' }, { status: 400 })
         }
         if (master_partner_id === partner_id) {
           return NextResponse.json({ error: 'A master partner cannot be assigned to itself' }, { status: 400 })
         }
 
-        const [{ data: master }, { data: child }, { data: scheme }] = await Promise.all([
+        const [{ data: master }, { data: child }] = await Promise.all([
           supabase.from('partners').select('id, is_master_partner').eq('id', master_partner_id).maybeSingle(),
           supabase.from('partners').select('id, is_master_partner, master_partner_id').eq('id', partner_id).maybeSingle(),
-          supabase.from('master_partner_schemes').select('id').eq('id', scheme_id).maybeSingle(),
         ])
         if (!master || !master.is_master_partner) return NextResponse.json({ error: 'Master partner not found' }, { status: 404 })
         if (!child) return NextResponse.json({ error: 'Partner not found' }, { status: 404 })
         if (child.is_master_partner) return NextResponse.json({ error: 'A master partner cannot be a child partner' }, { status: 400 })
-        if (!scheme) return NextResponse.json({ error: 'Scheme not found' }, { status: 404 })
         if (child.master_partner_id && child.master_partner_id !== master_partner_id) {
           return NextResponse.json({ error: 'Partner is already assigned to another master partner' }, { status: 400 })
         }
@@ -190,7 +186,7 @@ export async function POST(request: NextRequest) {
         const { error: assignErr } = await supabase
           .from('master_partner_partner_assignments')
           .upsert(
-            { master_partner_id, partner_id, scheme_id, status: 'active', updated_at: new Date().toISOString() },
+            { master_partner_id, partner_id, status: 'active', updated_at: new Date().toISOString() },
             { onConflict: 'partner_id' }
           )
         if (assignErr) return NextResponse.json({ error: assignErr.message }, { status: 400 })

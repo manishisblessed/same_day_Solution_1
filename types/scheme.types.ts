@@ -168,6 +168,11 @@ export interface SchemeMDRRate {
   vendor_rate: number;
   company_mdr_rate: number;
 
+  /** Master Channel Partner POS override: % of txn credited to the partner's master. Partner Plan only. */
+  master_commission_percent?: number | null;
+  /** TDS % withheld from the master commission before crediting. Default 2%. */
+  master_commission_tds_percent?: number | null;
+
   status: string;
   created_at: string;
   updated_at: string;
@@ -453,6 +458,8 @@ export interface CreateMDRRateInput {
   gst_inclusive?: boolean;
   vendor_rate?: number;
   company_mdr_rate?: number;
+  master_commission_percent?: number | null;
+  master_commission_tds_percent?: number | null;
 }
 
 export interface CreateSchemeMappingInput {

@@ -13,10 +13,11 @@ let isRunning = false
  * POS transactions belonging to one child partner.
  *
  * POS-only: this runs solely inside the partner POS T+1 settlement. The override
- * is a FLAT ₹ per transaction, resolved from the amount slab of the scheme admin
- * assigned to this child partner, and is capped at the company's own margin
- * (the partner MDR fee) on each transaction so company earnings never go negative.
- * The credit lands in the master partner's SAME partner_wallets balance.
+ * is a % of each transaction, read from the child partner's Partner Plan MDR rate
+ * (scheme_mdr_rates.master_commission_percent) that matches the txn, and is capped
+ * at the company's own margin (the partner MDR fee) on each transaction so company
+ * earnings never go negative. The per-rate TDS % is then withheld and the NET is
+ * credited into the master partner's SAME partner_wallets balance.
  *
  * Idempotent: deterministic batch reference + per-transaction commit flags.
  * Never throws — logs and returns on any error so partner settlement is unaffected.
@@ -37,60 +38,81 @@ async function creditMasterPartnerOverride(
   ) => Promise<{ success: boolean; wallet_credit_id?: string; error?: string }>
 ): Promise<void> {
   try {
+    // Active link to a master partner (commission now lives on the MDR rate,
+    // so no scheme is needed on the assignment).
     const { data: assignment } = await supabase
       .from('master_partner_partner_assignments')
-      .select('master_partner_id, scheme_id, status, master_partner_schemes!inner(status)')
+      .select('master_partner_id, status')
       .eq('partner_id', partnerId)
       .eq('status', 'active')
       .maybeSingle()
 
     const masterPartnerId = assignment?.master_partner_id
-    const schemeActive = (assignment as any)?.master_partner_schemes?.status === 'active'
-    if (!assignment || !masterPartnerId || !schemeActive) return
+    if (!assignment || !masterPartnerId) return
 
-    const { data: slabRows } = await supabase
-      .from('master_partner_scheme_slabs')
-      .select('min_amount, max_amount, charge, rate_type, commission_percent')
-      .eq('scheme_id', assignment.scheme_id)
-      .eq('is_active', true)
+    // Resolve the child partner's Partner Plan scheme and load its MDR rates that
+    // carry a master commission. The override % + TDS come from the rate that
+    // matches each transaction (by mode + merchant), mirroring MDR resolution.
+    const { data: schemeResult } = await supabase.rpc('resolve_scheme_for_user', {
+      p_user_id: partnerId,
+      p_user_role: 'partner',
+      p_service_type: 'mdr',
+      p_distributor_id: null,
+      p_md_id: null,
+    })
+    const resolvedSchemeId = schemeResult && schemeResult.length > 0 ? schemeResult[0].scheme_id : null
+    if (!resolvedSchemeId) return
 
-    type McpSlab = { min: number; max: number; charge: number; rateType: 'flat' | 'percent'; percent: number }
-    const slabs: McpSlab[] = (slabRows || []).map((s: any) => ({
-      min: Number(s.min_amount),
-      max: Number(s.max_amount),
-      charge: Number(s.charge),
-      rateType: s.rate_type === 'percent' ? 'percent' : 'flat',
-      percent: Number(s.commission_percent) || 0,
+    const { data: rateRows } = await supabase
+      .from('scheme_mdr_rates')
+      .select('mode, merchant_slug, master_commission_percent, master_commission_tds_percent')
+      .eq('scheme_id', resolvedSchemeId)
+      .eq('status', 'active')
+      .not('master_commission_percent', 'is', null)
+
+    type McpRate = { mode: string; merchant: string | null; percent: number; tds: number }
+    const rates: McpRate[] = (rateRows || []).map((r: any) => ({
+      mode: String(r.mode || 'CARD').toUpperCase(),
+      merchant: r.merchant_slug || null,
+      percent: Number(r.master_commission_percent) || 0,
+      tds: Math.min(100, Math.max(0, Number(r.master_commission_tds_percent ?? 2))),
     }))
-    if (slabs.length === 0) return
+    if (rates.length === 0) return
 
-    // Resolve this slab's commission for a given txn amount (flat ₹ or % of amount).
-    const slabCommission = (s: McpSlab, amount: number): number =>
-      s.rateType === 'percent' ? (amount * s.percent) / 100 : s.charge
-
-    const pickCharge = (amount: number): number => {
-      const match = slabs
-        .filter((s) => s.min <= amount && s.max >= amount)
-        .sort((a, b) => slabCommission(a, amount) - slabCommission(b, amount))[0]
-      return match ? slabCommission(match, amount) : 0
+    // Pick the master-commission rate for a txn: match mode, prefer a
+    // merchant-specific rate over the ALL-merchant (null) rate.
+    const pickRate = (mode: string, merchant: string | null): McpRate | null => {
+      const m = rates.filter((r) => r.mode === mode)
+      if (m.length === 0) return null
+      return m.find((r) => r.merchant && r.merchant === merchant) || m.find((r) => !r.merchant) || m[0]
     }
 
     let overrideTotal = 0
-    const perTxn: { id: string; commission: number }[] = []
+    let tdsTotal = 0
+    const perTxn: { id: string; commission: number; tds: number }[] = []
     for (const item of claimedTxns) {
       const src = sourceTxns.find((t: any) => t.id === item.id)
       const amt = Number(src?.amount || 0)
-      let commission = pickCharge(amt)
+      const mode = String(src?.payment_mode || 'CARD').toUpperCase().includes('UPI') ? 'UPI' : 'CARD'
+      const rate = pickRate(mode, src?.merchant_slug || null)
+      if (!rate || rate.percent <= 0 || amt <= 0) continue
+
+      let gross = (amt * rate.percent) / 100
       // Safety cap: never exceed the company's margin (partner MDR fee) on this txn.
       const companyMargin = Number(item.mdrAmount || 0)
-      if (commission > companyMargin) commission = companyMargin
-      commission = Math.round(commission * 100) / 100
+      if (gross > companyMargin) gross = companyMargin
+      gross = Math.round(gross * 100) / 100
+      // Withhold TDS on the gross commission; credit the net to the master wallet.
+      const tds = Math.round(((gross * rate.tds) / 100) * 100) / 100
+      const commission = Math.round((gross - tds) * 100) / 100
       if (commission > 0) {
         overrideTotal += commission
-        perTxn.push({ id: item.id, commission })
+        tdsTotal += tds
+        perTxn.push({ id: item.id, commission, tds })
       }
     }
     overrideTotal = Math.round(overrideTotal * 100) / 100
+    tdsTotal = Math.round(tdsTotal * 100) / 100
     if (overrideTotal <= 0 || perTxn.length === 0) return
 
     const overrideRef = `MCP-T1-${settleDate}-${masterPartnerId}-${batchHash}`
@@ -98,7 +120,7 @@ async function creditMasterPartnerOverride(
       masterPartnerId,
       overrideTotal,
       overrideRef,
-      `Master Channel Partner POS override - ${perTxn.length} txn(s) from partner ${partnerId}, Total: ₹${overrideTotal.toFixed(2)}`,
+      `Master Channel Partner POS override - ${perTxn.length} txn(s) from partner ${partnerId}, Net: ₹${overrideTotal.toFixed(2)} (TDS: ₹${tdsTotal.toFixed(2)})`,
       'pos_master_override'
     )
 
@@ -111,12 +133,13 @@ async function creditMasterPartnerOverride(
             master_partner_commission_credited: true,
             master_partner_commission_id: mcpResult.wallet_credit_id || null,
             master_partner_commission_amount: p.commission,
+            master_partner_commission_tds: p.tds,
           })
           .eq('id', p.id)
           .eq('master_partner_commission_credited', false)
       }
       console.log(
-        `[Partner T1-Cron] MCP override for master ${masterPartnerId}: ₹${overrideTotal.toFixed(2)} over ${perTxn.length} txn(s) (ref: ${overrideRef})`
+        `[Partner T1-Cron] MCP override for master ${masterPartnerId}: net ₹${overrideTotal.toFixed(2)} (TDS ₹${tdsTotal.toFixed(2)}) over ${perTxn.length} txn(s) (ref: ${overrideRef})`
       )
     } else {
       console.error(
