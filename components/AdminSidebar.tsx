@@ -46,6 +46,7 @@ const sidebarItems: SidebarItem[] = [
   { id: 'pos-history', label: 'POS History', icon: History, href: '/admin?tab=pos-history' },
   { id: 'pos-tracking-report', label: 'POS Tracking Report', icon: FileBarChart, href: '/admin?tab=pos-tracking-report' },
   { id: 'pos-rental-report', label: 'POS Rental Report', icon: TrendingUp, href: '/admin/pos-rental-report' },
+  { id: 'partner-invoices', label: 'Partner Invoices', icon: Receipt, href: '/admin/partner-invoices' },
   { id: 'pos-partner-api', label: 'POS Partner API', icon: Key, href: '/admin?tab=pos-partner-api' },
   { id: 'master-partners', label: 'Master Partners', icon: Network, href: '/admin/master-partners' },
   { id: 'services', label: 'Services', icon: Activity, href: '/admin?tab=services' },

@@ -58,11 +58,30 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Stamp the settlement start date on (re)enablement so the partner only ever
+    // auto-settles what they transact from the enable day onward — never the
+    // historical backlog (which is assumed to be settled MANUALLY). The T+1 cron,
+    // Pulse Pay and Instant paths all gate on partners.t1_settlement_start_at.
+    // Only stamp when explicitly resuming (paused === false) and the partner has
+    // no start date yet, or is being resumed from a paused state; a plain
+    // settlement_mode change on an already-active partner must NOT move it.
+    if (updates.t1_settlement_paused === false) {
+      const { data: cur } = await supabase
+        .from('partners')
+        .select('t1_settlement_start_at, t1_settlement_paused')
+        .eq('id', partner_id)
+        .maybeSingle()
+      if (!cur?.t1_settlement_start_at || cur.t1_settlement_paused === true) {
+        updates.t1_settlement_start_at = new Date(new Date().setHours(0, 0, 0, 0)).toISOString()
+        messages.push('settlement start date set to today (historical backlog excluded)')
+      }
+    }
+
     const { data, error } = await supabase
       .from('partners')
       .update(updates)
       .eq('id', partner_id)
-      .select('id, t1_settlement_paused, settlement_mode_allowed')
+      .select('id, t1_settlement_paused, settlement_mode_allowed, t1_settlement_start_at')
       .single()
 
     if (error) {

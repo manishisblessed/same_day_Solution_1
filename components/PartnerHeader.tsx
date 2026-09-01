@@ -13,6 +13,8 @@ import { SessionBadge } from '@/components/SessionTimer'
 export default function PartnerHeader() {
   const { user, logout } = useAuth()
   const router = useRouter()
+  const isMaster = user?.role === 'master_partner'
+  const roleLabel = isMaster ? 'Master Partner' : 'Partner'
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false)
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false)
   const [darkMode, setDarkMode] = useState(false)
@@ -222,7 +224,7 @@ export default function PartnerHeader() {
                   <p className="text-sm font-medium text-gray-900 dark:text-white">
                     {user?.name || user?.email?.split('@')[0] || 'Partner'}
                   </p>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">Partner</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">{roleLabel}</p>
                 </div>
                 <ChevronDown className={`w-4 h-4 text-gray-500 dark:text-gray-400 transition-transform ${isUserMenuOpen ? 'rotate-180' : ''}`} />
               </button>
@@ -243,7 +245,7 @@ export default function PartnerHeader() {
                       </p>
                       <div className="mt-2 flex items-center gap-1">
                         <Crown className="w-3 h-3 text-purple-500" />
-                        <span className="text-xs text-purple-600 dark:text-purple-400 font-semibold">VIP Partner</span>
+                        <span className="text-xs text-purple-600 dark:text-purple-400 font-semibold">{isMaster ? 'VIP Master Partner' : 'VIP Partner'}</span>
                       </div>
                     </div>
                     <div className="py-2">
