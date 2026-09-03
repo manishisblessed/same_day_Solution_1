@@ -938,13 +938,19 @@ export async function creditPartnerWallet(
 }
 
 /**
- * Get pending T+1 transactions for partner settlement
+ * Get pending T+1 transactions for partner settlement.
+ *
+ * Fetched with FAIR PER-PARTNER PAGINATION: each active (non-paused) partner is
+ * paged independently so no partner can be starved by another partner's large
+ * backlog (a single global query is silently capped at 1000 rows by PostgREST).
+ *
  * Returns transactions that:
- * - Have partner_id
- * - Are T+1 settlement type
- * - Have not been credited to partner wallet yet
- * - Are from yesterday or earlier
- * - Partner is not paused
+ * - Belong to an active (non-paused) partner
+ * - Are T+1 settlement type, captured (SUCCESS/CAPTURED)
+ * - Have not been credited to the partner wallet yet
+ * - Have not been settled by any other mode (settlement_mode IS NULL)
+ * - Were captured on/after the partner's t1_settlement_start_at (if set)
+ * - Are from the cutoff date or earlier
  */
 export async function getPendingPartnerT1Transactions(
   beforeDate?: Date
@@ -965,64 +971,80 @@ export async function getPendingPartnerT1Transactions(
       console.warn('[Partner Settlement] Error fetching paused partners:', pauseError);
     }
 
-    const pausedPartnerIds = (pausedPartners || []).map(
-      (p: any) => p.partner_id
+    const pausedPartnerIds = new Set<string>(
+      (pausedPartners || []).map((p: any) => p.partner_id)
     );
 
-    console.log(
-      `[Partner Settlement] Paused partners: ${pausedPartnerIds.length}`
-    );
+    // Fair per-partner batching. A single global query is silently capped by
+    // PostgREST at 1000 rows: with a large backlog (e.g. a partner that has no
+    // MDR scheme, or no start date), the oldest rows fill the window and newer
+    // partners are STARVED — never fetched, never settled, never even alerted.
+    // Instead we page each active partner independently so no partner can be
+    // buried behind another's backlog.
+    const { data: allPartners, error: partnersError } = await supabase
+      .from('partners')
+      .select('id, t1_settlement_start_at, t1_settlement_paused');
 
-    // Query pending partner transactions — only successfully captured payments
-    // are eligible (mirrors the retailer T+1 cron; excludes failed/pending rows).
-    let query = supabase
-      .from('razorpay_pos_transactions')
-      .select('*')
-      .or('display_status.ilike.SUCCESS,display_status.ilike.CAPTURED')
-      .eq('settlement_type', 'T1')
-      .eq('partner_wallet_credited', false)
-      .lte('created_at', cutoffDate.toISOString())
-      .not('partner_id', 'is', null)
-      .order('created_at', { ascending: true });
-
-    const { data, error } = await query;
-
-    if (error) {
-      console.error(
-        '[Partner Settlement] Error fetching pending transactions:',
-        error
-      );
+    if (partnersError) {
+      console.error('[Partner Settlement] Error fetching partners:', partnersError);
       return [];
     }
 
-    // Per-partner settlement start date: never auto-settle transactions captured
-    // before a partner's settlement was switched on (avoids paying a historical
-    // backlog in one run). NULL start = no restriction.
-    const candidatePartnerIds = [...new Set((data || []).map((t: any) => t.partner_id))];
-    const startAtByPartner = new Map<string, string | null>();
-    if (candidatePartnerIds.length > 0) {
-      const { data: partnerRows } = await supabase
-        .from('partners')
-        .select('id, t1_settlement_start_at')
-        .in('id', candidatePartnerIds);
-      (partnerRows || []).forEach((p: any) =>
-        startAtByPartner.set(p.id, p.t1_settlement_start_at || null)
-      );
-    }
-
-    // Filter out paused partners and pre-start-date transactions
-    const filtered = (data || []).filter((txn: any) => {
-      if (pausedPartnerIds.includes(txn.partner_id)) return false;
-      const startAt = startAtByPartner.get(txn.partner_id);
-      if (startAt && new Date(txn.created_at) < new Date(startAt)) return false;
-      return true;
-    });
-
-    console.log(
-      `[Partner Settlement] Found ${filtered.length} pending T+1 transactions for partners (before filtering: ${data?.length || 0})`
+    const activePartners = (allPartners || []).filter(
+      (p: any) => !p.t1_settlement_paused && !pausedPartnerIds.has(p.id)
     );
 
-    return filtered;
+    console.log(
+      `[Partner Settlement] Paused: ${pausedPartnerIds.size}, active to scan: ${activePartners.length}`
+    );
+
+    const PAGE = 500;
+    const MAX_PAGES = 200; // 500 * 200 = 100k txns per partner — safety backstop.
+    const all: any[] = [];
+
+    for (const partner of activePartners) {
+      // Per-partner settlement start date: never auto-settle transactions
+      // captured before a partner's settlement was switched on (avoids paying a
+      // historical backlog that was reconciled manually). Applied in SQL so
+      // pre-start rows are not even fetched. NULL start = no restriction.
+      const startAt: string | null = partner.t1_settlement_start_at || null;
+
+      for (let page = 0; page < MAX_PAGES; page++) {
+        let q = supabase
+          .from('razorpay_pos_transactions')
+          .select('*')
+          .eq('partner_id', partner.id)
+          .or('display_status.ilike.SUCCESS,display_status.ilike.CAPTURED')
+          .eq('settlement_type', 'T1')
+          .eq('partner_wallet_credited', false)
+          // Never re-pay a row that was already settled by ANY mode (AUTO_T1 via
+          // the retailer path, or MANUAL by an admin) — blocks double payment.
+          .is('settlement_mode', null)
+          .lte('created_at', cutoffDate.toISOString())
+          .order('created_at', { ascending: true })
+          .range(page * PAGE, page * PAGE + PAGE - 1);
+
+        if (startAt) q = q.gte('created_at', startAt);
+
+        const { data, error } = await q;
+        if (error) {
+          console.error(
+            `[Partner Settlement] Error fetching pending for partner ${partner.id}:`,
+            error
+          );
+          break;
+        }
+        if (!data || data.length === 0) break;
+        all.push(...data);
+        if (data.length < PAGE) break;
+      }
+    }
+
+    console.log(
+      `[Partner Settlement] Found ${all.length} pending T+1 transactions across ${activePartners.length} active partner(s) (fair per-partner batching).`
+    );
+
+    return all;
   } catch (error: any) {
     console.error('[Partner Settlement] Error in getPendingPartnerT1Transactions:', error);
     return [];

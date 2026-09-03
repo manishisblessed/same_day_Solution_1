@@ -112,6 +112,22 @@ export async function runPosT1Settlement(
   }
 
   const retailerCache = new Map<string, RetailerMeta>()
+  // tid/serial -> device's current-holder assignment time. Used to permanently
+  // exclude transactions that occurred BEFORE the current holder took the
+  // device (defense-in-depth for rows whose retailer_id was stamped by an
+  // older backfill that lacked the ownership-time gate).
+  const machineAssignedAtCache = new Map<string, string | null>()
+  const resolveDeviceAssignedAt = async (tid: string | null, serial: string | null): Promise<string | null> => {
+    const key = tid ? `t:${tid}` : serial ? `s:${serial}` : ''
+    if (!key) return null
+    if (machineAssignedAtCache.has(key)) return machineAssignedAtCache.get(key)!
+    let q = supabase.from('pos_machines').select('last_assigned_at').limit(1)
+    q = tid ? q.eq('tid', tid) : q.eq('serial_number', serial as string)
+    const { data } = await q.maybeSingle()
+    const val = (data?.last_assigned_at as string) || null
+    machineAssignedAtCache.set(key, val)
+    return val
+  }
   const retailersProcessed = new Set<string>()
   // Transactions we have permanently given up on / skipped this run, so the
   // drain loop never spins on the same rows.
@@ -166,6 +182,21 @@ export async function runPosT1Settlement(
           startAt: rd?.t1_settlement_start_at || null,
         }
         retailerCache.set(retailerId, meta)
+      }
+
+      // Ownership-time gate: never settle a transaction that happened BEFORE the
+      // current holder was assigned this device (a reassigned machine must not
+      // pay the new retailer for the previous merchant's history). Permanently
+      // exclude so the drain loop never revisits it.
+      const deviceAssignedAt = await resolveDeviceAssignedAt(txn.tid || null, txn.device_serial || null)
+      if (deviceAssignedAt && new Date(txn.transaction_time) < new Date(deviceAssignedAt)) {
+        await supabase
+          .from('razorpay_pos_transactions')
+          .update({ t1_excluded_pre_start: true })
+          .eq('id', txn.id)
+        skippedThisRun.add(txn.id)
+        result.excludedPreStart++
+        continue
       }
 
       // Date gate: permanently exclude transactions that predate enablement so
