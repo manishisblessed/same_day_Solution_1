@@ -73,6 +73,19 @@ async function resolveNames(
       }
     }
   }
+  // Partners share one table (PK `id`); is_master_partner splits the role.
+  const { data: partners } = await supabase
+    .from('partners')
+    .select('id, name, business_name, is_master_partner')
+    .in('id', ids)
+  for (const r of partners || []) {
+    if (!map.has(r.id)) {
+      map.set(r.id, {
+        name: r.name || r.business_name || r.id,
+        role: r.is_master_partner ? 'master_partner' : 'partner',
+      })
+    }
+  }
   return map
 }
 
@@ -84,7 +97,9 @@ function toRow(raw: any, names: Map<string, { name: string; role: string }>): Da
   const info = names.get(raw.user_id)
   return {
     user_id: raw.user_id,
-    user_role: raw.user_role || info?.role || '',
+    // Prefer the source-table role (authoritative; splits partner vs
+    // master_partner via is_master_partner). Ledger writes both as 'partner'.
+    user_role: info?.role || raw.user_role || '',
     name: info?.name || raw.user_id,
     opening,
     push: Number(raw.push) || 0,

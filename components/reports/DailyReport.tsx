@@ -37,6 +37,8 @@ const ROLE_LABEL: Record<string, string> = {
   retailer: 'RT',
   distributor: 'DT',
   master_distributor: 'MD',
+  partner: 'PT',
+  master_partner: 'MP',
 }
 
 function todayIST() {
@@ -119,6 +121,8 @@ export default function DailyReport() {
           <label className="block text-xs font-medium text-gray-500">Role</label>
           <select value={role} onChange={(e) => setRole(e.target.value)} className="mt-1 rounded-lg border border-gray-300 px-3 py-2 text-sm">
             <option value="">All</option>
+            <option value="master_partner">Master Partner</option>
+            <option value="partner">Partner</option>
             <option value="master_distributor">Master Distributor</option>
             <option value="distributor">Distributor</option>
             <option value="retailer">Retailer</option>
