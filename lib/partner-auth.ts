@@ -9,6 +9,8 @@ export interface PartnerAuthResult {
   partner: {
     id: string
     name: string
+    email: string | null
+    phone: string | null
     keyId: string
     permissions: string[]
     bbps_enabled: boolean
@@ -183,6 +185,8 @@ export async function authenticatePartner(
       partners (
         id,
         name,
+        email,
+        phone,
         status,
         ip_whitelist,
         bbps_enabled,
@@ -297,6 +301,8 @@ export async function authenticatePartner(
     partner: {
       id: partner.id,
       name: partner.name,
+      email: partner.email || null,
+      phone: partner.phone || null,
       keyId: keyRecord.id,
       permissions: parsePartnerKeyPermissions(keyRecord.permissions),
       bbps_enabled: partner.bbps_enabled === true,

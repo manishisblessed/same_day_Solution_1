@@ -150,6 +150,15 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // contact_email is mandatory: the downstream payout provider rejects transfers
+    // whose contact_details.email is blank, so it must be captured at registration.
+    if (!contact_email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contact_email)) {
+      return NextResponse.json(
+        { success: false, error: { code: 'BAD_REQUEST', message: 'A valid contact_email is required' } },
+        { status: 400 }
+      )
+    }
+
     const supabase = getSupabase()
 
     // Check if account already exists and is verified

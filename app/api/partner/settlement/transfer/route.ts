@@ -299,8 +299,11 @@ export async function POST(request: NextRequest) {
       },
       contact_details: {
         name: account.contact_name || partner.name || account.account_holder_name,
-        email: account.contact_email || '',
-        mobile: account.contact_mobile || '',
+        // Never send a blank email upstream — Shadval rejects blank contact_details.email.
+        // Fall back to the account's contact email, then the partner's registered email,
+        // and finally a support address as a last-resort guard.
+        email: account.contact_email || partner.email || 'support@samedaysolution.in',
+        mobile: account.contact_mobile || partner.phone || '0000000000',
       },
       reference_id: refId,
       latitude: '28.6139',
