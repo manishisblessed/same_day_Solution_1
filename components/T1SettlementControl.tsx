@@ -72,6 +72,16 @@ export default function T1SettlementControl({ readOnly = false }: { readOnly?: b
   const [alerts, setAlerts] = useState<SettlementAlert[]>([])
   const [resolvingAlertId, setResolvingAlertId] = useState<string | null>(null)
 
+  // Mark Manual Settlement modal state
+  const [mmEntity, setMmEntity] = useState<RetailerRow | null>(null)
+  const [mmType, setMmType] = useState<'retailer' | 'partner'>('retailer')
+  const [mmFrom, setMmFrom] = useState('')
+  const [mmTo, setMmTo] = useState('')
+  const [mmNote, setMmNote] = useState('')
+  const [mmPreview, setMmPreview] = useState<{ count: number; total_gross: number; transactions: any[] } | null>(null)
+  const [mmLoading, setMmLoading] = useState(false)
+  const [mmSubmitting, setMmSubmitting] = useState(false)
+
   const showMessage = (type: 'success' | 'error', text: string) => {
     setMessage({ type, text })
     setTimeout(() => setMessage(null), 5000)
@@ -275,6 +285,91 @@ export default function T1SettlementControl({ readOnly = false }: { readOnly?: b
   }
 
   const pad = (n: number) => String(n).padStart(2, '0')
+
+  // Returns the UTC ISO string for IST midnight, offset by `dayOffset` days.
+  // dayOffset 0 = today 00:00 IST, -1 = yesterday 00:00 IST.
+  const istMidnightISO = (dayOffset: number) => {
+    const now = new Date()
+    const istMs = now.getTime() + (5.5 * 60 - now.getTimezoneOffset()) * 60000
+    const ist = new Date(istMs)
+    ist.setUTCHours(0, 0, 0, 0)
+    ist.setUTCDate(ist.getUTCDate() + dayOffset)
+    return new Date(ist.getTime() - 5.5 * 3600000).toISOString()
+  }
+
+  // Convert a stored UTC ISO string to the value a <input type="datetime-local"> expects (IST wall-clock).
+  const isoToLocalInput = (iso: string) => {
+    if (!iso) return ''
+    return new Date(new Date(iso).getTime() + 5.5 * 3600000).toISOString().slice(0, 16)
+  }
+  // Convert a datetime-local (IST wall-clock) value back to a UTC ISO string.
+  const localInputToISO = (val: string) => new Date(new Date(val).getTime() - 5.5 * 3600000).toISOString()
+
+  const openMarkManual = (entity: RetailerRow, type: 'retailer' | 'partner') => {
+    setMmEntity(entity)
+    setMmType(type)
+    setMmNote('')
+    setMmPreview(null)
+    setMmFrom(istMidnightISO(-1))
+    setMmTo(istMidnightISO(0))
+  }
+
+  const fetchMmPreview = useCallback(async () => {
+    if (!mmEntity) return
+    setMmLoading(true)
+    try {
+      const qs = new URLSearchParams({
+        partner_id: mmEntity.partner_id,
+        entity_type: mmType,
+        from: mmFrom,
+        to: mmTo,
+      })
+      const res = await apiFetch(`/api/admin/settlement/mark-manual?${qs}`)
+      const data = await res.json()
+      if (data.success) setMmPreview(data)
+      else showMessage('error', data.error || 'Failed to load preview')
+    } catch (err: any) {
+      showMessage('error', err.message)
+    } finally {
+      setMmLoading(false)
+    }
+  }, [mmEntity, mmType, mmFrom, mmTo])
+
+  useEffect(() => {
+    if (mmEntity) fetchMmPreview()
+  }, [mmEntity, mmFrom, mmTo, fetchMmPreview])
+
+  const submitMarkManual = async () => {
+    if (!mmEntity || !mmNote.trim()) {
+      showMessage('error', 'Reference / remark is required')
+      return
+    }
+    setMmSubmitting(true)
+    try {
+      const res = await apiFetch('/api/admin/settlement/mark-manual', {
+        method: 'POST',
+        body: JSON.stringify({
+          partner_id: mmEntity.partner_id,
+          entity_type: mmType,
+          from: mmFrom,
+          to: mmTo,
+          note: mmNote.trim(),
+        }),
+      })
+      const data = await res.json()
+      if (data.success) {
+        showMessage('success', `${data.marked} txns marked, excluded from auto-settlement`)
+        setMmEntity(null)
+        await fetchEntities()
+      } else {
+        showMessage('error', data.error || 'Failed to mark manual')
+      }
+    } catch (err: any) {
+      showMessage('error', err.message)
+    } finally {
+      setMmSubmitting(false)
+    }
+  }
 
   const currentEntities = entityTab === 'retailers' ? retailers : entityTab === 'distributors' ? distributors : partners
   const filteredEntities = currentEntities.filter(e =>
@@ -736,7 +831,7 @@ export default function T1SettlementControl({ readOnly = false }: { readOnly?: b
                       )}
                     </td>
                     {!readOnly && (
-                      <td className="px-4 py-2.5 text-center">
+                      <td className="px-4 py-2.5 text-center whitespace-nowrap">
                         <button
                           type="button"
                           onClick={() => handleTogglePause(entity.partner_id, entity.t1_settlement_paused, entityTab === 'retailers' ? 'retailer' : entityTab === 'distributors' ? 'distributor' : 'partner')}
@@ -753,6 +848,16 @@ export default function T1SettlementControl({ readOnly = false }: { readOnly?: b
                               ? 'Resume'
                               : 'Pause'}
                         </button>
+                        {entityTab !== 'distributors' && (
+                          <button
+                            type="button"
+                            onClick={() => openMarkManual(entity, entityTab === 'partners' ? 'partner' : 'retailer')}
+                            className="ml-2 px-3 py-1 rounded-lg text-xs font-medium bg-indigo-100 text-indigo-700 hover:bg-indigo-200 dark:bg-indigo-900/30 dark:text-indigo-400 dark:hover:bg-indigo-900/50 transition-colors"
+                            title="Mark pending transactions as manually settled (excludes them from T+1 auto-settlement)"
+                          >
+                            Mark Manual
+                          </button>
+                        )}
                       </td>
                     )}
                   </tr>
@@ -782,6 +887,113 @@ export default function T1SettlementControl({ readOnly = false }: { readOnly?: b
           <li>Schedule changes take effect within <strong>60 seconds</strong> (no server restart needed).</li>
         </ul>
       </motion.div>
+
+      {/* Mark Manual Settlement Modal */}
+      {mmEntity && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          onClick={() => !mmSubmitting && setMmEntity(null)}
+        >
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            onClick={e => e.stopPropagation()}
+            className="bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 w-full max-w-2xl max-h-[85vh] overflow-y-auto"
+          >
+            <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+              <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200">
+                Mark Manual Settlement — {mmEntity.name}
+              </h3>
+              <p className="text-xs text-gray-500 mt-0.5">
+                Flags {mmType} transactions as <strong>MANUAL</strong> so the T+1 cron skips them. No money is moved — the payout is done separately.
+              </p>
+            </div>
+
+            <div className="p-4 space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <label className="text-xs text-gray-500 dark:text-gray-400">
+                  From (IST)
+                  <input
+                    type="datetime-local"
+                    value={isoToLocalInput(mmFrom)}
+                    onChange={e => setMmFrom(localInputToISO(e.target.value))}
+                    className="w-full mt-1 px-2 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm"
+                  />
+                </label>
+                <label className="text-xs text-gray-500 dark:text-gray-400">
+                  To (IST)
+                  <input
+                    type="datetime-local"
+                    value={isoToLocalInput(mmTo)}
+                    onChange={e => setMmTo(localInputToISO(e.target.value))}
+                    className="w-full mt-1 px-2 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm"
+                  />
+                </label>
+              </div>
+
+              <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-3">
+                {mmLoading ? (
+                  <div className="flex items-center gap-2 text-sm text-gray-500">
+                    <RefreshCw className="w-4 h-4 animate-spin" /> Loading pending transactions…
+                  </div>
+                ) : mmPreview ? (
+                  <>
+                    <div className="flex justify-between text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">
+                      <span>{mmPreview.count} pending txn(s)</span>
+                      <span>₹{mmPreview.total_gross.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                    </div>
+                    {mmPreview.count > 0 ? (
+                      <div className="max-h-48 overflow-y-auto divide-y divide-gray-100 dark:divide-gray-700">
+                        {mmPreview.transactions.map((t: any) => (
+                          <div key={t.id} className="py-1.5 flex items-center justify-between gap-2 text-xs">
+                            <span className="font-mono text-gray-600 dark:text-gray-400 truncate">{t.txn_id}</span>
+                            <span className="text-gray-500 shrink-0">{new Date(t.transaction_time).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}</span>
+                            <span className="font-medium text-gray-700 dark:text-gray-300 shrink-0">₹{Number(t.gross_amount || t.amount || 0).toLocaleString('en-IN')}</span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-gray-400">No pending transactions in this range.</p>
+                    )}
+                  </>
+                ) : (
+                  <span className="text-sm text-gray-400">No preview.</span>
+                )}
+              </div>
+
+              <label className="block text-xs text-gray-500 dark:text-gray-400">
+                Reference / Remark <span className="text-red-500">*</span>
+                <input
+                  type="text"
+                  value={mmNote}
+                  onChange={e => setMmNote(e.target.value)}
+                  placeholder="e.g. NEFT UTR 1234567890 paid 04-Sep"
+                  className="w-full mt-1 px-2 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm"
+                />
+              </label>
+            </div>
+
+            <div className="p-4 border-t border-gray-200 dark:border-gray-700 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setMmEntity(null)}
+                disabled={mmSubmitting}
+                className="px-3 py-1.5 rounded-lg text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={submitMarkManual}
+                disabled={mmSubmitting || !mmNote.trim() || !mmPreview?.count}
+                className="px-3 py-1.5 rounded-lg text-sm font-medium bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {mmSubmitting ? 'Marking…' : `Mark ${mmPreview?.count ?? 0} as Manual`}
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
     </div>
   )
 }

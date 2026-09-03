@@ -11,7 +11,7 @@ import AdminSidebar from '@/components/AdminSidebar'
 import { 
   Lock, Eye, EyeOff, CheckCircle, AlertCircle, 
   User, Mail, Shield, Save, ArrowLeft, Users, Plus, Edit, Trash2, X, IndianRupee, Key,
-  Building2, Archive, ArchiveRestore, Gauge, ShieldCheck
+  Building2, Archive, ArchiveRestore, Gauge, ShieldCheck, Search
 } from 'lucide-react'
 import { motion } from 'framer-motion'
 import { apiFetch } from '@/lib/api-client'
@@ -112,6 +112,9 @@ export default function AdminSettings() {
   // Mirrors every section in the Admin sidebar (see components/AdminSidebar.tsx)
   // so a sub-admin can be granted access to ANY tab. Keep this list in sync with
   // the sidebar item ids and with validDepartments in app/api/admin/sub-admins/route.ts.
+  const [deptSearch, setDeptSearch] = useState('')
+  const [financeTabSearch, setFinanceTabSearch] = useState('')
+
   const availableDepartments = [
     { id: 'dashboard', label: 'Dashboard' },
     { id: 'onboarding', label: 'Onboarding & Invites' },
@@ -128,6 +131,7 @@ export default function AdminSettings() {
     { id: 'pos-history', label: 'POS History' },
     { id: 'pos-tracking-report', label: 'POS Tracking Report' },
     { id: 'pos-rental-report', label: 'POS Rental Report' },
+    { id: 'partner-invoices', label: 'Partner Invoices' },
     { id: 'pos-partner-api', label: 'POS Partner API' },
     { id: 'services', label: 'Services' },
     { id: 'aeps', label: 'AEPS Management' },
@@ -1480,6 +1484,21 @@ export default function AdminSettings() {
                       Portal tabs <span className="text-gray-400 font-normal">(Home is always accessible)</span>
                     </label>
                     <div className="border border-gray-300 dark:border-gray-700 rounded-lg p-3 bg-white dark:bg-gray-900">
+                      <div className="relative mb-2">
+                        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                        <input
+                          type="text"
+                          value={financeTabSearch}
+                          onChange={(e) => setFinanceTabSearch(e.target.value)}
+                          placeholder="Search tabs..."
+                          className="w-full pl-8 pr-8 py-1.5 text-sm border border-gray-300 dark:border-gray-700 rounded-lg bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500"
+                        />
+                        {financeTabSearch && (
+                          <button type="button" onClick={() => setFinanceTabSearch('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                            <X className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
                       <label className="flex items-center gap-2 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 p-1.5 rounded text-sm border-b border-gray-100 dark:border-gray-700 mb-1">
                         <input
                           type="checkbox"
@@ -1495,7 +1514,10 @@ export default function AdminSettings() {
                         <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Select all</span>
                       </label>
                       <div className="grid grid-cols-2 gap-1 max-h-64 overflow-y-auto">
-                        {FINANCE_TABS.map((tab) => (
+                        {FINANCE_TABS.filter((tab) => {
+                          const q = financeTabSearch.trim().toLowerCase()
+                          return !q || tab.label.toLowerCase().includes(q) || tab.id.toLowerCase().includes(q)
+                        }).map((tab) => (
                           <label
                             key={tab.id}
                             className="flex items-center gap-2 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 p-1.5 rounded text-sm"
@@ -1517,6 +1539,12 @@ export default function AdminSettings() {
                           </label>
                         ))}
                       </div>
+                      {financeTabSearch.trim() && FINANCE_TABS.filter((t) => {
+                        const q = financeTabSearch.trim().toLowerCase()
+                        return t.label.toLowerCase().includes(q) || t.id.toLowerCase().includes(q)
+                      }).length === 0 && (
+                        <p className="text-sm text-gray-400 text-center py-3">No tabs match "{financeTabSearch}"</p>
+                      )}
                     </div>
                     <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
                       <span className="font-medium">Selected:</span>{' '}
@@ -1653,9 +1681,27 @@ export default function AdminSettings() {
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                       Departments * (Select multiple)
                     </label>
+                    <div className="relative mb-2">
+                      <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                      <input
+                        type="text"
+                        value={deptSearch}
+                        onChange={(e) => setDeptSearch(e.target.value)}
+                        placeholder="Search departments..."
+                        className="w-full pl-8 pr-8 py-1.5 text-sm border border-gray-300 dark:border-gray-700 rounded-lg bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500"
+                      />
+                      {deptSearch && (
+                        <button type="button" onClick={() => setDeptSearch('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                          <X className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
                     <div className="border border-gray-300 dark:border-gray-700 rounded-lg p-3 bg-white dark:bg-gray-900 max-h-48 overflow-y-auto">
                       <div className="grid grid-cols-2 gap-2">
-                        {availableDepartments.map((dept) => (
+                        {availableDepartments.filter((dept) => {
+                          const q = deptSearch.trim().toLowerCase()
+                          return !q || dept.label.toLowerCase().includes(q) || dept.id.toLowerCase().includes(q)
+                        }).map((dept) => (
                           <label
                             key={dept.id}
                             className="flex items-center gap-2 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 p-1.5 rounded text-sm"
@@ -1692,6 +1738,12 @@ export default function AdminSettings() {
                           </label>
                         ))}
                       </div>
+                      {deptSearch.trim() && availableDepartments.filter((d) => {
+                        const q = deptSearch.trim().toLowerCase()
+                        return d.label.toLowerCase().includes(q) || d.id.toLowerCase().includes(q)
+                      }).length === 0 && (
+                        <p className="text-sm text-gray-400 text-center py-3">No departments match "{deptSearch}"</p>
+                      )}
                     </div>
                     <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
                       <span className="font-medium">Selected:</span> {subAdminFormData.departments.length === 0 

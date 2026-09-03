@@ -188,7 +188,7 @@ function InvoiceDetailContent({ id }: { id: string }) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-gray-50 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900">
         <AdminSidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
-        <div className="lg:pl-56 p-6">
+        <div className="lg:pl-56 p-6 pt-20">
           <button onClick={() => router.push('/admin/partner-invoices')} className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400 mb-4"><ArrowLeft className="w-4 h-4" /> Back</button>
           <p className="text-red-600">{error || 'Invoice not found'}</p>
         </div>
@@ -203,7 +203,7 @@ function InvoiceDetailContent({ id }: { id: string }) {
       <AdminSidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
 
       <div className="lg:pl-56">
-        <div className="p-6 space-y-5 max-w-5xl">
+        <div className="p-6 pt-20 space-y-5 max-w-5xl">
           {/* Back + actions */}
           <div className="flex items-center justify-between gap-3 flex-wrap">
             <button onClick={() => router.push('/admin/partner-invoices')} className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white">

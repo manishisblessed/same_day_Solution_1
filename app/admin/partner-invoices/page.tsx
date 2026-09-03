@@ -130,7 +130,7 @@ function PartnerInvoicesContent() {
       <AdminSidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
 
       <div className="lg:pl-56">
-        <div className="p-6 space-y-5">
+        <div className="p-6 pt-20 space-y-5">
           {/* Header */}
           <div className="flex items-center justify-between gap-3 flex-wrap">
             <div>

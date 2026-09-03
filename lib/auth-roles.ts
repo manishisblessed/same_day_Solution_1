@@ -45,6 +45,7 @@ export const FINANCE_TABS: Array<{ id: string; label: string }> = [
   { id: 'pos-history', label: 'POS History' },
   { id: 'pos-tracking-report', label: 'POS Tracking Report' },
   { id: 'pos-rental-report', label: 'POS Rental Report' },
+  { id: 'partner-invoices', label: 'Partner Invoices' },
   { id: 'pos-partner-api', label: 'POS Partner API' },
   { id: 'master-partners', label: 'Master Partners' },
   { id: 'services', label: 'Services' },
