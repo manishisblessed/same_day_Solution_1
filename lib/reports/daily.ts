@@ -159,8 +159,10 @@ function summarize(rows: DailyUserRow[]) {
  *
  * Each row carries opening_balance / closing_balance, so opening = first row's
  * opening and closing = last row's closing (rows ordered by created_at). Admin
- * push/pull reuse the ADMIN_PUSH_ / ADMIN_PULL_ reference prefixes; settlement
- * earnings (non-admin credits) map to the commission column.
+ * push/pull reuse the ADMIN_PUSH_ / ADMIN_PULL_ reference prefixes. Commission is
+ * ONLY the master-partner POS override (service_type pos_master_override / MCP-*);
+ * PARTNER-T1 / PARTNER-INSTANT settlement credits are the partner's own proceeds
+ * and stay in the Credit column, not Commission.
  */
 async function getPartnerWalletRows(
   supabase: any,
@@ -170,7 +172,7 @@ async function getPartnerWalletRows(
   const { start, end } = istDayBounds(date)
   let q = supabase
     .from('partner_wallet_ledger')
-    .select('partner_id, transaction_type, credit, debit, opening_balance, closing_balance, reference_id, created_at')
+    .select('partner_id, transaction_type, credit, debit, opening_balance, closing_balance, reference_id, service_type, created_at')
     .gte('created_at', start)
     .lt('created_at', end)
     .order('created_at', { ascending: true })
@@ -208,9 +210,12 @@ async function getPartnerWalletRows(
     agg.debit_total += debit
     agg.closing = Number(r.closing_balance) || agg.closing
     const ref = String(r.reference_id || '')
+    const service = String(r.service_type || '').toLowerCase()
     if (/^ADMIN_PUSH_/i.test(ref)) agg.push += credit
     else if (/^ADMIN_PULL_/i.test(ref)) agg.pull += debit
-    else if (String(r.transaction_type || '').toUpperCase() === 'CREDIT') agg.commission += credit
+    // Commission = master-partner POS override only. Settlement payouts
+    // (PARTNER-T1 / PARTNER-INSTANT) are the partner's proceeds, not commission.
+    if (service === 'pos_master_override' || /^MCP-/i.test(ref)) agg.commission += credit
     agg.txn_count += 1
   }
   return Array.from(byPartner.values())
