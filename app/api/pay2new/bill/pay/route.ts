@@ -63,9 +63,11 @@ export async function POST(request: NextRequest) {
       return addCorsHeaders(request, response)
     }
 
-    // Registered mobile uniquely identifies the cardholder; a missing/invalid
-    // one lets the provider resolve the wrong account. Enforce server-side.
-    if (!/^\d{10}$/.test(String(customer_number).trim())) {
+    // Registered mobile uniquely identifies the cardholder for credit-card
+    // billers; a missing/invalid one lets the provider resolve the wrong account.
+    // Enforce for CC billers only (other categories use different consumer formats).
+    const isCreditCardBiller = /credit\s*card/i.test(String(product_name || ''))
+    if (isCreditCardBiller && !/^\d{10}$/.test(String(customer_number).trim())) {
       const response = NextResponse.json(
         { success: false, error: 'A valid 10-digit registered mobile number is required.' },
         { status: 400 }

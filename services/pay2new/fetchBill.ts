@@ -50,7 +50,17 @@ export async function pay2newFetchBill(params: BillFetchParams): Promise<{
     outletId: getPay2NewOutletId(),
   }
 
-  console.log('[Pay2New] Bill Fetch request_id:', params.request_id, 'product_code:', params.product_code)
+  const mask = (v?: string) => {
+    const s = String(v ?? '')
+    if (s.length <= 4) return s
+    return `${s.slice(0, 2)}${'*'.repeat(Math.max(0, s.length - 4))}${s.slice(-2)}`
+  }
+  console.log('[Pay2New] Bill Fetch request_id:', params.request_id, 'product_code:', params.product_code, 'fields:', {
+    number: mask(payload.number),
+    number_len: String(payload.number ?? '').length,
+    optional1: mask(payload.optional1),
+    customer_number: mask(payload.customer_number),
+  })
 
   try {
     const result = await pay2newPost<Pay2NewBillFetchResponse>('apis/offer/v1/billFetch', payload as any)
@@ -62,7 +72,8 @@ export async function pay2newFetchBill(params: BillFetchParams): Promise<{
     }
 
     const resp = result.data
-    console.log('[Pay2New] Bill Fetch success:', resp.order_id)
+    const respName = !Array.isArray(resp.data) ? resp.data?.customer_name : undefined
+    console.log('[Pay2New] Bill Fetch success:', resp.order_id, 'customer_name:', respName)
 
     return {
       success: true,

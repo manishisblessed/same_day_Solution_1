@@ -125,7 +125,7 @@ const SERVICES: ServiceConfig[] = [
     serviceId: 34, mode: 'bill', category: 'finance',
     icon: <CreditCard className="w-6 h-6" />, iconColor: 'text-purple-600', bgGradient: 'from-purple-500/10 to-purple-600/5',
     numberLabel: 'Last 4 Digits of Credit Card', numberPlaceholder: 'e.g. 1266', numberMaxLength: 4,
-    showOptional1: true, optional1Label: 'Registered Mobile Number (Optional)', optional1Placeholder: 'e.g. 9876543210',
+    showOptional1: true, optional1Label: 'Registered Mobile Number *', optional1Placeholder: 'e.g. 9876543210',
     accent: 'purple',
   },
   {

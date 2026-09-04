@@ -32,6 +32,12 @@ export interface Pay2NewServiceFlowProps {
 const PAN_MANDATORY_ABOVE = 49999
 const PAN_REGEX = /^[A-Z]{5}[0-9]{4}[A-Z]$/
 
+// Pay2New credit-card service. For these billers Pay2New matches the account on
+// the `number` field (the biller's consumer number = registered mobile), with
+// the last-4 of the card as a secondary param. The UI collects last-4 as the
+// primary input and the mobile as secondary, so we swap them before sending.
+const PAY2NEW_CC_SERVICE_ID = 34
+
 interface Biller {
   product_code: string
   product_name: string
@@ -207,10 +213,27 @@ export default function Pay2NewServiceFlow(props: Pay2NewServiceFlowProps) {
     setPanNumber('')
   }
 
+  const isCreditCard = serviceId === PAY2NEW_CC_SERVICE_ID
+
+  // Build the identity fields for the provider. For credit cards, the registered
+  // mobile is the account key (`number` + `customer_number`) and the last-4 is a
+  // secondary verification param (`optional1`). Sending the non-unique last-4 as
+  // `number` makes Pay2New resolve the wrong cardholder.
+  const buildIdentityFields = () => {
+    if (isCreditCard) {
+      return { number: optional1, optional1: number, customer_number: optional1 }
+    }
+    return { number, optional1: optional1 || '', customer_number: optional1 || number }
+  }
+
   const handleFetchBill = async () => {
     if (!selectedBiller || !number) return
     if (numberMaxLength && number.length !== numberMaxLength) {
       setFetchError(`Please enter exactly ${numberMaxLength} digits`)
+      return
+    }
+    if (isCreditCard && optional1.length !== 10) {
+      setFetchError('Enter the 10-digit registered mobile number. It is required to correctly identify the cardholder.')
       return
     }
 
@@ -222,11 +245,9 @@ export default function Pay2NewServiceFlow(props: Pay2NewServiceFlowProps) {
       const data = await apiFetchJson('/api/pay2new/bill/fetch', {
         method: 'POST',
         body: JSON.stringify({
-          number,
+          ...buildIdentityFields(),
           product_code: selectedBiller.product_code,
           product_name: selectedBiller.product_name,
-          optional1: optional1 || '',
-          customer_number: optional1 || number,
           user_id: user?.id,
         }),
       })
@@ -273,14 +294,12 @@ export default function Pay2NewServiceFlow(props: Pay2NewServiceFlowProps) {
       const data = await apiFetchJson('/api/pay2new/bill/pay', {
         method: 'POST',
         body: JSON.stringify({
-          number,
+          ...buildIdentityFields(),
           amount,
           product_code: selectedBiller.product_code,
           product_name: selectedBiller.product_name,
           bill_fetch_ref: orderId,
           pan_number: normalizedPan,
-          optional1: optional1 || '',
-          customer_number: optional1 || number,
           customer_name: billData?.customer_name || '',
           user_id: user?.id,
           tpin,
@@ -517,7 +536,8 @@ export default function Pay2NewServiceFlow(props: Pay2NewServiceFlowProps) {
                     disabled={
                       fetchLoading ||
                       !number ||
-                      (numberMaxLength ? number.length !== numberMaxLength : false)
+                      (numberMaxLength ? number.length !== numberMaxLength : false) ||
+                      (isCreditCard && optional1.length !== 10)
                     }
                     className={`w-full py-3 bg-gradient-to-r ${accentCls.grad} text-white rounded-lg font-medium text-sm disabled:opacity-50 flex items-center justify-center gap-2`}
                   >

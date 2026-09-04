@@ -912,7 +912,7 @@ function PartnerCreditCardTab() {
         numberPlaceholder="e.g. 1266"
         numberMaxLength={4}
         showOptional1={true}
-        optional1Label="Registered Mobile Number (Optional)"
+        optional1Label="Registered Mobile Number *"
         optional1Placeholder="e.g. 9876543210"
         accent="purple"
       />

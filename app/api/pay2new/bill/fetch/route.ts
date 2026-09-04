@@ -100,11 +100,12 @@ export async function POST(request: NextRequest) {
       return addCorsHeaders(request, response)
     }
 
-    // The registered mobile is the only field that uniquely identifies the
-    // cardholder. Without a valid 10-digit mobile the provider can resolve a
-    // different account and return the wrong bill, so enforce it server-side.
-    const registeredMobile = String(customer_number).trim()
-    if (!/^\d{10}$/.test(registeredMobile)) {
+    // For credit-card billers the registered mobile is the account key. Without a
+    // valid 10-digit mobile the provider can resolve a different cardholder and
+    // return the wrong bill, so enforce it server-side (CC billers only — other
+    // categories use consumer numbers of varying formats).
+    const isCreditCardBiller = /credit\s*card/i.test(String(product_name || ''))
+    if (isCreditCardBiller && !/^\d{10}$/.test(String(customer_number).trim())) {
       const response = NextResponse.json(
         { success: false, error: 'A valid 10-digit registered mobile number is required to fetch the bill.' },
         { status: 400 }
