@@ -107,6 +107,10 @@ export default function Pay2NewServiceFlow(props: Pay2NewServiceFlowProps) {
   const [payAmount, setPayAmount] = useState('')
   const [panNumber, setPanNumber] = useState('')
   const [tpin, setTpin] = useState('')
+  // Credit-card safety: retailer must confirm the fetched cardholder name matches
+  // the customer's physical card before paying. The upstream biller can resolve a
+  // wrong cardholder from a non-unique last-4, so this blocks paying the wrong card.
+  const [nameConfirmed, setNameConfirmed] = useState(false)
   const [payLoading, setPayLoading] = useState(false)
   const [payResult, setPayResult] = useState<{
     success: boolean
@@ -198,6 +202,7 @@ export default function Pay2NewServiceFlow(props: Pay2NewServiceFlowProps) {
     setPayAmount('')
     setPanNumber('')
     setTpin('')
+    setNameConfirmed(false)
   }
 
   const handleSelectBiller = (biller: Biller) => {
@@ -215,13 +220,12 @@ export default function Pay2NewServiceFlow(props: Pay2NewServiceFlowProps) {
 
   const isCreditCard = serviceId === PAY2NEW_CC_SERVICE_ID
 
-  // Build the identity fields for the provider. For credit cards, the registered
-  // mobile is the account key (`number` + `customer_number`) and the last-4 is a
-  // secondary verification param (`optional1`). Sending the non-unique last-4 as
-  // `number` makes Pay2New resolve the wrong cardholder.
+  // Build the identity fields for the provider. For credit cards Pay2New's
+  // `number` field is the last-4 of the card (validated <= 4 digits) and the
+  // registered mobile is the disambiguator sent in `optional1` + `customer_number`.
   const buildIdentityFields = () => {
     if (isCreditCard) {
-      return { number: optional1, optional1: number, customer_number: optional1 }
+      return { number, optional1, customer_number: optional1 }
     }
     return { number, optional1: optional1 || '', customer_number: optional1 || number }
   }
@@ -256,6 +260,7 @@ export default function Pay2NewServiceFlow(props: Pay2NewServiceFlowProps) {
         setBillData(data.data)
         setOrderId(data.order_id)
         setPayAmount('')
+        setNameConfirmed(false)
         setBbpsFallback(data.fallback === 'bbps' && data.biller_id ? { biller_id: data.biller_id } : null)
         setStep('bill-fetched')
       } else {
@@ -277,6 +282,10 @@ export default function Pay2NewServiceFlow(props: Pay2NewServiceFlowProps) {
     }
     if (!tpin || tpin.length < 4) {
       showToast('T-PIN is required (4 digits)', 'error')
+      return
+    }
+    if (isCreditCard && !nameConfirmed) {
+      showToast('Please confirm the cardholder name matches the customer\u2019s card before paying.', 'error')
       return
     }
     if (amount > PAN_MANDATORY_ABOVE && !cc1PlusEnabled) {
@@ -628,6 +637,28 @@ export default function Pay2NewServiceFlow(props: Pay2NewServiceFlowProps) {
                   )}
                 </div>
 
+                {isCreditCard && (
+                  <div className="p-3 rounded-lg border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/20 space-y-2">
+                    <div className="flex items-start gap-2">
+                      <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" />
+                      <p className="text-xs text-amber-700 dark:text-amber-300">
+                        Verify that <span className="font-semibold">{billData.customer_name || 'the cardholder name'}</span> matches the name on the customer&apos;s physical card. The bank identifies the card by the last 4 digits only, so a wrong card can be shown. Do not pay if the name does not match.
+                      </p>
+                    </div>
+                    <label className="flex items-center gap-2 cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        checked={nameConfirmed}
+                        onChange={(e) => setNameConfirmed(e.target.checked)}
+                        className="w-4 h-4 rounded border-gray-300 text-amber-600 focus:ring-amber-500"
+                      />
+                      <span className="text-xs font-medium text-amber-800 dark:text-amber-200">
+                        I confirm the cardholder name matches the customer&apos;s card.
+                      </span>
+                    </label>
+                  </div>
+                )}
+
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                     Payment Amount (₹) *
@@ -729,7 +760,7 @@ export default function Pay2NewServiceFlow(props: Pay2NewServiceFlowProps) {
 
                 <button
                   onClick={handlePayBill}
-                  disabled={payLoading || !payAmount || parseFloat(payAmount) <= 0 || tpin.length < 4 || (parseFloat(payAmount) > PAN_MANDATORY_ABOVE && (!cc1PlusEnabled || !PAN_REGEX.test(panNumber.trim().toUpperCase())))}
+                  disabled={payLoading || !payAmount || parseFloat(payAmount) <= 0 || tpin.length < 4 || (isCreditCard && !nameConfirmed) || (parseFloat(payAmount) > PAN_MANDATORY_ABOVE && (!cc1PlusEnabled || !PAN_REGEX.test(panNumber.trim().toUpperCase())))}
                   className="w-full py-3 bg-gradient-to-r from-green-600 to-green-700 text-white rounded-lg font-medium text-sm hover:from-green-700 hover:to-green-800 disabled:opacity-50 flex items-center justify-center gap-2"
                 >
                   {payLoading ? (
