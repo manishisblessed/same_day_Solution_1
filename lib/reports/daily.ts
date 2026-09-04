@@ -16,7 +16,10 @@ export interface DailyUserRow {
   opening: number
   push: number
   pull: number
+  /** Total of ALL credits for the day (drives reconciliation). */
   credit: number
+  /** Refund credits (subset of credit), shown as its own column. */
+  refunds: number
   debit: number
   commission: number
   closing: number
@@ -32,6 +35,7 @@ export interface DailyReportResult {
     push: number
     pull: number
     credit: number
+    refunds: number
     debit: number
     commission: number
     closing: number
@@ -115,6 +119,7 @@ function toRow(raw: any, names: Map<string, { name: string; role: string }>): Da
     push: Number(raw.push) || 0,
     pull: Number(raw.pull) || 0,
     credit,
+    refunds: Number(raw.refunds) || 0,
     debit,
     commission: Number(raw.commission) || 0,
     closing,
@@ -129,6 +134,7 @@ function summarize(rows: DailyUserRow[]) {
     push: 0,
     pull: 0,
     credit: 0,
+    refunds: 0,
     debit: 0,
     commission: 0,
     closing: 0,
@@ -140,6 +146,7 @@ function summarize(rows: DailyUserRow[]) {
     totals.push += r.push
     totals.pull += r.pull
     totals.credit += r.credit
+    totals.refunds += r.refunds
     totals.debit += r.debit
     totals.commission += r.commission
     totals.closing += r.closing
@@ -199,6 +206,7 @@ async function getPartnerWalletRows(
         debit_total: 0,
         push: 0,
         pull: 0,
+        refunds: 0,
         commission: 0,
         txn_count: 0,
       }
@@ -211,11 +219,13 @@ async function getPartnerWalletRows(
     agg.closing = Number(r.closing_balance) || agg.closing
     const ref = String(r.reference_id || '')
     const service = String(r.service_type || '').toLowerCase()
+    const ttype = String(r.transaction_type || '').toUpperCase()
+    // Money-in buckets are mutually exclusive so they sum to credit_total:
+    //   push (admin) | commission (master override) | refunds | settlement (residual).
     if (/^ADMIN_PUSH_/i.test(ref)) agg.push += credit
     else if (/^ADMIN_PULL_/i.test(ref)) agg.pull += debit
-    // Commission = master-partner POS override only. Settlement payouts
-    // (PARTNER-T1 / PARTNER-INSTANT) are the partner's proceeds, not commission.
-    if (service === 'pos_master_override' || /^MCP-/i.test(ref)) agg.commission += credit
+    else if (service === 'pos_master_override' || /^MCP-/i.test(ref)) agg.commission += credit
+    else if (ttype === 'REFUND' || /^REFUND/i.test(ref)) agg.refunds += credit
     agg.txn_count += 1
   }
   return Array.from(byPartner.values())

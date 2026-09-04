@@ -162,9 +162,9 @@ export default function Pay2NewCCPayment() {
       const data = await apiFetchJson('/api/pay2new/bill/fetch', {
         method: 'POST',
         body: JSON.stringify({
-          number: cardLast4,
+          number: mobileNumber,
           product_code: selectedBiller.product_code,
-          optional1: mobileNumber,
+          optional1: cardLast4,
           customer_number: mobileNumber,
           user_id: user?.id,
         }),
@@ -212,13 +212,13 @@ export default function Pay2NewCCPayment() {
       const data = await apiFetchJson('/api/pay2new/bill/pay', {
         method: 'POST',
         body: JSON.stringify({
-          number: cardLast4,
+          number: mobileNumber,
           amount,
           product_code: selectedBiller.product_code,
           product_name: selectedBiller.product_name || selectedBiller.product_code,
           bill_fetch_ref: orderId,
           pan_number: normalizedPan,
-          optional1: mobileNumber,
+          optional1: cardLast4,
           customer_number: mobileNumber,
           customer_name: billData?.customer_name || '',
           user_id: user?.id,

@@ -11,6 +11,7 @@ interface Row {
   push: number
   pull: number
   credit: number
+  refunds: number
   debit: number
   commission: number
   closing: number
@@ -23,6 +24,7 @@ interface Totals {
   push: number
   pull: number
   credit: number
+  refunds: number
   debit: number
   commission: number
   closing: number
@@ -32,6 +34,14 @@ interface Totals {
 
 const inr = (n: number) =>
   `₹${(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+
+/**
+ * "Credit" as displayed = the settlement / service-earnings portion only.
+ * Push, Refunds and Commission are broken out into their own columns; together
+ * with this they sum to the row's total credit (never double-counted).
+ */
+const settlementOf = (r: { credit: number; push: number; refunds: number; commission: number }) =>
+  Number((r.credit - r.push - r.refunds - r.commission).toFixed(2))
 
 const ROLE_LABEL: Record<string, string> = {
   retailer: 'RT',
@@ -103,9 +113,10 @@ export default function DailyReport() {
         { label: 'Opening', value: totals.opening, color: 'text-gray-700' },
         { label: 'Push', value: totals.push, color: 'text-green-600' },
         { label: 'Pull', value: totals.pull, color: 'text-red-600' },
-        { label: 'Credit', value: totals.credit, color: 'text-green-700' },
-        { label: 'Debit', value: totals.debit, color: 'text-red-700' },
+        { label: 'Credit', value: settlementOf(totals), color: 'text-green-700' },
+        { label: 'Refunds', value: totals.refunds, color: 'text-teal-600' },
         { label: 'Commission', value: totals.commission, color: 'text-indigo-600' },
+        { label: 'Debit', value: totals.debit, color: 'text-red-700' },
         { label: 'Closing', value: totals.closing, color: 'text-gray-900' },
       ]
     : []
@@ -149,7 +160,7 @@ export default function DailyReport() {
       {err && <div className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{err}</div>}
 
       {totals && (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-8">
           {kpis.map((k) => (
             <div key={k.label} className="rounded-xl bg-white p-3 shadow ring-1 ring-gray-100">
               <p className="text-xs text-gray-400">{k.label}</p>
@@ -160,7 +171,7 @@ export default function DailyReport() {
       )}
 
       <div className="rounded-xl bg-blue-50 px-4 py-2.5 text-xs text-blue-800 ring-1 ring-blue-100">
-        <span className="font-semibold">How to read this:</span> <span className="font-medium">Credit</span> = all money in (includes <span className="font-medium">Push</span>, refunds &amp; settlements); <span className="font-medium">Push</span> is only the admin-funded part of Credit. <span className="font-medium">Debit</span> = all money out (<span className="font-medium">Pull</span> is the admin-pulled part). Every row satisfies <span className="font-mono">Closing = Opening + Credit − Debit</span>; the <span className="font-medium">Δ</span> column shows any imbalance and should read <span className="font-mono">0.00</span>.
+        <span className="font-semibold">How to read this:</span> Money in is split into separate, non-overlapping columns — <span className="font-medium">Push</span> (admin credit), <span className="font-medium">Credit</span> (settlement / earnings), <span className="font-medium">Refunds</span>, and <span className="font-medium">Comm.</span> — together they equal total money in. <span className="font-medium">Debit</span> = all money out (<span className="font-medium">Pull</span> is the admin-pulled part). Every row satisfies <span className="font-mono">Closing = Opening + Push + Credit + Refunds + Comm. − Debit</span>; the <span className="font-medium">Δ</span> column flags any imbalance and should read <span className="font-mono">0.00</span>.
       </div>
 
       <div className="overflow-x-auto rounded-2xl bg-white p-4 shadow ring-1 ring-gray-100">
@@ -169,18 +180,19 @@ export default function DailyReport() {
         ) : rows.length === 0 ? (
           <p className="py-8 text-center text-sm text-gray-400">No activity for this day.</p>
         ) : (
-          <table className="w-full min-w-[920px] text-right text-sm [&_td]:whitespace-nowrap [&_td]:px-2 [&_th]:whitespace-nowrap [&_th]:px-2">
+          <table className="w-full min-w-[1040px] text-right text-sm [&_td]:whitespace-nowrap [&_td]:px-2 [&_th]:whitespace-nowrap [&_th]:px-2">
             <thead>
               <tr className="border-b text-xs uppercase text-gray-400">
                 <th className="py-2 text-left">User</th>
                 <th className="py-2">Opening</th>
                 <th className="py-2">Push</th>
                 <th className="py-2">Pull</th>
-                <th className="py-2">Credit</th>
-                <th className="py-2">Debit</th>
+                <th className="py-2" title="Settlement / earnings credited (excludes Push, Refunds and Commission).">Credit</th>
+                <th className="py-2">Refunds</th>
                 <th className="py-2">Comm.</th>
+                <th className="py-2">Debit</th>
                 <th className="py-2">Closing</th>
-                <th className="py-2" title="Reconciliation delta = Closing − (Opening + Credit − Debit). Should be 0.00.">Δ</th>
+                <th className="py-2" title="Reconciliation delta = Closing − (Opening + Push + Credit + Refunds + Comm. − Debit). Should be 0.00.">Δ</th>
                 <th className="py-2">Txns</th>
               </tr>
             </thead>
@@ -197,9 +209,10 @@ export default function DailyReport() {
                   <td className="py-2 text-gray-600">{inr(r.opening)}</td>
                   <td className="py-2 text-green-600">{inr(r.push)}</td>
                   <td className="py-2 text-red-600">{inr(r.pull)}</td>
-                  <td className="py-2 text-green-700">{inr(r.credit)}</td>
-                  <td className="py-2 text-red-700">{inr(r.debit)}</td>
+                  <td className="py-2 text-green-700">{inr(settlementOf(r))}</td>
+                  <td className="py-2 text-teal-600">{inr(r.refunds)}</td>
                   <td className="py-2 text-indigo-600">{inr(r.commission)}</td>
+                  <td className="py-2 text-red-700">{inr(r.debit)}</td>
                   <td className="py-2 font-semibold text-gray-900">{inr(r.closing)}</td>
                   <td
                     className={`py-2 ${Math.abs(r.reconDelta) > 0.01 ? 'font-semibold text-amber-600' : 'text-emerald-500'}`}
@@ -218,9 +231,10 @@ export default function DailyReport() {
                   <td className="py-2">{inr(totals.opening)}</td>
                   <td className="py-2 text-green-600">{inr(totals.push)}</td>
                   <td className="py-2 text-red-600">{inr(totals.pull)}</td>
-                  <td className="py-2 text-green-700">{inr(totals.credit)}</td>
-                  <td className="py-2 text-red-700">{inr(totals.debit)}</td>
+                  <td className="py-2 text-green-700">{inr(settlementOf(totals))}</td>
+                  <td className="py-2 text-teal-600">{inr(totals.refunds)}</td>
                   <td className="py-2 text-indigo-600">{inr(totals.commission)}</td>
+                  <td className="py-2 text-red-700">{inr(totals.debit)}</td>
                   <td className="py-2">{inr(totals.closing)}</td>
                   <td className="py-2">{totals.reconDelta.toFixed(2)}</td>
                   <td className="py-2" />

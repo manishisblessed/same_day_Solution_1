@@ -49,25 +49,28 @@ export async function GET(request: NextRequest) {
 
     if (format === 'csv') {
       const header = [
-        'User ID', 'Name', 'Role', 'Opening', 'Push', 'Pull', 'Credit', 'Debit', 'Commission', 'Closing', 'Recon Delta', 'Txns',
+        'User ID', 'Name', 'Role', 'Opening', 'Push', 'Pull', 'Credit (Settlement)', 'Refunds', 'Commission', 'Total Credit', 'Debit', 'Closing', 'Recon Delta', 'Txns',
       ].join(',')
       const body = rows
-        .map((r) =>
-          [
+        .map((r) => {
+          const settlement = Number((r.credit - r.push - r.refunds - r.commission).toFixed(2))
+          return [
             r.user_id,
             `"${r.name.replace(/"/g, '""')}"`,
             r.user_role,
             r.opening.toFixed(2),
             r.push.toFixed(2),
             r.pull.toFixed(2),
+            settlement.toFixed(2),
+            r.refunds.toFixed(2),
+            r.commission.toFixed(2),
             r.credit.toFixed(2),
             r.debit.toFixed(2),
-            r.commission.toFixed(2),
             r.closing.toFixed(2),
             r.reconDelta.toFixed(2),
             r.txnCount,
           ].join(',')
-        )
+        })
         .join('\n')
       return new NextResponse('\uFEFF' + header + '\n' + body, {
         headers: {
@@ -91,7 +94,7 @@ export async function GET(request: NextRequest) {
 }
 
 function emptyTotals() {
-  return { opening: 0, push: 0, pull: 0, credit: 0, debit: 0, commission: 0, closing: 0, reconDelta: 0, users: 0 }
+  return { opening: 0, push: 0, pull: 0, credit: 0, refunds: 0, debit: 0, commission: 0, closing: 0, reconDelta: 0, users: 0 }
 }
 
 function recomputeTotals(rows: any[]) {
@@ -102,6 +105,7 @@ function recomputeTotals(rows: any[]) {
     t.push += r.push
     t.pull += r.pull
     t.credit += r.credit
+    t.refunds += r.refunds
     t.debit += r.debit
     t.commission += r.commission
     t.closing += r.closing
