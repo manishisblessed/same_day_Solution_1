@@ -159,6 +159,10 @@ export default function DailyReport() {
         </div>
       )}
 
+      <div className="rounded-xl bg-blue-50 px-4 py-2.5 text-xs text-blue-800 ring-1 ring-blue-100">
+        <span className="font-semibold">How to read this:</span> <span className="font-medium">Credit</span> = all money in (includes <span className="font-medium">Push</span>, refunds &amp; settlements); <span className="font-medium">Push</span> is only the admin-funded part of Credit. <span className="font-medium">Debit</span> = all money out (<span className="font-medium">Pull</span> is the admin-pulled part). Every row satisfies <span className="font-mono">Closing = Opening + Credit − Debit</span>; the <span className="font-medium">Δ</span> column shows any imbalance and should read <span className="font-mono">0.00</span>.
+      </div>
+
       <div className="overflow-x-auto rounded-2xl bg-white p-4 shadow ring-1 ring-gray-100">
         {loading ? (
           <p className="py-8 text-center text-sm text-gray-400">Loading…</p>
@@ -176,7 +180,7 @@ export default function DailyReport() {
                 <th className="py-2">Debit</th>
                 <th className="py-2">Comm.</th>
                 <th className="py-2">Closing</th>
-                <th className="py-2">Δ</th>
+                <th className="py-2" title="Reconciliation delta = Closing − (Opening + Credit − Debit). Should be 0.00.">Δ</th>
                 <th className="py-2">Txns</th>
               </tr>
             </thead>
@@ -197,7 +201,10 @@ export default function DailyReport() {
                   <td className="py-2 text-red-700">{inr(r.debit)}</td>
                   <td className="py-2 text-indigo-600">{inr(r.commission)}</td>
                   <td className="py-2 font-semibold text-gray-900">{inr(r.closing)}</td>
-                  <td className={`py-2 ${Math.abs(r.reconDelta) > 0.01 ? 'text-amber-600' : 'text-gray-300'}`}>
+                  <td
+                    className={`py-2 ${Math.abs(r.reconDelta) > 0.01 ? 'font-semibold text-amber-600' : 'text-emerald-500'}`}
+                    title={Math.abs(r.reconDelta) > 0.01 ? 'Ledger imbalance — investigate this user' : 'Balanced'}
+                  >
                     {r.reconDelta.toFixed(2)}
                   </td>
                   <td className="py-2 text-gray-500">{r.txnCount}</td>

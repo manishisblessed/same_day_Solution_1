@@ -149,6 +149,10 @@ export default function Pay2NewCCPayment() {
       setFetchError('Please enter exactly 4 digits')
       return
     }
+    if (mobileNumber.length !== 10) {
+      setFetchError('Enter the 10-digit registered mobile number. It is required to correctly identify the cardholder.')
+      return
+    }
 
     setFetchLoading(true)
     setFetchError(null)
@@ -160,8 +164,8 @@ export default function Pay2NewCCPayment() {
         body: JSON.stringify({
           number: cardLast4,
           product_code: selectedBiller.product_code,
-          optional1: mobileNumber || '',
-          customer_number: mobileNumber || user?.phone || '',
+          optional1: mobileNumber,
+          customer_number: mobileNumber,
           user_id: user?.id,
         }),
       })
@@ -214,8 +218,8 @@ export default function Pay2NewCCPayment() {
           product_name: selectedBiller.product_name || selectedBiller.product_code,
           bill_fetch_ref: orderId,
           pan_number: normalizedPan,
-          optional1: mobileNumber || '',
-          customer_number: mobileNumber || user?.phone || '',
+          optional1: mobileNumber,
+          customer_number: mobileNumber,
           customer_name: billData?.customer_name || '',
           user_id: user?.id,
           tpin,
@@ -362,7 +366,7 @@ export default function Pay2NewCCPayment() {
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Registered Mobile Number (Optional)
+                    Registered Mobile Number *
                   </label>
                   <input
                     type="tel"
@@ -382,7 +386,7 @@ export default function Pay2NewCCPayment() {
 
                 <button
                   onClick={handleFetchBill}
-                  disabled={fetchLoading || cardLast4.length !== 4}
+                  disabled={fetchLoading || cardLast4.length !== 4 || mobileNumber.length !== 10}
                   className="w-full py-3 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-lg font-medium text-sm hover:from-blue-700 hover:to-blue-800 disabled:opacity-50 flex items-center justify-center gap-2"
                 >
                   {fetchLoading ? (

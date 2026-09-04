@@ -100,6 +100,18 @@ export async function POST(request: NextRequest) {
       return addCorsHeaders(request, response)
     }
 
+    // The registered mobile is the only field that uniquely identifies the
+    // cardholder. Without a valid 10-digit mobile the provider can resolve a
+    // different account and return the wrong bill, so enforce it server-side.
+    const registeredMobile = String(customer_number).trim()
+    if (!/^\d{10}$/.test(registeredMobile)) {
+      const response = NextResponse.json(
+        { success: false, error: 'A valid 10-digit registered mobile number is required to fetch the bill.' },
+        { status: 400 }
+      )
+      return addCorsHeaders(request, response)
+    }
+
     const request_id = `SDS${Date.now()}`
 
     const result = await pay2newFetchBill({
