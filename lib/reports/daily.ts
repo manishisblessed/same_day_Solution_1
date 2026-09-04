@@ -76,17 +76,24 @@ async function resolveNames(
       }
     }
   }
-  // Partners share one table (PK `id`); is_master_partner splits the role.
-  const { data: partners } = await supabase
-    .from('partners')
-    .select('id, name, business_name, is_master_partner')
-    .in('id', ids)
-  for (const r of partners || []) {
-    if (!map.has(r.id)) {
-      map.set(r.id, {
-        name: r.name || r.business_name || r.id,
-        role: r.is_master_partner ? 'master_partner' : 'partner',
-      })
+  // Partners share one table (PK `id` = uuid); is_master_partner splits the role.
+  // Only pass UUID-shaped ids — retailer/distributor ids (e.g. RET123) would make
+  // Postgres reject the whole `.in('id', …)` query as invalid uuid syntax.
+  const uuidIds = ids.filter((id) =>
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)
+  )
+  if (uuidIds.length > 0) {
+    const { data: partners } = await supabase
+      .from('partners')
+      .select('id, name, business_name, is_master_partner')
+      .in('id', uuidIds)
+    for (const r of partners || []) {
+      if (!map.has(r.id)) {
+        map.set(r.id, {
+          name: r.name || r.business_name || r.id,
+          role: r.is_master_partner ? 'master_partner' : 'partner',
+        })
+      }
     }
   }
   return map

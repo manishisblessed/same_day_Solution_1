@@ -165,7 +165,7 @@ export default function DailyReport() {
         ) : rows.length === 0 ? (
           <p className="py-8 text-center text-sm text-gray-400">No activity for this day.</p>
         ) : (
-          <table className="w-full text-right text-sm">
+          <table className="w-full min-w-[920px] text-right text-sm [&_td]:whitespace-nowrap [&_td]:px-2 [&_th]:whitespace-nowrap [&_th]:px-2">
             <thead>
               <tr className="border-b text-xs uppercase text-gray-400">
                 <th className="py-2 text-left">User</th>
