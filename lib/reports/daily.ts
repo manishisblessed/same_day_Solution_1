@@ -42,11 +42,14 @@ export interface DailyReportResult {
 }
 
 function istDayBounds(date: string): { start: string; end: string } {
-  // date is YYYY-MM-DD (IST calendar day).
+  // date is YYYY-MM-DD (IST calendar day). Compute next day purely from the
+  // calendar parts via UTC math — using new Date(...+05:30).toISOString() shifts
+  // the date back into the previous UTC day and cancels the +1, making end==start.
   const start = `${date}T00:00:00+05:30`
-  const d = new Date(`${date}T00:00:00+05:30`)
-  d.setDate(d.getDate() + 1)
-  const nextDate = d.toISOString().slice(0, 10)
+  const [y, m, d] = date.split('-').map(Number)
+  const next = new Date(Date.UTC(y, m - 1, d))
+  next.setUTCDate(next.getUTCDate() + 1)
+  const nextDate = next.toISOString().slice(0, 10)
   const end = `${nextDate}T00:00:00+05:30`
   return { start, end }
 }
