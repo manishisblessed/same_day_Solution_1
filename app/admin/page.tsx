@@ -5220,6 +5220,7 @@ function POSMachinesTab({
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set())
   const [showBulkUploadModal, setShowBulkUploadModal] = useState(false)
   const [uploadFile, setUploadFile] = useState<File | null>(null)
+  const [uploadBatchName, setUploadBatchName] = useState('')
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState<string | null>(null)
   const [uploadSuccess, setUploadSuccess] = useState<string | null>(null)
@@ -5245,6 +5246,7 @@ function POSMachinesTab({
   const [showBulkReturnModal, setShowBulkReturnModal] = useState(false)
   const [bulkModalPickedIds, setBulkModalPickedIds] = useState<Set<string>>(new Set())
   const [bulkModalSearch, setBulkModalSearch] = useState('')
+  const [bulkAssignBatchFilter, setBulkAssignBatchFilter] = useState<string>('all')
 
   const retailersSortedByName = useMemo(
     () =>
@@ -5508,6 +5510,7 @@ function POSMachinesTab({
       'state',
       'pincode',
       'notes',
+      'upload_batch',
     ]
 
     const rows = posMachines.map((machine) => {
@@ -5533,6 +5536,7 @@ function POSMachinesTab({
         escapeCsvCell(machine.state),
         escapeCsvCell(machine.pincode),
         escapeCsvCell(machine.notes),
+        escapeCsvCell(machine.upload_batch),
       ].join(',')
     })
 
@@ -5567,6 +5571,7 @@ function POSMachinesTab({
       'state',
       'pincode',
       'notes',
+      'upload_batch',
     ]
 
     const exampleRow = [
@@ -5584,12 +5589,13 @@ function POSMachinesTab({
       'Delhi',
       '110078',
       'Received from Bank',
+      'HDFC Eros Mall Sept',
     ]
 
     const csvContent = [
       headers.join(','),
       exampleRow.join(','),
-      ['SN222', 'MID002', 'TID002', 'PAX', 'WPOS', 'in_stock', 'active', '', '', '', '', '', '', ''].join(','),
+      ['SN222', 'MID002', 'TID002', 'PAX', 'WPOS', 'in_stock', 'active', '', '', '', '', '', '', '', ''].join(','),
     ].join('\n')
 
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
@@ -5617,6 +5623,7 @@ function POSMachinesTab({
     try {
       const formData = new FormData()
       formData.append('file', uploadFile)
+      if (uploadBatchName.trim()) formData.append('batch_name', uploadBatchName.trim())
 
       // Get auth token for fallback authentication
       const { data: { session } } = await supabase.auth.getSession()
@@ -5645,6 +5652,7 @@ function POSMachinesTab({
 
       setUploadSuccess(`Successfully imported ${data.count} POS machine(s)!`)
       setUploadFile(null)
+      setUploadBatchName('')
       onRefresh()
       
       // Close modal after 2 seconds
@@ -6148,15 +6156,25 @@ function POSMachinesTab({
       <AnimatePresence>
         {showBulkAssignModal && (() => {
           const aq = bulkModalSearch.toLowerCase()
-          const assignSearched = posMachines.filter((m) => {
-            // Only In Stock devices can be assigned. Exclude already-assigned machines.
-            if ((m.inventory_status || '') !== 'in_stock') return false
+          // Only In Stock devices can be assigned. Exclude already-assigned machines.
+          const inStockMachines = posMachines.filter((m) => (m.inventory_status || '') === 'in_stock')
+          const batchOptions = Array.from(
+            inStockMachines.reduce((map, m) => {
+              const b = (m.upload_batch || '').trim()
+              if (b) map.set(b, (map.get(b) || 0) + 1)
+              return map
+            }, new Map<string, number>())
+          ).sort((a, b) => (a[0] < b[0] ? 1 : -1))
+          const assignSearched = inStockMachines.filter((m) => {
+            if (bulkAssignBatchFilter !== 'all' && (m.upload_batch || '') !== bulkAssignBatchFilter) return false
             if (!aq) return true
             return (
               m.machine_id.toLowerCase().includes(aq) ||
               (m.tid || '').toLowerCase().includes(aq) ||
               (m.serial_number || '').toLowerCase().includes(aq) ||
-              (m.mid || '').toLowerCase().includes(aq)
+              (m.mid || '').toLowerCase().includes(aq) ||
+              (m.brand || '').toLowerCase().includes(aq) ||
+              (m.location || '').toLowerCase().includes(aq)
             )
           })
           const assignPickedCount = bulkModalPickedIds.size
@@ -6192,11 +6210,33 @@ function POSMachinesTab({
                 {/* Step 1: Select machines */}
                 <div className="mb-4">
                   <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">1. Select machines ({assignPickedCount} selected)</h3>
+                  {batchOptions.length > 0 && (
+                    <div className="flex flex-col sm:flex-row gap-2 mb-2">
+                      <select
+                        value={bulkAssignBatchFilter}
+                        onChange={(e) => setBulkAssignBatchFilter(e.target.value)}
+                        className="flex-1 px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+                      >
+                        <option value="all">All upload batches</option>
+                        {batchOptions.map(([b, c]) => (
+                          <option key={b} value={b}>{b} ({c})</option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        onClick={() => { const next = new Set(bulkModalPickedIds); assignSearched.forEach((m) => next.add(m.id)); setBulkModalPickedIds(next) }}
+                        disabled={assignSearched.length === 0}
+                        className="px-3 py-2 text-sm font-medium text-green-700 dark:text-green-300 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg hover:bg-green-100 dark:hover:bg-green-900/30 disabled:opacity-50 whitespace-nowrap"
+                      >
+                        Select all {assignSearched.length}
+                      </button>
+                    </div>
+                  )}
                   <div className="relative mb-2">
                     <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
                     <input
                       type="text"
-                      placeholder="Search by TID, Machine ID, SN, MID…"
+                      placeholder="Search by TID, Machine ID, SN, MID, brand, location…"
                       value={bulkModalSearch}
                       onChange={(e) => setBulkModalSearch(e.target.value)}
                       className="w-full pl-8 pr-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
@@ -6357,7 +6397,7 @@ function POSMachinesTab({
                   <div className="p-3 mb-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg text-sm text-green-800 dark:text-green-300 whitespace-pre-line">{bulkAssignSummary}</div>
                 )}
                 <div className="flex justify-end gap-2 pt-3 border-t border-gray-200 dark:border-gray-700">
-                  <button type="button" onClick={() => !bulkAssigning && setShowBulkAssignModal(false)} disabled={bulkAssigning} className="px-4 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700">
+                  <button type="button" onClick={() => { if (!bulkAssigning) { setShowBulkAssignModal(false); setBulkAssignBatchFilter('all') } }} disabled={bulkAssigning} className="px-4 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700">
                     Cancel
                   </button>
                   <button
@@ -6410,6 +6450,7 @@ function POSMachinesTab({
                         if (data.failed_count === 0) {
                           setSelectedItems(new Set())
                           setBulkModalPickedIds(new Set())
+                          setBulkAssignBatchFilter('all')
                           setShowBulkAssignModal(false)
                           onRefresh()
                         } else {
@@ -6850,6 +6891,23 @@ function POSMachinesTab({
                   </div>
                 )}
 
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Batch / company name <span className="text-gray-400 font-normal">(optional)</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={uploadBatchName}
+                    onChange={(e) => setUploadBatchName(e.target.value)}
+                    disabled={uploading}
+                    placeholder="e.g. HDFC Eros Mall Sept"
+                    className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+                  />
+                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    All machines in this file get tagged with this name. Later, filter by it in <strong>Bulk Assign</strong> to select the whole batch in one click. Leave blank to auto-tag with the upload time.
+                  </p>
+                </div>
+
                 {uploadError && (
                   <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
                     <p className="text-sm text-red-800 dark:text-red-300 whitespace-pre-line">
@@ -6871,7 +6929,7 @@ function POSMachinesTab({
                     CSV Format Requirements:
                   </h3>
                   <ul className="text-xs text-gray-600 dark:text-gray-400 space-y-1 list-disc list-inside">
-                    <li><strong>Stock intake only:</strong> columns are serial_number, MID, TID, Brand, machine_type, inventory_status, status, delivery_date, installation_date, location, city, state, pincode, notes (no retailer/distributor/master_distributor).</li>
+                    <li><strong>Stock intake only:</strong> columns are serial_number, MID, TID, Brand, machine_type, inventory_status, status, delivery_date, installation_date, location, city, state, pincode, notes (no retailer/distributor/master_distributor). Optional <code className="text-primary-600 dark:text-primary-400">upload_batch</code> column tags each row; if the field above is set, it applies to rows without their own batch.</li>
                     <li><strong>inventory_status</strong> must be exactly <code className="text-primary-600 dark:text-primary-400">in_stock</code>. Assign machines to retailers using the normal POS flow, not this upload.</li>
                     <li>Machine ID is stored as <code className="text-primary-600 dark:text-primary-400">MID_TID</code>. MID and TID are required; serial_number is required.</li>
                     <li><strong>machine_type:</strong> POS, WPOS, or Mini-ATM</li>
@@ -6886,6 +6944,7 @@ function POSMachinesTab({
                     onClick={() => {
                       setShowBulkUploadModal(false)
                       setUploadFile(null)
+                      setUploadBatchName('')
                       setUploadError(null)
                       setUploadSuccess(null)
                     }}

@@ -87,6 +87,8 @@ export async function POST(request: NextRequest) {
     const formData = await request.formData()
     const entry = (formData as unknown as { get(name: string): File | string | null }).get('file')
     const file = entry instanceof File ? entry : null
+    const batchNameEntry = (formData as unknown as { get(name: string): File | string | null }).get('batch_name')
+    const rawBatchName = typeof batchNameEntry === 'string' ? batchNameEntry.trim() : ''
 
     if (!file) {
       return NextResponse.json(
@@ -169,6 +171,10 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       )
     }
+
+    // Batch label stamped on every machine in this file, so the batch can be
+    // filtered and bulk-assigned later without the original spreadsheet.
+    const uploadBatch = rawBatchName || `Upload ${new Date().toISOString().slice(0, 16).replace('T', ' ')} UTC`
 
     // Parse data rows → DB insert payloads
     const insertRows: Record<string, unknown>[] = []
@@ -295,6 +301,9 @@ export async function POST(request: NextRequest) {
       if (row.pincode) posMachineData.pincode = String(row.pincode).trim()
       if (row.notes) posMachineData.notes = String(row.notes).trim()
       if (row.brand) posMachineData.brand = String(row.brand).trim()
+      // Per-row upload_batch column (optional) takes precedence over the file-level batch name.
+      const rowBatch = row.upload_batch ? String(row.upload_batch).trim() : ''
+      posMachineData.upload_batch = rowBatch || uploadBatch
       posMachineData.mid = mid
       posMachineData.tid = tid
 
@@ -337,7 +346,7 @@ export async function POST(request: NextRequest) {
     // POS History: one "created" row per machine (stock intake) + Performance: single activity_logs row
     if (insertedMachines && insertedMachines.length > 0) {
       const batchRef = `${Date.now().toString(36)}`
-      const batchNote = `Bulk stock upload [${batchRef}] · ${insertedMachines.length} machine(s) in file`
+      const batchNote = `Bulk stock upload "${uploadBatch}" [${batchRef}] · ${insertedMachines.length} machine(s) in file`
 
       const now = new Date().toISOString()
       const historyRecords = insertedMachines.map((m: { id: string; machine_id: string }) => ({
@@ -370,6 +379,7 @@ export async function POST(request: NextRequest) {
           reference_id: insertedMachines[0]?.id,
           metadata: {
             batch_ref: batchRef,
+            upload_batch: uploadBatch,
             count: insertedMachines.length,
             machine_ids: insertedMachines.map((m: { machine_id: string }) => m.machine_id).slice(0, 100),
           },

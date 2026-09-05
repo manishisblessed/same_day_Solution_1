@@ -405,6 +405,7 @@ export interface POSMachine {
   state?: string
   pincode?: string
   notes?: string
+  upload_batch?: string  // Label of the bulk-upload batch this machine came in with (for grouped bulk assignment)
   created_at: string
   updated_at: string
 }
