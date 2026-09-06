@@ -8,7 +8,7 @@ import {
   Settings,
   Activity, X, Menu, CreditCard, Receipt, CheckCircle2, ArrowUpCircle,
   Building2, FileBarChart, Layers, Key, Timer, History, Repeat, ScrollText, Wallet,
-  Fingerprint, Server, TrendingUp, Scale, BarChart3, RotateCcw, UserPlus, CalendarDays, Network
+  Fingerprint, Server, TrendingUp, Scale, BarChart3, RotateCcw, UserPlus, CalendarDays, Network, KeyRound
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { supabase } from '@/lib/supabase/client'
@@ -67,8 +67,12 @@ const sidebarItems: SidebarItem[] = [
   { id: 'portal-management', label: 'Portal Management', icon: Server, href: '/admin?tab=portal-management' },
   { id: 'legal-agreements', label: 'Legal Agreements', icon: Scale, href: '/admin/agreements' },
   { id: 'reversals', label: 'Reversals', icon: RotateCcw, href: '/admin/reversals' },
+  { id: 'credentials', label: 'Credentials', icon: KeyRound, href: '/admin/credentials' },
   { id: 'settings', label: 'Settings', icon: Settings, href: '/admin/settings' },
 ]
+
+// Items only ever visible to a strict super_admin (never department-grantable).
+const SUPER_ADMIN_ONLY = new Set<string>(['credentials'])
 
 export default function AdminSidebar({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
   const pathname = usePathname()
@@ -121,7 +125,9 @@ export default function AdminSidebar({ isOpen, onClose }: { isOpen: boolean; onC
   // only appear for finance-backed sub-admins that were granted them.
   const isFinanceItem = (id: string) => id.startsWith('finance-')
   const filteredItems = sidebarItems.filter(item =>
-    isFinanceItem(item.id)
+    SUPER_ADMIN_ONLY.has(item.id)
+      ? adminType === 'super_admin'
+      : isFinanceItem(item.id)
       ? adminDepartments.includes(item.id)
       : adminType === 'super_admin' || adminDepartments.includes(item.id)
   )
