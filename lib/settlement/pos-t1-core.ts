@@ -133,6 +133,13 @@ export async function runPosT1Settlement(
   // drain loop never spins on the same rows.
   const skippedThisRun = new Set<string>()
 
+  // Never pay out on a transaction the Pine Labs reconciliation flipped to a
+  // terminal state (FAILED/VOID/REFUND stamps reversed_at). When
+  // PINELAB_SETTLEMENT_REQUIRE_VERIFIED is enabled, additionally require that
+  // recon has POSITIVELY confirmed the Pine Labs settlement before paying out
+  // (defends against a txn that only fails at batch close, up to ~14 days later).
+  const requireVerified = process.env.PINELAB_SETTLEMENT_REQUIRE_VERIFIED === 'true'
+
   for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
     const { data: batch, error: fetchError } = await supabase
       .from('razorpay_pos_transactions')
@@ -141,6 +148,7 @@ export async function runPosT1Settlement(
       .eq('wallet_credited', false)
       .eq('t1_excluded_pre_start', false)
       .is('settlement_mode', null)
+      .is('reversed_at', null) // exclude anything recon marked reversed/failed
       .not('retailer_id', 'is', null)
       .lt('transaction_time', cutoffDate.toISOString())
       .order('transaction_time', { ascending: true })
@@ -153,7 +161,20 @@ export async function runPosT1Settlement(
     if (!batch || batch.length === 0) break
 
     // Drop rows we already decided to skip this run (paused / MDR-fail).
-    const fresh = batch.filter((t: any) => !skippedThisRun.has(t.id))
+    let fresh = batch.filter((t: any) => !skippedThisRun.has(t.id))
+
+    // Safe-payout gate: a Pine Labs (PL_) txn must be recon-verified as settled.
+    // Non-Pine-Labs rows are unaffected. Unverified PL_ rows are skipped this
+    // run (not permanently excluded) so they settle once recon confirms them.
+    if (requireVerified) {
+      for (const t of fresh) {
+        if (String(t.txn_id || '').startsWith('PL_') && t.pinelab_settlement_verified !== true) {
+          skippedThisRun.add(t.id)
+        }
+      }
+      fresh = fresh.filter((t: any) => !skippedThisRun.has(t.id))
+    }
+
     if (fresh.length === 0) break
 
     let creditedThisIteration = 0

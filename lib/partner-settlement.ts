@@ -32,9 +32,16 @@ export function validatePartnerTxnForSettlement(txn: {
   txn_type?: string | null
   gross_amount?: number | null
   amount?: number | null
+  reversed_at?: string | null
 }): { ok: boolean; reason?: string } {
   const status = (txn.display_status || '').trim().toUpperCase()
   const type = (txn.txn_type || 'CHARGE').trim().toUpperCase()
+
+  // Reconciliation stamps reversed_at when Pine Labs later reports the txn as
+  // FAILED/VOID/REFUND — never pay out on it regardless of the (stale) status.
+  if (txn.reversed_at) {
+    return { ok: false, reason: 'transaction reversed/failed upstream (reversed_at set)' }
+  }
 
   if (NON_SETTLEABLE_TYPES.includes(type)) {
     return { ok: false, reason: `non-settleable txn_type '${type}'` }

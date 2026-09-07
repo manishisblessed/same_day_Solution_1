@@ -88,6 +88,9 @@ interface RazorpayTransaction {
   // Dates
   posting_date: string | null
   settled_on: string | null
+  // Reversal tracking (Failed Transactions tab)
+  reversed_at: string | null
+  reversal_reason: string | null
   // Receipt
   customer_receipt_url: string | null
   // Raw payload
@@ -115,6 +118,8 @@ function RazorpayTransactionsPageContent() {
   const [stats, setStats] = useState({ capturedAmount: 0, avgAmount: 0 })
   const [expandedTxn, setExpandedTxn] = useState<string | null>(null)
   const [showRawJson, setShowRawJson] = useState<string | null>(null)
+  // Tab: 'all' = captured/normal transactions, 'failed' = captured-then-failed
+  const [activeTab, setActiveTab] = useState<'all' | 'failed'>('all')
   
   // Filters
   const [dateFrom, setDateFrom] = useState('')
@@ -242,6 +247,7 @@ function RazorpayTransactionsPageContent() {
       const params = new URLSearchParams()
       params.set('page', String(page))
       params.set('limit', String(pageSize))
+      if (activeTab === 'failed') params.set('view', 'failed')
       if (appliedFilters.dateFrom) params.set('date_from', appliedFilters.dateFrom)
       if (appliedFilters.dateTo) params.set('date_to', appliedFilters.dateTo)
       if (appliedFilters.search) params.set('search', appliedFilters.search)
@@ -290,7 +296,7 @@ function RazorpayTransactionsPageContent() {
         setLoading(false)
       }
     }
-  }, [user, page, pageSize, appliedFilters, archivedSlugs])
+  }, [user, page, pageSize, appliedFilters, archivedSlugs, activeTab])
 
   // Load archived companies once so the default view can hide them.
   useEffect(() => {
@@ -489,6 +495,7 @@ function RazorpayTransactionsPageContent() {
     switch (col) {
       case 'txn_id': return txn.txn_id || ''
       case 'date': return txn.created_time || ''
+      case 'failed_at': return txn.reversed_at || ''
       case 'consumer': return txn.customer_name || txn.payer_name || ''
       case 'company': return txn.merchant_slug || ''
       case 'provider': return txn.service_provider || 'RAZORPAY'
@@ -762,6 +769,43 @@ function RazorpayTransactionsPageContent() {
             </div>
           </div>
 
+          {/* Tabs: Transactions | Failed Transactions */}
+          <div className="flex items-center gap-1 border-b border-gray-200 dark:border-gray-700">
+            <button
+              onClick={() => { if (activeTab !== 'all') { setActiveTab('all'); setPage(1); setColFilters({}) } }}
+              className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
+                activeTab === 'all'
+                  ? 'border-primary-600 text-primary-600 dark:text-primary-400'
+                  : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+              }`}
+            >
+              <CreditCard className="w-4 h-4" />
+              Transactions
+            </button>
+            <button
+              onClick={() => { if (activeTab !== 'failed') { setActiveTab('failed'); setPage(1); setColFilters({}) } }}
+              className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
+                activeTab === 'failed'
+                  ? 'border-red-600 text-red-600 dark:text-red-400'
+                  : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+              }`}
+            >
+              <AlertTriangle className="w-4 h-4" />
+              Failed Transactions
+            </button>
+          </div>
+
+          {activeTab === 'failed' && (
+            <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-3 flex items-start gap-2">
+              <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 mt-0.5 flex-shrink-0" />
+              <p className="text-xs text-amber-800 dark:text-amber-300">
+                Transactions that were captured on the terminal but later reported as <strong>failed/reversed</strong> by
+                the provider (caught by the reconciliation job). <strong>Captured At</strong> is when the sale was recorded;
+                <strong> Failed At</strong> is when the provider flipped it. None of these are settled to any wallet.
+              </p>
+            </div>
+          )}
+
           {/* Error Message */}
           {error && (
             <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
@@ -780,10 +824,10 @@ function RazorpayTransactionsPageContent() {
             </div>
             <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4">
               <div className="flex items-center gap-2 mb-1">
-                <Banknote className="w-4 h-4 text-emerald-500" />
-                <span className="text-xs text-gray-500 dark:text-gray-400">Captured Amount</span>
+                <Banknote className={`w-4 h-4 ${activeTab === 'failed' ? 'text-red-500' : 'text-emerald-500'}`} />
+                <span className="text-xs text-gray-500 dark:text-gray-400">{activeTab === 'failed' ? 'Failed Amount' : 'Captured Amount'}</span>
               </div>
-              <p className="text-xl font-bold text-emerald-600 truncate" title={formatAmount(capturedAmount)}>{formatAmount(capturedAmount)}</p>
+              <p className={`text-xl font-bold truncate ${activeTab === 'failed' ? 'text-red-600' : 'text-emerald-600'}`} title={formatAmount(capturedAmount)}>{formatAmount(capturedAmount)}</p>
             </div>
             <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4">
               <div className="flex items-center gap-2 mb-1">
@@ -1064,7 +1108,8 @@ function RazorpayTransactionsPageContent() {
                     <th className="px-3 py-2 w-8" />
                     {([
                       { key: 'txn_id', label: 'Transaction ID' },
-                      { key: 'date', label: 'Date' },
+                      { key: 'date', label: activeTab === 'failed' ? 'Captured At' : 'Date' },
+                      ...(activeTab === 'failed' ? [{ key: 'failed_at', label: 'Failed At' }] : []),
                       { key: 'consumer', label: 'Consumer' },
                       { key: 'company', label: 'Company' },
                       { key: 'provider', label: 'Provider' },
@@ -1103,10 +1148,16 @@ function RazorpayTransactionsPageContent() {
                     <th className="px-2 py-1.5">
                       <input value={colFilters['txn_id'] || ''} onChange={e => setColFilter('txn_id', e.target.value)} placeholder="Filter…" className="w-full px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-1 focus:ring-primary-500 focus:border-transparent placeholder-gray-400 min-w-[100px]" />
                     </th>
-                    {/* Date */}
+                    {/* Date / Captured At */}
                     <th className="px-2 py-1.5">
                       <input value={colFilters['date'] || ''} onChange={e => setColFilter('date', e.target.value)} placeholder="Filter…" className="w-full px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-1 focus:ring-primary-500 focus:border-transparent placeholder-gray-400 min-w-[90px]" />
                     </th>
+                    {/* Failed At (failed tab only) */}
+                    {activeTab === 'failed' && (
+                      <th className="px-2 py-1.5">
+                        <input value={colFilters['failed_at'] || ''} onChange={e => setColFilter('failed_at', e.target.value)} placeholder="Filter…" className="w-full px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-1 focus:ring-primary-500 focus:border-transparent placeholder-gray-400 min-w-[90px]" />
+                      </th>
+                    )}
                     {/* Consumer */}
                     <th className="px-2 py-1.5">
                       <input value={colFilters['consumer'] || ''} onChange={e => setColFilter('consumer', e.target.value)} placeholder="Filter…" className="w-full px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-1 focus:ring-primary-500 focus:border-transparent placeholder-gray-400 min-w-[90px]" />
@@ -1187,7 +1238,7 @@ function RazorpayTransactionsPageContent() {
                 <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
                   {displayedTransactions.length === 0 ? (
                     <tr>
-                      <td colSpan={15} className="px-6 py-12 text-center text-gray-500 dark:text-gray-400">
+                      <td colSpan={activeTab === 'failed' ? 16 : 15} className="px-6 py-12 text-center text-gray-500 dark:text-gray-400">
                         <div className="flex flex-col items-center gap-2">
                           {loading ? (
                             <>
@@ -1248,6 +1299,11 @@ function RazorpayTransactionsPageContent() {
                           <td className="px-3 py-3 whitespace-nowrap text-xs text-gray-900 dark:text-gray-100">
                             {formatDate(txn.created_time)}
                           </td>
+                          {activeTab === 'failed' && (
+                            <td className="px-3 py-3 whitespace-nowrap text-xs text-red-600 dark:text-red-400" title={txn.reversal_reason || ''}>
+                              {txn.reversed_at ? formatDate(txn.reversed_at) : '-'}
+                            </td>
+                          )}
                           <td className="px-3 py-3 whitespace-nowrap text-xs text-gray-600 dark:text-gray-400 max-w-[140px] truncate" title={txn.customer_name || txn.payer_name || '-'}>
                             {txn.customer_name || txn.payer_name || '-'}
                           </td>
@@ -1328,7 +1384,7 @@ function RazorpayTransactionsPageContent() {
                               exit={{ opacity: 0, height: 0 }}
                               transition={{ duration: 0.2 }}
                             >
-                              <td colSpan={15} className="px-0 py-0">
+                              <td colSpan={activeTab === 'failed' ? 16 : 15} className="px-0 py-0">
                                 <div className="bg-gray-50 dark:bg-gray-900/50 border-t border-b border-gray-200 dark:border-gray-700">
                                   <div className="p-6">
                                     <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
@@ -1385,9 +1441,15 @@ function RazorpayTransactionsPageContent() {
                                       <DetailItem label="Service Provider" value={txn.service_provider || 'RAZORPAY'} />
                                       
                                       {/* Dates */}
-                                      <DetailItem icon={<Calendar className="w-4 h-4" />} label="Transaction Time" value={formatDate(txn.created_time)} />
+                                      <DetailItem icon={<Calendar className="w-4 h-4" />} label={activeTab === 'failed' ? 'Captured At' : 'Transaction Time'} value={formatDate(txn.created_time)} />
                                       <DetailItem label="Posting Date" value={formatDate(txn.posting_date)} />
                                       <DetailItem label="Settled On" value={formatDate(txn.settled_on)} />
+                                      {txn.reversed_at && (
+                                        <DetailItem icon={<XCircle className="w-4 h-4" />} label="Failed At" value={formatDate(txn.reversed_at)} />
+                                      )}
+                                      {txn.reversal_reason && (
+                                        <DetailItem icon={<AlertTriangle className="w-4 h-4" />} label="Failure Reason" value={txn.reversal_reason} />
+                                      )}
                                       
                                       {/* Receipt */}
                                       {txn.customer_receipt_url && (

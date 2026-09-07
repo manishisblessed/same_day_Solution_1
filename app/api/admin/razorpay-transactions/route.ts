@@ -81,6 +81,11 @@ export async function GET(request: NextRequest) {
     const cardBrand = searchParams.get('card_brand') // Filter by card brand
     const merchantSlug = searchParams.get('merchant_slug') // Filter by company: all | ashvam | teachway | newscenaric | lagoon
     const acquiringBank = searchParams.get('acquiring_bank') // Filter by acquiring bank (partial match)
+    // view=failed → the "Failed Transactions" tab: transactions that were served
+    // as captured and later reversed/failed upstream (reversed_at stamped by the
+    // Pine Labs reconciliation job). Shows captured-time vs failed-time.
+    const view = searchParams.get('view')
+    const failedView = view === 'failed'
 
     // Validate pagination
     if (page < 1 || limit < 1) {
@@ -90,21 +95,27 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // Fix misclassified transactions: raw status CAPTURED/SUCCESS should be display_status SUCCESS
-    // This handles records that were stored before the mapTransactionStatus fix
-    // Also covers SETTLEMENT_POSTED from report uploads
+    // Legacy heal: raw status CAPTURED/SUCCESS should be display_status SUCCESS
+    // for records stored before the mapTransactionStatus fix (also covers
+    // SETTLEMENT_POSTED from report uploads).
+    // SCOPED so it can never re-promote a reconciliation-flipped failure:
+    //   - excludes Pine Labs (PL_) rows entirely — their status is owned by the
+    //     sync + reconciliation jobs, never this heal.
+    //   - excludes any row already stamped reversed_at (failed/voided upstream).
     await supabase
       .from('razorpay_pos_transactions')
       .update({ display_status: 'SUCCESS' })
       .eq('display_status', 'PENDING')
       .in('status', ['CAPTURED', 'SUCCESS', 'AUTHORIZED', 'SETTLEMENT_POSTED'])
+      .is('reversed_at', null)
+      .not('txn_id', 'ilike', 'PL\\_%')
 
     // Build query from razorpay_pos_transactions (the table webhook writes to)
     // Select dedicated columns + raw_data for fallback extraction
     let query = supabase
       .from('razorpay_pos_transactions')
-      .select('txn_id, amount, payment_mode, display_status, status, transaction_time, raw_data, tid, device_serial, merchant_name, merchant_slug, customer_name, payer_name, username, txn_type, auth_code, card_number, issuing_bank, card_classification, mid_code, card_brand, card_type, currency, rrn, external_ref, settlement_status, settled_on, receipt_url, posting_date, acquiring_bank', { count: 'exact' })
-      .order('transaction_time', { ascending: false, nullsFirst: false })
+      .select('txn_id, amount, payment_mode, display_status, status, transaction_time, raw_data, tid, device_serial, merchant_name, merchant_slug, customer_name, payer_name, username, txn_type, auth_code, card_number, issuing_bank, card_classification, mid_code, card_brand, card_type, currency, rrn, external_ref, settlement_status, settled_on, receipt_url, posting_date, acquiring_bank, reversed_at, reversal_reason', { count: 'exact' })
+      .order(failedView ? 'reversed_at' : 'transaction_time', { ascending: false, nullsFirst: false })
       .range(offset, offset + limit - 1)
 
     // Apply company (merchant) filter: supports multiple comma-separated slugs
@@ -129,16 +140,25 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // Apply status filter if provided (filter on display_status: SUCCESS, FAILED, PENDING).
-    // By default (no explicit status filter) FAILED transactions are hidden from the tab;
-    // selecting the "Failed" filter still shows them for inspection.
-    if (statusFilter && ['CAPTURED', 'FAILED', 'PENDING'].includes(statusFilter.toUpperCase())) {
+    // Failed Transactions tab: captured-then-reversed rows only. The single
+    // source of truth for "captured but later failed" is reversed_at (stamped by
+    // the reconciliation job). We deliberately do NOT gate on display_status here
+    // because a DB trigger currently pins Pine Labs display_status to SUCCESS —
+    // reversed_at survives that trigger, so it's the reliable failure signal.
+    if (failedView) {
+      query = query.not('reversed_at', 'is', null)
+    } else if (statusFilter && ['CAPTURED', 'FAILED', 'PENDING'].includes(statusFilter.toUpperCase())) {
+      // Apply status filter if provided (filter on display_status: SUCCESS, FAILED, PENDING).
       const displayStatus = statusFilter.toUpperCase() === 'CAPTURED' ? 'SUCCESS' : statusFilter.toUpperCase()
       query = query.eq('display_status', displayStatus)
+      // Even when filtering CAPTURED, never surface a reconciled failure as captured.
+      if (displayStatus === 'SUCCESS') query = query.is('reversed_at', null)
     } else {
-      // Default: hide failed + reversed (voided/refunded/cancelled). These stay in
-      // the DB and flow to partners via the API; not shown in the admin tab by default.
-      query = query.not('display_status', 'in', '(FAILED,VOIDED,REFUNDED,CANCELLED)')
+      // Default: hide failed + reversed. These stay in the DB and flow to
+      // partners via the API; not shown in the admin captured tab by default.
+      query = query
+        .not('display_status', 'in', '(FAILED,VOIDED,REFUNDED,CANCELLED)')
+        .is('reversed_at', null)
     }
 
     // Apply date range filter (IST boundaries — +05:30 offset)
@@ -224,8 +244,14 @@ export async function GET(request: NextRequest) {
       let amountQuery = supabase
         .from('razorpay_pos_transactions')
         .select('amount')
-        .eq('display_status', statsDisplayStatus)
         .range(statsOffset, statsOffset + pageLimit - 1)
+
+      if (failedView) {
+        amountQuery = amountQuery.not('reversed_at', 'is', null)
+      } else {
+        amountQuery = amountQuery.eq('display_status', statsDisplayStatus)
+        if (statsDisplayStatus === 'SUCCESS') amountQuery = amountQuery.is('reversed_at', null)
+      }
 
       // Apply all filters EXCEPT status (already handled above)
       if (merchantSlug && merchantSlug !== 'all') {
@@ -288,8 +314,12 @@ export async function GET(request: NextRequest) {
         txn_id: txn.txn_id,
         amount: txn.amount,
         payment_mode: txn.payment_mode,
-        // Map display_status back to frontend status: SUCCESS→CAPTURED
-        status: txn.display_status === 'SUCCESS' ? 'CAPTURED' : (txn.display_status || txn.status || 'PENDING'),
+        // Map to frontend status. reversed_at wins over display_status because a
+        // DB trigger currently keeps Pine Labs display_status pinned to SUCCESS;
+        // a reconciled reversal must still surface as FAILED.
+        status: txn.reversed_at
+          ? 'FAILED'
+          : (txn.display_status === 'SUCCESS' ? 'CAPTURED' : (txn.display_status || txn.status || 'PENDING')),
         settlement_status: txn.settlement_status || txn.raw_data?.settlementStatus || null,
         created_time: txn.transaction_time,
         service_provider: txn.raw_data?._brand || 'RAZORPAY',
@@ -324,6 +354,9 @@ export async function GET(request: NextRequest) {
         // Dates
         posting_date: txn.posting_date || txn.raw_data?.postingDate || null,
         settled_on: txn.settled_on || txn.raw_data?.settledOn || txn.raw_data?.settlementDate || null,
+        // Reversal tracking (Failed Transactions tab): when/why a captured txn failed
+        reversed_at: txn.reversed_at || null,
+        reversal_reason: txn.reversal_reason || null,
         // Receipt
         customer_receipt_url: txn.receipt_url || txn.raw_data?.customerReceiptUrl || txn.raw_data?.receiptUrl || null,
         // Raw data for JSON view

@@ -71,6 +71,14 @@ export async function register() {
     }
 
     try {
+      const { initPinelabReconcileCron } = await import('@/lib/cron/pinelab-reconcile-cron')
+      await initPinelabReconcileCron()
+      console.log('[Instrumentation] Pinelab Reconcile Cron initialized successfully')
+    } catch (err) {
+      console.error('[Instrumentation] Failed to initialize Pinelab Reconcile cron:', err)
+    }
+
+    try {
       const { initPartnerSettlementCheckCron } = await import('@/lib/cron/partner-settlement-check-cron')
       await initPartnerSettlementCheckCron()
       console.log('[Instrumentation] Partner Settlement Check Cron initialized successfully')
