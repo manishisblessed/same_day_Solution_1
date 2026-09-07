@@ -63,10 +63,11 @@ import MasterPartnerTransactionsTab from '@/components/partner/MasterPartnerTran
 import { Crown, Sparkles, BarChart3, Zap, Scale, Server, Users2 } from 'lucide-react'
 import { useToast } from '@/components/Toast'
 import SubPartnersManagement from '@/components/partner/SubPartnersManagement'
+import UserPushPullReport from '@/components/UserPushPullReport'
 import ExportDropdown, { type ExportFormat } from '@/components/ExportDropdown'
 import { exportTable } from '@/lib/export/table-export'
 
-type TabType = 'dashboard' | 'wallet' | 'services' | 'aeps' | 'bbps' | 'bbps-2' | 'credit-card' | 'credit-card-2' | 'api-payment' | 'payout' | 'settlement-2' | 'transactions' | 'ledger' | 'aeps-ledger' | 'mdr-schemes' | 'reports' | 'settings' | 'pos-machines' | 'subscriptions' | 'api-management' | 'analytics' | 'api-dashboard' | 'reconciliation' | 'sub-partners' | 'master-report' | 'master-schemes' | 'master-transactions'
+type TabType = 'dashboard' | 'wallet' | 'services' | 'aeps' | 'bbps' | 'bbps-2' | 'credit-card' | 'credit-card-2' | 'api-payment' | 'payout' | 'settlement-2' | 'transactions' | 'ledger' | 'aeps-ledger' | 'push-pull' | 'mdr-schemes' | 'reports' | 'settings' | 'pos-machines' | 'subscriptions' | 'api-management' | 'analytics' | 'api-dashboard' | 'reconciliation' | 'sub-partners' | 'master-report' | 'master-schemes' | 'master-transactions'
 
 function PartnerDashboardContent() {
   const { user, loading: authLoading } = useAuth()
@@ -92,7 +93,7 @@ function PartnerDashboardContent() {
   
   const getInitialTab = (): TabType => {
     const tab = searchParams?.get('tab')
-    if (tab && ['dashboard', 'wallet', 'services', 'aeps', 'bbps', 'bbps-2', 'credit-card', 'credit-card-2', 'api-payment', 'payout', 'settlement-2', 'transactions', 'ledger', 'aeps-ledger', 'mdr-schemes', 'reports', 'settings', 'pos-machines', 'subscriptions', 'api-management', 'analytics', 'api-dashboard', 'reconciliation', 'sub-partners', 'master-report', 'master-schemes', 'master-transactions'].includes(tab)) {
+    if (tab && ['dashboard', 'wallet', 'services', 'aeps', 'bbps', 'bbps-2', 'credit-card', 'credit-card-2', 'api-payment', 'payout', 'settlement-2', 'transactions', 'ledger', 'aeps-ledger', 'push-pull', 'mdr-schemes', 'reports', 'settings', 'pos-machines', 'subscriptions', 'api-management', 'analytics', 'api-dashboard', 'reconciliation', 'sub-partners', 'master-report', 'master-schemes', 'master-transactions'].includes(tab)) {
       return tab as TabType
     }
     return 'dashboard'
@@ -130,7 +131,7 @@ function PartnerDashboardContent() {
 
   useEffect(() => {
     const tab = searchParams?.get('tab')
-    if (tab && ['dashboard', 'wallet', 'services', 'aeps', 'bbps', 'bbps-2', 'credit-card', 'credit-card-2', 'api-payment', 'payout', 'settlement-2', 'transactions', 'ledger', 'aeps-ledger', 'mdr-schemes', 'reports', 'settings', 'pos-machines', 'subscriptions', 'api-management', 'analytics', 'api-dashboard', 'reconciliation', 'sub-partners', 'master-report', 'master-schemes', 'master-transactions'].includes(tab)) {
+    if (tab && ['dashboard', 'wallet', 'services', 'aeps', 'bbps', 'bbps-2', 'credit-card', 'credit-card-2', 'api-payment', 'payout', 'settlement-2', 'transactions', 'ledger', 'aeps-ledger', 'push-pull', 'mdr-schemes', 'reports', 'settings', 'pos-machines', 'subscriptions', 'api-management', 'analytics', 'api-dashboard', 'reconciliation', 'sub-partners', 'master-report', 'master-schemes', 'master-transactions'].includes(tab)) {
       if (tab !== activeTab) {
         setActiveTab(tab as TabType)
       }
@@ -495,6 +496,7 @@ function PartnerDashboardContent() {
           {activeTab === 'settlement-2' && <ShadvalPayTransfer title="Settlement-2 - Bank Transfer" />}
           {activeTab === 'transactions' && <POSTransactionsTable autoPoll={true} pollInterval={15000} />}
           {activeTab === 'ledger' && <PartnerLedgerTab user={user} />}
+          {activeTab === 'push-pull' && <UserPushPullReport user={user} />}
           {activeTab === 'aeps-ledger' && (
             <div className="space-y-6">
               <AEPSWalletLedger user={user} />

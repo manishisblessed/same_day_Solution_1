@@ -29,6 +29,7 @@ const sidebarItems: SidebarItem[] = [
   { id: 'approvals', label: 'Approvals', icon: CheckCircle2, href: '/dashboard/approvals' },
   { id: 'daily-report', label: 'Daily Report', icon: CalendarDays, href: '/dashboard/reports/daily' },
   { id: 'wallet', label: 'Wallet & Settlement', icon: Wallet, href: '/dashboard/distributor?tab=wallet' },
+  { id: 'push-pull', label: 'Push/Pull Report', icon: Repeat, href: '/dashboard/distributor?tab=push-pull' },
   { id: 'pos-machines', label: 'POS Machines', icon: CreditCard, href: '/dashboard/distributor?tab=pos-machines' },
   { id: 'subscriptions', label: 'Subscriptions', icon: Repeat, href: '/dashboard/distributor?tab=subscriptions' },
   { id: 'scheme-management', label: 'Scheme Management', icon: Layers, href: '/dashboard/distributor?tab=scheme-management' },

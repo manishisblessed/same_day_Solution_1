@@ -35,6 +35,7 @@ const sidebarItems: SidebarItem[] = [
   { id: 'transactions', label: 'Transactions', icon: CreditCard, href: '/dashboard/retailer?tab=transactions' },
   { id: 'ledger', label: 'Ledger', icon: BookOpen, href: '/dashboard/retailer?tab=ledger' },
   { id: 'aeps-ledger', label: 'AEPS Ledger', icon: BookOpen, href: '/dashboard/retailer?tab=aeps-ledger' },
+  { id: 'push-pull', label: 'Push/Pull Report', icon: Repeat, href: '/dashboard/retailer?tab=push-pull' },
   { id: 'pos-machines', label: 'My POS Machines', icon: CreditCard, href: '/dashboard/retailer?tab=pos-machines' },
   { id: 'subscriptions', label: 'Subscriptions', icon: Repeat, href: '/dashboard/retailer?tab=subscriptions' },
   { id: 'mdr-schemes', label: 'MDR Schemes', icon: Percent, href: '/dashboard/retailer?tab=mdr-schemes' },

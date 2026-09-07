@@ -33,8 +33,9 @@ import { useToast } from '@/components/Toast'
 import { getPosCompanies } from '@/lib/merchant-companies'
 import ExportDropdown, { type ExportFormat } from '@/components/ExportDropdown'
 import { exportTable } from '@/lib/export/table-export'
+import UserPushPullReport from '@/components/UserPushPullReport'
 
-type TabType = 'dashboard' | 'services' | 'distributors' | 'retailers' | 'wallet' | 'network' | 'commission' | 'analytics' | 'reports' | 'settings' | 'scheme-management' | 'pos-machines' | 'subscriptions'
+type TabType = 'dashboard' | 'services' | 'distributors' | 'retailers' | 'wallet' | 'network' | 'commission' | 'analytics' | 'reports' | 'settings' | 'scheme-management' | 'pos-machines' | 'subscriptions' | 'push-pull'
 
 type ChangePasswordFormProps = {
   onPasswordChange: (current: string, newPassword: string, confirm: string) => void
@@ -53,7 +54,7 @@ function MasterDistributorDashboardContent() {
   const getInitialTab = (): TabType => {
     const tab = searchParams?.get('tab')
     if (tab === 'distributors' || tab === 'retailers') return 'network'
-    if (tab && ['dashboard', 'services', 'wallet', 'network', 'commission', 'analytics', 'reports', 'settings', 'scheme-management', 'pos-machines', 'subscriptions'].includes(tab)) {
+    if (tab && ['dashboard', 'services', 'wallet', 'network', 'commission', 'analytics', 'reports', 'settings', 'scheme-management', 'pos-machines', 'subscriptions', 'push-pull'].includes(tab)) {
       return tab as TabType
     }
     return 'dashboard'
@@ -98,7 +99,7 @@ function MasterDistributorDashboardContent() {
     if (tab === 'distributors' || tab === 'retailers') {
       router.replace('/dashboard/master-distributor?tab=network', { scroll: false })
       setActiveTab('network')
-    } else if (tab && ['dashboard', 'services', 'wallet', 'network', 'commission', 'analytics', 'reports', 'settings', 'scheme-management', 'pos-machines', 'subscriptions'].includes(tab)) {
+    } else if (tab && ['dashboard', 'services', 'wallet', 'network', 'commission', 'analytics', 'reports', 'settings', 'scheme-management', 'pos-machines', 'subscriptions', 'push-pull'].includes(tab)) {
       setActiveTab(tab as TabType)
     } else {
       // Default to dashboard if no tab is specified (when on main dashboard page)
@@ -359,6 +360,7 @@ function MasterDistributorDashboardContent() {
           {activeTab === 'commission' && <CommissionTab commissionData={commissionData} stats={stats} />}
           {activeTab === 'analytics' && <AnalyticsTab categoryData={categoryData} revenueData={revenueData} />}
           {activeTab === 'reports' && <ReportsTab user={user} />}
+          {activeTab === 'push-pull' && <UserPushPullReport user={user} />}
           {activeTab === 'settings' && <SettingsTab />}
           {activeTab === 'scheme-management' && <SchemeManagementTab user={user} />}
           {activeTab === 'pos-machines' && <POSMachinesTab user={user} accentColor="yellow" />}

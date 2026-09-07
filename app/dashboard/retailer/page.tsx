@@ -27,6 +27,7 @@ import { BBPS_CATEGORY_GROUPS } from '@/lib/bbps/category-groups'
 import PayoutTransfer from '@/components/PayoutTransfer'
 import ShadvalPayTransfer from '@/components/ShadvalPayTransfer'
 import LedgerTab from '@/components/LedgerTab'
+import UserPushPullReport from '@/components/UserPushPullReport'
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
 import TwoFactorSetup from '@/components/TwoFactorSetup'
 
@@ -57,7 +58,7 @@ import ApiPaymentTab from '@/components/ApiPaymentTab'
 import AEPSWalletLedger from '@/components/AEPSWalletLedger'
 import AEPSTransactionHistory from '@/components/AEPSTransactionHistory'
 
-type TabType = 'dashboard' | 'wallet' | 'services' | 'aeps' | 'bbps' | 'bbps-2' | 'credit-card' | 'credit-card-2' | 'api-payment' | 'payout' | 'settlement-2' | 'transactions' | 'ledger' | 'aeps-ledger' | 'mdr-schemes' | 'reports' | 'settings' | 'pos-machines' | 'subscriptions'
+type TabType = 'dashboard' | 'wallet' | 'services' | 'aeps' | 'bbps' | 'bbps-2' | 'credit-card' | 'credit-card-2' | 'api-payment' | 'payout' | 'settlement-2' | 'transactions' | 'ledger' | 'aeps-ledger' | 'push-pull' | 'mdr-schemes' | 'reports' | 'settings' | 'pos-machines' | 'subscriptions'
 
 function RetailerDashboardContent() {
   const { user, loading: authLoading } = useAuth()
@@ -69,7 +70,7 @@ function RetailerDashboardContent() {
   
   const getInitialTab = (): TabType => {
     const tab = searchParams?.get('tab')
-    if (tab && ['dashboard', 'wallet', 'services', 'aeps', 'bbps', 'bbps-2', 'credit-card', 'credit-card-2', 'api-payment', 'payout', 'settlement-2', 'transactions', 'ledger', 'aeps-ledger', 'mdr-schemes', 'reports', 'settings', 'pos-machines', 'subscriptions'].includes(tab)) {
+    if (tab && ['dashboard', 'wallet', 'services', 'aeps', 'bbps', 'bbps-2', 'credit-card', 'credit-card-2', 'api-payment', 'payout', 'settlement-2', 'transactions', 'ledger', 'aeps-ledger', 'push-pull', 'mdr-schemes', 'reports', 'settings', 'pos-machines', 'subscriptions'].includes(tab)) {
       return tab as TabType
     }
     return 'dashboard'
@@ -121,7 +122,7 @@ function RetailerDashboardContent() {
 
   useEffect(() => {
     const tab = searchParams?.get('tab')
-    if (tab && ['dashboard', 'wallet', 'services', 'aeps', 'bbps', 'bbps-2', 'credit-card', 'credit-card-2', 'api-payment', 'payout', 'settlement-2', 'transactions', 'ledger', 'aeps-ledger', 'mdr-schemes', 'reports', 'settings', 'pos-machines', 'subscriptions'].includes(tab)) {
+    if (tab && ['dashboard', 'wallet', 'services', 'aeps', 'bbps', 'bbps-2', 'credit-card', 'credit-card-2', 'api-payment', 'payout', 'settlement-2', 'transactions', 'ledger', 'aeps-ledger', 'push-pull', 'mdr-schemes', 'reports', 'settings', 'pos-machines', 'subscriptions'].includes(tab)) {
       if (tab !== activeTab) {
         setActiveTab(tab as TabType)
       }
@@ -589,6 +590,7 @@ function RetailerDashboardContent() {
             </>
           )}
           {activeTab === 'ledger' && <LedgerTab user={user} />}
+          {activeTab === 'push-pull' && <UserPushPullReport user={user} />}
           {activeTab === 'aeps-ledger' && (
             <div className="space-y-6">
               <AEPSWalletLedger user={user} />

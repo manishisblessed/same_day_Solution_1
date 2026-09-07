@@ -35,8 +35,9 @@ import ExportDropdown, { type ExportFormat } from '@/components/ExportDropdown'
 import { exportTable } from '@/lib/export/table-export'
 import ShadvalPayTransfer from '@/components/ShadvalPayTransfer'
 import TpinSetup from '@/components/TpinSetup'
+import UserPushPullReport from '@/components/UserPushPullReport'
 
-type TabType = 'dashboard' | 'services' | 'retailers' | 'wallet' | 'commission' | 'mdr-schemes' | 'analytics' | 'reports' | 'settings' | 'scheme-management' | 'pos-machines' | 'subscriptions'
+type TabType = 'dashboard' | 'services' | 'retailers' | 'wallet' | 'commission' | 'mdr-schemes' | 'analytics' | 'reports' | 'settings' | 'scheme-management' | 'pos-machines' | 'subscriptions' | 'push-pull'
 
 type ChangePasswordFormProps = {
   onPasswordChange: (current: string, newPassword: string, confirm: string) => void
@@ -52,7 +53,7 @@ function DistributorDashboardContent() {
   
   const getInitialTab = (): TabType => {
     const tab = searchParams?.get('tab')
-    if (tab && ['dashboard', 'services', 'retailers', 'wallet', 'commission', 'mdr-schemes', 'analytics', 'reports', 'settings', 'scheme-management', 'pos-machines', 'subscriptions'].includes(tab)) {
+    if (tab && ['dashboard', 'services', 'retailers', 'wallet', 'commission', 'mdr-schemes', 'analytics', 'reports', 'settings', 'scheme-management', 'pos-machines', 'subscriptions', 'push-pull'].includes(tab)) {
       return tab as TabType
     }
     return 'dashboard'
@@ -228,7 +229,7 @@ function DistributorDashboardContent() {
       router.replace('/dashboard/distributor?tab=retailers', { scroll: false })
       return
     }
-    if (tab && ['dashboard', 'services', 'retailers', 'wallet', 'commission', 'mdr-schemes', 'analytics', 'reports', 'settings', 'scheme-management', 'pos-machines', 'subscriptions'].includes(tab)) {
+    if (tab && ['dashboard', 'services', 'retailers', 'wallet', 'commission', 'mdr-schemes', 'analytics', 'reports', 'settings', 'scheme-management', 'pos-machines', 'subscriptions', 'push-pull'].includes(tab)) {
       setActiveTab(tab as TabType)
     } else {
       // Default to dashboard if no tab is specified (when on main dashboard page)
@@ -311,6 +312,7 @@ function DistributorDashboardContent() {
           {activeTab === 'mdr-schemes' && <MDRSchemesTab user={user} retailers={retailers} onRefresh={fetchDashboardData} />}
           {activeTab === 'analytics' && <AnalyticsTab categoryData={categoryData} />}
           {activeTab === 'reports' && <ReportsTab user={user} />}
+          {activeTab === 'push-pull' && <UserPushPullReport user={user} />}
           {activeTab === 'settings' && <SettingsTab />}
           {activeTab === 'scheme-management' && <SchemeManagementTab user={user} retailers={retailers} onRefresh={fetchDashboardData} />}
           {activeTab === 'pos-machines' && <POSMachinesTab user={user} accentColor="purple" />}

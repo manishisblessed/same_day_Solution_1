@@ -28,6 +28,7 @@ const sidebarItems: SidebarItem[] = [
   { id: 'subscriptions', label: 'Subscriptions', icon: Repeat, href: '/dashboard/master-distributor?tab=subscriptions' },
   { id: 'scheme-management', label: 'Scheme Management', icon: Layers, href: '/dashboard/master-distributor?tab=scheme-management' },
   { id: 'network', label: 'Network', icon: Network, href: '/dashboard/master-distributor?tab=network' },
+  { id: 'push-pull', label: 'Push/Pull Report', icon: Repeat, href: '/dashboard/master-distributor?tab=push-pull' },
   { id: 'onboarding', label: 'Onboard Partners', icon: UserPlus, href: '/dashboard/onboarding' },
   { id: 'approvals', label: 'Approvals', icon: CheckCircle2, href: '/dashboard/approvals' },
   { id: 'daily-report', label: 'Daily Report', icon: CalendarDays, href: '/dashboard/reports/daily' },
