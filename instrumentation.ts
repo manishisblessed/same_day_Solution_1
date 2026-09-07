@@ -93,6 +93,14 @@ export async function register() {
     } catch (err) {
       console.error('[Instrumentation] Failed to initialize Shadval Reconciliation cron:', err)
     }
+
+    try {
+      const { initPosCallbackRetryCron } = await import('@/lib/cron/pos-callback-retry-cron')
+      await initPosCallbackRetryCron()
+      console.log('[Instrumentation] POS Callback Retry Cron initialized successfully')
+    } catch (err) {
+      console.error('[Instrumentation] Failed to initialize POS Callback Retry cron:', err)
+    }
   }
 
   if (env['NEXT_RUNTIME'] === 'edge') {

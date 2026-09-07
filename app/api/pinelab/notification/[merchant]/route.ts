@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import * as crypto from 'crypto'
 import { deliverPartnerCallback, deliverPartnerReversal } from '@/lib/partner-webhook/deliver'
+import { buildPosTransactionPayload } from '@/lib/partner-webhook/pos-payload'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -321,13 +322,46 @@ export async function POST(
         console.warn(`[PineLab/${merchantSlug}] REVERSAL AFTER SETTLEMENT — clawback needed txn=PL_${txnId} amount=${amount}`)
       }
     } else if (tid) {
+      // Normalized fields are spread OVER the raw provider payload: additive, so
+      // integrations reading raw Pine Labs keys keep working while every channel
+      // now emits the same canonical `pos.transaction` shape.
+      const normalized = buildPosTransactionPayload({
+        txnId: `PL_${txnId}`,
+        status: displayStatus,
+        amount: amount || 0,
+        currency: payload.Currency || 'INR',
+        tid,
+        mid,
+        rrn,
+        authCode,
+        cardBrand,
+        cardType,
+        cardNumber,
+        issuingBank: payload.IssuingBank || payload.issuingBank || null,
+        paymentMode: paymentMode.toUpperCase(),
+        merchantName,
+        merchantSlug,
+        transactionTime: createdTime.toISOString(),
+        brand: 'PINELAB',
+        source: 'pinelab_webhook',
+      })
       void deliverPartnerCallback({
         supabase,
         tid,
         txnId: `PL_${txnId}`,
-        payload: { ...payload, mappedStatus, _brand: 'PINELAB' },
+        payload: { ...payload, mappedStatus, _brand: 'PINELAB', ...normalized },
         logPrefix: `Partner Callback/${merchantSlug}`,
       })
+      // Claim the forward callback so the polling sync never re-dispatches it.
+      // Only for terminal SUCCESS — PENDING/AUTHORIZED webhooks must not block a
+      // later SUCCESS callback from the sync path.
+      if (displayStatus === 'SUCCESS') {
+        void supabase
+          .from('razorpay_pos_transactions')
+          .update({ partner_callback_sent_at: new Date().toISOString() })
+          .eq('txn_id', `PL_${txnId}`)
+          .is('partner_callback_sent_at', null)
+      }
     }
 
     return NextResponse.json({

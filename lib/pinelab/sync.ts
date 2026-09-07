@@ -19,6 +19,7 @@ export interface SyncResult {
   updated: number
   skipped: number
   reversed: number
+  notified: number
   errors: string[]
 }
 
@@ -330,13 +331,63 @@ async function emitReversal(
   }
 }
 
+/**
+ * Emit the forward `pos.transaction` callback for a captured transaction ingested
+ * via the polling sync (Pine Labs does not webhook these to us). Delivered to the
+ * already-resolved owning partner so it can never mismatch attribution. The
+ * caller guards this with `partner_callback_sent_at` for exactly-once delivery.
+ * Best-effort; never throws.
+ */
+async function emitForward(
+  supabase: ReturnType<typeof getSupabaseAdmin>,
+  prefixedId: string,
+  dbRecord: ReturnType<typeof mapToDbRecord>,
+  partnerId: string,
+  result: SyncResult
+): Promise<void> {
+  try {
+    const { deliverPartnerCallbackByPartnerId } = await import('@/lib/partner-webhook/deliver')
+    const { buildPosTransactionPayload } = await import('@/lib/partner-webhook/pos-payload')
+    const payload = buildPosTransactionPayload({
+      txnId: prefixedId,
+      status: dbRecord.display_status,
+      amount: dbRecord.amount,
+      currency: dbRecord.currency,
+      tid: dbRecord.tid,
+      mid: dbRecord.mid_code,
+      rrn: dbRecord.rrn,
+      authCode: dbRecord.auth_code,
+      cardBrand: dbRecord.card_brand,
+      cardType: dbRecord.card_type,
+      cardNumber: dbRecord.card_number,
+      issuingBank: dbRecord.issuing_bank,
+      paymentMode: dbRecord.payment_mode,
+      merchantName: dbRecord.merchant_name,
+      merchantSlug: dbRecord.merchant_slug,
+      transactionTime: dbRecord.transaction_time,
+      brand: 'PINELAB',
+      source: 'pinelab_sync',
+    })
+    await deliverPartnerCallbackByPartnerId({
+      supabase,
+      partnerId,
+      txnId: prefixedId,
+      payload,
+      event: 'pos.transaction',
+      logPrefix: 'Partner Callback/pinelab-sync',
+    })
+  } catch (err: any) {
+    result.errors.push(`Forward notify ${prefixedId}: ${err?.message || err}`)
+  }
+}
+
 async function syncMerchant(
   merchantSlug: string,
   config: PinelabMerchantConfig,
   fromDate: string,
   toDate: string
 ): Promise<SyncResult> {
-  const result: SyncResult = { merchant: merchantSlug, fetched: 0, created: 0, updated: 0, skipped: 0, reversed: 0, errors: [] }
+  const result: SyncResult = { merchant: merchantSlug, fetched: 0, created: 0, updated: 0, skipped: 0, reversed: 0, notified: 0, errors: [] }
   const supabase = getSupabaseAdmin()
   const baseUrl = getBaseUrl(config.env)
   const authHeader = buildAuthHeader(config.clientId, config.clientSecret)
@@ -385,7 +436,7 @@ async function syncMerchant(
 
           const { data: existing } = await supabase
             .from('razorpay_pos_transactions')
-            .select('id, status, display_status, transaction_time, card_type, card_brand, issuing_bank, partner_id, partner_wallet_credited, wallet_credited, tid, device_serial, amount')
+            .select('id, status, display_status, transaction_time, card_type, card_brand, issuing_bank, partner_id, partner_wallet_credited, wallet_credited, tid, device_serial, amount, partner_callback_sent_at')
             .eq('txn_id', prefixedId)
             .maybeSingle()
 
@@ -522,6 +573,7 @@ async function syncMerchant(
 
           // Attach owning partner + instant settle if partner mode is INSTANT.
           // Runs for new rows and heals existing rows without a partner_id.
+          let owningPartnerId: string | null = existing?.partner_id || null
           if (
             rowId &&
             dbRecord.display_status === 'SUCCESS' &&
@@ -530,7 +582,7 @@ async function syncMerchant(
           ) {
             try {
               const { attachPartnerAndMaybeInstantSettle } = await import('@/lib/partner-settlement')
-              await attachPartnerAndMaybeInstantSettle(
+              const attach = await attachPartnerAndMaybeInstantSettle(
                 {
                   id: rowId,
                   txn_id: prefixedId,
@@ -546,8 +598,38 @@ async function syncMerchant(
                 dbRecord.tid,
                 partnerDeviceCache
               )
+              owningPartnerId = attach.partnerId || owningPartnerId
             } catch (partnerErr: any) {
               result.errors.push(`Partner settle ${prefixedId}: ${partnerErr.message}`)
+            }
+          }
+
+          // Forward `pos.transaction` callback — Pine Labs does not webhook these
+          // to us, so the sync is the only channel that can notify the partner.
+          // Exactly-once dispatch: atomically claim the row by stamping
+          // partner_callback_sent_at (conditional on it being NULL) BEFORE sending,
+          // so re-scans of the 48h window never re-dispatch. Delivery FAILURES are
+          // not retried by re-sending here (would spam a rejecting endpoint) — the
+          // dedicated POS callback retry cron re-attempts off the delivery log, and
+          // the admin replay endpoint covers manual cases.
+          if (
+            rowId &&
+            dbRecord.display_status === 'SUCCESS' &&
+            dbRecord.amount > 0 &&
+            owningPartnerId &&
+            !existing?.partner_callback_sent_at
+          ) {
+            const { data: claimed } = await supabase
+              .from('razorpay_pos_transactions')
+              .update({ partner_callback_sent_at: new Date().toISOString() })
+              .eq('id', rowId)
+              .is('partner_callback_sent_at', null)
+              .select('id')
+              .maybeSingle()
+
+            if (claimed) {
+              await emitForward(supabase, prefixedId, dbRecord, owningPartnerId, result)
+              result.notified++
             }
           }
         }
@@ -595,7 +677,7 @@ export async function runPinelabSync(opts?: {
     } catch (err: any) {
       results.push({
         merchant: slug,
-        fetched: 0, created: 0, updated: 0, skipped: 0, reversed: 0,
+        fetched: 0, created: 0, updated: 0, skipped: 0, reversed: 0, notified: 0,
         errors: [err.message],
       })
     }

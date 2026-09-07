@@ -124,10 +124,20 @@ async function logDelivery(
   }
 }
 
+/** Outcome of a single outbound delivery attempt cycle. */
+export interface CallbackDeliveryResult {
+  success: boolean
+  statusCode: number | null
+  error: string | null
+  url: string
+  deliveryId: string
+}
+
 /**
  * POST a payload to a partner URL with signing + bounded retries.
  * Best-effort: never throws. Logs the final outcome (and persists it to
  * partner_webhook_deliveries when a supabase client + partnerId are provided).
+ * Returns the final delivery outcome so callers (e.g. admin replay) can report it.
  */
 export async function sendSignedCallback(opts: {
   url: string
@@ -139,7 +149,7 @@ export async function sendSignedCallback(opts: {
   supabase?: SupabaseClient
   partnerId?: string | null
   webhookId?: string | null
-}): Promise<void> {
+}): Promise<CallbackDeliveryResult> {
   const { url, secret, payload, txnId, event = 'pos.transaction', logPrefix = 'Partner Callback', supabase, partnerId = null, webhookId = null } = opts
 
   const body = JSON.stringify(payload)
@@ -175,7 +185,7 @@ export async function sendSignedCallback(opts: {
           delivery_id: deliveryId, partner_id: partnerId, webhook_id: webhookId, txn_id: txnId, event, webhook_url: url,
           status_code: res.status, success: true, attempts: attempt + 1, error: null, payload,
         })
-        return
+        return { success: true, statusCode: res.status, error: null, url, deliveryId }
       }
       lastError = `HTTP ${res.status}`
       console.warn(`[${logPrefix}] non-2xx txnId=${txnId} event=${event} delivery=${deliveryId} attempt=${attempt + 1} → HTTP ${res.status}`)
@@ -189,6 +199,43 @@ export async function sendSignedCallback(opts: {
     delivery_id: deliveryId, partner_id: partnerId, webhook_id: webhookId, txn_id: txnId, event, webhook_url: url,
     status_code: lastStatus, success: false, attempts: RETRY_DELAYS_MS.length, error: lastError, payload,
   })
+  return { success: false, statusCode: lastStatus, error: lastError, url, deliveryId }
+}
+
+/**
+ * Deliver a signed callback to a partner that has already been resolved (e.g.
+ * the sync path knows the owning partner_id after attaching it, and the admin
+ * replay endpoint reads it off the transaction). Skips the terminal→partner
+ * lookup entirely, so it never mismatches how the transaction was attributed.
+ *
+ * Returns the per-endpoint delivery results. Never throws.
+ */
+export async function deliverPartnerCallbackByPartnerId(opts: {
+  supabase: SupabaseClient
+  partnerId: string
+  txnId: string
+  payload: unknown
+  event?: string
+  logPrefix?: string
+}): Promise<CallbackDeliveryResult[]> {
+  const { supabase, partnerId, txnId, payload, event = 'pos.transaction', logPrefix = 'Partner Callback' } = opts
+
+  try {
+    const endpoints = await resolvePartnerEndpoints(supabase, partnerId, eventCategory(event) ?? 'pos')
+    if (endpoints.length === 0) {
+      console.warn(`[${logPrefix}] Skip txnId=${txnId} partner_id=${partnerId}: no active webhook endpoints for this event`)
+      return []
+    }
+
+    return await Promise.all(
+      endpoints.map((ep) =>
+        sendSignedCallback({ url: ep.url, secret: ep.secret, payload, txnId, event, logPrefix, supabase, partnerId, webhookId: ep.id })
+      )
+    )
+  } catch (err: any) {
+    console.error(`[${logPrefix}] Delivery error txnId=${txnId} partner_id=${partnerId}: ${err?.message || err}`)
+    return []
+  }
 }
 
 /**
@@ -231,18 +278,14 @@ export async function deliverPartnerCallback(opts: {
       return
     }
 
-    const partnerId = partnerRows[0].partner_id
-    const endpoints = await resolvePartnerEndpoints(supabase, partnerId, eventCategory(event) ?? 'pos')
-    if (endpoints.length === 0) {
-      console.warn(`[${logPrefix}] Skip txnId=${txnId} tid=${tid} partner_id=${partnerId}: no active webhook endpoints for this event`)
-      return
-    }
-
-    await Promise.all(
-      endpoints.map((ep) =>
-        sendSignedCallback({ url: ep.url, secret: ep.secret, payload, txnId, event, logPrefix, supabase, partnerId, webhookId: ep.id })
-      )
-    )
+    await deliverPartnerCallbackByPartnerId({
+      supabase,
+      partnerId: partnerRows[0].partner_id,
+      txnId,
+      payload,
+      event,
+      logPrefix,
+    })
   } catch (err: any) {
     console.error(`[${logPrefix}] Lookup error txnId=${txnId}: ${err?.message || err}`)
   }
