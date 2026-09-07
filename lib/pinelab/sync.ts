@@ -606,12 +606,16 @@ async function syncMerchant(
 
           // Forward `pos.transaction` callback — Pine Labs does not webhook these
           // to us, so the sync is the only channel that can notify the partner.
-          // Exactly-once dispatch: atomically claim the row by stamping
-          // partner_callback_sent_at (conditional on it being NULL) BEFORE sending,
-          // so re-scans of the 48h window never re-dispatch. Delivery FAILURES are
-          // not retried by re-sending here (would spam a rejecting endpoint) — the
-          // dedicated POS callback retry cron re-attempts off the delivery log, and
-          // the admin replay endpoint covers manual cases.
+          // Exactly-once dispatch: pre-check the partner has an active POS endpoint,
+          // then atomically claim the row by stamping partner_callback_sent_at
+          // (conditional on NULL) BEFORE sending, so re-scans of the 48h window
+          // never re-dispatch and the webhook/sync never both send. We only claim
+          // when an endpoint exists, so a transaction is never stranded "sent" for
+          // a partner that has not configured a webhook yet — a later cycle (after
+          // they add one) delivers it. Delivery FAILURES are not retried by
+          // re-sending here (would spam a rejecting endpoint); the POS callback
+          // retry cron re-attempts off the delivery log, and admin replay covers
+          // manual cases.
           if (
             rowId &&
             dbRecord.display_status === 'SUCCESS' &&
@@ -619,17 +623,22 @@ async function syncMerchant(
             owningPartnerId &&
             !existing?.partner_callback_sent_at
           ) {
-            const { data: claimed } = await supabase
-              .from('razorpay_pos_transactions')
-              .update({ partner_callback_sent_at: new Date().toISOString() })
-              .eq('id', rowId)
-              .is('partner_callback_sent_at', null)
-              .select('id')
-              .maybeSingle()
+            const { resolvePartnerEndpoints } = await import('@/lib/partner-webhook/deliver')
+            const endpoints = await resolvePartnerEndpoints(supabase, owningPartnerId, 'pos')
 
-            if (claimed) {
-              await emitForward(supabase, prefixedId, dbRecord, owningPartnerId, result)
-              result.notified++
+            if (endpoints.length > 0) {
+              const { data: claimed } = await supabase
+                .from('razorpay_pos_transactions')
+                .update({ partner_callback_sent_at: new Date().toISOString() })
+                .eq('id', rowId)
+                .is('partner_callback_sent_at', null)
+                .select('id')
+                .maybeSingle()
+
+              if (claimed) {
+                await emitForward(supabase, prefixedId, dbRecord, owningPartnerId, result)
+                result.notified++
+              }
             }
           }
         }

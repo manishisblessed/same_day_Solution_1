@@ -239,6 +239,41 @@ export async function deliverPartnerCallbackByPartnerId(opts: {
 }
 
 /**
+ * Resolve the single active partner that owns a terminal id via
+ * partner_pos_machines. Returns null when there is no active mapping or when the
+ * mapping is ambiguous (duplicate active rows — surfaced as an error to fix).
+ */
+export async function resolvePartnerIdByTid(
+  supabase: SupabaseClient,
+  tid: string | null | undefined,
+  logPrefix = 'Partner Callback',
+  txnId = ''
+): Promise<string | null> {
+  if (!tid) return null
+
+  const { data: partnerRows, error: pmErr } = await supabase
+    .from('partner_pos_machines')
+    .select('partner_id')
+    .eq('terminal_id', tid)
+    .eq('status', 'active')
+    .limit(2)
+
+  if (pmErr) {
+    console.error(`[${logPrefix}] partner_pos_machines query error tid=${tid}: ${pmErr.message}`)
+    return null
+  }
+  if (!partnerRows?.length) {
+    console.warn(`[${logPrefix}] Skip txnId=${txnId} tid=${tid}: no active row in partner_pos_machines`)
+    return null
+  }
+  if (partnerRows.length > 1) {
+    console.error(`[${logPrefix}] Skip txnId=${txnId} tid=${tid}: multiple active partner_pos_machines rows — fix duplicates`)
+    return null
+  }
+  return partnerRows[0].partner_id
+}
+
+/**
  * Resolve the owning partner for a terminal id and deliver a signed callback.
  * Fire-and-forget friendly: never throws.
  */
@@ -258,34 +293,10 @@ export async function deliverPartnerCallback(opts: {
   }
 
   try {
-    const { data: partnerRows, error: pmErr } = await supabase
-      .from('partner_pos_machines')
-      .select('partner_id')
-      .eq('terminal_id', tid)
-      .eq('status', 'active')
-      .limit(2)
+    const partnerId = await resolvePartnerIdByTid(supabase, tid, logPrefix, txnId)
+    if (!partnerId) return
 
-    if (pmErr) {
-      console.error(`[${logPrefix}] partner_pos_machines query error tid=${tid}: ${pmErr.message}`)
-      return
-    }
-    if (!partnerRows?.length) {
-      console.warn(`[${logPrefix}] Skip txnId=${txnId} tid=${tid}: no active row in partner_pos_machines`)
-      return
-    }
-    if (partnerRows.length > 1) {
-      console.error(`[${logPrefix}] Skip txnId=${txnId} tid=${tid}: multiple active partner_pos_machines rows — fix duplicates`)
-      return
-    }
-
-    await deliverPartnerCallbackByPartnerId({
-      supabase,
-      partnerId: partnerRows[0].partner_id,
-      txnId,
-      payload,
-      event,
-      logPrefix,
-    })
+    await deliverPartnerCallbackByPartnerId({ supabase, partnerId, txnId, payload, event, logPrefix })
   } catch (err: any) {
     console.error(`[${logPrefix}] Lookup error txnId=${txnId}: ${err?.message || err}`)
   }

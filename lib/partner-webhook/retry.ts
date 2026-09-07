@@ -124,7 +124,7 @@ export async function replayPosCallback(txnId: string): Promise<{
   const { data: row, error } = await supabase
     .from('razorpay_pos_transactions')
     .select(
-      'id, txn_id, display_status, amount, currency, tid, mid_code, rrn, auth_code, card_brand, card_type, card_number, issuing_bank, payment_mode, merchant_name, merchant_slug, transaction_time, device_serial, partner_id, partner_callback_sent_at'
+      'id, txn_id, display_status, amount, currency, tid, mid_code, rrn, auth_code, card_brand, card_type, card_number, issuing_bank, payment_mode, merchant_name, merchant_slug, transaction_time, device_serial, partner_id, partner_callback_sent_at, raw_data'
     )
     .eq('txn_id', txnId)
     .maybeSingle()

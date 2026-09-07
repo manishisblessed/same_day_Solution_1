@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import * as crypto from 'crypto'
-import { deliverPartnerCallback, deliverPartnerReversal } from '@/lib/partner-webhook/deliver'
+import {
+  deliverPartnerReversal,
+  deliverPartnerCallbackByPartnerId,
+  resolvePartnerIdByTid,
+  resolvePartnerEndpoints,
+} from '@/lib/partner-webhook/deliver'
 import { buildPosTransactionPayload } from '@/lib/partner-webhook/pos-payload'
 
 export const runtime = 'nodejs'
@@ -345,22 +350,50 @@ export async function POST(
         brand: 'PINELAB',
         source: 'pinelab_webhook',
       })
-      void deliverPartnerCallback({
-        supabase,
-        tid,
-        txnId: `PL_${txnId}`,
-        payload: { ...payload, mappedStatus, _brand: 'PINELAB', ...normalized },
-        logPrefix: `Partner Callback/${merchantSlug}`,
-      })
-      // Claim the forward callback so the polling sync never re-dispatches it.
-      // Only for terminal SUCCESS — PENDING/AUTHORIZED webhooks must not block a
-      // later SUCCESS callback from the sync path.
-      if (displayStatus === 'SUCCESS') {
-        void supabase
-          .from('razorpay_pos_transactions')
-          .update({ partner_callback_sent_at: new Date().toISOString() })
-          .eq('txn_id', `PL_${txnId}`)
-          .is('partner_callback_sent_at', null)
+      const fullPayload = { ...payload, mappedStatus, _brand: 'PINELAB', ...normalized }
+      const logPrefix = `Partner Callback/${merchantSlug}`
+
+      // Resolve the owning partner + its active POS endpoints up front (both fast
+      // queries) so we only ever claim the dedupe flag when we will actually
+      // deliver. If the tid does not resolve here, we leave the flag untouched so
+      // the polling sync (broad resolver) can deliver later — no callback is lost.
+      const partnerId = await resolvePartnerIdByTid(supabase, tid, logPrefix, `PL_${txnId}`)
+      const endpoints = partnerId ? await resolvePartnerEndpoints(supabase, partnerId, 'pos') : []
+
+      if (partnerId && endpoints.length > 0) {
+        if (displayStatus === 'SUCCESS') {
+          // Atomically claim: only the winner (this webhook OR the sync) sends,
+          // so a SUCCESS transaction is delivered exactly once across channels.
+          const { data: claimed } = await supabase
+            .from('razorpay_pos_transactions')
+            .update({ partner_callback_sent_at: new Date().toISOString() })
+            .eq('txn_id', `PL_${txnId}`)
+            .is('partner_callback_sent_at', null)
+            .select('id')
+            .maybeSingle()
+
+          if (claimed) {
+            void deliverPartnerCallbackByPartnerId({
+              supabase,
+              partnerId,
+              txnId: `PL_${txnId}`,
+              payload: fullPayload,
+              logPrefix,
+            })
+          }
+          // Not claimed → the sync (or a concurrent webhook) already owns this
+          // transaction's callback; skip to avoid a duplicate delivery.
+        } else {
+          // Non-terminal status (PENDING/AUTHORIZED/FAILED): notify in real time
+          // but never touch the dedupe flag, so a later SUCCESS still fires.
+          void deliverPartnerCallbackByPartnerId({
+            supabase,
+            partnerId,
+            txnId: `PL_${txnId}`,
+            payload: fullPayload,
+            logPrefix,
+          })
+        }
       }
     }
 
