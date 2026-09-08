@@ -309,7 +309,14 @@ async function emitReversal(
     mid: dbRecord.mid_code,
     amount: dbRecord.amount,
     previous_status: 'CAPTURED',
-    status: dbRecord.display_status === 'REFUNDED' ? 'REFUNDED' : 'VOIDED',
+    // Report the true terminal status so the sync and webhook channels agree:
+    // VOIDED/REFUNDED for genuine void/refund events, FAILED/CANCELLED for a
+    // timeout auto-reversal that Pine Labs reports as FAILED.
+    status:
+      dbRecord.display_status === 'REFUNDED' ? 'REFUNDED'
+      : dbRecord.display_status === 'FAILED' ? 'FAILED'
+      : dbRecord.display_status === 'CANCELLED' ? 'CANCELLED'
+      : 'VOIDED',
     reversed_at: dbRecord.reversed_at,
     reason: dbRecord.reversal_reason,
     was_settled: wasSettled,
@@ -477,17 +484,51 @@ async function syncMerchant(
             continue
           }
 
-          // Non-SUCCESS, non-reversal (FAILED / PENDING / CANCELLED): retain as-is.
+          // Non-SUCCESS by Pine Labs' own status (FAILED / PENDING / CANCELLED).
+          // IMPORTANT: Pine Labs reports terminal-timeout auto-reversals of an
+          // already-authorized sale as txnStatus=FAILED (NOT VOID/REVERSED). So a
+          // transition from a previously-captured SUCCESS → FAILED/CANCELLED is a
+          // reversal from the partner's perspective: if we already told them the
+          // sale succeeded, we must now tell them it reversed, or they are left
+          // with a stale SUCCESS (the exact ECAPS inconsistency).
           if (!isSuccess) {
             if (existing) {
               if (existing.display_status !== dbRecord.display_status) {
+                const wasSuccess = existing.display_status === 'SUCCESS'
+                const isTerminalFail =
+                  dbRecord.display_status === 'FAILED' || dbRecord.display_status === 'CANCELLED'
+                // Only a reversal-notify when a captured sale we ALREADY notified
+                // the partner about (partner_callback_sent_at set — via sync forward
+                // or the real-time webhook) drops to a terminal failure.
+                const isCapturedReversal =
+                  wasSuccess && isTerminalFail && !!existing.partner_callback_sent_at
+
+                const reversalStamp = isCapturedReversal
+                  ? {
+                      reversed_at: new Date().toISOString(),
+                      reversal_reason: `pinelab:${txn.txnStatus || dbRecord.display_status}`,
+                    }
+                  : {}
+
                 const { partner_id: _omit, ...upd } = dbRecord
                 const { error: e } = await supabase
                   .from('razorpay_pos_transactions')
-                  .update({ ...upd, updated_at: new Date().toISOString() })
+                  .update({ ...upd, ...reversalStamp, updated_at: new Date().toISOString() })
                   .eq('txn_id', prefixedId)
-                if (e) result.errors.push(`Update ${prefixedId}: ${e.message}`)
-                else result.updated++
+                if (e) {
+                  result.errors.push(`Update ${prefixedId}: ${e.message}`)
+                } else if (isCapturedReversal) {
+                  result.reversed++
+                  await emitReversal(
+                    supabase,
+                    prefixedId,
+                    { ...dbRecord, reversed_at: reversalStamp.reversed_at!, reversal_reason: reversalStamp.reversal_reason! },
+                    existing,
+                    result
+                  )
+                } else {
+                  result.updated++
+                }
               } else {
                 result.skipped++
               }

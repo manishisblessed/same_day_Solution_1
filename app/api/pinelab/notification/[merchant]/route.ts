@@ -170,19 +170,29 @@ export async function POST(
 
     const { data: existingTxn } = await supabase
       .from('razorpay_pos_transactions')
-      .select('id, wallet_credited, retailer_id, display_status, partner_wallet_credited')
+      .select('id, wallet_credited, retailer_id, display_status, partner_wallet_credited, partner_callback_sent_at')
       .eq('txn_id', `PL_${txnId}`)
       .maybeSingle()
 
+    // A previously-captured sale dropping to FAILED/CANCELLED is also a reversal
+    // from the partner's perspective (Pine Labs reports terminal-timeout auto-
+    // reversals as FAILED, not VOID/REFUND). Only signal it when we actually told
+    // the partner about the capture (partner_callback_sent_at set).
+    const wasCaptured = existingTxn?.display_status === 'SUCCESS'
+    const droppedToFail = displayStatus === 'FAILED' || displayStatus === 'CANCELLED'
+    const isCapturedFailReversal =
+      wasCaptured && droppedToFail && !!existingTxn?.partner_callback_sent_at
+
     // True capture→reversal transition: we previously recorded this as SUCCESS.
-    const isReversalTransition = isReversal && existingTxn?.display_status === 'SUCCESS'
+    const isReversalTransition =
+      (isReversal && wasCaptured) || isCapturedFailReversal
 
     const posTransactionData: any = {
       txn_id: `PL_${txnId}`,
       status: hostResponse === '00' && mappedStatus === 'CAPTURED' ? 'AUTHORIZED' : mappedStatus,
       display_status: displayStatus,
-      reversed_at: isReversal ? createdTime.toISOString() : null,
-      reversal_reason: isReversal ? `pinelab-webhook:${txnStatusStr || txnTypeStr || hostResponse}` : null,
+      reversed_at: (isReversal || isCapturedFailReversal) ? createdTime.toISOString() : null,
+      reversal_reason: (isReversal || isCapturedFailReversal) ? `pinelab-webhook:${txnStatusStr || txnTypeStr || hostResponse}` : null,
       amount: amount || 0,
       payment_mode: paymentMode.toUpperCase(),
       device_serial: deviceSerial,
