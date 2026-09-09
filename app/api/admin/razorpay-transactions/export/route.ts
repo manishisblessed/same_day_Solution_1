@@ -68,7 +68,7 @@ export async function GET(request: NextRequest) {
     const buildExportQuery = () => {
       let q = supabase
         .from('razorpay_pos_transactions')
-        .select('txn_id, amount, payment_mode, display_status, status, transaction_time, tid, device_serial, merchant_name, merchant_slug, customer_name, payer_name, username, txn_type, auth_code, card_number, issuing_bank, card_classification, mid_code, card_brand, card_type, currency, rrn, external_ref, settlement_status, settled_on, receipt_url, posting_date')
+        .select('txn_id, amount, payment_mode, display_status, status, reversed_at, transaction_time, tid, device_serial, merchant_name, merchant_slug, customer_name, payer_name, username, txn_type, auth_code, card_number, issuing_bank, card_classification, mid_code, card_brand, card_type, currency, rrn, external_ref, settlement_status, settled_on, receipt_url, posting_date')
         .order('transaction_time', { ascending: false, nullsFirst: false })
 
       // Apply company filter: supports multiple comma-separated slugs
@@ -91,14 +91,20 @@ export async function GET(request: NextRequest) {
         }
       }
 
-      // Apply filters. By default FAILED transactions are excluded from exports too;
-      // selecting the "Failed" status filter still includes them.
+      // Apply filters — MUST mirror the dashboard list query so export totals
+      // match the dashboard. reversed_at (reconciled failures, e.g. a UPI txn
+      // captured then later failed) is the reliable failure signal and is
+      // excluded here just like the dashboard does.
       if (statusFilter && ['CAPTURED', 'FAILED', 'PENDING'].includes(statusFilter.toUpperCase())) {
         const displayStatus = statusFilter.toUpperCase() === 'CAPTURED' ? 'SUCCESS' : statusFilter.toUpperCase()
         q = q.eq('display_status', displayStatus)
+        // Never surface a reconciled failure as captured.
+        if (displayStatus === 'SUCCESS') q = q.is('reversed_at', null)
       } else {
         // Default: hide failed + reversed (voided/refunded/cancelled) from exports too.
-        q = q.not('display_status', 'in', '(FAILED,VOIDED,REFUNDED,CANCELLED)')
+        q = q
+          .not('display_status', 'in', '(FAILED,VOIDED,REFUNDED,CANCELLED)')
+          .is('reversed_at', null)
       }
 
       if (dateFrom) {
@@ -196,7 +202,7 @@ export async function GET(request: NextRequest) {
         'Amount (₹)': txn.amount || 0,
         'Currency': txn.currency || 'INR',
         'Payment Mode': txn.payment_mode || '',
-        'Status': txn.display_status === 'SUCCESS' ? 'CAPTURED' : (txn.display_status || txn.status || 'PENDING'),
+        'Status': txn.reversed_at ? 'FAILED' : (txn.display_status === 'SUCCESS' ? 'CAPTURED' : (txn.display_status || txn.status || 'PENDING')),
         'Settlement Status': txn.settlement_status || 'PENDING',
         'Consumer Name': txn.customer_name || txn.payer_name || '',
         'Username': txn.username || '',
