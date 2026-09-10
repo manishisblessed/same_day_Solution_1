@@ -15,6 +15,17 @@ import GpsPhotoCapture from '@/components/onboarding/GpsPhotoCapture'
 import { getApiUrl } from '@/lib/api-client'
 import { computeOnboardingProgress } from '@/lib/onboarding/progress'
 
+const BUSINESS_ROLE_OPTIONS = [
+  'Proprietor',
+  'Partner',
+  'Managing Partner',
+  'Director',
+  'Authorized Signatory',
+  'Karta (HUF)',
+  'Trustee',
+  'Other',
+]
+
 interface DocSpec {
   type: string
   label: string
@@ -286,6 +297,7 @@ function OnboardWizard() {
   const [verifiedNames, setVerifiedNames] = useState<Record<string, string>>({})
   const [rejections, setRejections] = useState<Record<string, string>>({})
   const [savedGstin, setSavedGstin] = useState('')
+  const [savedBusinessRole, setSavedBusinessRole] = useState('')
   const [prefill, setPrefill] = useState<PrefillData | null>(null)
   const [step, setStep] = useState(0)
   const [direction, setDirection] = useState(1)
@@ -342,6 +354,7 @@ function OnboardWizard() {
       if (item.verified_name) names[item.type] = item.verified_name
       if (item.status === 'Rejected' && item.rejection_reason) rej[item.type] = item.rejection_reason
       if (item.type === 'GST' && item.gstin) setSavedGstin(item.gstin)
+      if (item.type === 'BUSINESS_NAME' && item.role) setSavedBusinessRole(item.role)
     }
     setVerified(v)
     setVerifiedNames(names)
@@ -423,6 +436,7 @@ function OnboardWizard() {
     rejections,
     isResubmit: invite.status === 'resubmit',
     savedGstin,
+    savedBusinessRole,
     prefill,
     has,
     api,
@@ -589,6 +603,7 @@ interface StepProps {
   rejections: Record<string, string>
   isResubmit: boolean
   savedGstin: string
+  savedBusinessRole: string
   prefill: PrefillData | null
   has: (type: string, status?: string) => boolean
   api: (path: string, options?: RequestInit) => Promise<any>
@@ -1099,13 +1114,15 @@ function BankStep({ api, reload, next, back, has, verifiedNames, rejections, bus
   )
 }
 
-function BusinessStep({ api, reload, next, back, has, busy, setBusy, err, setErr, verifiedNames, rejections, savedGstin }: StepProps) {
+function BusinessStep({ api, reload, next, back, has, busy, setBusy, err, setErr, verifiedNames, rejections, savedGstin, savedBusinessRole }: StepProps) {
   const [shopName, setShopName] = useState(verifiedNames['BUSINESS_NAME'] || '')
   const [gst, setGst] = useState(savedGstin || '')
   const [gstVerified, setGstVerified] = useState(has('GST'))
   const [gstName, setGstName] = useState(verifiedNames['GST'] || '')
   const [gstBusy, setGstBusy] = useState(false)
   const [gstErr, setGstErr] = useState('')
+  const [role, setRole] = useState(savedBusinessRole || '')
+  const needsRole = true
   const saved = has('BUSINESS_NAME')
 
   // Rehydrate from saved data once the initial reload resolves (refresh/resume).
@@ -1119,6 +1136,10 @@ function BusinessStep({ api, reload, next, back, has, busy, setBusy, err, setErr
   useEffect(() => {
     if (savedGstin) setGst((g) => g || savedGstin)
   }, [savedGstin])
+
+  useEffect(() => {
+    if (savedBusinessRole) setRole((r) => r || savedBusinessRole)
+  }, [savedBusinessRole])
 
   async function verifyGst() {
     setGstErr('')
@@ -1143,7 +1164,7 @@ function BusinessStep({ api, reload, next, back, has, busy, setBusy, err, setErr
     setErr('')
     setBusy(true)
     try {
-      await api('/business', { method: 'POST', body: JSON.stringify({ shopName }) })
+      await api('/business', { method: 'POST', body: JSON.stringify({ shopName, role }) })
       await reload()
       next()
     } catch (e: any) {
@@ -1215,6 +1236,34 @@ function BusinessStep({ api, reload, next, back, has, busy, setBusy, err, setErr
           required
           hint={gstVerified ? 'Auto-filled from GST — edit if needed.' : undefined}
         />
+
+        {needsRole && (
+          <div>
+            <span className="mb-1.5 flex items-center gap-1 text-sm font-medium text-gray-700">
+              Your Role in the Business <span className="text-red-500">*</span>
+            </span>
+            <div className="relative">
+              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
+                <FileSignature className="h-4 w-4" />
+              </span>
+              <select
+                value={role}
+                onChange={(e) => setRole(e.target.value)}
+                className={`w-full appearance-none rounded-xl border-2 py-2.5 pl-9 pr-3 text-gray-900 transition-all focus:outline-none focus:ring-4 focus:ring-indigo-500/10 ${
+                  role ? 'border-gray-200 bg-white' : 'border-gray-200 bg-gray-50/60'
+                } focus:border-indigo-500`}
+              >
+                <option value="">Select your role…</option>
+                {BUSINESS_ROLE_OPTIONS.map((r) => (
+                  <option key={r} value={r}>{r}</option>
+                ))}
+              </select>
+            </div>
+            <span className="mt-1 block text-xs text-gray-400">
+              You are signing the declaration on behalf of the above business in this capacity.
+            </span>
+          </div>
+        )}
       </div>
       {gst.trim().length > 0 && !gstVerified && (
         <p className="mt-2 text-xs text-amber-600">Verify the GSTIN you entered, or clear it, to continue.</p>
@@ -1222,7 +1271,7 @@ function BusinessStep({ api, reload, next, back, has, busy, setBusy, err, setErr
       <NavButtons
         onBack={back}
         onNext={saveBusiness}
-        nextDisabled={(shopName.trim().length < 2 && !saved) || (gst.trim().length > 0 && !gstVerified)}
+        nextDisabled={(shopName.trim().length < 2 && !saved) || (gst.trim().length > 0 && !gstVerified) || (needsRole && !role)}
         busy={busy}
       />
     </div>

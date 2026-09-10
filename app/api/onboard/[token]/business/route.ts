@@ -20,6 +20,7 @@ export async function POST(request: NextRequest, { params }: { params: { token: 
 
     const body = await request.json().catch(() => ({}))
     const shopName = String(body.shopName || '').trim()
+    const role = String(body.role || '').trim()
     if (shopName.length < 2) {
       return NextResponse.json({ error: 'Business/shop name is required' }, { status: 400 })
     }
@@ -29,10 +30,10 @@ export async function POST(request: NextRequest, { params }: { params: { token: 
       type: 'BUSINESS_NAME',
       status: 'Success',
       verifiedName: shopName,
-      payload: { shopName },
+      payload: { shopName, role },
     })
 
-    return NextResponse.json({ ok: true, shopName })
+    return NextResponse.json({ ok: true, shopName, role })
   } catch (error: any) {
     return NextResponse.json({ error: error.message || 'Failed' }, { status: 500 })
   }

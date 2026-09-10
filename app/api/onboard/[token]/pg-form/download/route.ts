@@ -29,8 +29,11 @@ export async function GET(_request: NextRequest, { params }: { params: { token: 
   const bank = byType.get('BANK_PENNY_DROP')?.response_payload as any
   const gst = byType.get('GST')?.response_payload as any
   const business = byType.get('BUSINESS_NAME')?.verified_name
+  const businessRole = (byType.get('BUSINESS_NAME')?.response_payload as any)?.role || ''
 
-  const name = invite.name || pan?.registered_name || aadhaar?.name || '________________'
+  const name = pan?.registered_name || invite.name || aadhaar?.name || '________________'
+  const companyName = gst?.legal_name_of_business || business || '________________'
+  const onBehalf = true
   const today = new Date().toLocaleDateString('en-IN')
   const logo = getLogoDataUrl()
 
@@ -70,12 +73,19 @@ export async function GET(_request: NextRequest, { params }: { params: { token: 
     <tr><td class="label">Aadhaar (as per DigiLocker)</td><td>${esc(aadhaar?.uid || '—')}</td></tr>
     <tr><td class="label">Bank Account Holder</td><td>${esc(bank?.nameAtBank || '—')}</td></tr>
     <tr><td class="label">Business / Shop Name</td><td>${esc(business || '—')}</td></tr>
+    ${onBehalf ? `<tr><td class="label">Signing Capacity</td><td>${esc(businessRole || '—')}</td></tr>` : ''}
     <tr><td class="label">GSTIN</td><td>${esc(gst?.GSTIN || 'Not provided')}</td></tr>
   </table>
-  <p>I, <strong>${esc(name)}</strong>, son/daughter/spouse of ________________, the undersigned, in
+  ${onBehalf
+    ? `<p>I, <strong>${esc(name)}</strong>, the undersigned, in my
+  capacity as <strong>${esc(businessRole || '________________')}</strong> and duly authorised to act on behalf of
+  <strong>${esc(companyName)}</strong>, in consideration of <strong>Same Day Solution Pvt. Ltd.</strong> ("the Company")
+  agreeing to on-board <strong>${esc(companyName)}</strong> as a <strong>${esc(roleLabel(invite.target_role))}</strong>,
+  do hereby unconditionally and irrevocably declare, undertake and personally guarantee as follows:</p>`
+    : `<p>I, <strong>${esc(name)}</strong>, the undersigned, in
   consideration of <strong>Same Day Solution Pvt. Ltd.</strong> ("the Company") agreeing to on-board me as a
   <strong>${esc(roleLabel(invite.target_role))}</strong>, do hereby unconditionally and irrevocably declare,
-  undertake and personally guarantee as follows:</p>
+  undertake and personally guarantee as follows:</p>`}
 
   <h3>A. Declaration of Accuracy</h3>
   <ol>

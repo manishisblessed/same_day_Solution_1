@@ -30,8 +30,12 @@ export async function GET(_request: NextRequest, { params }: { params: { token: 
   const aadhaar = byType.get('AADHAAR_DIGILOCKER')?.response_payload as any
   const bank = byType.get('BANK_PENNY_DROP')?.response_payload as any
   const business = byType.get('BUSINESS_NAME')?.verified_name
+  const businessRole = (byType.get('BUSINESS_NAME')?.response_payload as any)?.role || ''
+  const gst = byType.get('GST')?.response_payload as any
 
-  const name = invite.name || pan?.registered_name || aadhaar?.name || '________________'
+  const name = pan?.registered_name || invite.name || aadhaar?.name || '________________'
+  const companyName = gst?.legal_name_of_business || business || '________________'
+  const onBehalf = true
   const today = new Date().toLocaleDateString('en-IN')
   const logo = getLogoDataUrl()
 
@@ -71,9 +75,14 @@ export async function GET(_request: NextRequest, { params }: { params: { token: 
     <tr><td class="label">Aadhaar (as per DigiLocker)</td><td>${esc(aadhaar?.uid || '—')}</td></tr>
     <tr><td class="label">Bank Account (name)</td><td>${esc(bank?.nameAtBank || '—')}</td></tr>
     <tr><td class="label">Business / Shop</td><td>${esc(business || '—')}</td></tr>
+    ${onBehalf ? `<tr><td class="label">Signing Capacity</td><td>${esc(businessRole || '—')}</td></tr>` : ''}
   </table>
   <div class="decl">
-    <p>I, <strong>${esc(name)}</strong>, the undersigned, do hereby solemnly declare and undertake that:</p>
+    ${onBehalf
+      ? `<p>I, <strong>${esc(name)}</strong>, in my capacity as
+    <strong>${esc(businessRole || '________________')}</strong> and duly authorised to act on behalf of
+    <strong>${esc(companyName)}</strong>, do hereby solemnly declare and undertake that:</p>`
+      : `<p>I, <strong>${esc(name)}</strong>, the undersigned, do hereby solemnly declare and undertake that:</p>`}
     <ol>
       <li>All information and documents submitted during this onboarding are true, correct, complete and up to date to the best of my knowledge and belief.</li>
       <li>The KYC documents (PAN, Aadhaar, bank account, business/GST) belong to me / my business and have been submitted voluntarily and with my consent, and the names therein pertain to one and the same person.</li>
