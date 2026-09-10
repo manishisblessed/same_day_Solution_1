@@ -87,6 +87,33 @@ async function handleGet(request: NextRequest) {
     // Table may not exist in some environments — non-fatal.
   }
 
+  // Active scheme assignments — grouped by "<entity_id>::<entity_role>".
+  const schemesByEntity: Record<string, any[]> = {}
+  try {
+    const { data: mappings } = await supabase
+      .from('scheme_mappings')
+      .select('id, scheme_id, entity_id, entity_role, service_type, priority, schemes(name, scheme_type, service_scope, status, is_partner_plan)')
+      .eq('status', 'active')
+      .order('priority', { ascending: true })
+    for (const m of (mappings as any[]) || []) {
+      const key = `${m.entity_id}::${m.entity_role}`
+      if (!schemesByEntity[key]) schemesByEntity[key] = []
+      const s = Array.isArray(m.schemes) ? m.schemes[0] : m.schemes
+      schemesByEntity[key].push({
+        mapping_id: m.id,
+        scheme_id: m.scheme_id,
+        service_type: m.service_type || 'all',
+        name: s?.name || 'Unknown scheme',
+        scheme_type: s?.scheme_type || null,
+        service_scope: s?.service_scope || null,
+        is_partner_plan: !!s?.is_partner_plan,
+        status: s?.status || null,
+      })
+    }
+  } catch {
+    // scheme_mappings may not exist in some environments — non-fatal.
+  }
+
   const users: any[] = []
 
   for (const cfg of ROLE_TABLES) {
@@ -123,6 +150,7 @@ async function handleGet(request: NextRequest) {
             }
           : { supported: false, enabled: false, locked: false, locked_until: null, failed_attempts: 0 },
         settlement_accounts: cfg.role === 'retailer' ? settlementByRetailer[identifier] || [] : [],
+        schemes: schemesByEntity[`${identifier}::${cfg.role}`] || [],
         created_at: row.created_at,
         // Full raw record for the detail view. tpin_hash is intentionally excluded below.
         details: sanitize(row),

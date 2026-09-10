@@ -8,6 +8,7 @@ import { secureDb } from '@/lib/secure-db'
 import {
   KeyRound, Search, RefreshCw, Menu, ShieldAlert, Eye, X, Lock, Unlock,
   CheckCircle2, XCircle, Copy, User as UserIcon, CreditCard, FileText, Building2,
+  Layers, ChevronDown, ChevronRight,
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { apiFetch } from '@/lib/api-client'
@@ -23,6 +24,17 @@ type TpinInfo = {
   failed_attempts: number
 }
 
+type SchemeSummary = {
+  mapping_id: string
+  scheme_id: string
+  service_type: string
+  name: string
+  scheme_type: string | null
+  service_scope: string | null
+  is_partner_plan: boolean
+  status: string | null
+}
+
 type CredUser = {
   role: Role
   id: string
@@ -35,6 +47,7 @@ type CredUser = {
   has_login: boolean
   tpin: TpinInfo
   settlement_accounts: any[]
+  schemes: SchemeSummary[]
   created_at: string
   details: Record<string, any>
 }
@@ -283,6 +296,7 @@ export default function CredentialsPage() {
                     <th className="px-4 py-3 text-left">User</th>
                     <th className="px-4 py-3 text-left">Role</th>
                     <th className="px-4 py-3 text-left">ID</th>
+                    <th className="px-4 py-3 text-left">Scheme</th>
                     <th className="px-4 py-3 text-left">Status</th>
                     <th className="px-4 py-3 text-left">Login</th>
                     <th className="px-4 py-3 text-left">T-PIN</th>
@@ -291,9 +305,9 @@ export default function CredentialsPage() {
                 </thead>
                 <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
                   {loading ? (
-                    <tr><td colSpan={7} className="px-4 py-10 text-center text-gray-400">Loading…</td></tr>
+                    <tr><td colSpan={8} className="px-4 py-10 text-center text-gray-400">Loading…</td></tr>
                   ) : filtered.length === 0 ? (
-                    <tr><td colSpan={7} className="px-4 py-10 text-center text-gray-400">No users found</td></tr>
+                    <tr><td colSpan={8} className="px-4 py-10 text-center text-gray-400">No users found</td></tr>
                   ) : (
                     filtered.map((r) => (
                       <tr key={`${r.role}-${r.id}`} className="hover:bg-gray-50 dark:hover:bg-gray-700/40">
@@ -308,6 +322,21 @@ export default function CredentialsPage() {
                           </span>
                         </td>
                         <td className="px-4 py-3 font-mono text-xs text-gray-600 dark:text-gray-300">{r.identifier || '—'}</td>
+                        <td className="px-4 py-3">
+                          {r.schemes.length === 0 ? (
+                            <span className="text-xs text-gray-400">None</span>
+                          ) : (
+                            <div className="flex flex-col gap-0.5">
+                              <span className="inline-flex items-center gap-1 text-xs font-medium text-gray-800 dark:text-gray-200">
+                                <Layers className="w-3 h-3 text-primary-500" />
+                                {r.schemes[0].name}
+                              </span>
+                              {r.schemes.length > 1 && (
+                                <span className="text-[10px] text-gray-400">+{r.schemes.length - 1} more</span>
+                              )}
+                            </div>
+                          )}
+                        </td>
                         <td className="px-4 py-3">
                           <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
                             r.status === 'active' ? 'bg-green-100 text-green-700'
@@ -442,6 +471,23 @@ function DetailModal({ user, onClose }: { user: CredUser; onClose: () => void })
             )
           })}
 
+          {/* Assigned schemes + slabs */}
+          <div>
+            <div className="flex items-center gap-2 mb-2 text-sm font-semibold text-gray-700 dark:text-gray-200">
+              <Layers className="w-4 h-4 text-primary-600" /> Assigned Scheme{user.schemes.length !== 1 ? 's' : ''}
+              {user.schemes.length > 0 && <span className="text-xs font-normal text-gray-400">({user.schemes.length})</span>}
+            </div>
+            {user.schemes.length === 0 ? (
+              <p className="text-xs text-gray-400">No scheme assigned to this user.</p>
+            ) : (
+              <div className="space-y-2">
+                {user.schemes.map((s) => (
+                  <SchemeBlock key={s.mapping_id} scheme={s} />
+                ))}
+              </div>
+            )}
+          </div>
+
           {/* Settlement accounts */}
           {user.settlement_accounts && user.settlement_accounts.length > 0 && (
             <div>
@@ -495,6 +541,122 @@ function SecStat({ label, ok, okText, noText, invert }: { label: string; ok: boo
     <div className="rounded-lg bg-gray-50 dark:bg-gray-900/40 p-2 text-center">
       <div className="text-[10px] uppercase tracking-wide text-gray-400">{label}</div>
       <div className={`text-sm font-semibold ${good ? 'text-green-600' : 'text-red-500'}`}>{good ? okText : noText}</div>
+    </div>
+  )
+}
+
+const SLAB_SERVICES: { key: string; title: string }[] = [
+  { key: 'bbps_commissions', title: 'BBPS' },
+  { key: 'payout_charges', title: 'Payout' },
+  { key: 'mdr_rates', title: 'MDR / POS' },
+  { key: 'aeps_commissions', title: 'AEPS' },
+  { key: 'aeps_settlement_charges', title: 'AEPS Settlement' },
+  { key: 'shadval_settlement_charges', title: 'Settlement-2' },
+]
+
+const SLAB_HIDE_KEYS = new Set(['id', 'scheme_id', 'created_at', 'updated_at', 'status'])
+
+function SchemeBlock({ scheme }: { scheme: SchemeSummary }) {
+  const { showToast } = useToast()
+  const [open, setOpen] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [detail, setDetail] = useState<Record<string, any> | null>(null)
+
+  const toggle = async () => {
+    const next = !open
+    setOpen(next)
+    if (next && !detail) {
+      setLoading(true)
+      try {
+        const res = await apiFetch(`/api/schemes/${scheme.scheme_id}`)
+        const data = await res.json()
+        if (!res.ok || !data.success) {
+          showToast(data?.error || 'Failed to load scheme slabs', 'error')
+          return
+        }
+        setDetail(data.data)
+      } catch (e: any) {
+        showToast(e?.message || 'Failed to load scheme slabs', 'error')
+      } finally {
+        setLoading(false)
+      }
+    }
+  }
+
+  return (
+    <div className="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+      <button
+        onClick={toggle}
+        className="w-full flex items-center justify-between gap-2 p-2.5 text-left hover:bg-gray-50 dark:hover:bg-gray-700/40"
+      >
+        <div className="flex items-center gap-2 min-w-0">
+          {open ? <ChevronDown className="w-4 h-4 text-gray-400 shrink-0" /> : <ChevronRight className="w-4 h-4 text-gray-400 shrink-0" />}
+          <span className="font-medium text-sm text-gray-900 dark:text-white truncate">{scheme.name}</span>
+          {scheme.scheme_type && (
+            <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 capitalize">{scheme.scheme_type}</span>
+          )}
+          {scheme.is_partner_plan && (
+            <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-100 text-emerald-700">partner plan</span>
+          )}
+        </div>
+        <div className="flex items-center gap-1.5 shrink-0">
+          <span className="text-[10px] text-gray-400">service: {scheme.service_type}</span>
+          {scheme.service_scope && <span className="text-[10px] text-gray-400">· scope: {scheme.service_scope}</span>}
+        </div>
+      </button>
+
+      {open && (
+        <div className="border-t border-gray-100 dark:border-gray-700 p-2.5 bg-gray-50/60 dark:bg-gray-900/30">
+          {loading ? (
+            <div className="text-xs text-gray-400 py-2">Loading slabs…</div>
+          ) : !detail ? (
+            <div className="text-xs text-gray-400 py-2">No data.</div>
+          ) : (
+            (() => {
+              const blocks = SLAB_SERVICES
+                .map((s) => ({ ...s, rows: Array.isArray(detail[s.key]) ? detail[s.key] : [] }))
+                .filter((s) => s.rows.length > 0)
+              if (blocks.length === 0) return <div className="text-xs text-gray-400 py-2">This scheme has no slabs configured.</div>
+              return (
+                <div className="space-y-3">
+                  {blocks.map((b) => (
+                    <SlabTable key={b.key} title={b.title} rows={b.rows} />
+                  ))}
+                </div>
+              )
+            })()
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function SlabTable({ title, rows }: { title: string; rows: any[] }) {
+  const cols = Object.keys(rows[0]).filter((k) => !SLAB_HIDE_KEYS.has(k) && rows.some((r) => r[k] !== null && r[k] !== undefined && r[k] !== ''))
+  return (
+    <div>
+      <div className="text-xs font-semibold text-primary-600 mb-1">{title} <span className="text-gray-400 font-normal">({rows.length} slab{rows.length !== 1 ? 's' : ''})</span></div>
+      <div className="overflow-x-auto rounded-md border border-gray-200 dark:border-gray-700">
+        <table className="w-full text-[11px]">
+          <thead className="bg-gray-100 dark:bg-gray-800 text-gray-500">
+            <tr>
+              {cols.map((c) => (
+                <th key={c} className="px-2 py-1 text-left whitespace-nowrap font-medium">{prettyKey(c)}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100 dark:divide-gray-700 bg-white dark:bg-gray-800">
+            {rows.map((r, i) => (
+              <tr key={i}>
+                {cols.map((c) => (
+                  <td key={c} className="px-2 py-1 whitespace-nowrap text-gray-700 dark:text-gray-200">{fmtVal(c, r[c])}</td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   )
 }
