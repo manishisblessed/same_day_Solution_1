@@ -5,14 +5,22 @@
 
 import { pay2newPost } from './client'
 
-export interface Pay2NewStatusResponse {
-  status: number
-  message: string
+export interface Pay2NewStatusOrder {
+  number?: string
+  amount?: number | string
+  status?: string // "1" = success
   order_id?: string
   request_id?: string
+  message?: string // e.g. "Transaction Successful"
   operator_reference?: string
-  transaction_status?: string // SUCCESS, FAILED, PENDING
-  amount?: number | string
+  customer_number?: string
+  closing_balance?: string
+}
+
+export interface Pay2NewStatusResponse {
+  status: number // outer: 1 = found, 2 = not found
+  message: string
+  order?: Pay2NewStatusOrder
 }
 
 export interface CheckStatusParams {
@@ -50,24 +58,36 @@ export async function pay2newCheckStatus(params: CheckStatusParams): Promise<{
       return { success: false, error: errMsg, raw: result.data as any }
     }
 
+    // Real Pay2New shape nests the details under `order`:
+    // { status:1, message:"Transaction Found!", order:{ status:"1",
+    //   message:"Transaction Successful", order_id, operator_reference, ... } }
     const resp = result.data
-    const txStatus = (resp.transaction_status || '').toUpperCase()
+    const order = resp.order
+    if (!order) {
+      // Provider acknowledged (status:1) but returned no order block — unknown
+      // state; report PENDING so callers wait rather than refund.
+      return { success: true, status: 'PENDING', raw: resp }
+    }
+
+    const orderStatus = String(order.status ?? '').trim()
+    const orderMsg = String(order.message ?? '').toLowerCase()
 
     let normalizedStatus: 'SUCCESS' | 'FAILED' | 'PENDING' | 'REFUNDED' = 'PENDING'
-    if (txStatus === 'SUCCESS' || txStatus === 'COMPLETED') {
+    if (orderStatus === '1' || /success|successful/.test(orderMsg)) {
       normalizedStatus = 'SUCCESS'
-    } else if (txStatus === 'FAILED' || txStatus === 'FAILURE' || txStatus === 'REJECTED') {
-      normalizedStatus = 'FAILED'
-    } else if (txStatus === 'REFUNDED' || txStatus === 'REVERSED') {
+    } else if (/refund|revers/.test(orderMsg)) {
       normalizedStatus = 'REFUNDED'
+    } else if (/fail|failure|reject|declin|cancel/.test(orderMsg)) {
+      normalizedStatus = 'FAILED'
     }
+    // Any other/unrecognized order state stays PENDING (safe: never refunds).
 
     return {
       success: true,
       status: normalizedStatus,
-      order_id: resp.order_id,
-      operator_reference: resp.operator_reference,
-      amount: resp.amount,
+      order_id: order.order_id,
+      operator_reference: order.operator_reference,
+      amount: order.amount,
       raw: resp,
     }
   } catch (e: any) {

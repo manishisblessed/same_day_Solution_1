@@ -168,7 +168,8 @@ function RazorpayTransactionsPageContent() {
     { slug: 'teachway', name: 'Teachway Education Private Limited', shortName: 'Teachway' },
     { slug: 'newscenaric', name: 'New Scenaric Travels', shortName: 'New Scenaric' },
     { slug: 'lagoon', name: 'LAGOON CRAFT LABS SOLUTIONS PRIVATE LIMITED', shortName: 'Lagoon' },
-    { slug: 'avika', name: 'Avika Departmental Private Limited', shortName: 'Avika' },
+    { slug: 'AVIKA-HDFC', name: 'Avika Departmental Private Limited — HDFC (Pine Labs)', shortName: 'Avika-HDFC' },
+    { slug: 'AVIKA-AXIS', name: 'Avika Departmental Private Limited — Axis (Pine Labs)', shortName: 'Avika-Axis' },
     { slug: 'samedaytours', name: 'SAMEDAY TOUR AND TRAVELS PRIVATE LIMITED', shortName: 'Sameday Tours' },
   ]
 
@@ -263,10 +264,15 @@ function RazorpayTransactionsPageContent() {
         params.set('machine_group', appliedFilters.fleet)
       } else {
         // Restrict to active companies by default so archived data stays hidden.
+        // For the DEFAULT set (nothing explicitly selected) collapse the two Avika
+        // fleet tokens back to 'avika' so the default query uses the simple slug
+        // filter; explicit fleet selections are sent as-is (server ORs them in).
         const allSlugs = allCompanyOptions.map(c => c.slug)
+        const collapseFleets = (arr: string[]) =>
+          Array.from(new Set(arr.map(s => (s === 'AVIKA-HDFC' || s === 'AVIKA-AXIS') ? 'avika' : s)))
         const effectiveCompanies = appliedFilters.companies.length > 0
           ? appliedFilters.companies
-          : (archivedSlugs.length > 0 ? allSlugs.filter(s => !archivedSlugs.includes(s)) : [])
+          : (archivedSlugs.length > 0 ? collapseFleets(allSlugs.filter(s => !archivedSlugs.includes(s))) : [])
         if (effectiveCompanies.length > 0) params.set('merchant_slug', effectiveCompanies.join(','))
       }
       if (appliedFilters.status) params.set('status', appliedFilters.status)
@@ -376,10 +382,12 @@ function RazorpayTransactionsPageContent() {
       if (appliedFilters.fleet) {
         params.set('machine_group', appliedFilters.fleet)
       } else {
-        const allSlugsExport = ['ashvam', 'teachway', 'newscenaric', 'lagoon', 'avika']
+        const allSlugsExport = ['ashvam', 'teachway', 'newscenaric', 'lagoon', 'AVIKA-HDFC', 'AVIKA-AXIS']
+        const collapseFleetsExport = (arr: string[]) =>
+          Array.from(new Set(arr.map(s => (s === 'AVIKA-HDFC' || s === 'AVIKA-AXIS') ? 'avika' : s)))
         const effectiveCompaniesExport = appliedFilters.companies.length > 0
           ? appliedFilters.companies
-          : (archivedSlugs.length > 0 ? allSlugsExport.filter(s => !archivedSlugs.includes(s)) : [])
+          : (archivedSlugs.length > 0 ? collapseFleetsExport(allSlugsExport.filter(s => !archivedSlugs.includes(s))) : [])
         if (effectiveCompaniesExport.length > 0) params.set('merchant_slug', effectiveCompaniesExport.join(','))
       }
       if (appliedFilters.status) params.set('status', appliedFilters.status)

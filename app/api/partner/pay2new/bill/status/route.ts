@@ -162,11 +162,15 @@ export async function POST(request: NextRequest) {
           if (upstreamResult.operator_reference) {
             operatorReference = upstreamResult.operator_reference
           }
-          // Update ledger with resolved status
-          if (txStatus === 'SUCCESS' && upstreamResult.order_id) {
+          // Back-fill the resolved order_id into the description (the
+          // payout_transaction_id column is uuid and cannot store Pay2New's
+          // "P2F..." order_id). Only append once.
+          if (txStatus === 'SUCCESS' && upstreamResult.order_id && !/OrderID:/.test(debitEntry.description || '')) {
             await supabase
               .from('partner_wallet_ledger')
-              .update({ payout_transaction_id: upstreamResult.order_id })
+              .update({
+                description: `${debitEntry.description || ''} | OrderID:${upstreamResult.order_id} | Ref:${operatorReference || upstreamResult.operator_reference || 'N/A'}`,
+              })
               .eq('id', debitEntry.id)
           }
         }

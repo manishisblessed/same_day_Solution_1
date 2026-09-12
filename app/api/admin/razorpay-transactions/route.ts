@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { createClient } from '@supabase/supabase-js'
 import { resolveTransactionAssignments } from '@/lib/pos-assignment-resolver'
-import { getAxisTidSet, resolveMachineGroup, applyMachineGroupFilter, isMachineGroup } from '@/lib/pos/machine-group'
+import { getAxisTidSet, resolveMachineGroup, applyMachineGroupFilter, isMachineGroup, buildCompanyFilterOr } from '@/lib/pos/machine-group'
 
 export const runtime = 'nodejs' // Force Node.js runtime (Supabase not compatible with Edge Runtime)
 export const dynamic = 'force-dynamic'
@@ -132,10 +132,14 @@ export async function GET(request: NextRequest) {
     if (machineGroup) {
       query = applyMachineGroupFilter(query, machineGroup, axisTids)
     } else if (merchantSlug && merchantSlug !== 'all') {
-      // Apply company (merchant) filter: supports multiple comma-separated slugs
-      // ashvam = base URL (slug or null), others = exact slug
+      // Apply company (merchant) filter: supports multiple comma-separated tokens
+      // ashvam = base URL (slug or null), others = exact slug. Fleet tokens
+      // (AVIKA-HDFC / AVIKA-AXIS) partition Avika by the Axis TID set.
       const slugs = merchantSlug.split(',').map(s => s.trim()).filter(Boolean)
-      if (slugs.length === 1) {
+      const hasFleet = slugs.some(isMachineGroup)
+      if (hasFleet) {
+        query = query.or(buildCompanyFilterOr(slugs, axisTids))
+      } else if (slugs.length === 1) {
         if (slugs[0] === 'ashvam') {
           query = query.or('merchant_slug.eq.ashvam,merchant_slug.is.null')
         } else {
@@ -271,7 +275,10 @@ export async function GET(request: NextRequest) {
         amountQuery = applyMachineGroupFilter(amountQuery, machineGroup, axisTids)
       } else if (merchantSlug && merchantSlug !== 'all') {
         const slugs = merchantSlug.split(',').map(s => s.trim()).filter(Boolean)
-        if (slugs.length === 1) {
+        const hasFleet = slugs.some(isMachineGroup)
+        if (hasFleet) {
+          amountQuery = amountQuery.or(buildCompanyFilterOr(slugs, axisTids))
+        } else if (slugs.length === 1) {
           if (slugs[0] === 'ashvam') {
             amountQuery = amountQuery.or('merchant_slug.eq.ashvam,merchant_slug.is.null')
           } else {

@@ -3,7 +3,7 @@ import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { createClient } from '@supabase/supabase-js'
 import { resolveTransactionAssignments } from '@/lib/pos-assignment-resolver'
 import { htmlToPdf } from '@/lib/pdf/html-to-pdf'
-import { getAxisTidSet, resolveMachineGroup, applyMachineGroupFilter, isMachineGroup, machineGroupLabel } from '@/lib/pos/machine-group'
+import { getAxisTidSet, resolveMachineGroup, applyMachineGroupFilter, isMachineGroup, machineGroupLabel, buildCompanyFilterOr } from '@/lib/pos/machine-group'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -81,9 +81,13 @@ export async function GET(request: NextRequest) {
       if (machineGroup) {
         q = applyMachineGroupFilter(q, machineGroup, axisTids)
       } else if (merchantSlug && merchantSlug !== 'all') {
-        // Apply company filter: supports multiple comma-separated slugs
+        // Apply company filter: supports multiple comma-separated tokens, incl.
+        // fleet tokens (AVIKA-HDFC / AVIKA-AXIS).
         const slugs = merchantSlug.split(',').map(s => s.trim()).filter(Boolean)
-        if (slugs.length === 1) {
+        const hasFleet = slugs.some(isMachineGroup)
+        if (hasFleet) {
+          q = q.or(buildCompanyFilterOr(slugs, axisTids))
+        } else if (slugs.length === 1) {
           if (slugs[0] === 'ashvam') {
             q = q.or('merchant_slug.eq.ashvam,merchant_slug.is.null')
           } else {

@@ -76,6 +76,41 @@ export function resolveMachineGroup(opts: {
  * partitions by the Axis TID set (HDFC = everything else, including null TIDs).
  * Returns the same builder type so it chains with existing filters.
  */
+/**
+ * Build a single PostgREST `.or(...)` expression for a mixed set of selection
+ * tokens — real company slugs (ashvam, teachway, …) AND/OR fleet tokens
+ * (AVIKA-HDFC / AVIKA-AXIS). Fleets are expressed as nested `and(merchant_slug=avika, …)`
+ * so a fleet can be OR-ed alongside other companies in one query.
+ *
+ * Pure-slug token lists produce the same conditions the legacy code did, so
+ * callers can route through this only when a fleet token is present.
+ */
+export function buildCompanyFilterOr(tokens: string[], axisTids: Set<string>): string {
+  const list = Array.from(axisTids)
+  const inList = `(${list.map((t) => `"${t}"`).join(',')})`
+  const parts: string[] = []
+  for (const raw of tokens) {
+    const tok = (raw || '').trim()
+    if (!tok) continue
+    if (tok === AVIKA_AXIS) {
+      parts.push(list.length
+        ? `and(merchant_slug.eq.avika,tid.in.${inList})`
+        : `and(merchant_slug.eq.avika,tid.eq.__no_axis__)`)
+    } else if (tok === AVIKA_HDFC) {
+      parts.push(list.length
+        ? `and(merchant_slug.eq.avika,or(tid.is.null,tid.not.in.${inList}))`
+        : `merchant_slug.eq.avika`)
+    } else if (tok === 'ashvam') {
+      // ashvam = explicit slug OR legacy null slug.
+      parts.push('merchant_slug.eq.ashvam')
+      parts.push('merchant_slug.is.null')
+    } else {
+      parts.push(`merchant_slug.eq.${tok}`)
+    }
+  }
+  return parts.join(',')
+}
+
 export function applyMachineGroupFilter<T>(query: T, group: MachineGroup, axisTids: Set<string>): T {
   const list = Array.from(axisTids)
   // Fleet grouping only exists within Avika.

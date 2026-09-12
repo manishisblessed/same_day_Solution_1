@@ -63,6 +63,14 @@ export async function register() {
     }
 
     try {
+      const { initPay2NewReconcileCron } = await import('@/lib/cron/pay2new-reconcile-cron')
+      await initPay2NewReconcileCron()
+      console.log('[Instrumentation] Pay2New Reconcile Cron initialized successfully')
+    } catch (err) {
+      console.error('[Instrumentation] Failed to initialize Pay2New Reconcile cron:', err)
+    }
+
+    try {
       const { initPinelabSyncCron } = await import('@/lib/cron/pinelab-sync-cron')
       await initPinelabSyncCron()
       console.log('[Instrumentation] Pinelab Sync Cron initialized successfully')
@@ -100,6 +108,14 @@ export async function register() {
       console.log('[Instrumentation] POS Callback Retry Cron initialized successfully')
     } catch (err) {
       console.error('[Instrumentation] Failed to initialize POS Callback Retry cron:', err)
+    }
+
+    try {
+      const { initPaytmCardEnrichmentCron } = await import('@/lib/cron/paytm-card-enrichment-cron')
+      await initPaytmCardEnrichmentCron()
+      console.log('[Instrumentation] Paytm Card Enrichment Cron initialized successfully')
+    } catch (err) {
+      console.error('[Instrumentation] Failed to initialize Paytm Card Enrichment cron:', err)
     }
   }
 

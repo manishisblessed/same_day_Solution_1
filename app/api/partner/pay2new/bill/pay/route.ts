@@ -271,12 +271,13 @@ export async function POST(request: NextRequest) {
       })
     } catch (provErr: any) {
       await refund('provider error')
+      // Mark the debit failed (payout_transaction_id is a uuid column and cannot
+      // hold a "FAILED:" marker — that write silently errored previously).
       await supabase
         .from('partner_wallet_ledger')
-        .update({ payout_transaction_id: `FAILED:${request_id}` })
+        .update({ status: 'failed' })
         .eq('partner_id', partner.id)
         .eq('reference_id', request_id)
-        .is('payout_transaction_id', null)
       return NextResponse.json(
         { success: false, error: { code: 'PROVIDER_ERROR', message: provErr?.message || 'Bill payment failed' }, request_id },
         { status: 200 }
@@ -285,13 +286,13 @@ export async function POST(request: NextRequest) {
 
     if (!result.success) {
       await refund(result.error || 'payment failed')
-      // Store failed status in ledger for status lookups
+      // Store failed status in ledger for status lookups (payout_transaction_id
+      // is a uuid column, so the old "FAILED:" marker write silently errored).
       await supabase
         .from('partner_wallet_ledger')
-        .update({ payout_transaction_id: `FAILED:${request_id}` })
+        .update({ status: 'failed' })
         .eq('partner_id', partner.id)
         .eq('reference_id', request_id)
-        .is('payout_transaction_id', null)
       const rateLimited = isBillerRateLimitError(result.error)
       return NextResponse.json(
         {
@@ -307,16 +308,16 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Store order_id in ledger for status lookups
+    // Store order_id in the description for status lookups / reconciliation.
+    // (payout_transaction_id is a uuid column and cannot hold Pay2New's order_id
+    // like "P2F...", so it is intentionally not written here.)
     await supabase
       .from('partner_wallet_ledger')
       .update({
-        payout_transaction_id: result.order_id || null,
         description: `BBPS-2 CC ₹${amountNum} + ₹${totalServiceCharge} charge | ${product_name || product_code} | Card:****${number} | Mob:${customer_number}${customer_name ? ` | Name:${customer_name}` : ''} | OrderID:${result.order_id} | Ref:${result.operator_reference || 'N/A'}`,
       })
       .eq('partner_id', partner.id)
       .eq('reference_id', request_id)
-      .is('payout_transaction_id', null)
 
     return NextResponse.json({
       success: true,
