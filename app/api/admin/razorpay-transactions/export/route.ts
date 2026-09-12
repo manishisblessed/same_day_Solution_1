@@ -3,6 +3,7 @@ import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { createClient } from '@supabase/supabase-js'
 import { resolveTransactionAssignments } from '@/lib/pos-assignment-resolver'
 import { htmlToPdf } from '@/lib/pdf/html-to-pdf'
+import { getAxisTidSet, resolveMachineGroup, applyMachineGroupFilter, isMachineGroup, machineGroupLabel } from '@/lib/pos/machine-group'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -63,6 +64,11 @@ export async function GET(request: NextRequest) {
     const settlementFilter = searchParams.get('settlement_status')
     const cardBrand = searchParams.get('card_brand')
     const merchantSlug = searchParams.get('merchant_slug') // all | ashvam | teachway | newscenaric | lagoon
+    const machineGroupParam = searchParams.get('machine_group') // AVIKA-HDFC | AVIKA-AXIS (Avika fleet split)
+    const machineGroup = isMachineGroup(machineGroupParam) ? machineGroupParam : null
+
+    // Axis TID set — single source of truth for the Avika fleet split.
+    const axisTids = await getAxisTidSet(supabase)
 
     // Build base query function with all filters applied
     const buildExportQuery = () => {
@@ -71,8 +77,11 @@ export async function GET(request: NextRequest) {
         .select('txn_id, amount, payment_mode, display_status, status, reversed_at, transaction_time, tid, device_serial, merchant_name, merchant_slug, customer_name, payer_name, username, txn_type, auth_code, card_number, issuing_bank, card_classification, mid_code, card_brand, card_type, currency, rrn, external_ref, settlement_status, settled_on, receipt_url, posting_date')
         .order('transaction_time', { ascending: false, nullsFirst: false })
 
-      // Apply company filter: supports multiple comma-separated slugs
-      if (merchantSlug && merchantSlug !== 'all') {
+      // Avika fleet filter overrides the company filter (implies merchant_slug=avika).
+      if (machineGroup) {
+        q = applyMachineGroupFilter(q, machineGroup, axisTids)
+      } else if (merchantSlug && merchantSlug !== 'all') {
+        // Apply company filter: supports multiple comma-separated slugs
         const slugs = merchantSlug.split(',').map(s => s.trim()).filter(Boolean)
         if (slugs.length === 1) {
           if (slugs[0] === 'ashvam') {
@@ -207,6 +216,10 @@ export async function GET(request: NextRequest) {
         'Consumer Name': txn.customer_name || txn.payer_name || '',
         'Username': txn.username || '',
         'Company Name': txn.merchant_name || getCompanyName(txn.merchant_slug),
+        'Fleet': (() => {
+          const g = resolveMachineGroup({ merchantSlug: txn.merchant_slug, tid: txn.tid, axisTids })
+          return g ? machineGroupLabel(g) : ''
+        })(),
         'Partner/Retailer Name': assignedName,
         'TID': txn.tid || '',
         'MID': txn.mid_code || '',
@@ -224,6 +237,7 @@ export async function GET(request: NextRequest) {
     const headers = Object.keys(rows[0] || {
       'Transaction ID': '', 'Date & Time': '', 'Amount (₹)': 0, 'Currency': '', 'Payment Mode': '',
       'Status': '', 'Settlement Status': '', 'Consumer Name': '', 'Username': '', 'Company Name': '',
+      'Fleet': '',
       'Partner/Retailer Name': '', 'TID': '', 'MID': '',
       'Card Number': '', 'Card Brand': '', 'Card Type': '',
       'RRN': '', 'Auth Code': '', 'External Ref': '', 'Device Serial': '', 'Settled On': ''

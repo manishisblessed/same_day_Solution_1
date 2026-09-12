@@ -71,6 +71,8 @@ interface RazorpayTransaction {
   merchant_name: string | null
   // Company (POS webhook source)
   merchant_slug?: string | null
+  // Avika fleet split (AVIKA-HDFC | AVIKA-AXIS); null for other companies
+  machine_group?: string | null
   // Transaction Details
   txn_type: string | null
   auth_code: string | null
@@ -132,6 +134,8 @@ function RazorpayTransactionsPageContent() {
   const [statusFilter, setStatusFilter] = useState('')
   const [paymentModeFilter, setPaymentModeFilter] = useState('')
   const [cardBrandFilter, setCardBrandFilter] = useState('')
+  // Avika fleet split: '' | 'AVIKA-HDFC' | 'AVIKA-AXIS'
+  const [fleetFilter, setFleetFilter] = useState('')
 
   // Archived companies (hidden by default; managed in Settings > Companies)
   const [archivedSlugs, setArchivedSlugs] = useState<string[]>([])
@@ -198,6 +202,7 @@ function RazorpayTransactionsPageContent() {
     status: '',
     paymentMode: '',
     cardBrand: '',
+    fleet: '',
   })
 
   const applySearch = () => {
@@ -209,6 +214,7 @@ function RazorpayTransactionsPageContent() {
       status: statusFilter,
       paymentMode: paymentModeFilter,
       cardBrand: cardBrandFilter,
+      fleet: fleetFilter,
     })
     setPage(1)
   }
@@ -251,12 +257,18 @@ function RazorpayTransactionsPageContent() {
       if (appliedFilters.dateFrom) params.set('date_from', appliedFilters.dateFrom)
       if (appliedFilters.dateTo) params.set('date_to', appliedFilters.dateTo)
       if (appliedFilters.search) params.set('search', appliedFilters.search)
-      // Restrict to active companies by default so archived data stays hidden.
-      const allSlugs = allCompanyOptions.map(c => c.slug)
-      const effectiveCompanies = appliedFilters.companies.length > 0
-        ? appliedFilters.companies
-        : (archivedSlugs.length > 0 ? allSlugs.filter(s => !archivedSlugs.includes(s)) : [])
-      if (effectiveCompanies.length > 0) params.set('merchant_slug', effectiveCompanies.join(','))
+      // Fleet split (Avika-HDFC / Avika-Axis) overrides the company filter since
+      // it implies merchant_slug=avika; otherwise apply the company filter.
+      if (appliedFilters.fleet) {
+        params.set('machine_group', appliedFilters.fleet)
+      } else {
+        // Restrict to active companies by default so archived data stays hidden.
+        const allSlugs = allCompanyOptions.map(c => c.slug)
+        const effectiveCompanies = appliedFilters.companies.length > 0
+          ? appliedFilters.companies
+          : (archivedSlugs.length > 0 ? allSlugs.filter(s => !archivedSlugs.includes(s)) : [])
+        if (effectiveCompanies.length > 0) params.set('merchant_slug', effectiveCompanies.join(','))
+      }
       if (appliedFilters.status) params.set('status', appliedFilters.status)
       if (appliedFilters.paymentMode) params.set('payment_mode', appliedFilters.paymentMode)
       if (appliedFilters.cardBrand) params.set('card_brand', appliedFilters.cardBrand)
@@ -361,11 +373,15 @@ function RazorpayTransactionsPageContent() {
       if (appliedFilters.dateFrom) params.set('date_from', appliedFilters.dateFrom)
       if (appliedFilters.dateTo) params.set('date_to', appliedFilters.dateTo)
       if (appliedFilters.search) params.set('search', appliedFilters.search)
-      const allSlugsExport = ['ashvam', 'teachway', 'newscenaric', 'lagoon', 'avika']
-      const effectiveCompaniesExport = appliedFilters.companies.length > 0
-        ? appliedFilters.companies
-        : (archivedSlugs.length > 0 ? allSlugsExport.filter(s => !archivedSlugs.includes(s)) : [])
-      if (effectiveCompaniesExport.length > 0) params.set('merchant_slug', effectiveCompaniesExport.join(','))
+      if (appliedFilters.fleet) {
+        params.set('machine_group', appliedFilters.fleet)
+      } else {
+        const allSlugsExport = ['ashvam', 'teachway', 'newscenaric', 'lagoon', 'avika']
+        const effectiveCompaniesExport = appliedFilters.companies.length > 0
+          ? appliedFilters.companies
+          : (archivedSlugs.length > 0 ? allSlugsExport.filter(s => !archivedSlugs.includes(s)) : [])
+        if (effectiveCompaniesExport.length > 0) params.set('merchant_slug', effectiveCompaniesExport.join(','))
+      }
       if (appliedFilters.status) params.set('status', appliedFilters.status)
       if (appliedFilters.paymentMode) params.set('payment_mode', appliedFilters.paymentMode)
       if (appliedFilters.cardBrand) params.set('card_brand', appliedFilters.cardBrand)
@@ -484,11 +500,12 @@ function RazorpayTransactionsPageContent() {
     setStatusFilter('')
     setPaymentModeFilter('')
     setCardBrandFilter('')
-    setAppliedFilters({ dateFrom: '', dateTo: '', search: '', companies: [], status: '', paymentMode: '', cardBrand: '' })
+    setFleetFilter('')
+    setAppliedFilters({ dateFrom: '', dateTo: '', search: '', companies: [], status: '', paymentMode: '', cardBrand: '', fleet: '' })
     setPage(1)
   };
 
-  const hasActiveFilters = dateFrom || dateTo || searchQuery || selectedCompanies.length > 0 || statusFilter || paymentModeFilter || cardBrandFilter
+  const hasActiveFilters = dateFrom || dateTo || searchQuery || selectedCompanies.length > 0 || statusFilter || paymentModeFilter || cardBrandFilter || fleetFilter
 
   // Helper to get sortable value for a column
   const getSortVal = (txn: RazorpayTransaction, col: string): string | number => {
@@ -1075,6 +1092,18 @@ function RazorpayTransactionsPageContent() {
                   <option value="DINERS">Diners</option>
                 </select>
 
+                {/* Avika Fleet Filter (Pine Labs machines split by acquiring bank) */}
+                <select
+                  value={fleetFilter}
+                  onChange={(e) => setFleetFilter(e.target.value)}
+                  className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  title="Filter Avika transactions by machine fleet (HDFC / Axis)"
+                >
+                  <option value="">All Fleets</option>
+                  <option value="AVIKA-HDFC">Avika-HDFC</option>
+                  <option value="AVIKA-AXIS">Avika-Axis</option>
+                </select>
+
                 {/* Search Button */}
                 <button
                   onClick={applySearch}
@@ -1308,6 +1337,8 @@ function RazorpayTransactionsPageContent() {
                             {txn.customer_name || txn.payer_name || '-'}
                           </td>
                           <td className="px-3 py-3 whitespace-nowrap text-xs text-gray-600 dark:text-gray-400 max-w-[140px] truncate" title={
+                            txn.machine_group === 'AVIKA-AXIS' ? 'Avika Departmental Private Limited — Axis (Pine Labs)' :
+                            txn.machine_group === 'AVIKA-HDFC' ? 'Avika Departmental Private Limited — HDFC (Pine Labs)' :
                             txn.merchant_slug === 'ashvam' ? 'ASHVAM LEARNING PRIVATE LIMITED' :
                             txn.merchant_slug === 'teachway' ? 'Teachway Education Private Limited' :
                             txn.merchant_slug === 'newscenaric' ? 'New Scenaric Travels' :
@@ -1315,7 +1346,9 @@ function RazorpayTransactionsPageContent() {
                             txn.merchant_slug === 'avika' ? 'Avika Departmental Private Limited' :
                             txn.merchant_slug === 'samedaytours' ? 'SAMEDAY TOUR AND TRAVELS PRIVATE LIMITED' : (txn.merchant_slug || 'ASHVAM')
                           }>
-                            {txn.merchant_slug === 'ashvam' ? 'ASHVAM' :
+                            {txn.machine_group === 'AVIKA-AXIS' ? 'Avika-Axis' :
+                             txn.machine_group === 'AVIKA-HDFC' ? 'Avika-HDFC' :
+                             txn.merchant_slug === 'ashvam' ? 'ASHVAM' :
                              txn.merchant_slug === 'teachway' ? 'Teachway' :
                              txn.merchant_slug === 'newscenaric' ? 'New Scenaric' :
                              txn.merchant_slug === 'lagoon' ? 'Lagoon' :
@@ -1438,6 +1471,9 @@ function RazorpayTransactionsPageContent() {
                                         txn.merchant_slug === 'avika' ? 'Avika Departmental Private Limited' :
                                         txn.merchant_slug === 'samedaytours' ? 'SAMEDAY TOUR AND TRAVELS PRIVATE LIMITED' : (txn.merchant_slug || 'ASHVAM LEARNING PRIVATE LIMITED')
                                       } />
+                                      {txn.machine_group && (
+                                        <DetailItem label="Fleet" value={txn.machine_group === 'AVIKA-AXIS' ? 'Avika-Axis' : 'Avika-HDFC'} />
+                                      )}
                                       <DetailItem label="Service Provider" value={txn.service_provider || 'RAZORPAY'} />
                                       
                                       {/* Dates */}

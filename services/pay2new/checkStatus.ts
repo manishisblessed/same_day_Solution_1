@@ -16,6 +16,7 @@ export interface Pay2NewStatusResponse {
 }
 
 export interface CheckStatusParams {
+  /** Our client transaction id (the SDS... value stored as ledger reference_id). */
   request_id: string
 }
 
@@ -31,12 +32,20 @@ export async function pay2newCheckStatus(params: CheckStatusParams): Promise<{
   console.log('[Pay2New] Check Status request_id:', params.request_id)
 
   try {
+    // Pay2New's transactionStatus API keys on `client_txn_id` (our request_id).
+    // Sending `request_id` is rejected with "Invalid Parameters".
     const result = await pay2newPost<Pay2NewStatusResponse>('apis/v1/transactionStatus', {
-      request_id: params.request_id,
+      client_txn_id: params.request_id,
     })
 
     if (!result.ok || !result.data) {
       const errMsg = result.error || result.data?.message || 'Status check failed'
+      // A definitive "no such transaction" from the provider means the payment
+      // was never registered/charged -> treat as FAILED so callers can safely
+      // resolve a stuck debit (rather than leaving it PENDING forever).
+      if (/no\s*transaction\s*found/i.test(errMsg)) {
+        return { success: true, status: 'FAILED', error: errMsg, raw: result.data as any }
+      }
       console.error('[Pay2New] Check Status failed:', errMsg)
       return { success: false, error: errMsg, raw: result.data as any }
     }

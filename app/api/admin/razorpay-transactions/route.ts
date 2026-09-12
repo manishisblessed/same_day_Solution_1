@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { createClient } from '@supabase/supabase-js'
 import { resolveTransactionAssignments } from '@/lib/pos-assignment-resolver'
+import { getAxisTidSet, resolveMachineGroup, applyMachineGroupFilter, isMachineGroup } from '@/lib/pos/machine-group'
 
 export const runtime = 'nodejs' // Force Node.js runtime (Supabase not compatible with Edge Runtime)
 export const dynamic = 'force-dynamic'
@@ -81,6 +82,10 @@ export async function GET(request: NextRequest) {
     const cardBrand = searchParams.get('card_brand') // Filter by card brand
     const merchantSlug = searchParams.get('merchant_slug') // Filter by company: all | ashvam | teachway | newscenaric | lagoon
     const acquiringBank = searchParams.get('acquiring_bank') // Filter by acquiring bank (partial match)
+    // Avika fleet split (Pine Labs machines by acquiring bank): AVIKA-HDFC | AVIKA-AXIS.
+    // When set, it overrides the company filter (implies merchant_slug=avika).
+    const machineGroupParam = searchParams.get('machine_group')
+    const machineGroup = isMachineGroup(machineGroupParam) ? machineGroupParam : null
     // view=failed → the "Failed Transactions" tab: transactions that were served
     // as captured and later reversed/failed upstream (reversed_at stamped by the
     // Pine Labs reconciliation job). Shows captured-time vs failed-time.
@@ -110,6 +115,10 @@ export async function GET(request: NextRequest) {
       .is('reversed_at', null)
       .not('txn_id', 'ilike', 'PL\\_%')
 
+    // Axis TID set — single source of truth for the Avika fleet split. Fetched
+    // once and reused for both the row query, the stats query, and per-row labels.
+    const axisTids = await getAxisTidSet(supabase)
+
     // Build query from razorpay_pos_transactions (the table webhook writes to)
     // Select dedicated columns + raw_data for fallback extraction
     let query = supabase
@@ -118,9 +127,13 @@ export async function GET(request: NextRequest) {
       .order(failedView ? 'reversed_at' : 'transaction_time', { ascending: false, nullsFirst: false })
       .range(offset, offset + limit - 1)
 
-    // Apply company (merchant) filter: supports multiple comma-separated slugs
-    // ashvam = base URL (slug or null), others = exact slug
-    if (merchantSlug && merchantSlug !== 'all') {
+    // Avika fleet filter takes precedence over the company filter (it implies
+    // merchant_slug=avika and partitions by the Axis TID set).
+    if (machineGroup) {
+      query = applyMachineGroupFilter(query, machineGroup, axisTids)
+    } else if (merchantSlug && merchantSlug !== 'all') {
+      // Apply company (merchant) filter: supports multiple comma-separated slugs
+      // ashvam = base URL (slug or null), others = exact slug
       const slugs = merchantSlug.split(',').map(s => s.trim()).filter(Boolean)
       if (slugs.length === 1) {
         if (slugs[0] === 'ashvam') {
@@ -254,7 +267,9 @@ export async function GET(request: NextRequest) {
       }
 
       // Apply all filters EXCEPT status (already handled above)
-      if (merchantSlug && merchantSlug !== 'all') {
+      if (machineGroup) {
+        amountQuery = applyMachineGroupFilter(amountQuery, machineGroup, axisTids)
+      } else if (merchantSlug && merchantSlug !== 'all') {
         const slugs = merchantSlug.split(',').map(s => s.trim()).filter(Boolean)
         if (slugs.length === 1) {
           if (slugs[0] === 'ashvam') {
@@ -325,6 +340,8 @@ export async function GET(request: NextRequest) {
         service_provider: txn.raw_data?._brand || 'RAZORPAY',
         // Company (merchant_slug): ashvam, teachway, newscenaric, lagoon; null = legacy/ashvam
         merchant_slug: txn.merchant_slug || 'ashvam',
+        // Avika fleet split (AVIKA-HDFC | AVIKA-AXIS); null for every other company.
+        machine_group: resolveMachineGroup({ merchantSlug: txn.merchant_slug, tid: txn.tid, axisTids }),
         // Partner/Retailer/Distributor/MD assignment info (from POS machine)
         assigned_name: assignedName,
         assigned_type: assignedType,
