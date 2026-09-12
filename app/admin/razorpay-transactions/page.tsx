@@ -514,7 +514,10 @@ function RazorpayTransactionsPageContent() {
       case 'date': return txn.created_time || ''
       case 'failed_at': return txn.reversed_at || ''
       case 'consumer': return txn.customer_name || txn.payer_name || ''
-      case 'company': return txn.merchant_slug || ''
+      // Prefer the Avika fleet label (AVIKA-HDFC / AVIKA-AXIS) so the Company
+      // column filter can target a fleet; falls back to merchant_slug otherwise.
+      // "avika" still matches both fleets since "avika-hdfc".includes("avika").
+      case 'company': return txn.machine_group || txn.merchant_slug || ''
       case 'provider': return txn.service_provider || 'RAZORPAY'
       case 'amount': return txn.amount || 0
       case 'mode': return txn.payment_mode || ''
@@ -1199,7 +1202,9 @@ function RazorpayTransactionsPageContent() {
                         <option value="teachway">Teachway</option>
                         <option value="newscenaric">New Scenaric</option>
                         <option value="lagoon">Lagoon</option>
-                        <option value="avika">Avika</option>
+                        <option value="avika">Avika (all)</option>
+                        <option value="AVIKA-HDFC">Avika-HDFC</option>
+                        <option value="AVIKA-AXIS">Avika-Axis</option>
                         <option value="samedaytours">Sameday Tours</option>
                       </select>
                     </th>
