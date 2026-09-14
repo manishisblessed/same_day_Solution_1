@@ -77,13 +77,22 @@ export async function POST(request: NextRequest) {
     const merchantTransactionId = generateMerchantTxnId('SDSAP')
     const mode = paymentMode || 'Card'
 
+    // Paytm ECR rejects merchantReferenceNo values that are too long / contain
+    // special chars ("Request parameters are not valid", resultCodeId 0002). A
+    // partner_id is a 36-char UUID with hyphens, so `${role}:${uuid}` (45 chars)
+    // fails. This field is metadata only (attribution is by tid/device, never
+    // parsed back), so make it Paytm-safe: alphanumeric, capped at 20 chars.
+    const merchantReferenceNo = `${user.role}${user.partner_id}`
+      .replace(/[^a-zA-Z0-9]/g, '')
+      .slice(0, 20)
+
     const body: Record<string, any> = {
       paytmMid,
       paytmTid,
       transactionDateTime: now,
       merchantTransactionId,
       transactionAmount: amountInPaise,
-      merchantReferenceNo: `${user.role}:${user.partner_id}`,
+      merchantReferenceNo,
       paymentMode: mode,
     }
 

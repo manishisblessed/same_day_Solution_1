@@ -23,6 +23,33 @@ export function machineGroupLabel(group: MachineGroup): string {
 }
 
 /**
+ * Fixed company → fleet label map used for the report's Fleet column so every
+ * row (not just Avika) carries a meaningful value for pivots. Avika is handled
+ * separately because it is split by machine (see companyFleetLabel).
+ */
+const COMPANY_FLEET_LABELS: Record<string, string> = {
+  teachway: 'TW AXIS',
+  samedaytours: 'SD T&T HDFC',
+  lagoon: 'Lagoon Paytm', // active once the Lagoon (Paytm) API is enabled
+  ashvam: 'ASHVAM',       // no acquirer suffix (confirmed)
+  newscenaric: 'New Scenaric', // no acquirer suffix (confirmed)
+}
+
+/**
+ * Report-facing Fleet label for any transaction. Avika resolves to its machine
+ * fleet (Avika-HDFC / Avika-Axis); every other company maps to a fixed label so
+ * the Fleet column is never blank.
+ */
+export function companyFleetLabel(opts: {
+  merchantSlug?: string | null
+  machineGroup?: string | null
+}): string {
+  if (isMachineGroup(opts.machineGroup)) return machineGroupLabel(opts.machineGroup)
+  const slug = (opts.merchantSlug || '').toLowerCase().trim()
+  return COMPANY_FLEET_LABELS[slug] || (slug ? slug : '')
+}
+
+/**
  * Fetch the set of TIDs belonging to Axis-acquired POS machines. Because this
  * reads `pos_machines` live, adding the next batch of Axis machines needs no code
  * or data migration — their transactions are classified automatically.

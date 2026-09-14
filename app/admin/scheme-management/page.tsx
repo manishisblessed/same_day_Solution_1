@@ -120,15 +120,10 @@ function SchemeManagementPageContent() {
       const { data, error } = await query
       if (error) throw error
       
-      // Admin manages ONLY admin-created rates. Custom schemes created by
-      // MDs/Distributors (which carry a partner created_by_id) are their own
-      // downstream rates and must not appear in the admin list.
-      let filtered = (data || []).filter((s: any) =>
-        s.created_by_role === 'admin' ||
-        s.scheme_type === 'global' ||
-        s.scheme_type === 'golden' ||
-        !s.created_by_id
-      )
+      // Admin sees ALL schemes: admin-created global/golden/custom rates AND
+      // downstream custom schemes created by MDs/Distributors and assigned to
+      // their child users. Creator attribution is resolved below.
+      let filtered = (data || []) as any[]
       if (searchQuery) {
         filtered = filtered.filter(s => 
           s.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -996,6 +991,13 @@ function SchemeManagementPageContent() {
                             {scheme.created_by_role === 'admin'
                               ? 'Admin'
                               : `${scheme.created_by_role === 'master_distributor' ? 'MD' : scheme.created_by_role === 'distributor' ? 'Distributor' : scheme.created_by_role}: ${scheme.created_by_id || 'Unknown'}`}
+                          </span>
+                        )}
+                        {/* Fallback: schemes with no creator attribution (legacy/seeded) */}
+                        {!scheme.creator_name && !scheme.created_by_role && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400" title="System scheme — not created by a specific user">
+                            <Users className="w-3 h-3" />
+                            System
                           </span>
                         )}
                       </div>

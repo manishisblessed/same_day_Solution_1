@@ -9,6 +9,7 @@ import {
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { SessionBadge } from '@/components/SessionTimer'
+import SidebarToggle from '@/components/SidebarToggle'
 
 export default function PartnerHeader() {
   const { user, logout } = useAuth()
@@ -91,7 +92,8 @@ export default function PartnerHeader() {
       <div className="w-full mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
           {/* Logo & Title */}
-          <div className="flex items-center space-x-4">
+          <div className="flex items-center space-x-2 sm:space-x-4">
+            <SidebarToggle />
             <div className="flex items-center space-x-3">
               <div className="relative">
                 <div className="absolute inset-0 bg-gradient-to-br from-purple-500 via-pink-500 to-purple-600 rounded-xl blur opacity-75 animate-pulse"></div>
@@ -99,9 +101,9 @@ export default function PartnerHeader() {
                   <Crown className="w-6 h-6 text-white" />
                 </div>
               </div>
-              <div>
+              <div className="hidden sm:block">
                 <div className="flex items-center gap-2">
-                  <h1 className="text-xl font-bold bg-gradient-to-r from-purple-600 via-pink-600 to-purple-700 bg-clip-text text-transparent">
+                  <h1 className="text-lg sm:text-xl font-bold bg-gradient-to-r from-purple-600 via-pink-600 to-purple-700 bg-clip-text text-transparent whitespace-nowrap">
                     Partner Portal
                   </h1>
                   <Sparkles className="w-4 h-4 text-purple-500 animate-pulse" />

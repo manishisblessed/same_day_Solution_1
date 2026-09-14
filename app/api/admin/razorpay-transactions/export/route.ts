@@ -3,7 +3,7 @@ import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { createClient } from '@supabase/supabase-js'
 import { resolveTransactionAssignments } from '@/lib/pos-assignment-resolver'
 import { htmlToPdf } from '@/lib/pdf/html-to-pdf'
-import { getAxisTidSet, resolveMachineGroup, applyMachineGroupFilter, isMachineGroup, machineGroupLabel, buildCompanyFilterOr } from '@/lib/pos/machine-group'
+import { getAxisTidSet, resolveMachineGroup, applyMachineGroupFilter, isMachineGroup, buildCompanyFilterOr, companyFleetLabel } from '@/lib/pos/machine-group'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -220,10 +220,10 @@ export async function GET(request: NextRequest) {
         'Consumer Name': txn.customer_name || txn.payer_name || '',
         'Username': txn.username || '',
         'Company Name': txn.merchant_name || getCompanyName(txn.merchant_slug),
-        'Fleet': (() => {
-          const g = resolveMachineGroup({ merchantSlug: txn.merchant_slug, tid: txn.tid, axisTids })
-          return g ? machineGroupLabel(g) : ''
-        })(),
+        'Fleet': companyFleetLabel({
+          merchantSlug: txn.merchant_slug,
+          machineGroup: resolveMachineGroup({ merchantSlug: txn.merchant_slug, tid: txn.tid, axisTids }),
+        }),
         'Partner/Retailer Name': assignedName,
         'TID': txn.tid || '',
         'MID': txn.mid_code || '',

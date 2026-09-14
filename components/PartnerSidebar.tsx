@@ -12,6 +12,7 @@ import {
 } from 'lucide-react'
 import { apiFetch } from '@/lib/api-client'
 import { useAuth } from '@/contexts/AuthContext'
+import { useSidebarMobile } from '@/hooks/useSidebar'
 import { motion, AnimatePresence } from 'framer-motion'
 
 interface SidebarItem {
@@ -74,9 +75,12 @@ const SERVICE_TAB_MAP: Record<string, string[]> = {
   'mdr-schemes':   ['mini_atm_pos'],
 }
 
-export default function PartnerSidebar({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
+export default function PartnerSidebar({ isOpen, onClose }: { isOpen?: boolean; onClose?: () => void }) {
   const pathname = usePathname()
   const searchParams = useSearchParams()
+  const { mobileOpen, closeMobile } = useSidebarMobile()
+  const drawerOpen = isOpen || mobileOpen
+  const handleClose = () => { onClose?.(); closeMobile() }
   const [hoveredItem, setHoveredItem] = useState<string | null>(null)
   const [enabledServices, setEnabledServices] = useState<Record<string, boolean> | null>(null)
   const [subPartnersEnabled, setSubPartnersEnabled] = useState(false)
@@ -168,7 +172,7 @@ export default function PartnerSidebar({ isOpen, onClose }: { isOpen: boolean; o
     <>
       {/* Mobile Overlay */}
       <AnimatePresence>
-        {isOpen && (
+        {drawerOpen && (
           <>
             <motion.div
               initial={{ opacity: 0 }}
@@ -176,7 +180,7 @@ export default function PartnerSidebar({ isOpen, onClose }: { isOpen: boolean; o
               exit={{ opacity: 0 }}
               transition={{ duration: 0.2 }}
               className="fixed inset-0 bg-black/50 z-40 lg:hidden"
-              onClick={onClose}
+              onClick={handleClose}
             />
             <motion.div
               initial={{ x: -300 }}
@@ -190,7 +194,7 @@ export default function PartnerSidebar({ isOpen, onClose }: { isOpen: boolean; o
                 isActive={isActive} 
                 hoveredItem={hoveredItem}
                 setHoveredItem={setHoveredItem}
-                onClose={onClose}
+                onClose={handleClose}
               />
             </motion.div>
           </>
@@ -198,7 +202,7 @@ export default function PartnerSidebar({ isOpen, onClose }: { isOpen: boolean; o
       </AnimatePresence>
 
       {/* Desktop Sidebar */}
-      <aside className="hidden lg:flex flex-col w-56 bg-gradient-to-b from-purple-50/50 via-pink-50/30 to-white dark:from-gray-900 dark:via-purple-900/20 dark:to-gray-800 border-r border-purple-200/50 dark:border-purple-700/50 h-[calc(100vh-4rem)] fixed left-0 top-16 overflow-y-auto">
+      <aside data-app-sidebar className="hidden lg:flex flex-col w-56 bg-gradient-to-b from-purple-50/50 via-pink-50/30 to-white dark:from-gray-900 dark:via-purple-900/20 dark:to-gray-800 border-r border-purple-200/50 dark:border-purple-700/50 h-[calc(100vh-4rem)] fixed left-0 top-16 overflow-y-auto z-40">
         <SidebarContent 
           items={visibleItems}
           isActive={isActive} 

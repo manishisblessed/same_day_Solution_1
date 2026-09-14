@@ -9,6 +9,7 @@ import {
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { SessionBadge } from '@/components/SessionTimer'
+import SidebarToggle from '@/components/SidebarToggle'
 
 export default function RetailerHeader() {
   const { user, logout } = useAuth()
@@ -89,7 +90,8 @@ export default function RetailerHeader() {
       <div className="w-full mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
           {/* Logo & Title */}
-          <div className="flex items-center space-x-4">
+          <div className="flex items-center space-x-2 sm:space-x-4">
+            <SidebarToggle />
             <div className="flex items-center space-x-3">
               <div className="relative">
                 <div className="absolute inset-0 bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl blur opacity-75"></div>
@@ -97,8 +99,8 @@ export default function RetailerHeader() {
                   <ShoppingCart className="w-6 h-6 text-white" />
                 </div>
               </div>
-              <div>
-                <h1 className="text-xl font-bold bg-gradient-to-r from-blue-600 to-blue-700 bg-clip-text text-transparent">
+              <div className="hidden sm:block">
+                <h1 className="text-lg sm:text-xl font-bold bg-gradient-to-r from-blue-600 to-blue-700 bg-clip-text text-transparent whitespace-nowrap">
                   Retailer Portal
                 </h1>
                 <p className="text-xs text-gray-500 dark:text-gray-400">Business Dashboard</p>

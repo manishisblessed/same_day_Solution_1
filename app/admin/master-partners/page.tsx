@@ -120,6 +120,7 @@ function MasterPartnersContent() {
                   {m.children.length === 0 ? (
                     <p className="text-sm text-gray-400">No child partners assigned.</p>
                   ) : (
+                    <div className="overflow-x-auto">
                     <table className="w-full text-sm">
                       <thead>
                         <tr className="text-left text-gray-500 border-b border-gray-200 dark:border-gray-700">
@@ -143,6 +144,7 @@ function MasterPartnersContent() {
                         ))}
                       </tbody>
                     </table>
+                    </div>
                   )}
                 </div>
               )}

@@ -142,3 +142,32 @@
   }
 }
 
+/* ============================================================
+   Collapsible sidebar (desktop)
+   Toggling `html.sidebar-collapsed` slides the fixed sidebar out
+   and reclaims the content width used by `lg:ml-56` / `lg:pl-56`.
+   ============================================================ */
+aside[data-app-sidebar] {
+  transition: transform 0.2s ease;
+  will-change: transform;
+}
+
+@media (min-width: 1024px) {
+  .lg\:ml-56,
+  .lg\:pl-56 {
+    transition: margin-left 0.2s ease, padding-left 0.2s ease;
+  }
+
+  html.sidebar-collapsed aside[data-app-sidebar] {
+    transform: translateX(-100%);
+  }
+
+  html.sidebar-collapsed .lg\:ml-56 {
+    margin-left: 0 !important;
+  }
+
+  html.sidebar-collapsed .lg\:pl-56 {
+    padding-left: 0 !important;
+  }
+}
+

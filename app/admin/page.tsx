@@ -3235,7 +3235,7 @@ function ServiceOverviewPanel({ services, bbpsProviderBalance, onRefreshBalance 
         {bbpsProviderBalance.error ? (
           <p className="text-xs text-red-200">{bbpsProviderBalance.error}</p>
         ) : (
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
               <p className="text-xs text-blue-200">Total Balance</p>
               <p className="text-xl font-bold">₹{(bbpsProviderBalance.balance || 0).toLocaleString('en-IN')}</p>

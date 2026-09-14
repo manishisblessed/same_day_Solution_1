@@ -47,6 +47,7 @@ import {
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { apiFetch } from '@/lib/api-client'
+import { companyFleetLabel } from '@/lib/pos/machine-group'
 
 interface RazorpayTransaction {
   txn_id: string
@@ -842,7 +843,7 @@ function RazorpayTransactionsPageContent() {
           )}
 
           {/* Summary Stats Cards */}
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4">
               <div className="flex items-center gap-2 mb-1">
                 <Receipt className="w-4 h-4 text-blue-500" />
@@ -1484,9 +1485,7 @@ function RazorpayTransactionsPageContent() {
                                         txn.merchant_slug === 'avika' ? 'Avika Departmental Private Limited' :
                                         txn.merchant_slug === 'samedaytours' ? 'SAMEDAY TOUR AND TRAVELS PRIVATE LIMITED' : (txn.merchant_slug || 'ASHVAM LEARNING PRIVATE LIMITED')
                                       } />
-                                      {txn.machine_group && (
-                                        <DetailItem label="Fleet" value={txn.machine_group === 'AVIKA-AXIS' ? 'Avika-Axis' : 'Avika-HDFC'} />
-                                      )}
+                                      <DetailItem label="Fleet" value={companyFleetLabel({ merchantSlug: txn.merchant_slug, machineGroup: txn.machine_group })} />
                                       <DetailItem label="Service Provider" value={txn.service_provider || 'RAZORPAY'} />
                                       
                                       {/* Dates */}

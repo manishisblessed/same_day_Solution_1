@@ -15,6 +15,7 @@ import { supabase } from '@/lib/supabase/client'
 
 import { secureDb } from '@/lib/secure-db'
 import { useAuth } from '@/contexts/AuthContext'
+import { useSidebarMobile } from '@/hooks/useSidebar'
 
 interface SidebarItem {
   id: string
@@ -74,10 +75,13 @@ const sidebarItems: SidebarItem[] = [
 // Items only ever visible to a strict super_admin (never department-grantable).
 const SUPER_ADMIN_ONLY = new Set<string>(['credentials'])
 
-export default function AdminSidebar({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
+export default function AdminSidebar({ isOpen, onClose }: { isOpen?: boolean; onClose?: () => void }) {
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const { user } = useAuth()
+  const { mobileOpen, closeMobile } = useSidebarMobile()
+  const drawerOpen = isOpen || mobileOpen
+  const handleClose = () => { onClose?.(); closeMobile() }
   const [hoveredItem, setHoveredItem] = useState<string | null>(null)
   const [mounted, setMounted] = useState(false)
   const [adminDepartments, setAdminDepartments] = useState<string[]>([])
@@ -155,7 +159,7 @@ export default function AdminSidebar({ isOpen, onClose }: { isOpen: boolean; onC
     <>
       {/* Mobile Overlay */}
       <AnimatePresence>
-        {isOpen && (
+        {drawerOpen && (
           <>
             <motion.div
               initial={{ opacity: 0 }}
@@ -163,7 +167,7 @@ export default function AdminSidebar({ isOpen, onClose }: { isOpen: boolean; onC
               exit={{ opacity: 0 }}
               transition={{ duration: 0.2 }}
               className="fixed inset-0 bg-black/50 z-40 lg:hidden"
-              onClick={onClose}
+              onClick={handleClose}
             />
             <motion.div
               initial={{ x: -300 }}
@@ -177,7 +181,7 @@ export default function AdminSidebar({ isOpen, onClose }: { isOpen: boolean; onC
                 isActive={isActive} 
                 hoveredItem={hoveredItem}
                 setHoveredItem={setHoveredItem}
-                onClose={onClose}
+                onClose={handleClose}
               />
             </motion.div>
           </>
@@ -185,7 +189,7 @@ export default function AdminSidebar({ isOpen, onClose }: { isOpen: boolean; onC
       </AnimatePresence>
 
       {/* Desktop Sidebar */}
-      <aside className="hidden lg:flex flex-col w-56 bg-gradient-to-b from-white to-gray-50 dark:from-gray-900 dark:to-gray-800 border-r border-gray-200 dark:border-gray-800 h-[calc(100vh-4rem)] fixed left-0 top-16 overflow-y-auto">
+      <aside data-app-sidebar className="hidden lg:flex flex-col w-56 bg-gradient-to-b from-white to-gray-50 dark:from-gray-900 dark:to-gray-800 border-r border-gray-200 dark:border-gray-800 h-[calc(100vh-4rem)] fixed left-0 top-16 overflow-y-auto z-40">
         <SidebarContent 
           items={filteredItems}
           isActive={isActive} 

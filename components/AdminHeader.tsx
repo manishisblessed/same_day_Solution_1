@@ -10,6 +10,7 @@ import {
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { SessionBadge } from '@/components/SessionTimer'
+import SidebarToggle from '@/components/SidebarToggle'
 
 export default function AdminHeader() {
   const { user, logout } = useAuth()
@@ -78,7 +79,8 @@ export default function AdminHeader() {
       <div className="w-full mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
           {/* Logo & Title - Clickable to refresh to dashboard */}
-          <div className="flex items-center space-x-4">
+          <div className="flex items-center space-x-2 sm:space-x-4">
+            <SidebarToggle />
             <button 
               onClick={() => {
                 router.push('/admin?tab=dashboard')
@@ -98,8 +100,8 @@ export default function AdminHeader() {
                     priority
                   />
                 </div>
-                <div className="text-left">
-                  <h1 className="text-xl font-bold text-gray-900 dark:text-white">
+                <div className="hidden sm:block text-left">
+                  <h1 className="text-lg sm:text-xl font-bold text-gray-900 dark:text-white whitespace-nowrap">
                     Same Day Solution
                   </h1>
                   <p className="text-xs text-gray-500 dark:text-gray-400">Pvt. Ltd.</p>

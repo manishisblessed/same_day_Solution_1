@@ -31,6 +31,11 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body className={inter.className} suppressHydrationWarning>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `try{if(localStorage.getItem('sidebarCollapsed')==='true'){document.documentElement.classList.add('sidebar-collapsed')}}catch(e){}`,
+          }}
+        />
         <AuthProvider>
           <ToastProvider>
             <ConditionalLayout>
