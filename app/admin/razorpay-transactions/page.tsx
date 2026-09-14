@@ -259,10 +259,15 @@ function RazorpayTransactionsPageContent() {
       if (appliedFilters.dateFrom) params.set('date_from', appliedFilters.dateFrom)
       if (appliedFilters.dateTo) params.set('date_to', appliedFilters.dateTo)
       if (appliedFilters.search) params.set('search', appliedFilters.search)
-      // Fleet split (Avika-HDFC / Avika-Axis) overrides the company filter since
-      // it implies merchant_slug=avika; otherwise apply the company filter.
+      // Fleet filter overrides the company filter. Avika fleets map to the
+      // machine_group param (TID-based split); other companies' fleets map to
+      // their merchant_slug.
       if (appliedFilters.fleet) {
-        params.set('machine_group', appliedFilters.fleet)
+        if (appliedFilters.fleet === 'AVIKA-HDFC' || appliedFilters.fleet === 'AVIKA-AXIS') {
+          params.set('machine_group', appliedFilters.fleet)
+        } else {
+          params.set('merchant_slug', appliedFilters.fleet)
+        }
       } else {
         // Restrict to active companies by default so archived data stays hidden.
         // For the DEFAULT set (nothing explicitly selected) collapse the two Avika
@@ -381,7 +386,11 @@ function RazorpayTransactionsPageContent() {
       if (appliedFilters.dateTo) params.set('date_to', appliedFilters.dateTo)
       if (appliedFilters.search) params.set('search', appliedFilters.search)
       if (appliedFilters.fleet) {
-        params.set('machine_group', appliedFilters.fleet)
+        if (appliedFilters.fleet === 'AVIKA-HDFC' || appliedFilters.fleet === 'AVIKA-AXIS') {
+          params.set('machine_group', appliedFilters.fleet)
+        } else {
+          params.set('merchant_slug', appliedFilters.fleet)
+        }
       } else {
         const allSlugsExport = ['ashvam', 'teachway', 'newscenaric', 'lagoon', 'AVIKA-HDFC', 'AVIKA-AXIS']
         const collapseFleetsExport = (arr: string[]) =>
@@ -1114,6 +1123,9 @@ function RazorpayTransactionsPageContent() {
                   <option value="">All Fleets</option>
                   <option value="AVIKA-HDFC">Avika-HDFC</option>
                   <option value="AVIKA-AXIS">Avika-Axis</option>
+                  <option value="teachway">{companyFleetLabel({ merchantSlug: 'teachway' })}</option>
+                  <option value="samedaytours">{companyFleetLabel({ merchantSlug: 'samedaytours' })}</option>
+                  <option value="lagoon">{companyFleetLabel({ merchantSlug: 'lagoon' })}</option>
                 </select>
 
                 {/* Search Button */}
