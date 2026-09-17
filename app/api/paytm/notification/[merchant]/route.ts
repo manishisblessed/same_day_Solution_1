@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { verifyChecksum, fetchPaytmStatusBody } from '@/lib/paytm'
+import { verifyChecksum, fetchPaytmStatusBody, hasMerchantKeyForMid, getPaytmConfig } from '@/lib/paytm'
 import { deliverPartnerCallback, deliverPartnerReversal } from '@/lib/partner-webhook/deliver'
 
 export const runtime = 'nodejs'
@@ -76,7 +76,8 @@ export async function POST(
     const signature: string | undefined = payload?.head?.signature || payload?.head?.checksum
     if (signature) {
       try {
-        const valid = await verifyChecksum(data, signature)
+        // Verify with the key belonging to THIS callback's MID (multi-MID merchants).
+        const valid = await verifyChecksum(data, signature, data.paytmMid || data.mid)
         console.log(`[Paytm/${merchantSlug}] Signature ${valid ? 'verified' : 'verification FAILED (processing anyway)'}`)
       } catch (e: any) {
         console.warn(`[Paytm/${merchantSlug}] Signature verify error: ${e?.message}`)
@@ -108,9 +109,18 @@ export async function POST(
     // Best-effort: never fail the callback if enrichment errors.
     const ourMtxnId = data.merchantTransactionId || data.orderId
     const missingDetail = !(data.retrievalReferenceNo || data.rrn) || !data.acquirementId
-    if (ourMtxnId && missingDetail) {
+    // Paytm's standalone orderId ends with the 8-digit Paytm TID; use it for the
+    // per-MID Status Enquiry. Only enrich when we can sign for this MID (primary
+    // MID uses the default key; secondary MIDs need PAYTM_MID_KEYS_B64).
+    const callbackMid = data.paytmMid || data.mid || null
+    const tidFromOrder = /(\d{8})$/.test(String(data.orderId || '')) ? String(data.orderId).slice(-8) : undefined
+    const canSignMid = !callbackMid || callbackMid === getPaytmConfig().mid || hasMerchantKeyForMid(callbackMid)
+    if (ourMtxnId && missingDetail && canSignMid) {
       try {
-        const statusBody = await fetchPaytmStatusBody(ourMtxnId, { tid: data.paytmTid || data.tid })
+        const statusBody = await fetchPaytmStatusBody(ourMtxnId, {
+          mid: callbackMid || undefined,
+          tid: data.paytmTid || data.tid || tidFromOrder,
+        })
         const sInfo: any = statusBody?.resultInfo || {}
         if (sInfo.resultStatus === 'SUCCESS' || sInfo.resultCodeId === '0000') {
           for (const k of Object.keys(statusBody)) {
@@ -185,17 +195,51 @@ export async function POST(
       mappedStatus = 'FAILED'
     }
 
-    const tid = data.paytmTid || data.terminalId || data.TERMINAL_ID || data.posId || data.tid || null
     const mid = data.paytmMid || data.mid || data.MID || data.merchantId || null
-    const deviceSerial = data.deviceSerial || tid || null
+    // Paytm's standalone orderId ends with the 8-digit Paytm TID.
+    const orderIdTid = /(\d{8})$/.test(String(data.orderId || '')) ? String(data.orderId).slice(-8) : null
+    let tid = data.paytmTid || data.terminalId || data.TERMINAL_ID || data.posId || data.tid || orderIdTid || null
+    let deviceSerial = data.deviceSerial || null
+
+    // Standalone / lean S2S payloads omit paytmTid and deviceSerial. Resolve the
+    // physical device from the MID (pos_machines.machine_id is `<MID>_<TID>`) so
+    // the retailer/partner attribution below (keyed on device_serial / tid) works.
+    if ((!deviceSerial || !tid) && mid) {
+      const { data: machine } = await supabase
+        .from('pos_machines')
+        .select('serial_number, tid')
+        .ilike('machine_id', `${mid}%`)
+        .limit(1)
+        .maybeSingle()
+      if (machine) {
+        if (!deviceSerial) deviceSerial = machine.serial_number || null
+        if (!tid) tid = machine.tid || null
+      }
+    }
+    if (!deviceSerial) deviceSerial = tid || null
+
     const rrn =
       data.retrievalReferenceNo || data.rrn || data.RRN || data.bankTxnId || data.BANKTXNID || null
     const cardNumber = data.issuerMaskCardNo || data.maskedCardNumber || data.cardNumber || null
-    const cardType = data.cardType || data.CARD_TYPE || null
+    // Normalize card type at the source: Paytm sends "CREDIT_CARD"/"DEBIT_CARD"
+    // (both in cardType and, for lean payloads, in paymentMode). normalizeCardType()
+    // treats "CREDIT_CARD" as unknown, so map to CREDIT/DEBIT/PREPAID here.
+    const cardTypeRaw = (data.cardType || data.CARD_TYPE || data.payMethod || data.paymentMode || '')
+      .toString()
+      .toUpperCase()
+    const cardType = cardTypeRaw.includes('CREDIT')
+      ? 'CREDIT'
+      : cardTypeRaw.includes('DEBIT')
+        ? 'DEBIT'
+        : cardTypeRaw.includes('PREPAID')
+          ? 'PREPAID'
+          : null
     const cardBrand = data.cardScheme || data.cardBrand || data.CARD_BRAND || null
     const bankName = data.issuingBankName || data.bankName || data.acquiringBank || data.gatewayName || null
-    // No paymentMode field on ECR UPI callbacks — infer: card present => CARD, else QR/UPI.
-    const paymentMode = data.paymentMode || data.PAYMENTMODE || data.payment_mode || (cardNumber ? 'CARD' : 'QR')
+    // No paymentMode field on ECR UPI callbacks — infer: card present or card type
+    // known => CARD, else QR/UPI.
+    const paymentMode =
+      data.paymentMode || data.PAYMENTMODE || data.payment_mode || (cardNumber || cardType ? 'CARD' : 'QR')
 
     let createdTime = new Date()
     const dtStr =

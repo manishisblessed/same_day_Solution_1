@@ -800,7 +800,18 @@ export async function calculatePartnerMDR(
         });
         if (schemeResult && schemeResult.length > 0) {
           const resolved = schemeResult[0];
-          const findPartnerRate = async (company: string | null) => {
+          // Match the partner_mdr rate by card_type + brand_type so brand-specific
+          // slabs (e.g. AMEX @1.5%) are honoured instead of picking an arbitrary
+          // row. A null card/brand means "don't filter" (ANY) rather than
+          // "IS NULL" — partner-plan rows always carry a card_type/brand_type, so
+          // strict IS NULL matching would never find them and would regress the
+          // old lenient behaviour. We relax each dimension in turn and only fall
+          // back to a fully-generic pick (old behaviour) as the last resort.
+          const findPartnerRate = async (
+            company: string | null,
+            ct: string | null,
+            bt: string | null
+          ) => {
             let q = supabase
               .from('scheme_mdr_rates')
               .select('*')
@@ -808,14 +819,37 @@ export async function calculatePartnerMDR(
               .eq('status', 'active')
               .eq('mode', normalizedMode)
               .not('partner_mdr', 'is', null);
-            if (company) q = q.eq('merchant_slug', company);
-            else q = q.is('merchant_slug', null);
-            const { data } = await q.limit(1);
+            if (ct) q = q.eq('card_type', ct);
+            if (bt) q = q.ilike('brand_type', bt);
+            q = company ? q.eq('merchant_slug', company) : q.is('merchant_slug', null);
+            const { data } = await q.order('brand_type', { ascending: true }).limit(1);
             return data && data.length > 0 ? data[0] : null;
           };
 
-          let rate = merchant_slug ? await findPartnerRate(merchant_slug) : null;
-          if (!rate) rate = await findPartnerRate(null);
+          // Prefer brand + card specific, then relax brand, then relax card, then
+          // fully generic. Company-specific rows beat ALL-company at each level.
+          const companyCandidates: (string | null)[] = merchant_slug ? [merchant_slug, null] : [null];
+          const nCard = normalizedCardType || null;
+          const nBrand = normalizedBrandType || null;
+          const cardLevels: Array<{ card: string | null; brand: string | null }> = [];
+          const seenLvls = new Set<string>();
+          for (const lvl of [
+            { card: nCard, brand: nBrand },
+            { card: nCard, brand: null },
+            { card: null, brand: nBrand },
+            { card: null, brand: null },
+          ]) {
+            const k = `${lvl.card}|${lvl.brand}`;
+            if (!seenLvls.has(k)) { seenLvls.add(k); cardLevels.push(lvl); }
+          }
+
+          let rate: any = null;
+          rateSearch: for (const lvl of cardLevels) {
+            for (const company of companyCandidates) {
+              const hit = await findPartnerRate(company, lvl.card, lvl.brand);
+              if (hit) { rate = hit; break rateSearch; }
+            }
+          }
 
           if (rate) {
             // Partner Plan stores the T+1 rate in partner_mdr and the T+0 rate in

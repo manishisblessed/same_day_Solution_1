@@ -1,5 +1,5 @@
 import { getSupabaseAdmin } from '@/lib/supabase/server-admin'
-import { fetchPaytmStatusBody } from '@/lib/paytm'
+import { fetchPaytmStatusBody, hasMerchantKeyForMid, getPaytmConfig } from '@/lib/paytm'
 
 /**
  * Paytm ECR card-detail enrichment.
@@ -102,13 +102,30 @@ export async function enrichPaytmCardData(opts: EnrichOptions = {}): Promise<Enr
     return result
   }
 
+  const primaryMid = getPaytmConfig().mid
+
   for (const row of rows || []) {
     result.scanned++
     const mtxnId = String(row.txn_id).replace(/^PTM_/, '')
     const attempts = (row.card_enrich_attempts || 0) + 1
 
+    // Status Enquiry is signed per-MID. If this row's MID is a secondary MID we
+    // have no key for, we cannot sign the request — skip it WITHOUT counting an
+    // attempt (retrying would only produce "Invalid checksum" forever). Enrichment
+    // for such MIDs is unblocked once its key is added to PAYTM_MID_KEYS_B64.
+    const rowMid = row.mid_code || undefined
+    if (rowMid && rowMid !== primaryMid && !hasMerchantKeyForMid(rowMid)) {
+      result.noData++
+      result.details.push({ txn_id: row.txn_id, status: 'no_data', error: `no merchant key for MID ${rowMid}` })
+      continue
+    }
+
+    // Paytm's standalone orderId (== our stored id) ends with the 8-digit Paytm
+    // TID; use it when the row has no tid (lean payloads don't send paytmTid).
+    const tidFromOrder = /(\d{8})$/.test(mtxnId) ? mtxnId.slice(-8) : undefined
+
     try {
-      const body = await fetchPaytmStatusBody(mtxnId, { tid: row.tid || undefined, mid: row.mid_code || undefined })
+      const body = await fetchPaytmStatusBody(mtxnId, { tid: row.tid || tidFromOrder, mid: rowMid })
       const sInfo: any = body?.resultInfo || {}
       const ok = sInfo.resultStatus === 'SUCCESS' || sInfo.resultCodeId === '0000'
 

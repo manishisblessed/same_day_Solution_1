@@ -38,6 +38,55 @@ function resolveMerchantKey(): string {
   return process.env.PAYTM_MERCHANT_KEY!
 }
 
+/**
+ * Multi-MID support. A merchant can have several Paytm child MIDs, each with its
+ * OWN merchant key and TID. The default env (PAYTM_MID/KEY/TID) covers the
+ * primary device; secondary MIDs are configured via JSON maps so Status Enquiry
+ * (which is signed per-MID) works for every machine:
+ *
+ *   PAYTM_MID_KEYS_B64 = {"LAGOON56779221142762":"<base64 of that MID's key>", ...}
+ *   PAYTM_MID_TIDS     = {"LAGOON56779221142762":"27241446", ...}   (optional)
+ *
+ * Values in PAYTM_MID_KEYS_B64 are base64 of the raw key (safe for every loader,
+ * mirroring PAYTM_MERCHANT_KEY_B64). Falls back to the default key when a MID is
+ * not in the map, so existing single-MID behaviour is unchanged.
+ */
+function parseJsonEnv(name: string): Record<string, string> {
+  const raw = process.env[name]
+  if (!raw || !raw.trim()) return {}
+  try {
+    const obj = JSON.parse(raw.trim())
+    return obj && typeof obj === 'object' ? obj : {}
+  } catch {
+    console.warn(`[Paytm] ${name} is not valid JSON — ignoring`)
+    return {}
+  }
+}
+
+/** Returns the merchant key for a given MID, or the default key if unmapped. */
+export function resolveMerchantKeyForMid(mid?: string | null): string {
+  if (mid) {
+    const map = parseJsonEnv('PAYTM_MID_KEYS_B64')
+    const b64 = map[mid]
+    if (b64 && b64.trim()) return Buffer.from(b64.trim(), 'base64').toString('utf-8')
+  }
+  return resolveMerchantKey()
+}
+
+/** True when we hold a specific merchant key for this MID (needed to sign/enrich). */
+export function hasMerchantKeyForMid(mid?: string | null): boolean {
+  if (!mid) return false
+  const map = parseJsonEnv('PAYTM_MID_KEYS_B64')
+  return !!(map[mid] && String(map[mid]).trim())
+}
+
+/** Returns the configured TID for a MID, if provided via PAYTM_MID_TIDS. */
+export function resolveTidForMid(mid?: string | null): string | undefined {
+  if (!mid) return undefined
+  const map = parseJsonEnv('PAYTM_MID_TIDS')
+  return map[mid] || undefined
+}
+
 export function formatTimestamp(date = new Date()): string {
   // Paytm expects IST (Asia/Kolkata). Generate it explicitly so the value is
   // correct regardless of the host server's timezone (EC2 runs in UTC).
@@ -75,30 +124,32 @@ function toChecksumParams(body: Record<string, any>): Record<string, string> {
   return params
 }
 
-export async function generateChecksum(body: Record<string, any>): Promise<string> {
-  const { merchantKey } = getPaytmConfig()
+export async function generateChecksum(body: Record<string, any>, mid?: string | null): Promise<string> {
+  const merchantKey = resolveMerchantKeyForMid(mid ?? body.paytmMid ?? body.mid)
   return PaytmChecksum.generateSignature(toChecksumParams(body), merchantKey)
 }
 
-export async function verifyChecksum(body: Record<string, any>, checksum: string): Promise<boolean> {
-  const { merchantKey } = getPaytmConfig()
+export async function verifyChecksum(body: Record<string, any>, checksum: string, mid?: string | null): Promise<boolean> {
+  const merchantKey = resolveMerchantKeyForMid(mid ?? body.paytmMid ?? body.mid)
   return PaytmChecksum.verifySignature(toChecksumParams(body), merchantKey, checksum)
 }
 
 interface PaytmApiOptions {
   endpoint: string
   body: Record<string, any>
+  /** Sign with this MID's key (defaults to body.paytmMid / body.mid / primary). */
+  mid?: string | null
 }
 
 /**
  * Makes an authenticated request to Paytm POS ECR APIs.
  * Generates checksum from body, wraps in head+body envelope.
  */
-export async function callPaytmApi({ endpoint, body }: PaytmApiOptions) {
+export async function callPaytmApi({ endpoint, body, mid }: PaytmApiOptions) {
   const config = getPaytmConfig()
   const now = formatTimestamp()
 
-  const checksum = await generateChecksum(body)
+  const checksum = await generateChecksum(body, mid ?? body.paytmMid ?? body.mid)
 
   const payload = {
     head: {
@@ -135,14 +186,16 @@ export async function fetchPaytmStatusBody(
   opts: { tid?: string; mid?: string; event?: string } = {}
 ): Promise<Record<string, any>> {
   const config = getPaytmConfig()
+  const mid = opts.mid || config.mid
   const body: Record<string, any> = {
-    paytmMid: opts.mid || config.mid,
-    paytmTid: opts.tid || config.tid,
+    paytmMid: mid,
+    paytmTid: opts.tid || resolveTidForMid(mid) || config.tid,
     transactionDateTime: formatTimestamp(),
     merchantTransactionId,
   }
   if (opts.event) body.event = opts.event
-  const data = await callPaytmApi({ endpoint: '/ecr/V2/payment/status', body })
+  // Sign with the key that belongs to THIS mid (status enquiry is per-MID).
+  const data = await callPaytmApi({ endpoint: '/ecr/V2/payment/status', body, mid })
   return data?.body || {}
 }
 
