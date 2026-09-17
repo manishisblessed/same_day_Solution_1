@@ -33,6 +33,9 @@ interface InviteRow {
   created_partner_id?: string | null
   onboardingLink?: string | null
   progress?: InviteProgress
+  invited_by_name?: string | null
+  invited_by_role?: string | null
+  invited_by_id?: string | null
 }
 
 const STATUS_STYLES: Record<string, string> = {
@@ -51,6 +54,8 @@ const ROLE_LABEL: Record<string, string> = {
   retailer: 'Retailer',
   partner: 'Partner',
   master_partner: 'Master Partner',
+  admin: 'Admin',
+  finance_executive: 'Finance',
 }
 
 const ACTIVE_LINK_STATUSES = ['pending', 'registered', 'verified', 'resubmit']
@@ -359,11 +364,12 @@ export default function InviteManager({ adminMode = false }: { adminMode?: boole
           <p className="py-8 text-center text-sm text-gray-400">No invites yet.</p>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[720px] text-left text-sm">
+            <table className={`w-full text-left text-sm ${isAdmin ? 'min-w-[860px]' : 'min-w-[720px]'}`}>
               <thead>
                 <tr className="border-b text-xs uppercase text-gray-400 dark:border-gray-700">
                   <th className="py-2 pr-3">Name / Email</th>
                   <th className="py-2 pr-3">Role</th>
+                  {isAdmin && <th className="py-2 pr-3">Invited by</th>}
                   <th className="py-2 pr-3">Status</th>
                   <th className="py-2 pr-3">Progress</th>
                   <th className="py-2 pr-3">Partner ID</th>
@@ -378,7 +384,10 @@ export default function InviteManager({ adminMode = false }: { adminMode?: boole
                   const canApprove = adminMode && isAdmin && ['registered', 'verified'].includes(inv.status)
                   // Any parent who can see the invite may track it; the detail API
                   // scopes access to their own downline (MD→DT, DT→RT, admin→all).
-                  const canReview = ['registered', 'verified', 'approved', 'rejected', 'resubmit'].includes(inv.status)
+                  // Admin can drill into ANY invite (incl. pending/expired) to see
+                  // exactly which step an applicant is stuck on; uplines keep the
+                  // completed-KYC-only view.
+                  const canReview = isAdmin || ['registered', 'verified', 'approved', 'rejected', 'resubmit'].includes(inv.status)
                   return (
                     <tr key={inv.id} className="border-b last:border-0 dark:border-gray-700">
                       <td className="py-2.5 pr-3">
@@ -398,6 +407,15 @@ export default function InviteManager({ adminMode = false }: { adminMode?: boole
                         <div className="text-xs text-gray-400">{inv.phone}</div>
                       </td>
                       <td className="py-2.5 pr-3 text-gray-600 dark:text-gray-300">{ROLE_LABEL[inv.target_role] || inv.target_role}</td>
+                      {isAdmin && (
+                        <td className="py-2.5 pr-3">
+                          <div className="font-medium text-gray-700 dark:text-gray-300">{inv.invited_by_name || '—'}</div>
+                          <div className="text-xs text-gray-400">
+                            {(ROLE_LABEL[inv.invited_by_role || ''] || inv.invited_by_role || '')}
+                            {inv.invited_by_id ? ` · ${inv.invited_by_id}` : ''}
+                          </div>
+                        </td>
+                      )}
                       <td className="py-2.5 pr-3">
                         <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${STATUS_STYLES[inv.status] || 'bg-gray-100'}`}>{inv.status}</span>
                       </td>

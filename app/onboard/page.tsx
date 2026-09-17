@@ -334,7 +334,10 @@ function OnboardWizard() {
         headers: { 'Content-Type': 'application/json', ...(options?.headers || {}) },
       })
       const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(data.error || data.gateErrors?.join(', ') || 'Request failed')
+      if (!res.ok) {
+        const detail = Array.isArray(data.gateErrors) && data.gateErrors.length ? data.gateErrors.join(' · ') : ''
+        throw new Error(detail || data.error || 'Request failed')
+      }
       return data
     },
     [token]
