@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
+import { authorizeSubPartner, normalizeMasterPartner } from '@/lib/partner-access'
 import { createDigilockerURL, generateOrderId } from '@/services/ekyc'
 
 export const dynamic = 'force-dynamic'
@@ -7,6 +8,7 @@ export const dynamic = 'force-dynamic'
 export async function POST(request: NextRequest) {
   try {
     const { user } = await getCurrentUserWithFallback(request)
+    normalizeMasterPartner(user)
     if (!user) {
       return NextResponse.json(
         { error: 'Authentication required' },
@@ -14,7 +16,10 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const allowedRoles = ['admin', 'master_distributor', 'distributor', 'retailer']
+    const access = authorizeSubPartner(user, 'aeps')
+    if (!access.ok) return access.response
+
+    const allowedRoles = ['admin', 'master_distributor', 'distributor', 'retailer', 'partner']
     if (!allowedRoles.includes(user.role)) {
       return NextResponse.json({ error: 'Access denied' }, { status: 403 })
     }
