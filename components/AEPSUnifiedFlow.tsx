@@ -469,6 +469,11 @@ const KYCForm = ({
         if (/^\d{12}$/.test(uid)) setFormData(prev => ({ ...prev, aadhaar: uid }));
       }
       if (d.address) setFormData(prev => ({ ...prev, address: d.address }));
+      // City & Pincode come from Aadhaar too (structured or parsed from address).
+      if (d.city) setFormData(prev => ({ ...prev, city: String(d.city) }));
+      let pin = d.pincode ? String(d.pincode).replace(/\D/g, '').slice(0, 6) : '';
+      if (!pin && d.address) pin = String(d.address).match(/\b(\d{6})\b/)?.[1] || '';
+      if (pin) setFormData(prev => ({ ...prev, pincode: pin }));
     };
 
     // On the "pending" callback we only get a verification_id — pull the actual
@@ -569,8 +574,11 @@ const KYCForm = ({
   const validateStep2 = () => {
     const newErrors: typeof errors = {};
     if (!formData.address.trim()) newErrors.address = 'Address is required';
-    if (!formData.city.trim()) newErrors.city = 'City is required';
-    if (!/^\d{6}$/.test(formData.pincode)) newErrors.pincode = 'Valid 6-digit pincode required';
+    // City & pincode are captured from Aadhaar (no manual input). Guard the
+    // rare case where a pincode couldn't be read from the Aadhaar address.
+    if (!/^\d{6}$/.test(formData.pincode)) {
+      newErrors.address = 'Could not read a valid pincode from your Aadhaar address. Please re-verify Aadhaar.';
+    }
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -915,10 +923,22 @@ const KYCForm = ({
               ) : (
                 <KYCInputField field="address" label="Full Address" placeholder="Enter your complete address" value={formData.address} error={errors.address} onChange={v => handleChange('address', v)} />
               )}
-              <div className="grid grid-cols-2 gap-4">
-                <KYCInputField field="city" label="City" placeholder="Enter city" value={formData.city} error={errors.city} onChange={v => handleChange('city', v)} />
-                <KYCInputField field="pincode" label="Pincode" placeholder="400001" maxLength={6} value={formData.pincode} error={errors.pincode} onChange={v => handleChange('pincode', v)} />
-              </div>
+              {/* City & Pincode are captured automatically from the Aadhaar address. */}
+              {(formData.city || formData.pincode) && (
+                <div className="flex flex-wrap gap-2 text-xs">
+                  {formData.city && (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-gray-100 text-gray-700 rounded-full">
+                      City: <span className="font-semibold">{formData.city}</span>
+                    </span>
+                  )}
+                  {formData.pincode && (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-gray-100 text-gray-700 rounded-full">
+                      Pincode: <span className="font-semibold">{formData.pincode}</span>
+                    </span>
+                  )}
+                </div>
+              )}
+              {errors.address && <p className="text-red-500 text-sm">{errors.address}</p>}
             </>
           )}
 

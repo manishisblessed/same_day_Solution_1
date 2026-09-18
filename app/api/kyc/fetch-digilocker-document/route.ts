@@ -55,6 +55,13 @@ export async function POST(request: NextRequest) {
       })
     }
 
+    // Derive city + pincode from the structured Aadhaar address (fallback: parse).
+    const sa = (result as any).split_address || {}
+    const city = sa.vtc || sa.subdist || sa.dist || sa.state || ''
+    const pincode =
+      (sa.pincode ? String(sa.pincode).replace(/\D/g, '').slice(0, 6) : '') ||
+      (result.address ? (String(result.address).match(/\b(\d{6})\b/)?.[1] || '') : '')
+
     return NextResponse.json({
       success: true,
       data: {
@@ -64,6 +71,9 @@ export async function POST(request: NextRequest) {
         gender: result.gender || '',
         address: result.address || '',
         care_of: result.care_of || '',
+        city,
+        pincode,
+        state: sa.state || '',
         verification_id,
       },
     })
