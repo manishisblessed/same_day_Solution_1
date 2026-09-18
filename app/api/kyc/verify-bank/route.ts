@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
+import { authorizeSubPartner, normalizeMasterPartner } from '@/lib/partner-access'
+import { upsertKycVerification } from '@/lib/kyc/store'
+import { bankAccountHash } from '@/lib/kyc/bank-hash'
 import { verifyBankPennyLess, generateOrderId } from '@/services/ekyc'
 
 export const dynamic = 'force-dynamic'
@@ -7,6 +10,7 @@ export const dynamic = 'force-dynamic'
 export async function POST(request: NextRequest) {
   try {
     const { user } = await getCurrentUserWithFallback(request)
+    normalizeMasterPartner(user)
     if (!user) {
       return NextResponse.json(
         { error: 'Authentication required' },
@@ -14,7 +18,10 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const allowedRoles = ['admin', 'master_distributor', 'distributor', 'retailer']
+    const access = authorizeSubPartner(user, 'aeps')
+    if (!access.ok) return access.response
+
+    const allowedRoles = ['admin', 'master_distributor', 'distributor', 'retailer', 'partner']
     if (!allowedRoles.includes(user.role)) {
       return NextResponse.json({ error: 'Access denied' }, { status: 403 })
     }
@@ -48,6 +55,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({
         success: false,
         error: result.message || 'Bank verification failed',
+      })
+    }
+
+    // Persist trusted account-holder name (bound to this account+IFSC via hash).
+    if (user.partner_id && result.nameAtBank) {
+      await upsertKycVerification(user.partner_id, {
+        bank_account_hash: bankAccountHash(account_number, normalizedIfsc),
+        bank_ifsc: normalizedIfsc,
+        bank_account_name: result.nameAtBank,
+        bank_verified_at: new Date().toISOString(),
       })
     }
 

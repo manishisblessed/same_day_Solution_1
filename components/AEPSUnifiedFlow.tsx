@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { DatePicker } from './DatePicker';
 import { apiFetchJson, apiFetch, newIdempotencyKey } from '@/lib/api-client';
+import { namesMatch } from '@/lib/kyc/name-match';
 
 // ============================================================================
 // TYPES
@@ -277,6 +278,8 @@ const KYCInputField = ({
   value,
   error,
   onChange,
+  readOnly = false,
+  badge,
 }: { 
   field: string; 
   label: string; 
@@ -286,23 +289,50 @@ const KYCInputField = ({
   value: string;
   error?: string;
   onChange: (value: string) => void;
+  readOnly?: boolean;
+  badge?: string;
 }) => (
   <div>
-    <label className="block text-sm font-semibold text-gray-700 mb-2">{label} *</label>
+    <label className="block text-sm font-semibold text-gray-700 mb-2">
+      {label} *
+      {readOnly && badge && (
+        <span className="ml-2 inline-flex items-center gap-1 px-2 py-0.5 bg-green-100 text-green-700 text-xs font-semibold rounded-full">
+          <ShieldCheck className="w-3 h-3" /> {badge}
+        </span>
+      )}
+    </label>
     <input
       type={type}
       value={value}
       onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder}
       maxLength={maxLength}
+      readOnly={readOnly}
       autoComplete="off"
       className={`w-full px-4 py-3 border-2 rounded-xl transition-all focus:ring-4 focus:ring-orange-100 ${
-        error ? 'border-red-500' : 'border-gray-200 focus:border-orange-500'
+        readOnly ? 'border-green-500 bg-green-50 cursor-not-allowed' : error ? 'border-red-500' : 'border-gray-200 focus:border-orange-500'
       }`}
     />
     {error && <p className="text-red-500 text-sm mt-1">{error}</p>}
   </div>
 );
+
+// ============================================================================
+// KYC helper: DOB normalize (name-match lives in @/lib/kyc/name-match)
+// ============================================================================
+
+/** Convert DD-MM-YYYY / DD/MM/YYYY (or ISO) to YYYY-MM-DD for the date picker. */
+function normalizeDob(dob: string): string {
+  if (!dob) return '';
+  const s = dob.trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  const m = s.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);
+  if (m) {
+    const [, d, mo, y] = m;
+    return `${y}-${mo.padStart(2, '0')}-${d.padStart(2, '0')}`;
+  }
+  return s;
+}
 
 const KYCForm = ({ 
   user, 
@@ -342,10 +372,22 @@ const KYCForm = ({
 
   // Aadhaar DigiLocker verification state
   const [aadhaarVerified, setAadhaarVerified] = useState(false);
+  const [aadhaarRegisteredName, setAadhaarRegisteredName] = useState('');
+  const [fetchingAadhaar, setFetchingAadhaar] = useState(false);
   const [digilockerLoading, setDigilockerLoading] = useState(false);
   const [digilockerError, setDigilockerError] = useState('');
   const [digilockerUrl, setDigilockerUrl] = useState('');
   const [showAadhaar, setShowAadhaar] = useState(false);
+  const [nameMatchError, setNameMatchError] = useState('');
+
+  // Bank penny-drop verification state
+  const [bankVerifying, setBankVerifying] = useState(false);
+  const [bankVerified, setBankVerified] = useState(false);
+  const [bankError, setBankError] = useState('');
+  const [bankAccountName, setBankAccountName] = useState('');
+
+  // Authoritative name for cross-document matching (Aadhaar > PAN).
+  const verifiedName = aadhaarRegisteredName || panRegisteredName || formData.fullName;
 
   const handleVerifyPan = async () => {
     const panVal = formData.pan.toUpperCase();
@@ -361,19 +403,21 @@ const KYCForm = ({
         body: JSON.stringify({ pan: panVal }),
       });
       if (res.success) {
+        const panName = res.data.registered_name || '';
         setPanVerified(true);
-        setPanRegisteredName(res.data.registered_name || '');
+        setPanRegisteredName(panName);
         setPanType(res.data.type || '');
-        if (res.data.registered_name && !formData.fullName) {
-          setFormData(prev => ({ ...prev, fullName: res.data.registered_name }));
+        // Auto-fill Name / DOB / Gender from PAN (Aadhaar later overrides these).
+        if (panName) {
+          setFormData(prev => ({ ...prev, fullName: prev.fullName || panName }));
         }
-        if (res.data.date_of_birth && !formData.dateOfBirth) {
-          setFormData(prev => ({ ...prev, dateOfBirth: res.data.date_of_birth }));
+        if (res.data.date_of_birth) {
+          setFormData(prev => ({ ...prev, dateOfBirth: prev.dateOfBirth || normalizeDob(res.data.date_of_birth) }));
         }
-        if (res.data.gender && !formData.gender) {
+        if (res.data.gender) {
           const g = res.data.gender?.toUpperCase();
-          if (g === 'M' || g === 'MALE') setFormData(prev => ({ ...prev, gender: 'M' }));
-          else if (g === 'F' || g === 'FEMALE') setFormData(prev => ({ ...prev, gender: 'F' }));
+          if (g === 'M' || g === 'MALE') setFormData(prev => ({ ...prev, gender: prev.gender || 'M' }));
+          else if (g === 'F' || g === 'FEMALE') setFormData(prev => ({ ...prev, gender: prev.gender || 'F' }));
         }
       } else {
         setPanError(res.error || 'PAN verification failed');
@@ -411,38 +455,75 @@ const KYCForm = ({
 
   // Listen for DigiLocker callback results
   useEffect(() => {
-    const handleDigilockerMessage = (event: MessageEvent) => {
-      if (event.data?.type === 'DIGILOCKER_RESULT') {
-        if (event.data.success && event.data.data) {
-          const d = event.data.data;
+    // Populate Name / DOB / Gender / Aadhaar / Address from a fetched document.
+    const applyAadhaarData = (d: any) => {
+      if (d.name) {
+        setAadhaarRegisteredName(d.name);
+        setFormData(prev => ({ ...prev, fullName: d.name }));
+      }
+      if (d.dob) setFormData(prev => ({ ...prev, dateOfBirth: normalizeDob(d.dob) }));
+      if (d.gender) setFormData(prev => ({ ...prev, gender: String(d.gender).toUpperCase().startsWith('F') ? 'F' : 'M' }));
+      if (d.uid) {
+        // DigiLocker may return a masked UID (e.g. XXXXXXXX1234) — only set a full 12-digit value.
+        const uid = String(d.uid).replace(/\D/g, '');
+        if (/^\d{12}$/.test(uid)) setFormData(prev => ({ ...prev, aadhaar: uid }));
+      }
+      if (d.address) setFormData(prev => ({ ...prev, address: d.address }));
+    };
+
+    // On the "pending" callback we only get a verification_id — pull the actual
+    // Aadhaar demographics from DigiLocker before marking Aadhaar verified.
+    const fetchAadhaarDoc = async (verificationId: string, referenceId?: string) => {
+      setFetchingAadhaar(true);
+      setDigilockerError('');
+      try {
+        const res = await apiFetchJson<any>('/api/kyc/fetch-digilocker-document', {
+          method: 'POST',
+          body: JSON.stringify({
+            verification_id: verificationId,
+            reference_id: referenceId || verificationId,
+            document_type: 'AADHAAR',
+          }),
+        });
+        if (res.success && res.data) {
+          applyAadhaarData(res.data);
           setAadhaarVerified(true);
           setDigilockerUrl('');
-          if (d.name) setFormData(prev => ({ ...prev, fullName: d.name }));
-          if (d.dob) setFormData(prev => ({ ...prev, dateOfBirth: d.dob }));
-          if (d.gender) setFormData(prev => ({ ...prev, gender: d.gender === 'F' ? 'F' : 'M' }));
-          if (d.uid) setFormData(prev => ({ ...prev, aadhaar: d.uid.replace(/\s/g, '') }));
-          if (d.address) setFormData(prev => ({ ...prev, address: d.address }));
-        } else if (event.data.error) {
-          setDigilockerError(event.data.error);
+        } else {
+          setDigilockerError(res.error || 'Failed to fetch Aadhaar details from DigiLocker');
         }
+      } catch (err: any) {
+        setDigilockerError(err.message || 'Failed to fetch Aadhaar details from DigiLocker');
+      } finally {
+        setFetchingAadhaar(false);
       }
+    };
+
+    const processResult = (result: any) => {
+      if (!result) return;
+      if (result.success && result.data) {
+        const d = result.data;
+        if (d.name || d.address) {
+          // Provider returned demographics inline.
+          applyAadhaarData(d);
+          setAadhaarVerified(true);
+          setDigilockerUrl('');
+        } else if (d.verification_id) {
+          // Pending callback — fetch the document now.
+          fetchAadhaarDoc(d.verification_id, d.reference_id);
+        }
+      } else if (result.error) {
+        setDigilockerError(result.error);
+      }
+    };
+
+    const handleDigilockerMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'DIGILOCKER_RESULT') processResult(event.data);
     };
     const handleStorageChange = (event: StorageEvent) => {
       if (event.key === 'digilocker_result' && event.newValue) {
         try {
-          const result = JSON.parse(event.newValue);
-          if (result.success && result.data) {
-            const d = result.data;
-            setAadhaarVerified(true);
-            setDigilockerUrl('');
-            if (d.name) setFormData(prev => ({ ...prev, fullName: d.name }));
-            if (d.dob) setFormData(prev => ({ ...prev, dateOfBirth: d.dob }));
-            if (d.gender) setFormData(prev => ({ ...prev, gender: d.gender === 'F' ? 'F' : 'M' }));
-            if (d.uid) setFormData(prev => ({ ...prev, aadhaar: d.uid.replace(/\s/g, '') }));
-            if (d.address) setFormData(prev => ({ ...prev, address: d.address }));
-          } else if (result.error) {
-            setDigilockerError(result.error);
-          }
+          processResult(JSON.parse(event.newValue));
           localStorage.removeItem('digilocker_result');
         } catch {}
       }
@@ -454,6 +535,19 @@ const KYCForm = ({
       window.removeEventListener('storage', handleStorageChange);
     };
   }, []);
+
+  // Cross-document name match: PAN vs Aadhaar must be the same person.
+  useEffect(() => {
+    if (panRegisteredName && aadhaarRegisteredName) {
+      setNameMatchError(
+        namesMatch(panRegisteredName, aadhaarRegisteredName)
+          ? ''
+          : `Name mismatch: PAN name "${panRegisteredName}" does not match Aadhaar name "${aadhaarRegisteredName}". Both must belong to the same person.`
+      );
+    } else {
+      setNameMatchError('');
+    }
+  }, [panRegisteredName, aadhaarRegisteredName]);
 
   const validateStep1 = () => {
     const newErrors: typeof errors = {};
@@ -467,6 +561,8 @@ const KYCForm = ({
     if (!panVerified) newErrors.pan = 'PAN verification is mandatory';
     if (!aadhaarVerified) newErrors.aadhaar = 'Aadhaar verification via Digilocker is mandatory';
     setErrors(newErrors);
+    // PAN and Aadhaar names must belong to the same person.
+    if (panVerified && aadhaarVerified && nameMatchError) return false;
     return Object.keys(newErrors).length === 0;
   };
 
@@ -485,7 +581,48 @@ const KYCForm = ({
     if (!/^[A-Z]{4}0[A-Z0-9]{6}$/.test(formData.bankIfsc.toUpperCase())) newErrors.bankIfsc = 'Valid IFSC required';
     if (!formData.bankName.trim()) newErrors.bankName = 'Bank name is required';
     setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
+    if (Object.keys(newErrors).length > 0) return false;
+    // Bank account must be penny-drop verified (which also enforces name match).
+    if (!bankVerified) {
+      setBankError('Please verify the bank account before submitting.');
+      return false;
+    }
+    return true;
+  };
+
+  const handleVerifyBank = async () => {
+    const acct = formData.bankAccount.replace(/\s/g, '');
+    const ifsc = formData.bankIfsc.toUpperCase().replace(/\s/g, '');
+    if (!/^\d{9,18}$/.test(acct)) { setBankError('Enter a valid account number (9-18 digits)'); return; }
+    if (!/^[A-Z]{4}0[A-Z0-9]{6}$/.test(ifsc)) { setBankError('Enter a valid IFSC (e.g., HDFC0001234)'); return; }
+    setBankVerifying(true);
+    setBankError('');
+    setBankAccountName('');
+    try {
+      const res = await apiFetchJson<any>('/api/kyc/verify-bank', {
+        method: 'POST',
+        body: JSON.stringify({ account_number: acct, ifsc }),
+      });
+      if (res.success && res.data?.nameAtBank) {
+        const nameAtBank = res.data.nameAtBank as string;
+        setBankAccountName(nameAtBank);
+        // Account holder name must match the verified PAN/Aadhaar identity.
+        if (verifiedName && !namesMatch(nameAtBank, verifiedName)) {
+          setBankVerified(false);
+          setBankError(`Account holder name "${nameAtBank}" does not match your KYC name "${verifiedName}". The bank account must be in your own name.`);
+        } else {
+          setBankVerified(true);
+        }
+      } else {
+        setBankVerified(false);
+        setBankError(res.error || 'Bank verification failed. Please check the details.');
+      }
+    } catch (err: any) {
+      setBankVerified(false);
+      setBankError(err.message || 'Bank verification failed');
+    } finally {
+      setBankVerifying(false);
+    }
   };
 
   const handleNext = () => {
@@ -502,6 +639,12 @@ const KYCForm = ({
       setPanVerified(false);
       setPanError('');
       setPanRegisteredName('');
+    }
+    // Any edit to bank details invalidates a prior penny-drop verification.
+    if (field === 'bankAccount' || field === 'bankIfsc' || field === 'bankName') {
+      setBankVerified(false);
+      setBankError('');
+      setBankAccountName('');
     }
   };
 
@@ -639,7 +782,14 @@ const KYCForm = ({
                   </div>
                 )}
 
-                {aadhaarVerified && (
+                {fetchingAadhaar && (
+                  <div className="mt-2 p-2.5 bg-blue-50 border border-blue-200 rounded-xl flex items-center gap-2">
+                    <Loader2 className="w-4 h-4 text-blue-600 shrink-0 animate-spin" />
+                    <span className="text-sm text-blue-700 font-medium">Fetching Aadhaar details from DigiLocker...</span>
+                  </div>
+                )}
+
+                {aadhaarVerified && !fetchingAadhaar && (
                   <div className="mt-2 p-2.5 bg-green-50 border border-green-200 rounded-xl flex items-center gap-2">
                     <CheckCircle2 className="w-4 h-4 text-green-600 shrink-0" />
                     <span className="text-sm text-green-700 font-medium">Aadhaar Verified via DigiLocker</span>
@@ -655,30 +805,55 @@ const KYCForm = ({
                 {errors.aadhaar && !digilockerError && <p className="text-red-500 text-sm mt-1">{errors.aadhaar}</p>}
               </div>
 
-              <KYCInputField field="fullName" label="Full Name (as per Aadhaar)" placeholder="Enter your full name" value={formData.fullName} error={errors.fullName} onChange={v => handleChange('fullName', v)} />
+              <KYCInputField field="fullName" label="Full Name (as per Aadhaar)" placeholder="Enter your full name" value={formData.fullName} error={errors.fullName} onChange={v => handleChange('fullName', v)} readOnly={aadhaarVerified} badge="From Aadhaar" />
               <div className="grid grid-cols-2 gap-4">
                 <KYCInputField field="mobile" label="Mobile Number" placeholder="9876543210" maxLength={10} value={formData.mobile} error={errors.mobile} onChange={v => handleChange('mobile', v)} />
                 <KYCInputField field="email" label="Email" placeholder="email@example.com" type="email" value={formData.email} error={errors.email} onChange={v => handleChange('email', v)} />
               </div>
               <div className="grid grid-cols-2 gap-4">
-                <DatePicker
-                  value={formData.dateOfBirth}
-                  onChange={val => handleChange('dateOfBirth', val)}
-                  maxDate={new Date(Date.now() - 18 * 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]}
-                  label="Date of Birth"
-                />
+                {aadhaarVerified ? (
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-2">
+                      Date of Birth *
+                      <span className="ml-2 inline-flex items-center gap-1 px-2 py-0.5 bg-green-100 text-green-700 text-xs font-semibold rounded-full">
+                        <ShieldCheck className="w-3 h-3" /> From Aadhaar
+                      </span>
+                    </label>
+                    <input
+                      type="text"
+                      value={formData.dateOfBirth}
+                      readOnly
+                      className="w-full px-4 py-3 border-2 border-green-500 bg-green-50 rounded-xl cursor-not-allowed font-mono"
+                    />
+                  </div>
+                ) : (
+                  <DatePicker
+                    value={formData.dateOfBirth}
+                    onChange={val => handleChange('dateOfBirth', val)}
+                    maxDate={new Date(Date.now() - 18 * 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]}
+                    label="Date of Birth"
+                  />
+                )}
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">Gender *</label>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">
+                    Gender *
+                    {aadhaarVerified && (
+                      <span className="ml-2 inline-flex items-center gap-1 px-2 py-0.5 bg-green-100 text-green-700 text-xs font-semibold rounded-full">
+                        <ShieldCheck className="w-3 h-3" /> From Aadhaar
+                      </span>
+                    )}
+                  </label>
                   <div className="flex gap-4">
                     {(['M', 'F'] as const).map(g => (
                       <button
                         key={g}
                         type="button"
+                        disabled={aadhaarVerified}
                         onClick={() => handleChange('gender', g)}
                         className={`flex-1 py-3 rounded-xl font-semibold transition-all ${
                           formData.gender === g 
-                            ? 'bg-orange-500 text-white' 
-                            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                            ? (aadhaarVerified ? 'bg-green-500 text-white cursor-not-allowed' : 'bg-orange-500 text-white')
+                            : `bg-gray-100 text-gray-700 ${aadhaarVerified ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-200'}`
                         }`}
                       >
                         {g === 'M' ? 'Male' : 'Female'}
@@ -688,6 +863,14 @@ const KYCForm = ({
                   {errors.gender && <p className="text-red-500 text-sm mt-1">{errors.gender}</p>}
                 </div>
               </div>
+
+              {/* PAN ↔ Aadhaar name mismatch */}
+              {nameMatchError && (
+                <div className="p-3 bg-red-50 border border-red-200 rounded-xl flex items-start gap-2">
+                  <XCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+                  <span className="text-sm text-red-700">{nameMatchError}</span>
+                </div>
+              )}
 
               {/* Verification status banner */}
               {(!panVerified || !aadhaarVerified) && (
@@ -700,7 +883,7 @@ const KYCForm = ({
                 </div>
               )}
 
-              {panVerified && aadhaarVerified && (
+              {panVerified && aadhaarVerified && !nameMatchError && (
                 <div className="p-3 bg-green-50 border border-green-200 rounded-xl flex items-center gap-2">
                   <CheckCircle2 className="w-5 h-5 text-green-600 shrink-0" />
                   <span className="text-sm text-green-700 font-semibold">All verifications completed</span>
@@ -741,11 +924,51 @@ const KYCForm = ({
 
           {step === 3 && (
             <>
-              <KYCInputField field="bankAccount" label="Bank Account Number" placeholder="Enter account number" maxLength={18} value={formData.bankAccount} error={errors.bankAccount} onChange={v => handleChange('bankAccount', v)} />
+              <KYCInputField field="bankAccount" label="Bank Account Number" placeholder="Enter account number" maxLength={18} value={formData.bankAccount} error={errors.bankAccount} onChange={v => handleChange('bankAccount', v)} readOnly={bankVerified} />
               <div className="grid grid-cols-2 gap-4">
-                <KYCInputField field="bankIfsc" label="IFSC Code" placeholder="HDFC0001234" maxLength={11} value={formData.bankIfsc} error={errors.bankIfsc} onChange={v => handleChange('bankIfsc', v.toUpperCase())} />
-                <KYCInputField field="bankName" label="Bank Name" placeholder="HDFC Bank" value={formData.bankName} error={errors.bankName} onChange={v => handleChange('bankName', v)} />
+                <KYCInputField field="bankIfsc" label="IFSC Code" placeholder="HDFC0001234" maxLength={11} value={formData.bankIfsc} error={errors.bankIfsc} onChange={v => handleChange('bankIfsc', v.toUpperCase())} readOnly={bankVerified} />
+                <KYCInputField field="bankName" label="Bank Name" placeholder="HDFC Bank" value={formData.bankName} error={errors.bankName} onChange={v => handleChange('bankName', v)} readOnly={bankVerified} />
               </div>
+
+              {!bankVerified && (
+                <button
+                  type="button"
+                  onClick={handleVerifyBank}
+                  disabled={bankVerifying}
+                  className="w-full px-4 py-2.5 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-xl hover:from-blue-700 hover:to-blue-800 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm font-semibold transition-all"
+                >
+                  {bankVerifying ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShieldCheck className="w-4 h-4" />}
+                  {bankVerifying ? 'Verifying via Penny Drop...' : 'Verify Bank Account (Penny Drop)'}
+                </button>
+              )}
+
+              {bankVerified && (
+                <div className="p-2.5 bg-green-50 border border-green-200 rounded-xl flex items-start gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-green-600 shrink-0 mt-0.5" />
+                  <div>
+                    <span className="text-sm text-green-700 font-medium">Bank account verified (penny drop)</span>
+                    {bankAccountName && (
+                      <p className="text-xs text-green-600 mt-0.5">Account holder: <span className="font-semibold">{bankAccountName}</span></p>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {bankError && (
+                <div className="p-2.5 bg-red-50 border border-red-200 rounded-xl flex items-start gap-2">
+                  <XCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+                  <span className="text-sm text-red-700">{bankError}</span>
+                </div>
+              )}
+
+              {!bankVerified && (
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl">
+                  <p className="text-xs text-amber-700">
+                    The bank account is verified via penny drop and the account holder name must match your PAN/Aadhaar name
+                    {verifiedName ? <> (<span className="font-semibold">{verifiedName}</span>)</> : null}.
+                  </p>
+                </div>
+              )}
             </>
           )}
         </motion.div>
@@ -760,8 +983,8 @@ const KYCForm = ({
         </button>
         <button
           onClick={handleNext}
-          disabled={isLoading}
-          className="flex-1 py-3 bg-gradient-to-r from-orange-500 to-orange-600 text-white font-semibold rounded-xl hover:from-orange-600 hover:to-orange-700 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+          disabled={isLoading || (step === 1 && !!nameMatchError) || (step === 3 && !bankVerified)}
+          className="flex-1 py-3 bg-gradient-to-r from-orange-500 to-orange-600 text-white font-semibold rounded-xl hover:from-orange-600 hover:to-orange-700 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {isLoading ? (
             <>

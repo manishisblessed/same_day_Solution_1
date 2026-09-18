@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { authorizeSubPartner, normalizeMasterPartner } from '@/lib/partner-access'
+import { upsertKycVerification } from '@/lib/kyc/store'
 import { verifyPAN360, generateOrderId } from '@/services/ekyc'
 
 export const dynamic = 'force-dynamic'
@@ -41,6 +42,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({
         success: false,
         error: result.message || 'PAN 360 verification failed',
+      })
+    }
+
+    // Persist trusted result for server-side name-match at merchant onboarding.
+    if (user.partner_id && result.registered_name) {
+      await upsertKycVerification(user.partner_id, {
+        pan: pan.toUpperCase(),
+        pan_name: result.registered_name,
+        pan_verified_at: new Date().toISOString(),
       })
     }
 

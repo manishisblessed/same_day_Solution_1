@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { authorizeSubPartner, normalizeMasterPartner } from '@/lib/partner-access'
+import { upsertKycVerification } from '@/lib/kyc/store'
 import { getDigilockerDocument, generateOrderId } from '@/services/ekyc'
 
 export const dynamic = 'force-dynamic'
@@ -42,6 +43,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({
         success: false,
         error: result.message || 'Failed to fetch document from Digilocker',
+      })
+    }
+
+    // Persist trusted Aadhaar name for server-side name-match at onboarding.
+    if (user.partner_id && result.name) {
+      await upsertKycVerification(user.partner_id, {
+        aadhaar_name: result.name,
+        aadhaar_verification_id: verification_id,
+        aadhaar_verified_at: new Date().toISOString(),
       })
     }
 

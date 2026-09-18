@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getCurrentUserWithFallback } from '@/lib/auth-server';
 import { authorizeSubPartner, normalizeMasterPartner } from '@/lib/partner-access';
+import { getKycVerification } from '@/lib/kyc/store';
+import { namesMatch } from '@/lib/kyc/name-match';
+import { bankAccountHash } from '@/lib/kyc/bank-hash';
+import { isEkycMockMode } from '@/services/ekyc';
 import { getAEPSClient } from '@/services/aeps';
 import { getAEPSConfig } from '@/services/aeps/config';
 import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger';
@@ -132,6 +136,59 @@ export async function POST(request: NextRequest) {
       city: addressCity,
       pincode: addressPincode
     };
+
+    // ========================================================================
+    // Server-side identity enforcement (non-bypassable):
+    // PAN, Aadhaar and bank must have been verified via the eKYC routes, be
+    // bound to the exact PAN / bank account submitted here, and all three names
+    // must belong to the same person. Uses ONLY server-verified values.
+    // Skipped only when eKYC runs in mock mode (local dev).
+    // ========================================================================
+    if (!isEkycMockMode()) {
+      const kyc = await getKycVerification(user.partner_id);
+
+      if (!kyc) {
+        return NextResponse.json(
+          { error: 'KYC not verified. Please verify PAN, Aadhaar and bank account before submitting.', code: 'KYC_NOT_VERIFIED' },
+          { status: 400 }
+        );
+      }
+
+      if (!kyc.pan_name || kyc.pan !== pan) {
+        return NextResponse.json(
+          { error: 'PAN is not verified. Please verify this PAN and try again.', code: 'PAN_NOT_VERIFIED' },
+          { status: 400 }
+        );
+      }
+
+      if (!kyc.aadhaar_name) {
+        return NextResponse.json(
+          { error: 'Aadhaar is not verified. Please complete Aadhaar verification via DigiLocker.', code: 'AADHAAR_NOT_VERIFIED' },
+          { status: 400 }
+        );
+      }
+
+      if (!kyc.bank_account_name || kyc.bank_account_hash !== bankAccountHash(bankAccountNo, bankIfsc)) {
+        return NextResponse.json(
+          { error: 'Bank account is not verified. Please verify this bank account (penny drop) and try again.', code: 'BANK_NOT_VERIFIED' },
+          { status: 400 }
+        );
+      }
+
+      if (!namesMatch(kyc.pan_name, kyc.aadhaar_name)) {
+        return NextResponse.json(
+          { error: `Name mismatch: PAN name "${kyc.pan_name}" does not match Aadhaar name "${kyc.aadhaar_name}". PAN and Aadhaar must belong to the same person.`, code: 'NAME_MISMATCH_PAN_AADHAAR' },
+          { status: 400 }
+        );
+      }
+
+      if (!namesMatch(kyc.bank_account_name, kyc.aadhaar_name) && !namesMatch(kyc.bank_account_name, kyc.pan_name)) {
+        return NextResponse.json(
+          { error: `Name mismatch: bank account holder "${kyc.bank_account_name}" does not match your PAN/Aadhaar name. The bank account must be in your own name.`, code: 'NAME_MISMATCH_BANK' },
+          { status: 400 }
+        );
+      }
+    }
 
     // Check if merchant already exists for this user
     const { data: existingMerchant } = await supabase
