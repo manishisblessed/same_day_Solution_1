@@ -32,6 +32,10 @@ export interface SettleAEPSParams {
   transactionType: string;
   amount: number;
   rtUserId: string;
+  /** Role of the transacting (bottom-tier) user. Defaults to 'retailer' for
+   *  backward compatibility; pass 'partner' when a partner/master_partner
+   *  performs the transaction so the ledger records the correct role. */
+  rtUserRole?: string;
   dtUserId?: string | null;
   mdUserId?: string | null;
   breakdown: AEPSCommissionBreakdown;
@@ -45,6 +49,7 @@ export interface SettleAEPSResult {
 
 export async function settleAEPSCommission(params: SettleAEPSParams): Promise<SettleAEPSResult> {
   const { transactionId, transactionType, amount, rtUserId, dtUserId, mdUserId, breakdown } = params;
+  const rtUserRole = params.rtUserRole || 'retailer';
   const supabase = getSupabase();
 
   try {
@@ -81,7 +86,7 @@ export async function settleAEPSCommission(params: SettleAEPSParams): Promise<Se
       // Credit the gross commission to AEPS wallet
       const { data: rtLedgerId, error: rtErr } = await supabase.rpc('add_ledger_entry', {
         p_user_id: rtUserId,
-        p_user_role: 'retailer',
+        p_user_role: rtUserRole,
         p_wallet_type: 'aeps',
         p_fund_category: 'commission',
         p_service_type: 'aeps',
@@ -102,7 +107,7 @@ export async function settleAEPSCommission(params: SettleAEPSParams): Promise<Se
       if (rtTds > 0) {
         const { error: rtTdsErr } = await supabase.rpc('add_ledger_entry', {
           p_user_id: rtUserId,
-          p_user_role: 'retailer',
+          p_user_role: rtUserRole,
           p_wallet_type: 'aeps',
           p_fund_category: 'tds',
           p_service_type: 'aeps',

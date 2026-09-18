@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getCurrentUserWithFallback } from '@/lib/auth-server';
-import { authorizeSubPartner } from '@/lib/partner-access';
+import { authorizeSubPartner, normalizeMasterPartner } from '@/lib/partner-access';
 import { getAEPSClient } from '@/services/aeps';
 import { getAEPSConfig } from '@/services/aeps/config';
 import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger';
@@ -29,6 +29,7 @@ export async function POST(request: NextRequest) {
   try {
     const { user, method } = await getCurrentUserWithFallback(request);
     console.log('[AEPS Merchant Create] Auth:', method, '|', user?.email || 'none');
+    normalizeMasterPartner(user);
 
     if (!user || !user.partner_id) {
       return NextResponse.json(

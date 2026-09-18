@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getCurrentUserWithFallback } from '@/lib/auth-server';
-import { authorizeSubPartner } from '@/lib/partner-access';
+import { authorizeSubPartner, normalizeMasterPartner } from '@/lib/partner-access';
 import { getAEPSService } from '@/services/aeps';
 
 export const runtime = 'nodejs';
@@ -15,6 +15,7 @@ export async function GET(request: NextRequest) {
   try {
     const { user, method } = await getCurrentUserWithFallback(request);
     console.log('[AEPS Banks] Auth:', method, '|', user?.email || 'none');
+    normalizeMasterPartner(user);
 
     const access = authorizeSubPartner(user, 'aeps');
     if (!access.ok) return access.response;

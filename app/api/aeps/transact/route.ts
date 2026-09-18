@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getCurrentUserWithFallback } from '@/lib/auth-server';
-import { authorizeSubPartner } from '@/lib/partner-access';
+import { authorizeSubPartner, normalizeMasterPartner } from '@/lib/partner-access';
 import { getAEPSService } from '@/services/aeps';
 import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger';
 import { rateLimit, RATE_LIMITS } from '@/lib/rate-limit';
@@ -73,6 +73,7 @@ export async function POST(request: NextRequest) {
   try {
     const { user, method } = await getCurrentUserWithFallback(request);
     console.log('[AEPS Transact] Auth:', method, '|', user?.email || 'none');
+    normalizeMasterPartner(user);
 
     if (!user || !user.partner_id) {
       return NextResponse.json(
@@ -385,15 +386,21 @@ export async function POST(request: NextRequest) {
       const eligibleForCommission = (isFinancial || transactionType === 'mini_statement') && commissionEnabled;
 
       if (eligibleForCommission) {
-        // Look up retailer's hierarchy (DT and MD)
-        const { data: retailerInfo } = await supabase
-          .from('retailers')
-          .select('distributor_id, master_distributor_id')
-          .eq('user_id', user.partner_id)
-          .maybeSingle();
+        // Look up hierarchy (DT and MD) — only retailers have an upline chain.
+        // Partners resolve commission via their own direct scheme mapping, so
+        // dtUserId/mdUserId stay undefined for them.
+        let dtUserId: string | undefined;
+        let mdUserId: string | undefined;
+        if (user.role === 'retailer') {
+          const { data: retailerInfo } = await supabase
+            .from('retailers')
+            .select('distributor_id, master_distributor_id')
+            .eq('user_id', user.partner_id)
+            .maybeSingle();
 
-        const dtUserId = retailerInfo?.distributor_id || undefined;
-        const mdUserId = retailerInfo?.master_distributor_id || undefined;
+          dtUserId = retailerInfo?.distributor_id || undefined;
+          mdUserId = retailerInfo?.master_distributor_id || undefined;
+        }
 
         // Scheme engine is now the primary commission engine
         let schemeHandled = false;
@@ -413,6 +420,7 @@ export async function POST(request: NextRequest) {
               transactionType,
               amount: txnAmount || 0,
               rtUserId: user.partner_id,
+              rtUserRole: user.role,
               dtUserId,
               mdUserId,
               breakdown,
@@ -448,6 +456,7 @@ export async function POST(request: NextRequest) {
             serviceType,
             amount: txnAmount || 0,
             rtUserId: user.partner_id,
+            rtUserRole: user.role,
             dtUserId,
             mdUserId,
           });

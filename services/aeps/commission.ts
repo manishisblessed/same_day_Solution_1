@@ -44,6 +44,9 @@ export interface DistributeParams {
   serviceType: string;
   amount: number;
   rtUserId: string;
+  /** Role of the transacting (bottom-tier) user; defaults to 'retailer'.
+   *  Pass 'partner' when a partner/master_partner performs the transaction. */
+  rtUserRole?: string;
   dtUserId?: string;
   mdUserId?: string;
 }
@@ -168,6 +171,7 @@ export async function distributeCommission(params: DistributeParams): Promise<{
   error?: string;
 }> {
   const { transactionId, serviceType, amount, rtUserId, dtUserId, mdUserId } = params;
+  const rtUserRole = params.rtUserRole || 'retailer';
 
   try {
     const totalCommission = await calculateCommission(serviceType, amount);
@@ -219,7 +223,7 @@ export async function distributeCommission(params: DistributeParams): Promise<{
     if (breakdown.rtAmount > 0) {
       const { error: rtErr } = await supabase.rpc('add_ledger_entry', {
         p_user_id: rtUserId,
-        p_user_role: 'retailer',
+        p_user_role: rtUserRole,
         p_wallet_type: config.rt_wallet_type,
         p_fund_category: 'commission',
         p_service_type: 'aeps',
@@ -239,7 +243,7 @@ export async function distributeCommission(params: DistributeParams): Promise<{
       if (rtTds > 0) {
         const { error: rtTdsErr } = await supabase.rpc('add_ledger_entry', {
           p_user_id: rtUserId,
-          p_user_role: 'retailer',
+          p_user_role: rtUserRole,
           p_wallet_type: config.rt_wallet_type,
           p_fund_category: 'tds',
           p_service_type: 'aeps',

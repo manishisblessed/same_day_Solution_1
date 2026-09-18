@@ -16,7 +16,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getCurrentUserWithFallback } from '@/lib/auth-server';
-import { authorizeSubPartner } from '@/lib/partner-access';
+import { authorizeSubPartner, normalizeMasterPartner } from '@/lib/partner-access';
 import { initiateTransfer } from '@/services/payout/transfer';
 import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger';
 import { calculateAEPSSettlementCharge } from '@/lib/scheme/scheme.service';
@@ -46,6 +46,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const { user, method } = await getCurrentUserWithFallback(request);
+    normalizeMasterPartner(user);
     if (!user || !user.partner_id) {
       return NextResponse.json({ error: 'Session expired. Please log in again.', code: 'SESSION_EXPIRED' }, { status: 401 });
     }

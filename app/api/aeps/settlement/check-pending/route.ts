@@ -14,7 +14,7 @@ import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
 import { getTransferStatus } from '@/services/payout'
 import { createClient } from '@supabase/supabase-js'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
-import { authorizeSubPartner } from '@/lib/partner-access'
+import { authorizeSubPartner, normalizeMasterPartner } from '@/lib/partner-access'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -463,6 +463,7 @@ export async function GET(request: NextRequest) {
     // Require authentication; callers may only check their OWN pending count
     // (admins/finance may query any user).
     const { user } = await getCurrentUserWithFallback(request)
+    normalizeMasterPartner(user)
     if (!user || !user.partner_id) {
       const response = NextResponse.json({ success: false, error: 'Authentication required' }, { status: 401 })
       return addCorsHeaders(request, response)
