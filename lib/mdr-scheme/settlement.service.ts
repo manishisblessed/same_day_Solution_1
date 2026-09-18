@@ -108,17 +108,24 @@ export async function calculateMDR(
           
           if (ct) q = q.eq('card_type', ct);
           else q = q.is('card_type', null);
-          
-          if (bt) q = q.ilike('brand_type', bt);
-          else q = q.is('brand_type', null);
-          
+
           if (cc) q = q.ilike('card_classification', cc);
           else q = q.is('card_classification', null);
 
           if (company) q = q.eq('merchant_slug', company);
           else q = q.is('merchant_slug', null);
-          
-          const { data } = await q.limit(1);
+
+          // Brand match normalizes BOTH sides. Schemes store display labels
+          // ("Diners Club", "MasterCard") while the transaction brand is
+          // normalized ("DINERS", "MASTERCARD"). A plain ilike('brand_type', bt)
+          // silently misses "Diners Club" for a "DINERS" txn, so fetch the brand
+          // candidates and compare canonically via normalizeBrandType.
+          if (bt) {
+            const { data } = await q.not('brand_type', 'is', null);
+            if (!data || data.length === 0) return null;
+            return data.find((r: any) => normalizeBrandType(r.brand_type) === bt) || null;
+          }
+          const { data } = await q.is('brand_type', null).limit(1);
           return data && data.length > 0 ? data[0] : null;
         };
 
@@ -820,8 +827,13 @@ export async function calculatePartnerMDR(
               .eq('mode', normalizedMode)
               .not('partner_mdr', 'is', null);
             if (ct) q = q.eq('card_type', ct);
-            if (bt) q = q.ilike('brand_type', bt);
             q = company ? q.eq('merchant_slug', company) : q.is('merchant_slug', null);
+            // Brand match normalizes both sides (see findMDRRate) so display
+            // labels like "Diners Club" match a normalized "DINERS" txn brand.
+            if (bt) {
+              const { data } = await q;
+              return (data || []).find((r: any) => r.brand_type && normalizeBrandType(r.brand_type) === bt) || null;
+            }
             const { data } = await q.order('brand_type', { ascending: true }).limit(1);
             return data && data.length > 0 ? data[0] : null;
           };

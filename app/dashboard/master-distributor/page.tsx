@@ -31,6 +31,7 @@ import PayoutTransactionReport from '@/components/reports/PayoutTransactionRepor
 import BillPaymentTransactionReport from '@/components/reports/BillPaymentTransactionReport'
 import { useToast } from '@/components/Toast'
 import { getPosCompanies } from '@/lib/merchant-companies'
+import { getSchemeBrandValues, brandLabel } from '@/lib/card-brands'
 import ExportDropdown, { type ExportFormat } from '@/components/ExportDropdown'
 import { exportTable } from '@/lib/export/table-export'
 import UserPushPullReport from '@/components/UserPushPullReport'
@@ -3180,27 +3181,10 @@ function SchemeManagementTab({ user }: { user: any }) {
     }
   }
 
-  const getAvailableBrands = (mode: string, cardType: string): string[] => {
-    if (mode === 'CARD') {
-      if (cardType === 'CREDIT') {
-        return ['Amex', 'Diners Club', 'MasterCard', 'RUPAY', 'VISA', 'Business', 'Corporate Card', 'International']
-      } else if (cardType === 'DEBIT') {
-        return ['MasterCard', 'RUPAY', 'VISA']
-      } else if (cardType === 'PREPAID') {
-        return ['MasterCard', 'VISA']
-      }
-      return []
-    } else if (mode === 'UPI') {
-      const effectiveCardType = cardType || 'UPI'
-      if (effectiveCardType === 'UPI') {
-        return ['UPI']
-      } else if (effectiveCardType === 'CREDIT') {
-        return ['RUPAY']
-      }
-      return []
-    }
-    return []
-  }
+  // All real card networks are selectable for every card type so a slab can be
+  // added per brand. Values are canonical and match settlement-side resolution.
+  const getAvailableBrands = (mode: string, cardType: string): string[] =>
+    getSchemeBrandValues(mode, cardType)
 
   const handleMapScheme = async (distributorId: string) => {
     setMappingInProgress(distributorId)
@@ -4030,7 +4014,7 @@ function SchemeManagementTab({ user }: { user: any }) {
                     >
                       <option value="">Select Brand</option>
                       {getAvailableBrands(mdrForm.mode, mdrForm.card_type).map((brand) => (
-                        <option key={brand} value={brand}>{brand}</option>
+                        <option key={brand} value={brand}>{brandLabel(brand)}</option>
                       ))}
                     </select>
                   </div>

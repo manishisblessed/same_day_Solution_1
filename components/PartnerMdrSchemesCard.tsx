@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { apiFetch } from '@/lib/api-client'
 import { Users, Plus, CheckCircle2, XCircle } from 'lucide-react'
 import { getPosCompanies } from '@/lib/merchant-companies'
+import { CARD_BRANDS } from '@/lib/card-brands'
 
 interface PartnerScheme {
   id: string
@@ -216,10 +217,9 @@ export default function PartnerMdrSchemesCard({
               <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Brand</label>
               <select value={newScheme.brand_type} onChange={(e) => setNewScheme({ ...newScheme, brand_type: e.target.value })} className={inputClass}>
                 <option value="">Any</option>
-                <option value="VISA">VISA</option>
-                <option value="MASTERCARD">MASTERCARD</option>
-                <option value="RUPAY">RUPAY</option>
-                <option value="AMEX">AMEX</option>
+                {CARD_BRANDS.map((b) => (
+                  <option key={b.value} value={b.value}>{b.label}</option>
+                ))}
               </select>
             </div>
           </div>
