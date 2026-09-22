@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { toUserSafeError } from '@/lib/provider-error'
 import { authenticatePartner, PartnerAuthError, partnerCanUseApi } from '@/lib/partner-auth'
 import { createClient } from '@supabase/supabase-js'
 
@@ -135,7 +136,7 @@ export async function POST(request: NextRequest) {
   } catch (error: any) {
     console.error('[Partner Rechargekit Charges] Error:', error)
     return NextResponse.json(
-      { success: false, error: { code: 'INTERNAL_ERROR', message: error.message || 'Failed to calculate charges' } },
+      { success: false, error: { code: 'INTERNAL_ERROR', message: toUserSafeError(error?.message, 'Failed to calculate charges') } },
       { status: 500 }
     )
   }

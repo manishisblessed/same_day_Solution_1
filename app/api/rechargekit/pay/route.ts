@@ -10,6 +10,7 @@ import {
   isCreditCard2Enabled,
 } from '@/services/rechargekit'
 import { distributeServiceCommission } from '@/lib/commission/distribute-service-commission'
+import { toUserSafeError } from '@/lib/provider-error'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -431,7 +432,7 @@ export async function POST(request: NextRequest) {
     } catch (provErr: any) {
       await refund('provider error')
       const response = NextResponse.json(
-        { success: false, error: provErr?.message || 'Credit card payment failed', request_id },
+        { success: false, error: toUserSafeError(provErr?.message, 'Credit card payment failed'), request_id },
         { status: 200 }
       )
       return addCorsHeaders(request, response)
@@ -521,7 +522,7 @@ export async function POST(request: NextRequest) {
   } catch (error: any) {
     console.error('[Rechargekit Pay] Error:', error)
     const response = NextResponse.json(
-      { success: false, error: error.message || 'Credit card payment failed' },
+      { success: false, error: toUserSafeError(error?.message, 'Credit card payment failed') },
       { status: 500 }
     )
     return addCorsHeaders(request, response)

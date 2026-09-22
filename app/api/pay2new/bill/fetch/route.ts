@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { toUserSafeError } from '@/lib/provider-error'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { authorizeSubPartner } from '@/lib/partner-access'
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
@@ -163,7 +164,7 @@ export async function POST(request: NextRequest) {
   } catch (error: any) {
     console.error('[Pay2New Bill Fetch] Error:', error)
     const response = NextResponse.json(
-      { success: false, error: error.message || 'Bill fetch failed' },
+      { success: false, error: toUserSafeError(error?.message, 'Bill fetch failed') },
       { status: 500 }
     )
     return addCorsHeaders(request, response)

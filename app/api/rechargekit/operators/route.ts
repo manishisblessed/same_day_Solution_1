@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { toUserSafeError } from '@/lib/provider-error'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { authorizeSubPartner } from '@/lib/partner-access'
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
@@ -59,7 +60,7 @@ export async function GET(request: NextRequest) {
   } catch (error: any) {
     console.error('[Rechargekit Operators] Error:', error)
     const response = NextResponse.json(
-      { success: false, error: error.message || 'Failed to fetch operators' },
+      { success: false, error: toUserSafeError(error?.message, 'Failed to fetch operators') },
       { status: 500 }
     )
     return addCorsHeaders(request, response)

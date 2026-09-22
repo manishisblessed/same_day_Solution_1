@@ -4,6 +4,7 @@ import { authorizeSubPartner, normalizeMasterPartner } from '@/lib/partner-acces
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
 import { pay2newRecharge } from '@/services/pay2new'
 import { rateLimit, RATE_LIMITS } from '@/lib/rate-limit'
+import { toUserSafeError } from '@/lib/provider-error'
 import { createClient } from '@supabase/supabase-js'
 
 export const runtime = 'nodejs'
@@ -132,7 +133,7 @@ export async function POST(request: NextRequest) {
     } catch (provErr: any) {
       await refund('provider error')
       const response = NextResponse.json(
-        { success: false, error: provErr?.message || 'Recharge failed', request_id },
+        { success: false, error: toUserSafeError(provErr?.message, 'Recharge failed'), request_id },
         { status: 200 }
       )
       return addCorsHeaders(request, response)
@@ -159,7 +160,7 @@ export async function POST(request: NextRequest) {
   } catch (error: any) {
     console.error('[Pay2New Recharge] Error:', error)
     const response = NextResponse.json(
-      { success: false, error: error.message || 'Recharge failed' },
+      { success: false, error: toUserSafeError(error?.message, 'Recharge failed') },
       { status: 500 }
     )
     return addCorsHeaders(request, response)

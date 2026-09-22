@@ -3,6 +3,7 @@
  * Auth: Authorization: Bearer {api_token}
  */
 
+import { maskProviderBalanceError, SERVICE_DOWN_MESSAGE } from '@/lib/provider-error'
 import {
   getRechargekitBaseUrl,
   getRechargekitApiToken,
@@ -118,12 +119,13 @@ export async function rechargekitRequest<T = unknown>(
     try {
       parsed = text ? JSON.parse(text) : {}
     } catch {
+      console.error('[Rechargekit] Non-JSON response:', { path, status: res.status, body: text.slice(0, 300) })
       return {
         ok: false,
         status: res.status,
         error: text.startsWith('<')
-          ? `Rechargekit returned HTML error (HTTP ${res.status})`
-          : text.slice(0, 300),
+          ? SERVICE_DOWN_MESSAGE
+          : maskProviderBalanceError(text.slice(0, 300)),
         raw: text,
       }
     }
@@ -145,7 +147,7 @@ export async function rechargekitRequest<T = unknown>(
         return {
           ok: false,
           status: res.status,
-          error: extractErrorMessage(parsed, res.status),
+          error: maskProviderBalanceError(extractErrorMessage(parsed, res.status)),
           data: parsed as T,
           providerStatus,
           raw: text,
@@ -159,7 +161,7 @@ export async function rechargekitRequest<T = unknown>(
       return {
         ok: false,
         status: res.status,
-        error: extractErrorMessage(parsed, res.status),
+        error: maskProviderBalanceError(extractErrorMessage(parsed, res.status)),
         data: parsed as T,
         raw: text,
       }
@@ -173,9 +175,11 @@ export async function rechargekitRequest<T = unknown>(
     }
   } catch (e: any) {
     if (e?.name === 'AbortError') {
-      return { ok: false, status: 408, error: `Rechargekit request timeout after ${timeoutMs}ms` }
+      console.error('[Rechargekit] Request timeout:', { path, timeoutMs })
+      return { ok: false, status: 408, error: SERVICE_DOWN_MESSAGE }
     }
-    return { ok: false, status: 0, error: e?.message || 'Rechargekit network error' }
+    console.error('[Rechargekit] Network error:', { path, message: e?.message })
+    return { ok: false, status: 0, error: SERVICE_DOWN_MESSAGE }
   } finally {
     clearTimeout(timer)
   }

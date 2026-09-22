@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { toUserSafeError } from '@/lib/provider-error'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { authorizeSubPartner } from '@/lib/partner-access'
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
@@ -160,7 +161,7 @@ export async function GET(request: NextRequest) {
     return addCorsHeaders(request, response)
   } catch (error: any) {
     console.error('[Rechargekit Charges] Error:', error)
-    const response = NextResponse.json({ success: false, error: error.message }, { status: 500 })
+    const response = NextResponse.json({ success: false, error: toUserSafeError(error?.message, 'Failed to calculate charges') }, { status: 500 })
     return addCorsHeaders(request, response)
   }
 }

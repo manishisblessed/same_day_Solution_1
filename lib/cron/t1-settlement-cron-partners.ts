@@ -190,6 +190,23 @@ export async function runPartnerT1Settlement(): Promise<{ processed: number; fai
   try {
     const supabase = getSupabaseAdmin()
 
+    // Self-heal: stamp partner_id on captured transactions whose device is a
+    // partner-direct machine in pos_machines (by tid/serial) but where the
+    // webhook never wrote partner_id. Without this, such rows are invisible to
+    // the strict `partner_id = <partner>` eligibility query below and never
+    // settle. Ownership-time gated in SQL so a reassigned device can't pay the
+    // new partner for the previous holder's history. Mirrors the retailer path.
+    try {
+      const { data: healed, error: healErr } = await supabase.rpc('backfill_pos_partner_ids')
+      if (healErr) {
+        console.error('[Partner T1-Cron] backfill_pos_partner_ids failed:', healErr.message)
+      } else if (healed && Number(healed) > 0) {
+        console.log(`[Partner T1-Cron] Backfilled partner_id on ${healed} transaction(s) from pos_machines.`)
+      }
+    } catch (err: any) {
+      console.error('[Partner T1-Cron] backfill_pos_partner_ids threw:', err?.message || err)
+    }
+
     // Get pending partner T+1 transactions
     const { getPendingPartnerT1Transactions, calculatePartnerMDR, creditPartnerWallet } = await import(
       '@/lib/mdr-scheme/settlement.service'

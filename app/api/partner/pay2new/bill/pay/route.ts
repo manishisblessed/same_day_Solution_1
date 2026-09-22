@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { authenticatePartner, PartnerAuthError, partnerCanUseApi } from '@/lib/partner-auth'
 import { pay2newPayBill } from '@/services/pay2new'
-import { isBillerRateLimitError, BILLER_RATE_LIMIT_MESSAGE } from '@/lib/provider-error'
+import { isBillerRateLimitError, BILLER_RATE_LIMIT_MESSAGE, toUserSafeError } from '@/lib/provider-error'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -279,7 +279,7 @@ export async function POST(request: NextRequest) {
         .eq('partner_id', partner.id)
         .eq('reference_id', request_id)
       return NextResponse.json(
-        { success: false, error: { code: 'PROVIDER_ERROR', message: provErr?.message || 'Bill payment failed' }, request_id },
+        { success: false, error: { code: 'PROVIDER_ERROR', message: toUserSafeError(provErr?.message, 'Bill payment failed') }, request_id },
         { status: 200 }
       )
     }

@@ -7,6 +7,7 @@ import { rateLimit, RATE_LIMITS } from '@/lib/rate-limit'
 import { createClient } from '@supabase/supabase-js'
 import { fetchBillerInfo, fetchBill, payRequest } from '@/services/bbps'
 import { generateAgentTransactionId } from '@/services/bbps/helpers'
+import { toUserSafeError } from '@/lib/provider-error'
 import { distributeServiceCommission } from '@/lib/commission/distribute-service-commission'
 import { isBillerRateLimitError, BILLER_RATE_LIMIT_MESSAGE } from '@/lib/provider-error'
 
@@ -434,7 +435,7 @@ export async function POST(request: NextRequest) {
 
         await refund(bbpsResult.error_message || 'BBPS payment failed')
         const response = NextResponse.json(
-          { success: false, error: bbpsResult.error_message || 'Payment failed', request_id },
+          { success: false, error: toUserSafeError(bbpsResult.error_message, 'Payment failed'), request_id },
           { status: 200 }
         )
         return addCorsHeaders(request, response)
@@ -442,7 +443,7 @@ export async function POST(request: NextRequest) {
         console.error('[Pay2New→BBPS Direct] Error:', bbpsErr.message)
         await refund(bbpsErr.message || 'BBPS payment error')
         const response = NextResponse.json(
-          { success: false, error: bbpsErr.message || 'Payment failed', request_id },
+          { success: false, error: toUserSafeError(bbpsErr?.message, 'Payment failed'), request_id },
           { status: 200 }
         )
         return addCorsHeaders(request, response)
@@ -468,7 +469,7 @@ export async function POST(request: NextRequest) {
     } catch (provErr: any) {
       await refund('provider error')
       const response = NextResponse.json(
-        { success: false, error: provErr?.message || 'Bill payment failed', request_id },
+        { success: false, error: toUserSafeError(provErr?.message, 'Bill payment failed'), request_id },
         { status: 200 }
       )
       return addCorsHeaders(request, response)
@@ -576,7 +577,7 @@ export async function POST(request: NextRequest) {
   } catch (error: any) {
     console.error('[Pay2New Bill Pay] Error:', error)
     const response = NextResponse.json(
-      { success: false, error: error.message || 'Bill payment failed' },
+      { success: false, error: toUserSafeError(error?.message, 'Bill payment failed') },
       { status: 500 }
     )
     return addCorsHeaders(request, response)

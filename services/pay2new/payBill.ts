@@ -4,6 +4,7 @@
  */
 
 import { pay2newPost } from './client'
+import { toUserSafeError } from '@/lib/provider-error'
 import {
   getPay2NewOutletId,
   getPay2NewServerIp,
@@ -97,6 +98,6 @@ export async function pay2newPayBill(params: BillPayParams): Promise<{
     }
   } catch (e: any) {
     console.error('[Pay2New] Bill Pay error:', e)
-    return { success: false, error: e?.message || 'Pay2New bill payment error' }
+    return { success: false, error: toUserSafeError(e?.message) }
   }
 }

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { authenticatePartner, PartnerAuthError, partnerCanUseApi } from '@/lib/partner-auth'
 import { rechargekitCcPayment } from '@/services/rechargekit/ccPayment'
+import { toUserSafeError } from '@/lib/provider-error'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -236,7 +237,7 @@ export async function POST(request: NextRequest) {
         .eq('reference_id', request_id)
         .eq('transaction_type', 'DEBIT')
       return NextResponse.json(
-        { success: false, error: { code: 'PROVIDER_ERROR', message: provErr?.message || 'CC payment failed' }, request_id },
+        { success: false, error: { code: 'PROVIDER_ERROR', message: toUserSafeError(provErr?.message, 'CC payment failed') }, request_id },
         { status: 200 }
       )
     }

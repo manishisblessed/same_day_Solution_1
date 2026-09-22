@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { toUserSafeError } from '@/lib/provider-error'
 import { authenticatePartner, PartnerAuthError, partnerCanUseApi } from '@/lib/partner-auth'
 import { pay2newFetchBill } from '@/services/pay2new'
 
@@ -77,7 +78,7 @@ export async function POST(request: NextRequest) {
   } catch (error: any) {
     console.error('[Partner Pay2New Bill Fetch] Error:', error)
     return NextResponse.json(
-      { success: false, error: { code: 'INTERNAL_ERROR', message: error.message || 'Bill fetch failed' } },
+      { success: false, error: { code: 'INTERNAL_ERROR', message: toUserSafeError(error?.message, 'Bill fetch failed') } },
       { status: 500 }
     )
   }

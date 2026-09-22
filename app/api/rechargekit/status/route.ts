@@ -4,6 +4,7 @@ import { authorizeSubPartner } from '@/lib/partner-access'
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
 import { createClient } from '@supabase/supabase-js'
 import { getRechargekitBaseUrl, getRechargekitApiToken } from '@/services/rechargekit/config'
+import { toUserSafeError } from '@/lib/provider-error'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -171,7 +172,7 @@ export async function GET(request: NextRequest) {
     return addCorsHeaders(request, response)
   } catch (error: any) {
     console.error('[Rechargekit Status] Error:', error)
-    const response = NextResponse.json({ error: error.message || 'Failed to check status' }, { status: 500 })
+    const response = NextResponse.json({ error: toUserSafeError(error?.message, 'Failed to check status') }, { status: 500 })
     return addCorsHeaders(request, response)
   }
 }

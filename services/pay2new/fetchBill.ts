@@ -4,6 +4,7 @@
  */
 
 import { pay2newPost } from './client'
+import { toUserSafeError } from '@/lib/provider-error'
 import {
   getPay2NewOutletId,
   getPay2NewServerIp,
@@ -83,6 +84,6 @@ export async function pay2newFetchBill(params: BillFetchParams): Promise<{
     }
   } catch (e: any) {
     console.error('[Pay2New] Bill Fetch error:', e)
-    return { success: false, error: e?.message || 'Pay2New bill fetch error' }
+    return { success: false, error: toUserSafeError(e?.message) }
   }
 }

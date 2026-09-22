@@ -4,6 +4,7 @@
  */
 
 import { pay2newPost } from './client'
+import { toUserSafeError } from '@/lib/provider-error'
 import {
   getPay2NewOutletId,
   getPay2NewServerIp,
@@ -78,6 +79,6 @@ export async function pay2newRecharge(params: RechargeParams): Promise<{
     }
   } catch (e: any) {
     console.error('[Pay2New] Recharge error:', e)
-    return { success: false, error: e?.message || 'Pay2New recharge error' }
+    return { success: false, error: toUserSafeError(e?.message) }
   }
 }

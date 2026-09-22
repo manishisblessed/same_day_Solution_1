@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { resolvePendingPartnerSettlements } from '@/lib/settlement-2/resolve-pending-partner-settlements'
+import { toUserSafeError } from '@/lib/provider-error'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -84,6 +85,6 @@ export async function POST(request: NextRequest) {
     })
   } catch (error: any) {
     console.error('[Settlement Check-Pending] Error:', error)
-    return NextResponse.json({ success: false, error: error.message || 'Internal error' }, { status: 500 })
+    return NextResponse.json({ success: false, error: toUserSafeError(error?.message, 'Internal error') }, { status: 500 })
   }
 }

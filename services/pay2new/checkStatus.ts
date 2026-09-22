@@ -4,6 +4,7 @@
  */
 
 import { pay2newPost } from './client'
+import { toUserSafeError } from '@/lib/provider-error'
 
 export interface Pay2NewStatusOrder {
   number?: string
@@ -92,6 +93,6 @@ export async function pay2newCheckStatus(params: CheckStatusParams): Promise<{
     }
   } catch (e: any) {
     console.error('[Pay2New] Check Status error:', e)
-    return { success: false, error: e?.message || 'Pay2New status check error' }
+    return { success: false, error: toUserSafeError(e?.message) }
   }
 }

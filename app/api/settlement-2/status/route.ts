@@ -4,6 +4,7 @@ import { authorizeSubPartner, normalizeMasterPartner } from '@/lib/partner-acces
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
 import { checkTransactionStatus } from '@/services/shadval-pay'
 import { createClient } from '@supabase/supabase-js'
+import { toUserSafeError } from '@/lib/provider-error'
 import { reverseServiceCommission } from '@/lib/commission/distribute-service-commission'
 import { refundShadvalSettlement, isGenuineProviderSuccess } from '@/lib/settlement-2/shadval-refund'
 
@@ -177,7 +178,7 @@ export async function POST(request: NextRequest) {
     return addCorsHeaders(request, response)
   } catch (error: any) {
     console.error('[Settlement-2 Status] Error:', error)
-    const response = NextResponse.json({ success: false, error: error.message }, { status: 500 })
+    const response = NextResponse.json({ success: false, error: toUserSafeError(error?.message, 'Status check failed') }, { status: 500 })
     return addCorsHeaders(request, response)
   }
 }

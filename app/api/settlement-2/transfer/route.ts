@@ -11,6 +11,7 @@ import {
   finalizeIdempotencyKey,
   getIdempotencyKeyFromHeaders,
 } from '@/lib/security/idempotency'
+import { toUserSafeError } from '@/lib/provider-error'
 import { distributeServiceCommission, reverseServiceCommission } from '@/lib/commission/distribute-service-commission'
 
 export const runtime = 'nodejs'
@@ -711,7 +712,7 @@ export async function POST(request: NextRequest) {
   } catch (error: any) {
     console.error('[Settlement-2 Transfer] Error:', error)
     if (idemKey) await finalizeIdempotencyKey({ scope: IDEM_SCOPE, key: idemKey, status: 'failed' }).catch(() => {})
-    const response = NextResponse.json({ success: false, error: error.message }, { status: 500 })
+    const response = NextResponse.json({ success: false, error: toUserSafeError(error?.message, 'Settlement failed') }, { status: 500 })
     return addCorsHeaders(request, response)
   }
 }

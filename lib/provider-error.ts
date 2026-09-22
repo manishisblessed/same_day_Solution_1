@@ -13,7 +13,9 @@ export const SERVICE_DOWN_MESSAGE =
 
 const PROVIDER_INFRA_PATTERNS: RegExp[] = [
   // Provider float / wallet balance problems
-  /insufficient/i,
+  // (matches "insufficient" and the common provider misspelling "insufficent")
+  /insuffic[ie]*nt/i,
+  /insufficent/i,
   /low\s*balance/i,
   /update\s+your\s+wallet/i,
   /wallet\s+balance/i,
@@ -42,6 +44,45 @@ export function maskProviderBalanceError(message?: string | null): string {
   const msg = (message || '').trim()
   if (!msg) return msg
   return PROVIDER_INFRA_PATTERNS.some((re) => re.test(msg)) ? SERVICE_DOWN_MESSAGE : msg
+}
+
+/**
+ * Generic fallback for raw code / exception messages so users never see internal
+ * technical detail (stack traces, DB errors, JS exceptions, HTML dumps, etc.).
+ */
+export const GENERIC_ERROR_MESSAGE =
+  'Something went wrong while processing your request. Please try again, or contact the support team if it persists.'
+
+// Signatures of raw technical / exception / infra messages that must never reach a user.
+const TECHNICAL_PATTERNS: RegExp[] = [
+  /\b(TypeError|ReferenceError|SyntaxError|RangeError|EvalError|URIError)\b/,
+  /\bError:\s/,
+  /is\s+not\s+(a\s+function|defined)/i,
+  /cannot\s+read\s+propert/i,
+  /undefined|null\)/i,
+  /\bat\s+\S+:\d+:\d+/, // stack-trace frame
+  /ECONN\w*|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|EPIPE|socket\s+hang\s*up|fetch\s+failed/i,
+  /\b(postgres|supabase|pg_|sql|sqlstate|constraint|duplicate\s+key|violates|relation\s+".*"\s+does\s+not\s+exist|column\s+.*does\s+not\s+exist)\b/i,
+  /\[object\s+Object\]/i,
+  /<\/?[a-z!][^>]*>/i, // HTML fragment
+  /^\s*[[{]/, // raw JSON payload
+  /HTTP\s+error\s+\d{3}|HTTP\s+\d{3}/i,
+  /unexpected\s+token|json\s+parse|malformed/i,
+]
+
+/**
+ * Convert any error string into something safe to show a user.
+ *  - Provider infra / low-balance messages → SERVICE_DOWN_MESSAGE
+ *  - Raw code / exception / DB / HTML / JSON messages → generic fallback
+ *  - Otherwise (genuine business/transaction messages) → passed through unchanged
+ * Always log the raw message server-side before calling this.
+ */
+export function toUserSafeError(message?: string | null, fallback: string = GENERIC_ERROR_MESSAGE): string {
+  const msg = (message || '').trim()
+  if (!msg) return fallback
+  if (PROVIDER_INFRA_PATTERNS.some((re) => re.test(msg))) return SERVICE_DOWN_MESSAGE
+  if (TECHNICAL_PATTERNS.some((re) => re.test(msg))) return fallback
+  return msg
 }
 
 /**

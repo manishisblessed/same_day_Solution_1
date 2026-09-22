@@ -4,6 +4,7 @@
  */
 
 import { rechargekitPost } from './client'
+import { toUserSafeError } from '@/lib/provider-error'
 import { getRechargekitCcTransferType } from './config'
 import { RECHARGEKIT_STATUS, type RechargekitCcPaymentRequest, type RechargekitCcPaymentResponse } from './types'
 
@@ -113,6 +114,6 @@ export async function rechargekitCcPayment(params: CcPaymentParams): Promise<{
     }
   } catch (e: any) {
     console.error('[Rechargekit] CC Payment error:', e)
-    return { success: false, error: e?.message || 'Rechargekit CC payment error' }
+    return { success: false, error: toUserSafeError(e?.message) }
   }
 }
