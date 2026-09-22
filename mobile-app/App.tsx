@@ -1,56 +1,52 @@
 import React from 'react';
-import { View, Text, StyleSheet, LogBox } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { AppNavigator } from './src/navigation/AppNavigator';
+import { QueryClientProvider } from '@tanstack/react-query';
+import { View, Text, StyleSheet } from 'react-native';
+import { queryClient } from '@/lib/queryClient';
+import { AuthProvider } from '@/contexts/AuthContext';
+import { AppLockProvider } from '@/contexts/AppLockContext';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
+import { RootNavigator } from '@/navigation/RootNavigator';
+import { assertEnv } from '@/config/env';
+import { colors, spacing, typography } from '@/theme';
 
-LogBox.ignoreLogs(['Reanimated']);
-
-interface ErrorBoundaryState {
-  hasError: boolean;
-  error: Error | null;
-}
-
-class ErrorBoundary extends React.Component<
-  { children: React.ReactNode },
-  ErrorBoundaryState
-> {
-  state: ErrorBoundaryState = { hasError: false, error: null };
-
-  static getDerivedStateFromError(error: Error) {
-    return { hasError: true, error };
-  }
-
-  render() {
-    if (this.state.hasError) {
-      return (
-        <View style={ebStyles.container}>
-          <Text style={ebStyles.title}>App Error</Text>
-          <Text style={ebStyles.message}>
-            {this.state.error?.message ?? 'Unknown error'}
-          </Text>
-          <Text style={ebStyles.stack}>
-            {this.state.error?.stack?.slice(0, 500)}
-          </Text>
-        </View>
-      );
-    }
-    return this.props.children;
-  }
-}
-
-const ebStyles = StyleSheet.create({
-  container: { flex: 1, justifyContent: 'center', padding: 24, backgroundColor: '#fff' },
-  title: { fontSize: 20, fontWeight: 'bold', color: '#EF4444', marginBottom: 12 },
-  message: { fontSize: 14, color: '#111', marginBottom: 12 },
-  stack: { fontSize: 11, color: '#666', fontFamily: 'monospace' },
-});
-
-export default function App() {
+function MissingEnv({ missing }: { missing: string[] }) {
   return (
-    <ErrorBoundary>
-      <SafeAreaProvider>
-        <AppNavigator />
-      </SafeAreaProvider>
-    </ErrorBoundary>
+    <View style={styles.envError}>
+      <Text style={[typography.h2, { color: colors.danger[600], marginBottom: 12 }]}>Configuration required</Text>
+      <Text style={[typography.body, { color: colors.textSecondary, textAlign: 'center' }]}>
+        Missing env values:{'\n'}
+        {missing.join('\n')}
+        {'\n\n'}Copy .env.example → .env, fill in your Supabase URL + anon key, then restart.
+      </Text>
+    </View>
   );
 }
+
+export default function App() {
+  const missing = assertEnv();
+  return (
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <SafeAreaProvider>
+        <ErrorBoundary>
+          <QueryClientProvider client={queryClient}>
+            {missing.length > 0 ? (
+              <MissingEnv missing={missing} />
+            ) : (
+              <AuthProvider>
+                <AppLockProvider>
+                  <RootNavigator />
+                </AppLockProvider>
+              </AuthProvider>
+            )}
+          </QueryClientProvider>
+        </ErrorBoundary>
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
+  );
+}
+
+const styles = StyleSheet.create({
+  envError: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.xl, backgroundColor: colors.background },
+});

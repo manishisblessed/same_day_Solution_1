@@ -1,3 +1,4 @@
-export { colors } from './colors';
+export { colors, palette } from './colors';
+export type { Colors } from './colors';
+export { spacing, radius, shadow } from './spacing';
 export { typography } from './typography';
-export { spacing, borderRadius, shadow } from './spacing';

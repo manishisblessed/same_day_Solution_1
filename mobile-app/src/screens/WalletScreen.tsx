@@ -1,267 +1,84 @@
-import React, { useState } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  FlatList,
-  TouchableOpacity,
-  RefreshControl,
-} from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import React, { useState, useCallback } from 'react';
+import { View, Text, StyleSheet, ScrollView } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useQuery } from '@tanstack/react-query';
 import { LinearGradient } from 'expo-linear-gradient';
-import { StatusBar } from 'expo-status-bar';
-import { Ionicons } from '@expo/vector-icons';
-import { colors, typography, borderRadius, shadow } from '../theme';
-import { WalletCard, Badge } from '../components';
-import { walletBalance, walletTransactions, WalletTransaction } from '../data/dummy';
-import { formatCurrency, formatDateTime } from '../utils';
+import { colors, radius, spacing, typography, shadow } from '@/theme';
+import { Screen, Card, Pill, Loading, EmptyState, TransactionRow, Button } from '@/components';
+import { fetchWalletBalance, fetchWalletTransactions, WalletType } from '@/api/wallet';
+import { formatCurrency } from '@/utils/format';
+import { AppStackParamList } from '@/navigation/types';
+
+type Nav = NativeStackNavigationProp<AppStackParamList>;
+
+const WALLETS: { key: WalletType; label: string }[] = [
+  { key: 'primary', label: 'Primary' },
+  { key: 'aeps', label: 'AEPS' },
+  { key: 'commission', label: 'Commission' },
+  { key: 'settlement', label: 'Settlement' },
+];
 
 export const WalletScreen: React.FC = () => {
-  const insets = useSafeAreaInsets();
-  const [refreshing, setRefreshing] = useState(false);
+  const nav = useNavigation<Nav>();
+  const [wallet, setWallet] = useState<WalletType>('primary');
 
-  const onRefresh = () => {
-    setRefreshing(true);
-    setTimeout(() => setRefreshing(false), 1500);
-  };
+  const balanceQ = useQuery({ queryKey: ['wallet', wallet], queryFn: () => fetchWalletBalance(wallet) });
+  const txnQ = useQuery({ queryKey: ['wallet-txns', wallet], queryFn: () => fetchWalletTransactions({ limit: 30 }) });
 
-  const renderWalletHeader = () => (
-    <View style={styles.headerSection}>
-      <WalletCard
-        title="Primary Wallet"
-        balance={walletBalance.primary}
-        gradientColors={colors.gradients.primary}
-        icon="wallet"
-        subtitle="Available for all services"
-      />
-
-      <View style={styles.walletGap} />
-
-      <WalletCard
-        title="AEPS Wallet"
-        balance={walletBalance.aeps}
-        gradientColors={colors.gradients.purple}
-        icon="finger-print"
-        subtitle="AEPS transactions only"
-      />
-
-      <View style={styles.actionRow}>
-        <TouchableOpacity style={styles.actionButton}>
-          <View style={[styles.actionIcon, { backgroundColor: colors.success[50] }]}>
-            <Ionicons name="add-circle-outline" size={20} color={colors.success[600]} />
-          </View>
-          <Text style={styles.actionLabel}>Add Money</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.actionButton}>
-          <View style={[styles.actionIcon, { backgroundColor: colors.primary[50] }]}>
-            <Ionicons name="arrow-up-outline" size={20} color={colors.primary[600]} />
-          </View>
-          <Text style={styles.actionLabel}>Settlement</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.actionButton}>
-          <View style={[styles.actionIcon, { backgroundColor: colors.accent[50] }]}>
-            <Ionicons name="time-outline" size={20} color={colors.accent[600]} />
-          </View>
-          <Text style={styles.actionLabel}>History</Text>
-        </TouchableOpacity>
-      </View>
-
-      <View style={styles.historyHeader}>
-        <Text style={styles.sectionTitle}>Wallet History</Text>
-        <TouchableOpacity style={styles.exportButton}>
-          <Ionicons name="download-outline" size={16} color={colors.primary[600]} />
-          <Text style={styles.exportText}>Export</Text>
-        </TouchableOpacity>
-      </View>
-    </View>
-  );
-
-  const renderWalletItem = ({ item }: { item: WalletTransaction }) => {
-    const isCredit = item.type === 'credit';
-
-    return (
-      <View style={styles.txnItem}>
-        <View
-          style={[
-            styles.txnIcon,
-            {
-              backgroundColor: isCredit ? colors.success[50] : '#FEE2E2',
-            },
-          ]}
-        >
-          <Ionicons
-            name={isCredit ? 'arrow-down' : 'arrow-up'}
-            size={18}
-            color={isCredit ? colors.success[600] : colors.error}
-          />
-        </View>
-
-        <View style={styles.txnContent}>
-          <Text style={styles.txnDescription} numberOfLines={1}>
-            {item.description}
-          </Text>
-          <Text style={styles.txnMeta}>
-            {item.serviceType} {'\u00B7'} {formatDateTime(item.date)}
-          </Text>
-        </View>
-
-        <View style={styles.txnRight}>
-          <Text
-            style={[
-              styles.txnAmount,
-              { color: isCredit ? colors.success[600] : colors.error },
-            ]}
-          >
-            {isCredit ? '+' : '-'}{formatCurrency(item.amount)}
-          </Text>
-          <Text style={styles.txnBalance}>
-            Bal: {formatCurrency(item.balance)}
-          </Text>
-        </View>
-      </View>
-    );
-  };
+  const onRefresh = useCallback(() => { balanceQ.refetch(); txnQ.refetch(); }, [balanceQ, txnQ]);
+  const txns = txnQ.data?.transactions ?? [];
 
   return (
-    <View style={styles.container}>
-      <StatusBar style="light" />
-
-      <LinearGradient
-        colors={[colors.primary[600], colors.primary[700]]}
-        style={[styles.header, { paddingTop: insets.top + 12 }]}
-      >
-        <Text style={styles.headerTitle}>Wallet</Text>
+    <Screen title="Wallet" refreshing={balanceQ.isFetching || txnQ.isFetching} onRefresh={onRefresh}>
+      <LinearGradient colors={colors.gradients.primary} style={styles.balCard}>
+        <Text style={styles.balLabel}>{WALLETS.find((w) => w.key === wallet)?.label} Wallet</Text>
+        <Text style={styles.balValue}>{balanceQ.isLoading ? '…' : formatCurrency(balanceQ.data?.balance)}</Text>
+        {balanceQ.data?.warning ? <Text style={styles.warn}>{balanceQ.data.warning}</Text> : null}
       </LinearGradient>
 
-      <FlatList
-        data={walletTransactions}
-        keyExtractor={(item) => item.id}
-        renderItem={renderWalletItem}
-        ListHeaderComponent={renderWalletHeader}
-        contentContainerStyle={styles.listContent}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            tintColor={colors.primary[600]}
-          />
-        }
-        showsVerticalScrollIndicator={false}
-      />
-    </View>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginVertical: spacing.md }}>
+        {WALLETS.map((w) => (
+          <Pill key={w.key} label={w.label} active={wallet === w.key} onPress={() => setWallet(w.key)} />
+        ))}
+      </ScrollView>
+
+      <View style={{ flexDirection: 'row', gap: 10, marginBottom: spacing.md }}>
+        <Button title="Ledger" variant="outline" icon="book-outline" style={{ flex: 1 }} onPress={() => nav.navigate('Ledger')} />
+        <Button title="Push / Pull" variant="outline" icon="repeat" style={{ flex: 1 }} onPress={() => nav.navigate('PushPull')} />
+      </View>
+
+      <Text style={[typography.h3, { color: colors.textPrimary, marginBottom: spacing.sm }]}>Recent Transactions</Text>
+      <Card>
+        {txnQ.isLoading ? (
+          <Loading />
+        ) : txns.length === 0 ? (
+          <EmptyState title="No transactions" message="Wallet movements will appear here." />
+        ) : (
+          txns.map((t, i) => (
+            <View key={t.id || i}>
+              <TransactionRow
+                title={t.description || t.transaction_type || 'Transaction'}
+                subtitle={t.reference_id}
+                amount={t.amount}
+                credit={(t.transaction_type || '').toLowerCase().includes('credit') || (t.amount ?? 0) > 0 && (t.transaction_type || '').toLowerCase().includes('push')}
+                status={t.status}
+                date={t.created_at}
+                service={t.service_type}
+              />
+              {i < txns.length - 1 ? <View style={styles.sep} /> : null}
+            </View>
+          ))
+        )}
+      </Card>
+    </Screen>
   );
 };
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.background,
-  },
-  header: {
-    paddingHorizontal: 20,
-    paddingBottom: 16,
-  },
-  headerTitle: {
-    ...typography.h3,
-    color: colors.white,
-  },
-  headerSection: {
-    paddingHorizontal: 20,
-    paddingTop: 16,
-  },
-  walletGap: {
-    height: 14,
-  },
-  actionRow: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 32,
-    marginTop: 20,
-    marginBottom: 8,
-  },
-  actionButton: {
-    alignItems: 'center',
-    gap: 6,
-  },
-  actionIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    alignItems: 'center',
-    justifyContent: 'center',
-    ...shadow.sm,
-  },
-  actionLabel: {
-    ...typography.smallMedium,
-    color: colors.textSecondary,
-  },
-  historyHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginTop: 24,
-    marginBottom: 8,
-  },
-  sectionTitle: {
-    ...typography.h4,
-    color: colors.textPrimary,
-  },
-  exportButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: borderRadius.full,
-    backgroundColor: colors.primary[50],
-  },
-  exportText: {
-    ...typography.smallMedium,
-    color: colors.primary[600],
-  },
-  listContent: {
-    paddingBottom: 20,
-  },
-  txnItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 14,
-    paddingHorizontal: 20,
-    backgroundColor: colors.white,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.border,
-    gap: 12,
-  },
-  txnIcon: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  txnContent: {
-    flex: 1,
-    gap: 3,
-  },
-  txnDescription: {
-    ...typography.bodyMedium,
-    color: colors.textPrimary,
-    fontSize: 14,
-  },
-  txnMeta: {
-    ...typography.small,
-    color: colors.textMuted,
-  },
-  txnRight: {
-    alignItems: 'flex-end',
-    gap: 3,
-  },
-  txnAmount: {
-    ...typography.bodySemibold,
-    fontSize: 14,
-  },
-  txnBalance: {
-    ...typography.small,
-    color: colors.textMuted,
-  },
+  balCard: { borderRadius: radius.xl, padding: spacing.xl, marginTop: spacing.sm, ...shadow.base },
+  balLabel: { ...typography.caption, color: 'rgba(255,255,255,0.85)' },
+  balValue: { ...typography.display, color: colors.white, marginTop: 4 },
+  warn: { ...typography.small, color: 'rgba(255,255,255,0.9)', marginTop: 6 },
+  sep: { height: StyleSheet.hairlineWidth, backgroundColor: colors.border },
 });

@@ -1,0 +1,30 @@
+{
+  "cli": { "version": ">= 5.9.0", "appVersionSource": "remote" },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "android": { "buildType": "apk" },
+      "env": { "EXPO_PUBLIC_API_BASE_URL": "https://api.samedaysolution.in" }
+    },
+    "preview": {
+      "distribution": "internal",
+      "android": { "buildType": "apk" },
+      "env": {
+        "EXPO_PUBLIC_API_BASE_URL": "https://api.samedaysolution.in",
+        "EXPO_PUBLIC_SUPABASE_URL": "https://ohmvvtnfdvvatgofrzta.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9obXZ2dG5mZHZ2YXRnb2ZyenRhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjcxMDkxNzgsImV4cCI6MjA4MjY4NTE3OH0.jHPF42BvAiysL5fh6LfDx6YwSSBnptfWCTXrhgWtg34"
+      }
+    },
+    "production": {
+      "autoIncrement": true,
+      "android": { "buildType": "app-bundle" },
+      "env": {
+        "EXPO_PUBLIC_API_BASE_URL": "https://api.samedaysolution.in",
+        "EXPO_PUBLIC_SUPABASE_URL": "https://ohmvvtnfdvvatgofrzta.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9obXZ2dG5mZHZ2YXRnb2ZyenRhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjcxMDkxNzgsImV4cCI6MjA4MjY4NTE3OH0.jHPF42BvAiysL5fh6LfDx6YwSSBnptfWCTXrhgWtg34"
+      }
+    }
+  },
+  "submit": { "production": {} }
+}

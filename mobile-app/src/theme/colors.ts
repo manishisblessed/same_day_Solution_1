@@ -1,102 +1,60 @@
-export const colors = {
+export const palette = {
+  // Matches the web app / SD logo: primary = orange.
   primary: {
-    50: '#EFF6FF',
-    100: '#DBEAFE',
-    200: '#BFDBFE',
-    300: '#93C5FD',
-    400: '#60A5FA',
-    500: '#3B82F6',
-    600: '#2563EB',
-    700: '#1D4ED8',
-    800: '#1E40AF',
-    900: '#1E3A8A',
+    50: '#FFF7ED', 100: '#FFEDD5', 200: '#FED7AA', 300: '#FDBA74', 400: '#FB923C',
+    500: '#F97316', 600: '#EA580C', 700: '#C2410C', 800: '#9A3412', 900: '#7C2D12',
   },
-
+  // Web secondary = green (the "D" in the logo).
+  secondary: {
+    50: '#F0FDF4', 100: '#DCFCE7', 200: '#BBF7D0', 300: '#86EFAC', 400: '#4ADE80',
+    500: '#22C55E', 600: '#16A34A', 700: '#15803D', 800: '#166534', 900: '#14532D',
+  },
   brand: {
-    50: '#FFF7ED',
-    100: '#FFEDD5',
-    200: '#FED7AA',
-    300: '#FDBA74',
-    400: '#FB923C',
-    500: '#F97316',
-    600: '#EA580C',
-    700: '#C2410C',
-    800: '#9A3412',
-    900: '#7C2D12',
+    50: '#FFF7ED', 100: '#FFEDD5', 200: '#FED7AA', 300: '#FDBA74', 400: '#FB923C',
+    500: '#F97316', 600: '#EA580C', 700: '#C2410C', 800: '#9A3412', 900: '#7C2D12',
   },
-
+  blue: {
+    50: '#EFF6FF', 100: '#DBEAFE', 200: '#BFDBFE', 300: '#93C5FD', 400: '#60A5FA',
+    500: '#3B82F6', 600: '#2563EB', 700: '#1D4ED8', 800: '#1E40AF', 900: '#1E3A8A',
+  },
   success: {
-    50: '#F0FDF4',
-    100: '#DCFCE7',
-    200: '#BBF7D0',
-    300: '#86EFAC',
-    400: '#4ADE80',
-    500: '#22C55E',
-    600: '#16A34A',
-    700: '#15803D',
-    800: '#166534',
-    900: '#14532D',
+    50: '#F0FDF4', 100: '#DCFCE7', 300: '#86EFAC', 500: '#22C55E', 600: '#16A34A', 700: '#15803D',
   },
-
-  accent: {
-    50: '#ECFEFF',
-    100: '#CFFAFE',
-    200: '#A5F3FC',
-    300: '#67E8F9',
-    400: '#22D3EE',
-    500: '#06B6D4',
-    600: '#0891B2',
-    700: '#0E7490',
-    800: '#155E75',
-    900: '#164E63',
+  danger: {
+    50: '#FEF2F2', 100: '#FEE2E2', 300: '#FCA5A5', 500: '#EF4444', 600: '#DC2626', 700: '#B91C1C',
   },
-
-  purple: {
-    50: '#FAF5FF',
-    100: '#F3E8FF',
-    200: '#E9D5FF',
-    300: '#D8B4FE',
-    400: '#C084FC',
-    500: '#A855F7',
-    600: '#9333EA',
-    700: '#7C3AED',
-    800: '#6B21A8',
-    900: '#581C87',
-  },
-
+  warning: { 50: '#FFFBEB', 100: '#FEF3C7', 500: '#F59E0B', 600: '#D97706' },
+  purple: { 50: '#FAF5FF', 100: '#F3E8FF', 500: '#A855F7', 600: '#9333EA' },
   gray: {
-    50: '#F9FAFB',
-    100: '#F3F4F6',
-    200: '#E5E7EB',
-    300: '#D1D5DB',
-    400: '#9CA3AF',
-    500: '#6B7280',
-    600: '#4B5563',
-    700: '#374151',
-    800: '#1F2937',
-    900: '#111827',
+    50: '#F9FAFB', 100: '#F3F4F6', 200: '#E5E7EB', 300: '#D1D5DB', 400: '#9CA3AF',
+    500: '#6B7280', 600: '#4B5563', 700: '#374151', 800: '#1F2937', 900: '#111827',
   },
-
   white: '#FFFFFF',
   black: '#000000',
+};
 
-  error: '#EF4444',
-  warning: '#F59E0B',
-  info: '#3B82F6',
-
-  background: '#F3F4F6',
+export const colors = {
+  ...palette,
+  background: '#F4F6FB',
   surface: '#FFFFFF',
   border: '#E5E7EB',
-  textPrimary: '#111827',
-  textSecondary: '#6B7280',
-  textMuted: '#9CA3AF',
-
+  textPrimary: '#0F172A',
+  textSecondary: '#64748B',
+  textMuted: '#94A3B8',
+  error: palette.danger[500],
+  warningColor: palette.warning[500],
+  info: palette.blue[500],
   gradients: {
-    primary: ['#3B82F6', '#2563EB'],
-    primaryDark: ['#2563EB', '#1D4ED8'],
-    purple: ['#A855F7', '#9333EA'],
-    success: ['#22C55E', '#16A34A'],
-    brand: ['#F97316', '#EA580C'],
-    dark: ['#1F2937', '#111827'],
-  } as Record<string, string[]>,
-} as const;
+    primary: [palette.primary[500], palette.primary[700]] as const,
+    primaryDeep: [palette.primary[600], palette.primary[800]] as const,
+    brand: [palette.brand[400], palette.brand[600]] as const,
+    secondary: [palette.secondary[500], palette.secondary[700]] as const,
+    // Orange → green, mirroring the SD logo (S orange, D green).
+    logo: [palette.primary[500], palette.secondary[600]] as const,
+    success: [palette.success[500], palette.success[700]] as const,
+    purple: [palette.purple[500], palette.purple[600]] as const,
+    dark: [palette.gray[800], palette.gray[900]] as const,
+  },
+};
+
+export type Colors = typeof colors;

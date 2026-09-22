@@ -1,392 +1,113 @@
 import React from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
-  Alert,
-} from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { LinearGradient } from 'expo-linear-gradient';
-import { StatusBar } from 'expo-status-bar';
+import { View, Text, StyleSheet, TouchableOpacity, Alert, Switch } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useQuery } from '@tanstack/react-query';
+import Constants from 'expo-constants';
 import { Ionicons } from '@expo/vector-icons';
-import { colors, typography, borderRadius, shadow } from '../theme';
-import { Card, Badge, ListItem, Button } from '../components';
-import { retailerProfile } from '../data/dummy';
-import { useAuth } from '../navigation/AuthContext';
-import { getInitials, formatDate } from '../utils';
+import { colors, radius, spacing, typography, shadow } from '@/theme';
+import { Screen, Card, Badge } from '@/components';
+import { useAuth } from '@/contexts/AuthContext';
+import { useServices } from '@/contexts/ServicesContext';
+import { useAppLock } from '@/contexts/AppLockContext';
+import { fetchTpinStatus } from '@/api/auth';
+import { AppStackParamList } from '@/navigation/types';
 
-interface ProfileFieldProps {
-  label: string;
-  value: string;
-  icon: keyof typeof Ionicons.glyphMap;
-  masked?: boolean;
-}
+type Nav = NativeStackNavigationProp<AppStackParamList>;
 
-const ProfileField: React.FC<ProfileFieldProps> = ({ label, value, icon }) => (
-  <View style={styles.fieldRow}>
-    <View style={styles.fieldIcon}>
-      <Ionicons name={icon} size={18} color={colors.primary[500]} />
-    </View>
-    <View style={styles.fieldContent}>
-      <Text style={styles.fieldLabel}>{label}</Text>
-      <Text style={styles.fieldValue}>{value}</Text>
-    </View>
-  </View>
+const Row: React.FC<{ icon: string; label: string; value?: string; onPress?: () => void; danger?: boolean; right?: React.ReactNode }> = ({
+  icon, label, value, onPress, danger, right,
+}) => (
+  <TouchableOpacity style={styles.row} activeOpacity={onPress ? 0.6 : 1} onPress={onPress} disabled={!onPress}>
+    <Ionicons name={icon as any} size={20} color={danger ? colors.danger[500] : colors.textSecondary} />
+    <Text style={[typography.body, { color: danger ? colors.danger[500] : colors.textPrimary, flex: 1, marginLeft: spacing.md }]}>{label}</Text>
+    {value ? <Text style={[typography.caption, { color: colors.textMuted, marginRight: 6 }]}>{value}</Text> : null}
+    {right}
+    {onPress && !right ? <Ionicons name="chevron-forward" size={18} color={colors.textMuted} /> : null}
+  </TouchableOpacity>
 );
 
 export const ProfileScreen: React.FC = () => {
-  const insets = useSafeAreaInsets();
-  const { logout } = useAuth();
+  const nav = useNavigation<Nav>();
+  const { user, signOut } = useAuth();
+  const { visible } = useServices();
+  const { enabled: lockEnabled, supported: lockSupported, enrolled, toggle: toggleLock } = useAppLock();
+  const tpinQ = useQuery({ queryKey: ['tpin-status'], queryFn: fetchTpinStatus });
 
-  const handleLogout = () => {
-    Alert.alert(
-      'Logout',
-      'Are you sure you want to logout?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Logout', style: 'destructive', onPress: logout },
-      ],
-    );
+  const onToggleLock = async (next: boolean) => {
+    if (next && (!lockSupported || !enrolled)) {
+      Alert.alert('Not available', 'Set up fingerprint or face unlock in your device settings first.');
+      return;
+    }
+    const ok = await toggleLock(next);
+    if (!ok) Alert.alert('Failed', 'Authentication was not completed.');
+  };
+
+  const confirmSignOut = () => {
+    Alert.alert('Sign out', 'Are you sure you want to sign out?', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Sign out', style: 'destructive', onPress: () => signOut() },
+    ]);
   };
 
   return (
-    <View style={styles.container}>
-      <StatusBar style="light" />
-
-      <LinearGradient
-        colors={[colors.primary[600], colors.primary[700]]}
-        style={[styles.headerGradient, { paddingTop: insets.top + 12 }]}
-      >
-        <Text style={styles.headerTitle}>Profile</Text>
-      </LinearGradient>
-
-      <ScrollView
-        style={styles.scrollView}
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-      >
-        <View style={styles.profileCard}>
-          <View style={styles.avatarLarge}>
-            <Text style={styles.avatarLargeText}>
-              {getInitials(retailerProfile.name)}
-            </Text>
-          </View>
-          <Text style={styles.profileName}>{retailerProfile.name}</Text>
-          <Text style={styles.shopName}>{retailerProfile.shopName}</Text>
-
-          <View style={styles.badgeRow}>
-            <Badge label="Retailer" variant="info" size="md" />
-            <Badge
-              label={
-                retailerProfile.kycStatus === 'verified'
-                  ? 'KYC Verified'
-                  : 'KYC Pending'
-              }
-              variant={
-                retailerProfile.kycStatus === 'verified' ? 'success' : 'warning'
-              }
-              size="md"
-            />
-          </View>
-
-          <View style={styles.partnerIdRow}>
-            <Ionicons name="id-card-outline" size={16} color={colors.textMuted} />
-            <Text style={styles.partnerId}>{retailerProfile.partnerId}</Text>
-          </View>
+    <Screen title="Profile">
+      <Card style={{ marginTop: spacing.sm, alignItems: 'center', paddingVertical: spacing.lg }}>
+        <View style={styles.avatar}>
+          <Text style={styles.avatarText}>{(user?.name || 'R').charAt(0).toUpperCase()}</Text>
         </View>
+        <Text style={[typography.h2, { color: colors.textPrimary, marginTop: spacing.md }]}>{user?.name || 'Retailer'}</Text>
+        <Text style={[typography.caption, { color: colors.textSecondary }]}>{user?.email}</Text>
+        <View style={{ marginTop: 8 }}><Badge label={`Retailer · ${user?.partner_id || ''}`} tone="info" /></View>
+      </Card>
 
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Personal Information</Text>
-          <Card style={styles.fieldCard}>
-            <ProfileField
-              label="Email Address"
-              value={retailerProfile.email}
-              icon="mail-outline"
+      <Text style={styles.section}>Security</Text>
+      <Card padded={false}>
+        <Row
+          icon="shield-checkmark-outline"
+          label={tpinQ.data?.has_tpin ? 'Change TPIN' : 'Set TPIN'}
+          value={tpinQ.data ? (tpinQ.data.is_locked ? 'Locked' : tpinQ.data.has_tpin ? 'Set' : 'Not set') : undefined}
+          onPress={() => nav.navigate('Tpin')}
+        />
+        <View style={styles.sep} />
+        <Row
+          icon="finger-print-outline"
+          label="App Lock (biometric)"
+          right={
+            <Switch
+              value={lockEnabled}
+              onValueChange={onToggleLock}
+              trackColor={{ true: colors.primary[500] }}
+              thumbColor={colors.white}
             />
-            <ProfileField
-              label="Phone Number"
-              value={retailerProfile.phone}
-              icon="call-outline"
-            />
-            <ProfileField
-              label="PAN Number"
-              value={retailerProfile.panNumber}
-              icon="document-text-outline"
-            />
-            <ProfileField
-              label="Aadhaar Number"
-              value={retailerProfile.aadharNumber}
-              icon="shield-checkmark-outline"
-            />
-          </Card>
-        </View>
+          }
+        />
+      </Card>
 
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Address</Text>
-          <Card style={styles.fieldCard}>
-            <ProfileField
-              label="Address"
-              value={retailerProfile.address}
-              icon="location-outline"
-            />
-            <ProfileField
-              label="City"
-              value={`${retailerProfile.city}, ${retailerProfile.state}`}
-              icon="business-outline"
-            />
-            <ProfileField
-              label="Pincode"
-              value={retailerProfile.pincode}
-              icon="navigate-outline"
-            />
-          </Card>
-        </View>
+      <Text style={styles.section}>Account</Text>
+      <Card padded={false}>
+        <Row icon="grid-outline" label="Enabled services" value={String(visible.length)} onPress={() => nav.navigate('Tabs', { screen: 'Services' } as any)} />
+        <View style={styles.sep} />
+        <Row icon="document-text-outline" label="Ledger" onPress={() => nav.navigate('Ledger')} />
+        <View style={styles.sep} />
+        <Row icon="swap-horizontal-outline" label="Transaction history" onPress={() => nav.navigate('TransactionsList')} />
+      </Card>
 
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Bank Details</Text>
-          <Card style={styles.fieldCard}>
-            <ProfileField
-              label="Bank Name"
-              value={retailerProfile.bankName}
-              icon="business-outline"
-            />
-            <ProfileField
-              label="Account Number"
-              value={retailerProfile.bankAccountNumber}
-              icon="card-outline"
-            />
-            <ProfileField
-              label="IFSC Code"
-              value={retailerProfile.bankIfsc}
-              icon="git-branch-outline"
-            />
-          </Card>
-        </View>
-
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Business</Text>
-          <Card style={styles.fieldCard}>
-            <ProfileField
-              label="Distributor"
-              value={retailerProfile.distributorName}
-              icon="people-outline"
-            />
-            <ProfileField
-              label="Member Since"
-              value={formatDate(retailerProfile.createdAt)}
-              icon="calendar-outline"
-            />
-          </Card>
-        </View>
-
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Settings</Text>
-          <Card padding={0}>
-            <ListItem
-              title="Notification Preferences"
-              leftIcon={
-                <View style={[styles.settingsIcon, { backgroundColor: colors.primary[50] }]}>
-                  <Ionicons name="notifications-outline" size={18} color={colors.primary[600]} />
-                </View>
-              }
-              showChevron
-              onPress={() => {}}
-            />
-            <ListItem
-              title="Security & TPIN"
-              leftIcon={
-                <View style={[styles.settingsIcon, { backgroundColor: colors.accent[50] }]}>
-                  <Ionicons name="shield-outline" size={18} color={colors.accent[600]} />
-                </View>
-              }
-              showChevron
-              onPress={() => {}}
-            />
-            <ListItem
-              title="Help & Support"
-              leftIcon={
-                <View style={[styles.settingsIcon, { backgroundColor: colors.success[50] }]}>
-                  <Ionicons name="help-circle-outline" size={18} color={colors.success[600]} />
-                </View>
-              }
-              showChevron
-              onPress={() => {}}
-            />
-            <ListItem
-              title="About App"
-              subtitle="Version 1.0.0"
-              leftIcon={
-                <View style={[styles.settingsIcon, { backgroundColor: colors.gray[100] }]}>
-                  <Ionicons name="information-circle-outline" size={18} color={colors.gray[600]} />
-                </View>
-              }
-              showChevron
-              onPress={() => {}}
-            />
-          </Card>
-        </View>
-
-        <View style={styles.logoutSection}>
-          <TouchableOpacity
-            onPress={handleLogout}
-            activeOpacity={0.7}
-            style={styles.logoutButton}
-          >
-            <Ionicons name="log-out-outline" size={20} color={colors.error} />
-            <Text style={styles.logoutText}>Logout</Text>
-          </TouchableOpacity>
-        </View>
-
-        <View style={{ height: 30 }} />
-      </ScrollView>
-    </View>
+      <Text style={styles.section}>About</Text>
+      <Card padded={false}>
+        <Row icon="information-circle-outline" label="App version" value={Constants.expoConfig?.version || '1.0.0'} />
+        <View style={styles.sep} />
+        <Row icon="log-out-outline" label="Sign out" danger onPress={confirmSignOut} />
+      </Card>
+      <View style={{ height: spacing['2xl'] }} />
+    </Screen>
   );
 };
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.background,
-  },
-  headerGradient: {
-    paddingHorizontal: 20,
-    paddingBottom: 16,
-  },
-  headerTitle: {
-    ...typography.h3,
-    color: colors.white,
-  },
-  scrollView: {
-    flex: 1,
-  },
-  scrollContent: {
-    paddingBottom: 20,
-  },
-  profileCard: {
-    backgroundColor: colors.white,
-    marginHorizontal: 20,
-    marginTop: 16,
-    borderRadius: borderRadius.lg,
-    padding: 24,
-    alignItems: 'center',
-    ...shadow.md,
-  },
-  avatarLarge: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    backgroundColor: colors.primary[100],
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 14,
-    borderWidth: 3,
-    borderColor: colors.primary[200],
-  },
-  avatarLargeText: {
-    ...typography.h2,
-    color: colors.primary[600],
-  },
-  profileName: {
-    ...typography.h3,
-    color: colors.textPrimary,
-    marginBottom: 2,
-  },
-  shopName: {
-    ...typography.body,
-    color: colors.textSecondary,
-    marginBottom: 12,
-  },
-  badgeRow: {
-    flexDirection: 'row',
-    gap: 8,
-    marginBottom: 12,
-  },
-  partnerIdRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: colors.gray[50],
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: borderRadius.full,
-  },
-  partnerId: {
-    ...typography.captionMedium,
-    color: colors.textSecondary,
-    fontFamily: 'monospace',
-  },
-  section: {
-    marginTop: 24,
-    paddingHorizontal: 20,
-  },
-  sectionTitle: {
-    ...typography.captionMedium,
-    color: colors.textMuted,
-    textTransform: 'uppercase',
-    letterSpacing: 0.8,
-    marginBottom: 10,
-    marginLeft: 4,
-  },
-  fieldCard: {
-    padding: 0,
-    overflow: 'hidden',
-  },
-  fieldRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.border,
-    gap: 12,
-  },
-  fieldIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: colors.primary[50],
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  fieldContent: {
-    flex: 1,
-    gap: 2,
-  },
-  fieldLabel: {
-    ...typography.small,
-    color: colors.textMuted,
-  },
-  fieldValue: {
-    ...typography.bodyMedium,
-    color: colors.textPrimary,
-  },
-  settingsIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  logoutSection: {
-    marginTop: 32,
-    paddingHorizontal: 20,
-  },
-  logoutButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.white,
-    borderRadius: borderRadius.base,
-    paddingVertical: 16,
-    gap: 8,
-    borderWidth: 1,
-    borderColor: '#FEE2E2',
-    ...shadow.sm,
-  },
-  logoutText: {
-    ...typography.button,
-    color: colors.error,
-  },
+  avatar: { width: 72, height: 72, borderRadius: 36, backgroundColor: colors.primary[600], alignItems: 'center', justifyContent: 'center' },
+  avatarText: { ...typography.h1, color: colors.white },
+  section: { ...typography.overline, color: colors.textMuted, marginTop: spacing.lg, marginBottom: spacing.sm },
+  row: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: spacing.base, paddingVertical: 14 },
+  sep: { height: StyleSheet.hairlineWidth, backgroundColor: colors.border, marginLeft: spacing.base },
 });
