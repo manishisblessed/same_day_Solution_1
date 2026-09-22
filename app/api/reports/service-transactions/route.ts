@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
-import { authorizeSubPartner } from '@/lib/partner-access'
+import { authorizeSubPartner, normalizeMasterPartner } from '@/lib/partner-access'
 import { createClient } from '@supabase/supabase-js'
 import { htmlToPdf } from '@/lib/pdf/html-to-pdf'
 
@@ -115,6 +115,9 @@ export async function GET(request: NextRequest) {
 
     const access = authorizeSubPartner(user, 'reports')
     if (!access.ok) return access.response
+
+    // Master partners run the same partner-scoped code paths.
+    normalizeMasterPartner(user)
 
     const allowedRoles = ['admin', 'finance_executive', 'master_distributor', 'distributor', 'retailer', 'partner']
     if (!allowedRoles.includes(user.role)) {

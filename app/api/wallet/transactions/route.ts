@@ -16,10 +16,11 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Session expired. Please log in again.', code: 'SESSION_EXPIRED' }, { status: 401 })
     }
 
-    // Only retailers have wallets
-    if (user.role !== 'retailer') {
+    const PARTNER_ROLES = ['partner', 'master_partner', 'sub_partner']
+    const isPartner = PARTNER_ROLES.includes(user.role)
+    if (user.role !== 'retailer' && !isPartner) {
       return NextResponse.json(
-        { error: 'Forbidden: Only retailers have wallets' },
+        { error: 'Forbidden: Only retailers and partners have wallets' },
         { status: 403 }
       )
     }
@@ -31,12 +32,18 @@ export async function GET(request: NextRequest) {
     const offset = parseInt(searchParams.get('offset') || '0')
     const transactionType = searchParams.get('type') || undefined
 
-    // Build query
-    let query = supabase
-      .from('wallet_ledger')
-      .select('*', { count: 'exact' })
-      .eq('retailer_id', user.partner_id)
-      .order('created_at', { ascending: false })
+    // Partners' wallet movements live in partner_wallet_ledger, keyed by partners.id.
+    let query = isPartner
+      ? supabase
+          .from('partner_wallet_ledger')
+          .select('*', { count: 'exact' })
+          .eq('partner_id', user.partner_id)
+          .order('created_at', { ascending: false })
+      : supabase
+          .from('wallet_ledger')
+          .select('*', { count: 'exact' })
+          .eq('retailer_id', user.partner_id)
+          .order('created_at', { ascending: false })
 
     if (transactionType) {
       query = query.eq('transaction_type', transactionType)
@@ -56,9 +63,9 @@ export async function GET(request: NextRequest) {
     }
 
     // Get current balance
-    const { data: balance } = await supabase.rpc('get_wallet_balance', {
-      p_retailer_id: user.partner_id
-    })
+    const { data: balance } = isPartner
+      ? await supabase.rpc('get_partner_wallet_balance', { p_partner_id: user.partner_id })
+      : await supabase.rpc('get_wallet_balance', { p_retailer_id: user.partner_id })
 
     const ctx = getRequestContext(request)
     logActivityFromContext(ctx, user, {

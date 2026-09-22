@@ -59,15 +59,25 @@ export async function GET(request: NextRequest) {
     const offset = parseInt(searchParams.get('offset') || '0')
     const format = searchParams.get('format') || 'json' // json, csv, pdf, zip
 
+    // Partners' ledger lives in partner_wallet_ledger (keyed by partners.id).
+    const PARTNER_ROLES = ['partner', 'master_partner', 'sub_partner']
+    const isPartner = PARTNER_ROLES.includes(user.role)
+
     // Build query
-    let query = supabase
-      .from('wallet_ledger')
-      .select('*', { count: 'exact' })
-      .order('created_at', { ascending: false })
+    let query = isPartner
+      ? supabase
+          .from('partner_wallet_ledger')
+          .select('*', { count: 'exact' })
+          .eq('partner_id', user.partner_id)
+          .order('created_at', { ascending: false })
+      : supabase
+          .from('wallet_ledger')
+          .select('*', { count: 'exact' })
+          .order('created_at', { ascending: false })
 
     // Hierarchy scoping — non-admins only see their own + downline ledger rows.
     let allowedIds: string[] | null = null
-    if (!isPrivilegedRole(user.role)) {
+    if (!isPartner && !isPrivilegedRole(user.role)) {
       const downline = await resolveDownline(supabase, user)
       allowedIds = downlineToIdSet(downline, user.partner_id)
       if (allowedIds.length === 0) {
@@ -85,20 +95,21 @@ export async function GET(request: NextRequest) {
     if (dateTo) {
       query = query.lte('created_at', dateTo)
     }
-    if (user_id) {
+    if (user_id && !isPartner) {
       // A specific user_id filter must stay within the caller's allowed set.
       if (allowedIds !== null && !allowedIds.includes(user_id)) {
         return NextResponse.json({ error: 'Forbidden: user not in your network' }, { status: 403 })
       }
       query = query.eq('retailer_id', user_id) // Using retailer_id for backward compatibility
     }
-    if (user_role) {
+    // These columns don't exist on partner_wallet_ledger.
+    if (user_role && !isPartner) {
       query = query.eq('user_role', user_role)
     }
-    if (wallet_type) {
+    if (wallet_type && !isPartner) {
       query = query.eq('wallet_type', wallet_type)
     }
-    if (fund_category) {
+    if (fund_category && !isPartner) {
       query = query.eq('fund_category', fund_category)
     }
     if (service_type) {
@@ -128,7 +139,7 @@ export async function GET(request: NextRequest) {
     const headers = ['ID', 'User ID', 'Wallet Type', 'Fund Category', 'Service Type', 'Transaction Type', 'Credit', 'Debit', 'Opening Balance', 'Closing Balance', 'Status', 'Created At']
     const rows = (data || []).map(row => [
       row.id,
-      row.retailer_id || row.user_id,
+      row.retailer_id || row.user_id || row.partner_id,
       row.wallet_type || 'primary',
       row.fund_category || '',
       row.service_type || '',
