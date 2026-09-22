@@ -73,10 +73,9 @@ export async function GET(request: NextRequest) {
       if (allowedIds.length === 0) {
         return NextResponse.json({ success: true, data: [], total: 0, limit, offset })
       }
-      // Match rows owned by an allowed id on either ownership column.
-      query = query.or(
-        `user_id.in.(${allowedIds.join(',')}),retailer_id.in.(${allowedIds.join(',')})`
-      )
+      // wallet_ledger's ownership column is retailer_id (TEXT partner id) —
+      // there is no user_id column, so filter on retailer_id only.
+      query = query.in('retailer_id', allowedIds)
     }
 
     // Apply filters
