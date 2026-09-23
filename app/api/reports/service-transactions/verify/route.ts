@@ -9,6 +9,8 @@ import { checkTransactionStatus as shadvalCheckStatus } from '@/services/shadval
 import { creditSettlementFeeToPlatformWallet } from '@/lib/wallet/platform-revenue-wallet'
 import { reverseServiceCommission } from '@/lib/commission/distribute-service-commission'
 import { refundShadvalSettlement, isGenuineProviderSuccess } from '@/lib/settlement-2/shadval-refund'
+import { rechargekitStatusCheck } from '@/services/rechargekit/statusCheck'
+import { finalizeRechargekitRetailerTxn } from '@/services/rechargekit/finalize'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -848,6 +850,104 @@ async function reverseShadvalCommissions(supabase: ReturnType<typeof createClien
 }
 
 // ============================================================================
+// RECHARGEKIT CC VERIFICATION (RKCC... rows inside bbps_transactions)
+// ============================================================================
+
+async function verifyRechargekit(
+  supabase: ReturnType<typeof createClient>,
+  tx: any,
+  request: NextRequest,
+  user: any
+) {
+  if (!['pending', 'processing', 'initiated'].includes(tx.status)) {
+    return NextResponse.json({
+      success: true,
+      action: 'no_change',
+      message: `Transaction is already ${tx.status}. No verification needed.`,
+      status: tx.status,
+    })
+  }
+
+  const requestId = tx.agent_transaction_id as string
+
+  // Query Rechargekit for the live status (POST — GET is rejected as "access denied").
+  const live = await rechargekitStatusCheck(requestId)
+  console.log(`[Verify Rechargekit] request_id=${requestId} response:`, JSON.stringify(live.raw))
+
+  if (!live.ok) {
+    return NextResponse.json({
+      success: true,
+      action: 'provider_error',
+      message: 'Could not reach Rechargekit. Please try again later.',
+      status: tx.status,
+    })
+  }
+
+  const providerStatus = live.status
+  const orderId = live.orderId
+  const operatorRef = live.operatorRef
+  const providerMsg = live.msg
+
+  if (!Number.isFinite(providerStatus) || ![1, 2, 3].includes(providerStatus)) {
+    return NextResponse.json({
+      success: true,
+      action: 'provider_error',
+      message: 'Rechargekit did not return a conclusive status.',
+      status: tx.status,
+    })
+  }
+
+  const result = await finalizeRechargekitRetailerTxn(
+    supabase as any,
+    tx,
+    requestId,
+    providerStatus,
+    orderId || requestId,
+    operatorRef,
+    providerMsg
+  )
+
+  const activityMap: Record<string, string> = {
+    marked_success: 'rechargekit_verify_success',
+    failed_and_refunded: 'rechargekit_verify_failed_refunded',
+    still_pending: 'rechargekit_verify_still_pending',
+    already_finalized: 'rechargekit_verify_no_change',
+  }
+  await logVerifyActivity(request, user, activityMap[result.action] || 'rechargekit_verify', tx.id, {
+    previous_status: tx.status,
+    new_status: result.status,
+    provider_status: providerStatus,
+    refunded_amount: result.refundedAmount,
+  })
+
+  if (result.action === 'marked_success') {
+    return NextResponse.json({
+      success: true,
+      action: 'marked_success',
+      message: 'Rechargekit CC payment confirmed successful by provider.',
+      status: 'success',
+      refunded: false,
+    })
+  }
+  if (result.action === 'failed_and_refunded') {
+    return NextResponse.json({
+      success: true,
+      action: 'failed_and_refunded',
+      message: `Rechargekit CC payment failed. ₹${result.refundedAmount.toFixed(2)} refunded to wallet.`,
+      status: 'failed',
+      refunded: result.refunded,
+      refunded_amount: result.refundedAmount,
+    })
+  }
+  return NextResponse.json({
+    success: true,
+    action: 'still_pending',
+    message: providerMsg || 'Payment is still pending at Rechargekit.',
+    status: 'pending',
+  })
+}
+
+// ============================================================================
 // BBPS VERIFICATION
 // ============================================================================
 
@@ -861,7 +961,7 @@ async function verifyBBPS(
   // Fetch transaction
   let query = supabase
     .from('bbps_transactions')
-    .select('id, retailer_id, agent_transaction_id, transaction_id, status, bill_amount, retailer_charge, wallet_debited, wallet_debit_id, scheme_id, created_at')
+    .select('id, retailer_id, agent_transaction_id, transaction_id, status, bill_amount, retailer_charge, wallet_debited, wallet_debit_id, scheme_id, additional_info, created_at')
     .eq('id', txId)
 
   if (!isAdmin) {
@@ -872,6 +972,13 @@ async function verifyBBPS(
 
   if (txErr || !tx) {
     return NextResponse.json({ error: 'Transaction not found' }, { status: 404 })
+  }
+
+  // Rechargekit CC transactions (RKCC...) live in bbps_transactions but use a
+  // different provider + status API. The classic BBPS provider stub always
+  // returns NOT_AVAILABLE for them, so route them to the Rechargekit checker.
+  if (typeof tx.agent_transaction_id === 'string' && tx.agent_transaction_id.startsWith('RKCC')) {
+    return await verifyRechargekit(supabase, tx, request, user)
   }
 
   if (!['pending', 'processing', 'initiated'].includes(tx.status)) {

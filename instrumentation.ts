@@ -71,6 +71,14 @@ export async function register() {
     }
 
     try {
+      const { initRechargekitReconcileCron } = await import('@/lib/cron/rechargekit-reconcile-cron')
+      await initRechargekitReconcileCron()
+      console.log('[Instrumentation] Rechargekit Reconcile Cron initialized successfully')
+    } catch (err) {
+      console.error('[Instrumentation] Failed to initialize Rechargekit Reconcile cron:', err)
+    }
+
+    try {
       const { initPinelabSyncCron } = await import('@/lib/cron/pinelab-sync-cron')
       await initPinelabSyncCron()
       console.log('[Instrumentation] Pinelab Sync Cron initialized successfully')

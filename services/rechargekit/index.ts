@@ -12,5 +12,6 @@ export {
   RECHARGEKIT_CC_OPERATOR_CATEGORY,
 } from './operators'
 export { rechargekitCcPayment, type CcPaymentParams } from './ccPayment'
+export { rechargekitStatusCheck, type RechargekitStatusResult } from './statusCheck'
 export { isCreditCard2Enabled } from './access'
 export * from './types'

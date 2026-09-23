@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient, SupabaseClient } from '@supabase/supabase-js'
 import * as crypto from 'crypto'
 import { sendSignedCallback, resolvePartnerEndpoints } from '@/lib/partner-webhook/deliver'
+import { finalizeRechargekitRetailerTxn } from '@/services/rechargekit/finalize'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -259,149 +260,18 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: true, message: 'Already finalized', status: tx.status })
     }
 
-    const updatedInfo = { ...(tx.additional_info || {}), provider_txn_id: orderid || requestId, operator_reference: operatorRef, callback_status: providerStatus, callback_msg: providerMsg }
+    const result = await finalizeRechargekitRetailerTxn(
+      supabaseAdmin,
+      tx as any,
+      requestId,
+      providerStatus,
+      orderid || requestId,
+      operatorRef,
+      providerMsg
+    )
 
-    if (providerStatus === 1) {
-      // SUCCESS
-      await supabaseAdmin.from('bbps_transactions').update({
-        status: 'success',
-        payment_status: 'success',
-        transaction_id: orderid || requestId,
-        completed_at: new Date().toISOString(),
-        additional_info: updatedInfo,
-      }).eq('id', tx.id)
-
-      // Distribute commissions for successful payment
-      try {
-        const { data: retailerData } = await supabaseAdmin
-          .from('retailers')
-          .select('distributor_id, master_distributor_id')
-          .eq('partner_id', tx.retailer_id)
-          .maybeSingle()
-
-        const distributorId = retailerData?.distributor_id || null
-        const mdId = retailerData?.master_distributor_id || null
-
-        if (tx.scheme_id) {
-          const { data: chargeResult } = await supabaseAdmin.rpc(
-            'calculate_bbps_charge_from_scheme',
-            { p_scheme_id: tx.scheme_id, p_amount: tx.bill_amount, p_category: 'Credit Card' }
-          )
-          if (chargeResult?.length > 0) {
-            const commSplit = {
-              retailer_commission: parseFloat(chargeResult[0].retailer_commission) || 0,
-              distributor_commission: parseFloat(chargeResult[0].distributor_commission) || 0,
-              md_commission: parseFloat(chargeResult[0].md_commission) || 0,
-            }
-            const txRef = `RKCC_COMM_${requestId}`
-            if (commSplit.retailer_commission > 0) {
-              await supabaseAdmin.rpc('add_ledger_entry', {
-                p_user_id: tx.retailer_id,
-                p_user_role: 'retailer',
-                p_wallet_type: 'primary',
-                p_fund_category: 'commission',
-                p_service_type: 'rechargekit',
-                p_tx_type: 'COMMISSION_CREDIT',
-                p_credit: commSplit.retailer_commission,
-                p_debit: 0,
-                p_reference_id: txRef,
-                p_transaction_id: tx.id,
-                p_status: 'completed',
-                p_remarks: `Commission on CC-2 ₹${tx.bill_amount} (callback)`,
-              })
-            }
-            if (commSplit.distributor_commission > 0 && distributorId) {
-              await supabaseAdmin.rpc('add_ledger_entry', {
-                p_user_id: distributorId,
-                p_user_role: 'distributor',
-                p_wallet_type: 'primary',
-                p_fund_category: 'commission',
-                p_service_type: 'rechargekit',
-                p_tx_type: 'COMMISSION_CREDIT',
-                p_credit: commSplit.distributor_commission,
-                p_debit: 0,
-                p_reference_id: txRef,
-                p_status: 'completed',
-                p_remarks: `DT commission on CC-2 ₹${tx.bill_amount} (callback, RT:${tx.retailer_id})`,
-              })
-            }
-            if (commSplit.md_commission > 0 && mdId) {
-              await supabaseAdmin.rpc('add_ledger_entry', {
-                p_user_id: mdId,
-                p_user_role: 'master_distributor',
-                p_wallet_type: 'primary',
-                p_fund_category: 'commission',
-                p_service_type: 'rechargekit',
-                p_tx_type: 'COMMISSION_CREDIT',
-                p_credit: commSplit.md_commission,
-                p_debit: 0,
-                p_reference_id: txRef,
-                p_status: 'completed',
-                p_remarks: `MD commission on CC-2 ₹${tx.bill_amount} (callback, RT:${tx.retailer_id})`,
-              })
-            }
-          }
-        }
-      } catch (commErr: any) {
-        console.error('[Rechargekit Callback] Commission error (non-fatal):', commErr.message)
-      }
-
-      console.log(`[Rechargekit Callback] SUCCESS: ${requestId}`)
-      return NextResponse.json({ ok: true, status: 'success' })
-    }
-
-    if (providerStatus === 3) {
-      // FAILED — refund the wallet
-      await supabaseAdmin.from('bbps_transactions').update({
-        status: 'failed',
-        payment_status: 'failed',
-        error_message: providerMsg || 'Payment failed (callback)',
-        completed_at: new Date().toISOString(),
-        additional_info: updatedInfo,
-      }).eq('id', tx.id)
-
-      // Mark original debit ledger entry as failed
-      await supabaseAdmin.from('wallet_ledger')
-        .update({ status: 'failed' })
-        .eq('reference_id', requestId)
-        .eq('transaction_type', 'RECHARGEKIT_CC_DEBIT')
-
-      // Refund: get original debit amount from ledger
-      const { data: debitEntry } = await supabaseAdmin
-        .from('wallet_ledger')
-        .select('debit, user_role')
-        .eq('reference_id', requestId)
-        .eq('transaction_type', 'RECHARGEKIT_CC_DEBIT')
-        .maybeSingle()
-
-      if (debitEntry && debitEntry.debit > 0) {
-        await supabaseAdmin.rpc('add_ledger_entry', {
-          p_user_id: tx.retailer_id,
-          p_user_role: debitEntry.user_role || 'retailer',
-          p_wallet_type: 'primary',
-          p_fund_category: 'service',
-          p_service_type: 'rechargekit',
-          p_tx_type: 'RECHARGEKIT_CC_REFUND',
-          p_credit: debitEntry.debit,
-          p_debit: 0,
-          p_reference_id: `REFUND_${requestId}`,
-          p_transaction_id: tx.id,
-          p_status: 'completed',
-          p_remarks: `Refund ₹${debitEntry.debit} | CC-2 callback failed: ${providerMsg}`,
-        })
-      }
-
-      console.log(`[Rechargekit Callback] FAILED + REFUNDED: ${requestId}`)
-      return NextResponse.json({ ok: true, status: 'failed', refunded: true })
-    }
-
-    // Status 2 or other = still pending
-    await supabaseAdmin.from('bbps_transactions').update({
-      additional_info: updatedInfo,
-    }).eq('id', tx.id)
-
-    console.log(`[Rechargekit Callback] Still pending: ${requestId} (status=${providerStatus})`)
-    return NextResponse.json({ ok: true, status: 'pending' })
+    console.log(`[Rechargekit Callback] ${requestId} → ${result.action}`)
+    return NextResponse.json({ ok: true, status: result.status, refunded: result.refunded })
   } catch (error: any) {
     console.error('[Rechargekit Callback] Error:', error)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })

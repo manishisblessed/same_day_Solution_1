@@ -3,7 +3,7 @@ import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { authorizeSubPartner } from '@/lib/partner-access'
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
 import { createClient } from '@supabase/supabase-js'
-import { getRechargekitBaseUrl, getRechargekitApiToken } from '@/services/rechargekit/config'
+import { rechargekitStatusCheck } from '@/services/rechargekit/statusCheck'
 import { toUserSafeError } from '@/lib/provider-error'
 
 export const runtime = 'nodejs'
@@ -69,21 +69,13 @@ export async function GET(request: NextRequest) {
       return addCorsHeaders(request, response)
     }
 
-    // Call Rechargekit status check API
-    const base = getRechargekitBaseUrl().replace(/\/$/, '')
-    const token = getRechargekitApiToken()
-    const statusUrl = `${base}/recharge/statusCheck?partner_request_id=${encodeURIComponent(requestId)}`
-
-    const res = await fetch(statusUrl, {
-      method: 'GET',
-      headers: { Accept: 'application/json', Authorization: `Bearer ${token}` },
-      signal: AbortSignal.timeout(30000),
-    })
-    const data = await res.json()
+    // Call Rechargekit status check API (POST — GET is rejected as "access denied")
+    const statusResult = await rechargekitStatusCheck(requestId)
+    const data = statusResult.raw || {}
 
     console.log(`[Rechargekit Status] request_id=${requestId} response:`, JSON.stringify(data))
 
-    const providerStatus = Number(data.status)
+    const providerStatus = statusResult.status
     const updatedInfo = {
       ...(tx.additional_info || {}),
       last_status_check: new Date().toISOString(),
