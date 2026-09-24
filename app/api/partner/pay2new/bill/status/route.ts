@@ -58,16 +58,29 @@ export async function POST(request: NextRequest) {
 
     const supabase = getSupabase()
 
-    // Look up the transaction in partner_wallet_ledger
+    // Look up the transaction in partner_wallet_ledger.
     let query = supabase
       .from('partner_wallet_ledger')
       .select('id, transaction_type, credit, debit, reference_id, payout_transaction_id, description, status, created_at')
       .eq('partner_id', partner.id)
 
-    if (order_id) {
+    // request_id maps to reference_id (a text column) and is the reliable key, so
+    // prefer it whenever supplied. order_id is Pay2New's "P2F..." id, which is
+    // stored inside the ledger description ("OrderID:P2F...") — NOT in
+    // payout_transaction_id (a uuid column that cannot hold it). Querying the uuid
+    // column with a "P2F..." value throws Postgres 22P02, which previously
+    // surfaced to partners as "Failed to query transaction".
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+    if (request_id) {
+      query = query.eq('reference_id', request_id)
+    } else if (UUID_RE.test(String(order_id))) {
+      // Rare: a genuine uuid payout id.
       query = query.eq('payout_transaction_id', order_id)
     } else {
-      query = query.eq('reference_id', request_id)
+      // Resolve Pay2New's "P2F..." order id from the description. Escape LIKE
+      // wildcards so the id is matched literally.
+      const safeOrderId = String(order_id).replace(/[\\%_]/g, (ch) => `\\${ch}`)
+      query = query.ilike('description', `%OrderID:${safeOrderId}%`)
     }
 
     const { data: ledgerEntries, error: ledgerErr } = await query

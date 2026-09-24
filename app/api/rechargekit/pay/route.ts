@@ -11,6 +11,7 @@ import {
 } from '@/services/rechargekit'
 import { distributeServiceCommission } from '@/lib/commission/distribute-service-commission'
 import { toUserSafeError } from '@/lib/provider-error'
+import { SCHEME_NOT_ASSIGNED, SCHEME_NOT_ASSIGNED_STATUS } from '@/lib/scheme-guard'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -251,11 +252,14 @@ export async function POST(request: NextRequest) {
       console.error('[Rechargekit Pay] Scheme resolution failed:', schemeErr)
     }
 
+    if (!resolvedSchemeId) {
+      console.error(`[Rechargekit Pay] BLOCKED: No scheme assigned for user=${user.partner_id} — refusing free transaction`)
+      const response = NextResponse.json(SCHEME_NOT_ASSIGNED, { status: SCHEME_NOT_ASSIGNED_STATUS })
+      return addCorsHeaders(request, response)
+    }
+
     if (!serviceCharge || serviceCharge <= 0) {
       serviceCharge = RECHARGEKIT_DEFAULT_BASE_CHARGE
-      if (!resolvedSchemeId) {
-        console.warn(`[Rechargekit Pay] No scheme charge — using commercial fallback ₹${RECHARGEKIT_DEFAULT_BASE_CHARGE}`)
-      }
     }
 
     const gstAmount = Math.round((serviceCharge * GST_PERCENT) / 100 * 100) / 100

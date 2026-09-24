@@ -13,6 +13,7 @@ import {
 } from '@/lib/security/idempotency'
 import { toUserSafeError } from '@/lib/provider-error'
 import { distributeServiceCommission, reverseServiceCommission } from '@/lib/commission/distribute-service-commission'
+import { SCHEME_NOT_ASSIGNED, SCHEME_NOT_ASSIGNED_STATUS } from '@/lib/scheme-guard'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -156,6 +157,7 @@ export async function POST(request: NextRequest) {
     let resolvedSchemeId: string | null = null
     let resolvedSchemeName: string | null = null
     let resolvedVia: string | null = null
+    let hasAssignedScheme = false
     let commissionSplit = { distributor_commission: 0, md_commission: 0, company_earning: 0 }
     let chargeModelData: { md_purchase_charge: number; dt_purchase_charge: number; rt_purchase_charge: number; company_cost: number } | null = null
 
@@ -203,6 +205,7 @@ export async function POST(request: NextRequest) {
         resolvedSchemeId = resolved.scheme_id
         resolvedSchemeName = resolved.scheme_name
         resolvedVia = resolved.resolved_via
+        hasAssignedScheme = true
 
         const { data: chargeResult, error: chargeError } = await (supabaseAdmin as any).rpc(
           'calculate_shadval_settlement_charge_from_scheme',
@@ -255,6 +258,7 @@ export async function POST(request: NextRequest) {
           scopedSchemeIds = (mappings || [])
             .filter((m: any) => !m.service_type || m.service_type === 'all' || m.service_type === 'shadval_settlement')
             .map((m: any) => m.scheme_id)
+          if (scopedSchemeIds.length > 0) hasAssignedScheme = true
         }
 
         const { data: slabs } = scopedSchemeIds.length > 0 ? await supabaseAdmin
@@ -288,6 +292,13 @@ export async function POST(request: NextRequest) {
       } catch (e) {
         console.warn('[Settlement-2] Direct charge query failed:', e)
       }
+    }
+
+    // Hard-block if no scheme assigned — never allow a free/₹0-charge settlement
+    if (!hasAssignedScheme) {
+      console.error(`[Settlement-2] BLOCKED: No scheme assigned for user=${user.partner_id} — refusing transfer`)
+      const response = NextResponse.json(SCHEME_NOT_ASSIGNED, { status: SCHEME_NOT_ASSIGNED_STATUS })
+      return addCorsHeaders(request, response)
     }
 
     // Enforce slab limits: if charge slabs are configured for this mode, the amount

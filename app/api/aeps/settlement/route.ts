@@ -20,6 +20,7 @@ import { authorizeSubPartner, normalizeMasterPartner } from '@/lib/partner-acces
 import { initiateTransfer } from '@/services/payout/transfer';
 import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger';
 import { calculateAEPSSettlementCharge } from '@/lib/scheme/scheme.service';
+import { SCHEME_NOT_ASSIGNED, SCHEME_NOT_ASSIGNED_STATUS } from '@/lib/scheme-guard';
 import { rateLimit, RATE_LIMITS } from '@/lib/rate-limit';
 
 export const runtime = 'nodejs';
@@ -161,6 +162,11 @@ export async function POST(request: NextRequest) {
     const chargeBreakdown = await calculateAEPSSettlementCharge(
       user.partner_id, user.role, amountDecimal, distributorId, mdId
     );
+
+    if (!chargeBreakdown) {
+      console.error(`[AEPS Settlement] BLOCKED: No scheme assigned for user=${user.partner_id} — refusing free settlement`);
+      return NextResponse.json(SCHEME_NOT_ASSIGNED, { status: SCHEME_NOT_ASSIGNED_STATUS });
+    }
 
     const charge = chargeBreakdown?.retailer_charge ?? 0;
     const totalDebit = amountDecimal + charge;

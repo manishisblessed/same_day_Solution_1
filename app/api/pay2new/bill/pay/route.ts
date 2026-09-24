@@ -10,6 +10,7 @@ import { generateAgentTransactionId } from '@/services/bbps/helpers'
 import { toUserSafeError } from '@/lib/provider-error'
 import { distributeServiceCommission } from '@/lib/commission/distribute-service-commission'
 import { isBillerRateLimitError, BILLER_RATE_LIMIT_MESSAGE } from '@/lib/provider-error'
+import { SCHEME_NOT_ASSIGNED, SCHEME_NOT_ASSIGNED_STATUS } from '@/lib/scheme-guard'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -272,8 +273,9 @@ export async function POST(request: NextRequest) {
     }
 
     if (!resolvedSchemeId) {
-      console.warn(`[Pay2New Bill Pay] No scheme resolved for user=${user.partner_id} — charge will be ₹0`)
-      serviceCharge = 0
+      console.error(`[Pay2New Bill Pay] BLOCKED: No scheme assigned for user=${user.partner_id} — refusing free transaction`)
+      const response = NextResponse.json(SCHEME_NOT_ASSIGNED, { status: SCHEME_NOT_ASSIGNED_STATUS })
+      return addCorsHeaders(request, response)
     }
 
     // Add 18% GST on service charge

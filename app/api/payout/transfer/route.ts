@@ -11,9 +11,10 @@ import {
   getIdempotencyKeyFromHeaders,
 } from '@/lib/security/idempotency'
 import { initiateTransfer, generateClientRefId, getPayoutBalance } from '@/services/payout'
-import { getPayoutCharges, getTransferLimits } from '@/services/payout/config'
+import { getTransferLimits } from '@/services/payout/config'
 import { createClient } from '@supabase/supabase-js'
 import { distributeServiceCommission } from '@/lib/commission/distribute-service-commission'
+import { SCHEME_NOT_ASSIGNED, SCHEME_NOT_ASSIGNED_STATUS } from '@/lib/scheme-guard'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -271,6 +272,19 @@ export async function POST(request: NextRequest) {
     }
     // ========== END IDEMPOTENCY RESERVATION ==========
 
+    // Any pre-transfer guard failure (scheme/balance/provider/duplicate/record
+    // creation/wallet-debit) must release the idempotency reservation. We
+    // finalize as 'failed', which reserveIdempotencyKey treats as retryable, so
+    // a corrected retry with the same key can proceed instead of being stuck on
+    // a 409 (key frozen 'in_progress'). No transfer is initiated in any of these
+    // branches, so retrying is always safe.
+    const guardFail = async (payload: any, status: number) => {
+      if (idemKey) {
+        await finalizeIdempotencyKey({ scope: IDEM_SCOPE, key: idemKey, status: 'failed', response: payload })
+      }
+      return addCorsHeaders(request, NextResponse.json(payload, { status }))
+    }
+
     // Fetch retailer's distributor chain for proper scheme hierarchy resolution
     let distributorId: string | null = null
     let mdId: string | null = null
@@ -474,11 +488,10 @@ export async function POST(request: NextRequest) {
       }
     }
     
-    // Final fallback to env-based charges if no scheme resolved at all
+    // Hard-block if no scheme resolved — never fall back to free/env charges
     if (!resolvedSchemeId) {
-      console.warn(`[Payout] No scheme resolved (RPC + direct query failed), using env config`)
-      const chargesConfig = getPayoutCharges()
-      charges = transferMode === 'IMPS' ? chargesConfig.imps : chargesConfig.neft
+      console.error(`[Payout] BLOCKED: No scheme assigned for user=${user.partner_id} — refusing transfer`)
+      return await guardFail(SCHEME_NOT_ASSIGNED, SCHEME_NOT_ASSIGNED_STATUS)
     }
     
     const totalAmount = amountNum + charges
@@ -491,39 +504,33 @@ export async function POST(request: NextRequest) {
 
     if (balanceError) {
       console.error('Error fetching wallet balance:', balanceError)
-      const response = NextResponse.json(
-        { success: false, error: 'Failed to check wallet balance' },
-        { status: 500 }
-      )
-      return addCorsHeaders(request, response)
+      return await guardFail({ success: false, error: 'Failed to check wallet balance' }, 500)
     }
 
     if (walletBalance < totalAmount) {
-      const response = NextResponse.json(
-        { 
-          success: false, 
+      return await guardFail(
+        {
+          success: false,
           error: 'Insufficient wallet balance',
           wallet_balance: walletBalance,
           amount: amountNum,
           charges,
           total_required: totalAmount,
         },
-        { status: 400 }
+        400
       )
-      return addCorsHeaders(request, response)
     }
 
     // Check provider balance
     const providerBalance = await getPayoutBalance()
     if (!providerBalance.success || (providerBalance.available_balance || 0) < amountNum) {
-      const response = NextResponse.json(
-        { 
-          success: false, 
+      return await guardFail(
+        {
+          success: false,
           error: 'Payout service temporarily unavailable. Please try again later.',
         },
-        { status: 503 }
+        503
       )
-      return addCorsHeaders(request, response)
     }
 
     // ========== DUPLICATE TRANSACTION PREVENTION ==========
@@ -552,9 +559,9 @@ export async function POST(request: NextRequest) {
         seconds_ago: timeSinceLastTx,
       })
       
-      const response = NextResponse.json(
-        { 
-          success: false, 
+      return await guardFail(
+        {
+          success: false,
           error: `A transaction to this account was initiated ${timeSinceLastTx} seconds ago (Status: ${recentTx.status.toUpperCase()}). Please wait ${waitTime} seconds before retrying to prevent duplicate transfers.`,
           duplicate_prevention: true,
           recent_transaction: {
@@ -565,9 +572,8 @@ export async function POST(request: NextRequest) {
           },
           wait_seconds: waitTime,
         },
-        { status: 429 }  // Too Many Requests
+        429 // Too Many Requests
       )
-      return addCorsHeaders(request, response)
     }
     // ========== END DUPLICATE PREVENTION ==========
 
@@ -598,11 +604,7 @@ export async function POST(request: NextRequest) {
 
     if (txError || !payoutTx) {
       console.error('Error creating payout transaction:', txError)
-      const response = NextResponse.json(
-        { success: false, error: 'Failed to create transaction record' },
-        { status: 500 }
-      )
-      return addCorsHeaders(request, response)
+      return await guardFail({ success: false, error: 'Failed to create transaction record' }, 500)
     }
 
     // Debit wallet
@@ -622,12 +624,8 @@ export async function POST(request: NextRequest) {
         .from('payout_transactions')
         .update({ status: 'failed', failure_reason: 'Wallet debit failed' })
         .eq('id', payoutTx.id)
-      
-      const response = NextResponse.json(
-        { success: false, error: 'Failed to debit wallet' },
-        { status: 500 }
-      )
-      return addCorsHeaders(request, response)
+
+      return await guardFail({ success: false, error: 'Failed to debit wallet' }, 500)
     }
 
     // Update transaction with wallet debit info

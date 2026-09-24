@@ -13,6 +13,7 @@ import {
 } from '@/lib/security/idempotency'
 import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger'
 import { distributeServiceCommission } from '@/lib/commission/distribute-service-commission'
+import { SCHEME_NOT_ASSIGNED, SCHEME_NOT_ASSIGNED_STATUS } from '@/lib/scheme-guard'
 
 export const runtime = 'nodejs' // Force Node.js runtime (Supabase not compatible with Edge Runtime)
 export const dynamic = 'force-dynamic'
@@ -455,8 +456,9 @@ export async function POST(request: NextRequest) {
     }
     
     if (!resolvedSchemeId) {
-      console.error(`[BBPS Pay] No scheme resolved for user=${user.partner_id} — charge will be ₹0`)
-      bbpsCharge = 0
+      console.error(`[BBPS Pay] BLOCKED: No scheme assigned for user=${user.partner_id} — refusing free transaction`)
+      const response = NextResponse.json(SCHEME_NOT_ASSIGNED, { status: SCHEME_NOT_ASSIGNED_STATUS })
+      return addCorsHeaders(request, response)
     }
     
     // Total amount needed (bill + charge)
