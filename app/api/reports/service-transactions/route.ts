@@ -3,6 +3,7 @@ import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { authorizeSubPartner, normalizeMasterPartner } from '@/lib/partner-access'
 import { createClient } from '@supabase/supabase-js'
 import { htmlToPdf } from '@/lib/pdf/html-to-pdf'
+import { cleanDescription } from '@/lib/format'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -1283,7 +1284,7 @@ function generateCSV(results: NormalizedTransaction[], summary: any, dateFrom: s
     r.payment_mode || '-',
     r.card_type || '-',
     r.device_serial || '-',
-    r.description || '-',
+    cleanDescription(r.description) || '-',
   ])
 
   const escapeCSV = (val: string) => {
@@ -1362,7 +1363,7 @@ function generateExcel(results: NormalizedTransaction[], dateFrom: string | null
       ${strCell(r.payment_mode)}
       ${strCell(r.card_type)}
       ${strCell(r.device_serial)}
-      ${strCell(r.description)}
+      ${strCell(cleanDescription(r.description))}
     </Row>`
   }).join('\n')
 

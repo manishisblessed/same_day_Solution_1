@@ -5,6 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import { spacing } from '@/theme';
 import { Screen, Card, Pill, Loading, EmptyState, ErrorState, TransactionRow } from '@/components';
 import { fetchServiceTransactions, ServiceFilter } from '@/api/transactions';
+import { cleanDescription } from '@/utils/format';
 import { AppStackParamList } from '@/navigation/types';
 
 const STATUS: { key: string; label: string }[] = [
@@ -43,7 +44,7 @@ export const TransactionsListScreen: React.FC = () => {
           {rows.map((t, i) => (
             <View key={t.id || i}>
               <TransactionRow
-                title={t.description || t.service_type?.toUpperCase() || 'Transaction'}
+                title={cleanDescription(t.description) || t.service_type?.toUpperCase() || 'Transaction'}
                 subtitle={t.transaction_id || t.tid}
                 amount={t.amount}
                 status={t.status}

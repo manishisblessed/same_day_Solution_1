@@ -1,5 +1,5 @@
-import React, { useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
+import React, { useCallback, useState } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, RefreshControl } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useQuery } from '@tanstack/react-query';
@@ -7,120 +7,144 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
-import { RefreshControl } from 'react-native';
 import { colors, radius, spacing, typography, shadow } from '@/theme';
-import { Card, SectionHeader, IconTile, Loading, EmptyState, TransactionRow } from '@/components';
+import { SectionHeader, FadeSlideIn, PressableScale } from '@/components';
 import { useAuth } from '@/contexts/AuthContext';
 import { useServices } from '@/contexts/ServicesContext';
 import { fetchWalletBalance } from '@/api/wallet';
-import { fetchServiceTransactions } from '@/api/transactions';
 import { formatCurrency } from '@/utils/format';
 import { AppStackParamList } from '@/navigation/types';
 
 type Nav = NativeStackNavigationProp<AppStackParamList>;
+
+const ROLE_LABELS: Record<string, string> = {
+  retailer: 'Retailer',
+  partner: 'Partner',
+  master_partner: 'Master Partner',
+  sub_partner: 'Partner',
+};
 
 export const DashboardScreen: React.FC = () => {
   const insets = useSafeAreaInsets();
   const nav = useNavigation<Nav>();
   const { user } = useAuth();
   const { visible } = useServices();
+  const [hideBalance, setHideBalance] = useState(false);
 
   const balanceQ = useQuery({ queryKey: ['wallet', 'primary'], queryFn: () => fetchWalletBalance('primary') });
-  const txnsQ = useQuery({ queryKey: ['dashboard-txns'], queryFn: () => fetchServiceTransactions({ limit: 6 }) });
+  const onRefresh = useCallback(() => { balanceQ.refetch(); }, [balanceQ]);
 
-  const onRefresh = useCallback(() => {
-    balanceQ.refetch();
-    txnsQ.refetch();
-  }, [balanceQ, txnsQ]);
-
-  const quickActions = visible.slice(0, 8);
-  const recent = txnsQ.data?.data ?? [];
+  const quickActions = visible.slice(0, 9);
+  const initial = (user?.name || 'U').charAt(0).toUpperCase();
 
   return (
     <View style={styles.container}>
       <StatusBar style="light" />
       <ScrollView
-        contentContainerStyle={{ paddingBottom: 100 }}
+        contentContainerStyle={{ paddingBottom: 24 }}
         showsVerticalScrollIndicator={false}
         refreshControl={
-          <RefreshControl refreshing={balanceQ.isFetching || txnsQ.isFetching} onRefresh={onRefresh} tintColor={colors.white} />
+          <RefreshControl refreshing={balanceQ.isFetching} onRefresh={onRefresh} tintColor={colors.white} colors={[colors.primary[600]]} />
         }
       >
-        <LinearGradient colors={colors.gradients.primaryDeep} style={[styles.hero, { paddingTop: insets.top + 16 }]}>
-          <View style={styles.heroTop}>
-            <View>
-              <Text style={styles.hello}>Hello,</Text>
-              <Text style={styles.name}>{user?.name || 'Retailer'}</Text>
-            </View>
-            <TouchableOpacity style={styles.bell} onPress={() => nav.navigate('Tabs', { screen: 'Profile' } as any)}>
-              <Ionicons name="person-circle-outline" size={30} color={colors.white} />
-            </TouchableOpacity>
-          </View>
+        <LinearGradient
+          colors={colors.gradients.hero}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1.2, y: 1.1 }}
+          style={[styles.hero, { paddingTop: insets.top + 14 }]}
+        >
+          <View style={[styles.orb, { top: -60, right: -40, width: 190, height: 190 }]} />
+          <View style={[styles.orb, { bottom: -30, left: -50, width: 150, height: 150, opacity: 0.6 }]} />
+          <View style={[styles.orbAccent, { top: 40, right: 60, width: 70, height: 70 }]} />
 
-          <View style={styles.balanceCard}>
-            <Text style={styles.balLabel}>Wallet Balance</Text>
-            {balanceQ.isLoading ? (
-              <Text style={styles.balValue}>…</Text>
-            ) : (
-              <Text style={styles.balValue}>{formatCurrency(balanceQ.data?.balance)}</Text>
-            )}
-            <View style={styles.balActions}>
-              <TouchableOpacity style={styles.balBtn} onPress={() => nav.navigate('Tabs', { screen: 'Wallet' } as any)}>
-                <Ionicons name="wallet-outline" size={16} color={colors.white} />
-                <Text style={styles.balBtnText}>Wallet</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.balBtn} onPress={() => nav.navigate('Ledger')}>
-                <Ionicons name="book-outline" size={16} color={colors.white} />
-                <Text style={styles.balBtnText}>Ledger</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.balBtn} onPress={() => nav.navigate('TransactionsList')}>
-                <Ionicons name="swap-horizontal" size={16} color={colors.white} />
-                <Text style={styles.balBtnText}>History</Text>
-              </TouchableOpacity>
+          <FadeSlideIn distance={14}>
+            <View style={styles.heroTop}>
+              <View style={styles.heroUser}>
+                <View style={styles.avatar}>
+                  <Text style={styles.avatarText}>{initial}</Text>
+                </View>
+                <View style={{ marginLeft: spacing.md, flex: 1 }}>
+                  <Text style={styles.hello}>Welcome back</Text>
+                  <Text style={styles.name} numberOfLines={1}>{user?.name || 'User'}</Text>
+                </View>
+              </View>
+              <View style={styles.roleChip}>
+                <Text style={styles.roleChipText}>{ROLE_LABELS[user?.role || ''] || 'Member'}</Text>
+              </View>
             </View>
-          </View>
+          </FadeSlideIn>
+
+          <FadeSlideIn delay={100}>
+            <View style={styles.balanceCard}>
+              <View style={styles.balHead}>
+                <Text style={styles.balLabel}>Available Balance</Text>
+                <TouchableOpacity onPress={() => setHideBalance((h) => !h)} hitSlop={10}>
+                  <Ionicons name={hideBalance ? 'eye-off-outline' : 'eye-outline'} size={18} color="rgba(255,255,255,0.85)" />
+                </TouchableOpacity>
+              </View>
+              <Text style={styles.balValue}>
+                {balanceQ.isLoading ? '…' : hideBalance ? '₹ ••••••' : formatCurrency(balanceQ.data?.balance)}
+              </Text>
+              <View style={styles.balActions}>
+                {([
+                  ['wallet-outline', 'Wallet', () => nav.navigate('Tabs', { screen: 'Wallet' } as any)],
+                  ['book-outline', 'Ledger', () => nav.navigate('Ledger')],
+                  ['swap-horizontal', 'History', () => nav.navigate('TransactionsList')],
+                ] as const).map(([icon, label, go]) => (
+                  <PressableScale key={label} style={styles.balBtn} onPress={go}>
+                    <Ionicons name={icon} size={16} color={colors.white} />
+                    <Text style={styles.balBtnText}>{label}</Text>
+                  </PressableScale>
+                ))}
+              </View>
+            </View>
+          </FadeSlideIn>
         </LinearGradient>
 
         <View style={styles.body}>
-          <SectionHeader title="Quick Actions" action={visible.length > 8 ? 'See all' : undefined} onAction={() => nav.navigate('Tabs', { screen: 'Services' } as any)} />
-          {quickActions.length === 0 ? (
-            <Card>
-              <EmptyState icon="lock-closed-outline" title="No services enabled" message="Your services are managed by admin. Once enabled, they'll appear here." />
-            </Card>
-          ) : (
-            <View style={styles.grid}>
-              {quickActions.map((s) => (
-                <TouchableOpacity key={s.id} style={styles.gridItem} activeOpacity={0.7} onPress={() => routeToService(nav, s.id)}>
-                  <IconTile icon={s.icon as any} color={s.color} />
-                  <Text style={styles.gridLabel} numberOfLines={1}>{s.label}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
+          {quickActions.length > 0 && (
+            <>
+              <FadeSlideIn delay={180}>
+                <SectionHeader
+                  title="Quick Actions"
+                  action={visible.length > 9 ? 'See all' : undefined}
+                  onAction={() => nav.navigate('Tabs', { screen: 'Services' } as any)}
+                />
+              </FadeSlideIn>
+              <View style={styles.grid}>
+                {quickActions.map((s, i) => (
+                  <FadeSlideIn key={s.id} delay={220 + i * 55} style={styles.gridSlot}>
+                    <PressableScale style={styles.gridCard} onPress={() => routeToService(nav, s.id)}>
+                      <View style={[styles.gridIcon, { backgroundColor: `${s.color}18` }]}>
+                        <Ionicons name={s.icon as any} size={26} color={s.color} />
+                      </View>
+                      <Text style={styles.gridLabel} numberOfLines={2}>{s.label}</Text>
+                    </PressableScale>
+                  </FadeSlideIn>
+                ))}
+              </View>
+            </>
           )}
 
-          <View style={{ height: spacing.lg }} />
-          <SectionHeader title="Recent Activity" action="View all" onAction={() => nav.navigate('TransactionsList')} />
-          <Card>
-            {txnsQ.isLoading ? (
-              <Loading />
-            ) : recent.length === 0 ? (
-              <EmptyState title="No transactions yet" message="Your recent transactions will show up here." />
-            ) : (
-              recent.map((t, i) => (
-                <View key={t.id || i}>
-                  <TransactionRow
-                    title={t.description || t.service_type?.toUpperCase() || 'Transaction'}
-                    subtitle={t.transaction_id || t.tid}
-                    amount={t.amount}
-                    status={t.status}
-                    date={t.created_at}
-                    service={t.service_type}
-                  />
-                  {i < recent.length - 1 ? <View style={styles.sep} /> : null}
+          <FadeSlideIn delay={300 + quickActions.length * 55}>
+            <PressableScale onPress={() => nav.navigate('Tabs', { screen: 'Services' } as any)}>
+              <LinearGradient
+                colors={colors.gradients.blue}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.promo}
+              >
+                <View style={[styles.orb, { top: -30, right: -20, width: 110, height: 110 }]} />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.promoTitle}>Explore all services</Text>
+                  <Text style={styles.promoSub}>Recharges, bills, banking & more — all in one place.</Text>
                 </View>
-              ))
-            )}
-          </Card>
+                <View style={styles.promoArrow}>
+                  <Ionicons name="arrow-forward" size={20} color={colors.blue[700]} />
+                </View>
+              </LinearGradient>
+            </PressableScale>
+          </FadeSlideIn>
         </View>
       </ScrollView>
     </View>
@@ -146,23 +170,63 @@ export function routeToService(nav: Nav, id: string) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
-  hero: { paddingHorizontal: spacing.base, paddingBottom: 60, borderBottomLeftRadius: 28, borderBottomRightRadius: 28 },
+  hero: {
+    paddingHorizontal: spacing.base, paddingBottom: 64,
+    borderBottomLeftRadius: 32, borderBottomRightRadius: 32, overflow: 'hidden',
+  },
+  orb: { position: 'absolute', borderRadius: 999, backgroundColor: 'rgba(255,255,255,0.10)' },
+  orbAccent: { position: 'absolute', borderRadius: 999, backgroundColor: 'rgba(251,146,60,0.30)' },
   heroTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  hello: { ...typography.body, color: 'rgba(255,255,255,0.8)' },
-  name: { ...typography.h1, color: colors.white },
-  bell: { padding: 2 },
+  heroUser: { flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: spacing.md },
+  avatar: {
+    width: 46, height: 46, borderRadius: 23, backgroundColor: 'rgba(255,255,255,0.22)',
+    alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.45)',
+  },
+  avatarText: { ...typography.h3, color: colors.white },
+  hello: { ...typography.caption, color: 'rgba(255,255,255,0.8)' },
+  name: { ...typography.h2, color: colors.white },
+  roleChip: {
+    backgroundColor: 'rgba(255,255,255,0.18)', paddingHorizontal: 12, paddingVertical: 5,
+    borderRadius: radius.full, borderWidth: 1, borderColor: 'rgba(255,255,255,0.3)',
+  },
+  roleChipText: { ...typography.small, color: colors.white, fontWeight: '700' },
   balanceCard: {
     marginTop: spacing.lg, backgroundColor: 'rgba(255,255,255,0.14)', borderRadius: radius.xl,
-    padding: spacing.lg, borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)',
+    padding: spacing.xl, borderWidth: 1, borderColor: 'rgba(255,255,255,0.24)',
   },
-  balLabel: { ...typography.caption, color: 'rgba(255,255,255,0.8)' },
-  balValue: { ...typography.display, color: colors.white, marginTop: 2 },
-  balActions: { flexDirection: 'row', marginTop: spacing.base, gap: 10 },
-  balBtn: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.18)', paddingHorizontal: 12, paddingVertical: 8, borderRadius: radius.base, gap: 5 },
+  balHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  balLabel: { ...typography.caption, color: 'rgba(255,255,255,0.85)' },
+  balValue: { ...typography.display, fontSize: 38, color: colors.white, marginTop: 6 },
+  balActions: { flexDirection: 'row', marginTop: spacing.lg, gap: 10 },
+  balBtn: {
+    flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.18)',
+    paddingHorizontal: 14, paddingVertical: 10, borderRadius: radius.full, gap: 6,
+  },
   balBtnText: { ...typography.captionMedium, color: colors.white },
-  body: { paddingHorizontal: spacing.base, marginTop: -32 },
-  grid: { flexDirection: 'row', flexWrap: 'wrap' },
-  gridItem: { width: '25%', alignItems: 'center', marginBottom: spacing.base },
-  gridLabel: { ...typography.small, color: colors.textSecondary, marginTop: 6, textAlign: 'center' },
-  sep: { height: StyleSheet.hairlineWidth, backgroundColor: colors.border },
+  body: { paddingHorizontal: spacing.base, marginTop: -36 },
+
+  grid: { flexDirection: 'row', flexWrap: 'wrap', marginHorizontal: -spacing.xs },
+  gridSlot: { width: '33.33%', paddingHorizontal: spacing.xs, marginBottom: spacing.md },
+  gridCard: {
+    backgroundColor: colors.surface, borderRadius: radius.xl, paddingVertical: spacing.lg,
+    paddingHorizontal: spacing.sm, alignItems: 'center', minHeight: 116, ...shadow.sm,
+  },
+  gridIcon: {
+    width: 54, height: 54, borderRadius: 18, alignItems: 'center', justifyContent: 'center',
+  },
+  gridLabel: {
+    ...typography.captionMedium, color: colors.textPrimary, marginTop: spacing.sm,
+    textAlign: 'center',
+  },
+
+  promo: {
+    flexDirection: 'row', alignItems: 'center', borderRadius: radius.xl,
+    padding: spacing.xl, marginTop: spacing.md, overflow: 'hidden', ...shadow.base,
+  },
+  promoTitle: { ...typography.h3, color: colors.white },
+  promoSub: { ...typography.caption, color: 'rgba(255,255,255,0.9)', marginTop: 3 },
+  promoArrow: {
+    width: 40, height: 40, borderRadius: 20, backgroundColor: colors.white,
+    alignItems: 'center', justifyContent: 'center', marginLeft: spacing.md,
+  },
 });

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { apiFetch } from '@/lib/api-client'
+import { cleanDescription } from '@/lib/format'
 import {
   RefreshCw, Search, ChevronLeft, ChevronRight, BookOpen,
   FileSpreadsheet, FileText, Loader2,
@@ -392,8 +393,8 @@ export default function AdminWalletLedgerTab() {
                       })}
                     </td>
                     <td className="px-3 py-2 text-xs">{e.status || '—'}</td>
-                    <td className="px-3 py-2 text-xs text-gray-600 dark:text-gray-400 max-w-xs truncate" title={e.description}>
-                      {e.description || e.reference_id || '—'}
+                    <td className="px-3 py-2 text-xs text-gray-600 dark:text-gray-400 max-w-xs truncate" title={cleanDescription(e.description)}>
+                      {cleanDescription(e.description) || e.reference_id || '—'}
                     </td>
                   </tr>
                 ))

@@ -1,13 +1,13 @@
 export const palette = {
-  // Matches the web app / SD logo: primary = orange.
+  // Finance-first: primary = green (trust/money), with blue in gradients.
   primary: {
-    50: '#FFF7ED', 100: '#FFEDD5', 200: '#FED7AA', 300: '#FDBA74', 400: '#FB923C',
-    500: '#F97316', 600: '#EA580C', 700: '#C2410C', 800: '#9A3412', 900: '#7C2D12',
-  },
-  // Web secondary = green (the "D" in the logo).
-  secondary: {
     50: '#F0FDF4', 100: '#DCFCE7', 200: '#BBF7D0', 300: '#86EFAC', 400: '#4ADE80',
     500: '#22C55E', 600: '#16A34A', 700: '#15803D', 800: '#166534', 900: '#14532D',
+  },
+  // Orange from the SD logo — used as a light accent, not the dominant color.
+  secondary: {
+    50: '#FFF7ED', 100: '#FFEDD5', 200: '#FED7AA', 300: '#FDBA74', 400: '#FB923C',
+    500: '#F97316', 600: '#EA580C', 700: '#C2410C', 800: '#9A3412', 900: '#7C2D12',
   },
   brand: {
     50: '#FFF7ED', 100: '#FFEDD5', 200: '#FED7AA', 300: '#FDBA74', 400: '#FB923C',
@@ -16,6 +16,9 @@ export const palette = {
   blue: {
     50: '#EFF6FF', 100: '#DBEAFE', 200: '#BFDBFE', 300: '#93C5FD', 400: '#60A5FA',
     500: '#3B82F6', 600: '#2563EB', 700: '#1D4ED8', 800: '#1E40AF', 900: '#1E3A8A',
+  },
+  teal: {
+    500: '#14B8A6', 600: '#0D9488', 700: '#0F766E', 800: '#115E59',
   },
   success: {
     50: '#F0FDF4', 100: '#DCFCE7', 300: '#86EFAC', 500: '#22C55E', 600: '#16A34A', 700: '#15803D',
@@ -47,10 +50,14 @@ export const colors = {
   gradients: {
     primary: [palette.primary[500], palette.primary[700]] as const,
     primaryDeep: [palette.primary[600], palette.primary[800]] as const,
+    // Signature finance blend: green → teal → deep blue.
+    hero: [palette.primary[600], palette.teal[700], palette.blue[800]] as const,
+    heroSoft: [palette.primary[500], palette.teal[600], palette.blue[700]] as const,
+    blue: [palette.blue[500], palette.blue[700]] as const,
     brand: [palette.brand[400], palette.brand[600]] as const,
-    secondary: [palette.secondary[500], palette.secondary[700]] as const,
+    secondary: [palette.secondary[400], palette.secondary[600]] as const,
     // Orange → green, mirroring the SD logo (S orange, D green).
-    logo: [palette.primary[500], palette.secondary[600]] as const,
+    logo: [palette.secondary[500], palette.primary[600]] as const,
     success: [palette.success[500], palette.success[700]] as const,
     purple: [palette.purple[500], palette.purple[600]] as const,
     dark: [palette.gray[800], palette.gray[900]] as const,

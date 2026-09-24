@@ -4,6 +4,7 @@ import { useNavigation } from '@react-navigation/native';
 import { useQuery } from '@tanstack/react-query';
 import { Screen, Card, Loading, EmptyState, ErrorState, TransactionRow } from '@/components';
 import { fetchLedger } from '@/api/wallet';
+import { cleanDescription } from '@/utils/format';
 
 export const LedgerScreen: React.FC = () => {
   const nav = useNavigation();
@@ -23,7 +24,7 @@ export const LedgerScreen: React.FC = () => {
           {rows.map((t, i) => (
             <View key={t.id || i}>
               <TransactionRow
-                title={t.description || t.transaction_type || 'Entry'}
+                title={cleanDescription(t.description) || t.transaction_type || 'Entry'}
                 subtitle={t.reference_id}
                 amount={t.amount}
                 credit={(t.transaction_type || '').toLowerCase().includes('credit')}

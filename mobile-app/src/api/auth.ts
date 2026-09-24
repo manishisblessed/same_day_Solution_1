@@ -6,6 +6,27 @@ export async function fetchMe(): Promise<AuthUser | null> {
   return res.user ?? null;
 }
 
+/**
+ * Resolve the profile immediately after sign-in, before a session row exists.
+ * The GET variant runs an active-session check, which can't pass until
+ * registerSession() has run — this POST variant skips it (same path the web uses).
+ */
+export async function resolveMe(email: string): Promise<AuthUser | null> {
+  // The primary path resolves any role; the hint is only used in a race
+  // fallback, so try retailer first, then partner (covers master/sub too).
+  for (const roleHint of ['retailer', 'partner'] as const) {
+    try {
+      const res = await api.post<{ user: AuthUser | null }>(
+        '/api/auth/me',
+        { email: email.trim().toLowerCase(), roleHint },
+        { silent401: true }
+      );
+      if (res.user) return res.user;
+    } catch {}
+  }
+  return null;
+}
+
 export interface MobileLoginResult {
   access_token: string;
   refresh_token: string;

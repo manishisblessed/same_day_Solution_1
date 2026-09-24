@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { apiFetch } from '@/lib/api-client'
+import { cleanDescription } from '@/lib/format'
 import { 
   RefreshCw, Search, ChevronLeft, ChevronRight, Wallet, Download, 
   TrendingUp, TrendingDown, Calendar, FileSpreadsheet, ArrowUpRight, ArrowDownRight,
@@ -496,8 +497,8 @@ export default function AdminRevenueWalletTab() {
                         {e.status || '—'}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-xs text-gray-600 dark:text-gray-400 max-w-xs truncate" title={e.description || e.reference_id || ''}>
-                      {e.description || e.reference_id || '—'}
+                    <td className="px-4 py-3 text-xs text-gray-600 dark:text-gray-400 max-w-xs truncate" title={cleanDescription(e.description) || e.reference_id || ''}>
+                      {cleanDescription(e.description) || e.reference_id || '—'}
                     </td>
                   </tr>
                 ))

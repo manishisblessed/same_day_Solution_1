@@ -21,7 +21,7 @@ export const LockScreen: React.FC = () => {
   return (
     <View style={StyleSheet.absoluteFill}>
       <StatusBar style="light" />
-      <LinearGradient colors={colors.gradients.primaryDeep} style={styles.fill}>
+      <LinearGradient colors={colors.gradients.hero} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.fill}>
         <View style={styles.logo}>
           <Ionicons name="lock-closed" size={36} color={colors.primary[700]} />
         </View>

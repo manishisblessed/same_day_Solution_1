@@ -1,6 +1,5 @@
 import { api } from '@/lib/api';
 
-export interface BbpsCategory { id?: string; name: string; group?: string }
 export interface BbpsBiller {
   biller_id: string;
   biller_name: string;
@@ -8,8 +7,9 @@ export interface BbpsBiller {
   [k: string]: any;
 }
 
+/** Backend returns categories as a plain string array. */
 export function fetchBbpsCategories() {
-  return api.get<{ success: boolean; categories: BbpsCategory[]; groups: string[]; count: number }>(
+  return api.get<{ success: boolean; categories: string[]; count: number }>(
     '/api/bbps/categories'
   );
 }

@@ -21,8 +21,16 @@ const REPORTS: { label: string; desc: string; icon: string; color: string; servi
 export const ReportsScreen: React.FC = () => {
   const nav = useNavigation<Nav>();
   return (
-    <Screen title="Reports">
+    <Screen title="Reports" subtitle="Statements & transaction history">
       <View style={{ marginTop: spacing.sm }}>
+        <TouchableOpacity style={styles.card} activeOpacity={0.7} onPress={() => nav.navigate('Ledger')}>
+          <IconTile icon="book" color="#16A34A" />
+          <View style={{ flex: 1, marginLeft: spacing.md }}>
+            <Text style={[typography.bodyMedium, { color: colors.textPrimary }]}>Wallet Ledger</Text>
+            <Text style={[typography.caption, { color: colors.textSecondary }]}>Credits, debits & running balance</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
+        </TouchableOpacity>
         {REPORTS.map((r) => (
           <TouchableOpacity
             key={r.label}

@@ -76,8 +76,8 @@ export const BbpsScreen: React.FC = () => {
       <Text style={styles.label}>Category</Text>
       {catQ.isLoading ? <Loading /> : (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: spacing.md }}>
-          {categories.map((c) => (
-            <Pill key={c.name} label={c.name} active={category === c.name} onPress={() => { setCategory(c.name); setBiller(null); setBill(null); }} />
+          {categories.map((c, i) => (
+            <Pill key={`${c}-${i}`} label={c} active={category === c} onPress={() => { setCategory(c); setBiller(null); setBill(null); }} />
           ))}
         </ScrollView>
       )}

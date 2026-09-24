@@ -8,6 +8,7 @@ import { supabase } from '@/lib/supabase/client'
 
 import { secureDb } from '@/lib/secure-db'
 import { apiFetch, apiFetchJson } from '@/lib/api-client'
+import { cleanDescription } from '@/lib/format'
 import PartnerHeader from '@/components/PartnerHeader'
 import { 
   TrendingUp, DollarSign, Users, Activity, 
@@ -259,7 +260,7 @@ function PartnerDashboardContent() {
       // Combine recent transactions from both ledger and POS
       const recentLedgerEntries = (ledgerData || []).slice(0, 5).map(entry => ({
         id: entry.id,
-        type: entry.description || entry.transaction_type || 'Wallet',
+        type: cleanDescription(entry.description) || entry.transaction_type || 'Wallet',
         amount: Number(entry.credit) || Number(entry.debit) || 0,
         status: entry.status || 'completed',
         date: new Date(entry.created_at).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' }),
@@ -1490,8 +1491,8 @@ function WalletTab({ user }: { user: any }) {
                       {new Date(entry.created_at).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' })}
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-900 dark:text-white">{entry.transaction_type}</td>
-                    <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400 max-w-[200px] truncate" title={entry.description || ''}>
-                      {entry.description || '-'}
+                    <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400 max-w-[200px] truncate" title={cleanDescription(entry.description) || ''}>
+                      {cleanDescription(entry.description) || '-'}
                     </td>
                     <td className="px-4 py-3 text-sm text-green-600 dark:text-green-400">
                       {entry.credit > 0 ? `₹${entry.credit.toLocaleString()}` : '-'}
@@ -2666,7 +2667,7 @@ function PartnerLedgerTab({ user }: { user: any }) {
       const rows = (data || []).map((e: any) => [
         new Date(e.created_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }),
         (e.transaction_type || '-').replace(/_/g, ' '),
-        e.description || e.reference_id || '-',
+        cleanDescription(e.description) || e.reference_id || '-',
         Number(e.credit) > 0 ? Number(e.credit).toFixed(2) : '',
         Number(e.debit) > 0 ? Number(e.debit).toFixed(2) : '',
         Number(e.closing_balance || 0).toFixed(2),
@@ -2794,8 +2795,8 @@ function PartnerLedgerTab({ user }: { user: any }) {
                           {entry.transaction_type?.replace(/_/g, ' ') || 'N/A'}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400 max-w-[250px] truncate" title={entry.description || ''}>
-                        {entry.description || entry.reference_id || '-'}
+                      <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400 max-w-[250px] truncate" title={cleanDescription(entry.description) || ''}>
+                        {cleanDescription(entry.description) || entry.reference_id || '-'}
                       </td>
                       <td className="px-4 py-3 text-sm text-right font-medium text-green-600 dark:text-green-400">
                         {entry.credit > 0 ? `₹${Number(entry.credit).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : '-'}

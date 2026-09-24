@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo } from 'react'
 import { supabase } from '@/lib/supabase/client'
 
 import { secureDb } from '@/lib/secure-db'
+import { cleanDescription } from '@/lib/format'
 import { 
   RefreshCw, Download, Filter, Search, 
   ArrowDownCircle, ArrowUpCircle, 
@@ -182,7 +183,7 @@ export default function LedgerTab({ user }: LedgerTabProps) {
         const { date, time } = formatDate(e.created_at)
         const info = getTransactionInfo(e)
         return [
-          date, time, info.label, e.service_type || '-', e.description || '-',
+          date, time, info.label, e.service_type || '-', cleanDescription(e.description) || '-',
           e.credit > 0 ? e.credit.toFixed(2) : '', e.debit > 0 ? e.debit.toFixed(2) : '',
           (e.balance_after || e.closing_balance || 0).toFixed(2), e.reference_id || '-', e.status
         ]
@@ -427,8 +428,8 @@ export default function LedgerTab({ user }: LedgerTabProps) {
                         </div>
                       </td>
                       <td className="px-4 py-3">
-                        <div className="text-sm text-gray-900 dark:text-white max-w-xs truncate" title={entry.description || ''}>
-                          {entry.description || '-'}
+                        <div className="text-sm text-gray-900 dark:text-white max-w-xs truncate" title={cleanDescription(entry.description) || ''}>
+                          {cleanDescription(entry.description) || '-'}
                         </div>
                       </td>
                       <td className="px-4 py-3 text-right">

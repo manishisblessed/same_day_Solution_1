@@ -18,7 +18,7 @@ const UPDATE_MANIFEST_URL = process.env.EXPO_PUBLIC_UPDATE_MANIFEST_URL ?? '';
 
 export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
-  name: 'Sameday Retailer',
+  name: 'Same Day Solution',
   slug: 'sameday-retailer',
   owner: 'sameday-solutions-private-limited',
   version: '1.0.0',

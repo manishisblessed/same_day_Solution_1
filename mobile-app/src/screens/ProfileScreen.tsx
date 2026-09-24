@@ -50,15 +50,22 @@ export const ProfileScreen: React.FC = () => {
     ]);
   };
 
+  const roleLabel =
+    user?.role === 'master_partner' ? 'Master Partner'
+    : user?.role === 'partner' || user?.role === 'sub_partner' ? 'Partner'
+    : 'Retailer';
+
   return (
     <Screen title="Profile">
-      <Card style={{ marginTop: spacing.sm, alignItems: 'center', paddingVertical: spacing.lg }}>
-        <View style={styles.avatar}>
-          <Text style={styles.avatarText}>{(user?.name || 'R').charAt(0).toUpperCase()}</Text>
+      <Card style={{ marginTop: spacing.sm, alignItems: 'center', paddingVertical: spacing.xl }}>
+        <View style={styles.avatarRing}>
+          <View style={styles.avatar}>
+            <Text style={styles.avatarText}>{(user?.name || 'U').charAt(0).toUpperCase()}</Text>
+          </View>
         </View>
-        <Text style={[typography.h2, { color: colors.textPrimary, marginTop: spacing.md }]}>{user?.name || 'Retailer'}</Text>
-        <Text style={[typography.caption, { color: colors.textSecondary }]}>{user?.email}</Text>
-        <View style={{ marginTop: 8 }}><Badge label={`Retailer · ${user?.partner_id || ''}`} tone="info" /></View>
+        <Text style={[typography.h2, { color: colors.textPrimary, marginTop: spacing.md }]}>{user?.name || 'User'}</Text>
+        <Text style={[typography.caption, { color: colors.textSecondary, marginTop: 2 }]}>{user?.email}</Text>
+        <View style={{ marginTop: 10 }}><Badge label={`${roleLabel} · ${user?.partner_id || ''}`} tone="info" /></View>
       </Card>
 
       <Text style={styles.section}>Security</Text>
@@ -105,7 +112,11 @@ export const ProfileScreen: React.FC = () => {
 };
 
 const styles = StyleSheet.create({
-  avatar: { width: 72, height: 72, borderRadius: 36, backgroundColor: colors.primary[600], alignItems: 'center', justifyContent: 'center' },
+  avatarRing: {
+    width: 84, height: 84, borderRadius: 42, borderWidth: 2.5, borderColor: colors.secondary[500],
+    alignItems: 'center', justifyContent: 'center',
+  },
+  avatar: { width: 70, height: 70, borderRadius: 35, backgroundColor: colors.primary[600], alignItems: 'center', justifyContent: 'center' },
   avatarText: { ...typography.h1, color: colors.white },
   section: { ...typography.overline, color: colors.textMuted, marginTop: spacing.lg, marginBottom: spacing.sm },
   row: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: spacing.base, paddingVertical: 14 },

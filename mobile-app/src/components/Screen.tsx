@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, ScrollView, RefreshControl, StyleProp, ViewStyl
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
-import { colors, spacing, typography } from '@/theme';
+import { colors, radius, spacing, typography, shadow } from '@/theme';
 
 export const Screen: React.FC<{
   children: React.ReactNode;
@@ -19,16 +19,16 @@ export const Screen: React.FC<{
 }> = ({ children, title, subtitle, onBack, right, scroll = true, refreshing, onRefresh, contentStyle, padded = true }) => {
   const insets = useSafeAreaInsets();
   const header = title ? (
-    <View style={[styles.header, { paddingTop: insets.top + 6 }]}>
+    <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
       <View style={styles.headerRow}>
         {onBack && (
           <TouchableOpacity onPress={onBack} style={styles.backBtn} hitSlop={10}>
-            <Ionicons name="chevron-back" size={24} color={colors.textPrimary} />
+            <Ionicons name="arrow-back" size={20} color={colors.textPrimary} />
           </TouchableOpacity>
         )}
         <View style={{ flex: 1 }}>
-          <Text style={[typography.h2, { color: colors.textPrimary }]} numberOfLines={1}>{title}</Text>
-          {subtitle ? <Text style={[typography.caption, { color: colors.textSecondary }]} numberOfLines={1}>{subtitle}</Text> : null}
+          <Text style={[onBack ? typography.h2 : typography.h1, { color: colors.textPrimary }]} numberOfLines={1}>{title}</Text>
+          {subtitle ? <Text style={[typography.caption, { color: colors.textSecondary, marginTop: 1 }]} numberOfLines={1}>{subtitle}</Text> : null}
         </View>
         {right}
       </View>
@@ -47,10 +47,10 @@ export const Screen: React.FC<{
       {header}
       {scroll ? (
         <ScrollView
-          contentContainerStyle={{ paddingBottom: insets.bottom + 32, paddingTop: spacing.sm }}
+          contentContainerStyle={{ paddingBottom: insets.bottom + 24, paddingTop: spacing.sm }}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
-          refreshControl={onRefresh ? <RefreshControl refreshing={!!refreshing} onRefresh={onRefresh} tintColor={colors.primary[600]} /> : undefined}
+          refreshControl={onRefresh ? <RefreshControl refreshing={!!refreshing} onRefresh={onRefresh} tintColor={colors.primary[600]} colors={[colors.primary[600]]} /> : undefined}
         >
           {body}
         </ScrollView>
@@ -63,7 +63,10 @@ export const Screen: React.FC<{
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
-  header: { paddingHorizontal: spacing.base, paddingBottom: spacing.sm, backgroundColor: colors.surface, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
+  header: { paddingHorizontal: spacing.base, paddingBottom: spacing.md, backgroundColor: colors.background },
   headerRow: { flexDirection: 'row', alignItems: 'center' },
-  backBtn: { marginRight: 6, marginLeft: -6 },
+  backBtn: {
+    width: 38, height: 38, borderRadius: radius.md, backgroundColor: colors.surface,
+    alignItems: 'center', justifyContent: 'center', marginRight: spacing.md, ...shadow.sm,
+  },
 });

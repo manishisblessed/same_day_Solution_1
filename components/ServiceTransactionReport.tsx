@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { apiFetch } from '@/lib/api-client'
+import { cleanDescription } from '@/lib/format'
 import NetworkUserFilter, { NetworkFilterValue } from '@/components/reports/NetworkUserFilter'
 import {
   FileBarChart, Download, Calendar, Filter, Search,
@@ -989,7 +990,7 @@ function ViewTransactionModal({ txn, userRole, onClose }: { txn: Transaction; us
             <DetailRow label="Payment Mode" value={txn.payment_mode} />
             <DetailRow label="Card Type" value={txn.card_type} />
             <DetailRow label="Device Serial" value={txn.device_serial} />
-            <DetailRow label="Description" value={txn.description} />
+            <DetailRow label="Description" value={cleanDescription(txn.description)} />
           </div>
 
           {/* Financial Details */}

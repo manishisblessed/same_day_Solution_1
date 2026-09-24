@@ -43,3 +43,15 @@ export function maskAadhaar(v?: string | null): string {
 export function toPaise(rupees: number): number {
   return Math.round(rupees * 100);
 }
+
+/**
+ * Remove the internal charge/GST breakdown from a transaction description.
+ * e.g. "CC ₹34220 + ₹29.5 GST | INDUSIND CREDIT CARD" -> "CC ₹34220 | INDUSIND CREDIT CARD"
+ */
+export function cleanDescription<T extends string | null | undefined>(desc: T): T {
+  if (!desc) return desc;
+  return desc
+    .replace(/\s*\+\s*₹?[\d.,]+\s*(?:GST|charge)/gi, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim() as T;
+}

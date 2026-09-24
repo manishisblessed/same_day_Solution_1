@@ -4,10 +4,11 @@ import { supabase } from '@/lib/supabase';
 import { secureStorage } from '@/lib/secureStore';
 import { setUnauthorizedHandler, ApiError } from '@/lib/api';
 import { newSessionToken } from '@/lib/device';
-import { fetchMe, mobileLogin, registerSession, validateSession, endSession } from '@/api/auth';
+import { fetchMe, mobileLogin, resolveMe, registerSession, validateSession, endSession } from '@/api/auth';
 import { AuthUser } from '@/api/types';
 
 const SESSION_TOKEN_KEY = 'sd_session_token';
+const ALLOWED_ROLES = new Set(['retailer', 'partner', 'master_partner', 'sub_partner']);
 
 interface AuthState {
   user: AuthUser | null;
@@ -62,8 +63,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       await doSignOut();
       return;
     }
-    if (me.role !== 'retailer') {
-      await doSignOut('This app is for retailers only.');
+    if (!ALLOWED_ROLES.has(me.role)) {
+      await doSignOut('This app supports retailer and partner accounts only.');
       return;
     }
     sessionTokenRef.current = await secureStorage.getItem(SESSION_TOKEN_KEY);
@@ -90,11 +91,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const { error: setErr } = await supabase.auth.setSession({ access_token, refresh_token });
       if (setErr) throw new Error(setErr.message);
 
-      const me = await fetchMe();
+      const me = await resolveMe(email);
       if (!me) throw new Error('Could not load your account. Please try again.');
-      if (me.role !== 'retailer') {
+      if (!ALLOWED_ROLES.has(me.role)) {
         await doSignOut();
-        throw new Error('This app is for retailers only.');
+        throw new Error('This app supports retailer and partner accounts only.');
       }
 
       // Register a single-session row (this ends any other active session).
@@ -115,7 +116,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const refreshUser = useCallback(async () => {
     const me = await fetchMe();
-    if (me?.role === 'retailer') setUser(me);
+    if (me && ALLOWED_ROLES.has(me.role)) setUser(me);
   }, []);
 
   // Detect being kicked (single-session enforcement) when app returns to foreground.
