@@ -170,7 +170,7 @@ export async function POST(
 
     const { data: existingTxn } = await supabase
       .from('razorpay_pos_transactions')
-      .select('id, wallet_credited, retailer_id, display_status, partner_wallet_credited, partner_callback_sent_at')
+      .select('id, wallet_credited, retailer_id, display_status, partner_wallet_credited, partner_callback_sent_at, partner_id')
       .eq('txn_id', `PL_${txnId}`)
       .maybeSingle()
 
@@ -334,7 +334,21 @@ export async function POST(
         logPrefix: `Partner Reversal/${merchantSlug}`,
       })
       if (existingTxn?.partner_wallet_credited || existingTxn?.wallet_credited) {
-        console.warn(`[PineLab/${merchantSlug}] REVERSAL AFTER SETTLEMENT — clawback needed txn=PL_${txnId} amount=${amount}`)
+        console.warn(`[PineLab/${merchantSlug}] REVERSAL AFTER SETTLEMENT — covering from reserve txn=PL_${txnId} amount=${amount}`)
+        if (existingTxn?.partner_id) {
+          try {
+            const { coverReversalFromReserve } = await import('@/lib/settlement/partner-reserve')
+            void coverReversalFromReserve({
+              supabase,
+              partnerId: existingTxn.partner_id,
+              txnId: `PL_${txnId}`,
+              lossAmount: amount || 0,
+              reason: `pinelab-webhook reversal PL_${txnId}`,
+            })
+          } catch (err: any) {
+            console.error(`[PineLab/${merchantSlug}] reserve cover error PL_${txnId}:`, err?.message || err)
+          }
+        }
       }
     } else if (tid) {
       // Normalized fields are spread OVER the raw provider payload: additive, so
@@ -370,8 +384,19 @@ export async function POST(
       const partnerId = await resolvePartnerIdByTid(supabase, tid, logPrefix, `PL_${txnId}`)
       const endpoints = partnerId ? await resolvePartnerEndpoints(supabase, partnerId, 'pos') : []
 
+      // Confirmation micro-hold (Phase 1/4): a fresh SUCCESS is not forwarded
+      // until it has survived PINELAB_FORWARD_HOLD_SECONDS still-SUCCESS. When
+      // held, we leave partner_callback_sent_at NULL so the polling sync (which
+      // re-checks live status every cycle) forwards it later once aged — or the
+      // reversal path fires instead if it flipped. Prevents an instant-settling
+      // partner from acting on an auth-time success that auto-reverses.
+      const { shouldHoldForward } = await import('@/lib/pinelab/forward-hold')
+      const holdForward = shouldHoldForward(createdTime.toISOString(), amount || 0)
+
       if (partnerId && endpoints.length > 0) {
-        if (displayStatus === 'SUCCESS') {
+        if (displayStatus === 'SUCCESS' && holdForward) {
+          console.log(`[PineLab/${merchantSlug}] Holding fresh SUCCESS forward txn=PL_${txnId} (confirmation window) — sync will deliver once aged`)
+        } else if (displayStatus === 'SUCCESS') {
           // Atomically claim: only the winner (this webhook OR the sync) sends,
           // so a SUCCESS transaction is delivered exactly once across channels.
           const { data: claimed } = await supabase

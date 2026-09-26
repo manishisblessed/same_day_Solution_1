@@ -213,6 +213,15 @@ export async function runPartnerT1Settlement(): Promise<{ processed: number; fai
     )
     const { validatePartnerTxnForSettlement } = await import('@/lib/partner-settlement')
     const { raiseSettlementAlert, resolveSettlementAlerts } = await import('@/lib/settlement-alerts')
+    const { getPartnerReserveConfig, computeReserveHold, recordReserveHold, releaseMatureReserve } = await import('@/lib/settlement/partner-reserve')
+
+    // Return matured rolling-reserve holds to partner wallets before settling
+    // today's batch (keeps the reserve rolling forward each cycle).
+    try {
+      await releaseMatureReserve({ supabase })
+    } catch (err: any) {
+      console.error('[Partner T1-Cron] Reserve release error:', err?.message || err)
+    }
 
     const beforeDate = new Date(new Date().setHours(0, 0, 0, 0))
     const pendingTransactions = await getPendingPartnerT1Transactions(beforeDate)
@@ -236,6 +245,9 @@ export async function runPartnerT1Settlement(): Promise<{ processed: number; fai
       // Process each partner
       for (const [partnerId, transactions] of transactionsByPartner) {
         console.log(`[Partner T1-Cron] Partner ${partnerId}: Processing ${transactions.length} transaction(s)`)
+
+        // Rolling-reserve config for this partner (0% = disabled → no hold-back).
+        const reserveCfg = await getPartnerReserveConfig(supabase, partnerId)
 
         let partnerGross = 0
         let partnerMdr = 0
@@ -336,11 +348,17 @@ export async function runPartnerT1Settlement(): Promise<{ processed: number; fai
               const txnHash = createHash('sha256').update(String(item.id)).digest('hex').slice(0, 12)
               const referenceId = `PARTNER-T1-${settleDate}-${partnerId}-${txnHash}`
 
+              // Rolling reserve: hold back a % of net into the reserve ledger and
+              // credit only the remainder to the wallet. NO-OP when percent = 0.
+              const reserveHold = computeReserveHold(net, reserveCfg.percent)
+              const creditAmount = Math.round((net - reserveHold) * 100) / 100
+              const reserveNote = reserveHold > 0 ? `, Reserve held: ₹${reserveHold.toFixed(2)}` : ''
+
               const walletResult = await creditPartnerWallet(
                 partnerId,
-                net,
+                creditAmount,
                 referenceId,
-                `T+1 Auto Settlement - txn ${item.txn_id}, Gross: ₹${gross.toFixed(2)}, MDR: ₹${mdr.toFixed(2)}, Net: ₹${net.toFixed(2)}`
+                `T+1 Auto Settlement - txn ${item.txn_id}, Gross: ₹${gross.toFixed(2)}, MDR: ₹${mdr.toFixed(2)}, Net: ₹${net.toFixed(2)}${reserveNote}`
               )
 
               if (!walletResult.success) {
@@ -358,6 +376,19 @@ export async function runPartnerT1Settlement(): Promise<{ processed: number; fai
                   .is('partner_wallet_credit_id', null)
                 totalFailed++
                 continue
+              }
+
+              // Record the reserve hold only after the wallet credit succeeded.
+              if (reserveHold > 0) {
+                await recordReserveHold({
+                  supabase,
+                  partnerId,
+                  txnId: item.txn_id,
+                  settlementReference: referenceId,
+                  holdAmount: reserveHold,
+                  holdDays: reserveCfg.holdDays,
+                  description: `Reserve hold (T+1) for ${item.txn_id}`,
+                })
               }
 
               await supabase

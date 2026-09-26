@@ -98,6 +98,7 @@ interface DbRow {
   display_status: string
   wallet_credited: boolean | null
   partner_wallet_credited: boolean | null
+  partner_id: string | null
 }
 
 async function reconcileMerchant(
@@ -140,7 +141,7 @@ async function reconcileMerchant(
   while (true) {
     const { data, error } = await supabase
       .from('razorpay_pos_transactions')
-      .select('id, txn_id, amount, tid, device_serial, mid_code, rrn, transaction_time, display_status, wallet_credited, partner_wallet_credited')
+      .select('id, txn_id, amount, tid, device_serial, mid_code, rrn, transaction_time, display_status, wallet_credited, partner_wallet_credited, partner_id')
       .eq('display_status', 'SUCCESS')
       .eq('merchant_slug', slug)
       .gte('transaction_time', fromIso.includes('T') ? `${fromIso}+05:30` : fromIso)
@@ -207,7 +208,21 @@ async function processRow(
 
     if (wasSettledToWallet) {
       res.clawbackNeeded++
-      console.warn(`[PinelabRecon/${slug}] REVERSAL AFTER SETTLEMENT — clawback needed txn=${row.txn_id} amount=${row.amount}`)
+      console.warn(`[PinelabRecon/${slug}] REVERSAL AFTER SETTLEMENT — covering from reserve txn=${row.txn_id} amount=${row.amount}`)
+      if (apply && row.partner_id) {
+        try {
+          const { coverReversalFromReserve } = await import('@/lib/settlement/partner-reserve')
+          await coverReversalFromReserve({
+            supabase,
+            partnerId: row.partner_id,
+            txnId: row.txn_id,
+            lossAmount: Number(row.amount || 0),
+            reason: `pinelab-recon reversal ${row.txn_id}`,
+          })
+        } catch (err: any) {
+          res.errors.push(`reserve-cover ${row.txn_id}: ${err?.message || err}`)
+        }
+      }
     }
 
     // Tell the owning partner to remove/reverse it in their books.
@@ -325,7 +340,7 @@ async function reconcileStragglers(
 
   const { data, error } = await supabase
     .from('razorpay_pos_transactions')
-    .select('id, txn_id, amount, tid, device_serial, mid_code, rrn, transaction_time, display_status, wallet_credited, partner_wallet_credited')
+    .select('id, txn_id, amount, tid, device_serial, mid_code, rrn, transaction_time, display_status, wallet_credited, partner_wallet_credited, partner_id')
     .eq('merchant_slug', slug)
     .eq('display_status', 'SUCCESS')
     .is('reversed_at', null)

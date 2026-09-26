@@ -287,15 +287,30 @@ async function emitReversal(
   supabase: ReturnType<typeof getSupabaseAdmin>,
   prefixedId: string,
   dbRecord: ReturnType<typeof mapToDbRecord>,
-  existing: { partner_wallet_credited?: boolean | null; wallet_credited?: boolean | null },
+  existing: { partner_wallet_credited?: boolean | null; wallet_credited?: boolean | null; partner_id?: string | null },
   result: SyncResult
 ): Promise<void> {
   const wasSettled = !!(existing.partner_wallet_credited || existing.wallet_credited)
   if (wasSettled) {
-    // Money already moved to a wallet — reversal requires a manual clawback.
-    // We surface it loudly; automated debit is intentionally out of scope.
-    console.warn(`[PinelabSync] REVERSAL AFTER SETTLEMENT — clawback needed txn=${prefixedId} amount=${dbRecord.amount}`)
+    // Money already moved to a partner wallet — draw the loss down from the
+    // partner's rolling reserve automatically. Any uncovered shortfall is
+    // surfaced loudly for a finance follow-up.
+    console.warn(`[PinelabSync] REVERSAL AFTER SETTLEMENT — covering from reserve txn=${prefixedId} amount=${dbRecord.amount}`)
     result.errors.push(`reversal-after-settlement:${prefixedId}`)
+    if (existing.partner_id) {
+      try {
+        const { coverReversalFromReserve } = await import('@/lib/settlement/partner-reserve')
+        await coverReversalFromReserve({
+          supabase,
+          partnerId: existing.partner_id,
+          txnId: prefixedId,
+          lossAmount: dbRecord.amount,
+          reason: `pinelab-sync reversal ${prefixedId}`,
+        })
+      } catch (err: any) {
+        result.errors.push(`reserve-cover ${prefixedId}: ${err?.message || err}`)
+      }
+    }
   }
 
   const reversalPayload = {
@@ -657,12 +672,21 @@ async function syncMerchant(
           // re-sending here (would spam a rejecting endpoint); the POS callback
           // retry cron re-attempts off the delivery log, and admin replay covers
           // manual cases.
+          // Confirmation micro-hold (Phase 1/4): defer forwarding a genuinely
+          // fresh SUCCESS until it has survived PINELAB_FORWARD_HOLD_SECONDS
+          // still-SUCCESS, so fast terminal auto-reversals are caught (and never
+          // forwarded) before an instant-settling partner acts on them. Held
+          // rows are simply picked up by a later sync cycle once aged.
+          const { shouldHoldForward } = await import('@/lib/pinelab/forward-hold')
+          const holdForward = shouldHoldForward(dbRecord.transaction_time, dbRecord.amount)
+
           if (
             rowId &&
             dbRecord.display_status === 'SUCCESS' &&
             dbRecord.amount > 0 &&
             owningPartnerId &&
-            !existing?.partner_callback_sent_at
+            !existing?.partner_callback_sent_at &&
+            !holdForward
           ) {
             const { resolvePartnerEndpoints } = await import('@/lib/partner-webhook/deliver')
             const endpoints = await resolvePartnerEndpoints(supabase, owningPartnerId, 'pos')

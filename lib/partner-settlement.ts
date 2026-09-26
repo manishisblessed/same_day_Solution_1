@@ -234,6 +234,7 @@ export async function settlePartnerTransactionsT0(
   const supabase = getSupabaseAdmin()
   const { calculatePartnerMDR, creditPartnerWallet } = await import('@/lib/mdr-scheme/settlement.service')
   const { raiseSettlementAlert } = await import('@/lib/settlement-alerts')
+  const { getPartnerReserveConfig, computeReserveHold, recordReserveHold } = await import('@/lib/settlement/partner-reserve')
 
   // Partner-level gate: never settle for an inactive/paused partner, and only
   // for a settlement mode that permits this path.
@@ -381,11 +382,19 @@ export async function settlePartnerTransactionsT0(
   const referenceId = `${referencePrefix}-${settleDate}-${partnerId}-${batchHash}`
 
   const label = referencePrefix === 'PARTNER-INSTANT' ? 'Instant Settlement' : 'Pulse Pay T+0 Settlement'
+
+  // Rolling reserve: hold back a % of the batch net into the reserve ledger and
+  // credit only the remainder to the wallet. NO-OP when percent = 0.
+  const reserveCfg = await getPartnerReserveConfig(supabase, partnerId)
+  const reserveHold = computeReserveHold(claimedNet, reserveCfg.percent)
+  const creditAmount = Math.round((claimedNet - reserveHold) * 100) / 100
+  const reserveNote = reserveHold > 0 ? `, Reserve held: ₹${reserveHold.toFixed(2)}` : ''
+
   const walletResult = await creditPartnerWallet(
     partnerId,
-    claimedNet,
+    creditAmount,
     referenceId,
-    `${label} - ${claimedTxns.length} txn(s), Gross: ₹${claimedGross.toFixed(2)}, MDR: ₹${claimedMdr.toFixed(2)}, Net: ₹${claimedNet.toFixed(2)}`
+    `${label} - ${claimedTxns.length} txn(s), Gross: ₹${claimedGross.toFixed(2)}, MDR: ₹${claimedMdr.toFixed(2)}, Net: ₹${claimedNet.toFixed(2)}${reserveNote}`
   )
 
   if (!walletResult.success) {
@@ -412,6 +421,19 @@ export async function settlePartnerTransactionsT0(
     result.error = walletResult.error || 'Wallet credit failed'
     result.failure_reasons = failureReasons
     return result
+  }
+
+  // Record the reserve hold only after the wallet credit succeeded.
+  if (reserveHold > 0) {
+    await recordReserveHold({
+      supabase,
+      partnerId,
+      txnId: referenceId,
+      settlementReference: referenceId,
+      holdAmount: reserveHold,
+      holdDays: reserveCfg.holdDays,
+      description: `Reserve hold (${referencePrefix}) for ${claimedTxns.length} txn(s)`,
+    })
   }
 
   for (const item of claimedTxns) {
