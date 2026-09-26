@@ -53,6 +53,8 @@ interface RetailerRow {
   t1_settlement_paused_by: string | null
   settlement_mode_allowed: 'T1' | 'T0_T1' | 'INSTANT' | null
   status: string
+  reserve_percent?: number | null
+  reserve_hold_days?: number | null
 }
 
 export default function T1SettlementControl({ readOnly = false }: { readOnly?: boolean }) {
@@ -68,6 +70,8 @@ export default function T1SettlementControl({ readOnly = false }: { readOnly?: b
   const [editHour, setEditHour] = useState(7)
   const [editMinute, setEditMinute] = useState(0)
   const [togglingId, setTogglingId] = useState<string | null>(null)
+  const [reserveEdits, setReserveEdits] = useState<Record<string, { percent: string; days: string }>>({})
+  const [savingReserveId, setSavingReserveId] = useState<string | null>(null)
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [alerts, setAlerts] = useState<SettlementAlert[]>([])
   const [resolvingAlertId, setResolvingAlertId] = useState<string | null>(null)
@@ -245,6 +249,46 @@ export default function T1SettlementControl({ readOnly = false }: { readOnly?: b
       showMessage('error', err.message)
     } finally {
       setTogglingId(null)
+    }
+  }
+
+  const getReserveEdit = (entity: RetailerRow) =>
+    reserveEdits[entity.partner_id] ?? {
+      percent: String(entity.reserve_percent ?? 0),
+      days: String(entity.reserve_hold_days ?? 7),
+    }
+
+  const handleSaveReserve = async (partnerId: string) => {
+    const edit = reserveEdits[partnerId]
+    if (!edit) return
+    const percent = Number(edit.percent)
+    const days = Number(edit.days)
+    if (!Number.isFinite(percent) || percent < 0 || percent > 100) {
+      showMessage('error', 'Reserve % must be between 0 and 100')
+      return
+    }
+    if (!Number.isInteger(days) || days < 0 || days > 365) {
+      showMessage('error', 'Hold days must be a whole number between 0 and 365')
+      return
+    }
+    setSavingReserveId(partnerId)
+    try {
+      const res = await apiFetch('/api/admin/settlement/partner-t1-pause', {
+        method: 'POST',
+        body: JSON.stringify({ partner_id: partnerId, reserve_percent: percent, reserve_hold_days: days }),
+      })
+      const data = await res.json()
+      if (data.success) {
+        showMessage('success', data.message || 'Reserve updated')
+        setReserveEdits(prev => { const n = { ...prev }; delete n[partnerId]; return n })
+        await fetchEntities()
+      } else {
+        showMessage('error', data.error || 'Failed to update reserve')
+      }
+    } catch (err: any) {
+      showMessage('error', err.message)
+    } finally {
+      setSavingReserveId(null)
     }
   }
 
@@ -772,6 +816,7 @@ export default function T1SettlementControl({ readOnly = false }: { readOnly?: b
                             {entity.settlement_mode_allowed === 'INSTANT' ? 'Instant (per txn)' : entity.settlement_mode_allowed === 'T0_T1' ? 'T+0 + T+1' : 'T+1 only'}
                           </span>
                         ) : (
+                          <>
                           <select
                             value={entity.settlement_mode_allowed || 'T1'}
                             onChange={(e) => {
@@ -793,6 +838,35 @@ export default function T1SettlementControl({ readOnly = false }: { readOnly?: b
                             <option value="T0_T1">T+0 + T+1 (Pulse Pay)</option>
                             <option value="INSTANT">Instant (per txn)</option>
                           </select>
+                          <div className="mt-2 flex items-center justify-center gap-1.5" title="Rolling reserve held back from each settlement to cover later reversals. 0% = off.">
+                            <input
+                              type="number" min={0} max={100} step={0.1}
+                              value={getReserveEdit(entity).percent}
+                              onChange={(e) => setReserveEdits(prev => ({ ...prev, [entity.partner_id]: { ...getReserveEdit(entity), percent: e.target.value } }))}
+                              className="w-14 text-xs rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300 px-1.5 py-1 focus:ring-2 focus:ring-primary-500 focus:outline-none"
+                              placeholder="0"
+                            />
+                            <span className="text-xs text-gray-500">%</span>
+                            <input
+                              type="number" min={0} max={365} step={1}
+                              value={getReserveEdit(entity).days}
+                              onChange={(e) => setReserveEdits(prev => ({ ...prev, [entity.partner_id]: { ...getReserveEdit(entity), days: e.target.value } }))}
+                              className="w-14 text-xs rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300 px-1.5 py-1 focus:ring-2 focus:ring-primary-500 focus:outline-none"
+                              placeholder="7"
+                            />
+                            <span className="text-xs text-gray-500">d</span>
+                            {reserveEdits[entity.partner_id] && (
+                              <button
+                                type="button"
+                                onClick={() => handleSaveReserve(entity.partner_id)}
+                                disabled={savingReserveId === entity.partner_id}
+                                className="px-2 py-1 rounded-lg text-xs font-medium bg-primary-100 text-primary-700 hover:bg-primary-200 dark:bg-primary-900/30 dark:text-primary-300 dark:hover:bg-primary-900/50 transition-colors disabled:opacity-50"
+                              >
+                                {savingReserveId === entity.partner_id ? '...' : 'Save'}
+                              </button>
+                            )}
+                          </div>
+                          </>
                         )
                       ) : readOnly ? (
                         <span className="text-xs text-gray-700 dark:text-gray-300">

@@ -51,9 +51,28 @@ export async function POST(request: NextRequest) {
       messages.push(`Settlement mode set to ${modeLabel}`)
     }
 
+    // Rolling-reserve config: % of each settlement held back, and the hold period.
+    const { reserve_percent, reserve_hold_days } = body
+    if (reserve_percent !== undefined && reserve_percent !== null && reserve_percent !== '') {
+      const rp = Number(reserve_percent)
+      if (!Number.isFinite(rp) || rp < 0 || rp > 100) {
+        return NextResponse.json({ error: 'reserve_percent must be between 0 and 100' }, { status: 400 })
+      }
+      updates.reserve_percent = Math.round(rp * 1000) / 1000
+      messages.push(`Rolling reserve set to ${updates.reserve_percent}%`)
+    }
+    if (reserve_hold_days !== undefined && reserve_hold_days !== null && reserve_hold_days !== '') {
+      const rd = Number(reserve_hold_days)
+      if (!Number.isInteger(rd) || rd < 0 || rd > 365) {
+        return NextResponse.json({ error: 'reserve_hold_days must be an integer between 0 and 365' }, { status: 400 })
+      }
+      updates.reserve_hold_days = rd
+      messages.push(`Reserve hold period set to ${rd} day(s)`)
+    }
+
     if (Object.keys(updates).length === 0) {
       return NextResponse.json(
-        { error: 'Nothing to update. Provide paused or settlement_mode.' },
+        { error: 'Nothing to update. Provide paused, settlement_mode, reserve_percent or reserve_hold_days.' },
         { status: 400 }
       )
     }
@@ -81,7 +100,7 @@ export async function POST(request: NextRequest) {
       .from('partners')
       .update(updates)
       .eq('id', partner_id)
-      .select('id, t1_settlement_paused, settlement_mode_allowed, t1_settlement_start_at')
+      .select('id, t1_settlement_paused, settlement_mode_allowed, t1_settlement_start_at, reserve_percent, reserve_hold_days')
       .single()
 
     if (error) {

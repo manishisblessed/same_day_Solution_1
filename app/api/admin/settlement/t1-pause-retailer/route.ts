@@ -162,7 +162,7 @@ export async function GET(request: NextRequest) {
 
     const { data: partners } = await supabase
       .from('partners')
-      .select('id, name, business_name, email, phone, t1_settlement_paused, settlement_mode_allowed, status')
+      .select('id, name, business_name, email, phone, t1_settlement_paused, settlement_mode_allowed, status, reserve_percent, reserve_hold_days')
       .order('name')
 
     return NextResponse.json({
@@ -179,6 +179,8 @@ export async function GET(request: NextRequest) {
         t1_settlement_paused_by: null,
         settlement_mode_allowed: p.settlement_mode_allowed || 'T1',
         status: p.status,
+        reserve_percent: p.reserve_percent ?? 0,
+        reserve_hold_days: p.reserve_hold_days ?? 7,
       })),
     })
   } catch (err: any) {
