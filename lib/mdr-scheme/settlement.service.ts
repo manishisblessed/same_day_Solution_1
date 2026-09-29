@@ -18,15 +18,15 @@ import type {
   CreateTransactionInput,
   SettlementType,
 } from '@/types/mdr-scheme.types';
-import type { GlobalScheme, RetailerScheme } from '@/types/mdr-scheme.types';
+import type { RetailerScheme } from '@/types/mdr-scheme.types';
 
 /** TDS withheld on every upline (distributor / MD) commission payout (2%). */
 const UPLINE_COMMISSION_TDS_RATE = 0.02;
 
 /**
  * Calculate MDR and fees for a transaction
- * First tries the new scheme management system (schemes + scheme_mdr_rates + scheme_mappings),
- * then falls back to the legacy system (retailer_schemes / global_schemes).
+ * First tries the assigned scheme (schemes + scheme_mdr_rates + scheme_mappings),
+ * then an explicitly assigned custom retailer_scheme. Global/default MDR is never used.
  */
 export async function calculateMDR(
   input: SettlementCalculationInput
@@ -174,8 +174,23 @@ export async function calculateMDR(
           mdrRate = await tryCardFallback(null);
         }
 
+        if (resolved.resolved_via === 'global') {
+          console.error(`[MDR] BLOCKED: scheme "${resolved.scheme_name}" resolved via global fallback for retailer=${input.retailer_id} — refusing settlement`);
+          return {
+            success: false,
+            error: 'The scheme with this slab is not assigned. Please connect with the support team.',
+          };
+        }
+
         if (!mdrRate) {
-          console.warn(`[MDR] No rate found in scheme "${resolved.scheme_name}" (${resolved.scheme_id}) for company=${merchant_slug || 'ALL'}, mode=${mode}, card_type=${card_type}, brand_type=${brand_type}, classification=${card_classification}. Falling back to legacy.`);
+          // Scheme is assigned but has no covering MDR rate for this card/mode.
+          // Do not fall through to global/legacy pricing — that would settle at
+          // a rate the retailer was never assigned.
+          console.error(`[MDR] BLOCKED: No covering MDR rate in assigned scheme "${resolved.scheme_name}" (${resolved.scheme_id}) for company=${merchant_slug || 'ALL'}, mode=${mode}, card_type=${card_type}, brand_type=${brand_type}, classification=${card_classification}`);
+          return {
+            success: false,
+            error: 'The scheme with this slab is not assigned. Please connect with the support team.',
+          };
         }
 
         if (mdrRate) {
@@ -209,11 +224,13 @@ export async function calculateMDR(
         }
       }
     } catch (newSchemeErr) {
-      console.warn('[MDR] New scheme resolution failed, trying legacy:', newSchemeErr);
+      console.error('[MDR] Scheme resolution failed:', newSchemeErr);
     }
 
     // ================================================================
-    // Fallback to LEGACY scheme system (retailer_schemes / global_schemes)
+    // Explicit custom retailer_schemes only (per-retailer assignment).
+    // global_schemes fallback is intentionally gone — unmapped retailers
+    // must not inherit default POS pricing.
     // ================================================================
     if (retailer_mdr === null || distributor_mdr === null) {
       const { scheme, scheme_type } = await getSchemeForTransaction({
@@ -224,35 +241,24 @@ export async function calculateMDR(
         distributor_id: input.distributor_id || undefined,
       });
 
-      if (!scheme) {
+      if (!scheme || scheme_type !== 'custom') {
         return {
           success: false,
-          error: `No active scheme found for mode: ${mode}, card_type: ${card_type || 'N/A'}, brand_type: ${brand_type || 'N/A'}`,
+          error: 'The scheme with this slab is not assigned. Please connect with the support team.',
         };
       }
 
-      if (scheme_type === 'custom') {
-        const customScheme = scheme as RetailerScheme;
-        if (input.settlement_type === 'T0') {
-          retailer_mdr = customScheme.retailer_mdr_t0;
-          distributor_mdr = customScheme.distributor_mdr_t0;
-        } else {
-          retailer_mdr = customScheme.retailer_mdr_t1;
-          distributor_mdr = customScheme.distributor_mdr_t1;
-        }
+      const customScheme = scheme as RetailerScheme;
+      if (input.settlement_type === 'T0') {
+        retailer_mdr = customScheme.retailer_mdr_t0;
+        distributor_mdr = customScheme.distributor_mdr_t0;
       } else {
-        const globalScheme = scheme as GlobalScheme;
-        if (input.settlement_type === 'T0') {
-          retailer_mdr = globalScheme.rt_mdr_t0;
-          distributor_mdr = globalScheme.dt_mdr_t0;
-        } else {
-          retailer_mdr = globalScheme.rt_mdr_t1;
-          distributor_mdr = globalScheme.dt_mdr_t1;
-        }
+        retailer_mdr = customScheme.retailer_mdr_t1;
+        distributor_mdr = customScheme.distributor_mdr_t1;
       }
 
       usedSchemeId = scheme.id;
-      usedSchemeType = scheme_type || 'global';
+      usedSchemeType = 'custom';
     }
 
     // retailer_fee is charged to the retailer in both models.
@@ -807,6 +813,13 @@ export async function calculatePartnerMDR(
         });
         if (schemeResult && schemeResult.length > 0) {
           const resolved = schemeResult[0];
+          if (resolved.resolved_via === 'global') {
+            console.error(`[Partner MDR] BLOCKED: scheme "${resolved.scheme_name}" resolved via global fallback for partner=${partnerId}`);
+            return {
+              success: false,
+              error: 'The scheme with this slab is not assigned. Please connect with the support team.',
+            };
+          }
           // Match the partner_mdr rate by card_type + brand_type so brand-specific
           // slabs (e.g. AMEX @1.5%) are honoured instead of picking an arbitrary
           // row. A null card/brand means "don't filter" (ANY) rather than
@@ -891,7 +904,7 @@ export async function calculatePartnerMDR(
       );
       return {
         success: false,
-        error: `No active partner scheme found for mode: ${normalizedMode}`,
+        error: 'The scheme with this slab is not assigned. Please connect with the support team.',
       };
     }
 

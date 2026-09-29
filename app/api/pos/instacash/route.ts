@@ -205,7 +205,7 @@ export async function POST(request: NextRequest) {
       if (!result.success || result.settled === 0) {
         return NextResponse.json({
           success: false,
-          error: `Pulse Pay failed. ${result.error || (result.failure_reasons || []).join('; ')}`,
+          error: result.error || (result.failure_reasons || []).join('; ') || 'The scheme with this slab is not assigned. Please connect with the support team.',
           summary: {
             total_transactions: ownedTxns.length,
             settled: 0,
@@ -665,7 +665,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({
         success: false,
         batch_id: batch.id,
-        error: `Pulse Pay failed for all ${failedCount} transaction(s). ${failureReasons.join('; ')}`,
+        error: failureReasons.join('; ') || 'The scheme with this slab is not assigned. Please connect with the support team.',
         summary: {
           total_transactions: ownedTransactions.length,
           settled: 0,

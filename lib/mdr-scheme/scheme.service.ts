@@ -97,7 +97,7 @@ export async function getRetailerScheme(
 }
 
 /**
- * Get scheme for transaction (checks retailer_schemes first, then global_schemes)
+ * Get scheme for transaction (explicit custom retailer_schemes only).
  */
 export async function getSchemeForTransaction(
   params: SchemeQueryParams & { retailer_id: string }

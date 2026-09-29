@@ -3,8 +3,9 @@ import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { createClient, SupabaseClient } from '@supabase/supabase-js'
 import { addCorsHeaders } from '@/lib/cors'
 import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger'
-import { calculatePayoutCharge } from '@/lib/scheme/scheme.service'
+import { calculatePayoutCharge, resolveSchemeForUser } from '@/lib/scheme/scheme.service'
 import { rateLimit, RATE_LIMITS } from '@/lib/rate-limit'
+import { SCHEME_NOT_ASSIGNED, SCHEME_NOT_ASSIGNED_STATUS, SCHEME_NO_VALID_SLAB, hasCoveringPayoutSlab } from '@/lib/scheme-guard'
 
 // Generate idempotency key using crypto
 function generateIdempotencyKey(prefix: string): string {
@@ -15,28 +16,6 @@ function generateIdempotencyKey(prefix: string): string {
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
-
-// Legacy fallback: settlement_charge_slabs table
-async function calculateLegacySettlementCharge(supabase: SupabaseClient, amount: number): Promise<number> {
-  const { data: slabs, error } = await supabase
-    .from('settlement_charge_slabs')
-    .select('charge')
-    .eq('is_active', true)
-    .lte('min_amount', amount)
-    .gte('max_amount', amount)
-    .order('charge', { ascending: true })
-    .limit(1)
-    .single()
-
-  if (error || !slabs) {
-    if (amount <= 49999) return 20
-    if (amount <= 99999) return 30
-    if (amount <= 149999) return 50
-    return 70
-  }
-
-  return parseFloat(slabs.charge.toString())
-}
 
 interface SettlementChargeResult {
   charge: number
@@ -80,7 +59,7 @@ async function calculateSettlementCharge(
 
     const breakdown = await calculatePayoutCharge(userId, userRole, amount, 'IMPS', distributorId, mdId)
 
-    if (breakdown && breakdown.retailer_charge > 0) {
+    if (breakdown) {
       console.log(`[Settlement] Scheme charge: ₹${breakdown.retailer_charge} from "${breakdown.scheme_name}" via ${breakdown.resolved_via}`)
       return {
         charge: breakdown.retailer_charge,
@@ -95,17 +74,17 @@ async function calculateSettlementCharge(
       }
     }
   } catch (err) {
-    console.warn('[Settlement] Scheme engine failed, falling back to legacy:', err)
+    console.error('[Settlement] Scheme charge calculation failed:', err)
   }
 
-  // Fallback to legacy settlement_charge_slabs
-  const legacyCharge = await calculateLegacySettlementCharge(supabase, amount)
-  console.log(`[Settlement] Legacy charge: ₹${legacyCharge}`)
+  // No legacy/global fallback (financial safety): the caller pre-validates that a
+  // scheme with a covering payout slab exists, so reaching here means the charge
+  // could not be resolved — surface ₹0 with no scheme so nothing is mispriced.
   return {
-    charge: legacyCharge,
+    charge: 0,
     scheme_id: null,
     scheme_name: null,
-    resolved_via: 'legacy_slabs',
+    resolved_via: 'none',
     commission_split: null,
   }
 }
@@ -266,7 +245,38 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Calculate charge via scheme engine (with legacy fallback)
+    // FINANCIAL SAFETY: settlement must be priced by an assigned scheme that has a
+    // covering payout slab for this amount. No global/legacy fallback — block if
+    // there is no scheme or no valid slab so nothing settles mispriced.
+    let guardDistId: string | undefined
+    let guardMdId: string | undefined
+    if (user.role === 'retailer') {
+      const { data: r } = await supabase
+        .from('retailers')
+        .select('distributor_id, master_distributor_id')
+        .eq('partner_id', user.partner_id)
+        .maybeSingle()
+      guardDistId = r?.distributor_id || undefined
+      guardMdId = r?.master_distributor_id || undefined
+    } else if (user.role === 'distributor') {
+      const { data: d } = await supabase
+        .from('distributors')
+        .select('master_distributor_id')
+        .eq('partner_id', user.partner_id)
+        .maybeSingle()
+      guardMdId = d?.master_distributor_id || undefined
+    }
+
+    const settlementScheme = await resolveSchemeForUser(user.partner_id, user.role, 'payout', guardDistId, guardMdId)
+    if (!settlementScheme) {
+      return NextResponse.json(SCHEME_NOT_ASSIGNED, { status: SCHEME_NOT_ASSIGNED_STATUS })
+    }
+    const settlementSlabOk = await hasCoveringPayoutSlab(supabase, settlementScheme.scheme_id, amountDecimal, 'IMPS')
+    if (!settlementSlabOk) {
+      return NextResponse.json(SCHEME_NO_VALID_SLAB, { status: SCHEME_NOT_ASSIGNED_STATUS })
+    }
+
+    // Calculate charge via scheme engine (scheme-only; guard above guarantees a slab)
     const chargeResult = await calculateSettlementCharge(supabase, user.partner_id, user.role, amountDecimal)
     const charge = chargeResult.charge
     const netAmount = amountDecimal - charge

@@ -9,10 +9,15 @@ import {
   getIdempotencyKeyFromHeaders,
 } from '@/lib/security/idempotency'
 import { sendPayoutCallback } from '@/lib/payout-callback'
+import { resolvePartnerPayoutCharge, partnerHasCoveringPayoutSlab } from '@/lib/payout-charge'
+import { distributeServiceCommission } from '@/lib/commission/distribute-service-commission'
+import { SCHEME_NOT_ASSIGNED, SCHEME_NOT_ASSIGNED_STATUS, SCHEME_NO_VALID_SLAB } from '@/lib/scheme-guard'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 export const fetchCache = 'force-no-store'
+
+const GST_PERCENT = 18
 
 function getSupabase() {
   return createClient(
@@ -140,9 +145,29 @@ export async function POST(request: NextRequest) {
 
     const supabase = getSupabase()
 
-    // Fixed charges for partner payouts (no scheme lookup — that's for retailers)
-    const charges = 0
-    const totalAmount = amountNum + charges
+    // FINANCIAL SAFETY: payout must be priced by an assigned scheme that has a
+    // covering payout slab for this amount + mode. No fixed/₹0 fallback — block if
+    // there is no scheme or no valid slab so nothing transfers mispriced.
+    const { baseCharge, schemeId } = await resolvePartnerPayoutCharge(supabase, partner.id, amountNum, transferMode)
+    if (!schemeId) {
+      console.error(`[Partner Payout Transfer] BLOCKED: No scheme assigned for partner=${partner.id} — refusing transfer`)
+      return NextResponse.json(
+        { success: false, error: { code: SCHEME_NOT_ASSIGNED.code, message: SCHEME_NOT_ASSIGNED.error } },
+        { status: SCHEME_NOT_ASSIGNED_STATUS }
+      )
+    }
+    const payoutSlabOk = await partnerHasCoveringPayoutSlab(supabase, partner.id, amountNum, transferMode)
+    if (!payoutSlabOk) {
+      console.error(`[Partner Payout Transfer] BLOCKED: No valid payout slab for partner=${partner.id} amount=${amountNum} mode=${transferMode}`)
+      return NextResponse.json(
+        { success: false, error: { code: SCHEME_NO_VALID_SLAB.code, message: SCHEME_NO_VALID_SLAB.error } },
+        { status: SCHEME_NOT_ASSIGNED_STATUS }
+      )
+    }
+
+    const gstAmount = Math.round((baseCharge * GST_PERCENT) / 100 * 100) / 100
+    const charges = Math.round((baseCharge + gstAmount) * 100) / 100
+    const totalAmount = Math.round((amountNum + charges) * 100) / 100
 
     // Check partner wallet balance
     const { data: walletBalance, error: balErr } = await supabase.rpc('get_partner_wallet_balance', {
@@ -269,7 +294,9 @@ export async function POST(request: NextRequest) {
       p_partner_id: partner.id,
       p_amount: totalAmount,
       p_payout_transaction_id: payoutTx.id,
-      p_description: `Payout to ${accountHolderName} via ${transferMode}`,
+      p_description: charges > 0
+        ? `Payout ₹${amountNum} + charge ₹${baseCharge} + GST ₹${gstAmount} = ₹${totalAmount} to ${accountHolderName} via ${transferMode}`
+        : `Payout to ${accountHolderName} via ${transferMode}`,
       p_reference_id: clientRefId,
       p_service_type: 'payout',
     })
@@ -339,6 +366,22 @@ export async function POST(request: NextRequest) {
     }
     finalizeIdempotencyKey({ scope: `partner_payout:${partner.id}`, key: idempotencyKey || '', status: 'completed', response: successResponse }).catch(() => {})
     if (finalStatus === 'success') {
+      // Book the collected charge as company revenue. Partners have no downstream
+      // retailer/distributor, so the full charge folds into company revenue.
+      if (charges > 0) {
+        const commResult = await distributeServiceCommission({
+          supabase,
+          service: 'payout',
+          refPrefix: 'PAYOUT',
+          refKey: clientRefId,
+          transactionUuid: payoutTx.id,
+          totalCharge: charges,
+          retailer: { id: partner.id, role: 'partner', commission: 0 },
+          distributor: null,
+          remarksSuffix: `on ₹${amountNum} partner payout`,
+        })
+        if (commResult.errors.length) console.error('[Partner Payout Transfer] Commission errors:', commResult.errors)
+      }
       sendPayoutCallback(partner.id, { ...payoutTx, status: finalStatus, transaction_id: transferResult.transaction_id }).catch(() => {})
     }
     return NextResponse.json(successResponse)
