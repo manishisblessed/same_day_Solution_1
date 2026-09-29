@@ -4,6 +4,7 @@ import { authenticatePartner, PartnerAuthError, partnerCanUseApi } from '@/lib/p
 import { payRequest, generateAgentTransactionId, getBBPSWalletBalance } from '@/services/bbps'
 import { paiseToRupees } from '@/lib/bbps/currency'
 import { distributeServiceCommission } from '@/lib/commission/distribute-service-commission'
+import { SCHEME_NOT_ASSIGNED, SCHEME_NOT_ASSIGNED_STATUS, SCHEME_NO_VALID_SLAB, hasCoveringBbpsSlab } from '@/lib/scheme-guard'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -197,7 +198,28 @@ export async function POST(request: NextRequest) {
           }
         }
       }
-    } catch { /* use default charge */ }
+    } catch { /* handled by the scheme guard below */ }
+
+    // FINANCIAL SAFETY: no explicitly assigned scheme => refuse the payment.
+    // Previously an unmapped user silently fell back to a hardcoded ₹20 charge.
+    if (!resolvedSchemeId) {
+      console.error(`[Partner BBPS Pay] BLOCKED: No scheme assigned for retailer=${retailer_id} (partner=${partner.id}) — refusing transaction`)
+      return NextResponse.json(
+        { success: false, error: { code: SCHEME_NOT_ASSIGNED.code, message: SCHEME_NOT_ASSIGNED.error } },
+        { status: SCHEME_NOT_ASSIGNED_STATUS }
+      )
+    }
+
+    // A scheme is assigned but it must have a slab covering this amount + category,
+    // otherwise the charge falls back to a default/₹0. Refuse instead.
+    const bbpsSlabOk = await hasCoveringBbpsSlab(supabase, resolvedSchemeId, billAmountInRupees, additional_info?.category || null)
+    if (!bbpsSlabOk) {
+      console.error(`[Partner BBPS Pay] BLOCKED: No valid slab for retailer=${retailer_id} scheme=${resolvedSchemeId} amount=${billAmountInRupees}`)
+      return NextResponse.json(
+        { success: false, error: { code: SCHEME_NO_VALID_SLAB.code, message: SCHEME_NO_VALID_SLAB.error } },
+        { status: SCHEME_NOT_ASSIGNED_STATUS }
+      )
+    }
 
     const totalAmountNeeded = billAmountInRupees + bbpsCharge
     if (walletBalance < totalAmountNeeded) {

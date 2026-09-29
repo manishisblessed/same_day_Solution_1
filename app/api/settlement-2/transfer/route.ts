@@ -13,7 +13,7 @@ import {
 } from '@/lib/security/idempotency'
 import { toUserSafeError } from '@/lib/provider-error'
 import { distributeServiceCommission, reverseServiceCommission } from '@/lib/commission/distribute-service-commission'
-import { SCHEME_NOT_ASSIGNED, SCHEME_NOT_ASSIGNED_STATUS } from '@/lib/scheme-guard'
+import { SCHEME_NOT_ASSIGNED, SCHEME_NOT_ASSIGNED_STATUS, SCHEME_NO_VALID_SLAB } from '@/lib/scheme-guard'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -298,6 +298,14 @@ export async function POST(request: NextRequest) {
     if (!hasAssignedScheme) {
       console.error(`[Settlement-2] BLOCKED: No scheme assigned for user=${user.partner_id} — refusing transfer`)
       const response = NextResponse.json(SCHEME_NOT_ASSIGNED, { status: SCHEME_NOT_ASSIGNED_STATUS })
+      return addCorsHeaders(request, response)
+    }
+
+    // A scheme is assigned but no slab priced this amount/mode (baseCharges stayed 0)
+    // → refuse rather than settle for free.
+    if (baseCharges <= 0) {
+      console.error(`[Settlement-2] BLOCKED: No valid slab for user=${user.partner_id} scheme=${resolvedSchemeId} amount=${amountNum} mode=${mode}`)
+      const response = NextResponse.json(SCHEME_NO_VALID_SLAB, { status: SCHEME_NOT_ASSIGNED_STATUS })
       return addCorsHeaders(request, response)
     }
 

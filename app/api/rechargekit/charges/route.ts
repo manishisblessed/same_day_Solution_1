@@ -5,6 +5,7 @@ import { authorizeSubPartner } from '@/lib/partner-access'
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
 import { createClient, SupabaseClient } from '@supabase/supabase-js'
 import { RECHARGEKIT_DEFAULT_BASE_CHARGE, isCreditCard2Enabled } from '@/services/rechargekit'
+import { SCHEME_SLAB_REQUIRED_MESSAGE, hasCoveringBbpsSlab } from '@/lib/scheme-guard'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -78,6 +79,7 @@ export async function GET(request: NextRequest) {
 
     let charges = null
     let schemeName: string | null = null
+    let resolvedSchemeId: string | null = null
     const schemeCategory = 'Credit Card'
 
     try {
@@ -93,6 +95,7 @@ export async function GET(request: NextRequest) {
         console.error('[Rechargekit Charges] Scheme RPC error:', schemeError)
       } else if (schemeResult?.length > 0) {
         schemeName = schemeResult[0].scheme_name
+        resolvedSchemeId = schemeResult[0].scheme_id
 
         const { data: chargeResult, error: chargeError } = await (supabase as any).rpc('calculate_bbps_charge_from_scheme', {
           p_scheme_id: schemeResult[0].scheme_id,
@@ -141,7 +144,13 @@ export async function GET(request: NextRequest) {
       console.error('[Rechargekit Charges] Scheme resolution error:', e)
     }
 
-    // Commercial fallback: ₹8 + GST (from Rechargekit commercial terms)
+    // A scheme with a slab covering this amount is required — otherwise the charge
+    // resolves to ₹0 and the transaction endpoint will refuse it.
+    const schemeAssigned = !!resolvedSchemeId &&
+      (await hasCoveringBbpsSlab(supabase, resolvedSchemeId, amount, schemeCategory))
+
+    // Commercial fallback kept only for display continuity; the pay endpoint still
+    // blocks when no valid slab is assigned.
     const baseCharge = charges?.retailer_charge || RECHARGEKIT_DEFAULT_BASE_CHARGE
     const gstAmount = Math.round((baseCharge * GST_PERCENT) / 100 * 100) / 100
     const totalCharge = Math.round((baseCharge + gstAmount) * 100) / 100
@@ -150,6 +159,8 @@ export async function GET(request: NextRequest) {
       success: true,
       amount,
       scheme_name: schemeName,
+      scheme_assigned: schemeAssigned,
+      message: schemeAssigned ? null : SCHEME_SLAB_REQUIRED_MESSAGE,
       charges: {
         base_charge: baseCharge,
         gst_percent: GST_PERCENT,

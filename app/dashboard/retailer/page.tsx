@@ -1341,6 +1341,7 @@ function WalletTab({ user }: { user: any }) {
   const [settlementAmountError, setSettlementAmountError] = useState<string | null>(null)
   const [settlementCharge, setSettlementCharge] = useState<number | null>(null)
   const [settlementChargeLoading, setSettlementChargeLoading] = useState(false)
+  const [settlementSchemeMessage, setSettlementSchemeMessage] = useState<string | null>(null)
   const [settlementSchemeName, setSettlementSchemeName] = useState<string | null>(null)
   const [settlementProcessing, setSettlementProcessing] = useState(false)
   const [bankDetails, setBankDetails] = useState({
@@ -1353,6 +1354,7 @@ function WalletTab({ user }: { user: any }) {
   const [aepsSettlementProcessing, setAepsSettlementProcessing] = useState(false)
   const [aepsSettleCharge, setAepsSettleCharge] = useState<number | null>(null)
   const [aepsSettleChargeLoading, setAepsSettleChargeLoading] = useState(false)
+  const [aepsSettleSchemeMessage, setAepsSettleSchemeMessage] = useState<string | null>(null)
   const [aepsSettleSchemeName, setAepsSettleSchemeName] = useState<string | null>(null)
   const [aepsSettleConfirmed, setAepsSettleConfirmed] = useState(false)
   const [showAepsTransfer, setShowAepsTransfer] = useState(false)
@@ -1517,16 +1519,24 @@ function WalletTab({ user }: { user: any }) {
   }
 
   const fetchSettlementCharge = async (amt: number) => {
-    if (amt <= 0 || !user?.partner_id) { setSettlementCharge(null); setSettlementSchemeName(null); return }
+    if (amt <= 0 || !user?.partner_id) { setSettlementCharge(null); setSettlementSchemeName(null); setSettlementSchemeMessage(null); return }
     setSettlementChargeLoading(true)
     try {
-      const res = await apiFetchJson<{ resolved: boolean; charges?: { retailer_charge: number }; scheme?: { name: string } }>(`/api/schemes/resolve-charges?service_type=payout&amount=${amt}&transfer_mode=IMPS&user_id=${user.partner_id}`)
-      setSettlementCharge(res.resolved && res.charges ? res.charges.retailer_charge : 0)
-      setSettlementSchemeName(res.resolved && res.scheme ? res.scheme.name : null)
+      const res = await apiFetchJson<{ resolved: boolean; charge_available?: boolean; message?: string; charges?: { retailer_charge: number }; scheme?: { name: string } }>(`/api/schemes/resolve-charges?service_type=payout&amount=${amt}&transfer_mode=IMPS&user_id=${user.partner_id}`)
+      if (res.resolved && res.charge_available !== false && res.charges && res.charges.retailer_charge > 0) {
+        setSettlementCharge(res.charges.retailer_charge)
+        setSettlementSchemeName(res.scheme ? res.scheme.name : null)
+        setSettlementSchemeMessage(null)
+      } else {
+        setSettlementCharge(0)
+        setSettlementSchemeName(null)
+        setSettlementSchemeMessage(res.message || 'The scheme with this slab is not assigned. Please connect with the support team.')
+      }
     } catch {
       showToast('Could not fetch settlement charge', 'warning')
       setSettlementCharge(0)
       setSettlementSchemeName(null)
+      setSettlementSchemeMessage('The scheme with this slab is not assigned. Please connect with the support team.')
     } finally {
       setSettlementChargeLoading(false)
     }
@@ -1548,6 +1558,11 @@ function WalletTab({ user }: { user: any }) {
 
     if (!bankDetails.account_number || !bankDetails.ifsc || !bankDetails.account_name) {
       showToast('Please fill all bank details', 'error')
+      return
+    }
+
+    if (settlementSchemeMessage) {
+      showToast(settlementSchemeMessage, 'error')
       return
     }
 
@@ -1584,16 +1599,24 @@ function WalletTab({ user }: { user: any }) {
   }
 
   const fetchAepsSettleCharge = async (amt: number) => {
-    if (amt <= 0 || !user?.partner_id) { setAepsSettleCharge(null); setAepsSettleSchemeName(null); return }
+    if (amt <= 0 || !user?.partner_id) { setAepsSettleCharge(null); setAepsSettleSchemeName(null); setAepsSettleSchemeMessage(null); return }
     setAepsSettleChargeLoading(true)
     try {
-      const res = await apiFetchJson<{ resolved: boolean; charges?: { retailer_charge: number }; scheme?: { name: string } }>(`/api/schemes/resolve-charges?service_type=aeps_settlement&amount=${amt}&user_id=${user.partner_id}`)
-      setAepsSettleCharge(res.resolved && res.charges ? res.charges.retailer_charge : 0)
-      setAepsSettleSchemeName(res.resolved && res.scheme ? res.scheme.name : null)
+      const res = await apiFetchJson<{ resolved: boolean; charge_available?: boolean; message?: string; charges?: { retailer_charge: number }; scheme?: { name: string } }>(`/api/schemes/resolve-charges?service_type=aeps_settlement&amount=${amt}&user_id=${user.partner_id}`)
+      if (res.resolved && res.charge_available !== false && res.charges) {
+        setAepsSettleCharge(res.charges.retailer_charge)
+        setAepsSettleSchemeName(res.scheme ? res.scheme.name : null)
+        setAepsSettleSchemeMessage(null)
+      } else {
+        setAepsSettleCharge(0)
+        setAepsSettleSchemeName(null)
+        setAepsSettleSchemeMessage(res.message || 'The scheme with this slab is not assigned. Please connect with the support team.')
+      }
     } catch {
       showToast('Could not fetch AEPS settlement charge', 'warning')
       setAepsSettleCharge(0)
       setAepsSettleSchemeName(null)
+      setAepsSettleSchemeMessage('The scheme with this slab is not assigned. Please connect with the support team.')
     } finally {
       setAepsSettleChargeLoading(false)
     }
@@ -1610,6 +1633,10 @@ function WalletTab({ user }: { user: any }) {
     }
     if (!selectedSettleAccountId) {
       showToast('Please select an approved settlement account', 'error')
+      return
+    }
+    if (aepsSettleSchemeMessage) {
+      showToast(aepsSettleSchemeMessage, 'error')
       return
     }
     const amt = parseFloat(aepsSettlementAmount)
@@ -1787,6 +1814,7 @@ function WalletTab({ user }: { user: any }) {
                       } else {
                         setSettlementCharge(null)
                         setSettlementSchemeName(null)
+                        setSettlementSchemeMessage(null)
                       }
                     }
                   }}
@@ -1826,8 +1854,15 @@ function WalletTab({ user }: { user: any }) {
                 </div>
               </div>
 
+              {/* Scheme not assigned */}
+              {settlementAmount && parseFloat(settlementAmount) > 0 && settlementSchemeMessage && !settlementChargeLoading && (
+                <div className="p-3 rounded-lg border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20">
+                  <p className="text-sm font-medium text-red-600 dark:text-red-400">{settlementSchemeMessage}</p>
+                </div>
+              )}
+
               {/* Charge breakdown */}
-              {settlementAmount && parseFloat(settlementAmount) > 0 && (
+              {settlementAmount && parseFloat(settlementAmount) > 0 && !settlementSchemeMessage && (
                 <div className="p-3 bg-gray-50 dark:bg-gray-700/50 border border-gray-200 dark:border-gray-600 rounded-lg text-sm space-y-1.5">
                   {settlementChargeLoading ? (
                     <p className="text-gray-500 text-center">Calculating charge...</p>
@@ -1896,7 +1931,7 @@ function WalletTab({ user }: { user: any }) {
               <div className="flex gap-3">
                 <button
                   onClick={handleSettlement}
-                  disabled={settlementProcessing}
+                  disabled={settlementProcessing || !!settlementSchemeMessage || settlementChargeLoading}
                   className="flex-1 bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {settlementProcessing ? 'Processing...' : 'Submit'}
@@ -2043,8 +2078,15 @@ function WalletTab({ user }: { user: any }) {
                 <p className="text-xs text-gray-500 mt-1">Minimum settlement amount: ₹1,001</p>
               </div>
 
+              {/* Scheme not assigned */}
+              {aepsSettlementAmount && parseFloat(aepsSettlementAmount) > 0 && aepsSettleSchemeMessage && !aepsSettleChargeLoading && (
+                <div className="p-3 rounded-lg border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20">
+                  <p className="text-sm font-medium text-red-600 dark:text-red-400">{aepsSettleSchemeMessage}</p>
+                </div>
+              )}
+
               {/* Charge breakdown preview */}
-              {aepsSettlementAmount && parseFloat(aepsSettlementAmount) > 0 && (
+              {aepsSettlementAmount && parseFloat(aepsSettlementAmount) > 0 && !aepsSettleSchemeMessage && (
                 <div className="p-3 bg-gray-50 dark:bg-gray-700/50 border border-gray-200 dark:border-gray-600 rounded-lg text-sm space-y-1.5">
                   {aepsSettleChargeLoading ? (
                     <p className="text-gray-500 text-center">Calculating charge...</p>
@@ -2124,11 +2166,11 @@ function WalletTab({ user }: { user: any }) {
 
             </div>
             <div className="flex gap-3 pt-4 flex-shrink-0">
-              <button onClick={handleAepsSettlement} disabled={aepsSettlementProcessing || aepsSettleChargeLoading || !selectedSettleAccountId}
+              <button onClick={handleAepsSettlement} disabled={aepsSettlementProcessing || aepsSettleChargeLoading || !selectedSettleAccountId || !!aepsSettleSchemeMessage}
                 className={`flex-1 text-white py-2 px-4 rounded-lg disabled:opacity-50 ${aepsSettleConfirmed ? 'bg-green-600 hover:bg-green-700' : 'bg-purple-600 hover:bg-purple-700'}`}>
                 {aepsSettlementProcessing ? 'Processing...' : aepsSettleConfirmed ? 'Confirm & Settle' : 'Settle to Bank'}
               </button>
-              <button onClick={() => { setShowAepsSettlement(false); setAepsSettleConfirmed(false); setAepsSettleCharge(null); setAepsSettleSchemeName(null) }}
+              <button onClick={() => { setShowAepsSettlement(false); setAepsSettleConfirmed(false); setAepsSettleCharge(null); setAepsSettleSchemeName(null); setAepsSettleSchemeMessage(null) }}
                 className="flex-1 bg-gray-200 text-gray-700 py-2 px-4 rounded-lg hover:bg-gray-300">
                 Cancel
               </button>

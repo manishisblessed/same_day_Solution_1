@@ -4,6 +4,7 @@ import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { authorizeSubPartner, normalizeMasterPartner } from '@/lib/partner-access'
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
 import { createClient } from '@supabase/supabase-js'
+import { SCHEME_SLAB_REQUIRED_MESSAGE } from '@/lib/scheme-guard'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -203,11 +204,18 @@ export async function GET(request: NextRequest) {
       console.warn('[Settlement-2 Charges] Limit lookup failed:', e)
     }
 
+    // A scheme with a slab covering this amount + mode is required. When neither a
+    // priced charge nor a covering slab limit exists, signal not-assigned so the UI
+    // can show the support message and disable the transfer.
+    const schemeAssigned = !!charges || (limits ? limits.within_limit : false)
+
     const response = NextResponse.json({
       success: true,
       amount,
       mode,
       scheme_name: schemeName,
+      scheme_assigned: schemeAssigned,
+      message: schemeAssigned ? null : SCHEME_SLAB_REQUIRED_MESSAGE,
       limits,
       charges: charges
         ? {

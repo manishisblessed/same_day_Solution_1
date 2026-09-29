@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js'
 import { authenticatePartner, PartnerAuthError, partnerCanUseApi } from '@/lib/partner-auth'
 import { pay2newPayBill } from '@/services/pay2new'
 import { isBillerRateLimitError, BILLER_RATE_LIMIT_MESSAGE, toUserSafeError } from '@/lib/provider-error'
+import { SCHEME_NOT_ASSIGNED, SCHEME_NOT_ASSIGNED_STATUS, SCHEME_NO_VALID_SLAB, hasCoveringBbpsSlab } from '@/lib/scheme-guard'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -148,6 +149,27 @@ export async function POST(request: NextRequest) {
       }
     } catch (schemeErr) {
       console.error('[Partner Pay2New Pay] Scheme resolution failed:', schemeErr)
+    }
+
+    // FINANCIAL SAFETY: no explicitly assigned scheme => refuse the payment.
+    // Without this, an unmapped partner would pay with a ₹0 charge (revenue loss).
+    if (!resolvedSchemeId) {
+      console.error(`[Partner Pay2New Pay] BLOCKED: No scheme assigned for partner=${partner.id} — refusing free transaction`)
+      return NextResponse.json(
+        { success: false, error: { code: SCHEME_NOT_ASSIGNED.code, message: SCHEME_NOT_ASSIGNED.error } },
+        { status: SCHEME_NOT_ASSIGNED_STATUS }
+      )
+    }
+
+    // A scheme is assigned but it must have a slab covering this amount + category,
+    // otherwise the charge resolves to ₹0. Refuse rather than process for free.
+    const bbpsSlabOk = await hasCoveringBbpsSlab(supabase, resolvedSchemeId, amountNum, schemeCategory)
+    if (!bbpsSlabOk) {
+      console.error(`[Partner Pay2New Pay] BLOCKED: No valid slab for partner=${partner.id} scheme=${resolvedSchemeId} amount=${amountNum}`)
+      return NextResponse.json(
+        { success: false, error: { code: SCHEME_NO_VALID_SLAB.code, message: SCHEME_NO_VALID_SLAB.error } },
+        { status: SCHEME_NOT_ASSIGNED_STATUS }
+      )
     }
 
     // CC1++ gate: high-value payments require a scheme slab that covers the amount.

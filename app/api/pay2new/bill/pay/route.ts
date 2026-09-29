@@ -10,7 +10,7 @@ import { generateAgentTransactionId } from '@/services/bbps/helpers'
 import { toUserSafeError } from '@/lib/provider-error'
 import { distributeServiceCommission } from '@/lib/commission/distribute-service-commission'
 import { isBillerRateLimitError, BILLER_RATE_LIMIT_MESSAGE } from '@/lib/provider-error'
-import { SCHEME_NOT_ASSIGNED, SCHEME_NOT_ASSIGNED_STATUS } from '@/lib/scheme-guard'
+import { SCHEME_NOT_ASSIGNED, SCHEME_NOT_ASSIGNED_STATUS, SCHEME_NO_VALID_SLAB } from '@/lib/scheme-guard'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -275,6 +275,14 @@ export async function POST(request: NextRequest) {
     if (!resolvedSchemeId) {
       console.error(`[Pay2New Bill Pay] BLOCKED: No scheme assigned for user=${user.partner_id} — refusing free transaction`)
       const response = NextResponse.json(SCHEME_NOT_ASSIGNED, { status: SCHEME_NOT_ASSIGNED_STATUS })
+      return addCorsHeaders(request, response)
+    }
+
+    // A scheme is assigned but no slab priced this amount (serviceCharge stayed 0)
+    // → refuse rather than process for free.
+    if (serviceCharge <= 0) {
+      console.error(`[Pay2New Bill Pay] BLOCKED: No valid slab for user=${user.partner_id} scheme=${resolvedSchemeId} amount=${amountNum}`)
+      const response = NextResponse.json(SCHEME_NO_VALID_SLAB, { status: SCHEME_NOT_ASSIGNED_STATUS })
       return addCorsHeaders(request, response)
     }
 

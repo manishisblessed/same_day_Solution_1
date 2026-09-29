@@ -694,6 +694,7 @@ function WalletTab({ user }: { user: any }) {
   const [settlementCharge, setSettlementCharge] = useState<number | null>(null)
   const [settlementChargeLoading, setSettlementChargeLoading] = useState(false)
   const [settlementSchemeName, setSettlementSchemeName] = useState<string | null>(null)
+  const [settlementSchemeMessage, setSettlementSchemeMessage] = useState<string | null>(null)
   const [settlementProcessing, setSettlementProcessing] = useState(false)
 
   useEffect(() => {
@@ -714,19 +715,28 @@ function WalletTab({ user }: { user: any }) {
     if (amt <= 0 || !user?.partner_id) {
       setSettlementCharge(null)
       setSettlementSchemeName(null)
+      setSettlementSchemeMessage(null)
       return
     }
     setSettlementChargeLoading(true)
     try {
-      const res = await apiFetchJson<{ resolved: boolean; charges?: { retailer_charge: number }; scheme?: { name: string } }>(
+      const res = await apiFetchJson<{ resolved: boolean; charge_available?: boolean; message?: string; charges?: { retailer_charge: number }; scheme?: { name: string } }>(
         `/api/schemes/resolve-charges?service_type=payout&amount=${amt}&transfer_mode=IMPS&user_id=${user.partner_id}`
       )
-      setSettlementCharge(res.resolved && res.charges ? res.charges.retailer_charge : 0)
-      setSettlementSchemeName(res.resolved && res.scheme ? res.scheme.name : null)
+      if (res.resolved && res.charge_available !== false && res.charges && res.charges.retailer_charge > 0) {
+        setSettlementCharge(res.charges.retailer_charge)
+        setSettlementSchemeName(res.scheme ? res.scheme.name : null)
+        setSettlementSchemeMessage(null)
+      } else {
+        setSettlementCharge(0)
+        setSettlementSchemeName(null)
+        setSettlementSchemeMessage(res.message || 'The scheme with this slab is not assigned. Please connect with the support team.')
+      }
     } catch {
       showToast('Could not fetch settlement charge', 'warning')
       setSettlementCharge(0)
       setSettlementSchemeName(null)
+      setSettlementSchemeMessage('The scheme with this slab is not assigned. Please connect with the support team.')
     } finally {
       setSettlementChargeLoading(false)
     }
@@ -740,6 +750,7 @@ function WalletTab({ user }: { user: any }) {
     } else {
       setSettlementCharge(null)
       setSettlementSchemeName(null)
+      setSettlementSchemeMessage(null)
     }
   }
 
@@ -755,6 +766,10 @@ function WalletTab({ user }: { user: any }) {
     }
     if (!bankDetails.account_number || !bankDetails.ifsc || !bankDetails.account_name) {
       showToast('Please fill all bank details', 'error')
+      return
+    }
+    if (settlementSchemeMessage) {
+      showToast(settlementSchemeMessage, 'error')
       return
     }
 
@@ -998,8 +1013,15 @@ function WalletTab({ user }: { user: any }) {
                 />
               </div>
 
+              {/* Scheme not assigned */}
+              {settlementAmount && parseFloat(settlementAmount) > 0 && settlementSchemeMessage && !settlementChargeLoading && (
+                <div className="p-3 rounded-lg border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20">
+                  <p className="text-sm font-medium text-red-600 dark:text-red-400">{settlementSchemeMessage}</p>
+                </div>
+              )}
+
               {/* Charge preview (from applicable scheme) */}
-              {settlementAmount && parseFloat(settlementAmount) > 0 && (
+              {settlementAmount && parseFloat(settlementAmount) > 0 && !settlementSchemeMessage && (
                 <div className="bg-purple-50 border border-purple-200 rounded-lg p-4 space-y-1">
                   {settlementChargeLoading ? (
                     <p className="text-sm text-purple-700 flex items-center gap-2">
@@ -1029,7 +1051,7 @@ function WalletTab({ user }: { user: any }) {
               <div className="flex gap-3">
                 <button
                   onClick={handleSettlement}
-                  disabled={settlementProcessing || settlementChargeLoading}
+                  disabled={settlementProcessing || settlementChargeLoading || !!settlementSchemeMessage}
                   className="flex-1 bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 disabled:opacity-50"
                 >
                   {settlementProcessing ? 'Processing...' : 'Submit Request'}
@@ -1040,6 +1062,7 @@ function WalletTab({ user }: { user: any }) {
                     setSettlementAmount('')
                     setSettlementCharge(null)
                     setSettlementSchemeName(null)
+                    setSettlementSchemeMessage(null)
                   }}
                   disabled={settlementProcessing}
                   className="flex-1 bg-gray-200 text-gray-700 py-2 px-4 rounded-lg hover:bg-gray-300 disabled:opacity-50"

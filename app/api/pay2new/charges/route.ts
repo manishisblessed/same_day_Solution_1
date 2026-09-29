@@ -4,6 +4,7 @@ import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { authorizeSubPartner } from '@/lib/partner-access'
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
 import { createClient, SupabaseClient } from '@supabase/supabase-js'
+import { SCHEME_SLAB_REQUIRED_MESSAGE, hasCoveringBbpsSlab } from '@/lib/scheme-guard'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -69,6 +70,7 @@ export async function GET(request: NextRequest) {
 
     let charges = null
     let schemeName: string | null = null
+    let resolvedSchemeId: string | null = null
     const schemeCategory = 'Credit Card'
 
     try {
@@ -84,6 +86,7 @@ export async function GET(request: NextRequest) {
         console.error('[Pay2New Charges] Scheme RPC error:', schemeError)
       } else if (schemeResult?.length > 0) {
         schemeName = schemeResult[0].scheme_name
+        resolvedSchemeId = schemeResult[0].scheme_id
 
         const { data: chargeResult, error: chargeError } = await (supabase as any).rpc('calculate_bbps_charge_from_scheme', {
           p_scheme_id: schemeResult[0].scheme_id,
@@ -132,6 +135,12 @@ export async function GET(request: NextRequest) {
       console.error('[Pay2New Charges] Scheme resolution error:', e)
     }
 
+    // A scheme with a slab covering this amount is required — otherwise the charge
+    // resolves to ₹0 and the transaction endpoint will refuse it. Signal that to
+    // the UI so it can show the support message and disable the pay action.
+    const schemeAssigned = !!resolvedSchemeId &&
+      (await hasCoveringBbpsSlab(supabase, resolvedSchemeId, amount, schemeCategory))
+
     const baseCharge = charges?.retailer_charge || 0
     const gstAmount = Math.round(baseCharge * GST_PERCENT / 100 * 100) / 100
     const totalCharge = Math.round((baseCharge + gstAmount) * 100) / 100
@@ -140,6 +149,8 @@ export async function GET(request: NextRequest) {
       success: true,
       amount,
       scheme_name: schemeName,
+      scheme_assigned: schemeAssigned,
+      message: schemeAssigned ? null : SCHEME_SLAB_REQUIRED_MESSAGE,
       charges: {
         base_charge: baseCharge,
         gst_percent: GST_PERCENT,

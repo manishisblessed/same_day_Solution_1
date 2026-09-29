@@ -53,6 +53,7 @@ export default function RechargekitCCPayment() {
     total_charge: number
   } | null>(null)
   const [loadingCharges, setLoadingCharges] = useState(false)
+  const [schemeMessage, setSchemeMessage] = useState<string | null>(null)
 
   useEffect(() => {
     fetchOperators()
@@ -62,6 +63,7 @@ export default function RechargekitCCPayment() {
     const amountNum = parseFloat(payAmount)
     if (!amountNum || amountNum <= 0 || step !== 'enter-details') {
       setChargesData(null)
+      setSchemeMessage(null)
       return
     }
 
@@ -69,13 +71,16 @@ export default function RechargekitCCPayment() {
       setLoadingCharges(true)
       try {
         const data = await apiFetchJson(`/api/rechargekit/charges?amount=${amountNum}`)
-        if (data.success && data.charges) {
+        if (data.success && data.charges && data.scheme_assigned !== false) {
           setChargesData(data.charges)
+          setSchemeMessage(null)
         } else {
           setChargesData(null)
+          setSchemeMessage(data?.message || 'The scheme with this slab is not assigned. Please connect with the support team.')
         }
       } catch {
         setChargesData(null)
+        setSchemeMessage('The scheme with this slab is not assigned. Please connect with the support team.')
       } finally {
         setLoadingCharges(false)
       }
@@ -152,6 +157,10 @@ export default function RechargekitCCPayment() {
     }
     if (!tpin || tpin.length < 4) {
       showToast('T-PIN is required (4 digits)', 'error')
+      return
+    }
+    if (schemeMessage) {
+      showToast(schemeMessage, 'error')
       return
     }
 
@@ -419,9 +428,15 @@ export default function RechargekitCCPayment() {
                 </div>
               )}
 
+              {schemeMessage && !loadingCharges && parseFloat(payAmount) > 0 && (
+                <div className="rounded-lg border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20 p-3">
+                  <p className="text-sm font-medium text-red-600 dark:text-red-400">{schemeMessage}</p>
+                </div>
+              )}
+
               <button
                 onClick={handlePay}
-                disabled={payLoading}
+                disabled={payLoading || !!schemeMessage || loadingCharges}
                 className="w-full py-3 rounded-lg bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800 text-white font-semibold text-sm disabled:opacity-60 flex items-center justify-center gap-2"
               >
                 {payLoading ? (

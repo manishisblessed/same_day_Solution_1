@@ -124,6 +124,7 @@ export default function Pay2NewServiceFlow(props: Pay2NewServiceFlowProps) {
   // Charges preview (for credit card / bill payments)
   const [chargesData, setChargesData] = useState<{ base_charge: number; gst_percent: number; gst_amount: number; total_charge: number } | null>(null)
   const [loadingCharges, setLoadingCharges] = useState(false)
+  const [schemeMessage, setSchemeMessage] = useState<string | null>(null)
 
   // CC-1++ add-on gate (payments above ₹49,999)
   const [cc1PlusEnabled, setCc1PlusEnabled] = useState(false)
@@ -141,10 +142,11 @@ export default function Pay2NewServiceFlow(props: Pay2NewServiceFlowProps) {
 
   // Fetch charges when payment amount changes (bill mode only)
   useEffect(() => {
-    if (mode !== 'bill') return
+    if (mode !== 'bill') { setSchemeMessage(null); return }
     const amountNum = parseFloat(payAmount)
     if (!amountNum || amountNum <= 0 || step !== 'bill-fetched') {
       setChargesData(null)
+      setSchemeMessage(null)
       return
     }
 
@@ -152,13 +154,16 @@ export default function Pay2NewServiceFlow(props: Pay2NewServiceFlowProps) {
       setLoadingCharges(true)
       try {
         const data = await apiFetchJson(`/api/pay2new/charges?amount=${amountNum}`)
-        if (data.success && data.charges) {
+        if (data.success && data.charges && data.scheme_assigned !== false) {
           setChargesData(data.charges)
+          setSchemeMessage(null)
         } else {
           setChargesData(null)
+          setSchemeMessage(data?.message || 'The scheme with this slab is not assigned. Please connect with the support team.')
         }
       } catch {
         setChargesData(null)
+        setSchemeMessage('The scheme with this slab is not assigned. Please connect with the support team.')
       } finally {
         setLoadingCharges(false)
       }
@@ -282,6 +287,10 @@ export default function Pay2NewServiceFlow(props: Pay2NewServiceFlowProps) {
     }
     if (!tpin || tpin.length < 4) {
       showToast('T-PIN is required (4 digits)', 'error')
+      return
+    }
+    if (mode === 'bill' && schemeMessage) {
+      showToast(schemeMessage, 'error')
       return
     }
     if (isCreditCard && !nameConfirmed) {
@@ -709,6 +718,12 @@ export default function Pay2NewServiceFlow(props: Pay2NewServiceFlowProps) {
                   </div>
                 )}
 
+                {parseFloat(payAmount) > 0 && schemeMessage && !loadingCharges && (
+                  <div className="p-3 rounded-lg border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20">
+                    <p className="text-sm font-medium text-red-600 dark:text-red-400">{schemeMessage}</p>
+                  </div>
+                )}
+
                 {parseFloat(payAmount) > PAN_MANDATORY_ABOVE && !cc1PlusEnabled && (
                   <div className="p-3 rounded-lg border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20">
                     <p className="text-sm font-medium text-red-600 dark:text-red-400">
@@ -760,7 +775,7 @@ export default function Pay2NewServiceFlow(props: Pay2NewServiceFlowProps) {
 
                 <button
                   onClick={handlePayBill}
-                  disabled={payLoading || !payAmount || parseFloat(payAmount) <= 0 || tpin.length < 4 || (isCreditCard && !nameConfirmed) || (parseFloat(payAmount) > PAN_MANDATORY_ABOVE && (!cc1PlusEnabled || !PAN_REGEX.test(panNumber.trim().toUpperCase())))}
+                  disabled={payLoading || !payAmount || parseFloat(payAmount) <= 0 || tpin.length < 4 || (mode === 'bill' && (!!schemeMessage || loadingCharges)) || (isCreditCard && !nameConfirmed) || (parseFloat(payAmount) > PAN_MANDATORY_ABOVE && (!cc1PlusEnabled || !PAN_REGEX.test(panNumber.trim().toUpperCase())))}
                   className="w-full py-3 bg-gradient-to-r from-green-600 to-green-700 text-white rounded-lg font-medium text-sm hover:from-green-700 hover:to-green-800 disabled:opacity-50 flex items-center justify-center gap-2"
                 >
                   {payLoading ? (

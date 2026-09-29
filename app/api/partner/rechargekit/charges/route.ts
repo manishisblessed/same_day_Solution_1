@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { toUserSafeError } from '@/lib/provider-error'
 import { authenticatePartner, PartnerAuthError, partnerCanUseApi } from '@/lib/partner-auth'
 import { createClient } from '@supabase/supabase-js'
+import { SCHEME_NOT_ASSIGNED, SCHEME_NOT_ASSIGNED_STATUS, SCHEME_NO_VALID_SLAB, hasCoveringBbpsSlab } from '@/lib/scheme-guard'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -62,6 +63,7 @@ export async function POST(request: NextRequest) {
 
     let charges = null
     let schemeName: string | null = null
+    let resolvedSchemeId: string | null = null
     const schemeCategory = 'Credit Card'
 
     try {
@@ -77,6 +79,7 @@ export async function POST(request: NextRequest) {
         console.error('[Partner Rechargekit Charges] Scheme RPC error:', schemeError)
       } else if (schemeResult?.length > 0) {
         schemeName = schemeResult[0].scheme_name
+        resolvedSchemeId = schemeResult[0].scheme_id
 
         const { data: chargeResult, error: chargeError } = await (supabase as any).rpc('calculate_bbps_charge_from_scheme', {
           p_scheme_id: schemeResult[0].scheme_id,
@@ -116,6 +119,23 @@ export async function POST(request: NextRequest) {
       }
     } catch (e) {
       console.error('[Partner Rechargekit Charges] Scheme resolution error:', e)
+    }
+
+    // No explicitly assigned scheme => report not-assigned so the preview matches the
+    // block enforced by the pay endpoint (no silent ₹0 quote).
+    if (!resolvedSchemeId) {
+      return NextResponse.json(
+        { success: false, error: { code: SCHEME_NOT_ASSIGNED.code, message: SCHEME_NOT_ASSIGNED.error } },
+        { status: SCHEME_NOT_ASSIGNED_STATUS }
+      )
+    }
+
+    const bbpsSlabOk = await hasCoveringBbpsSlab(supabase, resolvedSchemeId, amountNum, schemeCategory)
+    if (!bbpsSlabOk) {
+      return NextResponse.json(
+        { success: false, error: { code: SCHEME_NO_VALID_SLAB.code, message: SCHEME_NO_VALID_SLAB.error } },
+        { status: SCHEME_NOT_ASSIGNED_STATUS }
+      )
     }
 
     const baseCharge = charges?.retailer_charge || 0

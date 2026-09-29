@@ -114,15 +114,9 @@ export async function getSchemeForTransaction(
     };
   }
 
-  // Fallback to global scheme
-  const globalScheme = await getGlobalScheme(params);
-  if (globalScheme) {
-    return {
-      scheme: globalScheme,
-      scheme_type: 'global',
-    };
-  }
-
+  // Global scheme fallback intentionally REMOVED (financial safety): a retailer with
+  // no explicitly assigned MDR scheme must NOT inherit global pricing. Returning null
+  // makes the caller block the transaction instead of transacting on default rates.
   return {
     scheme: null,
     scheme_type: null,

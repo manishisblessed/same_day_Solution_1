@@ -135,6 +135,7 @@ export default function PayoutTransfer({ title, readOnly }: PayoutTransferProps 
     resolved: boolean
   }>({ imps: 5, neft: 3, schemeName: null, resolved: false })
   const [loadingSchemeCharges, setLoadingSchemeCharges] = useState(false)
+  const [schemeMessage, setSchemeMessage] = useState<string | null>(null)
 
   // Fetch scheme-based payout charges for the current user
   const fetchSchemeCharges = useCallback(async () => {
@@ -159,19 +160,17 @@ export default function PayoutTransfer({ title, readOnly }: PayoutTransferProps 
         return
       }
       const data = await res.json()
-      if (data.resolved) {
-        let impsCharge = 5 // default fallback
-        
-        if (data.charges) {
-          impsCharge = parseFloat(data.charges.retailer_charge) || 5
-        }
-        
+      if (data.resolved && data.charge_available !== false && data.charges && parseFloat(data.charges.retailer_charge) > 0) {
         setSchemeCharges({
-          imps: impsCharge,
+          imps: parseFloat(data.charges.retailer_charge) || 0,
           neft: 0,
           schemeName: data.scheme?.name || null,
           resolved: true,
         })
+        setSchemeMessage(null)
+      } else {
+        setSchemeCharges(prev => ({ ...prev, resolved: false }))
+        setSchemeMessage(data.message || 'The scheme with this slab is not assigned. Please connect with the support team.')
       }
     } catch (err) {
       console.warn('[PayoutTransfer] Scheme charge fetch failed, using defaults:', err)
@@ -200,14 +199,17 @@ export default function PayoutTransfer({ title, readOnly }: PayoutTransferProps 
         return
       }
       const data = await res.json()
-      if (data.resolved && data.charges) {
-        const newCharge = data.charges.retailer_charge
+      if (data.resolved && data.charge_available !== false && data.charges && parseFloat(data.charges.retailer_charge) > 0) {
         setSchemeCharges(prev => ({
           ...prev,
-          imps: newCharge,
+          imps: data.charges.retailer_charge,
           schemeName: data.scheme?.name || prev.schemeName,
           resolved: true,
         }))
+        setSchemeMessage(null)
+      } else {
+        setSchemeCharges(prev => ({ ...prev, resolved: false }))
+        setSchemeMessage(data.message || 'The scheme with this slab is not assigned. Please connect with the support team.')
       }
     } catch (err) {
       console.warn('[PayoutTransfer] Exact charge fetch failed:', err)
@@ -918,6 +920,11 @@ export default function PayoutTransfer({ title, readOnly }: PayoutTransferProps 
       return
     }
 
+    if (schemeMessage) {
+      setError(schemeMessage)
+      return
+    }
+
     // Validate sender details
     if (!senderName || senderName.trim().length < 2) {
       setError('Please enter sender name')
@@ -938,6 +945,11 @@ export default function PayoutTransfer({ title, readOnly }: PayoutTransferProps 
     
     if (!tpin || tpin.length !== 4) {
       setError('Please enter your 4-digit TPIN')
+      return
+    }
+
+    if (schemeMessage) {
+      setError(schemeMessage)
       return
     }
 
@@ -1672,8 +1684,15 @@ export default function PayoutTransfer({ title, readOnly }: PayoutTransferProps 
                 />
               </div>
 
+              {/* Scheme not assigned */}
+              {amountNum > 0 && schemeMessage && !loadingSchemeCharges && (
+                <div className="p-3 rounded-lg border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20">
+                  <p className="text-sm font-medium text-red-600 dark:text-red-400">{schemeMessage}</p>
+                </div>
+              )}
+
               {/* Amount Summary */}
-              {amountNum > 0 && (
+              {amountNum > 0 && !schemeMessage && (
                 <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4">
                   {schemeCharges.resolved && schemeCharges.schemeName && (
                     <div className="text-xs text-purple-600 dark:text-purple-400 mb-2 flex items-center gap-1">
@@ -1706,7 +1725,7 @@ export default function PayoutTransfer({ title, readOnly }: PayoutTransferProps 
                 </button>
                 <button
                   onClick={handleProceedToConfirm}
-                  disabled={!amountNum || amountNum < 100 || totalAmount > walletBalance}
+                  disabled={!amountNum || amountNum < 100 || totalAmount > walletBalance || !!schemeMessage || loadingSchemeCharges}
                   className="px-6 py-2 bg-blue-600 text-white rounded-lg shadow-md hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                 >
                   Proceed

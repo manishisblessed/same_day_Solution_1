@@ -14,7 +14,7 @@ import { initiateTransfer, generateClientRefId, getPayoutBalance } from '@/servi
 import { getTransferLimits } from '@/services/payout/config'
 import { createClient } from '@supabase/supabase-js'
 import { distributeServiceCommission } from '@/lib/commission/distribute-service-commission'
-import { SCHEME_NOT_ASSIGNED, SCHEME_NOT_ASSIGNED_STATUS } from '@/lib/scheme-guard'
+import { SCHEME_NOT_ASSIGNED, SCHEME_NOT_ASSIGNED_STATUS, SCHEME_NO_VALID_SLAB, hasCoveringPayoutSlab } from '@/lib/scheme-guard'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -492,6 +492,14 @@ export async function POST(request: NextRequest) {
     if (!resolvedSchemeId) {
       console.error(`[Payout] BLOCKED: No scheme assigned for user=${user.partner_id} — refusing transfer`)
       return await guardFail(SCHEME_NOT_ASSIGNED, SCHEME_NOT_ASSIGNED_STATUS)
+    }
+
+    // A scheme is assigned but it must have a slab covering this amount + mode,
+    // otherwise the charge resolves to ₹0. Refuse rather than transfer for free.
+    const payoutSlabOk = await hasCoveringPayoutSlab(supabaseAdmin, resolvedSchemeId, amountNum, transferMode)
+    if (!payoutSlabOk) {
+      console.error(`[Payout] BLOCKED: No valid slab for user=${user.partner_id} scheme=${resolvedSchemeId} amount=${amountNum} mode=${transferMode}`)
+      return await guardFail(SCHEME_NO_VALID_SLAB, SCHEME_NOT_ASSIGNED_STATUS)
     }
     
     const totalAmount = amountNum + charges

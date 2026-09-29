@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { authenticatePartner, PartnerAuthError, partnerCanUseApi } from '@/lib/partner-auth'
 import { resolveShadvalCharge } from '@/lib/shadval-charge'
+import { SCHEME_NOT_ASSIGNED, SCHEME_NOT_ASSIGNED_STATUS, SCHEME_NO_VALID_SLAB, hasCoveringShadvalSlab } from '@/lib/scheme-guard'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -68,7 +69,24 @@ export async function GET(request: NextRequest) {
 
     // Resolve the partner's Settlement-2 (Shadval) scheme charge for this amount + mode.
     // Scoped to schemes the partner is actually mapped to (see resolveShadvalCharge).
-    const { baseCharge, schemeName } = await resolveShadvalCharge(supabase, partner.id, amount, mode)
+    const { baseCharge, schemeId, schemeName } = await resolveShadvalCharge(supabase, partner.id, amount, mode)
+
+    // No explicitly assigned scheme => report not-assigned so the preview matches the
+    // block enforced by the transfer endpoint (no silent ₹0 quote).
+    if (!schemeId) {
+      return NextResponse.json(
+        { success: false, error: { code: SCHEME_NOT_ASSIGNED.code, message: SCHEME_NOT_ASSIGNED.error } },
+        { status: SCHEME_NOT_ASSIGNED_STATUS }
+      )
+    }
+
+    const settlementSlabOk = await hasCoveringShadvalSlab(supabase, schemeId, amount, mode)
+    if (!settlementSlabOk) {
+      return NextResponse.json(
+        { success: false, error: { code: SCHEME_NO_VALID_SLAB.code, message: SCHEME_NO_VALID_SLAB.error } },
+        { status: SCHEME_NOT_ASSIGNED_STATUS }
+      )
+    }
 
     const gstAmount = Math.round((baseCharge * GST_PERCENT) / 100 * 100) / 100
     const totalCharge = Math.round((baseCharge + gstAmount) * 100) / 100

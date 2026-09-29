@@ -13,7 +13,7 @@ import {
 } from '@/lib/security/idempotency'
 import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger'
 import { distributeServiceCommission } from '@/lib/commission/distribute-service-commission'
-import { SCHEME_NOT_ASSIGNED, SCHEME_NOT_ASSIGNED_STATUS } from '@/lib/scheme-guard'
+import { SCHEME_NOT_ASSIGNED, SCHEME_NOT_ASSIGNED_STATUS, SCHEME_NO_VALID_SLAB, hasCoveringBbpsSlab } from '@/lib/scheme-guard'
 
 export const runtime = 'nodejs' // Force Node.js runtime (Supabase not compatible with Edge Runtime)
 export const dynamic = 'force-dynamic'
@@ -458,6 +458,15 @@ export async function POST(request: NextRequest) {
     if (!resolvedSchemeId) {
       console.error(`[BBPS Pay] BLOCKED: No scheme assigned for user=${user.partner_id} — refusing free transaction`)
       const response = NextResponse.json(SCHEME_NOT_ASSIGNED, { status: SCHEME_NOT_ASSIGNED_STATUS })
+      return addCorsHeaders(request, response)
+    }
+
+    // A scheme is assigned but it must have a slab covering this amount + category,
+    // otherwise the charge silently falls back to the ₹20 default. Refuse instead.
+    const bbpsSlabOk = await hasCoveringBbpsSlab(supabase, resolvedSchemeId, billAmountInRupees, additional_info?.category || null)
+    if (!bbpsSlabOk) {
+      console.error(`[BBPS Pay] BLOCKED: No valid slab for user=${user.partner_id} scheme=${resolvedSchemeId} amount=${billAmountInRupees}`)
+      const response = NextResponse.json(SCHEME_NO_VALID_SLAB, { status: SCHEME_NOT_ASSIGNED_STATUS })
       return addCorsHeaders(request, response)
     }
     

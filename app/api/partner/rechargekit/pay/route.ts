@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js'
 import { authenticatePartner, PartnerAuthError, partnerCanUseApi } from '@/lib/partner-auth'
 import { rechargekitCcPayment } from '@/services/rechargekit/ccPayment'
 import { toUserSafeError } from '@/lib/provider-error'
+import { SCHEME_NOT_ASSIGNED, SCHEME_NOT_ASSIGNED_STATUS, SCHEME_NO_VALID_SLAB, hasCoveringBbpsSlab } from '@/lib/scheme-guard'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -87,6 +88,7 @@ export async function POST(request: NextRequest) {
 
     // Resolve scheme charges for partner
     let serviceCharge = 0
+    let resolvedSchemeId: string | null = null
     const schemeCategory = 'Credit Card'
 
     try {
@@ -102,6 +104,7 @@ export async function POST(request: NextRequest) {
         console.error('[Partner Rechargekit Pay] Scheme RPC error:', schemeError)
       } else if (schemeResult && schemeResult.length > 0) {
         const resolved = schemeResult[0]
+        resolvedSchemeId = resolved.scheme_id
 
         const { data: chargeResult, error: chargeError } = await (supabase as any).rpc('calculate_bbps_charge_from_scheme', {
           p_scheme_id: resolved.scheme_id,
@@ -139,6 +142,27 @@ export async function POST(request: NextRequest) {
       }
     } catch (schemeErr) {
       console.error('[Partner Rechargekit Pay] Scheme resolution failed:', schemeErr)
+    }
+
+    // FINANCIAL SAFETY: no explicitly assigned scheme => refuse the payment.
+    // Without this, an unmapped partner would pay with a ₹0 charge (revenue loss).
+    if (!resolvedSchemeId) {
+      console.error(`[Partner Rechargekit Pay] BLOCKED: No scheme assigned for partner=${partner.id} — refusing free transaction`)
+      return NextResponse.json(
+        { success: false, error: { code: SCHEME_NOT_ASSIGNED.code, message: SCHEME_NOT_ASSIGNED.error } },
+        { status: SCHEME_NOT_ASSIGNED_STATUS }
+      )
+    }
+
+    // A scheme is assigned but it must have a slab covering this amount + category,
+    // otherwise the charge resolves to ₹0. Refuse rather than process for free.
+    const bbpsSlabOk = await hasCoveringBbpsSlab(supabase, resolvedSchemeId, amountNum, schemeCategory)
+    if (!bbpsSlabOk) {
+      console.error(`[Partner Rechargekit Pay] BLOCKED: No valid slab for partner=${partner.id} scheme=${resolvedSchemeId} amount=${amountNum}`)
+      return NextResponse.json(
+        { success: false, error: { code: SCHEME_NO_VALID_SLAB.code, message: SCHEME_NO_VALID_SLAB.error } },
+        { status: SCHEME_NOT_ASSIGNED_STATUS }
+      )
     }
 
     const gstAmount = Math.round(serviceCharge * GST_PERCENT / 100 * 100) / 100

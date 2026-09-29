@@ -503,13 +503,14 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
   }
 
   // Calculate BBPS charges using scheme engine ONLY (no legacy fallbacks)
-  const fetchBBPSCharges = async (amountInRupees: number): Promise<{ charge: number; schemeName: string | null }> => {
+  const fetchBBPSCharges = async (amountInRupees: number): Promise<{ charge: number; schemeName: string | null; available: boolean; message: string | null }> => {
+    const notAssigned = 'The scheme with this slab is not assigned. Please connect with the support team.'
     try {
       setLoadingCharges(true)
       
       if (!user?.partner_id) {
         console.error('[BBPS] No partner_id available, cannot resolve charges')
-        return { charge: 0, schemeName: null }
+        return { charge: 0, schemeName: null, available: false, message: notAssigned }
       }
 
       const category = selectedCategory || selectedBiller?.category || ''
@@ -520,29 +521,29 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
       if (!res.ok) {
         const errText = await res.text().catch(() => '')
         console.error(`[BBPS] Scheme API error ${res.status}: ${errText}`)
-        return { charge: 0, schemeName: null }
+        return { charge: 0, schemeName: null, available: false, message: notAssigned }
       }
 
       const contentType = res.headers.get('content-type') || ''
       if (!contentType.includes('application/json')) {
         console.error(`[BBPS] Scheme API returned non-JSON (${contentType})`)
-        return { charge: 0, schemeName: null }
+        return { charge: 0, schemeName: null, available: false, message: notAssigned }
       }
 
       const schemeData = await res.json()
       console.log(`[BBPS] Scheme API response:`, JSON.stringify(schemeData))
 
-      if (schemeData.resolved && schemeData.charges && schemeData.charges.retailer_charge != null) {
+      if (schemeData.resolved && schemeData.charge_available !== false && schemeData.charges && Number(schemeData.charges.retailer_charge) > 0) {
         const charge = schemeData.charges.retailer_charge
         console.log(`[BBPS] ✅ Using scheme "${schemeData.scheme?.name}" charge: ₹${charge}`)
-        return { charge, schemeName: schemeData.scheme?.name || null }
+        return { charge, schemeName: schemeData.scheme?.name || null, available: true, message: null }
       }
 
       console.error(`[BBPS] Scheme resolution incomplete: resolved=${schemeData.resolved}, charges=${JSON.stringify(schemeData.charges)}`)
-      return { charge: 0, schemeName: null }
+      return { charge: 0, schemeName: null, available: false, message: schemeData.message || notAssigned }
     } catch (error) {
       console.error('[BBPS] Error fetching charges:', error)
-      return { charge: 0, schemeName: null }
+      return { charge: 0, schemeName: null, available: false, message: notAssigned }
     } finally {
       setLoadingCharges(false)
     }
@@ -651,7 +652,11 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
     }
     
     // Fetch charges for the selected amount
-    const { charge: charges, schemeName } = await fetchBBPSCharges(selectedAmount)
+    const { charge: charges, schemeName, available, message } = await fetchBBPSCharges(selectedAmount)
+    if (!available) {
+      setError(message || 'The scheme with this slab is not assigned. Please connect with the support team.')
+      return
+    }
     setPaymentCharges(charges)
     setPaymentSchemeName(schemeName)
     
@@ -1419,7 +1424,11 @@ export default function BBPSPayment({ categoryFilter, title }: BBPSPaymentProps 
     }
 
     // Fetch charges
-    const { charge: charges, schemeName } = await fetchBBPSCharges(amount)
+    const { charge: charges, schemeName, available, message } = await fetchBBPSCharges(amount)
+    if (!available) {
+      setError(message || 'The scheme with this slab is not assigned. Please connect with the support team.')
+      return
+    }
     setPrepaidCharges(charges)
     setPrepaidSchemeName(schemeName)
 

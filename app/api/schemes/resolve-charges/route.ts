@@ -22,6 +22,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient, SupabaseClient } from '@supabase/supabase-js'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { authorizeSubPartner, normalizeMasterPartner } from '@/lib/partner-access'
+import { SCHEME_SLAB_REQUIRED_MESSAGE } from '@/lib/scheme-guard'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -170,38 +171,8 @@ async function resolveSchemeDirectQuery(
     if (mdMatch) return mdMatch
   }
 
-  try {
-    const { data: globalSchemes, error: globalError } = await client
-      .from('schemes')
-      .select('id, name, scheme_type, status, service_scope, effective_from, effective_to')
-      .eq('scheme_type', 'global')
-      .eq('status', 'active')
-      .lte('effective_from', now)
-      .order('priority', { ascending: true })
-      .order('created_at', { ascending: false })
-      .limit(5)
-
-    if (globalError) {
-      console.error(`[resolve-charges] Global scheme query error:`, globalError.message)
-      return null
-    }
-
-    if (globalSchemes) {
-      for (const scheme of globalSchemes as any[]) {
-        if (scheme.service_scope !== serviceType && scheme.service_scope !== 'all') continue
-        if (scheme.effective_to && new Date(scheme.effective_to) <= new Date()) continue
-        return {
-          scheme_id: scheme.id,
-          scheme_name: scheme.name,
-          scheme_type: scheme.scheme_type,
-          resolved_via: 'global',
-        }
-      }
-    }
-  } catch (err: any) {
-    console.error(`[resolve-charges] Global scheme query exception:`, err.message)
-  }
-
+  // Global scheme fallback intentionally REMOVED (financial safety): a user with no
+  // explicit mapping must NOT inherit any global pricing. No mapping => no scheme.
   return null
 }
 
@@ -473,9 +444,11 @@ export async function GET(request: NextRequest) {
       console.warn(`[resolve-charges] No scheme found for user=${userId}, service=${serviceType}, client=${clientMode} [${elapsed}ms]`)
       return NextResponse.json({
         resolved: false,
+        charge_available: false,
         scheme: null,
         charges: null,
-        message: 'No scheme found for this user/service',
+        code: 'SCHEME_NOT_ASSIGNED',
+        message: SCHEME_SLAB_REQUIRED_MESSAGE,
         debug: { user_id: userId, role: userRole, service: serviceType, distributor_id: distributorId, md_id: mdId, resolution_method: resolutionMethod, client_mode: clientMode },
       })
     }
@@ -547,8 +520,11 @@ export async function GET(request: NextRequest) {
       const elapsed = Date.now() - reqStart
       console.log(`[resolve-charges] << Payout response: scheme="${resolved.scheme_name}", charge=₹${charges?.retailer_charge ?? 'null'} [${elapsed}ms]`)
 
+      const payoutAvailable = !!(charges && Number(charges.retailer_charge) > 0)
       return NextResponse.json({
         resolved: true,
+        charge_available: payoutAvailable,
+        message: payoutAvailable ? null : SCHEME_SLAB_REQUIRED_MESSAGE,
         scheme: {
           id: resolved.scheme_id,
           name: resolved.scheme_name,
@@ -608,8 +584,11 @@ export async function GET(request: NextRequest) {
       const elapsed = Date.now() - reqStart
       console.log(`[resolve-charges] << BBPS response: scheme="${resolved.scheme_name}", charge=₹${charges?.retailer_charge ?? 'null'}, method=${chargeMethod} [${elapsed}ms]`)
 
+      const bbpsAvailable = !!(charges && Number(charges.retailer_charge) > 0)
       return NextResponse.json({
         resolved: true,
+        charge_available: bbpsAvailable,
+        message: bbpsAvailable ? null : SCHEME_SLAB_REQUIRED_MESSAGE,
         scheme: {
           id: resolved.scheme_id,
           name: resolved.scheme_name,
@@ -733,6 +712,8 @@ export async function GET(request: NextRequest) {
 
       return NextResponse.json({
         resolved: true,
+        charge_available: !!commission,
+        message: commission ? null : SCHEME_SLAB_REQUIRED_MESSAGE,
         scheme: {
           id: resolved.scheme_id,
           name: resolved.scheme_name,
@@ -811,6 +792,8 @@ export async function GET(request: NextRequest) {
 
       return NextResponse.json({
         resolved: true,
+        charge_available: !!charges,
+        message: charges ? null : SCHEME_SLAB_REQUIRED_MESSAGE,
         scheme: {
           id: resolved.scheme_id,
           name: resolved.scheme_name,
@@ -900,6 +883,8 @@ export async function GET(request: NextRequest) {
 
       return NextResponse.json({
         resolved: true,
+        charge_available: !!charges,
+        message: charges ? null : SCHEME_SLAB_REQUIRED_MESSAGE,
         scheme: {
           id: resolved.scheme_id,
           name: resolved.scheme_name,
