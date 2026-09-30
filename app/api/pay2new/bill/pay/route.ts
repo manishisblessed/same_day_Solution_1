@@ -11,6 +11,7 @@ import { toUserSafeError } from '@/lib/provider-error'
 import { distributeServiceCommission } from '@/lib/commission/distribute-service-commission'
 import { isBillerRateLimitError, BILLER_RATE_LIMIT_MESSAGE } from '@/lib/provider-error'
 import { SCHEME_NOT_ASSIGNED, SCHEME_NOT_ASSIGNED_STATUS, SCHEME_NO_VALID_SLAB } from '@/lib/scheme-guard'
+import { getGlobalPay2newMax } from '@/lib/txn-limits'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -107,6 +108,17 @@ export async function POST(request: NextRequest) {
     }
 
     const supabaseAdmin = getSupabaseAdmin()
+
+    // Configurable max transaction ceiling for the in-app flow (retailers &
+    // partners), set from Admin → Settings → Limits. Enforced server-side.
+    const maxTxnAmount = await getGlobalPay2newMax(supabaseAdmin)
+    if (amountNum > maxTxnAmount) {
+      const response = NextResponse.json(
+        { success: false, error: `Amount exceeds the maximum allowed limit of ₹${maxTxnAmount.toLocaleString('en-IN')}`, amount_limit_exceeded: true },
+        { status: 400 }
+      )
+      return addCorsHeaders(request, response)
+    }
 
     // CC1++ gate: high-value (> ₹49,999) Pay2New CC payments require the
     // credit_card1_plus add-on flag enabled on the acting user's account.
@@ -286,10 +298,8 @@ export async function POST(request: NextRequest) {
       return addCorsHeaders(request, response)
     }
 
-    // Add 18% GST on service charge
-    const GST_PERCENT = 18
-    const gstAmount = Math.round(serviceCharge * GST_PERCENT / 100 * 100) / 100
-    const totalServiceCharge = Math.round((serviceCharge + gstAmount) * 100) / 100
+    // No GST charged to retailers — total charge equals the scheme service charge.
+    const totalServiceCharge = serviceCharge
     const totalDebit = amountNum + totalServiceCharge
 
     // Balance check
@@ -335,7 +345,7 @@ export async function POST(request: NextRequest) {
         p_debit: totalDebit,
         p_reference_id: request_id,
         p_status: 'completed',
-        p_remarks: `CC ₹${amountNum} + ₹${totalServiceCharge} GST | ${product_name || product_code} | Card:${number} | Mob:${customer_number}${customer_name ? ` | Name:${customer_name}` : ''}`,
+        p_remarks: `CC ₹${amountNum} + ₹${totalServiceCharge} charge | ${product_name || product_code} | Card:${number} | Mob:${customer_number}${customer_name ? ` | Name:${customer_name}` : ''}`,
       })
       debitErr = error
     }

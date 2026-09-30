@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { apiFetch } from '@/lib/api-client'
-import { cleanDescription } from '@/lib/format'
+import { cleanDescription, parseBillAmount } from '@/lib/format'
 import NetworkUserFilter, { NetworkFilterValue } from '@/components/reports/NetworkUserFilter'
 import {
   FileBarChart, Download, Calendar, Filter, Search,
@@ -957,7 +957,7 @@ function ViewTransactionModal({ txn, userRole, onClose }: { txn: Transaction; us
         <div className="px-6 py-4 space-y-4">
           {/* Amount & Status */}
           <div className="text-center py-4">
-            <p className="text-3xl font-bold text-gray-900 dark:text-white">{formatCurrency(txn.amount)}</p>
+            <p className="text-3xl font-bold text-gray-900 dark:text-white">{formatCurrency(parseBillAmount(txn.description) ?? txn.amount)}</p>
             <div className="mt-2 flex items-center justify-center gap-2">
               <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-semibold ${
                 ['success', 'captured'].includes(txn.status.toLowerCase())
@@ -996,7 +996,7 @@ function ViewTransactionModal({ txn, userRole, onClose }: { txn: Transaction; us
           {/* Financial Details */}
           <div className="bg-gray-50 dark:bg-gray-900/50 rounded-xl p-4">
             <h4 className="text-xs font-semibold text-gray-400 uppercase mb-2">Financial Details</h4>
-            <DetailRow label="Amount" value={formatCurrency(txn.amount)} />
+            <DetailRow label="Amount" value={formatCurrency(parseBillAmount(txn.description) ?? txn.amount)} />
             <DetailRow label="Commission" value={txn.commission > 0 ? formatCurrency(txn.commission) : null} />
             <DetailRow label="MDR" value={txn.mdr > 0 ? formatCurrency(txn.mdr) : null} />
             <DetailRow label="MDR Rate" value={txn.mdr_rate > 0 ? `${(txn.mdr_rate * 100).toFixed(3)}%` : null} />

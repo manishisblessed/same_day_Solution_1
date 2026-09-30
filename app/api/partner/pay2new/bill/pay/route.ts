@@ -4,12 +4,11 @@ import { authenticatePartner, PartnerAuthError, partnerCanUseApi } from '@/lib/p
 import { pay2newPayBill } from '@/services/pay2new'
 import { isBillerRateLimitError, BILLER_RATE_LIMIT_MESSAGE, toUserSafeError } from '@/lib/provider-error'
 import { SCHEME_NOT_ASSIGNED, SCHEME_NOT_ASSIGNED_STATUS, SCHEME_NO_VALID_SLAB, hasCoveringBbpsSlab } from '@/lib/scheme-guard'
+import { getPartnerApiMax } from '@/lib/txn-limits'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 export const fetchCache = 'force-no-store'
-
-const GST_PERCENT = 18
 
 function getSupabase() {
   return createClient(
@@ -72,8 +71,20 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    const supabase = getSupabase()
+
     // PAN is mandatory for bill payments above ₹49,999
     const PAN_MANDATORY_ABOVE = 49999
+    // Configurable upper ceiling. Per-partner limit (partners.api_max_txn_amount)
+    // overrides the global Pay2New limit; enforced server-side so no partner can
+    // exceed it even if a scheme slab is mis-configured higher.
+    const maxTxnAmount = await getPartnerApiMax(supabase, partner.api_max_txn_amount)
+    if (amountNum > maxTxnAmount) {
+      return NextResponse.json(
+        { success: false, error: { code: 'AMOUNT_LIMIT_EXCEEDED', message: `Amount exceeds the maximum allowed limit of ₹${maxTxnAmount.toLocaleString('en-IN')}` } },
+        { status: 400 }
+      )
+    }
     const normalizedPan = String(pan_number || '').trim().toUpperCase()
     if (amountNum > PAN_MANDATORY_ABOVE && !/^[A-Z]{5}[0-9]{4}[A-Z]$/.test(normalizedPan)) {
       return NextResponse.json(
@@ -90,8 +101,6 @@ export async function POST(request: NextRequest) {
         { status: 403 }
       )
     }
-
-    const supabase = getSupabase()
 
     // Resolve scheme charges for partner
     let serviceCharge = 0
@@ -196,8 +205,8 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const gstAmount = Math.round(serviceCharge * GST_PERCENT / 100 * 100) / 100
-    const totalServiceCharge = Math.round((serviceCharge + gstAmount) * 100) / 100
+    // No GST charged — total charge equals the scheme service charge.
+    const totalServiceCharge = serviceCharge
     const totalDebit = amountNum + totalServiceCharge
 
     // Check partner wallet balance

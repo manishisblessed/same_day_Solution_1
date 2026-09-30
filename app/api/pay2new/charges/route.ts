@@ -9,8 +9,6 @@ import { SCHEME_SLAB_REQUIRED_MESSAGE, hasCoveringBbpsSlab } from '@/lib/scheme-
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-const GST_PERCENT = 18
-
 let _supabaseAdmin: SupabaseClient | null = null
 function getSupabaseAdmin() {
   if (!_supabaseAdmin) {
@@ -141,9 +139,9 @@ export async function GET(request: NextRequest) {
     const schemeAssigned = !!resolvedSchemeId &&
       (await hasCoveringBbpsSlab(supabase, resolvedSchemeId, amount, schemeCategory))
 
+    // No GST charged to retailers — total equals the scheme base charge.
     const baseCharge = charges?.retailer_charge || 0
-    const gstAmount = Math.round(baseCharge * GST_PERCENT / 100 * 100) / 100
-    const totalCharge = Math.round((baseCharge + gstAmount) * 100) / 100
+    const totalCharge = baseCharge
 
     const response = NextResponse.json({
       success: true,
@@ -153,8 +151,8 @@ export async function GET(request: NextRequest) {
       message: schemeAssigned ? null : SCHEME_SLAB_REQUIRED_MESSAGE,
       charges: {
         base_charge: baseCharge,
-        gst_percent: GST_PERCENT,
-        gst_amount: gstAmount,
+        gst_percent: 0,
+        gst_amount: 0,
         total_charge: totalCharge,
       },
     })

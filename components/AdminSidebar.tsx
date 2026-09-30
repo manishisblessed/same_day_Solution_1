@@ -35,6 +35,7 @@ const sidebarItems: SidebarItem[] = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, href: '/admin?tab=dashboard' },
   { id: 'onboarding', label: 'Onboarding & Invites', icon: UserPlus, href: '/admin/onboarding' },
   { id: 'daily-report', label: 'Daily Report', icon: CalendarDays, href: '/admin/reports/daily' },
+  { id: 'balances-report', label: 'Opening & Closing', icon: Wallet, href: '/admin/reports/balances' },
   { id: 'business-analytics', label: 'Business Analytics', icon: BarChart3, href: '/admin/business-analytics' },
   { id: 'pos-transactions', label: 'POS Transactions', icon: Receipt, href: '/admin/razorpay-transactions' },
   { id: 'pos-reconciliation', label: 'POS Reconciliation', icon: Scale, href: '/admin/pos-reconciliation' },

@@ -87,6 +87,12 @@ export default function AdminSettings() {
   const [walletLimitLoading, setWalletLimitLoading] = useState(false)
   const [walletLimitMeta, setWalletLimitMeta] = useState<{ updated_by?: string; updated_at?: string }>({})
 
+  // Pay2New / Credit Card max transaction limit (application flow: RT & Partners)
+  const [ccLimit, setCcLimit] = useState<number>(200000)
+  const [ccLimitInput, setCcLimitInput] = useState('')
+  const [ccLimitLoading, setCcLimitLoading] = useState(false)
+  const [ccLimitMeta, setCcLimitMeta] = useState<{ updated_by?: string; updated_at?: string }>({})
+
   // Account verification toggle state
   const [verificationEnabled, setVerificationEnabled] = useState(true)
   const [verificationLoading, setVerificationLoading] = useState(false)
@@ -297,9 +303,50 @@ export default function AdminSettings() {
     }
   }
 
+  const fetchCcLimit = async () => {
+    try {
+      const res = await apiFetch('/api/admin/settings/pay2new-max-limit')
+      const data = await res.json()
+      if (data.success) {
+        setCcLimit(data.limit)
+        setCcLimitInput(String(data.limit))
+        setCcLimitMeta({ updated_by: data.updated_by, updated_at: data.updated_at })
+      }
+    } catch {}
+  }
+
+  const saveCcLimit = async () => {
+    const parsed = parseInt(ccLimitInput, 10)
+    if (isNaN(parsed) || parsed < 50000) {
+      setMessage({ type: 'error', text: 'Minimum limit is ₹50,000' })
+      return
+    }
+    setCcLimitLoading(true)
+    try {
+      const res = await apiFetch('/api/admin/settings/pay2new-max-limit', {
+        method: 'POST',
+        body: JSON.stringify({ limit: parsed }),
+      })
+      const data = await res.json()
+      if (data.success) {
+        setCcLimit(data.limit)
+        setCcLimitInput(String(data.limit))
+        setMessage({ type: 'success', text: `Transaction limit updated to ₹${data.limit.toLocaleString('en-IN')}` })
+        fetchCcLimit()
+      } else {
+        setMessage({ type: 'error', text: data.error || 'Failed to update' })
+      }
+    } catch {
+      setMessage({ type: 'error', text: 'Failed to update transaction limit' })
+    } finally {
+      setCcLimitLoading(false)
+    }
+  }
+
   useEffect(() => {
     if (activeTab === 'limits' && user?.role === 'admin') {
       fetchWalletLimit()
+      fetchCcLimit()
     }
   }, [activeTab, user])
 
@@ -1306,6 +1353,57 @@ export default function AdminSettings() {
                 <p className="text-xs text-gray-400 mt-3">
                   Last updated by {walletLimitMeta.updated_by}
                   {walletLimitMeta.updated_at && ` on ${new Date(walletLimitMeta.updated_at).toLocaleString('en-IN')}`}
+                </p>
+              )}
+            </motion.div>
+            )}
+
+            {activeTab === 'limits' && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.2 }}
+              className="bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 p-6"
+            >
+              <div className="flex items-center gap-3 mb-6">
+                <div className="p-3 bg-violet-100 dark:bg-violet-900/30 rounded-lg">
+                  <Gauge className="w-6 h-6 text-violet-700 dark:text-violet-400" />
+                </div>
+                <div>
+                  <h2 className="text-xl font-bold text-gray-900 dark:text-white">Credit Card / Pay2New Transaction Limit</h2>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">
+                    Maximum single Credit Card (Pay2New) transaction for retailers &amp; partners using the application. Current limit: <span className="font-semibold text-gray-900 dark:text-white">₹{ccLimit.toLocaleString('en-IN')}</span>
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-end gap-3">
+                <div className="flex-1 max-w-xs">
+                  <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">New Limit (₹)</label>
+                  <input
+                    type="number"
+                    min={50000}
+                    max={10000000}
+                    value={ccLimitInput}
+                    onChange={(e) => setCcLimitInput(e.target.value)}
+                    className="w-full px-4 py-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                    placeholder="e.g. 200000"
+                  />
+                </div>
+                <button
+                  onClick={saveCcLimit}
+                  disabled={ccLimitLoading || ccLimitInput === String(ccLimit)}
+                  className="px-5 py-2 bg-violet-600 text-white rounded-lg hover:bg-violet-700 disabled:opacity-50 whitespace-nowrap"
+                >
+                  {ccLimitLoading ? 'Saving...' : 'Update Limit'}
+                </button>
+              </div>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-3">
+                Applies to the in-app Credit Card bill payment flow. Partners transacting via the API use their own per-partner limit (set in POS Partner API Management), which falls back to this value when not configured.
+              </p>
+              {ccLimitMeta.updated_by && (
+                <p className="text-xs text-gray-400 mt-2">
+                  Last updated by {ccLimitMeta.updated_by}
+                  {ccLimitMeta.updated_at && ` on ${new Date(ccLimitMeta.updated_at).toLocaleString('en-IN')}`}
                 </p>
               )}
             </motion.div>

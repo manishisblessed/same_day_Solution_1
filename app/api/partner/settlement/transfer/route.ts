@@ -17,8 +17,6 @@ export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 export const fetchCache = 'force-no-store'
 
-const GST_PERCENT = 18
-
 function getSupabase() {
   return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -150,7 +148,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Resolve the partner's Settlement-2 (Shadval) scheme charge for this amount + mode.
-    // Charge = base retailer_charge + 18% GST, debited from the partner wallet on top
+    // Charge = base retailer_charge (no GST), debited from the partner wallet on top
     // of the transfer amount. Scoped to schemes the partner is actually mapped to.
     const { baseCharge, schemeId } = await resolveShadvalCharge(supabase, partner.id, amountNum, mode)
 
@@ -199,8 +197,8 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const gstAmount = Math.round((baseCharge * GST_PERCENT) / 100 * 100) / 100
-    const charges = Math.round((baseCharge + gstAmount) * 100) / 100
+    // No GST charged — charge equals the base service charge.
+    const charges = baseCharge
     const totalRequired = Math.round((amountNum + charges) * 100) / 100
 
     if (walletBalance < totalRequired) {
@@ -295,7 +293,7 @@ export async function POST(request: NextRequest) {
       p_amount: totalRequired,
       p_payout_transaction_id: txRecord.id,
       p_description: charges > 0
-        ? `Settlement transfer ₹${amountNum} + charge ₹${baseCharge} + GST ₹${gstAmount} = ₹${totalRequired} to ${account.account_number} (${account.account_holder_name})`
+        ? `Settlement transfer ₹${amountNum} + charge ₹${baseCharge} = ₹${totalRequired} to ${account.account_number} (${account.account_holder_name})`
         : `Settlement transfer ₹${amountNum} to ${account.account_number} (${account.account_holder_name})`,
       p_reference_id: refId,
       p_service_type: 'shadval_settlement',

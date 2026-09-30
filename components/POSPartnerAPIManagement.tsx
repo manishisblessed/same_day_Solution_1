@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import {
   Key, Shield, Globe, RefreshCw, Plus, Copy, Eye, EyeOff,
   CheckCircle, XCircle, AlertCircle, X, Trash2, Download,
-  Lock, Unlock, Server, Clock, FileText, Settings, Check, Link2, Wallet, ArrowUpCircle
+  Lock, Unlock, Server, Clock, FileText, Settings, Check, Link2, Wallet, ArrowUpCircle, Gauge
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { apiFetch } from '@/lib/api-client'
@@ -55,6 +55,7 @@ interface Partner {
   created_at: string
   api_keys: PartnerKey[]
   export_limit: number
+  api_max_txn_amount?: number | null
 }
 
 function parseKeyPermissions(raw: string[] | string | null | undefined): string[] {
@@ -135,6 +136,7 @@ export default function POSPartnerAPIManagement() {
   // Whitelist form
   const [whitelistIps, setWhitelistIps] = useState('')
   const [exportLimitValue, setExportLimitValue] = useState(10)
+  const [apiLimitDrafts, setApiLimitDrafts] = useState<Record<string, string>>({})
   const [actionLoading, setActionLoading] = useState(false)
 
   const fetchPartners = useCallback(async (): Promise<Partner[]> => {
@@ -270,6 +272,20 @@ export default function POSPartnerAPIManagement() {
     })
     if (result) {
       showSuccess(`Export limit updated for ${partner.name}`)
+      fetchPartners()
+    }
+  }
+
+  // ─── Update API Max Transaction Limit ──────────────────
+  const handleUpdateApiLimit = async (partner: Partner) => {
+    const raw = (apiLimitDrafts[partner.id] ?? '').trim()
+    const result = await doAction({
+      action: 'update_partner_api_limit',
+      partner_id: partner.id,
+      api_max_txn_amount: raw === '' ? null : Number(raw),
+    })
+    if (result) {
+      showSuccess(result.message || `API limit updated for ${partner.name}`)
       fetchPartners()
     }
   }
@@ -1102,6 +1118,42 @@ export default function POSPartnerAPIManagement() {
                               onClick={() => handleUpdateExportLimit(partner)}
                               disabled={actionLoading}
                               className="px-3 py-2 bg-gray-600 text-white text-sm rounded-lg hover:bg-gray-700 disabled:opacity-50"
+                            >
+                              Save
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* API Max Transaction Limit */}
+                        <div className="p-4 bg-gray-50 dark:bg-gray-900/50 rounded-lg md:col-span-2">
+                          <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2">
+                            <Gauge className="w-4 h-4" />
+                            API Max Transaction Limit
+                          </h4>
+                          <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
+                            Maximum amount permitted per transaction through the API. Leave empty to use the global limit (Admin → Settings → Limits).
+                            {' '}Current:{' '}
+                            <span className="font-medium text-gray-700 dark:text-gray-300">
+                              {partner.api_max_txn_amount != null
+                                ? `₹${Number(partner.api_max_txn_amount).toLocaleString('en-IN')}`
+                                : 'Global limit'}
+                            </span>
+                          </p>
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm text-gray-500">₹</span>
+                            <input
+                              type="number"
+                              min={1000}
+                              max={10000000}
+                              placeholder="Global limit"
+                              value={apiLimitDrafts[partner.id] ?? (partner.api_max_txn_amount != null ? String(partner.api_max_txn_amount) : '')}
+                              onChange={(e) => setApiLimitDrafts((prev) => ({ ...prev, [partner.id]: e.target.value }))}
+                              className="w-40 px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800"
+                            />
+                            <button
+                              onClick={() => handleUpdateApiLimit(partner)}
+                              disabled={actionLoading}
+                              className="px-3 py-2 bg-violet-600 text-white text-sm rounded-lg hover:bg-violet-700 disabled:opacity-50"
                             >
                               Save
                             </button>

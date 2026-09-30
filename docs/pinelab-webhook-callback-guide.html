@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pine Labs POS — Webhook Callback Integration Guide</title>
+<style>
+  :root {
+    --ink: #1a1a2e;
+    --muted: #5b6472;
+    --brand: #0b5cab;
+    --brand-soft: #e8f1fb;
+    --line: #d9dee6;
+    --code-bg: #f5f7fa;
+    --accent: #0b7a4b;
+    --warn-bg: #fff8e6;
+    --warn-line: #e6c200;
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body {
+    font-family: "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    color: var(--ink);
+    font-size: 12.5px;
+    line-height: 1.55;
+    margin: 0;
+    padding: 0 34px 40px;
+  }
+  header.doc {
+    border-bottom: 3px solid var(--brand);
+    padding: 26px 0 16px;
+    margin-bottom: 22px;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+  }
+  header.doc .title { font-size: 22px; font-weight: 700; color: var(--brand); margin: 0 0 4px; }
+  header.doc .sub { color: var(--muted); font-size: 12px; }
+  header.doc .brand-tag {
+    text-align: right; font-size: 11px; color: var(--muted); line-height: 1.4;
+  }
+  header.doc .brand-tag strong { color: var(--ink); font-size: 13px; }
+  h2 {
+    font-size: 15px; color: var(--brand); margin: 26px 0 8px;
+    padding-bottom: 4px; border-bottom: 1px solid var(--line);
+  }
+  h2 .num {
+    display: inline-block; background: var(--brand); color: #fff;
+    width: 20px; height: 20px; border-radius: 4px; text-align: center;
+    line-height: 20px; font-size: 11px; margin-right: 8px; font-weight: 700;
+  }
+  p { margin: 6px 0; }
+  .lead { color: var(--muted); }
+  table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 11.5px; }
+  th, td { border: 1px solid var(--line); padding: 6px 9px; text-align: left; vertical-align: top; }
+  th { background: var(--brand-soft); color: var(--ink); font-weight: 600; }
+  tr:nth-child(even) td { background: #fafbfc; }
+  code {
+    font-family: "Cascadia Code", Consolas, "Courier New", monospace;
+    background: var(--code-bg); padding: 1px 5px; border-radius: 3px;
+    font-size: 11px; color: #b0004e;
+  }
+  pre {
+    background: var(--code-bg); border: 1px solid var(--line); border-left: 3px solid var(--brand);
+    border-radius: 4px; padding: 12px 14px; overflow-x: auto; font-size: 10.8px;
+    line-height: 1.5; margin: 10px 0;
+  }
+  pre code { background: none; color: var(--ink); padding: 0; }
+  .note {
+    background: var(--warn-bg); border: 1px solid var(--warn-line); border-left: 3px solid var(--warn-line);
+    border-radius: 4px; padding: 9px 13px; margin: 12px 0; font-size: 11.5px;
+  }
+  .note strong { color: #8a6d00; }
+  ol, ul { margin: 6px 0; padding-left: 22px; }
+  li { margin: 3px 0; }
+  .pill {
+    display: inline-block; background: var(--accent); color: #fff; font-size: 10px;
+    padding: 1px 7px; border-radius: 10px; font-weight: 600; letter-spacing: .3px;
+  }
+  footer.doc {
+    margin-top: 30px; padding-top: 12px; border-top: 1px solid var(--line);
+    font-size: 10px; color: var(--muted); display: flex; justify-content: space-between;
+  }
+  h2 { page-break-after: avoid; }
+  table, pre, .note { page-break-inside: avoid; }
+</style>
+</head>
+<body>
+
+<header class="doc">
+  <div>
+    <div class="title">Pine Labs POS — Webhook Callback Integration Guide</div>
+    <div class="sub">Per-transaction notification setup for Pine Labs POS terminals</div>
+  </div>
+  <div class="brand-tag">
+    <strong>SameDay Solution</strong><br>
+    Integration Guidance<br>
+    v1.0 &middot; Sep 2026
+  </div>
+</header>
+
+<h2><span class="num">1</span>What this is</h2>
+<p>Pine Labs POS terminals push an HTTP <code>POST</code> to your server for each transaction. You host a single endpoint; Pine Labs calls it on every transaction. This enables real-time per-transaction notifications — no polling required.</p>
+<div class="note">
+  <strong>Note:</strong> The authoritative field names and signature scheme come from <strong>your Pine Labs onboarding / integration contact</strong>. Naming differs slightly per integration type (PlutusSmart / Online Callback / Cloud API). The format below is what we receive in production and is a safe reference to build against.
+</div>
+
+<h2><span class="num">2</span>Setup (one-time)</h2>
+<ol>
+  <li>Stand up a <strong>public HTTPS</strong> endpoint, e.g. <code>https://api.paymatrix.in/pinelab/notification</code>.</li>
+  <li>Share that URL with Pine Labs and ask them to enable <strong>transaction notifications / callbacks</strong> for your MID(s) / TID(s).</li>
+  <li>Ask Pine Labs whether callbacks are signed and, if so, request the <strong>shared secret</strong> and the <strong>signature header name</strong> (we have seen <code>x-pinelab-signature</code> / <code>x-signature</code>).</li>
+</ol>
+
+<h2><span class="num">3</span>Endpoint requirements</h2>
+<table>
+  <tr><th style="width:26%">Property</th><th>Requirement</th></tr>
+  <tr><td>Method</td><td><code>POST</code></td></tr>
+  <tr><td>Body</td><td>JSON</td></tr>
+  <tr><td>Response</td><td>Return <strong>HTTP 200</strong> quickly to acknowledge; process asynchronously</td></tr>
+  <tr><td>Timeout</td><td>Keep the handler fast; do DB / business work after acking</td></tr>
+  <tr><td>Idempotency</td><td>Deduplicate on <code>TransactionNumber</code> / <code>PlutusTransactionReferenceID</code> (retries can repeat the same txn)</td></tr>
+</table>
+
+<h2><span class="num">4</span>Signature verification <span class="pill">IF SECRET PROVIDED</span></h2>
+<p>HMAC-SHA256 over the <strong>raw request body</strong>, hex-encoded, compared timing-safely:</p>
+<pre><code>const expected = crypto
+  .createHmac('sha256', PINELAB_WEBHOOK_SECRET)
+  .update(rawBody)          // exact bytes, before JSON.parse
+  .digest('hex');
+
+// compare against header x-pinelab-signature / x-signature (timing-safe)</code></pre>
+
+<h2><span class="num">5</span>Payload fields (what Pine Labs sends)</h2>
+<p class="lead">Field names vary by integration; accept the alternates.</p>
+<table>
+  <tr><th style="width:24%">Purpose</th><th style="width:32%">Primary field</th><th>Alternates / Notes</th></tr>
+  <tr><td>Transaction id</td><td><code>TransactionNumber</code></td><td><code>PlutusTransactionReferenceID</code>, <code>TransactionId</code></td></tr>
+  <tr><td>Amount</td><td><code>Amount</code></td><td><code>TransactionAmount</code> — <strong>often in paise</strong></td></tr>
+  <tr><td>Result code</td><td><code>HostResponse</code></td><td><code>ResponseCode</code> (<code>00</code>/<code>APPROVED</code> = success; <code>05</code>/<code>51</code>/<code>DECLINED</code> = fail)</td></tr>
+  <tr><td>Status</td><td><code>TransactionStatus</code></td><td>Approved / Declined / Void</td></tr>
+  <tr><td>Type</td><td><code>TransactionType</code></td><td>REFUND / VOID / REVERSAL / CHARGE</td></tr>
+  <tr><td>Terminal id</td><td><code>TerminalId</code></td><td><code>TID</code></td></tr>
+  <tr><td>Merchant id</td><td><code>MerchantId</code></td><td><code>MID</code></td></tr>
+  <tr><td>RRN</td><td><code>RRN</code></td><td><code>RetrievalReferenceNumber</code></td></tr>
+  <tr><td>Auth code</td><td><code>ApprovalCode</code></td><td><code>AuthCode</code></td></tr>
+  <tr><td>Card (masked)</td><td><code>CardNumber</code></td><td><code>MaskedCardNumber</code></td></tr>
+  <tr><td>Card type</td><td><code>CardType</code></td><td>CREDIT / DEBIT</td></tr>
+  <tr><td>Card scheme</td><td><code>CardScheme</code></td><td><code>CardBrand</code> (VISA / MASTERCARD / RUPAY / AMEX)</td></tr>
+  <tr><td>Payment mode</td><td><code>PaymentMode</code></td><td><code>TransactionType</code></td></tr>
+  <tr><td>Batch / invoice</td><td><code>BatchNumber</code></td><td><code>InvoiceNumber</code></td></tr>
+  <tr><td>Timestamp</td><td><code>TransactionDateTime</code></td><td><code>TransactionDate</code></td></tr>
+  <tr><td>Issuing bank</td><td><code>IssuingBank</code></td><td>—</td></tr>
+  <tr><td>Currency</td><td><code>Currency</code></td><td>default INR</td></tr>
+</table>
+
+<h2><span class="num">6</span>Parsing rules (important)</h2>
+<ul>
+  <li><strong>Amount is usually in paise</strong> &rarr; divide by 100 to get rupees.</li>
+  <li><strong>Status mapping:</strong> <code>HostResponse == "00"</code> or <code>APPROVED</code> &rarr; success; <code>05</code>/<code>51</code>/<code>DECLINED</code> &rarr; failed; <code>VOID</code>/<code>REVERSAL</code> &rarr; voided; <code>REFUND</code> &rarr; refunded.</li>
+  <li><strong>Act on success only</strong> for settlement; expect PENDING / FAILED callbacks too.</li>
+  <li><strong>Auto-reversals</strong> may arrive as a later <code>VOID</code>/<code>REFUND</code> (or even <code>FAILED</code>) for a txn you already saw approved — handle the reversal.</li>
+  <li>Store the <strong>entire raw payload</strong> for audit.</li>
+</ul>
+
+<h2><span class="num">7</span>Sample callback payload</h2>
+<pre><code>{
+  "TransactionNumber": "7142059434",
+  "PlutusTransactionReferenceID": "308626",
+  "Amount": "10449400",
+  "HostResponse": "00",
+  "TransactionStatus": "Approved",
+  "TransactionType": "CHARGE",
+  "TerminalId": "43133658",
+  "MerchantId": "JZQ992",
+  "RRN": "000000000030",
+  "ApprovalCode": "308626",
+  "CardNumber": "************2014",
+  "CardType": "CREDIT",
+  "CardScheme": "VISA",
+  "PaymentMode": "CARD",
+  "IssuingBank": "ICICI BANK LTD",
+  "BatchNumber": "12",
+  "InvoiceNumber": "1045",
+  "TransactionDateTime": "2026-07-11 13:54:05",
+  "Currency": "INR"
+}</code></pre>
+
+<h2><span class="num">8</span>Go-live checklist</h2>
+<ol>
+  <li>HTTPS endpoint returns 200 to Pine Labs' test call.</li>
+  <li>Signature verification working (if secret provided).</li>
+  <li>Amount-in-paise conversion verified against a terminal receipt.</li>
+  <li>Idempotency + status mapping tested (success, fail, void / refund).</li>
+  <li>Pine Labs enables callbacks for your live MID / TIDs.</li>
+</ol>
+
+<div class="note">
+  Shared as integration guidance based on our production experience. Please confirm the exact field names and signature scheme with your Pine Labs integration SPOC before go-live.
+</div>
+
+<footer class="doc">
+  <span>Pine Labs POS Webhook Callback Integration Guide</span>
+  <span>SameDay Solution &middot; Confidential</span>
+</footer>
+
+</body>
+</html>

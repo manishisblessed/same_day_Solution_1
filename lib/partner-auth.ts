@@ -20,6 +20,7 @@ export interface PartnerAuthResult {
     settlement2_enabled: boolean
     aeps_enabled: boolean
     rechargekit_cc_enabled: boolean
+    api_max_txn_amount: number | null
   }
 }
 
@@ -195,7 +196,8 @@ export async function authenticatePartner(
         settlement_enabled,
         settlement2_enabled,
         aeps_enabled,
-        rechargekit_cc_enabled
+        rechargekit_cc_enabled,
+        api_max_txn_amount
       )
     `)
     .eq('api_key', apiKey)
@@ -312,6 +314,7 @@ export async function authenticatePartner(
       settlement2_enabled: partner.settlement2_enabled === true,
       aeps_enabled: partner.aeps_enabled === true,
       rechargekit_cc_enabled: partner.rechargekit_cc_enabled === true,
+      api_max_txn_amount: partner.api_max_txn_amount != null ? Number(partner.api_max_txn_amount) : null,
     },
   }
 }

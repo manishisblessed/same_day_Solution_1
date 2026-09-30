@@ -932,7 +932,7 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
                     </div>
                     <div className="flex justify-between text-sm">
                       <span className="text-gray-500">
-                        Charges (incl. 18% GST) {loadingCharges && <Loader2 className="w-3 h-3 animate-spin inline ml-1" />}
+                        Charges {loadingCharges && <Loader2 className="w-3 h-3 animate-spin inline ml-1" />}
                       </span>
                       <span className="font-medium text-gray-900 dark:text-white">₹{charges.toFixed(2)}</span>
                     </div>
@@ -1007,7 +1007,7 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
                   </div>
                   {charges > 0 && (
                     <div className="p-3 bg-amber-50 dark:bg-amber-900/20 rounded-xl col-span-2">
-                      <p className="text-amber-600 dark:text-amber-400 text-xs mb-1">Settlement Charges incl. GST (Wallet Debit)</p>
+                      <p className="text-amber-600 dark:text-amber-400 text-xs mb-1">Settlement Charges (Wallet Debit)</p>
                       <p className="text-lg font-bold text-amber-700 dark:text-amber-300">₹{charges.toFixed(2)}</p>
                     </div>
                   )}
@@ -1155,7 +1155,7 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
                   </div>
                   {transferResult.charges > 0 && (
                     <div className="flex justify-between items-center py-2 border-b border-gray-100 dark:border-gray-800">
-                      <span className="text-sm text-gray-500 dark:text-gray-400">Charges (incl. GST)</span>
+                      <span className="text-sm text-gray-500 dark:text-gray-400">Charges</span>
                       <span className="text-sm font-medium text-gray-900 dark:text-white">₹{transferResult.charges.toFixed(2)}</span>
                     </div>
                   )}
@@ -1241,7 +1241,7 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
                             ${transferResult.utr ? `<div class="row"><span class="label">UTR</span><span class="value">${transferResult.utr}</span></div>` : ''}
                             ${transferResult.order_id ? `<div class="row"><span class="label">Order ID</span><span class="value">${transferResult.order_id}</span></div>` : ''}
                             <div class="row"><span class="label">Reference</span><span class="value">${transferResult.reference_id}</span></div>
-                            <div class="row"><span class="label">Charges (incl. GST)</span><span class="value">₹${transferResult.charges.toFixed(2)}</span></div>
+                            <div class="row"><span class="label">Charges</span><span class="value">₹${transferResult.charges.toFixed(2)}</span></div>
                             <div class="row"><span class="label">Date</span><span class="value">${new Date(transferResult.provider_timestamp || Date.now()).toLocaleString('en-IN')}</span></div>
                             <div class="divider"></div>
                             <div class="footer">Same Day Solution - Settlement Receipt</div>

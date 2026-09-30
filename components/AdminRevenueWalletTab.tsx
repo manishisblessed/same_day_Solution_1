@@ -5,8 +5,7 @@ import { apiFetch } from '@/lib/api-client'
 import { cleanDescription } from '@/lib/format'
 import { 
   RefreshCw, Search, ChevronLeft, ChevronRight, Wallet, Download, 
-  TrendingUp, TrendingDown, Calendar, FileSpreadsheet, ArrowUpRight, ArrowDownRight,
-  IndianRupee, Filter, AlertCircle
+  TrendingUp, Calendar, FileSpreadsheet, IndianRupee, AlertCircle
 } from 'lucide-react'
 import { motion } from 'framer-motion'
 
@@ -29,10 +28,25 @@ type LedgerRow = {
   created_at: string
 }
 
-type WalletStats = {
-  total_credits: number
-  total_debits: number
-  transaction_count: number
+type DailyRevenue = {
+  date: string
+  credit: number
+  debit: number
+  net: number
+}
+
+type RevenueStats = {
+  configured: boolean
+  month: { year: number; month: number; from: string; to: string; credit: number; debit: number; net: number }
+  today: { date: string; credit: number; debit: number; net: number; applicable: boolean }
+  daysElapsed: number
+  avgPerDay: number
+  daily: DailyRevenue[]
+}
+
+function currentMonthValue() {
+  const ist = new Date(Date.now() + 330 * 60_000)
+  return `${ist.getUTCFullYear()}-${String(ist.getUTCMonth() + 1).padStart(2, '0')}`
 }
 
 export default function AdminRevenueWalletTab() {
@@ -57,8 +71,11 @@ export default function AdminRevenueWalletTab() {
   const [q, setQ] = useState('')
   const [debouncedQ, setDebouncedQ] = useState('')
   
-  const [stats, setStats] = useState<WalletStats>({ total_credits: 0, total_debits: 0, transaction_count: 0 })
   const [downloading, setDownloading] = useState(false)
+
+  const [statsMonth, setStatsMonth] = useState<string>(currentMonthValue())
+  const [revenueStats, setRevenueStats] = useState<RevenueStats | null>(null)
+  const [loadingStats, setLoadingStats] = useState(true)
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedQ(q), 400)
@@ -88,6 +105,23 @@ export default function AdminRevenueWalletTab() {
     }
   }, [])
 
+  const fetchRevenueStats = useCallback(async () => {
+    setLoadingStats(true)
+    try {
+      const res = await apiFetch(`/api/admin/subscriptions/revenue-stats?month=${statsMonth}`)
+      const data = await res.json()
+      if (data.configured) {
+        setRevenueStats(data)
+      } else {
+        setRevenueStats(null)
+      }
+    } catch {
+      setRevenueStats(null)
+    } finally {
+      setLoadingStats(false)
+    }
+  }, [statsMonth])
+
   const fetchLedger = useCallback(async () => {
     if (!userId) return
     
@@ -114,15 +148,6 @@ export default function AdminRevenueWalletTab() {
       
       setEntries(data.entries || [])
       setTotal(data.total ?? 0)
-      
-      // Calculate stats from entries
-      const credits = (data.entries || []).reduce((sum: number, e: LedgerRow) => sum + (Number(e.credit) || 0), 0)
-      const debits = (data.entries || []).reduce((sum: number, e: LedgerRow) => sum + (Number(e.debit) || 0), 0)
-      setStats({
-        total_credits: credits,
-        total_debits: debits,
-        transaction_count: data.total ?? 0
-      })
     } catch (e: any) {
       setError(e.message || 'Failed to load')
       setEntries([])
@@ -135,6 +160,10 @@ export default function AdminRevenueWalletTab() {
   useEffect(() => {
     fetchBalance()
   }, [fetchBalance])
+
+  useEffect(() => {
+    fetchRevenueStats()
+  }, [fetchRevenueStats])
 
   useEffect(() => {
     if (userId) {
@@ -250,17 +279,17 @@ export default function AdminRevenueWalletTab() {
         </div>
         <button
           type="button"
-          onClick={() => { fetchBalance(); fetchLedger(); }}
+          onClick={() => { fetchBalance(); fetchLedger(); fetchRevenueStats(); }}
           className="flex items-center gap-2 px-4 py-2 rounded-lg bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-sm font-medium transition-colors"
         >
-          <RefreshCw className={`w-4 h-4 ${loading || loadingBalance ? 'animate-spin' : ''}`} />
+          <RefreshCw className={`w-4 h-4 ${loading || loadingBalance || loadingStats ? 'animate-spin' : ''}`} />
           Refresh
         </button>
       </div>
 
-      {/* Balance Card */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="md:col-span-1 bg-gradient-to-br from-green-500 to-emerald-600 rounded-2xl p-6 text-white shadow-xl">
+      {/* Balance + Revenue Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="bg-gradient-to-br from-green-500 to-emerald-600 rounded-2xl p-6 text-white shadow-xl">
           <div className="flex items-center justify-between mb-4">
             <span className="text-green-100 text-sm font-medium">Current Balance</span>
             <Wallet className="w-5 h-5 text-green-200" />
@@ -271,36 +300,147 @@ export default function AdminRevenueWalletTab() {
             <div className="text-3xl font-bold">{formatCurrency(balance || 0)}</div>
           )}
           <div className="mt-4 pt-4 border-t border-white/20">
-            <p className="text-xs text-green-100 truncate" title={userId || ''}>
-              Wallet ID: {userId?.slice(0, 16)}...
-            </p>
+            <p className="text-xs text-green-100">All-time cumulative</p>
           </div>
         </div>
 
+        {/* Month-to-date revenue — resets to 0 on the 1st (IST) */}
         <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 border border-gray-200 dark:border-gray-700 shadow-sm">
           <div className="flex items-center justify-between mb-4">
-            <span className="text-gray-500 dark:text-gray-400 text-sm font-medium">Total Credits (Page)</span>
-            <div className="p-2 rounded-lg bg-green-100 dark:bg-green-900/30">
-              <ArrowDownRight className="w-4 h-4 text-green-600 dark:text-green-400" />
+            <span className="text-gray-500 dark:text-gray-400 text-sm font-medium">Revenue · This Month</span>
+            <div className="p-2 rounded-lg bg-emerald-100 dark:bg-emerald-900/30">
+              <TrendingUp className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
             </div>
           </div>
-          <div className="text-2xl font-bold text-green-600 dark:text-green-400">
-            {formatCurrency(stats.total_credits)}
-          </div>
-          <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">Incoming funds</p>
+          {loadingStats ? (
+            <div className="h-8 bg-gray-100 dark:bg-gray-700 rounded animate-pulse"></div>
+          ) : (
+            <div className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">
+              {formatCurrency(revenueStats?.month.net ?? 0)}
+            </div>
+          )}
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
+            {revenueStats
+              ? `+${formatCurrency(revenueStats.month.credit)} · -${formatCurrency(revenueStats.month.debit)}`
+              : 'Net revenue (from the 1st)'}
+          </p>
         </div>
 
+        {/* Today's revenue */}
         <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 border border-gray-200 dark:border-gray-700 shadow-sm">
           <div className="flex items-center justify-between mb-4">
-            <span className="text-gray-500 dark:text-gray-400 text-sm font-medium">Total Debits (Page)</span>
-            <div className="p-2 rounded-lg bg-red-100 dark:bg-red-900/30">
-              <ArrowUpRight className="w-4 h-4 text-red-600 dark:text-red-400" />
+            <span className="text-gray-500 dark:text-gray-400 text-sm font-medium">Revenue · Today</span>
+            <div className="p-2 rounded-lg bg-blue-100 dark:bg-blue-900/30">
+              <Calendar className="w-4 h-4 text-blue-600 dark:text-blue-400" />
             </div>
           </div>
-          <div className="text-2xl font-bold text-red-600 dark:text-red-400">
-            {formatCurrency(stats.total_debits)}
+          {loadingStats ? (
+            <div className="h-8 bg-gray-100 dark:bg-gray-700 rounded animate-pulse"></div>
+          ) : (
+            <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">
+              {revenueStats?.today.applicable ? formatCurrency(revenueStats.today.net) : '—'}
+            </div>
+          )}
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
+            {revenueStats?.today.applicable
+              ? `+${formatCurrency(revenueStats.today.credit)} · -${formatCurrency(revenueStats.today.debit)}`
+              : 'Select current month to view'}
+          </p>
+        </div>
+
+        {/* Average per day */}
+        <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 border border-gray-200 dark:border-gray-700 shadow-sm">
+          <div className="flex items-center justify-between mb-4">
+            <span className="text-gray-500 dark:text-gray-400 text-sm font-medium">Avg / Day</span>
+            <div className="p-2 rounded-lg bg-purple-100 dark:bg-purple-900/30">
+              <IndianRupee className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+            </div>
           </div>
-          <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">Outgoing funds</p>
+          {loadingStats ? (
+            <div className="h-8 bg-gray-100 dark:bg-gray-700 rounded animate-pulse"></div>
+          ) : (
+            <div className="text-2xl font-bold text-purple-600 dark:text-purple-400">
+              {formatCurrency(revenueStats?.avgPerDay ?? 0)}
+            </div>
+          )}
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
+            {revenueStats ? `Over ${revenueStats.daysElapsed} day${revenueStats.daysElapsed !== 1 ? 's' : ''}` : 'Month average'}
+          </p>
+        </div>
+      </div>
+
+      {/* Per-Day Revenue */}
+      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
+        <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 border-b border-gray-200 dark:border-gray-700">
+          <div>
+            <h3 className="font-semibold text-gray-900 dark:text-white">Daily Revenue</h3>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Per-day breakdown · resets on the 1st</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <label className="text-xs font-medium text-gray-600 dark:text-gray-400">Month</label>
+            <input
+              type="month"
+              value={statsMonth}
+              max={currentMonthValue()}
+              onChange={(e) => setStatsMonth(e.target.value || currentMonthValue())}
+              className="px-3 py-2 text-sm border rounded-lg bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-600"
+            />
+          </div>
+        </div>
+        <div className="overflow-x-auto max-h-80 overflow-y-auto">
+          <table className="w-full text-sm min-w-[420px]">
+            <thead className="bg-gray-50 dark:bg-gray-900 sticky top-0">
+              <tr>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wider">Date</th>
+                <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wider">Credit</th>
+                <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wider">Debit</th>
+                <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wider">Net Revenue</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+              {loadingStats ? (
+                <tr>
+                  <td colSpan={4} className="px-4 py-10 text-center text-gray-500">
+                    <RefreshCw className="w-5 h-5 animate-spin inline-block mr-2" />
+                    Loading daily revenue...
+                  </td>
+                </tr>
+              ) : !revenueStats || revenueStats.daily.length === 0 ? (
+                <tr>
+                  <td colSpan={4} className="px-4 py-10 text-center text-gray-500">No revenue data for this month.</td>
+                </tr>
+              ) : (
+                revenueStats.daily.map((d) => (
+                  <tr key={d.date} className="hover:bg-gray-50 dark:hover:bg-gray-700/40 transition-colors">
+                    <td className="px-4 py-3 whitespace-nowrap text-gray-700 dark:text-gray-300">
+                      {new Date(`${d.date}T00:00:00`).toLocaleDateString('en-IN', {
+                        weekday: 'short', day: '2-digit', month: 'short'
+                      })}
+                    </td>
+                    <td className="px-4 py-3 text-right text-green-600 dark:text-green-400">
+                      {d.credit > 0 ? `+${formatCurrency(d.credit)}` : <span className="text-gray-400">—</span>}
+                    </td>
+                    <td className="px-4 py-3 text-right text-red-600 dark:text-red-400">
+                      {d.debit > 0 ? `-${formatCurrency(d.debit)}` : <span className="text-gray-400">—</span>}
+                    </td>
+                    <td className="px-4 py-3 text-right font-semibold text-gray-900 dark:text-white">
+                      {formatCurrency(d.net)}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+            {revenueStats && revenueStats.daily.length > 0 && (
+              <tfoot className="bg-gray-50 dark:bg-gray-900 sticky bottom-0">
+                <tr className="font-semibold">
+                  <td className="px-4 py-3 text-gray-900 dark:text-white">Total</td>
+                  <td className="px-4 py-3 text-right text-green-600 dark:text-green-400">+{formatCurrency(revenueStats.month.credit)}</td>
+                  <td className="px-4 py-3 text-right text-red-600 dark:text-red-400">-{formatCurrency(revenueStats.month.debit)}</td>
+                  <td className="px-4 py-3 text-right text-gray-900 dark:text-white">{formatCurrency(revenueStats.month.net)}</td>
+                </tr>
+              </tfoot>
+            )}
+          </table>
         </div>
       </div>
 

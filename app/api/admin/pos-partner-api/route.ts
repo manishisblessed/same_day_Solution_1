@@ -546,6 +546,45 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ success: true, message: `Daily export limit set to ${daily_limit}` })
       }
 
+      // ─── UPDATE PARTNER API MAX TRANSACTION LIMIT ───────
+      case 'update_partner_api_limit': {
+        if (isPartner) {
+          return NextResponse.json({ error: 'Only administrators can change the API transaction limit' }, { status: 403 })
+        }
+        const { partner_id, api_max_txn_amount } = body
+        if (!partner_id) {
+          return NextResponse.json({ error: 'partner_id is required' }, { status: 400 })
+        }
+
+        // null/empty clears the override (partner falls back to the global limit).
+        let value: number | null = null
+        if (api_max_txn_amount !== null && api_max_txn_amount !== undefined && api_max_txn_amount !== '') {
+          const parsed = Number(api_max_txn_amount)
+          if (!Number.isFinite(parsed) || parsed < 1000 || parsed > 10_000_000) {
+            return NextResponse.json(
+              { error: 'API transaction limit must be between ₹1,000 and ₹1,00,00,000 (or empty to use the global limit)' },
+              { status: 400 }
+            )
+          }
+          value = Math.round(parsed)
+        }
+
+        const { error: limErr } = await supabase
+          .from('partners')
+          .update({ api_max_txn_amount: value, updated_at: new Date().toISOString() })
+          .eq('id', partner_id)
+
+        if (limErr) throw limErr
+
+        return NextResponse.json({
+          success: true,
+          message: value === null
+            ? 'API transaction limit cleared — partner will use the global limit'
+            : `API transaction limit set to ₹${value.toLocaleString('en-IN')}`,
+          data: { partner_id, api_max_txn_amount: value },
+        })
+      }
+
       // ─── UPDATE WEBHOOK URL ──────────────────────────────
       case 'update_webhook_url': {
         let { partner_id, webhook_url } = body

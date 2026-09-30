@@ -10,3 +10,16 @@ export function cleanDescription<T extends string | null | undefined>(desc: T): 
     .replace(/\s{2,}/g, ' ')
     .trim() as T
 }
+
+/**
+ * Extract the base bill/transfer amount (excluding charges/GST) from a
+ * credit-card bill-payment description like "CC ₹49900 + ₹30 charge | ...".
+ * Returns null when the description isn't a CC bill-payment entry.
+ */
+export function parseBillAmount(desc?: string | null): number | null {
+  if (!desc) return null
+  const m = desc.match(/^\s*CC(?:-2)?\s*₹?\s*([\d,]+(?:\.\d+)?)/i)
+  if (!m) return null
+  const n = parseFloat(m[1].replace(/,/g, ''))
+  return isNaN(n) ? null : n
+}

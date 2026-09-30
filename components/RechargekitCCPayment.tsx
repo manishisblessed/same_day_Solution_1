@@ -415,10 +415,12 @@ export default function RechargekitCCPayment() {
                         <span>Service charge</span>
                         <span>₹{chargesData.base_charge.toFixed(2)}</span>
                       </div>
-                      <div className="flex justify-between text-gray-600 dark:text-gray-300">
-                        <span>GST ({chargesData.gst_percent}%)</span>
-                        <span>₹{chargesData.gst_amount.toFixed(2)}</span>
-                      </div>
+                      {chargesData.gst_amount > 0 && (
+                        <div className="flex justify-between text-gray-600 dark:text-gray-300">
+                          <span>GST ({chargesData.gst_percent}%)</span>
+                          <span>₹{chargesData.gst_amount.toFixed(2)}</span>
+                        </div>
+                      )}
                       <div className="flex justify-between font-semibold text-gray-900 dark:text-white pt-1 border-t border-purple-200 dark:border-purple-700">
                         <span>Total debit</span>
                         <span>₹{totalPayable}</span>
@@ -503,7 +505,7 @@ export default function RechargekitCCPayment() {
                   )}
                   {payResult.charge != null && (
                     <div className="flex justify-between gap-2">
-                      <span className="text-gray-500">Charge (incl. GST)</span>
+                      <span className="text-gray-500">Charge</span>
                       <span>₹{payResult.charge}</span>
                     </div>
                   )}

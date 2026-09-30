@@ -3,12 +3,11 @@ import { toUserSafeError } from '@/lib/provider-error'
 import { authenticatePartner, PartnerAuthError, partnerCanUseApi } from '@/lib/partner-auth'
 import { createClient } from '@supabase/supabase-js'
 import { SCHEME_NOT_ASSIGNED, SCHEME_NOT_ASSIGNED_STATUS, SCHEME_NO_VALID_SLAB, hasCoveringBbpsSlab } from '@/lib/scheme-guard'
+import { getPartnerApiMax } from '@/lib/txn-limits'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 export const fetchCache = 'force-no-store'
-
-const GST_PERCENT = 18
 
 function getSupabase() {
   return createClient(
@@ -61,6 +60,15 @@ export async function POST(request: NextRequest) {
     }
 
     const supabase = getSupabase()
+
+    // Mirror the bill-pay ceiling so the charge preview matches enforcement.
+    const maxTxnAmount = await getPartnerApiMax(supabase, partner.api_max_txn_amount)
+    if (amountNum > maxTxnAmount) {
+      return NextResponse.json(
+        { success: false, error: { code: 'AMOUNT_LIMIT_EXCEEDED', message: `Amount exceeds the maximum allowed limit of ₹${maxTxnAmount.toLocaleString('en-IN')}` } },
+        { status: 400 }
+      )
+    }
 
     let charges = null
     let schemeName: string | null = null
@@ -139,9 +147,9 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // No GST charged — total equals the scheme base charge.
     const baseCharge = charges?.retailer_charge || 0
-    const gstAmount = Math.round(baseCharge * GST_PERCENT / 100 * 100) / 100
-    const totalCharge = Math.round((baseCharge + gstAmount) * 100) / 100
+    const totalCharge = baseCharge
 
     return NextResponse.json({
       success: true,
@@ -149,8 +157,8 @@ export async function POST(request: NextRequest) {
       scheme_name: schemeName,
       charges: {
         base_charge: baseCharge,
-        gst_percent: GST_PERCENT,
-        gst_amount: gstAmount,
+        gst_percent: 0,
+        gst_amount: 0,
         total_charge: totalCharge,
       },
     })

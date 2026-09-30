@@ -37,8 +37,9 @@ import { exportTable } from '@/lib/export/table-export'
 import ShadvalPayTransfer from '@/components/ShadvalPayTransfer'
 import TpinSetup from '@/components/TpinSetup'
 import UserPushPullReport from '@/components/UserPushPullReport'
+import LedgerTab from '@/components/LedgerTab'
 
-type TabType = 'dashboard' | 'services' | 'retailers' | 'wallet' | 'commission' | 'mdr-schemes' | 'analytics' | 'reports' | 'settings' | 'scheme-management' | 'pos-machines' | 'subscriptions' | 'push-pull'
+type TabType = 'dashboard' | 'services' | 'retailers' | 'wallet' | 'commission' | 'mdr-schemes' | 'analytics' | 'reports' | 'settings' | 'scheme-management' | 'pos-machines' | 'subscriptions' | 'push-pull' | 'ledger'
 
 type ChangePasswordFormProps = {
   onPasswordChange: (current: string, newPassword: string, confirm: string) => void
@@ -54,7 +55,7 @@ function DistributorDashboardContent() {
   
   const getInitialTab = (): TabType => {
     const tab = searchParams?.get('tab')
-    if (tab && ['dashboard', 'services', 'retailers', 'wallet', 'commission', 'mdr-schemes', 'analytics', 'reports', 'settings', 'scheme-management', 'pos-machines', 'subscriptions', 'push-pull'].includes(tab)) {
+    if (tab && ['dashboard', 'services', 'retailers', 'wallet', 'commission', 'mdr-schemes', 'analytics', 'reports', 'settings', 'scheme-management', 'pos-machines', 'subscriptions', 'push-pull', 'ledger'].includes(tab)) {
       return tab as TabType
     }
     return 'dashboard'
@@ -230,7 +231,7 @@ function DistributorDashboardContent() {
       router.replace('/dashboard/distributor?tab=retailers', { scroll: false })
       return
     }
-    if (tab && ['dashboard', 'services', 'retailers', 'wallet', 'commission', 'mdr-schemes', 'analytics', 'reports', 'settings', 'scheme-management', 'pos-machines', 'subscriptions', 'push-pull'].includes(tab)) {
+    if (tab && ['dashboard', 'services', 'retailers', 'wallet', 'commission', 'mdr-schemes', 'analytics', 'reports', 'settings', 'scheme-management', 'pos-machines', 'subscriptions', 'push-pull', 'ledger'].includes(tab)) {
       setActiveTab(tab as TabType)
     } else {
       // Default to dashboard if no tab is specified (when on main dashboard page)
@@ -309,6 +310,7 @@ function DistributorDashboardContent() {
           {activeTab === 'services' && <ServicesTab />}
           {activeTab === 'retailers' && <NetworkTab retailers={retailers} user={user} onRefresh={fetchDashboardData} />}
           {activeTab === 'wallet' && <WalletTab user={user} />}
+          {activeTab === 'ledger' && <LedgerTab user={user} />}
           {activeTab === 'commission' && <CommissionTab commissionData={commissionData} stats={stats} onRefresh={fetchDashboardData} />}
           {activeTab === 'mdr-schemes' && <MDRSchemesTab user={user} retailers={retailers} onRefresh={fetchDashboardData} />}
           {activeTab === 'analytics' && <AnalyticsTab categoryData={categoryData} />}

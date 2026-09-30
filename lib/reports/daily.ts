@@ -287,6 +287,7 @@ export async function getDailyUserReport(
         push: 0,
         pull: 0,
         commission: 0,
+        refunds: 0,
         txn_count: 0,
       }
       byUser.set(id, agg)
@@ -297,11 +298,16 @@ export async function getDailyUserReport(
     agg.debit_total += debit
     agg.closing = Number(r.closing_balance ?? r.balance_after ?? agg.closing) || agg.closing
     const ref = String(r.reference_id || '')
+    const ttype = String(r.transaction_type || '')
     if (/^(ADMIN_PUSH_|DIST_PUSH_)/i.test(ref)) agg.push += credit
     if (/^(ADMIN_PULL_|DIST_PULL_)/i.test(ref)) agg.pull += debit
-    if (/COMMISSION/i.test(String(r.transaction_type || '')) || /commission/i.test(String(r.fund_category || ''))) {
+    if (/COMMISSION/i.test(ttype) || /commission/i.test(String(r.fund_category || ''))) {
       agg.commission += credit
     }
+    // Refund credits (e.g. BBPS_REFUND, PAY2NEW_REFUND, SETTLEMENT2_REFUND,
+    // RECHARGEKIT_CC_REFUND, plain REFUND) — broken out of settlement, matching
+    // the RPC and partner_wallet_ledger paths.
+    if (/REFUND/i.test(ttype) || /^REFUND/i.test(ref)) agg.refunds += credit
     agg.txn_count += 1
   }
 

@@ -8,8 +8,6 @@ export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 export const fetchCache = 'force-no-store'
 
-const GST_PERCENT = 18
-
 function getSupabase() {
   return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -21,8 +19,8 @@ function getSupabase() {
 /**
  * GET /api/partner/settlement/charges?amount=1000&mode=IMPS
  * Get settlement charges for a given amount and mode.
- * Charges are resolved from the partner's mapped Settlement-2 (Shadval) scheme,
- * with 18% GST applied on the base service charge.
+ * Charges are resolved from the partner's mapped Settlement-2 (Shadval) scheme.
+ * No GST is charged — the total equals the base service charge.
  */
 export async function GET(request: NextRequest) {
   try {
@@ -88,8 +86,8 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    const gstAmount = Math.round((baseCharge * GST_PERCENT) / 100 * 100) / 100
-    const totalCharge = Math.round((baseCharge + gstAmount) * 100) / 100
+    // No GST charged — total equals the base service charge.
+    const totalCharge = baseCharge
 
     return NextResponse.json({
       success: true,
@@ -97,8 +95,8 @@ export async function GET(request: NextRequest) {
       mode,
       scheme_name: schemeName,
       charges: baseCharge,
-      gst_percent: GST_PERCENT,
-      gst_amount: gstAmount,
+      gst_percent: 0,
+      gst_amount: 0,
       total_charge: totalCharge,
       total_debit: Math.round((amount + totalCharge) * 100) / 100,
     })

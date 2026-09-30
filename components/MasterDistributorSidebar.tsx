@@ -7,7 +7,7 @@ import Image from 'next/image'
 import { 
   LayoutDashboard, Crown, Activity, 
   Settings, TrendingUp, Users, Network, Package, X, Menu, Layers, CreditCard, Repeat,
-  UserPlus, CheckCircle2, CalendarDays
+  UserPlus, CheckCircle2, CalendarDays, BookOpen, Wallet
 } from 'lucide-react'
 import { apiFetch } from '@/lib/api-client'
 import { useAuth } from '@/contexts/AuthContext'
@@ -29,6 +29,8 @@ const sidebarItems: SidebarItem[] = [
   { id: 'subscriptions', label: 'Subscriptions', icon: Repeat, href: '/dashboard/master-distributor?tab=subscriptions' },
   { id: 'scheme-management', label: 'Scheme Management', icon: Layers, href: '/dashboard/master-distributor?tab=scheme-management' },
   { id: 'network', label: 'Network', icon: Network, href: '/dashboard/master-distributor?tab=network' },
+  { id: 'wallet', label: 'Wallet', icon: Wallet, href: '/dashboard/master-distributor?tab=wallet' },
+  { id: 'ledger', label: 'Ledger', icon: BookOpen, href: '/dashboard/master-distributor?tab=ledger' },
   { id: 'push-pull', label: 'Push/Pull Report', icon: Repeat, href: '/dashboard/master-distributor?tab=push-pull' },
   { id: 'onboarding', label: 'Onboard Partners', icon: UserPlus, href: '/dashboard/onboarding' },
   { id: 'approvals', label: 'Approvals', icon: CheckCircle2, href: '/dashboard/approvals' },

@@ -35,8 +35,9 @@ import { getSchemeBrandValues, brandLabel } from '@/lib/card-brands'
 import ExportDropdown, { type ExportFormat } from '@/components/ExportDropdown'
 import { exportTable } from '@/lib/export/table-export'
 import UserPushPullReport from '@/components/UserPushPullReport'
+import LedgerTab from '@/components/LedgerTab'
 
-type TabType = 'dashboard' | 'services' | 'distributors' | 'retailers' | 'wallet' | 'network' | 'commission' | 'analytics' | 'reports' | 'settings' | 'scheme-management' | 'pos-machines' | 'subscriptions' | 'push-pull'
+type TabType = 'dashboard' | 'services' | 'distributors' | 'retailers' | 'wallet' | 'network' | 'commission' | 'analytics' | 'reports' | 'settings' | 'scheme-management' | 'pos-machines' | 'subscriptions' | 'push-pull' | 'ledger'
 
 type ChangePasswordFormProps = {
   onPasswordChange: (current: string, newPassword: string, confirm: string) => void
@@ -55,7 +56,7 @@ function MasterDistributorDashboardContent() {
   const getInitialTab = (): TabType => {
     const tab = searchParams?.get('tab')
     if (tab === 'distributors' || tab === 'retailers') return 'network'
-    if (tab && ['dashboard', 'services', 'wallet', 'network', 'commission', 'analytics', 'reports', 'settings', 'scheme-management', 'pos-machines', 'subscriptions', 'push-pull'].includes(tab)) {
+    if (tab && ['dashboard', 'services', 'wallet', 'network', 'commission', 'analytics', 'reports', 'settings', 'scheme-management', 'pos-machines', 'subscriptions', 'push-pull', 'ledger'].includes(tab)) {
       return tab as TabType
     }
     return 'dashboard'
@@ -100,7 +101,7 @@ function MasterDistributorDashboardContent() {
     if (tab === 'distributors' || tab === 'retailers') {
       router.replace('/dashboard/master-distributor?tab=network', { scroll: false })
       setActiveTab('network')
-    } else if (tab && ['dashboard', 'services', 'wallet', 'network', 'commission', 'analytics', 'reports', 'settings', 'scheme-management', 'pos-machines', 'subscriptions', 'push-pull'].includes(tab)) {
+    } else if (tab && ['dashboard', 'services', 'wallet', 'network', 'commission', 'analytics', 'reports', 'settings', 'scheme-management', 'pos-machines', 'subscriptions', 'push-pull', 'ledger'].includes(tab)) {
       setActiveTab(tab as TabType)
     } else {
       // Default to dashboard if no tab is specified (when on main dashboard page)
@@ -357,6 +358,7 @@ function MasterDistributorDashboardContent() {
           {activeTab === 'distributors' && <DistributorsTab distributors={distributors} retailers={retailers} user={user} onRefresh={fetchDashboardData} />}
           {activeTab === 'retailers' && <RetailersTab distributors={distributors} retailers={retailers} user={user} onRefresh={fetchDashboardData} />}
           {activeTab === 'wallet' && <WalletTab user={user} />}
+          {activeTab === 'ledger' && <LedgerTab user={user} />}
           {activeTab === 'network' && <NetworkTab distributors={distributors} retailers={retailers} user={user} onRefresh={fetchDashboardData} onNavigateToPosMachines={() => { setActiveTab('pos-machines'); router.push('/dashboard/master-distributor?tab=pos-machines') }} />}
           {activeTab === 'commission' && <CommissionTab commissionData={commissionData} stats={stats} />}
           {activeTab === 'analytics' && <AnalyticsTab categoryData={categoryData} revenueData={revenueData} />}
@@ -805,7 +807,8 @@ function NetworkTab({ distributors, retailers, user, onRefresh, defaultView, onN
   const [transferData, setTransferData] = useState({
     amount: '',
     fund_category: 'cash' as 'cash' | 'online',
-    remarks: ''
+    remarks: '',
+    tpin: ''
   })
   const [mdrData, setMdrData] = useState({
     approved_mdr_rate: ''
@@ -869,17 +872,27 @@ function NetworkTab({ distributors, retailers, user, onRefresh, defaultView, onN
       return
     }
 
+    const targetRole: 'distributor' | 'retailer' =
+      selectedUser.user_type || (selectedType === 'distributors' ? 'distributor' : 'retailer')
+
+    if (action === 'pull' && (!transferData.tpin || transferData.tpin.length !== 4)) {
+      showToast("Target's 4-digit TPIN is required to pull funds", 'warning')
+      return
+    }
+
     setTransferring(true)
     try {
-      const response = await apiFetch('/api/admin/wallet/push', {
+      const response = await apiFetch('/api/master-distributor/wallet/transfer', {
         method: 'POST',
+        headers: { 'Idempotency-Key': `md-transfer-${selectedUser.partner_id}-${Date.now()}` },
         body: JSON.stringify({
-          user_id: selectedUser.partner_id,
-          user_role: selectedUser.user_type || (selectedType === 'distributors' ? 'distributor' : 'retailer'),
-          wallet_type: 'primary',
+          target_id: selectedUser.partner_id,
+          target_role: targetRole,
+          action,
           fund_category: transferData.fund_category,
-          amount: action === 'push' ? parseFloat(transferData.amount) : -parseFloat(transferData.amount),
-          remarks: transferData.remarks || `${action} funds by master distributor`
+          amount: parseFloat(transferData.amount),
+          remarks: transferData.remarks || `${action} funds by master distributor`,
+          ...(action === 'pull' ? { tpin: transferData.tpin } : {})
         })
       })
 
@@ -888,7 +901,7 @@ function NetworkTab({ distributors, retailers, user, onRefresh, defaultView, onN
         showToast(`Fund ${action} successful!`, 'success')
         setShowFundTransfer(false)
         setSelectedUser(null)
-        setTransferData({ amount: '', fund_category: 'cash', remarks: '' })
+        setTransferData({ amount: '', fund_category: 'cash', remarks: '', tpin: '' })
         onRefresh()
       } else {
         showToast(data.error || 'Transfer failed', 'error')
@@ -1199,6 +1212,18 @@ function NetworkTab({ distributors, retailers, user, onRefresh, defaultView, onN
                   placeholder="Enter remarks..."
                 />
               </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Target's TPIN <span className="text-gray-400 font-normal">(required only to pull funds)</span></label>
+                <input
+                  type="password"
+                  inputMode="numeric"
+                  maxLength={4}
+                  value={transferData.tpin}
+                  onChange={(e) => setTransferData({ ...transferData, tpin: e.target.value.replace(/\D/g, '').slice(0, 4) })}
+                  className="w-full px-4 py-2 border rounded-lg tracking-widest"
+                  placeholder="4-digit TPIN"
+                />
+              </div>
               <div className="flex gap-3">
                 <button
                   onClick={() => handleFundTransfer('push')}
@@ -1218,6 +1243,7 @@ function NetworkTab({ distributors, retailers, user, onRefresh, defaultView, onN
                   onClick={() => {
                     setShowFundTransfer(false)
                     setSelectedUser(null)
+                    setTransferData({ amount: '', fund_category: 'cash', remarks: '', tpin: '' })
                   }}
                   className="flex-1 bg-gray-200 text-gray-700 py-2 px-4 rounded-lg hover:bg-gray-300"
                 >

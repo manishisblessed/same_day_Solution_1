@@ -149,11 +149,9 @@ export async function POST(request: NextRequest) {
       return addCorsHeaders(request, response)
     }
 
-    // Resolve scheme and calculate charges
+    // Resolve scheme and calculate charges (no GST charged to retailers)
     let charges = 0
     let baseCharges = 0
-    let gstAmount = 0
-    const GST_PERCENT = 18
     let resolvedSchemeId: string | null = null
     let resolvedSchemeName: string | null = null
     let resolvedVia: string | null = null
@@ -214,8 +212,7 @@ export async function POST(request: NextRequest) {
 
         if (!chargeError && chargeResult?.length > 0 && parseFloat(chargeResult[0].retailer_charge) > 0) {
           baseCharges = parseFloat(chargeResult[0].retailer_charge) || 0
-          gstAmount = Math.round(baseCharges * GST_PERCENT / 100 * 100) / 100
-          charges = Math.round((baseCharges + gstAmount) * 100) / 100
+          charges = baseCharges
           commissionSplit = {
             distributor_commission: parseFloat(chargeResult[0].distributor_commission) || 0,
             md_commission: parseFloat(chargeResult[0].md_commission) || 0,
@@ -232,7 +229,7 @@ export async function POST(request: NextRequest) {
               company_cost: parseFloat(chargeResult[0].company_earning || chargeResult[0].company_charge) || 0,
             }
           }
-          console.log(`[Settlement-2] Scheme charge: ₹${baseCharges} + GST ₹${gstAmount} = ₹${charges}${chargeModelData ? ' [CHARGE MODEL]' : ''}`)
+          console.log(`[Settlement-2] Scheme charge: ₹${charges}${chargeModelData ? ' [CHARGE MODEL]' : ''}`)
         }
       }
     } catch (schemeErr) {
@@ -280,8 +277,7 @@ export async function POST(request: NextRequest) {
           const effectiveCharge = rtCharge > 0 ? rtCharge : rawRetailer
           const effectiveType = rtCharge > 0 ? (slab.rt_purchase_charge_type || 'flat') : (slab.retailer_charge_type || 'flat')
           baseCharges = calc(effectiveCharge, effectiveType)
-          gstAmount = Math.round(baseCharges * GST_PERCENT / 100 * 100) / 100
-          charges = Math.round((baseCharges + gstAmount) * 100) / 100
+          charges = baseCharges
           commissionSplit = {
             distributor_commission: calc(parseFloat(slab.distributor_commission) || 0, slab.distributor_commission_type),
             md_commission: calc(parseFloat(slab.md_commission) || 0, slab.md_commission_type),
@@ -478,7 +474,7 @@ export async function POST(request: NextRequest) {
     // Debit transfer amount + charges
     const totalDebit = amountNum + charges
     const debitRemarks = charges > 0
-      ? `Settlement-2 transfer ₹${amountNum} + charge ₹${baseCharges} + GST ₹${gstAmount} = ₹${totalDebit.toFixed(2)} to ${account.account_number} (${account.account_holder_name})`
+      ? `Settlement-2 transfer ₹${amountNum} + charge ₹${baseCharges} = ₹${totalDebit.toFixed(2)} to ${account.account_number} (${account.account_holder_name})`
       : `Settlement-2 transfer ₹${amountNum} to ${account.account_number} (${account.account_holder_name})`
 
     let transferLedgerId: string | null = null

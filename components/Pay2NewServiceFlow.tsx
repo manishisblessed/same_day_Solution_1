@@ -708,7 +708,7 @@ export default function Pay2NewServiceFlow(props: Pay2NewServiceFlowProps) {
                     </div>
                     <div className="p-3 bg-amber-50 dark:bg-amber-900/20 rounded-xl border border-amber-200 dark:border-amber-800">
                       <p className="text-amber-600 dark:text-amber-400 text-xs font-medium mb-1">
-                        Service Charges incl. GST (Wallet Debit)
+                        Service Charges{(chargesData?.gst_amount ?? 0) > 0 ? ' incl. GST' : ''} (Wallet Debit)
                         {loadingCharges && <Loader2 className="w-3 h-3 animate-spin inline ml-1" />}
                       </p>
                       <p className="text-lg font-bold text-amber-700 dark:text-amber-300">
