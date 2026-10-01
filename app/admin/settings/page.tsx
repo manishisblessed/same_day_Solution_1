@@ -125,6 +125,7 @@ export default function AdminSettings() {
     { id: 'dashboard', label: 'Dashboard' },
     { id: 'onboarding', label: 'Onboarding & Invites' },
     { id: 'daily-report', label: 'Daily Report' },
+    { id: 'balances-report', label: 'Opening & Closing' },
     { id: 'business-analytics', label: 'Business Analytics' },
     { id: 'pos-transactions', label: 'POS Transactions' },
     { id: 'pos-reconciliation', label: 'POS Reconciliation' },
