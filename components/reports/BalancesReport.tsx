@@ -9,7 +9,6 @@ interface Row {
   name: string
   opening: number
   closing: number
-  txnCount: number
 }
 
 interface Totals {
@@ -37,10 +36,10 @@ const changeOf = (r: { opening: number; closing: number }) =>
   Number((r.closing - r.opening).toFixed(2))
 
 /**
- * All-users Opening & Closing balances for a selected day. Reuses the daily
- * report API (/api/reports/daily) and simply surfaces the opening/closing
- * snapshot plus the net day change. Pick any past date to view that day's
- * opening/closing balances; scope is enforced server-side.
+ * All-users Opening & Closing balances for a selected day. Uses dedicated
+ * /api/reports/balances (all_user_balances RPC) so ALL users appear — even
+ * those with no transactions on the day. Pick any past date to view that
+ * day's opening/closing; for today the closing is the live wallet balance.
  */
 export default function BalancesReport() {
   const [date, setDate] = useState(todayIST())
@@ -58,23 +57,11 @@ export default function BalancesReport() {
       const params = new URLSearchParams({ date })
       if (role) params.set('role', role)
       if (q) params.set('q', q)
-      const res = await apiFetch(`/api/reports/daily?${params.toString()}`)
+      const res = await apiFetch(`/api/reports/balances?${params.toString()}`)
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Failed to load balances')
-      const list: Row[] = (data.rows || []).map((r: any) => ({
-        user_id: r.user_id,
-        user_role: r.user_role,
-        name: r.name,
-        opening: Number(r.opening) || 0,
-        closing: Number(r.closing) || 0,
-        txnCount: Number(r.txnCount) || 0,
-      }))
-      setRows(list)
-      setTotals(
-        data.totals
-          ? { opening: Number(data.totals.opening) || 0, closing: Number(data.totals.closing) || 0, users: Number(data.totals.users) || list.length }
-          : null
-      )
+      setRows(data.rows || [])
+      setTotals(data.totals || null)
     } catch (e: any) {
       setErr(e.message)
       setRows([])
@@ -89,22 +76,12 @@ export default function BalancesReport() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [date, role])
 
-  function exportCsv() {
-    const header = ['User ID', 'Name', 'Role', 'Opening', 'Closing', 'Net Change', 'Txns'].join(',')
-    const body = rows
-      .map((r) =>
-        [
-          r.user_id,
-          `"${r.name.replace(/"/g, '""')}"`,
-          r.user_role,
-          r.opening.toFixed(2),
-          r.closing.toFixed(2),
-          changeOf(r).toFixed(2),
-          r.txnCount,
-        ].join(',')
-      )
-      .join('\n')
-    const blob = new Blob(['\uFEFF' + header + '\n' + body], { type: 'text/csv;charset=utf-8' })
+  async function exportCsv() {
+    const params = new URLSearchParams({ date, format: 'csv' })
+    if (role) params.set('role', role)
+    if (q) params.set('q', q)
+    const res = await apiFetch(`/api/reports/balances?${params.toString()}`)
+    const blob = await res.blob()
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
@@ -172,14 +149,14 @@ export default function BalancesReport() {
       )}
 
       <div className="rounded-xl bg-blue-50 px-4 py-2.5 text-xs text-blue-800 ring-1 ring-blue-100">
-        <span className="font-semibold">How to read this:</span> <span className="font-medium">Opening</span> is each user&apos;s wallet balance at the start of the selected day and <span className="font-medium">Closing</span> is the balance at day end. <span className="font-medium">Net Change</span> = Closing − Opening. Pick any past date to view that day&apos;s balances. Only users with activity on the day appear.
+        <span className="font-semibold">How to read this:</span> Shows <strong>every</strong> user&apos;s wallet balance — even those with no transactions on the selected day. <span className="font-medium">Opening</span> is the balance at IST midnight (start of day) and <span className="font-medium">Closing</span> is the balance at day end (or the live balance for today). <span className="font-medium">Net Change</span> = Closing − Opening.
       </div>
 
       <div className="overflow-x-auto rounded-2xl bg-white p-4 shadow ring-1 ring-gray-100">
         {loading ? (
           <p className="py-8 text-center text-sm text-gray-400">Loading…</p>
         ) : rows.length === 0 ? (
-          <p className="py-8 text-center text-sm text-gray-400">No activity for this day.</p>
+          <p className="py-8 text-center text-sm text-gray-400">No users found.</p>
         ) : (
           <table className="w-full min-w-[640px] text-right text-sm [&_td]:whitespace-nowrap [&_td]:px-2 [&_th]:whitespace-nowrap [&_th]:px-2">
             <thead>
@@ -188,7 +165,6 @@ export default function BalancesReport() {
                 <th className="py-2">Opening</th>
                 <th className="py-2">Closing</th>
                 <th className="py-2" title="Net Change = Closing − Opening">Net Change</th>
-                <th className="py-2">Txns</th>
               </tr>
             </thead>
             <tbody>
@@ -206,7 +182,6 @@ export default function BalancesReport() {
                     <td className="py-2 text-gray-600">{inr(r.opening)}</td>
                     <td className="py-2 font-semibold text-gray-900">{inr(r.closing)}</td>
                     <td className={`py-2 ${chg >= 0 ? 'text-green-600' : 'text-red-600'}`}>{inr(chg)}</td>
-                    <td className="py-2 text-gray-500">{r.txnCount}</td>
                   </tr>
                 )
               })}
@@ -218,7 +193,6 @@ export default function BalancesReport() {
                   <td className="py-2">{inr(totals.opening)}</td>
                   <td className="py-2">{inr(totals.closing)}</td>
                   <td className={`py-2 ${totals.closing - totals.opening >= 0 ? 'text-green-600' : 'text-red-600'}`}>{inr(Number((totals.closing - totals.opening).toFixed(2)))}</td>
-                  <td className="py-2" />
                 </tr>
               </tfoot>
             )}
