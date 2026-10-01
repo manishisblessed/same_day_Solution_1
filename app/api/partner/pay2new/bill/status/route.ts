@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { authenticatePartner, PartnerAuthError, partnerCanUseApi } from '@/lib/partner-auth'
-import { pay2newCheckStatus } from '@/services/pay2new'
+import { resolvePay2NewDebitState, type Pay2NewDebitRow } from '@/lib/pay2new/ledger-status'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -47,38 +47,39 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const { order_id, request_id } = body
+    const { order_id, request_id, bill_fetch_ref } = body
 
-    if (!order_id && !request_id) {
+    if (!order_id && !request_id && !bill_fetch_ref) {
       return NextResponse.json(
-        { success: false, error: { code: 'BAD_REQUEST', message: 'Either order_id or request_id is required' } },
+        { success: false, error: { code: 'BAD_REQUEST', message: 'One of request_id, order_id or bill_fetch_ref is required' } },
         { status: 400 }
       )
     }
 
     const supabase = getSupabase()
 
-    // Look up the transaction in partner_wallet_ledger.
+    // Resolve the Pay2New DEBIT row from whichever reference the partner holds.
+    //   - request_id      -> ledger reference_id (reliable text key)
+    //   - bill_fetch_ref   -> dedicated column (the one ref kept after a lost reply)
+    //   - order_id (uuid)  -> payout_transaction_id (rare genuine uuid)
+    //   - order_id (P2N…)  -> parsed from the description ("OrderID:…")
     let query = supabase
       .from('partner_wallet_ledger')
-      .select('id, transaction_type, credit, debit, reference_id, payout_transaction_id, description, status, created_at')
+      .select('id, transaction_type, debit, reference_id, description, status, created_at, bill_fetch_ref')
       .eq('partner_id', partner.id)
 
-    // request_id maps to reference_id (a text column) and is the reliable key, so
-    // prefer it whenever supplied. order_id is Pay2New's "P2F..." id, which is
-    // stored inside the ledger description ("OrderID:P2F...") — NOT in
-    // payout_transaction_id (a uuid column that cannot hold it). Querying the uuid
-    // column with a "P2F..." value throws Postgres 22P02, which previously
-    // surfaced to partners as "Failed to query transaction".
     const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
     if (request_id) {
       query = query.eq('reference_id', request_id)
+    } else if (bill_fetch_ref) {
+      query = query
+        .eq('service_type', 'pay2new')
+        .eq('transaction_type', 'DEBIT')
+        .eq('bill_fetch_ref', String(bill_fetch_ref))
     } else if (UUID_RE.test(String(order_id))) {
-      // Rare: a genuine uuid payout id.
       query = query.eq('payout_transaction_id', order_id)
     } else {
-      // Resolve Pay2New's "P2F..." order id from the description. Escape LIKE
-      // wildcards so the id is matched literally.
+      // Escape LIKE wildcards so the id is matched literally.
       const safeOrderId = String(order_id).replace(/[\\%_]/g, (ch) => `\\${ch}`)
       query = query.ilike('description', `%OrderID:${safeOrderId}%`)
     }
@@ -96,10 +97,10 @@ export async function POST(request: NextRequest) {
     }
 
     // Find the debit entry (the payment)
-    const debitEntry = ledgerEntries?.find(e => (e.debit || 0) > 0)
+    const debitEntry = ledgerEntries?.find(e => (e.debit || 0) > 0) as Pay2NewDebitRow | undefined
 
     if (!debitEntry) {
-      // No debit found — try to find by refund reference pattern
+      // No debit found — try to find by refund reference pattern (request_id only).
       if (request_id) {
         const { data: refundCheck } = await supabase
           .from('partner_wallet_ledger')
@@ -116,6 +117,7 @@ export async function POST(request: NextRequest) {
             amount: null,
             charge: null,
             operator_reference: null,
+            bill_fetch_ref: null,
             created_at: refundCheck[0].created_at,
             updated_at: refundCheck[0].created_at,
             request_id,
@@ -124,86 +126,27 @@ export async function POST(request: NextRequest) {
       }
 
       return NextResponse.json(
-        { success: false, error: { code: 'ORDER_NOT_FOUND', message: 'No transaction found with the given order_id or request_id' } },
+        { success: false, error: { code: 'ORDER_NOT_FOUND', message: 'No transaction found with the given request_id, order_id or bill_fetch_ref' } },
         { status: 404 }
       )
     }
 
-    const txRequestId = debitEntry.reference_id
-    const txOrderId = debitEntry.payout_transaction_id
-
-    // Check if there's a refund for this transaction
-    const { data: refundEntries } = await supabase
-      .from('partner_wallet_ledger')
-      .select('id, credit, created_at')
-      .eq('partner_id', partner.id)
-      .eq('reference_id', `REFUND_${txRequestId}`)
-      .limit(1)
-
-    const wasRefunded = refundEntries && refundEntries.length > 0
-
-    // Determine status from local records
-    let txStatus: 'SUCCESS' | 'FAILED' | 'PENDING' | 'REFUNDED' = 'SUCCESS'
-    let operatorReference: string | null = null
-
-    if (wasRefunded) {
-      txStatus = 'REFUNDED'
-    } else if (txOrderId?.startsWith('FAILED:')) {
-      txStatus = 'FAILED'
-    } else if (!txOrderId) {
-      // No order_id stored yet — might still be processing or was a timeout
-      txStatus = 'PENDING'
-    }
-
-    // Parse operator_reference from description if available
-    const descMatch = debitEntry.description?.match(/Ref:([^\s|]+)/)
-    if (descMatch && descMatch[1] !== 'N/A') {
-      operatorReference = descMatch[1]
-    }
-
-    // Extract charge from debit amount and description
-    const amountMatch = debitEntry.description?.match(/₹([\d.]+)\s*\+\s*₹([\d.]+)\s*charge/)
-    const billAmount = amountMatch ? parseFloat(amountMatch[1]) : null
-    const chargeAmount = amountMatch ? parseFloat(amountMatch[2]) : null
-
-    // Try upstream provider status check for PENDING transactions
-    if (txStatus === 'PENDING' && txRequestId) {
-      try {
-        const upstreamResult = await pay2newCheckStatus({ request_id: txRequestId })
-        if (upstreamResult.success && upstreamResult.status) {
-          txStatus = upstreamResult.status
-          if (upstreamResult.operator_reference) {
-            operatorReference = upstreamResult.operator_reference
-          }
-          // Back-fill the resolved order_id into the description (the
-          // payout_transaction_id column is uuid and cannot store Pay2New's
-          // "P2F..." order_id). Only append once.
-          if (txStatus === 'SUCCESS' && upstreamResult.order_id && !/OrderID:/.test(debitEntry.description || '')) {
-            await supabase
-              .from('partner_wallet_ledger')
-              .update({
-                description: `${debitEntry.description || ''} | OrderID:${upstreamResult.order_id} | Ref:${operatorReference || upstreamResult.operator_reference || 'N/A'}`,
-              })
-              .eq('id', debitEntry.id)
-          }
-        }
-      } catch (upstreamErr) {
-        console.error('[Partner Pay2New Status] Upstream check failed (using local status):', upstreamErr)
-      }
-    }
-
-    const resolvedOrderId = txOrderId?.startsWith('FAILED:') ? null : txOrderId
+    // Single source of truth for state (reads order_id from the description, does
+    // a non-mutating upstream check for still-pending rows). Fixes the old bug
+    // where order_id was read from payout_transaction_id and always came back null.
+    const resolved = await resolvePay2NewDebitState(supabase, partner.id, debitEntry)
 
     return NextResponse.json({
       success: true,
-      order_id: resolvedOrderId || null,
-      status: txStatus,
-      amount: billAmount,
-      charge: chargeAmount,
-      operator_reference: operatorReference,
-      created_at: debitEntry.created_at,
-      updated_at: wasRefunded ? refundEntries![0].created_at : debitEntry.created_at,
-      request_id: txRequestId,
+      order_id: resolved.orderId,
+      status: resolved.status,
+      amount: resolved.amount,
+      charge: resolved.charge,
+      operator_reference: resolved.operatorReference,
+      bill_fetch_ref: resolved.billFetchRef,
+      created_at: resolved.createdAt,
+      updated_at: resolved.updatedAt,
+      request_id: resolved.requestId,
     })
   } catch (error: any) {
     console.error('[Partner Pay2New Status] Error:', error)

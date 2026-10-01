@@ -52,12 +52,12 @@ function generateWebhookSecret() {
 }
 
 /** Event categories a webhook endpoint may subscribe to. */
-const WEBHOOK_EVENT_CATEGORIES = ['pos', 'settlement', 'payout', 'rechargekit'] as const
+const WEBHOOK_EVENT_CATEGORIES = ['pos', 'settlement', 'payout', 'rechargekit', 'pay2new'] as const
 
 /** Validate + normalize a webhook events array. Returns categories or an error. */
 function normalizeWebhookEvents(events: unknown): { events?: string[]; error?: string } {
   if (!Array.isArray(events) || events.length === 0) {
-    return { error: 'events must be a non-empty array (pos, settlement, payout, rechargekit)' }
+    return { error: 'events must be a non-empty array (pos, settlement, payout, rechargekit, pay2new)' }
   }
   const raw = events.map((e) => String(e).trim().toLowerCase()).filter(Boolean)
   const invalid = raw.filter((e) => !WEBHOOK_EVENT_CATEGORIES.includes(e as any))

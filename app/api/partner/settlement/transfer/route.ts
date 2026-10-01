@@ -5,6 +5,7 @@ import { initiateBankTransfer } from '@/services/shadval-pay'
 import type { ShadvalTransferRequest } from '@/services/shadval-pay'
 import { sendSettlementCallback } from '@/lib/settlement-callback'
 import { resolveShadvalCharge, getShadvalSlabLimits } from '@/lib/shadval-charge'
+import { computeGst, getShadvalSlabGstInclusive } from '@/lib/scheme-gst'
 import { distributeServiceCommission } from '@/lib/commission/distribute-service-commission'
 import { SCHEME_NOT_ASSIGNED, SCHEME_NOT_ASSIGNED_STATUS, SCHEME_NO_VALID_SLAB, hasCoveringShadvalSlab } from '@/lib/scheme-guard'
 import {
@@ -148,8 +149,9 @@ export async function POST(request: NextRequest) {
     }
 
     // Resolve the partner's Settlement-2 (Shadval) scheme charge for this amount + mode.
-    // Charge = base retailer_charge (no GST), debited from the partner wallet on top
-    // of the transfer amount. Scoped to schemes the partner is actually mapped to.
+    // Charge = base retailer_charge (+18% GST only when the slab is GST-inclusive),
+    // debited from the partner wallet on top of the transfer amount. Scoped to
+    // schemes the partner is actually mapped to.
     const { baseCharge, schemeId } = await resolveShadvalCharge(supabase, partner.id, amountNum, mode)
 
     // FINANCIAL SAFETY: no explicitly assigned scheme => refuse the transfer.
@@ -197,8 +199,9 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // No GST charged — charge equals the base service charge.
-    const charges = baseCharge
+    // GST applies only when the matched slab is configured as GST-inclusive.
+    const gstInclusive = await getShadvalSlabGstInclusive(supabase, schemeId, amountNum, mode)
+    const charges = computeGst(baseCharge, gstInclusive).totalCharge
     const totalRequired = Math.round((amountNum + charges) * 100) / 100
 
     if (walletBalance < totalRequired) {

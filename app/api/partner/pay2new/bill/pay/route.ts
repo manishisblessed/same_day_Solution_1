@@ -1,10 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { createClient, SupabaseClient } from '@supabase/supabase-js'
 import { authenticatePartner, PartnerAuthError, partnerCanUseApi } from '@/lib/partner-auth'
 import { pay2newPayBill } from '@/services/pay2new'
 import { isBillerRateLimitError, BILLER_RATE_LIMIT_MESSAGE, toUserSafeError } from '@/lib/provider-error'
 import { SCHEME_NOT_ASSIGNED, SCHEME_NOT_ASSIGNED_STATUS, SCHEME_NO_VALID_SLAB, hasCoveringBbpsSlab } from '@/lib/scheme-guard'
 import { getPartnerApiMax } from '@/lib/txn-limits'
+import { computeGst, getBbpsSlabGstInclusive } from '@/lib/scheme-gst'
+import { findPriorPay2NewAttempt, resolvePay2NewDebitState, type Pay2NewResolvedState } from '@/lib/pay2new/ledger-status'
+import { buildPay2NewStatusPayload, type Pay2NewStatusPayloadInput } from '@/lib/partner-webhook/pay2new-payload'
+import { deliverPartnerCallbackByPartnerId } from '@/lib/partner-webhook/deliver'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -16,6 +20,89 @@ function getSupabase() {
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
     { auth: { persistSession: false } }
   )
+}
+
+/**
+ * Push a terminal Pay2New pay state to the partner (fire-and-forget, signed).
+ * Only terminal states are emitted — a PENDING replay is not a webhook event.
+ * This is what self-heals a lost bill/pay response: even if the HTTP reply never
+ * reaches the partner, the outcome is delivered (and re-delivered by the recon /
+ * callback-retry crons).
+ */
+function emitPay2NewWebhook(supabase: SupabaseClient, partnerId: string, input: Pay2NewStatusPayloadInput): void {
+  if (input.status === 'PENDING') return
+  const payload = buildPay2NewStatusPayload(input)
+  void deliverPartnerCallbackByPartnerId({
+    supabase,
+    partnerId,
+    txnId: input.requestId,
+    payload,
+    event: 'pay2new.cc.status',
+    logPrefix: 'Pay2New Partner Callback',
+  }).catch(() => {})
+}
+
+function emitResolved(supabase: SupabaseClient, partnerId: string, r: Pay2NewResolvedState): void {
+  emitPay2NewWebhook(supabase, partnerId, {
+    billFetchRef: r.billFetchRef,
+    requestId: r.requestId,
+    orderId: r.orderId,
+    status: r.status,
+    amount: r.amount,
+    charge: r.charge,
+    operatorReference: r.operatorReference,
+  })
+}
+
+/**
+ * Build the HTTP response for an idempotent replay of a prior payment attempt.
+ * The partner never gets a second charge: they get the ORIGINAL outcome, with a
+ * clear instruction for non-success states. A new payment requires a fresh bill
+ * fetch (new bill_fetch_ref).
+ */
+function replayResponse(r: Pay2NewResolvedState) {
+  switch (r.status) {
+    case 'SUCCESS':
+      return {
+        success: true,
+        order_id: r.orderId,
+        operator_reference: r.operatorReference,
+        amount: r.amount,
+        charge: r.charge,
+        request_id: r.requestId,
+        bill_fetch_ref: r.billFetchRef,
+        status: 'SUCCESS',
+        idempotent_replay: true,
+      }
+    case 'PENDING':
+      return {
+        success: false,
+        error: { code: 'PAYMENT_PENDING', message: 'A payment for this bill_fetch_ref is still being processed. Poll bill/status for the final state — do NOT retry bill/pay.' },
+        status: 'PENDING',
+        request_id: r.requestId,
+        bill_fetch_ref: r.billFetchRef,
+        idempotent_replay: true,
+      }
+    case 'REFUNDED':
+      return {
+        success: false,
+        error: { code: 'PAYMENT_REFUNDED', message: 'The previous payment for this bill_fetch_ref failed and was refunded. Fetch a new bill to retry.' },
+        status: 'REFUNDED',
+        refunded: true,
+        request_id: r.requestId,
+        bill_fetch_ref: r.billFetchRef,
+        idempotent_replay: true,
+      }
+    default: // FAILED
+      return {
+        success: false,
+        error: { code: 'PAYMENT_FAILED', message: 'The previous payment for this bill_fetch_ref failed. Fetch a new bill to retry.' },
+        status: 'FAILED',
+        request_id: r.requestId,
+        bill_fetch_ref: r.billFetchRef,
+        idempotent_replay: true,
+      }
+  }
 }
 
 export async function POST(request: NextRequest) {
@@ -53,8 +140,11 @@ export async function POST(request: NextRequest) {
     const {
       number, amount, product_code, product_name,
       bill_fetch_ref, pan_number, customer_number, customer_name,
-      optional1, optional2, optional3, optional4, pincode,
+      optional1, optional2, optional3, optional4, pincode, client_ref,
     } = body
+
+    // Optional partner-supplied idempotency key (in addition to bill_fetch_ref).
+    const clientRef = client_ref ? String(client_ref).trim() || null : null
 
     if (!number || !amount || !product_code || !bill_fetch_ref || !customer_number) {
       return NextResponse.json(
@@ -72,6 +162,18 @@ export async function POST(request: NextRequest) {
     }
 
     const supabase = getSupabase()
+
+    // ── Idempotency (A + C) ──────────────────────────────────────────────
+    // A partner may hold at most ONE payment attempt per bill_fetch_ref (or
+    // explicit client_ref). If a prior attempt exists, replay its authoritative
+    // outcome instead of charging again. This is what makes bill/pay safe to
+    // retry after a lost response: a retry can NEVER create a second charge.
+    const priorAttempt = await findPriorPay2NewAttempt(supabase, partner.id, String(bill_fetch_ref), clientRef)
+    if (priorAttempt) {
+      const resolved = await resolvePay2NewDebitState(supabase, partner.id, priorAttempt)
+      emitResolved(supabase, partner.id, resolved)
+      return NextResponse.json(replayResponse(resolved))
+    }
 
     // PAN is mandatory for bill payments above ₹49,999
     const PAN_MANDATORY_ABOVE = 49999
@@ -205,8 +307,9 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // No GST charged — total charge equals the scheme service charge.
-    const totalServiceCharge = serviceCharge
+    // GST applies only when the matched slab is configured as GST-inclusive.
+    const gstInclusive = await getBbpsSlabGstInclusive(supabase, resolvedSchemeId, amountNum, schemeCategory)
+    const { totalCharge: totalServiceCharge } = computeGst(serviceCharge, gstInclusive)
     const totalDebit = amountNum + totalServiceCharge
 
     // Check partner wallet balance
@@ -263,15 +366,6 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Persist PAN to the dedicated ledger column (shown in bill payment report).
-    if (normalizedPan) {
-      await supabase
-        .from('partner_wallet_ledger')
-        .update({ pan_number: normalizedPan })
-        .eq('partner_id', partner.id)
-        .eq('reference_id', request_id)
-    }
-
     const refund = async (reason: string) => {
       const { error: refundErr } = await supabase.rpc('refund_partner_wallet', {
         p_partner_id: partner.id,
@@ -282,6 +376,43 @@ export async function POST(request: NextRequest) {
         p_service_type: 'pay2new',
       })
       if (refundErr) console.error('[Partner Pay2New Pay] CRITICAL refund failed:', refundErr)
+    }
+
+    // Stamp the recovery / idempotency keys (and PAN) onto the debit row. The
+    // UNIQUE partial index on (partner_id, bill_fetch_ref) for pay2new debits is
+    // the race-safe backstop: if a concurrent request already claimed this
+    // bill_fetch_ref, this UPDATE fails — we unwind THIS debit and replay the
+    // winner's outcome, so the customer is never charged twice.
+    const { error: stampErr } = await supabase
+      .from('partner_wallet_ledger')
+      .update({ bill_fetch_ref: String(bill_fetch_ref), client_ref: clientRef, pan_number: normalizedPan || null })
+      .eq('partner_id', partner.id)
+      .eq('reference_id', request_id)
+
+    if (stampErr) {
+      if (/duplicate key|unique|23505/i.test(stampErr.message || '')) {
+        await refund('concurrent duplicate for same bill_fetch_ref')
+        await supabase
+          .from('partner_wallet_ledger')
+          .update({ status: 'failed' })
+          .eq('partner_id', partner.id)
+          .eq('reference_id', request_id)
+        const winner = await findPriorPay2NewAttempt(supabase, partner.id, String(bill_fetch_ref), clientRef, request_id)
+        if (winner) {
+          // Winner is in-flight right now; don't hit the provider (it would just
+          // say PENDING). Report PENDING so the partner polls bill/status.
+          const resolved = await resolvePay2NewDebitState(supabase, partner.id, winner, { checkUpstream: false })
+          emitResolved(supabase, partner.id, resolved)
+          return NextResponse.json(replayResponse(resolved))
+        }
+        return NextResponse.json(
+          { success: false, error: { code: 'IDEMPOTENCY_CONFLICT', message: 'A payment for this bill_fetch_ref is already in progress.' }, request_id },
+          { status: 409 }
+        )
+      }
+      // Non-unique stamp failure is non-fatal: the debit + request_id are valid,
+      // the payment can still proceed and be reconciled by request_id.
+      console.error('[Partner Pay2New Pay] Failed to stamp idempotency keys:', stampErr)
     }
 
     let result
@@ -309,6 +440,13 @@ export async function POST(request: NextRequest) {
         .update({ status: 'failed' })
         .eq('partner_id', partner.id)
         .eq('reference_id', request_id)
+      // Push terminal state so the partner self-heals even if this HTTP reply is
+      // lost. Wallet was refunded, so the partner-facing state is REFUNDED.
+      emitPay2NewWebhook(supabase, partner.id, {
+        billFetchRef: String(bill_fetch_ref), requestId: request_id, orderId: null,
+        status: 'REFUNDED', amount: amountNum, charge: totalServiceCharge,
+        operatorReference: null, message: 'provider error',
+      })
       return NextResponse.json(
         { success: false, error: { code: 'PROVIDER_ERROR', message: toUserSafeError(provErr?.message, 'Bill payment failed') }, request_id },
         { status: 200 }
@@ -324,6 +462,13 @@ export async function POST(request: NextRequest) {
         .update({ status: 'failed' })
         .eq('partner_id', partner.id)
         .eq('reference_id', request_id)
+      // Push terminal state (wallet refunded -> REFUNDED) so a lost reply still
+      // reaches the partner.
+      emitPay2NewWebhook(supabase, partner.id, {
+        billFetchRef: String(bill_fetch_ref), requestId: request_id, orderId: null,
+        status: 'REFUNDED', amount: amountNum, charge: totalServiceCharge,
+        operatorReference: null, message: result.error || 'payment failed',
+      })
       const rateLimited = isBillerRateLimitError(result.error)
       return NextResponse.json(
         {
@@ -349,6 +494,15 @@ export async function POST(request: NextRequest) {
       })
       .eq('partner_id', partner.id)
       .eq('reference_id', request_id)
+
+    // Push the terminal SUCCESS so the partner self-heals a lost reply (the exact
+    // incident: payment succeeded here, response never reached the partner).
+    emitPay2NewWebhook(supabase, partner.id, {
+      billFetchRef: String(bill_fetch_ref), requestId: request_id,
+      orderId: result.order_id || null, status: 'SUCCESS',
+      amount: typeof result.amount === 'number' ? result.amount : amountNum,
+      charge: totalServiceCharge, operatorReference: result.operator_reference || null,
+    })
 
     return NextResponse.json({
       success: true,

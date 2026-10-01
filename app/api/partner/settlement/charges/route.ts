@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js'
 import { authenticatePartner, PartnerAuthError, partnerCanUseApi } from '@/lib/partner-auth'
 import { resolveShadvalCharge } from '@/lib/shadval-charge'
 import { SCHEME_NOT_ASSIGNED, SCHEME_NOT_ASSIGNED_STATUS, SCHEME_NO_VALID_SLAB, hasCoveringShadvalSlab } from '@/lib/scheme-guard'
+import { computeGst, getShadvalSlabGstInclusive } from '@/lib/scheme-gst'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -20,7 +21,7 @@ function getSupabase() {
  * GET /api/partner/settlement/charges?amount=1000&mode=IMPS
  * Get settlement charges for a given amount and mode.
  * Charges are resolved from the partner's mapped Settlement-2 (Shadval) scheme.
- * No GST is charged — the total equals the base service charge.
+ * GST (18%) is applied only when the matched slab is configured as GST-inclusive.
  */
 export async function GET(request: NextRequest) {
   try {
@@ -86,8 +87,9 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // No GST charged — total equals the base service charge.
-    const totalCharge = baseCharge
+    // GST applies only when the matched slab is configured as GST-inclusive.
+    const gstInclusive = await getShadvalSlabGstInclusive(supabase, schemeId, amount, mode)
+    const { gstAmount, totalCharge, gstPercent } = computeGst(baseCharge, gstInclusive)
 
     return NextResponse.json({
       success: true,
@@ -95,8 +97,8 @@ export async function GET(request: NextRequest) {
       mode,
       scheme_name: schemeName,
       charges: baseCharge,
-      gst_percent: 0,
-      gst_amount: 0,
+      gst_percent: gstPercent,
+      gst_amount: gstAmount,
       total_charge: totalCharge,
       total_debit: Math.round((amount + totalCharge) * 100) / 100,
     })

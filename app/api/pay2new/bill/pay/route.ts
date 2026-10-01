@@ -12,6 +12,7 @@ import { distributeServiceCommission } from '@/lib/commission/distribute-service
 import { isBillerRateLimitError, BILLER_RATE_LIMIT_MESSAGE } from '@/lib/provider-error'
 import { SCHEME_NOT_ASSIGNED, SCHEME_NOT_ASSIGNED_STATUS, SCHEME_NO_VALID_SLAB } from '@/lib/scheme-guard'
 import { getGlobalPay2newMax } from '@/lib/txn-limits'
+import { computeGst, getBbpsSlabGstInclusive } from '@/lib/scheme-gst'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -298,8 +299,9 @@ export async function POST(request: NextRequest) {
       return addCorsHeaders(request, response)
     }
 
-    // No GST charged to retailers — total charge equals the scheme service charge.
-    const totalServiceCharge = serviceCharge
+    // GST applies only when the matched slab is configured as GST-inclusive.
+    const gstInclusive = await getBbpsSlabGstInclusive(supabaseAdmin, resolvedSchemeId, amountNum, schemeCategory)
+    const { totalCharge: totalServiceCharge } = computeGst(serviceCharge, gstInclusive)
     const totalDebit = amountNum + totalServiceCharge
 
     // Balance check

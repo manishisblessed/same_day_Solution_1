@@ -28,7 +28,7 @@ export function signPartnerPayload(secret: string, timestamp: string, body: stri
 }
 
 /** Event categories a partner webhook endpoint can subscribe to. */
-export type WebhookCategory = 'pos' | 'settlement' | 'payout' | 'rechargekit'
+export type WebhookCategory = 'pos' | 'settlement' | 'payout' | 'rechargekit' | 'pay2new'
 
 export interface ResolvedEndpoint {
   /** partner_webhooks.id, or null when resolved from a legacy single-URL column. */
@@ -43,6 +43,7 @@ export function eventCategory(event: string): WebhookCategory | null {
   if (event.startsWith('settlement.')) return 'settlement'
   if (event.startsWith('payout.')) return 'payout'
   if (event.startsWith('rechargekit')) return 'rechargekit'
+  if (event.startsWith('pay2new')) return 'pay2new'
   return null
 }
 
@@ -88,9 +89,14 @@ export async function resolvePartnerEndpoints(
   }
 
   // Legacy fallback: partner not yet migrated to partner_webhooks.
-  const legacy = category === 'rechargekit'
-    ? (partner as { rechargekit_webhook_url?: string | null }).rechargekit_webhook_url
-    : (partner as { webhook_url?: string | null }).webhook_url
+  // pay2new has no legacy single-URL column, so it must NOT fall back to the
+  // generic POS webhook_url — that would misroute CC pay callbacks. Partners
+  // receive pay2new events only via an explicit partner_webhooks subscription.
+  const legacy = category === 'pay2new'
+    ? null
+    : category === 'rechargekit'
+      ? (partner as { rechargekit_webhook_url?: string | null }).rechargekit_webhook_url
+      : (partner as { webhook_url?: string | null }).webhook_url
   if (legacy && String(legacy).trim()) {
     return [{ id: null, url: String(legacy).trim(), secret }]
   }

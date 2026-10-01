@@ -5,6 +5,7 @@ import { authorizeSubPartner, normalizeMasterPartner } from '@/lib/partner-acces
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
 import { createClient } from '@supabase/supabase-js'
 import { SCHEME_SLAB_REQUIRED_MESSAGE } from '@/lib/scheme-guard'
+import { computeGst, getShadvalSlabGstInclusive } from '@/lib/scheme-gst'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -207,6 +208,12 @@ export async function GET(request: NextRequest) {
     // can show the support message and disable the transfer.
     const schemeAssigned = !!charges || (limits ? limits.within_limit : false)
 
+    // GST applies only when the matched slab is configured as GST-inclusive.
+    const gstInclusive = charges
+      ? await getShadvalSlabGstInclusive(supabaseAdmin, resolvedSchemeId || scopedSchemeIds, amount, mode)
+      : false
+    const gst = computeGst(charges?.retailer_charge || 0, gstInclusive)
+
     const response = NextResponse.json({
       success: true,
       amount,
@@ -217,10 +224,10 @@ export async function GET(request: NextRequest) {
       limits,
       charges: charges
         ? {
-            retailer_charge: charges.retailer_charge,
+            retailer_charge: gst.totalCharge,
             retailer_charge_base: charges.retailer_charge,
-            gst_amount: 0,
-            gst_percent: 0,
+            gst_amount: gst.gstAmount,
+            gst_percent: gst.gstPercent,
             distributor_commission: charges.distributor_commission,
             md_commission: charges.md_commission,
             company_charge: charges.company_charge,

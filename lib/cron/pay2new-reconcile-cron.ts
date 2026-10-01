@@ -34,6 +34,45 @@ import cron, { ScheduledTask } from 'node-cron'
 import * as Sentry from '@sentry/nextjs'
 import { getSupabaseAdmin } from '@/lib/supabase/server-admin'
 import { pay2newCheckStatus } from '@/services/pay2new'
+import { deliverPartnerCallbackByPartnerId } from '@/lib/partner-webhook/deliver'
+import { buildPay2NewStatusPayload, type Pay2NewTerminalStatus } from '@/lib/partner-webhook/pay2new-payload'
+
+/** Parse "₹<bill> + ₹<charge> charge" out of a ledger description. */
+function parseAmounts(desc: string | null): { amount: number | null; charge: number | null } {
+  const m = desc?.match(/₹([\d.]+)\s*\+\s*₹([\d.]+)\s*charge/)
+  return { amount: m ? parseFloat(m[1]) : null, charge: m ? parseFloat(m[2]) : null }
+}
+
+/**
+ * Push a terminal pay state to the owning partner (signed, retried, logged).
+ * Fire-and-forget: never throws, never blocks the recon loop. This is the
+ * self-heal path for the exact incident — a bill/pay whose HTTP reply was lost
+ * or whose handler died mid-request still reaches the partner here.
+ */
+function emitWebhook(
+  supabase: ReturnType<typeof getSupabaseAdmin>,
+  partnerId: string,
+  args: {
+    billFetchRef: string | null
+    requestId: string
+    orderId: string | null
+    status: Pay2NewTerminalStatus
+    amount: number | null
+    charge: number | null
+    operatorReference: string | null
+    message?: string | null
+  }
+): void {
+  const payload = buildPay2NewStatusPayload(args)
+  void deliverPartnerCallbackByPartnerId({
+    supabase,
+    partnerId,
+    txnId: args.requestId,
+    payload,
+    event: 'pay2new.cc.status',
+    logPrefix: 'Pay2New-Recon Callback',
+  }).catch(() => {})
+}
 
 const CRON_EXPRESSION = process.env.PAY2NEW_RECON_CRON || '*/5 * * * *'
 
@@ -89,7 +128,7 @@ async function runCheck(): Promise<void> {
     // per-row refund check below confirms there is no existing refund.
     const { data: candidates, error } = await supabase
       .from('partner_wallet_ledger')
-      .select('id, partner_id, reference_id, debit, description, created_at')
+      .select('id, partner_id, reference_id, debit, description, created_at, bill_fetch_ref')
       .eq('service_type', 'pay2new')
       .eq('transaction_type', 'DEBIT')
       // Only real Pay2New API payments (request_id = "SDS<ts>"). Excludes manual
@@ -151,6 +190,19 @@ async function runCheck(): Promise<void> {
           .update({ description: `${c.description || ''}${orderPart}${refPart} | ReconVerified` })
           .eq('id', c.id)
         verified++
+        // This is the lost-response case: the payment succeeded but the pay
+        // handler never recorded the order (crash / dropped reply). Push the
+        // SUCCESS to the partner so they finalize without a human.
+        const { amount, charge } = parseAmounts(c.description)
+        emitWebhook(supabase, c.partner_id, {
+          billFetchRef: (c as any).bill_fetch_ref ?? null,
+          requestId: ref,
+          orderId: res.order_id || null,
+          status: 'SUCCESS',
+          amount,
+          charge,
+          operatorReference: res.operator_reference || null,
+        })
         continue
       }
 
@@ -212,6 +264,18 @@ async function runCheck(): Promise<void> {
 
       refunded++
       console.log(`[Pay2New-Recon] REFUNDED ₹${amount} ref=${ref} partner=${c.partner_id} (${reason})`)
+      // Push the terminal REFUNDED state so the partner releases the held txn.
+      const amt = parseAmounts(c.description)
+      emitWebhook(supabase, c.partner_id, {
+        billFetchRef: (c as any).bill_fetch_ref ?? null,
+        requestId: ref,
+        orderId: null,
+        status: 'REFUNDED',
+        amount: amt.amount,
+        charge: amt.charge,
+        operatorReference: null,
+        message: reason,
+      })
     }
   } catch (e: any) {
     console.error('[Pay2New-Recon] run error:', e?.message)

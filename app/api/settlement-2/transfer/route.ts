@@ -14,6 +14,7 @@ import {
 import { toUserSafeError } from '@/lib/provider-error'
 import { distributeServiceCommission, reverseServiceCommission } from '@/lib/commission/distribute-service-commission'
 import { SCHEME_NOT_ASSIGNED, SCHEME_NOT_ASSIGNED_STATUS, SCHEME_NO_VALID_SLAB } from '@/lib/scheme-guard'
+import { computeGst, getShadvalSlabGstInclusive } from '@/lib/scheme-gst'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -303,6 +304,14 @@ export async function POST(request: NextRequest) {
       console.error(`[Settlement-2] BLOCKED: No valid slab for user=${user.partner_id} scheme=${resolvedSchemeId} amount=${amountNum} mode=${mode}`)
       const response = NextResponse.json(SCHEME_NO_VALID_SLAB, { status: SCHEME_NOT_ASSIGNED_STATUS })
       return addCorsHeaders(request, response)
+    }
+
+    // GST applies only when the matched slab is configured as GST-inclusive.
+    {
+      const gstInclusive = resolvedSchemeId
+        ? await getShadvalSlabGstInclusive(supabaseAdmin, resolvedSchemeId, amountNum, mode)
+        : false
+      charges = computeGst(baseCharges, gstInclusive).totalCharge
     }
 
     // Enforce slab limits: if charge slabs are configured for this mode, the amount

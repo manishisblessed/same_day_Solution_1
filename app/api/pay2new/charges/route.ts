@@ -5,6 +5,7 @@ import { authorizeSubPartner } from '@/lib/partner-access'
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
 import { createClient, SupabaseClient } from '@supabase/supabase-js'
 import { SCHEME_SLAB_REQUIRED_MESSAGE, hasCoveringBbpsSlab } from '@/lib/scheme-guard'
+import { computeGst, getBbpsSlabGstInclusive } from '@/lib/scheme-gst'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -139,9 +140,12 @@ export async function GET(request: NextRequest) {
     const schemeAssigned = !!resolvedSchemeId &&
       (await hasCoveringBbpsSlab(supabase, resolvedSchemeId, amount, schemeCategory))
 
-    // No GST charged to retailers — total equals the scheme base charge.
+    // GST applies only when the matched slab is configured as GST-inclusive.
     const baseCharge = charges?.retailer_charge || 0
-    const totalCharge = baseCharge
+    const gstInclusive = resolvedSchemeId
+      ? await getBbpsSlabGstInclusive(supabase, resolvedSchemeId, amount, schemeCategory)
+      : false
+    const { gstAmount, totalCharge, gstPercent } = computeGst(baseCharge, gstInclusive)
 
     const response = NextResponse.json({
       success: true,
@@ -151,8 +155,8 @@ export async function GET(request: NextRequest) {
       message: schemeAssigned ? null : SCHEME_SLAB_REQUIRED_MESSAGE,
       charges: {
         base_charge: baseCharge,
-        gst_percent: 0,
-        gst_amount: 0,
+        gst_percent: gstPercent,
+        gst_amount: gstAmount,
         total_charge: totalCharge,
       },
     })

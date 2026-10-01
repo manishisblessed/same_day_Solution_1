@@ -71,6 +71,7 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
   const [transferMode, setTransferMode] = useState<'IMPS' | 'RTGS'>('IMPS')
   const [narration, setNarration] = useState('')
   const [charges, setCharges] = useState<number>(0)
+  const [chargesGst, setChargesGst] = useState<number>(0)
   const [loadingCharges, setLoadingCharges] = useState(false)
   const [amountLimits, setAmountLimits] = useState<{ min_allowed: number; max_allowed: number; within_limit: boolean } | null>(null)
   const [schemeMessage, setSchemeMessage] = useState<string | null>(null)
@@ -156,9 +157,11 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
         const data = await res.json()
         if (data.success && data.charges && data.scheme_assigned !== false) {
           setCharges(data.charges.retailer_charge || 0)
+          setChargesGst(data.charges.gst_amount || 0)
           setSchemeMessage(null)
         } else {
           setCharges(0)
+          setChargesGst(0)
           setSchemeMessage(data?.message || 'The scheme with this slab is not assigned. Please connect with the support team.')
         }
         setAmountLimits(data.limits || null)
@@ -932,7 +935,7 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
                     </div>
                     <div className="flex justify-between text-sm">
                       <span className="text-gray-500">
-                        Charges {loadingCharges && <Loader2 className="w-3 h-3 animate-spin inline ml-1" />}
+                        Charges{chargesGst > 0 ? ' (incl. 18% GST)' : ''} {loadingCharges && <Loader2 className="w-3 h-3 animate-spin inline ml-1" />}
                       </span>
                       <span className="font-medium text-gray-900 dark:text-white">₹{charges.toFixed(2)}</span>
                     </div>
@@ -1007,7 +1010,7 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
                   </div>
                   {charges > 0 && (
                     <div className="p-3 bg-amber-50 dark:bg-amber-900/20 rounded-xl col-span-2">
-                      <p className="text-amber-600 dark:text-amber-400 text-xs mb-1">Settlement Charges (Wallet Debit)</p>
+                      <p className="text-amber-600 dark:text-amber-400 text-xs mb-1">Settlement Charges{chargesGst > 0 ? ' incl. GST' : ''} (Wallet Debit)</p>
                       <p className="text-lg font-bold text-amber-700 dark:text-amber-300">₹{charges.toFixed(2)}</p>
                     </div>
                   )}

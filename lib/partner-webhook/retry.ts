@@ -28,9 +28,10 @@ interface DeliveryRow {
 }
 
 /**
- * Re-deliver POS partner callbacks whose most recent attempt failed, off the
- * `partner_webhook_deliveries` audit log. Bounded by a time window, a per-target
- * attempt cap and a per-run batch size. Never throws.
+ * Re-deliver partner callbacks whose most recent attempt failed, off the
+ * `partner_webhook_deliveries` audit log. Covers POS (`pos.*`) and Pay2New
+ * (`pay2new.*`) events. Bounded by a time window, a per-target attempt cap and a
+ * per-run batch size. Never throws.
  */
 export async function retryFailedPosCallbacks(): Promise<{
   targets: number
@@ -42,12 +43,28 @@ export async function retryFailedPosCallbacks(): Promise<{
   const errors: string[] = []
   const sinceIso = new Date(Date.now() - RETRY_WINDOW_HOURS * 60 * 60 * 1000).toISOString()
 
-  const { data: rows, error } = await supabase
-    .from('partner_webhook_deliveries')
-    .select('txn_id, event, webhook_url, webhook_id, partner_id, success, payload, created_at')
-    .like('event', 'pos.%')
-    .gte('created_at', sinceIso)
-    .order('created_at', { ascending: true })
+  const selectCols = 'txn_id, event, webhook_url, webhook_id, partner_id, success, payload, created_at'
+  // Two prefix queries (rather than a raw .or wildcard filter) to keep LIKE
+  // semantics unambiguous. Merged + globally sorted ascending below.
+  const [posRes, p2nRes] = await Promise.all([
+    supabase
+      .from('partner_webhook_deliveries')
+      .select(selectCols)
+      .like('event', 'pos.%')
+      .gte('created_at', sinceIso)
+      .order('created_at', { ascending: true }),
+    supabase
+      .from('partner_webhook_deliveries')
+      .select(selectCols)
+      .like('event', 'pay2new.%')
+      .gte('created_at', sinceIso)
+      .order('created_at', { ascending: true }),
+  ])
+
+  const error = posRes.error || p2nRes.error
+  const rows = [...(posRes.data || []), ...(p2nRes.data || [])].sort(
+    (a: any, b: any) => String(a.created_at).localeCompare(String(b.created_at))
+  )
 
   if (error) {
     return { targets: 0, retried: 0, succeeded: 0, errors: [error.message] }

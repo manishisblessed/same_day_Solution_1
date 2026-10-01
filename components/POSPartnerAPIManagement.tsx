@@ -93,6 +93,15 @@ function toggleRechargekit(events: string[], on: boolean): string[] {
   else set.delete('rechargekit')
   return Array.from(set)
 }
+function hasPay2New(events: string[]): boolean {
+  return events.includes('pay2new')
+}
+function togglePay2New(events: string[], on: boolean): string[] {
+  const set = new Set(events)
+  if (on) set.add('pay2new')
+  else set.delete('pay2new')
+  return Array.from(set)
+}
 function describeEvents(events: string[]): string {
   const parts: string[] = []
   if (hasEventsGroup(events)) parts.push('POS · Settlement · Payout')
@@ -102,6 +111,7 @@ function describeEvents(events: string[]): string {
     if (events.includes('payout')) parts.push('Payout')
   }
   if (hasRechargekit(events)) parts.push('RechargeKit')
+  if (hasPay2New(events)) parts.push('BBPS-2 / Pay2New')
   return parts.length ? parts.join(' + ') : 'No events'
 }
 
@@ -1412,8 +1422,9 @@ export default function POSPartnerAPIManagement() {
               <div className="p-6 space-y-4">
                 <p className="text-sm text-gray-500 dark:text-gray-400">
                   Add one or more callback URLs. Each endpoint independently subscribes to the
-                  <strong> Events (POS · Settlement · Payout)</strong> channel and/or the
-                  <strong> RechargeKit (Credit Card)</strong> channel. Every endpoint is signed with the
+                  <strong> Events (POS · Settlement · Payout)</strong> channel, the
+                  <strong> RechargeKit (Credit Card)</strong> channel, and/or the
+                  <strong> BBPS-2 / Pay2New (Credit Card)</strong> channel. Every endpoint is signed with the
                   same shared secret (routed by the <code>X-Sameday-Event</code> header).
                 </p>
 
@@ -1476,6 +1487,15 @@ export default function POSPartnerAPIManagement() {
                             />
                             RechargeKit (Credit Card)
                           </label>
+                          <label className="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={hasPay2New(draft.events)}
+                              onChange={(e) => setWebhookDrafts((prev) => ({ ...prev, [wh.id]: { ...draft, events: togglePay2New(draft.events, e.target.checked) } }))}
+                              className="rounded"
+                            />
+                            BBPS-2 / Pay2New (Credit Card)
+                          </label>
                         </div>
                         <div className="flex items-center gap-2">
                           <button
@@ -1535,6 +1555,15 @@ export default function POSPartnerAPIManagement() {
                         className="rounded"
                       />
                       RechargeKit (Credit Card)
+                    </label>
+                    <label className="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={hasPay2New(newWebhookEvents)}
+                        onChange={(e) => setNewWebhookEvents(togglePay2New(newWebhookEvents, e.target.checked))}
+                        className="rounded"
+                      />
+                      BBPS-2 / Pay2New (Credit Card)
                     </label>
                   </div>
                   <button
