@@ -1108,6 +1108,8 @@ function SchemeManagementPageContent() {
                                     <th className="px-2 py-1.5 text-right">Company Cost</th>
                                     <th className="px-2 py-1.5 text-right">MD Purchase</th>
                                     <th className="px-2 py-1.5 text-right">Co. Margin</th>
+                                    <th className="px-2 py-1.5 text-right">DT Price</th>
+                                    <th className="px-2 py-1.5 text-right">RT Price</th>
                                   </>
                                 )}
                                 <th className="px-2 py-1.5 text-center">GST</th>
@@ -1135,6 +1137,8 @@ function SchemeManagementPageContent() {
                                       <td className="px-2 py-1.5 text-right">{fmt(c.company_charge, c.company_charge_type)}</td>
                                       <td className="px-2 py-1.5 text-right">{fmt(c.md_purchase_charge, c.md_purchase_charge_type)}</td>
                                       <td className="px-2 py-1.5 text-right text-green-600 dark:text-green-400">{(((c.md_purchase_charge || 0) - (c.company_charge || 0))).toFixed(2)}₹</td>
+                                      <td className="px-2 py-1.5 text-right">{(parseFloat(c.dt_purchase_charge) || 0) > 0 ? fmt(c.dt_purchase_charge, c.dt_purchase_charge_type || 'flat') : fmt(c.retailer_charge, c.retailer_charge_type)}</td>
+                                      <td className="px-2 py-1.5 text-right font-semibold text-blue-600 dark:text-blue-400">{(parseFloat(c.rt_purchase_charge) || 0) > 0 ? fmt(c.rt_purchase_charge, c.rt_purchase_charge_type || 'flat') : fmt(c.retailer_charge, c.retailer_charge_type)}</td>
                                     </>
                                   )}
                                   <td className="px-2 py-1.5 text-center">{c.gst_inclusive ? '✓' : '-'}</td>
@@ -1183,6 +1187,8 @@ function SchemeManagementPageContent() {
                                     <th className="px-2 py-1.5 text-right">Company Cost</th>
                                     <th className="px-2 py-1.5 text-right">MD Purchase</th>
                                     <th className="px-2 py-1.5 text-right">Co. Margin</th>
+                                    <th className="px-2 py-1.5 text-right">DT Price</th>
+                                    <th className="px-2 py-1.5 text-right">RT Price</th>
                                   </>
                                 )}
                                 <th className="px-2 py-1.5 text-center">GST</th>
@@ -1213,6 +1219,8 @@ function SchemeManagementPageContent() {
                                       <td className="px-2 py-1.5 text-right">{fmt(c.company_charge, c.company_charge_type)}</td>
                                       <td className="px-2 py-1.5 text-right">{fmt(c.md_purchase_charge, c.md_purchase_charge_type)}</td>
                                       <td className="px-2 py-1.5 text-right text-green-600 dark:text-green-400">{(((c.md_purchase_charge || 0) - (c.company_charge || 0))).toFixed(2)}₹</td>
+                                      <td className="px-2 py-1.5 text-right">{(parseFloat(c.dt_purchase_charge) || 0) > 0 ? fmt(c.dt_purchase_charge, c.dt_purchase_charge_type || 'flat') : fmt(c.retailer_charge, c.retailer_charge_type)}</td>
+                                      <td className="px-2 py-1.5 text-right font-semibold text-blue-600 dark:text-blue-400">{(parseFloat(c.rt_purchase_charge) || 0) > 0 ? fmt(c.rt_purchase_charge, c.rt_purchase_charge_type || 'flat') : fmt(c.retailer_charge, c.retailer_charge_type)}</td>
                                     </>
                                   )}
                                   <td className="px-2 py-1.5 text-center">{c.gst_inclusive ? '✓' : '-'}</td>

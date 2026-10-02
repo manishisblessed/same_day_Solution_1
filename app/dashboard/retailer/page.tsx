@@ -2835,9 +2835,13 @@ function MDRSchemesTab({ user }: { user: any }) {
                         ₹{Number(charge.min_amount).toLocaleString('en-IN')} – ₹{Number(charge.max_amount).toLocaleString('en-IN')}
                       </td>
                       <td className="px-4 py-3 text-sm font-semibold text-red-600 dark:text-red-400">
-                        {charge.retailer_charge_type === 'percentage' 
-                          ? `${charge.retailer_charge}%` 
-                          : `₹${Number(charge.retailer_charge).toLocaleString('en-IN')}`}
+                        {(() => {
+                          const rt = parseFloat(charge.rt_purchase_charge) || 0
+                          const useRt = rt > 0
+                          const val = useRt ? rt : (Number(charge.retailer_charge) || 0)
+                          const type = useRt ? (charge.rt_purchase_charge_type || 'flat') : charge.retailer_charge_type
+                          return type === 'percentage' ? `${val}%` : `₹${Number(val).toLocaleString('en-IN')}`
+                        })()}
                       </td>
                       <td className="px-4 py-3 text-sm font-semibold text-green-600 dark:text-green-400">
                         {Number(charge.retailer_commission) > 0
@@ -2927,9 +2931,13 @@ function MDRSchemesTab({ user }: { user: any }) {
                         ₹{Number(charge.min_amount).toLocaleString('en-IN')} – ₹{Number(charge.max_amount).toLocaleString('en-IN')}
                       </td>
                       <td className="px-4 py-3 text-sm font-semibold text-red-600 dark:text-red-400">
-                        {charge.retailer_charge_type === 'percentage' 
-                          ? `${charge.retailer_charge}%` 
-                          : `₹${Number(charge.retailer_charge).toLocaleString('en-IN')}`}
+                        {(() => {
+                          const rt = parseFloat(charge.rt_purchase_charge) || 0
+                          const useRt = rt > 0
+                          const val = useRt ? rt : (Number(charge.retailer_charge) || 0)
+                          const type = useRt ? (charge.rt_purchase_charge_type || 'flat') : charge.retailer_charge_type
+                          return type === 'percentage' ? `${val}%` : `₹${Number(val).toLocaleString('en-IN')}`
+                        })()}
                       </td>
                       <td className="px-4 py-3 text-sm font-semibold text-green-600 dark:text-green-400">
                         {Number(charge.retailer_commission) > 0

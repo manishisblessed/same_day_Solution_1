@@ -215,8 +215,11 @@ async function calculatePayoutChargeDirectQuery(
       return value
     }
 
+    const mRtPc = parseFloat(matchingSlab.rt_purchase_charge) || 0
     return {
-      retailer_charge: calc(parseFloat(matchingSlab.retailer_charge) || 0, matchingSlab.retailer_charge_type),
+      retailer_charge: mRtPc > 0
+        ? calc(mRtPc, matchingSlab.rt_purchase_charge_type || 'flat')
+        : calc(parseFloat(matchingSlab.retailer_charge) || 0, matchingSlab.retailer_charge_type),
       retailer_commission: calc(parseFloat(matchingSlab.retailer_commission) || 0, matchingSlab.retailer_commission_type),
       distributor_commission: calc(parseFloat(matchingSlab.distributor_commission) || 0, matchingSlab.distributor_commission_type),
       md_commission: calc(parseFloat(matchingSlab.md_commission) || 0, matchingSlab.md_commission_type),
@@ -277,8 +280,11 @@ async function calculateBBPSChargeDirectQuery(
       return value
     }
 
+    const bRtPc = parseFloat(bestSlab.rt_purchase_charge) || 0
     return {
-      retailer_charge: calc(parseFloat(bestSlab.retailer_charge) || 0, bestSlab.retailer_charge_type),
+      retailer_charge: bRtPc > 0
+        ? calc(bRtPc, bestSlab.rt_purchase_charge_type || 'flat')
+        : calc(parseFloat(bestSlab.retailer_charge) || 0, bestSlab.retailer_charge_type),
       retailer_commission: calc(parseFloat(bestSlab.retailer_commission) || 0, bestSlab.retailer_commission_type),
       distributor_commission: calc(parseFloat(bestSlab.distributor_commission) || 0, bestSlab.distributor_commission_type),
       md_commission: calc(parseFloat(bestSlab.md_commission) || 0, bestSlab.md_commission_type),
@@ -765,8 +771,11 @@ export async function GET(request: NextRequest) {
           if (slabs && slabs.length > 0) {
             const s = slabs[0]
             const calc = (v: number, t: string) => t === 'percentage' ? Math.round(amount * v / 100 * 100) / 100 : v
+            const sRtPc = parseFloat(s.rt_purchase_charge) || 0
             charges = {
-              retailer_charge: calc(parseFloat(s.retailer_charge) || 0, s.retailer_charge_type),
+              retailer_charge: sRtPc > 0
+                ? calc(sRtPc, s.rt_purchase_charge_type || 'flat')
+                : calc(parseFloat(s.retailer_charge) || 0, s.retailer_charge_type),
               distributor_commission: calc(parseFloat(s.distributor_commission) || 0, s.distributor_commission_type),
               md_commission: calc(parseFloat(s.md_commission) || 0, s.md_commission_type),
               company_charge: calc(parseFloat(s.company_charge) || 0, s.company_charge_type),

@@ -250,8 +250,12 @@ export async function POST(request: NextRequest) {
               return !sc || sc === '' || sc.toLowerCase() === 'all' || sc.toLowerCase() === 'all categories' || sc === schemeCategory
             })
             if (bestSlab) {
-              const rc = parseFloat(bestSlab.retailer_charge) || 0
-              serviceCharge = bestSlab.retailer_charge_type === 'percentage'
+              // Charge-based model stores the price in rt_purchase_charge;
+              // fall back to the legacy retailer_charge only when rt is not set.
+              const rtPc = parseFloat(bestSlab.rt_purchase_charge) || 0
+              const rc = rtPc > 0 ? rtPc : (parseFloat(bestSlab.retailer_charge) || 0)
+              const rcType = rtPc > 0 ? (bestSlab.rt_purchase_charge_type || 'flat') : bestSlab.retailer_charge_type
+              serviceCharge = rcType === 'percentage'
                 ? Math.round(amountNum * rc / 100 * 100) / 100
                 : rc
             }

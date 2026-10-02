@@ -74,13 +74,16 @@ export default function RechargekitCCPayment() {
         if (data.success && data.charges && data.scheme_assigned !== false) {
           setChargesData(data.charges)
           setSchemeMessage(null)
-        } else {
+        } else if (data.success && data.scheme_assigned === false) {
           setChargesData(null)
           setSchemeMessage(data?.message || 'The scheme with this slab is not assigned. Please connect with the support team.')
+        } else {
+          setChargesData(null)
+          setSchemeMessage(data?.error || data?.message || 'Unable to load charges right now. Please try again.')
         }
-      } catch {
+      } catch (e: any) {
         setChargesData(null)
-        setSchemeMessage('The scheme with this slab is not assigned. Please connect with the support team.')
+        setSchemeMessage(e?.message || 'Unable to load charges right now. Please try again.')
       } finally {
         setLoadingCharges(false)
       }

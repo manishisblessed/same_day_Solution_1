@@ -157,13 +157,19 @@ export default function Pay2NewServiceFlow(props: Pay2NewServiceFlowProps) {
         if (data.success && data.charges && data.scheme_assigned !== false) {
           setChargesData(data.charges)
           setSchemeMessage(null)
-        } else {
+        } else if (data.success && data.scheme_assigned === false) {
+          // Server explicitly says no scheme/slab covers this transaction.
           setChargesData(null)
           setSchemeMessage(data?.message || 'The scheme with this slab is not assigned. Please connect with the support team.')
+        } else {
+          // Unexpected response shape — surface a real error, not a scheme claim.
+          setChargesData(null)
+          setSchemeMessage(data?.error || data?.message || 'Unable to load charges right now. Please try again.')
         }
-      } catch {
+      } catch (e: any) {
+        // Network / HTTP failure (e.g. endpoint unavailable) — do NOT mislabel as "scheme not assigned".
         setChargesData(null)
-        setSchemeMessage('The scheme with this slab is not assigned. Please connect with the support team.')
+        setSchemeMessage(e?.message || 'Unable to load charges right now. Please try again.')
       } finally {
         setLoadingCharges(false)
       }

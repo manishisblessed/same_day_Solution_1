@@ -110,8 +110,13 @@ export async function POST(request: NextRequest) {
             })
             if (bestSlab) {
               const calc = (v: number, t: string) => t === 'percentage' ? Math.round(amountNum * v / 100 * 100) / 100 : v
+              // Charge-based model stores the price in rt_purchase_charge;
+              // fall back to the legacy retailer_charge only when rt is not set.
+              const rtPc = parseFloat(bestSlab.rt_purchase_charge) || 0
               charges = {
-                retailer_charge: calc(parseFloat(bestSlab.retailer_charge) || 0, bestSlab.retailer_charge_type),
+                retailer_charge: rtPc > 0
+                  ? calc(rtPc, bestSlab.rt_purchase_charge_type || 'flat')
+                  : calc(parseFloat(bestSlab.retailer_charge) || 0, bestSlab.retailer_charge_type),
               }
             }
           }

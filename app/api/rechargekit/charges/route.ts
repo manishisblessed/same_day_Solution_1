@@ -130,8 +130,14 @@ export async function GET(request: NextRequest) {
             if (bestSlab) {
               const calc = (v: number, t: string) =>
                 t === 'percentage' ? Math.round((amount * v) / 100 * 100) / 100 : v
+              // Charge-based model stores the retailer price in rt_purchase_charge;
+              // fall back to the legacy retailer_charge only when rt is not set.
+              const rtPc = parseFloat(bestSlab.rt_purchase_charge) || 0
+              const rtCharge = rtPc > 0
+                ? calc(rtPc, bestSlab.rt_purchase_charge_type || 'flat')
+                : calc(parseFloat(bestSlab.retailer_charge) || 0, bestSlab.retailer_charge_type)
               charges = {
-                retailer_charge: calc(parseFloat(bestSlab.retailer_charge) || 0, bestSlab.retailer_charge_type),
+                retailer_charge: rtCharge,
                 retailer_commission: calc(parseFloat(bestSlab.retailer_commission) || 0, bestSlab.retailer_commission_type),
                 distributor_commission: calc(parseFloat(bestSlab.distributor_commission) || 0, bestSlab.distributor_commission_type),
                 md_commission: calc(parseFloat(bestSlab.md_commission) || 0, bestSlab.md_commission_type),

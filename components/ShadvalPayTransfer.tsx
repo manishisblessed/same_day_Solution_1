@@ -159,15 +159,19 @@ export default function ShadvalPayTransfer({ title }: ShadvalPayTransferProps) {
           setCharges(data.charges.retailer_charge || 0)
           setChargesGst(data.charges.gst_amount || 0)
           setSchemeMessage(null)
-        } else {
+        } else if (data.success && data.scheme_assigned === false) {
           setCharges(0)
           setChargesGst(0)
           setSchemeMessage(data?.message || 'The scheme with this slab is not assigned. Please connect with the support team.')
+        } else {
+          setCharges(0)
+          setChargesGst(0)
+          setSchemeMessage(data?.error || data?.message || 'Unable to load charges right now. Please try again.')
         }
         setAmountLimits(data.limits || null)
-      } catch {
+      } catch (e: any) {
         setCharges(0)
-        setSchemeMessage('The scheme with this slab is not assigned. Please connect with the support team.')
+        setSchemeMessage(e?.message || 'Unable to load charges right now. Please try again.')
       } finally {
         setLoadingCharges(false)
       }
