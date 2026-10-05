@@ -2840,7 +2840,7 @@ function MDRSchemesTab({ user }: { user: any }) {
                           const useRt = rt > 0
                           const val = useRt ? rt : (Number(charge.retailer_charge) || 0)
                           const type = useRt ? (charge.rt_purchase_charge_type || 'flat') : charge.retailer_charge_type
-                          return type === 'percentage' ? `${val}%` : `₹${Number(val).toLocaleString('en-IN')}`
+                          return type === 'percentage' ? `${val}%` : (charge.gst_inclusive ? `₹${Number(val).toLocaleString('en-IN')} + GST` : `₹${Number(val).toLocaleString('en-IN')}`)
                         })()}
                       </td>
                       <td className="px-4 py-3 text-sm font-semibold text-green-600 dark:text-green-400">
@@ -2936,7 +2936,7 @@ function MDRSchemesTab({ user }: { user: any }) {
                           const useRt = rt > 0
                           const val = useRt ? rt : (Number(charge.retailer_charge) || 0)
                           const type = useRt ? (charge.rt_purchase_charge_type || 'flat') : charge.retailer_charge_type
-                          return type === 'percentage' ? `${val}%` : `₹${Number(val).toLocaleString('en-IN')}`
+                          return type === 'percentage' ? `${val}%` : (charge.gst_inclusive ? `₹${Number(val).toLocaleString('en-IN')} + GST` : `₹${Number(val).toLocaleString('en-IN')}`)
                         })()}
                       </td>
                       <td className="px-4 py-3 text-sm font-semibold text-green-600 dark:text-green-400">
@@ -3094,8 +3094,8 @@ function MDRSchemesTab({ user }: { user: any }) {
                           const charge = parseFloat(c.rt_purchase_charge) > 0 ? parseFloat(c.rt_purchase_charge) : parseFloat(c.retailer_charge) || 0
                           const chargeType = parseFloat(c.rt_purchase_charge) > 0 ? (c.rt_purchase_charge_type || 'flat') : (c.retailer_charge_type || 'flat')
                           if (chargeType === 'percentage') return `${charge}%`
-                          const withGst = c.gst_inclusive ? Math.round(charge * 1.18 * 100) / 100 : charge
-                          return `₹${withGst.toLocaleString('en-IN')}${c.gst_inclusive ? ' (incl. GST)' : ''}`
+                          if (c.gst_inclusive) return `₹${charge.toLocaleString('en-IN')} + GST`
+                          return `₹${charge.toLocaleString('en-IN')}`
                         })()}
                       </td>
                       <td className="px-4 py-3 text-xs text-gray-500 dark:text-gray-400">{c.scheme_name}</td>
@@ -3165,8 +3165,8 @@ function MDRSchemesTab({ user }: { user: any }) {
                           const charge = parseFloat(c.rt_purchase_charge) > 0 ? parseFloat(c.rt_purchase_charge) : parseFloat(c.retailer_charge) || 0
                           const chargeType = parseFloat(c.rt_purchase_charge) > 0 ? (c.rt_purchase_charge_type || 'flat') : (c.retailer_charge_type || 'flat')
                           if (chargeType === 'percentage') return `${charge}%`
-                          const withGst = c.gst_inclusive ? Math.round(charge * 1.18 * 100) / 100 : charge
-                          return `₹${withGst.toLocaleString('en-IN')}${c.gst_inclusive ? ' (incl. GST)' : ''}`
+                          if (c.gst_inclusive) return `₹${charge.toLocaleString('en-IN')} + GST`
+                          return `₹${charge.toLocaleString('en-IN')}`
                         })()}
                       </td>
                       <td className="px-4 py-3 text-xs text-gray-500 dark:text-gray-400">{c.scheme_name}</td>

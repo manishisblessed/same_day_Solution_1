@@ -97,6 +97,17 @@ export async function POST(request: NextRequest) {
         mdId = distData?.master_distributor_id || null
       } catch {}
 
+      // Charge model so the live central vendor cost is deducted from company
+      // revenue (revenue = charge − distributor commission − ex-GST vendor cost),
+      // while preserving the existing distributor credit. Mapping the legacy
+      // commission onto the cascade:
+      //   rt = full charge; dt = charge − distributor_commission  → DT margin = distributor_commission
+      //   md = dt  → MD margin = 0 (unchanged: MD earned nothing in the legacy path)
+      //   company margin = md − live vendor cost
+      const distributorCommission = parseFloat(String(txRecord.distributor_commission || 0)) || 0
+      const dtChargeApprove = Math.round((charges - distributorCommission) * 100) / 100
+      const settlementMode = txRecord.mode || null
+      const settlementAmount = parseFloat(String(txRecord.amount)) || 0
       const commResult = await distributeServiceCommission({
         supabase: supabaseAdmin,
         service: 'shadval_settlement',
@@ -105,8 +116,15 @@ export async function POST(request: NextRequest) {
         transactionUuid: txRecord.id,
         totalCharge: charges,
         retailer: { id: txRecord.retailer_id, role: txRecord.user_role || 'distributor', commission: 0 },
-        distributor: { id: txRecord.retailer_id, commission: parseFloat(String(txRecord.distributor_commission || 0)) },
+        distributor: { id: txRecord.retailer_id, commission: distributorCommission },
         masterDistributor: { id: mdId },
+        chargeModel: {
+          rt_purchase_charge: charges,
+          dt_purchase_charge: dtChargeApprove,
+          md_purchase_charge: dtChargeApprove,
+          company_cost: 0,
+          reverify: { serviceKind: 'PAYOUT', scopeKey: settlementMode, category: null, amount: settlementAmount },
+        },
         remarksSuffix: `on ₹${txRecord.amount} transfer`,
         auditWriteback: {
           table: 'shadval_settlement',

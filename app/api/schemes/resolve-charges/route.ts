@@ -628,6 +628,44 @@ export async function GET(request: NextRequest) {
 
       const rate = filteredRates.length > 0 ? filteredRates[0] : null
 
+      // Brand rate card = authoritative vendor cost. When the slab is pinned to a
+      // brand (merchant_slug), resolve the brand's approved vendor cost so we can
+      // report the EXACT company revenue per transaction (retailer MDR − vendor).
+      let brandInfo: {
+        brand_vendor_mdr: number
+        brand_min_mdr: number
+        company_revenue_pct: number
+        company_revenue_amount: number
+      } | null = null
+      if (rate && rate.merchant_slug) {
+        try {
+          const { resolveBrandMdr } = await import('@/lib/brand/mdr')
+          const st = settlementType === 'T+0' ? 'T0' : 'T1'
+          const retailer_mdr = settlementType === 'T+0' ? parseFloat(rate.retailer_mdr_t0) : parseFloat(rate.retailer_mdr_t1)
+          const brand = await resolveBrandMdr({
+            brandKey: rate.merchant_slug,
+            amount: amount > 0 ? amount : 1000,
+            mode: rate.mode,
+            card_type: rate.card_type,
+            brand_type: rate.brand_type,
+            card_classification: rate.card_classification,
+            settlementType: st,
+          })
+          if (brand) {
+            // Revenue uses the EX-GST vendor cost (GST is an input credit).
+            const revPct = Math.max(retailer_mdr - brand.vendorMdrExGst, 0)
+            brandInfo = {
+              brand_vendor_mdr: brand.vendorMdrExGst,
+              brand_min_mdr: brand.minMdr,
+              company_revenue_pct: revPct,
+              company_revenue_amount: amount > 0 ? Math.round((amount * revPct) / 100 * 100) / 100 : 0,
+            }
+          }
+        } catch (e: any) {
+          console.error('[resolve-charges] brand MDR enrichment failed:', e?.message)
+        }
+      }
+
       return NextResponse.json({
         resolved: true,
         scheme: {
@@ -656,8 +694,11 @@ export async function GET(request: NextRequest) {
             mode: rate.mode,
             card_type: rate.card_type,
             brand_type: rate.brand_type,
+            merchant_slug: rate.merchant_slug ?? null,
+            ...(brandInfo || {}),
           };
         })() : null,
+        brand: brandInfo,
         all_rates: filteredRates,
         _debug: { resolution_method: resolutionMethod, client_mode: clientMode },
       })

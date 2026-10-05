@@ -8,6 +8,110 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { getSupabaseUrl, getSupabaseServiceKey } from '@/lib/env';
+import { findApprovedBrandRate } from '@/lib/brand/mdr';
+import { resolveServiceVendorRate, toAbsolute, exGstValue, type ServiceKind, type RateType } from '@/lib/service-vendor/rates';
+import { resolveCompanyFloor, type FloorServiceKind } from '@/lib/service-vendor/floor';
+
+/** Representative amount for slab-level (percent/flat) floor checks. */
+function repAmountFor(min_amount?: number, max_amount?: number): number {
+  if (max_amount != null && max_amount > 0 && max_amount < 999999999) return max_amount;
+  if (min_amount != null && min_amount > 0) return min_amount;
+  return 1000;
+}
+
+const chargeTypeToRate = (t?: string): RateType => (String(t).toLowerCase() === 'percentage' ? 'PERCENT' : 'FLAT');
+const rateTypeToCharge = (t: RateType): string => (t === 'PERCENT' ? 'percentage' : 'flat');
+
+/**
+ * Resolve the authoritative service vendor cost + minimum for a BBPS/PAYOUT
+ * slab and apply it: enforces the customer charge is not below the central
+ * minimum (and platform floor), and derives the company cost basis
+ * (company_charge/_type) from the EX-GST vendor cost so revenue =
+ * customer charge − vendor cost. Returns an error string, or a patch to merge.
+ * Returns {} (no-op) when no central rate exists (back-compat).
+ */
+async function applyServiceVendorFloor(params: {
+  serviceKind: ServiceKind;
+  scopeKey: string | null;
+  category: string | null;
+  retailer_charge: number;
+  retailer_charge_type: string;
+  md_purchase_charge?: number;
+  md_purchase_charge_type?: string;
+  dt_purchase_charge?: number;
+  rt_purchase_charge?: number;
+  min_amount?: number;
+  max_amount?: number;
+}): Promise<{ error?: string; patch?: Record<string, any> }> {
+  try {
+    const rep = repAmountFor(params.min_amount, params.max_amount);
+    const resolved = await resolveServiceVendorRate({
+      serviceKind: params.serviceKind,
+      scopeKey: params.scopeKey,
+      category: params.category,
+      amount: rep,
+    });
+
+    const retailerAbs = toAbsolute(Number(params.retailer_charge) || 0, chargeTypeToRate(params.retailer_charge_type), rep);
+
+    // Platform floor (optional, lowest guardrail).
+    const floorAbs = await resolveCompanyFloor({
+      serviceKind: params.serviceKind as FloorServiceKind,
+      scopeKey: params.scopeKey,
+      amount: rep,
+    });
+    if (floorAbs > 0 && retailerAbs - floorAbs < -1e-9) {
+      return { error: `Customer charge (₹${retailerAbs.toFixed(2)} at ₹${rep}) is below the platform floor (₹${floorAbs.toFixed(2)}) for ${params.serviceKind}.` };
+    }
+
+    if (!resolved) return {}; // no central vendor card → keep supplied values
+
+    // For the charge-based model (md_purchase_charge is set), retailer_charge is
+    // not set by the admin — it flows from the hierarchy. Skip the retailer-level
+    // check; the md_purchase_charge check below enforces the company's floor.
+    // Also treat DT/RT-created slabs (dt_purchase_charge or rt_purchase_charge set) as charge-based.
+    const isChargeModel = (params.md_purchase_charge != null && Number(params.md_purchase_charge) > 0)
+      || (params.dt_purchase_charge != null && Number(params.dt_purchase_charge) > 0)
+      || (params.rt_purchase_charge != null && Number(params.rt_purchase_charge) > 0);
+
+    if (!isChargeModel && resolved.minCharge > 0 && retailerAbs - resolved.minCharge < -1e-9) {
+      return { error: `Customer charge (₹${retailerAbs.toFixed(2)} at ₹${rep}) is below the ${params.serviceKind} minimum (₹${resolved.minCharge.toFixed(2)}). Raise it so the company never books a loss.` };
+    }
+
+    // Hierarchy floor: schemes cascade admin→MD→DT→RT, each level re-pricing for
+    // its child. The company's realized tier is md_purchase_charge (company
+    // margin = md_purchase_charge − vendor cost). Enforcing md_purchase_charge ≥
+    // the central MINIMUM guarantees the company's margin is locked in BEFORE the
+    // downline stacks its own margins on top; the monotonic cascade
+    // (md ≤ dt ≤ rt ≤ customer) then carries the floor through every tier.
+    // Falls back to the ex-GST vendor cost when no explicit minimum is set.
+    if (params.md_purchase_charge != null && Number(params.md_purchase_charge) > 0) {
+      const mdAbs = toAbsolute(Number(params.md_purchase_charge), chargeTypeToRate(params.md_purchase_charge_type), rep);
+      const companyTierFloor = resolved.minCharge > 0 ? resolved.minCharge : resolved.vendorCostExGst;
+      if (mdAbs - companyTierFloor < -1e-9) {
+        const label = resolved.minCharge > 0 ? 'minimum' : 'ex-GST vendor cost';
+        return { error: `MD purchase charge (₹${mdAbs.toFixed(2)} at ₹${rep}) is below the ${params.serviceKind} ${label} (₹${companyTierFloor.toFixed(2)}). The company's guaranteed margin would be lost before it cascades through the hierarchy.` };
+      }
+    }
+
+    // Derive the company cost basis from the ex-GST vendor cost. The charge
+    // model books company revenue = md_purchase_charge − company_charge, so
+    // company_charge must equal the ex-GST vendor cost.
+    const exGstVendorRaw = exGstValue(resolved.vendor_rate, resolved.gst_inclusive);
+    return {
+      patch: {
+        company_charge: Number(exGstVendorRaw.toFixed(4)),
+        company_charge_type: rateTypeToCharge(resolved.vendor_rate_type),
+        vendor_rate: Number(resolved.vendor_rate.toFixed(4)),
+        company_mdr_rate: Number(exGstVendorRaw.toFixed(4)),
+        gst_inclusive: resolved.gst_inclusive,
+      },
+    };
+  } catch (e) {
+    console.error('[applyServiceVendorFloor] failed:', (e as any)?.message);
+    return {}; // non-fatal
+  }
+}
 import type {
   Scheme,
   SchemeBBPSCommission,
@@ -166,6 +270,25 @@ export async function upsertBBPSCommission(
   input: CreateBBPSCommissionInput
 ): Promise<{ data: SchemeBBPSCommission | null; error: string | null }> {
   const supabase = getSupabase();
+
+  // Authoritative central vendor cost + minimum (BBPS). Enforces the floor and
+  // derives the company cost basis (ex-GST) so revenue = charge − vendor cost.
+  const floor = await applyServiceVendorFloor({
+    serviceKind: 'BBPS',
+    scopeKey: input.bbps_type || 'bbps_1',
+    category: input.category || null,
+    retailer_charge: input.retailer_charge,
+    retailer_charge_type: input.retailer_charge_type,
+    md_purchase_charge: input.md_purchase_charge,
+    md_purchase_charge_type: input.md_purchase_charge_type,
+    dt_purchase_charge: input.dt_purchase_charge,
+    rt_purchase_charge: input.rt_purchase_charge,
+    min_amount: input.min_amount,
+    max_amount: input.max_amount,
+  });
+  if (floor.error) return { data: null, error: floor.error };
+  const fp = floor.patch || {};
+
   const { data, error } = await supabase
     .from('scheme_bbps_commissions')
     .upsert({
@@ -183,17 +306,17 @@ export async function upsertBBPSCommission(
       distributor_commission_type: input.distributor_commission_type || 'flat',
       md_commission: input.md_commission || 0,
       md_commission_type: input.md_commission_type || 'flat',
-      company_charge: input.company_charge || 0,
-      company_charge_type: input.company_charge_type || 'flat',
+      company_charge: fp.company_charge ?? input.company_charge ?? 0,
+      company_charge_type: fp.company_charge_type ?? input.company_charge_type ?? 'flat',
       md_purchase_charge: input.md_purchase_charge || 0,
       md_purchase_charge_type: input.md_purchase_charge_type || 'flat',
       dt_purchase_charge: input.dt_purchase_charge || 0,
       dt_purchase_charge_type: input.dt_purchase_charge_type || 'flat',
       rt_purchase_charge: input.rt_purchase_charge || 0,
       rt_purchase_charge_type: input.rt_purchase_charge_type || 'flat',
-      gst_inclusive: input.gst_inclusive ?? false,
-      vendor_rate: input.vendor_rate ?? 0,
-      company_mdr_rate: input.company_mdr_rate ?? 0,
+      gst_inclusive: fp.gst_inclusive ?? input.gst_inclusive ?? false,
+      vendor_rate: fp.vendor_rate ?? input.vendor_rate ?? 0,
+      company_mdr_rate: fp.company_mdr_rate ?? input.company_mdr_rate ?? 0,
       status: 'active',
     })
     .select()
@@ -225,6 +348,24 @@ export async function upsertPayoutCharge(
   input: CreatePayoutChargeInput
 ): Promise<{ data: SchemePayoutCharge | null; error: string | null }> {
   const supabase = getSupabase();
+
+  // Authoritative central vendor cost + minimum (Account Transfer / Payout).
+  const floor = await applyServiceVendorFloor({
+    serviceKind: 'PAYOUT',
+    scopeKey: input.transfer_mode || '*',
+    category: null,
+    retailer_charge: input.retailer_charge,
+    retailer_charge_type: input.retailer_charge_type,
+    md_purchase_charge: input.md_purchase_charge,
+    md_purchase_charge_type: input.md_purchase_charge_type,
+    dt_purchase_charge: input.dt_purchase_charge,
+    rt_purchase_charge: input.rt_purchase_charge,
+    min_amount: input.min_amount,
+    max_amount: input.max_amount,
+  });
+  if (floor.error) return { data: null, error: floor.error };
+  const fp = floor.patch || {};
+
   const { data, error } = await supabase
     .from('scheme_payout_charges')
     .upsert({
@@ -241,17 +382,17 @@ export async function upsertPayoutCharge(
       distributor_commission_type: input.distributor_commission_type || 'flat',
       md_commission: input.md_commission || 0,
       md_commission_type: input.md_commission_type || 'flat',
-      company_charge: input.company_charge || 0,
-      company_charge_type: input.company_charge_type || 'flat',
+      company_charge: fp.company_charge ?? input.company_charge ?? 0,
+      company_charge_type: fp.company_charge_type ?? input.company_charge_type ?? 'flat',
       md_purchase_charge: input.md_purchase_charge || 0,
       md_purchase_charge_type: input.md_purchase_charge_type || 'flat',
       dt_purchase_charge: input.dt_purchase_charge || 0,
       dt_purchase_charge_type: input.dt_purchase_charge_type || 'flat',
       rt_purchase_charge: input.rt_purchase_charge || 0,
       rt_purchase_charge_type: input.rt_purchase_charge_type || 'flat',
-      gst_inclusive: input.gst_inclusive ?? false,
-      vendor_rate: input.vendor_rate ?? 0,
-      company_mdr_rate: input.company_mdr_rate ?? 0,
+      gst_inclusive: fp.gst_inclusive ?? input.gst_inclusive ?? false,
+      vendor_rate: fp.vendor_rate ?? input.vendor_rate ?? 0,
+      company_mdr_rate: fp.company_mdr_rate ?? input.company_mdr_rate ?? 0,
       status: 'active',
     })
     .select()
@@ -283,6 +424,84 @@ export async function upsertMDRRate(
   input: CreateMDRRateInput
 ): Promise<{ data: SchemeMDRRate | null; error: string | null }> {
   const supabase = getSupabase();
+
+  // Brand rate card is the AUTHORITATIVE vendor cost + minimum floor. When the
+  // slab is pinned to a brand (merchant_slug), resolve the brand's approved
+  // rate and (a) enforce the scheme retailer MDR is not priced below the brand
+  // minimum, and (b) lock vendor_rate / company_mdr_rate to the brand's cost so
+  // per-transaction revenue (retailer_mdr − vendor cost) is exact. Falls back to
+  // the supplied values when the brand has no matching rate (back-compat).
+  let vendor_rate = input.vendor_rate ?? 0;
+  let company_mdr_rate = input.company_mdr_rate ?? 0;
+  if (input.merchant_slug) {
+    try {
+      const brandRate = await findApprovedBrandRate({
+        merchantSlug: input.merchant_slug,
+        amount: 1000, // nominal; brand resolution relaxes the band for slabs
+        mode: input.mode,
+        card_type: input.card_type ?? null,
+        brand_type: input.brand_type ?? null,
+        card_classification: input.card_classification ?? null,
+      });
+      if (brandRate) {
+        const gstInc = !!(brandRate as any).gst_inclusive;
+        const vendorT1 = Number(brandRate.mdr_value);
+        const minT1 = Number(brandRate.min_mdr_value) > 0 ? Number(brandRate.min_mdr_value) : vendorT1;
+        const minT0 = Number(brandRate.min_mdr_value_t0) > 0 ? Number(brandRate.min_mdr_value_t0) : minT1;
+
+        const EPS = 1e-9;
+        // Hierarchy floor. Schemes cascade admin→MD→DT→RT; the company's realized
+        // tier is md_mdr (settlement books company_earning = md_mdr − company_cost).
+        // Enforcing the brand MINIMUM at the company tier guarantees the company
+        // margin is locked in first; the monotonic cascade (retailer ≥ distributor
+        // ≥ md ≥ company_cost) then carries the floor up through every tier.
+        //   - Cascade plan (md_mdr set): floor binds md_mdr.
+        //   - Unified/partner plan (md_mdr = 0): company realizes the whole
+        //     retailer_mdr, so the floor binds retailer_mdr.
+        const isUnified = input.partner_mdr != null || !(Number(input.md_mdr_t1) > 0);
+        if (isUnified) {
+          if (Number(input.retailer_mdr_t1) - minT1 < -EPS) {
+            return {
+              data: null,
+              error: `Retailer MDR T+1 (${Number(input.retailer_mdr_t1).toFixed(2)}%) is below the brand minimum (${minT1.toFixed(2)}%) for "${input.merchant_slug}". Raise it so the company never books a loss.`,
+            };
+          }
+          if (Number(input.retailer_mdr_t0) - minT0 < -EPS) {
+            return {
+              data: null,
+              error: `Retailer MDR T+0 (${Number(input.retailer_mdr_t0).toFixed(2)}%) is below the brand minimum (${minT0.toFixed(2)}%) for "${input.merchant_slug}".`,
+            };
+          }
+        } else {
+          if (Number(input.md_mdr_t1) - minT1 < -EPS) {
+            return {
+              data: null,
+              error: `MD MDR T+1 (${Number(input.md_mdr_t1).toFixed(2)}%) is below the brand minimum (${minT1.toFixed(2)}%) for "${input.merchant_slug}". The company's guaranteed margin would be lost before it cascades through the hierarchy.`,
+            };
+          }
+          const mdT0 = Number(input.md_mdr_t0) > 0 ? Number(input.md_mdr_t0) : Number(input.md_mdr_t1);
+          if (mdT0 - minT0 < -EPS) {
+            return {
+              data: null,
+              error: `MD MDR T+0 (${mdT0.toFixed(2)}%) is below the brand minimum (${minT0.toFixed(2)}%) for "${input.merchant_slug}".`,
+            };
+          }
+        }
+
+        // Lock the vendor cost to the brand card. `company_mdr_rate` is the
+        // company COST consumed by settlement (company_earning = md_mdr −
+        // company_mdr_rate), so it MUST hold the ex-GST vendor cost — NOT the
+        // margin. GST on vendor cost is an input credit, so the real cost is
+        // ex-GST (value/1.18 when the brand rate was entered GST-inclusive).
+        vendor_rate = vendorT1; // gross vendor cost as entered (audit/display)
+        company_mdr_rate = gstInc ? vendorT1 / 1.18 : vendorT1; // ex-GST cost used for revenue
+      }
+    } catch (e) {
+      // Non-fatal: if brand resolution fails, keep the supplied vendor values.
+      console.error('[upsertMDRRate] brand rate resolution failed:', (e as any)?.message);
+    }
+  }
+
   const { data, error } = await supabase
     .from('scheme_mdr_rates')
     .upsert({
@@ -301,8 +520,8 @@ export async function upsertMDRRate(
       md_mdr_t0: input.md_mdr_t0 || 0,
       partner_mdr: input.partner_mdr ?? null,
       gst_inclusive: input.gst_inclusive ?? false,
-      vendor_rate: input.vendor_rate ?? 0,
-      company_mdr_rate: input.company_mdr_rate ?? 0,
+      vendor_rate,
+      company_mdr_rate,
       master_commission_percent: input.master_commission_percent ?? null,
       master_commission_tds_percent: input.master_commission_tds_percent ?? null,
       status: 'active',

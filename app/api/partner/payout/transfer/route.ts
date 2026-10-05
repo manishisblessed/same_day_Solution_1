@@ -366,8 +366,12 @@ export async function POST(request: NextRequest) {
     }
     finalizeIdempotencyKey({ scope: `partner_payout:${partner.id}`, key: idempotencyKey || '', status: 'completed', response: successResponse }).catch(() => {})
     if (finalStatus === 'success') {
-      // Book the collected charge as company revenue. Partners have no downstream
-      // retailer/distributor, so the full charge folds into company revenue.
+      // Book company revenue via the CHARGE MODEL so the live central vendor cost
+      // is deducted (revenue = charge − ex-GST vendor cost). Partners have no
+      // downstream retailer/distributor, so md = dt = rt = full charge (zero
+      // downline margin). `company_cost` is resolved LIVE from the central PAYOUT
+      // vendor card via `reverify`; it stays 0 (full charge → revenue, legacy
+      // behaviour) when no central rate is configured.
       if (charges > 0) {
         const commResult = await distributeServiceCommission({
           supabase,
@@ -378,6 +382,13 @@ export async function POST(request: NextRequest) {
           totalCharge: charges,
           retailer: { id: partner.id, role: 'partner', commission: 0 },
           distributor: null,
+          chargeModel: {
+            rt_purchase_charge: charges,
+            dt_purchase_charge: charges,
+            md_purchase_charge: charges,
+            company_cost: 0,
+            reverify: { serviceKind: 'PAYOUT', scopeKey: transferMode || null, category: null, amount: amountNum },
+          },
           remarksSuffix: `on ₹${amountNum} partner payout`,
         })
         if (commResult.errors.length) console.error('[Partner Payout Transfer] Commission errors:', commResult.errors)

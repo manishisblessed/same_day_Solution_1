@@ -25,6 +25,7 @@
 
 import { getSupabaseAdmin } from '@/lib/supabase/server-admin'
 import { getPlatformRevenueWalletConfig } from '@/lib/wallet/platform-revenue-wallet'
+import { resolveServiceVendorRate } from '@/lib/service-vendor/rates'
 
 export type ChargeCommissionService =
   | 'bbps'
@@ -43,6 +44,19 @@ export interface ChargeModelInput {
   md_purchase_charge: number
   /** Vendor/provider cost to company (optional, defaults to company_charge) */
   company_cost?: number
+  /**
+   * #5 Settlement-time re-verification context. When provided, the company cost
+   * is re-read LIVE from the central service vendor card at distribution time
+   * (ex-GST), overriding the scheme snapshot so a vendor-rate change after config
+   * can never overstate company revenue or hide a loss. No-op when no central
+   * rate matches (back-compat).
+   */
+  reverify?: {
+    serviceKind: 'BBPS' | 'PAYOUT'
+    scopeKey?: string | null
+    category?: string | null
+    amount: number
+  } | null
 }
 
 export interface DistributeCommissionInput {
@@ -127,7 +141,33 @@ async function distributeChargeModel(
   const rtCharge = round2(cm.rt_purchase_charge || 0)
   const dtCharge = round2(cm.dt_purchase_charge || 0)
   const mdCharge = round2(cm.md_purchase_charge || 0)
-  const companyCost = round2(cm.company_cost ?? 0)
+  let companyCost = round2(cm.company_cost ?? 0)
+
+  // #5 Re-verify the company cost against the LIVE central vendor card, if a
+  // context was supplied. Prevents a stale scheme snapshot from overstating
+  // revenue (or hiding a loss) after an admin changes the vendor rate.
+  if (cm.reverify) {
+    try {
+      const live = await resolveServiceVendorRate({
+        serviceKind: cm.reverify.serviceKind,
+        scopeKey: cm.reverify.scopeKey ?? null,
+        category: cm.reverify.category ?? null,
+        amount: cm.reverify.amount,
+      })
+      if (live) {
+        const liveCost = round2(live.vendorCostExGst)
+        if (Math.abs(liveCost - companyCost) > 0.001) {
+          console.warn(`[Commission] Re-verify: ${input.service} vendor cost changed since config — snapshot ₹${companyCost} → live ₹${liveCost} (amount=${cm.reverify.amount}). Booking on LIVE cost.`)
+        }
+        companyCost = liveCost
+        if (mdCharge - liveCost < -0.001) {
+          result.errors.push(`REVERIFY_LOSS: ${input.service} MD charge ₹${mdCharge} is below the live ex-GST vendor cost ₹${liveCost} — company would book a loss. Revenue floored to 0; fix the scheme/vendor rate.`)
+        }
+      }
+    } catch (e: any) {
+      console.error('[Commission] Vendor cost re-verification failed (keeping snapshot):', e?.message)
+    }
+  }
 
   const dtMargin = round2(Math.max(0, rtCharge - dtCharge))
   const mdMargin = round2(Math.max(0, dtCharge - mdCharge))

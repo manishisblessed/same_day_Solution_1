@@ -308,7 +308,7 @@ export async function POST(request: NextRequest) {
     let resolvedSchemeName: string | null = null
     let resolvedVia: string | null = null // Track how scheme was resolved for commission logic
     let commissionSplit = { retailer_commission: 0, distributor_commission: 0, md_commission: 0 }
-    let chargeModelData: { md_purchase_charge: number; dt_purchase_charge: number; rt_purchase_charge: number; company_cost: number } | null = null
+    let chargeModelData: { md_purchase_charge: number; dt_purchase_charge: number; rt_purchase_charge: number; company_cost: number; reverify?: { serviceKind: 'BBPS' | 'PAYOUT'; scopeKey?: string | null; category?: string | null; amount: number } | null } | null = null
 
     try {
       console.log(`[Payout] Resolving scheme: user=${user.partner_id}, dist=${distributorId}, md=${mdId}, amount=${amountNum}, mode=${transferMode}`)
@@ -354,6 +354,9 @@ export async function POST(request: NextRequest) {
               dt_purchase_charge: dtPc,
               rt_purchase_charge: rtPc,
               company_cost: parseFloat(chargeResult[0].company_earning) || 0,
+              // #5 re-verify the company cost against the live central PAYOUT
+              // vendor card at settlement, keyed by transfer mode.
+              reverify: { serviceKind: 'PAYOUT', scopeKey: transferMode || null, category: null, amount: amountNum },
             }
           }
           console.log(`[Payout] Scheme charge via RPC: ₹${charges}, commissions: RT=${commissionSplit.retailer_commission}, DT=${commissionSplit.distributor_commission}, MD=${commissionSplit.md_commission}${chargeModelData ? ' [CHARGE MODEL]' : ''}`)

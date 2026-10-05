@@ -1,5 +1,18 @@
 'use client'
 
+// ── Band definitions (must match Service Vendor Rates / Admin scheme bands) ──
+const BBPS_SCHEME_BANDS = [
+  { min: 100, max: 49999 },
+  { min: 50000, max: 100000 },
+  { min: 100001, max: 200000 },
+]
+const PAYOUT_SCHEME_BANDS = [
+  { min: 100, max: 1000 },
+  { min: 1001, max: 25000 },
+  { min: 25001, max: 50000 },
+  { min: 50001, max: 100000 },
+]
+
 import { useState, useEffect, useCallback, Suspense, memo, useRef } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useToast } from '@/components/Toast'
@@ -3434,6 +3447,23 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
   // Configs from schemes assigned to this DT (for auto-populating "Your Cost" as read-only)
   const [adminConfigs, setAdminConfigs] = useState<{ bbps: any[], payout: any[], shadval: any[], mdr: any[] }>({ bbps: [], payout: [], shadval: [], mdr: [] })
 
+  // Also keep track of assigned scheme IDs so we can refresh on modal open
+  const [assignedSchemeIdsRef, setAssignedSchemeIdsRef] = useState<string[]>([])
+
+  // Re-fetch admin configs on demand so "Your Cost" is always fresh when modal opens
+  const refreshAdminConfigs = useCallback(async (schemeIds: string[]) => {
+    if (!schemeIds || schemeIds.length === 0) return
+    try {
+      const [bbpsRes, payoutRes, shadvalRes, mdrRes] = await Promise.all([
+        secureDb.from('scheme_bbps_commissions').select('*').in('scheme_id', schemeIds).eq('status', 'active'),
+        secureDb.from('scheme_payout_charges').select('*').in('scheme_id', schemeIds).eq('status', 'active'),
+        secureDb.from('scheme_shadval_settlement_charges').select('*').in('scheme_id', schemeIds).eq('status', 'active'),
+        secureDb.from('scheme_mdr_rates').select('*').in('scheme_id', schemeIds).eq('status', 'active'),
+      ])
+      setAdminConfigs({ bbps: bbpsRes.data || [], payout: payoutRes.data || [], shadval: shadvalRes.data || [], mdr: mdrRes.data || [] })
+    } catch {}
+  }, [])
+
   const [schemeForm, setSchemeForm] = useState({
     name: '',
     description: '',
@@ -3631,6 +3661,7 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
           secureDb.from('scheme_mdr_rates').select('*').in('scheme_id', assignedIds).eq('status', 'active'),
         ])
         setAdminConfigs({ bbps: bbpsRes.data || [], payout: payoutRes.data || [], shadval: shadvalRes.data || [], mdr: mdrRes.data || [] })
+        setAssignedSchemeIdsRef(assignedIds)
       }
 
       let filtered = [...(ownSchemes || []), ...assignedSchemes]
@@ -3805,18 +3836,19 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
 
   const openConfigModal = (schemeId: string, type: 'bbps' | 'payout' | 'mdr' | 'aeps' | 'aeps_settlement' | 'shadval_settlement', editData?: any) => {
     setConfigSchemeId(schemeId)
-    if (type === 'shadval_settlement') {
+    // Only Settlement-2 (shadval) is available
+    if (type === 'payout' || type === 'shadval_settlement') {
       setConfigType('payout')
       setSettlementTypeSelection('shadval_settlement')
     } else {
       setConfigType(type)
-      if (type === 'payout') setSettlementTypeSelection('payout')
+      setSettlementTypeSelection('shadval_settlement')
     }
     setEditingConfigId(editData?.id || null)
     if (editData) {
       if (type === 'bbps') {
         setBbpsForm({ bbps_type: editData.bbps_type || 'bbps_1', category: editData.category || '', min_amount: editData.min_amount || 0, max_amount: editData.max_amount || 100000, retailer_charge: editData.retailer_charge || 0, retailer_charge_type: editData.retailer_charge_type || 'flat', retailer_commission: editData.retailer_commission || 0, retailer_commission_type: editData.retailer_commission_type || 'flat', distributor_commission: editData.distributor_commission || 0, distributor_commission_type: editData.distributor_commission_type || 'flat', md_commission: editData.md_commission || 0, md_commission_type: editData.md_commission_type || 'flat', company_charge: editData.company_charge || 0, company_charge_type: editData.company_charge_type || 'flat', md_purchase_charge: editData.md_purchase_charge || 0, md_purchase_charge_type: editData.md_purchase_charge_type || 'flat', dt_purchase_charge: editData.dt_purchase_charge || 0, dt_purchase_charge_type: editData.dt_purchase_charge_type || 'flat', rt_purchase_charge: editData.rt_purchase_charge || 0, rt_purchase_charge_type: editData.rt_purchase_charge_type || 'flat', gst_inclusive: editData.gst_inclusive || false, vendor_rate: editData.vendor_rate || 0, company_mdr_rate: editData.company_mdr_rate || 0 })
-      } else if (type === 'payout') {
+      } else if (type === 'payout' || type === 'shadval_settlement') {
         setPayoutForm({ transfer_mode: editData.transfer_mode || 'IMPS', min_amount: editData.min_amount || 0, max_amount: editData.max_amount || 100000, retailer_charge: editData.retailer_charge || 0, retailer_charge_type: editData.retailer_charge_type || 'flat', retailer_commission: editData.retailer_commission || 0, retailer_commission_type: editData.retailer_commission_type || 'flat', distributor_commission: editData.distributor_commission || 0, distributor_commission_type: editData.distributor_commission_type || 'flat', md_commission: editData.md_commission || 0, md_commission_type: editData.md_commission_type || 'flat', company_charge: editData.company_charge || 0, company_charge_type: editData.company_charge_type || 'flat', md_purchase_charge: editData.md_purchase_charge || 0, md_purchase_charge_type: editData.md_purchase_charge_type || 'flat', dt_purchase_charge: editData.dt_purchase_charge || 0, dt_purchase_charge_type: editData.dt_purchase_charge_type || 'flat', rt_purchase_charge: editData.rt_purchase_charge || 0, rt_purchase_charge_type: editData.rt_purchase_charge_type || 'flat', gst_inclusive: editData.gst_inclusive || false, vendor_rate: editData.vendor_rate || 0, company_mdr_rate: editData.company_mdr_rate || 0 })
       } else if (type === 'mdr') {
         setMdrForm({ mode: editData.mode || 'CARD', card_type: editData.card_type || '', brand_type: editData.brand_type || '', card_classification: editData.card_classification || '', merchant_slug: editData.merchant_slug || '', retailer_mdr_t1: editData.retailer_mdr_t1 || 0, retailer_mdr_t0: editData.retailer_mdr_t0 || 0, distributor_mdr_t1: editData.distributor_mdr_t1 || 0, distributor_mdr_t0: editData.distributor_mdr_t0 || 0, md_mdr_t1: editData.md_mdr_t1 || 0, md_mdr_t0: editData.md_mdr_t0 || 0, partner_mdr: editData.partner_mdr || 0, gst_inclusive: editData.gst_inclusive || false, vendor_rate: editData.vendor_rate || 0, company_mdr_rate: editData.company_mdr_rate || 0 })
@@ -3824,18 +3856,20 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
         setAepsForm({ transaction_type: editData.transaction_type || 'cash_withdrawal', min_amount: editData.min_amount || 0, max_amount: editData.max_amount || 100000, base_commission: editData.base_commission || 0, base_commission_type: editData.base_commission_type || 'percentage', company_earning: editData.company_earning || 0, company_earning_type: editData.company_earning_type || 'flat', md_commission: editData.md_commission || 0, md_commission_type: editData.md_commission_type || 'flat', distributor_commission: editData.distributor_commission || 0, distributor_commission_type: editData.distributor_commission_type || 'flat', retailer_commission: editData.retailer_commission || 0, retailer_commission_type: editData.retailer_commission_type || 'flat', tds_percentage: editData.tds_percentage ?? 5, gst_inclusive: editData.gst_inclusive || false, vendor_rate: editData.vendor_rate || 0, company_mdr_rate: editData.company_mdr_rate || 0 })
       } else if (type === 'aeps_settlement') {
         setAepsSettleForm({ min_amount: editData.min_amount || 0, max_amount: editData.max_amount || 100000, retailer_charge: editData.retailer_charge || 0, retailer_charge_type: editData.retailer_charge_type || 'flat', distributor_commission: editData.distributor_commission || 0, distributor_commission_type: editData.distributor_commission_type || 'flat', md_commission: editData.md_commission || 0, md_commission_type: editData.md_commission_type || 'flat', company_charge: editData.company_charge || 0, company_charge_type: editData.company_charge_type || 'flat', gst_inclusive: editData.gst_inclusive || false, vendor_rate: editData.vendor_rate || 0, company_mdr_rate: editData.company_mdr_rate || 0 })
-      } else if (type === 'shadval_settlement') {
-        setPayoutForm({ transfer_mode: editData.transfer_mode || 'IMPS', min_amount: editData.min_amount || 0, max_amount: editData.max_amount || 100000, retailer_charge: editData.retailer_charge || 0, retailer_charge_type: editData.retailer_charge_type || 'flat', retailer_commission: editData.retailer_commission || 0, retailer_commission_type: editData.retailer_commission_type || 'flat', distributor_commission: editData.distributor_commission || 0, distributor_commission_type: editData.distributor_commission_type || 'flat', md_commission: editData.md_commission || 0, md_commission_type: editData.md_commission_type || 'flat', company_charge: editData.company_charge || 0, company_charge_type: editData.company_charge_type || 'flat', md_purchase_charge: editData.md_purchase_charge || 0, md_purchase_charge_type: editData.md_purchase_charge_type || 'flat', dt_purchase_charge: editData.dt_purchase_charge || 0, dt_purchase_charge_type: editData.dt_purchase_charge_type || 'flat', rt_purchase_charge: editData.rt_purchase_charge || 0, rt_purchase_charge_type: editData.rt_purchase_charge_type || 'flat', gst_inclusive: editData.gst_inclusive || false, vendor_rate: editData.vendor_rate || 0, company_mdr_rate: editData.company_mdr_rate || 0 })
       }
     } else {
-      setBbpsForm({ bbps_type: 'bbps_1', category: '', min_amount: 0, max_amount: 100000, retailer_charge: 0, retailer_charge_type: 'flat', retailer_commission: 0, retailer_commission_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat', company_charge: 0, company_charge_type: 'flat', md_purchase_charge: 0, md_purchase_charge_type: 'flat', dt_purchase_charge: 0, dt_purchase_charge_type: 'flat', rt_purchase_charge: 0, rt_purchase_charge_type: 'flat', gst_inclusive: false, vendor_rate: 0, company_mdr_rate: 0 })
-      setPayoutForm({ transfer_mode: 'IMPS', min_amount: 0, max_amount: 100000, retailer_charge: 0, retailer_charge_type: 'flat', retailer_commission: 0, retailer_commission_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat', company_charge: 0, company_charge_type: 'flat', md_purchase_charge: 0, md_purchase_charge_type: 'flat', dt_purchase_charge: 0, dt_purchase_charge_type: 'flat', rt_purchase_charge: 0, rt_purchase_charge_type: 'flat', gst_inclusive: false, vendor_rate: 0, company_mdr_rate: 0 })
+      setBbpsForm({ bbps_type: 'bbps_1', category: '', min_amount: BBPS_SCHEME_BANDS[0].min, max_amount: BBPS_SCHEME_BANDS[0].max, retailer_charge: 0, retailer_charge_type: 'flat', retailer_commission: 0, retailer_commission_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat', company_charge: 0, company_charge_type: 'flat', md_purchase_charge: 0, md_purchase_charge_type: 'flat', dt_purchase_charge: 0, dt_purchase_charge_type: 'flat', rt_purchase_charge: 0, rt_purchase_charge_type: 'flat', gst_inclusive: false, vendor_rate: 0, company_mdr_rate: 0 })
+      setPayoutForm({ transfer_mode: 'IMPS', min_amount: PAYOUT_SCHEME_BANDS[0].min, max_amount: PAYOUT_SCHEME_BANDS[0].max, retailer_charge: 0, retailer_charge_type: 'flat', retailer_commission: 0, retailer_commission_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat', company_charge: 0, company_charge_type: 'flat', md_purchase_charge: 0, md_purchase_charge_type: 'flat', dt_purchase_charge: 0, dt_purchase_charge_type: 'flat', rt_purchase_charge: 0, rt_purchase_charge_type: 'flat', gst_inclusive: false, vendor_rate: 0, company_mdr_rate: 0 })
       setMdrForm({ mode: 'CARD', card_type: '', brand_type: '', card_classification: '', merchant_slug: '', retailer_mdr_t1: 0, retailer_mdr_t0: 0, distributor_mdr_t1: 0, distributor_mdr_t0: 0, md_mdr_t1: 0, md_mdr_t0: 0, partner_mdr: 0, gst_inclusive: false, vendor_rate: 0, company_mdr_rate: 0 })
       setAepsForm({ transaction_type: 'cash_withdrawal', min_amount: 0, max_amount: 100000, base_commission: 0, base_commission_type: 'percentage', company_earning: 0, company_earning_type: 'flat', md_commission: 0, md_commission_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', retailer_commission: 0, retailer_commission_type: 'flat', tds_percentage: 5, gst_inclusive: false, vendor_rate: 0, company_mdr_rate: 0 })
       setAepsSettleForm({ min_amount: 0, max_amount: 100000, retailer_charge: 0, retailer_charge_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat', company_charge: 0, company_charge_type: 'flat', gst_inclusive: false, vendor_rate: 0, company_mdr_rate: 0 })
       setShadvalSettleForm({ transfer_mode: 'IMPS', min_amount: 0, max_amount: 100000, retailer_charge: 0, retailer_charge_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat', company_charge: 0, company_charge_type: 'flat', md_purchase_charge: 0, md_purchase_charge_type: 'flat', dt_purchase_charge: 0, dt_purchase_charge_type: 'flat', rt_purchase_charge: 0, rt_purchase_charge_type: 'flat', gst_inclusive: false, vendor_rate: 0, company_mdr_rate: 0 })
     }
     setShowConfigModal(true)
+    // Always re-fetch admin costs when modal opens to ensure "Your Cost" is current
+    if ((type === 'bbps' || type === 'payout' || type === 'shadval_settlement') && assignedSchemeIdsRef.length > 0) {
+      refreshAdminConfigs(assignedSchemeIdsRef)
+    }
   }
 
   // Look up cost assigned to this DT from the MD's scheme
@@ -3896,6 +3930,18 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
   const handleSaveConfig = async () => {
     setSavingConfig(true)
     try {
+      // Validate charge ≥ cost before saving
+      if (configType === 'bbps' || configType === 'payout') {
+        const adminCostVal = configType === 'payout'
+          ? getAdminCost('shadval_settlement', { transfer_mode: payoutForm.transfer_mode, min_amount: payoutForm.min_amount, max_amount: payoutForm.max_amount })?.value ?? 0
+          : getAdminCost('bbps', { bbps_type: bbpsForm.bbps_type, min_amount: bbpsForm.min_amount, max_amount: bbpsForm.max_amount })?.value ?? 0
+        const rtCharge = configType === 'payout' ? (payoutForm.rt_purchase_charge || 0) : (bbpsForm.rt_purchase_charge || 0)
+        if (adminCostVal > 0 && rtCharge < adminCostVal) {
+          setError(`RT Purchase Charge (₹${rtCharge}) must be ≥ Your Cost (₹${adminCostVal})`)
+          setSavingConfig(false)
+          return
+        }
+      }
       if (configType === 'aeps') {
         const preview = aepsPreview()
         if (!preview.valid) {
@@ -3924,11 +3970,17 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
         const adminCost = getAdminCost('bbps', { bbps_type: bbpsForm.bbps_type, min_amount: bbpsForm.min_amount, max_amount: bbpsForm.max_amount })
         configData = { ...bbpsForm, category: bbpsForm.category || null }
         if (adminCost) { configData.dt_purchase_charge = adminCost.value; configData.dt_purchase_charge_type = adminCost.type }
+        // Also persist MD's own cost (md_purchase_charge) for full chain visibility in admin
+        const mdCfg = adminConfigs.bbps.find((c: any) => c.min_amount <= bbpsForm.min_amount && c.max_amount >= bbpsForm.max_amount && c.bbps_type === bbpsForm.bbps_type)
+        if (mdCfg?.md_purchase_charge) { configData.md_purchase_charge = mdCfg.md_purchase_charge; configData.md_purchase_charge_type = mdCfg.md_purchase_charge_type || 'flat' }
       } else if (configType === 'payout') {
         const effectiveType = settlementTypeSelection
         const adminCost = getAdminCost(effectiveType, { transfer_mode: payoutForm.transfer_mode, min_amount: payoutForm.min_amount, max_amount: payoutForm.max_amount })
         configData = { ...payoutForm }
         if (adminCost) { configData.dt_purchase_charge = adminCost.value; configData.dt_purchase_charge_type = adminCost.type }
+        // Also persist MD's own cost for full chain visibility in admin
+        const mdCfg = adminConfigs.shadval.find((c: any) => c.min_amount <= payoutForm.min_amount && c.max_amount >= payoutForm.max_amount && c.transfer_mode === payoutForm.transfer_mode)
+        if (mdCfg?.md_purchase_charge) { configData.md_purchase_charge = mdCfg.md_purchase_charge; configData.md_purchase_charge_type = mdCfg.md_purchase_charge_type || 'flat' }
         if (configData.rt_purchase_charge) { configData.retailer_charge = configData.rt_purchase_charge; configData.retailer_charge_type = configData.rt_purchase_charge_type || 'flat' }
       } else if (configType === 'shadval_settlement') {
         const adminCost = getAdminCost('shadval_settlement', { transfer_mode: payoutForm.transfer_mode, min_amount: payoutForm.min_amount, max_amount: payoutForm.max_amount })
@@ -4284,7 +4336,7 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
                               const fmt = (v: number, t: string) => t === 'percentage' ? `${v}%` : `₹${v}`
                               return (
                               <tr key={c.id} className="border-b border-gray-100 dark:border-gray-700">
-                                <td className="px-2 py-1.5"><span className={`px-1.5 py-0.5 rounded text-xs font-medium ${c._stype === 'shadval' ? 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400' : 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'}`}>{c._stype === 'shadval' ? 'Settlement-2 (Shadval)' : 'Settlement-1'}</span></td>
+                                <td className="px-2 py-1.5"><span className="px-1.5 py-0.5 rounded text-xs font-medium bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400">Settlement-2</span></td>
                                 <td className="px-2 py-1.5">{c.transfer_mode}</td>
                                 <td className="px-2 py-1.5">{`₹${c.min_amount} - ₹${c.max_amount >= 999999 ? '∞' : c.max_amount}`}</td>
                                 {scheme.is_partner_plan ? (
@@ -4556,7 +4608,7 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
                   className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700">
                   <option value="all">All Services</option>
                   <option value="bbps">BBPS Only</option>
-                  <option value="payout">Settlement-1 Only</option>
+                    <option value="payout">Settlement-2 Only</option>
                   <option value="mdr">MDR Only</option>
                   <option value="aeps">AEPS Only</option>
                 </select>
@@ -4607,7 +4659,7 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
             <div className="px-6 pt-5 pb-4 border-b border-gray-200 dark:border-gray-700 shrink-0">
               <h2 className="text-lg font-bold flex items-center gap-2">
                 {configType === 'bbps' && <><CreditCard className="w-5 h-5 text-blue-600" /> {editingConfigId ? 'Edit' : 'Add'} BBPS Commission</>}
-                {configType === 'payout' && <><Banknote className="w-5 h-5 text-green-600" /> {editingConfigId ? 'Edit' : 'Add'} {settlementTypeSelection === 'shadval_settlement' ? 'Settlement-2 (Shadval)' : 'Settlement-1'} Charge</>}
+                {configType === 'payout' && <><Banknote className="w-5 h-5 text-rose-600" /> {editingConfigId ? 'Edit' : 'Add'} Settlement-2 Charge</>}
                 {configType === 'mdr' && <><TrendingUp className="w-5 h-5 text-orange-600" /> {editingConfigId ? 'Edit' : 'Add'} MDR Rate</>}
                 {configType === 'aeps' && <><Banknote className="w-5 h-5 text-teal-600" /> {editingConfigId ? 'Edit' : 'Add'} AEPS Commission</>}
                 {configType === 'aeps_settlement' && <><DollarSign className="w-5 h-5 text-purple-600" /> {editingConfigId ? 'Edit' : 'Add'} AEPS Settlement Charge</>}
@@ -4648,14 +4700,12 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-sm font-medium mb-1">Min Amount (₹)</label>
-                    <input type="number" value={bbpsForm.min_amount} onChange={(e) => setBbpsForm({ ...bbpsForm, min_amount: parseFloat(e.target.value) || 0 })}
-                      className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium mb-1">Max Amount (₹)</label>
-                    <input type="number" value={bbpsForm.max_amount} onChange={(e) => setBbpsForm({ ...bbpsForm, max_amount: parseFloat(e.target.value) || 100000 })}
-                      className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
+                    <label className="block text-sm font-medium mb-1">Amount Band (₹)</label>
+                    <select value={`${bbpsForm.min_amount}-${bbpsForm.max_amount}`}
+                      onChange={(e) => { const [min, max] = e.target.value.split('-').map(Number); setBbpsForm({ ...bbpsForm, min_amount: min, max_amount: max }) }}
+                      className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700">
+                      {BBPS_SCHEME_BANDS.map(b => <option key={b.max} value={`${b.min}-${b.max}`}>₹{b.min.toLocaleString('en-IN')} – ₹{b.max.toLocaleString('en-IN')}</option>)}
+                    </select>
                   </div>
                 </div>
                 <div className="flex items-center gap-2 px-3 py-2 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800 mb-2">
@@ -4685,7 +4735,6 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
                           disabled={readOnly}
                           className={`w-full px-2 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700 ${readOnly ? 'bg-gray-100 dark:bg-gray-900 cursor-not-allowed opacity-75' : ''}`}>
                           <option value="flat">₹ Flat</option>
-                          <option value="percentage">% Pct</option>
                         </select>
                       </div>
                     </div>
@@ -4713,31 +4762,19 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
             {configType === 'payout' && (
               <div className="space-y-2">
                 <div>
-                  <label className="block text-sm font-medium mb-1">Settlement Type</label>
-                  <select value={settlementTypeSelection} onChange={(e) => setSettlementTypeSelection(e.target.value as 'payout' | 'shadval_settlement')}
-                    className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700">
-                    <option value="payout">Settlement-1</option>
-                    <option value="shadval_settlement">Settlement-2 (Shadval)</option>
-                  </select>
-                </div>
-                <div>
                   <label className="block text-sm font-medium mb-1">Transfer Mode</label>
                   <select value={payoutForm.transfer_mode} onChange={(e) => setPayoutForm({ ...payoutForm, transfer_mode: e.target.value as any })}
                     className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700">
                     <option value="IMPS">IMPS</option>
                   </select>
                 </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-sm font-medium mb-1">Min Amount (₹)</label>
-                    <input type="number" value={payoutForm.min_amount} onChange={(e) => setPayoutForm({ ...payoutForm, min_amount: parseFloat(e.target.value) || 0 })}
-                      className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium mb-1">Max Amount (₹)</label>
-                    <input type="number" value={payoutForm.max_amount} onChange={(e) => setPayoutForm({ ...payoutForm, max_amount: parseFloat(e.target.value) || 100000 })}
-                      className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
-                  </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Amount Band (₹)</label>
+                  <select value={`${payoutForm.min_amount}-${payoutForm.max_amount}`}
+                    onChange={(e) => { const [min, max] = e.target.value.split('-').map(Number); setPayoutForm({ ...payoutForm, min_amount: min, max_amount: max }) }}
+                    className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700">
+                    {PAYOUT_SCHEME_BANDS.map(b => <option key={b.max} value={`${b.min}-${b.max}`}>₹{b.min.toLocaleString('en-IN')} – ₹{b.max.toLocaleString('en-IN')}</option>)}
+                  </select>
                 </div>
                 <div className="flex items-center gap-2 px-3 py-2 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800 mb-2">
                   <Layers className="w-4 h-4 text-blue-600" />
@@ -4766,7 +4803,6 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
                           disabled={readOnly}
                           className={`w-full px-2 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700 ${readOnly ? 'bg-gray-100 dark:bg-gray-900 cursor-not-allowed opacity-75' : ''}`}>
                           <option value="flat">₹ Flat</option>
-                          <option value="percentage">% Pct</option>
                         </select>
                       </div>
                     </div>
@@ -5168,11 +5204,33 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
             )}
             </div>
 
-            <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700 shrink-0 flex justify-end gap-2">
-              <button onClick={() => setShowConfigModal(false)} className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg">Cancel</button>
-              <button onClick={handleSaveConfig} disabled={savingConfig} className="px-4 py-2 text-sm bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50">
-                {savingConfig ? 'Saving...' : 'Save Configuration'}
-              </button>
+            <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700 shrink-0 flex flex-col gap-2">
+              {(() => {
+                const adminCostVal = configType === 'payout'
+                  ? getAdminCost('shadval_settlement', { transfer_mode: payoutForm.transfer_mode, min_amount: payoutForm.min_amount, max_amount: payoutForm.max_amount })?.value ?? 0
+                  : configType === 'bbps'
+                  ? getAdminCost('bbps', { bbps_type: bbpsForm.bbps_type, min_amount: bbpsForm.min_amount, max_amount: bbpsForm.max_amount })?.value ?? 0
+                  : 0
+                const rtCharge = configType === 'payout' ? (payoutForm.rt_purchase_charge || 0) : configType === 'bbps' ? (bbpsForm.rt_purchase_charge || 0) : 0
+                const chargeInvalid = (configType === 'bbps' || configType === 'payout') && adminCostVal > 0 && rtCharge < adminCostVal
+                return chargeInvalid ? (
+                  <p className="text-xs text-red-600 dark:text-red-400 text-right">RT Purchase Charge (₹{rtCharge}) must be ≥ Your Cost (₹{adminCostVal})</p>
+                ) : null
+              })()}
+              <div className="flex justify-end gap-2">
+                <button onClick={() => setShowConfigModal(false)} className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg">Cancel</button>
+                <button onClick={handleSaveConfig} disabled={savingConfig || (() => {
+                  const adminCostVal = configType === 'payout'
+                    ? getAdminCost('shadval_settlement', { transfer_mode: payoutForm.transfer_mode, min_amount: payoutForm.min_amount, max_amount: payoutForm.max_amount })?.value ?? 0
+                    : configType === 'bbps'
+                    ? getAdminCost('bbps', { bbps_type: bbpsForm.bbps_type, min_amount: bbpsForm.min_amount, max_amount: bbpsForm.max_amount })?.value ?? 0
+                    : 0
+                  const rtCharge = configType === 'payout' ? (payoutForm.rt_purchase_charge || 0) : configType === 'bbps' ? (bbpsForm.rt_purchase_charge || 0) : 0
+                  return (configType === 'bbps' || configType === 'payout') && adminCostVal > 0 && rtCharge < adminCostVal
+                })()} className="px-4 py-2 text-sm bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed">
+                  {savingConfig ? 'Saving...' : 'Save Configuration'}
+                </button>
+              </div>
             </div>
           </div>
         </div>

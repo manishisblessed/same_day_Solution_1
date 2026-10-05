@@ -158,7 +158,7 @@ export async function POST(request: NextRequest) {
     let resolvedVia: string | null = null
     let hasAssignedScheme = false
     let commissionSplit = { distributor_commission: 0, md_commission: 0, company_earning: 0 }
-    let chargeModelData: { md_purchase_charge: number; dt_purchase_charge: number; rt_purchase_charge: number; company_cost: number } | null = null
+    let chargeModelData: { md_purchase_charge: number; dt_purchase_charge: number; rt_purchase_charge: number; company_cost: number; reverify?: { serviceKind: 'BBPS' | 'PAYOUT'; scopeKey?: string | null; category?: string | null; amount: number } | null } | null = null
 
     // Get user hierarchy
     let distributorId: string | null = null
@@ -228,6 +228,7 @@ export async function POST(request: NextRequest) {
               dt_purchase_charge: dtPc,
               rt_purchase_charge: rtPc,
               company_cost: parseFloat(chargeResult[0].company_earning || chargeResult[0].company_charge) || 0,
+              reverify: { serviceKind: 'PAYOUT', scopeKey: mode || null, category: null, amount: amountNum },
             }
           }
           console.log(`[Settlement-2] Scheme charge: ₹${charges}${chargeModelData ? ' [CHARGE MODEL]' : ''}`)

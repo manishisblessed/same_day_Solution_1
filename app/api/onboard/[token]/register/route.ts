@@ -7,6 +7,7 @@ import {
   getVerifications,
 } from '@/lib/onboarding/invites'
 import { needsUplineApproval, roleLabel } from '@/lib/hierarchy'
+import { isMdrtRole, detectPanConflicts, getReuseRequest, upsertReuseRequest } from '@/lib/onboarding/identityReuse'
 import { getRequiredDocTypes, docLabel } from '@/lib/onboarding/requiredDocuments'
 import { namesMatch } from '@/lib/onboarding/nameMatch'
 import { appUrl } from '@/lib/onboarding/invites'
@@ -147,13 +148,57 @@ export async function POST(request: NextRequest, { params }: { params: { token: 
     const gst = byType.get('GST')?.response_payload as any
     const shopName = String(body.shopName || byType.get('BUSINESS_NAME')?.verified_name || '').trim()
 
-    // ── Duplicate identity guard across role tables ──
-    const roleTables = ['retailers', 'distributors', 'master_distributors', 'partners'] as const
-    for (const table of roleTables) {
-      if (pan?.pan) {
-        const { data: dupPan } = await supabase.from(table).select('id').eq('pan_number', pan.pan).limit(1)
-        if (dupPan && dupPan.length > 0) {
+    // ── Identity guard (PAN-only; DigiLocker Aadhaar is masked, not a key) ──
+    if (pan?.pan) {
+      const panNo = pan.pan
+      if (isMdrtRole(invite.target_role)) {
+        const conflicts = await detectPanConflicts(supabase, panNo)
+        // Rule 1: never two accounts of the same role for one PAN.
+        if (conflicts.some((c) => c.role === invite.target_role)) {
+          return NextResponse.json(
+            { error: `This PAN is already registered as a ${roleLabel(invite.target_role)}. The same person cannot hold two ${roleLabel(invite.target_role)} accounts.` },
+            { status: 409 }
+          )
+        }
+        // Partner-account PAN handling is unchanged: still a hard block.
+        const { data: dupPartner } = await supabase.from('partners').select('id').eq('pan_number', panNo).limit(1)
+        if (dupPartner && dupPartner.length > 0) {
           return NextResponse.json({ error: 'This PAN is already registered' }, { status: 409 })
+        }
+        // Rule 2: reusing a PAN across a DIFFERENT role needs admin approval.
+        if (conflicts.length > 0) {
+          let reuse = await getReuseRequest(supabase, invite.id)
+          if (!reuse) {
+            reuse = await upsertReuseRequest(supabase, { invite, pan: panNo, aadhaarUid: aadhaar?.uid || null, conflicts })
+          }
+          if (!reuse || reuse.status === 'pending') {
+            return NextResponse.json(
+              {
+                error: 'This PAN is already registered under another role. An admin must approve reuse before your account can be created. You will be notified once approved.',
+                code: 'IDENTITY_REUSE_PENDING',
+              },
+              { status: 409 }
+            )
+          }
+          if (reuse.status === 'rejected') {
+            return NextResponse.json(
+              {
+                error: 'Admin rejected reuse of this PAN for an additional role.' + (reuse.reason ? ` Reason: ${reuse.reason}` : ''),
+                code: 'IDENTITY_REUSE_REJECTED',
+              },
+              { status: 409 }
+            )
+          }
+          // status === 'approved' → fall through and create the account.
+        }
+      } else {
+        // partner / master_partner target: PAN must be globally unique.
+        const roleTables = ['retailers', 'distributors', 'master_distributors', 'partners'] as const
+        for (const table of roleTables) {
+          const { data: dupPan } = await supabase.from(table).select('id').eq('pan_number', panNo).limit(1)
+          if (dupPan && dupPan.length > 0) {
+            return NextResponse.json({ error: 'This PAN is already registered' }, { status: 409 })
+          }
         }
       }
     }
@@ -240,6 +285,13 @@ export async function POST(request: NextRequest, { params }: { params: { token: 
       // Rollback the auth user.
       await supabase.auth.admin.deleteUser(authData.user.id).catch(() => {})
       console.error('[onboard register] insert error:', insErr)
+      // Race-safety: the per-role unique PAN index fired (two same-role accounts).
+      if ((insErr as any).code === '23505' && /pan/i.test(insErr.message || '')) {
+        return NextResponse.json(
+          { error: `This PAN is already registered as a ${roleLabel(invite.target_role)}. The same person cannot hold two ${roleLabel(invite.target_role)} accounts.` },
+          { status: 409 }
+        )
+      }
       return NextResponse.json(
         {
           error: insErr.message || 'Failed to create account',

@@ -366,8 +366,13 @@ export async function POST(request: NextRequest) {
       } catch {}
     }
 
-    // On success, record the collected charge as company revenue. Partners have no
-    // downstream retailer/distributor, so the full charge folds into company revenue.
+    // On success, book company revenue via the CHARGE MODEL so the live central
+    // vendor cost is deducted (revenue = charge − ex-GST vendor cost). Partners
+    // have no downstream retailer/distributor, so md = dt = rt = full charge
+    // (zero downline margin) and the entire charge above vendor cost is company
+    // revenue. `company_cost` is resolved LIVE from the central PAYOUT vendor card
+    // via `reverify`; it stays 0 (full charge → revenue, legacy behaviour) when no
+    // central rate is configured.
     if (isSuccess && charges > 0) {
       const commResult = await distributeServiceCommission({
         supabase,
@@ -378,6 +383,13 @@ export async function POST(request: NextRequest) {
         totalCharge: charges,
         retailer: { id: partner.id, role: 'partner', commission: 0 },
         distributor: null,
+        chargeModel: {
+          rt_purchase_charge: charges,
+          dt_purchase_charge: charges,
+          md_purchase_charge: charges,
+          company_cost: 0,
+          reverify: { serviceKind: 'PAYOUT', scopeKey: mode || null, category: null, amount: amountNum },
+        },
         remarksSuffix: `on ₹${amountNum} partner transfer`,
       })
       if (commResult.errors.length) console.error('[Partner Settlement Transfer] Commission errors:', commResult.errors)

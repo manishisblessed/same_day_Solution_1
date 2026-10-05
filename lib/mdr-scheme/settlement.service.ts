@@ -5,6 +5,7 @@
  */
 
 import { getSupabaseAdmin } from '@/lib/supabase/server-admin';
+import { resolveBrandMdr } from '@/lib/brand/mdr';
 import {
   getSchemeForTransaction,
   normalizePaymentMode,
@@ -221,6 +222,35 @@ export async function calculateMDR(
           usedSchemeId = resolved.scheme_id;
           usedSchemeType = (resolved.scheme_type === 'global' ? 'global' : 'custom') as 'global' | 'custom';
           console.log(`[MDR] Scheme "${resolved.scheme_name}" resolved via ${resolved.resolved_via}, company=${mdrRate.merchant_slug || 'ALL'}, retailer_mdr: ${retailer_mdr}%, distributor_mdr: ${distributor_mdr}%, md_mdr: ${md_mdr}%, classification: ${card_classification || 'N/A'}`);
+
+          // #5 Settlement-time re-verification: re-read the LIVE brand vendor cost
+          // (ex-GST) so a vendor-rate change AFTER the scheme was configured can
+          // never make the company settle at a loss. Overrides the scheme snapshot
+          // company_cost with the current authoritative cost. The cascade guard
+          // below (md_mdr >= company_cost) then blocks any loss. No-op when the
+          // merchant isn't brand-linked (back-compat).
+          if (merchant_slug) {
+            try {
+              const live = await resolveBrandMdr({
+                brandKey: merchant_slug,
+                amount: input.amount,
+                mode,
+                card_type,
+                brand_type,
+                card_classification,
+                settlementType: input.settlement_type === 'T0' ? 'T0' : 'T1',
+              });
+              if (live) {
+                const liveCost = Number(live.vendorMdrExGst) || 0;
+                if (Math.abs(liveCost - company_cost) > 1e-9) {
+                  console.warn(`[MDR] Re-verify: brand vendor cost changed since config — snapshot ${company_cost}% → live ${liveCost}% (merchant=${merchant_slug}, amount=${input.amount}). Settling on LIVE cost.`);
+                }
+                company_cost = liveCost;
+              }
+            } catch (e: any) {
+              console.error('[MDR] Brand cost re-verification failed (keeping snapshot):', e?.message);
+            }
+          }
         }
       }
     } catch (newSchemeErr) {

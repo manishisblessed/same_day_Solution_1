@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseAdmin } from '@/lib/supabase/server-admin'
 import { loadInviteByToken, OPEN_INVITE_STATUSES, INVITE_TABLE, upsertVerification, getVerifications } from '@/lib/onboarding/invites'
 import { namesMatch } from '@/lib/onboarding/nameMatch'
+import { isMdrtRole, detectPanConflicts, upsertReuseRequest } from '@/lib/onboarding/identityReuse'
+import { roleLabel } from '@/lib/hierarchy'
 import {
   verifyPAN360,
   verifyBankPennyDrop,
@@ -71,6 +73,20 @@ export async function POST(request: NextRequest, { params }: { params: { token: 
           }
         }
 
+        // ── Multi-role identity reuse (PAN already used under another role) ──
+        let identityApprovalStatus: string | null = null
+        if (ok && isMdrtRole(invite.target_role)) {
+          const conflicts = await detectPanConflicts(supabase, pan)
+          const sameRole = conflicts.find((c) => c.role === invite.target_role)
+          if (sameRole) {
+            ok = false
+            mismatch = `This PAN is already registered as a ${roleLabel(invite.target_role)}. The same person cannot hold two ${roleLabel(invite.target_role)} accounts.`
+          } else if (conflicts.length > 0) {
+            const req = await upsertReuseRequest(supabase, { invite, pan, conflicts })
+            identityApprovalStatus = req?.status || 'pending'
+          }
+        }
+
         const saved = await upsertVerification(supabase, {
           inviteId: invite.id,
           type: 'PAN_360',
@@ -90,6 +106,18 @@ export async function POST(request: NextRequest, { params }: { params: { token: 
             date_of_birth: result.date_of_birth,
             gender: result.gender,
           },
+          ...(identityApprovalStatus
+            ? {
+                needsIdentityApproval: true,
+                identityApprovalStatus,
+                identityApprovalMessage:
+                  identityApprovalStatus === 'approved'
+                    ? 'Admin has approved reuse of this PAN for an additional role. You may continue.'
+                    : identityApprovalStatus === 'rejected'
+                    ? 'Admin rejected reuse of this PAN for an additional role. Please contact support.'
+                    : 'This PAN is already registered under another role. An admin must approve reuse before you can finish. You will be notified once approved.',
+              }
+            : {}),
         })
       }
 

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient, SupabaseClient } from '@supabase/supabase-js'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger'
+import { detectPanConflicts } from '@/lib/onboarding/identityReuse'
 
 export const dynamic = 'force-dynamic'
 
@@ -125,6 +126,24 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Identity guard: cross-role (or same-role) PAN reuse must go through the
+    // onboarding invite flow, which routes to admin approval.
+    const panNo = String(userData.pan_number).toUpperCase().trim()
+    const panConflicts = await detectPanConflicts(supabase, panNo)
+    if (panConflicts.length > 0) {
+      await supabase.auth.admin.deleteUser(authData.user.id)
+      if (panConflicts.some((c) => c.role === 'distributor')) {
+        return NextResponse.json(
+          { error: 'This PAN is already registered as a Distributor. The same person cannot hold two Distributor accounts.' },
+          { status: 409 }
+        )
+      }
+      return NextResponse.json(
+        { error: 'This PAN already belongs to another role account. To hold an additional role under the same PAN, onboard this person via the invite flow — it routes to admin approval for identity reuse.', code: 'IDENTITY_REUSE_REQUIRES_INVITE' },
+        { status: 409 }
+      )
+    }
+
     // Prepare distributor data with eKYC Hub verified fields
     const distributorData: Record<string, any> = {
       partner_id: partnerId,
@@ -149,7 +168,7 @@ export async function POST(request: NextRequest) {
       aadhar_number: userData.aadhar_number || null,
       aadhar_front_url: userData.aadhar_front_url || null,
       aadhar_back_url: userData.aadhar_back_url || null,
-      pan_number: userData.pan_number || null,
+      pan_number: panNo || null,
       pan_attachment_url: userData.pan_attachment_url || null,
       udhyam_number: userData.udhyam_number || null,
       udhyam_certificate_url: userData.udhyam_certificate_url || null,

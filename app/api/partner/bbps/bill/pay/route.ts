@@ -161,7 +161,7 @@ export async function POST(request: NextRequest) {
     let resolvedSchemeId: string | null = null
     let resolvedSchemeName: string | null = null
     let commissionSplit = { retailer_commission: 0, distributor_commission: 0, md_commission: 0 }
-    let chargeModelData: { md_purchase_charge: number; dt_purchase_charge: number; rt_purchase_charge: number; company_cost: number } | null = null
+    let chargeModelData: { md_purchase_charge: number; dt_purchase_charge: number; rt_purchase_charge: number; company_cost: number; reverify?: { serviceKind: 'BBPS' | 'PAYOUT'; scopeKey?: string | null; category?: string | null; amount: number } | null } | null = null
     try {
       const { data: schemeResult } = await (supabase as any).rpc('resolve_scheme_for_user', {
         p_user_id: retailer_id,
@@ -194,6 +194,7 @@ export async function POST(request: NextRequest) {
               dt_purchase_charge: dtPc,
               rt_purchase_charge: rtPc,
               company_cost: parseFloat(chargeResult[0].company_earning) || 0,
+              reverify: { serviceKind: 'BBPS', scopeKey: null, category: additional_info?.category || null, amount: billAmountInRupees },
             }
           }
         }

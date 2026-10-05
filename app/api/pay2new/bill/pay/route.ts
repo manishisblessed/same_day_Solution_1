@@ -176,7 +176,7 @@ export async function POST(request: NextRequest) {
     let resolvedSchemeName: string | null = null
     let resolvedVia: string | null = null
     let commissionSplit = { retailer_commission: 0, distributor_commission: 0, md_commission: 0 }
-    let chargeModelData: { md_purchase_charge: number; dt_purchase_charge: number; rt_purchase_charge: number; company_cost: number } | null = null
+    let chargeModelData: { md_purchase_charge: number; dt_purchase_charge: number; rt_purchase_charge: number; company_cost: number; reverify?: { serviceKind: 'BBPS' | 'PAYOUT'; scopeKey?: string | null; category?: string | null; amount: number } | null } | null = null
     const schemeCategory = 'Credit Card'
 
     try {
@@ -221,6 +221,9 @@ export async function POST(request: NextRequest) {
               dt_purchase_charge: dtPc,
               rt_purchase_charge: rtPc,
               company_cost: parseFloat(chargeResult[0].company_earning) || 0,
+              // #5 re-verify the company cost against the live central BBPS vendor
+              // card at settlement, keyed by category (scope wildcard).
+              reverify: { serviceKind: 'BBPS', scopeKey: null, category: schemeCategory, amount: amountNum },
             }
           }
           console.log(`[Pay2New Bill Pay] Charge: ₹${serviceCharge}, commissions: RT=${commissionSplit.retailer_commission}, DT=${commissionSplit.distributor_commission}, MD=${commissionSplit.md_commission}${chargeModelData ? ' [CHARGE MODEL]' : ''}`)

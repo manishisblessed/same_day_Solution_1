@@ -18,6 +18,19 @@ import { getPosCompanies } from '@/lib/merchant-companies'
 import { getSchemeBrandValues, brandLabel } from '@/lib/card-brands'
 import PartnerMdrSchemesCard from '@/components/PartnerMdrSchemesCard'
 
+// ── Band definitions (must match Service Vendor Rates tab) ──────────────
+const BBPS_SCHEME_BANDS = [
+  { min: 100, max: 49999 },
+  { min: 50000, max: 100000 },
+  { min: 100001, max: 200000 },
+]
+const PAYOUT_SCHEME_BANDS = [
+  { min: 100, max: 1000 },
+  { min: 1001, max: 25000 },
+  { min: 25001, max: 50000 },
+  { min: 50001, max: 100000 },
+]
+
 // ============================================================================
 // TYPES
 // ============================================================================
@@ -458,6 +471,69 @@ function SchemeManagementPageContent() {
     company_mdr_rate: 0,
   })
 
+  // Vendor rates fetched from service_vendor_rates for auto-fill
+  const [vendorRates, setVendorRates] = useState<any[]>([])
+  // Settlement vendor rates pre-loaded for table display (company cost fallback)
+  const [settlementVendorRates, setSettlementVendorRates] = useState<any[]>([])
+
+  const fetchVendorRates = useCallback(async (serviceKind: 'BBPS' | 'PAYOUT') => {
+    try {
+      const res = await apiFetch(`/api/admin/service-vendor-rates?service_kind=${serviceKind}`)
+      const data = await res.json()
+      if (res.ok) setVendorRates(data.rates?.filter((r: any) => r.active) || [])
+    } catch {}
+  }, [])
+
+  // Load settlement vendor rates once for table display
+  useEffect(() => {
+    apiFetch('/api/admin/service-vendor-rates?service_kind=PAYOUT')
+      .then(r => r.json())
+      .then(d => { if (d.rates) setSettlementVendorRates(d.rates.filter((r: any) => r.active)) })
+      .catch(() => {})
+  }, [])
+
+  const getSettlementVendorCost = (minAmt: number, maxAmt: number) => {
+    const r = settlementVendorRates.find(r => Number(r.min_amount) <= minAmt && Number(r.max_amount) >= maxAmt)
+    return r ? Number(r.vendor_rate) || 0 : null
+  }
+
+  const findVendorRate = useCallback((minAmt: number, maxAmt: number, category?: string) => {
+    return vendorRates.find((r: any) => {
+      const bandMatch = Number(r.min_amount) <= minAmt && Number(r.max_amount) >= maxAmt
+      if (!bandMatch) return false
+      if (r.category && category && r.category !== category) return false
+      return true
+    }) || vendorRates.find((r: any) => {
+      const bandMatch = Number(r.min_amount) <= minAmt && Number(r.max_amount) >= maxAmt
+      return bandMatch && !r.category
+    })
+  }, [vendorRates])
+
+  // Auto-fill company_charge when vendor rates load (covers the default band on modal open)
+  useEffect(() => {
+    if (!showConfigModal || vendorRates.length === 0) return
+    if (configType === 'payout') {
+      setPayoutForm(prev => {
+        if (prev.company_charge && prev.company_charge > 0) return prev // already set
+        const vr = vendorRates.find((r: any) => Number(r.min_amount) <= prev.min_amount && Number(r.max_amount) >= prev.max_amount)
+        if (!vr) return prev
+        return { ...prev, company_charge: Number(vr.vendor_rate) || 0, company_charge_type: 'flat' }
+      })
+    } else if (configType === 'bbps') {
+      setBbpsForm(prev => {
+        if (prev.company_charge && prev.company_charge > 0) return prev // already set
+        const vr = vendorRates.find((r: any) => {
+          const bandMatch = Number(r.min_amount) <= prev.min_amount && Number(r.max_amount) >= prev.max_amount
+          if (!bandMatch) return false
+          if (r.category && prev.category && r.category !== prev.category) return false
+          return true
+        }) || vendorRates.find((r: any) => Number(r.min_amount) <= prev.min_amount && Number(r.max_amount) >= prev.max_amount && !r.category)
+        if (!vr) return prev
+        return { ...prev, company_charge: Number(vr.vendor_rate) || 0, company_charge_type: 'flat' }
+      })
+    }
+  }, [vendorRates, showConfigModal, configType])
+
   const [mdrForm, setMdrForm] = useState({
     mode: 'CARD' as 'CARD' | 'UPI',
     card_type: '' as string,
@@ -534,13 +610,13 @@ function SchemeManagementPageContent() {
   const openConfigModal = (schemeId: string, type: 'bbps' | 'payout' | 'mdr' | 'aeps' | 'aeps_settlement' | 'shadval_settlement', editData?: any) => {
     setConfigSchemeId(schemeId)
     setEditingConfigId(editData?.id || null)
-    if (type === 'shadval_settlement') {
-      // Settlement-2 uses the SAME charge-based form/model as Settlement-1 (payout).
+    // Only Settlement-2 (shadval) is available — always route payout → shadval_settlement
+    if (type === 'payout' || type === 'shadval_settlement') {
       setConfigType('payout')
       setSettlementTypeSelection('shadval_settlement')
     } else {
       setConfigType(type)
-      setSettlementTypeSelection('payout')
+      setSettlementTypeSelection('shadval_settlement')
     }
     if (editData) {
       if (type === 'bbps') {
@@ -555,14 +631,16 @@ function SchemeManagementPageContent() {
         setAepsSettleForm({ min_amount: editData.min_amount || 0, max_amount: editData.max_amount || 100000, retailer_charge: editData.retailer_charge || 0, retailer_charge_type: editData.retailer_charge_type || 'flat', distributor_commission: editData.distributor_commission || 0, distributor_commission_type: editData.distributor_commission_type || 'flat', md_commission: editData.md_commission || 0, md_commission_type: editData.md_commission_type || 'flat', company_charge: editData.company_charge || 0, company_charge_type: editData.company_charge_type || 'flat', gst_inclusive: editData.gst_inclusive || false, vendor_rate: editData.vendor_rate || 0, company_mdr_rate: editData.company_mdr_rate || 0 })
       }
     } else {
-      setBbpsForm({ bbps_type: 'bbps_1', category: '', min_amount: 0, max_amount: 100000, retailer_charge: 0, retailer_charge_type: 'flat', retailer_commission: 0, retailer_commission_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat', company_charge: 0, company_charge_type: 'flat', md_purchase_charge: 0, md_purchase_charge_type: 'flat', dt_purchase_charge: 0, dt_purchase_charge_type: 'flat', rt_purchase_charge: 0, rt_purchase_charge_type: 'flat', gst_inclusive: false, vendor_rate: 0, company_mdr_rate: 0 })
-      setPayoutForm({ transfer_mode: 'IMPS', min_amount: 0, max_amount: 100000, retailer_charge: 0, retailer_charge_type: 'flat', retailer_commission: 0, retailer_commission_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat', company_charge: 0, company_charge_type: 'flat', md_purchase_charge: 0, md_purchase_charge_type: 'flat', dt_purchase_charge: 0, dt_purchase_charge_type: 'flat', rt_purchase_charge: 0, rt_purchase_charge_type: 'flat', gst_inclusive: false, vendor_rate: 0, company_mdr_rate: 0 })
+      setBbpsForm({ bbps_type: 'bbps_1', category: '', min_amount: BBPS_SCHEME_BANDS[0].min, max_amount: BBPS_SCHEME_BANDS[0].max, retailer_charge: 0, retailer_charge_type: 'flat', retailer_commission: 0, retailer_commission_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat', company_charge: 0, company_charge_type: 'flat', md_purchase_charge: 0, md_purchase_charge_type: 'flat', dt_purchase_charge: 0, dt_purchase_charge_type: 'flat', rt_purchase_charge: 0, rt_purchase_charge_type: 'flat', gst_inclusive: false, vendor_rate: 0, company_mdr_rate: 0 })
+      setPayoutForm({ transfer_mode: 'IMPS', min_amount: PAYOUT_SCHEME_BANDS[0].min, max_amount: PAYOUT_SCHEME_BANDS[0].max, retailer_charge: 0, retailer_charge_type: 'flat', retailer_commission: 0, retailer_commission_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat', company_charge: 0, company_charge_type: 'flat', md_purchase_charge: 0, md_purchase_charge_type: 'flat', dt_purchase_charge: 0, dt_purchase_charge_type: 'flat', rt_purchase_charge: 0, rt_purchase_charge_type: 'flat', gst_inclusive: false, vendor_rate: 0, company_mdr_rate: 0 })
       setMdrForm({ mode: 'CARD', card_type: '', brand_type: '', card_classification: '', merchant_slug: '', retailer_mdr_t1: 0, retailer_mdr_t0: 0, distributor_mdr_t1: 0, distributor_mdr_t0: 0, md_mdr_t1: 0, md_mdr_t0: 0, partner_mdr: 0, gst_inclusive: false, vendor_rate: 0, company_mdr_rate: 0, master_commission_percent: 0, master_commission_tds_percent: 2 })
       setAepsForm({ transaction_type: 'cash_withdrawal', min_amount: 0, max_amount: 100000, base_commission: 0, base_commission_type: 'percentage', company_earning: 0, company_earning_type: 'flat', md_commission: 0, md_commission_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', retailer_commission: 0, retailer_commission_type: 'flat', tds_percentage: 5, gst_inclusive: false, vendor_rate: 0, company_mdr_rate: 0 })
       setAepsSettleForm({ min_amount: 0, max_amount: 100000, retailer_charge: 0, retailer_charge_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat', company_charge: 0, company_charge_type: 'flat', gst_inclusive: false, vendor_rate: 0, company_mdr_rate: 0 })
       setShadvalSettleForm({ transfer_mode: 'IMPS', min_amount: 0, max_amount: 100000, retailer_charge: 0, retailer_charge_type: 'flat', distributor_commission: 0, distributor_commission_type: 'flat', md_commission: 0, md_commission_type: 'flat', company_charge: 0, company_charge_type: 'flat', gst_inclusive: false, vendor_rate: 0, company_mdr_rate: 0 })
     }
     setShowConfigModal(true)
+    if (type === 'bbps') fetchVendorRates('BBPS')
+    else if (type === 'payout' || type === 'shadval_settlement') fetchVendorRates('PAYOUT')
   }
 
   // Resolve a flat/percentage value against a representative amount for preview/validation
@@ -585,6 +663,31 @@ function SchemeManagementPageContent() {
   const handleSaveConfig = async () => {
     setSavingConfig(true)
     try {
+      // Enforce minimum charge from Service Vendor Rates
+      if (configType === 'bbps') {
+        const vr = findVendorRate(bbpsForm.min_amount, bbpsForm.max_amount, bbpsForm.category || undefined)
+        if (vr && Number(vr.min_charge) > 0) {
+          const minCharge = Number(vr.min_charge)
+          const mdCharge = Number(bbpsForm.md_purchase_charge) || 0
+          if (mdCharge < minCharge) {
+            showToast(`MD Purchase Charge (₹${mdCharge}) cannot be below Minimum Charge (₹${minCharge}) from Service Vendor Rates`, 'error')
+            setSavingConfig(false)
+            return
+          }
+        }
+      } else if (configType === 'payout') {
+        const vr = findVendorRate(payoutForm.min_amount, payoutForm.max_amount)
+        if (vr && Number(vr.min_charge) > 0) {
+          const minCharge = Number(vr.min_charge)
+          const mdCharge = Number(payoutForm.md_purchase_charge) || 0
+          if (mdCharge < minCharge) {
+            showToast(`MD Purchase Charge (₹${mdCharge}) cannot be below Minimum Charge (₹${minCharge}) from Service Vendor Rates`, 'error')
+            setSavingConfig(false)
+            return
+          }
+        }
+      }
+
       if (configType === 'aeps') {
         const preview = aepsPreview()
         if (!preview.valid) {
@@ -664,7 +767,10 @@ function SchemeManagementPageContent() {
         configData = { ...aepsSettleForm }
       } else if (effectiveConfigType === 'shadval_settlement') {
         // Same charge-based fields as Settlement-1 (company_charge, md_purchase_charge, …).
-        configData = { ...payoutForm }
+        // Auto-fill company_charge from vendor rate if not already set.
+        const vrSettle = findVendorRate(payoutForm.min_amount, payoutForm.max_amount)
+        const resolvedCompanyCharge = payoutForm.company_charge || (vrSettle ? Number(vrSettle.vendor_rate) || 0 : 0)
+        configData = { ...payoutForm, company_charge: resolvedCompanyCharge }
       }
 
       // When editing an unconstrained type, pass the existing row id so the server
@@ -679,7 +785,7 @@ function SchemeManagementPageContent() {
       if (!res.ok) throw new Error(result.error || 'Failed to save configuration')
 
       const action = editingConfigId ? 'updated' : 'added'
-      const typeLabel = effectiveConfigType === 'payout' ? 'Settlement-1' : effectiveConfigType === 'shadval_settlement' ? 'Settlement-2' : effectiveConfigType?.toUpperCase()
+      const typeLabel = effectiveConfigType === 'payout' ? 'Settlement-2' : effectiveConfigType === 'shadval_settlement' ? 'Settlement-2' : effectiveConfigType?.toUpperCase()
       setSuccess(`${typeLabel} config ${action} successfully`)
       showToast(`${typeLabel} config ${action}`, 'success')
       setEditingConfigId(null)
@@ -1107,20 +1213,28 @@ function SchemeManagementPageContent() {
                                   <>
                                     <th className="px-2 py-1.5 text-right">Company Cost</th>
                                     <th className="px-2 py-1.5 text-right">MD Purchase</th>
-                                    <th className="px-2 py-1.5 text-right">Co. Margin</th>
-                                    <th className="px-2 py-1.5 text-right">DT Price</th>
-                                    <th className="px-2 py-1.5 text-right">RT Price</th>
+                                    <th className="px-2 py-1.5 text-right text-green-600">Co. Margin</th>
+                                    {scheme.created_by_role === 'master_distributor' && (
+                                      <><th className="px-2 py-1.5 text-right">DT Price</th><th className="px-2 py-1.5 text-right text-purple-600">MD Margin</th></>
+                                    )}
+                                    {scheme.created_by_role === 'distributor' && (
+                                      <><th className="px-2 py-1.5 text-right text-purple-600">DT Purchase</th><th className="px-2 py-1.5 text-right text-purple-600">MD Margin</th><th className="px-2 py-1.5 text-right text-blue-600">RT Price</th><th className="px-2 py-1.5 text-right text-blue-600">DT Margin</th></>
+                                    )}
                                   </>
                                 )}
                                 <th className="px-2 py-1.5 text-center">GST</th>
-                                <th className="px-2 py-1.5 text-right">Vendor</th>
-                                <th className="px-2 py-1.5 text-right">Co. MDR</th>
                                 <th className="px-2 py-1.5"></th>
                               </tr>
                             </thead>
                             <tbody>
                               {scheme.bbps_commissions.map((c: any) => {
                                 const fmt = (v: number, t: string) => t === 'percentage' ? `${v}%` : `₹${v}`
+                                const isByDT = scheme.created_by_role === 'distributor'
+                                // md_purchase_charge = what MD pays admin; dt_purchase_charge = what DT pays MD
+                                const mdPurchaseVal = c.md_purchase_charge || 0
+                                const mdPurchaseType = c.md_purchase_charge_type || 'flat'
+                                const dtPurchaseVal = isByDT ? (c.dt_purchase_charge || 0) : 0
+                                const companyCostVal = c.company_charge || 0
                                 return (
                                 <tr key={c.id} className="border-b border-gray-100 dark:border-gray-700">
                                   <td className="px-2 py-1.5"><span className={`px-1.5 py-0.5 rounded text-xs font-medium ${c.bbps_type === 'bbps_2' ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400' : 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'}`}>{c.bbps_type === 'bbps_2' ? 'BBPS-Rechargekit' : 'BBPS-Pay2New'}</span></td>
@@ -1134,16 +1248,23 @@ function SchemeManagementPageContent() {
                                     </>
                                   ) : (
                                     <>
-                                      <td className="px-2 py-1.5 text-right">{fmt(c.company_charge, c.company_charge_type)}</td>
-                                      <td className="px-2 py-1.5 text-right">{fmt(c.md_purchase_charge, c.md_purchase_charge_type)}</td>
-                                      <td className="px-2 py-1.5 text-right text-green-600 dark:text-green-400">{(((c.md_purchase_charge || 0) - (c.company_charge || 0))).toFixed(2)}₹</td>
-                                      <td className="px-2 py-1.5 text-right">{(parseFloat(c.dt_purchase_charge) || 0) > 0 ? fmt(c.dt_purchase_charge, c.dt_purchase_charge_type || 'flat') : fmt(c.retailer_charge, c.retailer_charge_type)}</td>
-                                      <td className="px-2 py-1.5 text-right font-semibold text-blue-600 dark:text-blue-400">{(parseFloat(c.rt_purchase_charge) || 0) > 0 ? fmt(c.rt_purchase_charge, c.rt_purchase_charge_type || 'flat') : fmt(c.retailer_charge, c.retailer_charge_type)}</td>
+                                      <td className="px-2 py-1.5 text-right">{fmt(companyCostVal, 'flat')}</td>
+                                      <td className="px-2 py-1.5 text-right">{fmt(mdPurchaseVal, mdPurchaseType)}</td>
+                                      <td className="px-2 py-1.5 text-right text-green-600 dark:text-green-400">{(mdPurchaseVal - companyCostVal).toFixed(2)}₹</td>
+                                      {scheme.created_by_role === 'master_distributor' && (
+                                        <><td className="px-2 py-1.5 text-right">{fmt(c.dt_purchase_charge, c.dt_purchase_charge_type || 'flat')}</td><td className="px-2 py-1.5 text-right text-purple-600 dark:text-purple-400">{(((c.dt_purchase_charge || 0) - mdPurchaseVal)).toFixed(2)}₹</td></>
+                                      )}
+                                      {isByDT && (
+                                        <>
+                                          <td className="px-2 py-1.5 text-right text-purple-600 dark:text-purple-400">{fmt(dtPurchaseVal, c.dt_purchase_charge_type || 'flat')}</td>
+                                          <td className="px-2 py-1.5 text-right text-purple-600 dark:text-purple-400">{(dtPurchaseVal - mdPurchaseVal).toFixed(2)}₹</td>
+                                          <td className="px-2 py-1.5 text-right text-blue-600 dark:text-blue-400">{fmt(c.rt_purchase_charge, c.rt_purchase_charge_type || 'flat')}</td>
+                                          <td className="px-2 py-1.5 text-right text-blue-600 dark:text-blue-400">{(((c.rt_purchase_charge || 0) - dtPurchaseVal)).toFixed(2)}₹</td>
+                                        </>
+                                      )}
                                     </>
                                   )}
                                   <td className="px-2 py-1.5 text-center">{c.gst_inclusive ? '✓' : '-'}</td>
-                                  <td className="px-2 py-1.5 text-right">{c.vendor_rate || '-'}</td>
-                                  <td className="px-2 py-1.5 text-right">{c.company_mdr_rate || '-'}</td>
                                   <td className="px-2 py-1.5 text-right flex gap-1">
                                     <button onClick={() => openConfigModal(scheme.id, 'bbps', c)} className="text-blue-400 hover:text-blue-600" title="Edit">
                                       <Edit2 className="w-3 h-3" />
@@ -1186,14 +1307,16 @@ function SchemeManagementPageContent() {
                                   <>
                                     <th className="px-2 py-1.5 text-right">Company Cost</th>
                                     <th className="px-2 py-1.5 text-right">MD Purchase</th>
-                                    <th className="px-2 py-1.5 text-right">Co. Margin</th>
-                                    <th className="px-2 py-1.5 text-right">DT Price</th>
-                                    <th className="px-2 py-1.5 text-right">RT Price</th>
+                                    <th className="px-2 py-1.5 text-right text-green-600">Co. Margin</th>
+                                    {scheme.created_by_role === 'master_distributor' && (
+                                      <><th className="px-2 py-1.5 text-right">DT Price</th><th className="px-2 py-1.5 text-right text-purple-600">MD Margin</th></>
+                                    )}
+                                    {scheme.created_by_role === 'distributor' && (
+                                      <><th className="px-2 py-1.5 text-right text-purple-600">DT Purchase</th><th className="px-2 py-1.5 text-right text-purple-600">MD Margin</th><th className="px-2 py-1.5 text-right text-blue-600">RT Price</th><th className="px-2 py-1.5 text-right text-blue-600">DT Margin</th></>
+                                    )}
                                   </>
                                 )}
                                 <th className="px-2 py-1.5 text-center">GST</th>
-                                <th className="px-2 py-1.5 text-right">Vendor</th>
-                                <th className="px-2 py-1.5 text-right">Co. MDR</th>
                                 <th className="px-2 py-1.5"></th>
                               </tr>
                             </thead>
@@ -1201,11 +1324,18 @@ function SchemeManagementPageContent() {
                               {[
                                 ...(scheme.payout_charges || []).map((c: any) => ({ ...c, _stype: 'payout' as const })),
                                 ...(scheme.shadval_settlement_charges || []).map((c: any) => ({ ...c, _stype: 'shadval' as const })),
-                              ].map((c: any) => {
+                              ].sort((a, b) => Number(a.min_amount) - Number(b.min_amount)).map((c: any) => {
                                 const fmt = (v: number, t: string) => t === 'percentage' ? `${v}%` : `₹${v}`
+                                const vendorCost = getSettlementVendorCost(c.min_amount, c.max_amount)
+                                const displayCompanyCost = (c.company_charge && Number(c.company_charge) > 0) ? Number(c.company_charge) : (vendorCost ?? 0)
+                                const isByDT = scheme.created_by_role === 'distributor'
+                                // md_purchase_charge = what MD pays admin; dt_purchase_charge = what DT pays MD
+                                const mdPurchaseVal = c.md_purchase_charge || 0
+                                const mdPurchaseType = c.md_purchase_charge_type || 'flat'
+                                const dtPurchaseVal = isByDT ? (c.dt_purchase_charge || 0) : 0
                                 return (
                                 <tr key={c.id} className="border-b border-gray-100 dark:border-gray-700">
-                                  <td className="px-2 py-1.5"><span className={`px-1.5 py-0.5 rounded text-xs font-medium ${c._stype === 'shadval' ? 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400' : 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'}`}>{c._stype === 'shadval' ? 'Settlement-2 (Shadval)' : 'Settlement-1'}</span></td>
+                                  <td className="px-2 py-1.5"><span className="px-1.5 py-0.5 rounded text-xs font-medium bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400">Settlement-2</span></td>
                                   <td className="px-2 py-1.5 font-medium">{c.transfer_mode}</td>
                                   <td className="px-2 py-1.5">{`₹${c.min_amount} - ₹${c.max_amount >= 999999 ? '∞' : c.max_amount}`}</td>
                                   {scheme.is_partner_plan ? (
@@ -1216,16 +1346,23 @@ function SchemeManagementPageContent() {
                                     </>
                                   ) : (
                                     <>
-                                      <td className="px-2 py-1.5 text-right">{fmt(c.company_charge, c.company_charge_type)}</td>
-                                      <td className="px-2 py-1.5 text-right">{fmt(c.md_purchase_charge, c.md_purchase_charge_type)}</td>
-                                      <td className="px-2 py-1.5 text-right text-green-600 dark:text-green-400">{(((c.md_purchase_charge || 0) - (c.company_charge || 0))).toFixed(2)}₹</td>
-                                      <td className="px-2 py-1.5 text-right">{(parseFloat(c.dt_purchase_charge) || 0) > 0 ? fmt(c.dt_purchase_charge, c.dt_purchase_charge_type || 'flat') : fmt(c.retailer_charge, c.retailer_charge_type)}</td>
-                                      <td className="px-2 py-1.5 text-right font-semibold text-blue-600 dark:text-blue-400">{(parseFloat(c.rt_purchase_charge) || 0) > 0 ? fmt(c.rt_purchase_charge, c.rt_purchase_charge_type || 'flat') : fmt(c.retailer_charge, c.retailer_charge_type)}</td>
+                                      <td className="px-2 py-1.5 text-right">₹{displayCompanyCost}</td>
+                                      <td className="px-2 py-1.5 text-right">{fmt(mdPurchaseVal, mdPurchaseType)}</td>
+                                      <td className="px-2 py-1.5 text-right text-green-600 dark:text-green-400">{(mdPurchaseVal - displayCompanyCost).toFixed(2)}₹</td>
+                                      {scheme.created_by_role === 'master_distributor' && (
+                                        <><td className="px-2 py-1.5 text-right">{fmt(c.dt_purchase_charge, c.dt_purchase_charge_type || 'flat')}</td><td className="px-2 py-1.5 text-right text-purple-600 dark:text-purple-400">{(((c.dt_purchase_charge || 0) - mdPurchaseVal)).toFixed(2)}₹</td></>
+                                      )}
+                                      {isByDT && (
+                                        <>
+                                          <td className="px-2 py-1.5 text-right text-purple-600 dark:text-purple-400">{fmt(dtPurchaseVal, c.dt_purchase_charge_type || 'flat')}</td>
+                                          <td className="px-2 py-1.5 text-right text-purple-600 dark:text-purple-400">{(dtPurchaseVal - mdPurchaseVal).toFixed(2)}₹</td>
+                                          <td className="px-2 py-1.5 text-right text-blue-600 dark:text-blue-400">{fmt(c.rt_purchase_charge, c.rt_purchase_charge_type || 'flat')}</td>
+                                          <td className="px-2 py-1.5 text-right text-blue-600 dark:text-blue-400">{(((c.rt_purchase_charge || 0) - dtPurchaseVal)).toFixed(2)}₹</td>
+                                        </>
+                                      )}
                                     </>
                                   )}
                                   <td className="px-2 py-1.5 text-center">{c.gst_inclusive ? '✓' : '-'}</td>
-                                  <td className="px-2 py-1.5 text-right">{c.vendor_rate || '-'}</td>
-                                  <td className="px-2 py-1.5 text-right">{c.company_mdr_rate || '-'}</td>
                                   <td className="px-2 py-1.5 text-right flex gap-1">
                                     <button onClick={() => openConfigModal(scheme.id, c._stype === 'shadval' ? 'shadval_settlement' : 'payout', c)} className="text-blue-400 hover:text-blue-600" title="Edit">
                                       <Edit2 className="w-3 h-3" />
@@ -1517,7 +1654,6 @@ function SchemeManagementPageContent() {
                       className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700">
                       <option value="all">All Services</option>
                       <option value="bbps">BBPS Only</option>
-                      <option value="payout">Settlement-1 Only</option>
                       <option value="mdr">MDR Only</option>
                       <option value="aeps">AEPS Commission Only</option>
                       <option value="aeps_settlement">AEPS Settlement Only</option>
@@ -1567,7 +1703,7 @@ function SchemeManagementPageContent() {
                   {configType === 'mdr' && <><TrendingUp className="w-5 h-5 text-orange-600" /> {editingConfigId ? 'Edit' : 'Add'} MDR Rate</>}
                   {configType === 'aeps' && <><Banknote className="w-5 h-5 text-teal-600" /> {editingConfigId ? 'Edit' : 'Add'} AEPS Commission</>}
                   {configType === 'aeps_settlement' && <><DollarSign className="w-5 h-5 text-purple-600" /> {editingConfigId ? 'Edit' : 'Add'} AEPS Settlement Charge</>}
-                  {configType === 'shadval_settlement' && <><Banknote className="w-5 h-5 text-rose-600" /> {editingConfigId ? 'Edit' : 'Add'} Settlement Charge</>}
+                  {configType === 'payout' && <><Banknote className="w-5 h-5 text-rose-600" /> {editingConfigId ? 'Edit' : 'Add'} Settlement Charge</>}
                 </h2>
               </div>
 
@@ -1585,7 +1721,11 @@ function SchemeManagementPageContent() {
                   </div>
                   <div>
                     <label className="block text-sm font-medium mb-1">Category (leave empty for all)</label>
-                    <select value={bbpsForm.category} onChange={(e) => setBbpsForm({ ...bbpsForm, category: e.target.value })}
+                    <select value={bbpsForm.category} onChange={(e) => {
+                      const cat = e.target.value
+                      const vr = findVendorRate(bbpsForm.min_amount, bbpsForm.max_amount, cat || undefined)
+                      setBbpsForm({ ...bbpsForm, category: cat, ...(vr ? { company_charge: Number(vr.vendor_rate) || 0, company_charge_type: 'flat' } : {}) })
+                    }}
                       className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700">
                       <option value="">All Categories</option>
                       <option value="Electricity">Electricity</option>
@@ -1604,18 +1744,35 @@ function SchemeManagementPageContent() {
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-sm font-medium mb-1">Min Amount (₹)</label>
-                      <input type="number" value={bbpsForm.min_amount} onChange={(e) => setBbpsForm({ ...bbpsForm, min_amount: parseFloat(e.target.value) || 0 })}
-                        className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
+                      <label className="block text-sm font-medium mb-1">Amount Band</label>
+                      <select value={`${bbpsForm.min_amount}-${bbpsForm.max_amount}`}
+                        onChange={(e) => {
+                          const [min, max] = e.target.value.split('-').map(Number)
+                          const vr = findVendorRate(min, max, bbpsForm.category || undefined)
+                          setBbpsForm({ ...bbpsForm, min_amount: min, max_amount: max, ...(vr ? { company_charge: Number(vr.vendor_rate) || 0, company_charge_type: 'flat' } : {}) })
+                        }}
+                        className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700">
+                        {BBPS_SCHEME_BANDS.map(b => <option key={b.max} value={`${b.min}-${b.max}`}>₹{b.min.toLocaleString('en-IN')} – ₹{b.max.toLocaleString('en-IN')}</option>)}
+                      </select>
                     </div>
-                    <div>
-                      <label className="block text-sm font-medium mb-1">Max Amount (₹)</label>
-                      <input type="number" value={bbpsForm.max_amount} onChange={(e) => setBbpsForm({ ...bbpsForm, max_amount: parseFloat(e.target.value) || 100000 })}
-                        className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
+                    <div className="flex items-end">
+                      {(() => {
+                        const vr = findVendorRate(bbpsForm.min_amount, bbpsForm.max_amount, bbpsForm.category || undefined)
+                        return vr ? (
+                          <div className="text-xs text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-900/20 px-3 py-2 rounded-lg w-full">
+                            <div>Vendor: ₹{Number(vr.vendor_rate).toFixed(2)}</div>
+                            {Number(vr.min_charge) > 0 && <div>Min Charge: ₹{Number(vr.min_charge).toFixed(2)}</div>}
+                          </div>
+                        ) : (
+                          <div className="text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 px-3 py-2 rounded-lg w-full">No vendor rate for this band</div>
+                        )
+                      })()}
                     </div>
                   </div>
                   {(() => {
                     const isPartnerPlan = schemes.find(s => s.id === configSchemeId)?.is_partner_plan || false
+                    const vrMatch = findVendorRate(bbpsForm.min_amount, bbpsForm.max_amount, bbpsForm.category || undefined)
+                    const vendorCost = vrMatch ? Number(vrMatch.vendor_rate) || 0 : 0
                     const fields = isPartnerPlan
                       ? [
                           { label: 'Partner Charge', key: 'retailer_charge', typeKey: 'retailer_charge_type' },
@@ -1623,7 +1780,6 @@ function SchemeManagementPageContent() {
                           { label: 'Company Earning', key: 'company_charge', typeKey: 'company_charge_type' },
                         ]
                       : [
-                          { label: 'Company Cost (Vendor)', key: 'company_charge', typeKey: 'company_charge_type' },
                           { label: 'MD Purchase Charge (Admin → MD)', key: 'md_purchase_charge', typeKey: 'md_purchase_charge_type' },
                         ]
                     return (
@@ -1642,31 +1798,37 @@ function SchemeManagementPageContent() {
                         )}
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                         {fields.map(({ label, key, typeKey }) => (
-                          <div key={key} className="grid grid-cols-3 gap-2 items-end">
-                            <div className="col-span-2">
-                              <label className="block text-xs font-medium mb-1">{label}</label>
+                          <div key={key} className="flex items-end gap-2">
+                            <div className="flex-1">
+                              <label className="block text-xs font-medium mb-1">{label} (₹)</label>
                               <input type="number" step="0.01" value={(bbpsForm as any)[key]}
                                 onChange={(e) => setBbpsForm({ ...bbpsForm, [key]: parseFloat(e.target.value) || 0 })}
                                 className="w-full px-3 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
                             </div>
-                            <div>
-                              <select value={(bbpsForm as any)[typeKey]}
-                                onChange={(e) => setBbpsForm({ ...bbpsForm, [typeKey]: e.target.value })}
-                                className="w-full px-2 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700">
-                                <option value="flat">₹ Flat</option>
-                                <option value="percentage">% Pct</option>
-                              </select>
-                            </div>
+                            {key === 'md_purchase_charge' && (
+                              <label className="flex items-center gap-1.5 text-xs text-gray-700 dark:text-gray-300 whitespace-nowrap pb-1">
+                                <input type="checkbox" checked={bbpsForm.gst_inclusive}
+                                  onChange={(e) => setBbpsForm({ ...bbpsForm, gst_inclusive: e.target.checked })}
+                                  className="w-3.5 h-3.5 rounded border-gray-300 text-primary-600" />
+                                +18% GST
+                              </label>
+                            )}
                           </div>
                         ))}
                         </div>
+                        {!isPartnerPlan && vrMatch && Number(vrMatch.min_charge) > 0 && (bbpsForm.md_purchase_charge || 0) < Number(vrMatch.min_charge) && (
+                          <div className="flex items-center gap-2 px-3 py-2 bg-red-50 dark:bg-red-900/20 rounded-lg border border-red-200 dark:border-red-800">
+                            <AlertCircle className="w-4 h-4 text-red-600 flex-shrink-0" />
+                            <span className="text-xs font-medium text-red-700 dark:text-red-400">MD Charge (₹{bbpsForm.md_purchase_charge}) is below Minimum Charge (₹{Number(vrMatch.min_charge).toFixed(2)})</span>
+                          </div>
+                        )}
                         {!isPartnerPlan && (
                           <div className="mt-2 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
                             <p className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Company Margin Preview (flat values)</p>
                             <div className="grid grid-cols-1 gap-2 text-xs">
                               <div className="text-center">
-                                <div className="text-gray-500">Company (MD price − Vendor cost)</div>
-                                <div className="font-semibold text-green-600">₹{(((bbpsForm as any).md_purchase_charge || 0) - ((bbpsForm as any).company_charge || 0)).toFixed(2)}</div>
+                                <div className="text-gray-500">Company (MD price − Vendor cost from Service Vendor Rates)</div>
+                                <div className="font-semibold text-green-600">₹{(((bbpsForm as any).md_purchase_charge || 0) - vendorCost).toFixed(2)}</div>
                               </div>
                             </div>
                           </div>
@@ -1674,44 +1836,13 @@ function SchemeManagementPageContent() {
                       </>
                     )
                   })()}
-                  <div className="border-t border-gray-200 dark:border-gray-700 pt-3 mt-3 space-y-2">
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input type="checkbox" checked={bbpsForm.gst_inclusive}
-                        onChange={(e) => setBbpsForm({ ...bbpsForm, gst_inclusive: e.target.checked })}
-                        className="w-4 h-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
-                      <span className="text-sm font-medium text-gray-700 dark:text-gray-300">With GST (18% added on top)</span>
-                    </label>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <label className="block text-xs font-medium mb-1">Vendor Rate (%)</label>
-                        <input type="number" step="0.0001" value={bbpsForm.vendor_rate}
-                          onChange={(e) => setBbpsForm({ ...bbpsForm, vendor_rate: parseFloat(e.target.value) || 0 })}
-                          className="w-full px-3 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" placeholder="0" />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium mb-1">Company MDR Rate (%)</label>
-                        <input type="number" step="0.0001" value={bbpsForm.company_mdr_rate}
-                          onChange={(e) => setBbpsForm({ ...bbpsForm, company_mdr_rate: parseFloat(e.target.value) || 0 })}
-                          className="w-full px-3 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" placeholder="0" />
-                      </div>
-                    </div>
-                  </div>
+                  <div className="border-t border-gray-200 dark:border-gray-700 pt-3 mt-3" />
                 </div>
               )}
 
               {/* Payout / Settlement Form */}
               {configType === 'payout' && (
                 <div className="space-y-2">
-                  {!editingConfigId && (
-                    <div>
-                      <label className="block text-sm font-medium mb-1">Settlement Type</label>
-                      <select value={settlementTypeSelection} onChange={(e) => setSettlementTypeSelection(e.target.value as 'payout' | 'shadval_settlement')}
-                        className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700">
-                        <option value="payout">Settlement-1</option>
-                        <option value="shadval_settlement">Settlement-2 (Shadval)</option>
-                      </select>
-                    </div>
-                  )}
                   <div>
                     <label className="block text-sm font-medium mb-1">Transfer Mode</label>
                     <select value={payoutForm.transfer_mode} onChange={(e) => setPayoutForm({ ...payoutForm, transfer_mode: e.target.value as any })}
@@ -1721,18 +1852,35 @@ function SchemeManagementPageContent() {
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-sm font-medium mb-1">Min Amount (₹)</label>
-                      <input type="number" value={payoutForm.min_amount} onChange={(e) => setPayoutForm({ ...payoutForm, min_amount: parseFloat(e.target.value) || 0 })}
-                        className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
+                      <label className="block text-sm font-medium mb-1">Amount Band</label>
+                      <select value={`${payoutForm.min_amount}-${payoutForm.max_amount}`}
+                        onChange={(e) => {
+                          const [min, max] = e.target.value.split('-').map(Number)
+                          const vr = findVendorRate(min, max)
+                          setPayoutForm({ ...payoutForm, min_amount: min, max_amount: max, ...(vr ? { company_charge: Number(vr.vendor_rate) || 0, company_charge_type: 'flat' } : {}) })
+                        }}
+                        className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700">
+                        {PAYOUT_SCHEME_BANDS.map(b => <option key={b.max} value={`${b.min}-${b.max}`}>₹{b.min.toLocaleString('en-IN')} – ₹{b.max.toLocaleString('en-IN')}</option>)}
+                      </select>
                     </div>
-                    <div>
-                      <label className="block text-sm font-medium mb-1">Max Amount (₹)</label>
-                      <input type="number" value={payoutForm.max_amount} onChange={(e) => setPayoutForm({ ...payoutForm, max_amount: parseFloat(e.target.value) || 100000 })}
-                        className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
+                    <div className="flex items-end">
+                      {(() => {
+                        const vr = findVendorRate(payoutForm.min_amount, payoutForm.max_amount)
+                        return vr ? (
+                          <div className="text-xs text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-900/20 px-3 py-2 rounded-lg w-full">
+                            <div>Vendor: ₹{Number(vr.vendor_rate).toFixed(2)}</div>
+                            {Number(vr.min_charge) > 0 && <div>Min Charge: ₹{Number(vr.min_charge).toFixed(2)}</div>}
+                          </div>
+                        ) : (
+                          <div className="text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 px-3 py-2 rounded-lg w-full">No vendor rate for this band</div>
+                        )
+                      })()}
                     </div>
                   </div>
                   {(() => {
                     const isPartnerPlan = schemes.find(s => s.id === configSchemeId)?.is_partner_plan || false
+                    const vrMatch = findVendorRate(payoutForm.min_amount, payoutForm.max_amount)
+                    const vendorCost = vrMatch ? Number(vrMatch.vendor_rate) || 0 : 0
                     const fields = isPartnerPlan
                       ? [
                           { label: 'Partner Charge', key: 'retailer_charge', typeKey: 'retailer_charge_type' },
@@ -1740,7 +1888,6 @@ function SchemeManagementPageContent() {
                           { label: 'Company Earning', key: 'company_charge', typeKey: 'company_charge_type' },
                         ]
                       : [
-                          { label: 'Company Cost (Vendor)', key: 'company_charge', typeKey: 'company_charge_type' },
                           { label: 'MD Purchase Charge (Admin → MD)', key: 'md_purchase_charge', typeKey: 'md_purchase_charge_type' },
                         ]
                     return (
@@ -1759,31 +1906,37 @@ function SchemeManagementPageContent() {
                         )}
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                         {fields.map(({ label, key, typeKey }) => (
-                          <div key={key} className="grid grid-cols-3 gap-2 items-end">
-                            <div className="col-span-2">
-                              <label className="block text-xs font-medium mb-1">{label}</label>
+                          <div key={key} className="flex items-end gap-2">
+                            <div className="flex-1">
+                              <label className="block text-xs font-medium mb-1">{label} (₹)</label>
                               <input type="number" step="0.01" value={(payoutForm as any)[key]}
                                 onChange={(e) => setPayoutForm({ ...payoutForm, [key]: parseFloat(e.target.value) || 0 })}
                                 className="w-full px-3 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
                             </div>
-                            <div>
-                              <select value={(payoutForm as any)[typeKey]}
-                                onChange={(e) => setPayoutForm({ ...payoutForm, [typeKey]: e.target.value })}
-                                className="w-full px-2 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700">
-                                <option value="flat">₹ Flat</option>
-                                <option value="percentage">% Pct</option>
-                              </select>
-                            </div>
+                            {key === 'md_purchase_charge' && (
+                              <label className="flex items-center gap-1.5 text-xs text-gray-700 dark:text-gray-300 whitespace-nowrap pb-1">
+                                <input type="checkbox" checked={payoutForm.gst_inclusive}
+                                  onChange={(e) => setPayoutForm({ ...payoutForm, gst_inclusive: e.target.checked })}
+                                  className="w-3.5 h-3.5 rounded border-gray-300 text-primary-600" />
+                                +18% GST
+                              </label>
+                            )}
                           </div>
                         ))}
                         </div>
+                        {!isPartnerPlan && vrMatch && Number(vrMatch.min_charge) > 0 && (payoutForm.md_purchase_charge || 0) < Number(vrMatch.min_charge) && (
+                          <div className="flex items-center gap-2 px-3 py-2 bg-red-50 dark:bg-red-900/20 rounded-lg border border-red-200 dark:border-red-800">
+                            <AlertCircle className="w-4 h-4 text-red-600 flex-shrink-0" />
+                            <span className="text-xs font-medium text-red-700 dark:text-red-400">MD Charge (₹{payoutForm.md_purchase_charge}) is below Minimum Charge (₹{Number(vrMatch.min_charge).toFixed(2)})</span>
+                          </div>
+                        )}
                         {!isPartnerPlan && (
                           <div className="mt-2 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
                             <p className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Company Margin Preview (flat values)</p>
                             <div className="grid grid-cols-1 gap-2 text-xs">
                               <div className="text-center">
-                                <div className="text-gray-500">Company (MD price − Vendor cost)</div>
-                                <div className="font-semibold text-green-600">₹{(((payoutForm as any).md_purchase_charge || 0) - ((payoutForm as any).company_charge || 0)).toFixed(2)}</div>
+                                <div className="text-gray-500">Company (MD price − Vendor cost from Service Vendor Rates)</div>
+                                <div className="font-semibold text-green-600">₹{(((payoutForm as any).md_purchase_charge || 0) - vendorCost).toFixed(2)}</div>
                               </div>
                             </div>
                           </div>
@@ -1791,28 +1944,7 @@ function SchemeManagementPageContent() {
                       </>
                     )
                   })()}
-                  <div className="border-t border-gray-200 dark:border-gray-700 pt-3 mt-3 space-y-2">
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input type="checkbox" checked={payoutForm.gst_inclusive}
-                        onChange={(e) => setPayoutForm({ ...payoutForm, gst_inclusive: e.target.checked })}
-                        className="w-4 h-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
-                      <span className="text-sm font-medium text-gray-700 dark:text-gray-300">With GST (18% added on top)</span>
-                    </label>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <label className="block text-xs font-medium mb-1">Vendor Rate (%)</label>
-                        <input type="number" step="0.0001" value={payoutForm.vendor_rate}
-                          onChange={(e) => setPayoutForm({ ...payoutForm, vendor_rate: parseFloat(e.target.value) || 0 })}
-                          className="w-full px-3 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" placeholder="0" />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium mb-1">Company MDR Rate (%)</label>
-                        <input type="number" step="0.0001" value={payoutForm.company_mdr_rate}
-                          onChange={(e) => setPayoutForm({ ...payoutForm, company_mdr_rate: parseFloat(e.target.value) || 0 })}
-                          className="w-full px-3 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" placeholder="0" />
-                      </div>
-                    </div>
-                  </div>
+                  <div className="border-t border-gray-200 dark:border-gray-700 pt-3 mt-3" />
                 </div>
               )}
 
@@ -2292,10 +2424,26 @@ function SchemeManagementPageContent() {
               </div>
 
               <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700 shrink-0 flex justify-end gap-2">
-                <button onClick={() => setShowConfigModal(false)} disabled={savingConfig} className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg">Cancel</button>
-                <button onClick={handleSaveConfig} disabled={savingConfig} className="px-4 py-2 text-sm bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50">
-                  {savingConfig ? 'Saving...' : editingConfigId ? 'Update Configuration' : 'Save Configuration'}
-                </button>
+                {(() => {
+                  let isValid = true
+                  if (configType === 'bbps') {
+                    const vr = findVendorRate(bbpsForm.min_amount, bbpsForm.max_amount, bbpsForm.category || undefined)
+                    if (vr && Number(vr.min_charge) > 0 && (bbpsForm.md_purchase_charge || 0) < Number(vr.min_charge)) isValid = false
+                    if (!bbpsForm.md_purchase_charge && bbpsForm.md_purchase_charge !== 0) isValid = false
+                  } else if (configType === 'payout') {
+                    const vr = findVendorRate(payoutForm.min_amount, payoutForm.max_amount)
+                    if (vr && Number(vr.min_charge) > 0 && (payoutForm.md_purchase_charge || 0) < Number(vr.min_charge)) isValid = false
+                    if (!payoutForm.md_purchase_charge && payoutForm.md_purchase_charge !== 0) isValid = false
+                  }
+                  return (
+                    <>
+                      <button onClick={() => setShowConfigModal(false)} disabled={savingConfig} className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg">Cancel</button>
+                      <button onClick={handleSaveConfig} disabled={savingConfig || !isValid} className="px-4 py-2 text-sm bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed">
+                        {savingConfig ? 'Saving...' : editingConfigId ? 'Update Configuration' : 'Save Configuration'}
+                      </button>
+                    </>
+                  )
+                })()}
               </div>
             </div>
           </div>

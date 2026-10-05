@@ -990,16 +990,19 @@ function PanStep({ api, reload, next, back, has, verifiedNames, rejections, busy
   const [pan, setPan] = useState('')
   const [name, setName] = useState(verifiedNames['PAN_360'] || '')
   const [editing, setEditing] = useState(false)
+  const [approvalNote, setApprovalNote] = useState('')
   const done = has('PAN_360')
   const showDone = done && !editing
 
   async function verify() {
     setErr('')
+    setApprovalNote('')
     setBusy(true)
     try {
       const r = await api('/verify', { method: 'POST', body: JSON.stringify({ type: 'PAN_360', pan }) })
       if (!r.success) throw new Error(r.error || 'PAN verification failed')
       setName(r.data?.registered_name || '')
+      if (r.needsIdentityApproval) setApprovalNote(r.identityApprovalMessage || '')
       setEditing(false)
       await reload()
     } catch (e: any) {
@@ -1015,6 +1018,11 @@ function PanStep({ api, reload, next, back, has, verifiedNames, rejections, busy
       <GuidanceNote>Enter your own PAN. The name on your PAN must match the name on your Aadhaar.</GuidanceNote>
       <RejectionNote reason={rejections['PAN_360']} />
       <ErrorBanner err={err} />
+      {approvalNote && (
+        <div className="mb-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          {approvalNote}
+        </div>
+      )}
       {showDone ? (
         <div>
           <VerifiedCard label="PAN verified" name={name} />

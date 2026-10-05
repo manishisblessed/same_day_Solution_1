@@ -388,6 +388,7 @@ export interface POSMachine {
   mid?: string  // Merchant ID (e.g., 7568516041)
   tid?: string  // Terminal ID (e.g., 29196333)
   brand?: string
+  brand_id?: string  // FK -> brands.id (vendor/acquiring identity + rate card)
   retailer_id?: string  // nullable for hierarchical assignment (MD/Distributor can hold without retailer)
   distributor_id?: string
   master_distributor_id?: string
@@ -742,6 +743,80 @@ export interface POSDeviceMapping {
   distributor_id: string | null
   master_distributor_id: string | null
   status: 'ACTIVE' | 'INACTIVE'
+  created_at: string
+  updated_at: string
+}
+
+// Brand (vendor/acquiring identity) — groups POS machines and owns a rate card.
+export interface Brand {
+  id: string
+  key: string // stable slug; aligns with scheme_mdr_rates.merchant_slug
+  name: string
+  short_name: string | null
+  description: string | null
+  active: boolean
+  settlement_mode: 'INSTANT' | 'T1' | 'BOTH'
+  t1_cutoff_hour: number | null
+  created_by: string | null
+  created_at: string
+  updated_at: string
+}
+
+// Brand MDR rate card — authoritative vendor cost + minimum MDR floor.
+// All MDR values are a PERCENT in [0,100]. "*"/null card dims = wildcard.
+export interface BrandMDRRate {
+  id: string
+  brand_id: string
+  provider: string
+  mode: 'CARD' | 'UPI' | '*'
+  card_type: 'CREDIT' | 'DEBIT' | 'PREPAID' | null
+  brand_type: string | null
+  card_classification: string | null
+  min_amount: number
+  max_amount: number
+  mdr_type: 'PERCENT'
+  mdr_value: number // vendor/acquirer cost (T+1)
+  mdr_value_t0: number // vendor cost (T+0); 0 = same as T+1
+  min_mdr_value: number // minimum MDR offered downstream (T+1); 0 = unset
+  min_mdr_value_t0: number // minimum MDR (T+0); 0 = same as T+1
+  gst_inclusive: boolean // vendor cost includes 18% GST; ex-GST cost = value/1.18
+  active: boolean
+  created_at: string
+  updated_at: string
+}
+
+// Service vendor/minimum rate card (BBPS + Settlement/Payout) — the service-rail
+// analogue of the brand MDR card. PERCENT values are in [0,100]; FLAT = absolute ₹.
+export interface ServiceVendorRate {
+  id: string
+  service_kind: 'BBPS' | 'PAYOUT'
+  scope_key: string // BBPS: bbps_type; PAYOUT: transfer_mode; "*" = wildcard
+  category: string | null
+  min_amount: number
+  max_amount: number
+  vendor_rate_type: 'PERCENT' | 'FLAT'
+  vendor_rate: number // acquirer/API cost the company pays upstream
+  min_charge_type: 'PERCENT' | 'FLAT'
+  min_charge: number // minimum customer charge offered downstream; 0 = unset
+  gst_inclusive: boolean // vendor cost includes 18% GST; ex-GST cost = value/1.18
+  active: boolean
+  created_by: string | null
+  created_at: string
+  updated_at: string
+}
+
+// Platform floor — absolute lowest customer charge allowed per service rail,
+// independent of scheme or vendor card.
+export interface CompanyMDRFloor {
+  id: string
+  service_kind: 'POS' | 'BBPS' | 'PAYOUT'
+  scope_key: string
+  min_amount: number
+  max_amount: number
+  rate_type: 'PERCENT' | 'FLAT'
+  floor_value: number
+  active: boolean
+  created_by: string | null
   created_at: string
   updated_at: string
 }
