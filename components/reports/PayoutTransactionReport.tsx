@@ -291,16 +291,16 @@ export default function PayoutTransactionReport({ userRole, userName }: Props) {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50">
-                {['Date', 'Transaction ID', 'Beneficiary Name', 'Account No.', 'Bank', 'IFSC', 'Amount', 'Charge', 'GST', 'Total Debit', 'Reference No.', 'Status'].map(h => (
+                {['Date', 'Transaction ID', 'Beneficiary Name', 'Account No.', 'Bank', 'IFSC', 'Amount', 'Charge', 'GST', 'Total Debit', 'Reference No.', 'Status', ...(userRole === 'admin' ? ['Co. Revenue', 'DT Earn', 'MD Earn'] : [])].map(h => (
                   <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-gray-600 dark:text-gray-400 whitespace-nowrap">{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={12} className="px-4 py-12 text-center"><Loader2 className="w-6 h-6 animate-spin mx-auto text-indigo-500" /></td></tr>
+                <tr><td colSpan={userRole === 'admin' ? 15 : 12} className="px-4 py-12 text-center"><Loader2 className="w-6 h-6 animate-spin mx-auto text-indigo-500" /></td></tr>
               ) : data.length === 0 ? (
-                <tr><td colSpan={12} className="px-4 py-12 text-center text-gray-500 dark:text-gray-400">No transactions found</td></tr>
+                <tr><td colSpan={userRole === 'admin' ? 15 : 12} className="px-4 py-12 text-center text-gray-500 dark:text-gray-400">No transactions found</td></tr>
               ) : (
                 data.map((txn, i) => {
                   const sc = statusConfig[txn.status] || statusConfig.pending
@@ -329,6 +329,22 @@ export default function PayoutTransactionReport({ userRole, userName }: Props) {
                           {txn.status}
                         </span>
                       </td>
+                      {userRole === 'admin' && txn.source === 'Settlement-2' && (
+                        <>
+                          <td className="px-4 py-3 whitespace-nowrap text-xs font-semibold text-green-600 dark:text-green-400">
+                            {txn.company_earning != null ? formatCurrency(txn.company_earning) : '—'}
+                          </td>
+                          <td className="px-4 py-3 whitespace-nowrap text-xs font-semibold text-purple-600 dark:text-purple-400">
+                            {txn.dt_commission != null ? formatCurrency(txn.dt_commission) : '—'}
+                          </td>
+                          <td className="px-4 py-3 whitespace-nowrap text-xs font-semibold text-blue-600 dark:text-blue-400">
+                            {txn.md_commission != null ? formatCurrency(txn.md_commission) : '—'}
+                          </td>
+                        </>
+                      )}
+                      {userRole === 'admin' && txn.source !== 'Settlement-2' && (
+                        <><td className="px-4 py-3 text-xs text-gray-400">—</td><td className="px-4 py-3 text-xs text-gray-400">—</td><td className="px-4 py-3 text-xs text-gray-400">—</td></>
+                      )}
                     </motion.tr>
                   )
                 })

@@ -456,10 +456,11 @@ export default function AdminRevenueWalletTab() {
             >
               <option value="all">All Services</option>
               <option value="subscription">Subscription</option>
-              <option value="settlement">Settlement</option>
-              <option value="payout">Payout</option>
+              <option value="shadval_settlement">Settlement-2</option>
+              <option value="pay2new">BBPS (Pay2New)</option>
+              <option value="rechargekit">BBPS (Rechargekit)</option>
               <option value="bbps">BBPS</option>
-              <option value="pos_rental">POS Rental</option>
+              <option value="payout">Payout</option>
             </select>
           </div>
           
@@ -475,6 +476,9 @@ export default function AdminRevenueWalletTab() {
               <option value="POS_RENTAL_COMMISSION">POS Rental Commission</option>
               <option value="COMMISSION_CREDIT">Commission Credit</option>
               <option value="COMPANY_REVENUE">Platform Revenue</option>
+              <option value="REVENUE_CREDIT">Revenue Credit</option>
+              <option value="COMPANY_REVENUE_REVERSAL">Revenue Reversal</option>
+              <option value="COMMISSION_REVERSAL">Commission Reversal</option>
               <option value="TDS_DEDUCTION">TDS Deduction</option>
               <option value="SETTLEMENT_FEE">Settlement Fee</option>
             </select>

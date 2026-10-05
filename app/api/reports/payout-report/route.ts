@@ -246,6 +246,9 @@ export async function GET(request: NextRequest) {
         retailer_id: tx.retailer_id,
         retailer_name: null as string | null,
         source: 'Settlement-2',
+        company_earning: Number(tx.company_earning) || null,
+        dt_commission: Number(tx.distributor_commission) || null,
+        md_commission: Number(tx.md_margin_earned) || null,
       }
     })
 
