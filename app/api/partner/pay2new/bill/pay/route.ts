@@ -172,8 +172,28 @@ export async function POST(request: NextRequest) {
     const priorAttempt = await findPriorPay2NewAttempt(supabase, partner.id, String(bill_fetch_ref), clientRef)
     if (priorAttempt) {
       const resolved = await resolvePay2NewDebitState(supabase, partner.id, priorAttempt)
-      emitResolved(supabase, partner.id, resolved)
-      return NextResponse.json(replayResponse(resolved))
+      // Idempotency exists to prevent a DOUBLE CHARGE — which is only possible
+      // while the prior attempt is SUCCESS (already paid) or PENDING (in-flight).
+      // Once the prior attempt is REFUNDED, the money is already back in the
+      // partner's wallet, so paying this bill again is a legitimate NEW attempt,
+      // NOT a duplicate. The upstream returns the SAME bill_fetch_ref for a given
+      // card/bill, so "fetch a new bill to retry" cannot yield a different ref —
+      // without this, a card that fails once (biller temporarily down) is locked
+      // out of payment forever, permanently replaying "previous payment …
+      // refunded". Release the refunded attempt's unique-index slot (the partial
+      // UNIQUE index is WHERE bill_fetch_ref IS NOT NULL) and fall through to a
+      // fresh, fully-charged payment. SUCCESS/PENDING (and the rare FAILED with no
+      // confirmed refund) still replay the original outcome and never re-charge.
+      if (resolved.status === 'REFUNDED') {
+        await supabase
+          .from('partner_wallet_ledger')
+          .update({ bill_fetch_ref: null })
+          .eq('partner_id', partner.id)
+          .eq('reference_id', priorAttempt.reference_id)
+      } else {
+        emitResolved(supabase, partner.id, resolved)
+        return NextResponse.json(replayResponse(resolved))
+      }
     }
 
     // PAN is mandatory for bill payments above ₹49,999
