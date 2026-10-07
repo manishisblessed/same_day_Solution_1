@@ -8,7 +8,7 @@ import {
   Settings,
   Activity, X, Menu, CreditCard, Receipt, CheckCircle2, ArrowUpCircle,
   Building2, FileBarChart, Layers, Key, Timer, History, Repeat, ScrollText, Wallet,
-  Fingerprint, Server, TrendingUp, Scale, BarChart3, RotateCcw, UserPlus, CalendarDays, Network, KeyRound
+  Fingerprint, Server, TrendingUp, Scale, BarChart3, RotateCcw, UserPlus, CalendarDays, Network, KeyRound, GitBranch
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { supabase } from '@/lib/supabase/client'
@@ -43,6 +43,7 @@ const sidebarItems: SidebarItem[] = [
   { id: 'retailers', label: 'Retailers', icon: Users, href: '/admin?tab=retailers' },
   { id: 'distributors', label: 'Distributors', icon: Package, href: '/admin?tab=distributors' },
   { id: 'master-distributors', label: 'Master Distributors', icon: Crown, href: '/admin?tab=master-distributors' },
+  { id: 'network-hierarchy', label: 'Network Hierarchy', icon: GitBranch, href: '/admin/network-hierarchy' },
   { id: 'scheme-management', label: 'Scheme Management', icon: Layers, href: '/admin/scheme-management' },
   { id: 'pos-brands', label: 'Brands & Vendor Rates', icon: Building2, href: '/admin?tab=pos-brands' },
   { id: 'service-vendor-rates', label: 'Service Vendor Rates', icon: Layers, href: '/admin?tab=service-vendor-rates' },

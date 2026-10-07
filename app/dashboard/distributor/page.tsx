@@ -1296,15 +1296,46 @@ function NetworkTab({ retailers, user, onRefresh }: { retailers: any[], user: an
     }
   }
 
+  const totalRTs = retailers.length
+  const activeRTs = retailers.filter((r) => !r.status || r.status === 'active').length
+  const inactiveRTs = retailers.filter((r) => r.status === 'inactive').length
+  const suspendedRTs = retailers.filter((r) => r.status === 'suspended').length
+
   return (
     <div className="space-y-6">
+      {/* Hierarchy summary cards */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm">
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Total Retailers</p>
+          <p className="text-2xl font-bold text-gray-900">{totalRTs}</p>
+          <p className="text-xs text-gray-400 mt-0.5">in your network</p>
+        </div>
+        <div className="bg-white border border-emerald-200 rounded-xl p-4 shadow-sm">
+          <p className="text-xs font-semibold text-emerald-600 uppercase tracking-wide mb-1">Active</p>
+          <p className="text-2xl font-bold text-emerald-700">{activeRTs}</p>
+          <p className="text-xs text-emerald-400 mt-0.5">
+            {totalRTs > 0 ? Math.round((activeRTs / totalRTs) * 100) : 0}% of total
+          </p>
+        </div>
+        <div className="bg-white border border-yellow-200 rounded-xl p-4 shadow-sm">
+          <p className="text-xs font-semibold text-yellow-600 uppercase tracking-wide mb-1">Inactive</p>
+          <p className="text-2xl font-bold text-yellow-700">{inactiveRTs}</p>
+          <p className="text-xs text-yellow-400 mt-0.5">awaiting activation</p>
+        </div>
+        <div className="bg-white border border-red-200 rounded-xl p-4 shadow-sm">
+          <p className="text-xs font-semibold text-red-600 uppercase tracking-wide mb-1">Suspended</p>
+          <p className="text-2xl font-bold text-red-700">{suspendedRTs}</p>
+          <p className="text-xs text-red-400 mt-0.5">requires attention</p>
+        </div>
+      </div>
+
       <div className="bg-white rounded-xl shadow-lg border border-gray-200 p-4">
         <div className="flex items-center justify-between gap-4 mb-4">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
             <input
               type="text"
-              placeholder="Search retailers..."
+              placeholder="Search retailers by name, ID or email…"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full pl-10 pr-4 py-2 border rounded-lg"
@@ -1330,13 +1361,14 @@ function NetworkTab({ retailers, user, onRefresh }: { retailers: any[], user: an
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Email</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Balance</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Member Since</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
               {filteredRetailers.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-6 py-8 text-center text-gray-500">
+                  <td colSpan={7} className="px-6 py-8 text-center text-gray-500">
                     No retailers found
                   </td>
                 </tr>
@@ -1357,6 +1389,11 @@ function NetworkTab({ retailers, user, onRefresh }: { retailers: any[], user: an
                       }`}>
                         {retailer.status || 'active'}
                       </span>
+                    </td>
+                    <td className="px-6 py-4 text-sm text-gray-500">
+                      {retailer.created_at
+                        ? new Date(retailer.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+                        : '—'}
                     </td>
                     <td className="px-6 py-4">
                       <div className="flex gap-2">

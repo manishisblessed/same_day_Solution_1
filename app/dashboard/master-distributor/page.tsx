@@ -29,8 +29,9 @@ import {
   Eye, EyeOff, RefreshCw, Settings, Plus, X, Menu, Layers,
   Edit2, Trash2, ChevronDown, ChevronUp, Link2,
   AlertCircle, CheckCircle, ShieldCheck, User, Bell, Shield, Sliders,
-  CreditCard, Banknote, Loader2
+  CreditCard, Banknote, Loader2, List, GitBranch
 } from 'lucide-react'
+import NetworkHierarchyTree from '@/components/NetworkHierarchyTree'
 import POSTransactionsTable from '@/components/POSTransactionsTable'
 import { LineChart, Line, BarChart, Bar, AreaChart, Area, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -809,6 +810,7 @@ function WalletTab({ user }: { user: any }) {
 // Network Tab - View and manage distributors and retailers
 function NetworkTab({ distributors, retailers, user, onRefresh, defaultView, onNavigateToPosMachines }: { distributors: any[], retailers: any[], user: any, onRefresh: () => void, defaultView?: 'distributors' | 'retailers'; onNavigateToPosMachines?: () => void }) {
   const [selectedType, setSelectedType] = useState<'distributors' | 'retailers'>(defaultView || 'distributors')
+  const [viewMode, setViewMode] = useState<'table' | 'tree'>('table')
   const [searchTerm, setSearchTerm] = useState('')
   const [showFundTransfer, setShowFundTransfer] = useState(false)
   const [showMDRApproval, setShowMDRApproval] = useState(false)
@@ -826,6 +828,24 @@ function NetworkTab({ distributors, retailers, user, onRefresh, defaultView, onN
   const [mdrData, setMdrData] = useState({
     approved_mdr_rate: ''
   })
+
+  // RT count per DT partner_id (for "# Retailers" column in distributors table)
+  const rtCountByDT = useMemo(() => {
+    const map: Record<string, number> = {}
+    retailers.forEach((r) => {
+      if (r.distributor_id) map[r.distributor_id] = (map[r.distributor_id] || 0) + 1
+    })
+    return map
+  }, [retailers])
+
+  // DT name lookup by partner_id (for "Under DT" column in retailers table)
+  const dtNameById = useMemo(() => {
+    const map: Record<string, string> = {}
+    distributors.forEach((d) => {
+      map[d.partner_id] = d.business_name || d.name
+    })
+    return map
+  }, [distributors])
 
   const filteredDistributors = distributors.filter(d =>
     d.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -929,37 +949,70 @@ function NetworkTab({ distributors, retailers, user, onRefresh, defaultView, onN
 
   return (
     <div className="space-y-6">
-      {/* Toggle between Distributors and Retailers - Hide if defaultView is set (coming from specific tab) */}
+      {/* Toggle between Distributors / Retailers / Tree — hidden when defaultView forces a specific view */}
       {!defaultView && (
         <>
           <div className="bg-white rounded-xl shadow-lg border border-gray-200 p-4">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex gap-4">
-                <button
-                  onClick={() => setSelectedType('distributors')}
-                  className={`px-6 py-2 rounded-lg font-medium transition-colors ${
-                    selectedType === 'distributors'
-                      ? 'bg-yellow-500 text-white'
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                  }`}
-                >
-                  Distributors ({distributors.length})
-                </button>
-                <button
-                  onClick={() => setSelectedType('retailers')}
-                  className={`px-6 py-2 rounded-lg font-medium transition-colors ${
-                    selectedType === 'retailers'
-                      ? 'bg-yellow-500 text-white'
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                  }`}
-                >
-                  Retailers ({retailers.length})
-                </button>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              {/* Left: type + tree toggle */}
+              <div className="flex items-center gap-2 flex-wrap">
+                {viewMode === 'table' && (
+                  <>
+                    <button
+                      onClick={() => setSelectedType('distributors')}
+                      className={`px-5 py-2 rounded-lg font-medium text-sm transition-colors ${
+                        selectedType === 'distributors'
+                          ? 'bg-yellow-500 text-white'
+                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                      }`}
+                    >
+                      Distributors ({distributors.length})
+                    </button>
+                    <button
+                      onClick={() => setSelectedType('retailers')}
+                      className={`px-5 py-2 rounded-lg font-medium text-sm transition-colors ${
+                        selectedType === 'retailers'
+                          ? 'bg-yellow-500 text-white'
+                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                      }`}
+                    >
+                      Retailers ({retailers.length})
+                    </button>
+                  </>
+                )}
+
+                {/* View-mode toggle */}
+                <div className="flex items-center bg-gray-100 rounded-lg p-1 gap-1">
+                  <button
+                    onClick={() => setViewMode('table')}
+                    title="Table View"
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                      viewMode === 'table'
+                        ? 'bg-white text-gray-900 shadow-sm'
+                        : 'text-gray-500 hover:text-gray-700'
+                    }`}
+                  >
+                    <List className="w-4 h-4" /> Table
+                  </button>
+                  <button
+                    onClick={() => setViewMode('tree')}
+                    title="Hierarchy Tree View"
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                      viewMode === 'tree'
+                        ? 'bg-white text-gray-900 shadow-sm'
+                        : 'text-gray-500 hover:text-gray-700'
+                    }`}
+                  >
+                    <GitBranch className="w-4 h-4" /> Hierarchy
+                  </button>
+                </div>
               </div>
-              {selectedType === 'distributors' && (
+
+              {/* Right: Add Distributor (only in table/distributors mode) */}
+              {viewMode === 'table' && selectedType === 'distributors' && (
                 <button
                   onClick={() => setShowAddDistributor(true)}
-                  className="flex items-center gap-2 px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition-colors"
+                  className="flex items-center gap-2 px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition-colors text-sm font-medium"
                 >
                   <Plus className="w-4 h-4" />
                   Add Distributor
@@ -968,16 +1021,19 @@ function NetworkTab({ distributors, retailers, user, onRefresh, defaultView, onN
             </div>
           </div>
 
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
-            <input
-              type="text"
-              placeholder={`Search ${selectedType}...`}
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border rounded-lg"
-            />
-          </div>
+          {/* Search bar — only for table mode */}
+          {viewMode === 'table' && (
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
+              <input
+                type="text"
+                placeholder={`Search ${selectedType}...`}
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full pl-10 pr-4 py-2 border rounded-lg"
+              />
+            </div>
+          )}
         </>
       )}
       
@@ -1011,7 +1067,17 @@ function NetworkTab({ distributors, retailers, user, onRefresh, defaultView, onN
         </div>
       )}
 
-      {/* Users Table */}
+      {/* Hierarchy Tree View (only when viewMode === 'tree' and no defaultView) */}
+      {viewMode === 'tree' && !defaultView && (
+        <NetworkHierarchyTree
+          distributors={distributors}
+          retailers={retailers}
+          masterDistributorName={user?.name || user?.business_name || 'My Network'}
+        />
+      )}
+
+      {/* Users Table (shown in table mode, OR when defaultView forces table) */}
+      {(viewMode === 'table' || defaultView) && (
       <div className="bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full">
@@ -1021,16 +1087,23 @@ function NetworkTab({ distributors, retailers, user, onRefresh, defaultView, onN
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Email</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                    {selectedType === 'distributors' && (
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">MDR %</th>
-                    )}
+                    {/* Extra columns based on type */}
+                    {(selectedType === 'retailers' && !defaultView) || defaultView === 'retailers' ? (
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Under DT</th>
+                    ) : null}
+                    {(selectedType === 'distributors' && !defaultView) || defaultView === 'distributors' ? (
+                      <>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Retailers</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">MDR %</th>
+                      </>
+                    ) : null}
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200">
               {(selectedType === 'distributors' ? filteredDistributors : filteredRetailers).length === 0 ? (
                     <tr>
-                  <td colSpan={selectedType === 'distributors' ? 6 : 5} className="px-6 py-8 text-center text-gray-500">
+                  <td colSpan={selectedType === 'distributors' ? 7 : 6} className="px-6 py-8 text-center text-gray-500">
                     No {selectedType} found
                       </td>
                     </tr>
@@ -1049,18 +1122,40 @@ function NetworkTab({ distributors, retailers, user, onRefresh, defaultView, onN
                         {item.status || 'active'}
                           </span>
                         </td>
-                    {selectedType === 'distributors' && (
-                      <td className="px-6 py-4 text-sm text-gray-900">
-                        {item.approved_mdr_rate ? (
-                          <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded">
-                            {(item.approved_mdr_rate * 100).toFixed(2)}%
-                          </span>
-                        ) : (
-                          <span className="px-2 py-1 bg-yellow-100 text-yellow-800 rounded">
-                            Not Approved
-                          </span>
-                        )}
+                    {/* "Under DT" column for retailers */}
+                    {((selectedType === 'retailers' && !defaultView) || defaultView === 'retailers') && (
+                      <td className="px-6 py-4 text-sm text-gray-700">
+                        {item.distributor_id
+                          ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-1 bg-blue-50 text-blue-700 rounded-lg text-xs font-medium">
+                              {dtNameById[item.distributor_id] || item.distributor_id}
+                            </span>
+                          )
+                          : <span className="text-gray-400 text-xs">— unassigned —</span>
+                        }
                       </td>
+                    )}
+                    {/* "Retailers" count + MDR columns for distributors */}
+                    {((selectedType === 'distributors' && !defaultView) || defaultView === 'distributors') && (
+                      <>
+                        <td className="px-6 py-4 text-sm text-gray-900">
+                          <span className="inline-flex items-center gap-1 px-2 py-1 bg-purple-50 text-purple-700 rounded-lg text-xs font-semibold">
+                            <Users className="w-3 h-3" />
+                            {rtCountByDT[item.partner_id] ?? 0}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 text-sm text-gray-900">
+                          {item.approved_mdr_rate ? (
+                            <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded">
+                              {(item.approved_mdr_rate * 100).toFixed(2)}%
+                            </span>
+                          ) : (
+                            <span className="px-2 py-1 bg-yellow-100 text-yellow-800 rounded">
+                              Not Approved
+                            </span>
+                          )}
+                        </td>
+                      </>
                     )}
                     <td className="px-6 py-4">
                       <div className="flex gap-2">
@@ -1120,6 +1215,7 @@ function NetworkTab({ distributors, retailers, user, onRefresh, defaultView, onN
               </table>
             </div>
           </div>
+      )}
 
       {/* MDR Approval Modal */}
       {showMDRApproval && selectedUser && (

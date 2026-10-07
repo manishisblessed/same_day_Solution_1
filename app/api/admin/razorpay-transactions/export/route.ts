@@ -4,6 +4,7 @@ import { createClient } from '@supabase/supabase-js'
 import { resolveTransactionAssignments } from '@/lib/pos-assignment-resolver'
 import { htmlToPdf } from '@/lib/pdf/html-to-pdf'
 import { getAxisTidSet, resolveMachineGroup, applyMachineGroupFilter, isMachineGroup, buildCompanyFilterOr, companyFleetLabel } from '@/lib/pos/machine-group'
+import { fetchTidsForAssignment } from '@/lib/pos/assignment-tid-filter'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -63,26 +64,44 @@ export async function GET(request: NextRequest) {
     const searchQuery = searchParams.get('search')
     const settlementFilter = searchParams.get('settlement_status')
     const cardBrand = searchParams.get('card_brand')
-    const merchantSlug = searchParams.get('merchant_slug') // all | ashvam | teachway | newscenaric | lagoon
-    const machineGroupParam = searchParams.get('machine_group') // AVIKA-HDFC | AVIKA-AXIS (Avika fleet split)
+    const merchantSlug = searchParams.get('merchant_slug')
+    const machineGroupParam = searchParams.get('machine_group')
     const machineGroup = isMachineGroup(machineGroupParam) ? machineGroupParam : null
+    // view=failed → export the Failed Transactions tab (captured-then-reversed rows)
+    const view = searchParams.get('view')
+    const failedView = view === 'failed'
+    // Assignment filter (role / name)
+    const assignedRole = searchParams.get('assigned_role')
+    const assignedName = searchParams.get('assigned_name')
 
     // Axis TID set — single source of truth for the Avika fleet split.
     const axisTids = await getAxisTidSet(supabase)
+
+    // ── Assignment filter pre-pass ─────────────────────────────────────────────
+    const assignmentTids = await fetchTidsForAssignment(supabase, assignedRole, assignedName)
+    if (assignmentTids !== null && assignmentTids.length === 0) {
+      // No machines match → empty export
+      return NextResponse.json({
+        success: true,
+        files: format === 'zip' ? {
+          csv: { filename: `razorpay_transactions_${new Date().toISOString().split('T')[0]}.csv`, content: '', type: 'text/csv' },
+          json: { filename: `razorpay_transactions_${new Date().toISOString().split('T')[0]}.json`, content: '[]', type: 'application/json' },
+        } : undefined,
+        summary: { total_transactions: 0, total_amount: 0 },
+      })
+    }
 
     // Build base query function with all filters applied
     const buildExportQuery = () => {
       let q = supabase
         .from('razorpay_pos_transactions')
-        .select('txn_id, amount, payment_mode, display_status, status, reversed_at, transaction_time, tid, device_serial, merchant_name, merchant_slug, customer_name, payer_name, username, txn_type, auth_code, card_number, issuing_bank, card_classification, mid_code, card_brand, card_type, currency, rrn, external_ref, settlement_status, settled_on, receipt_url, posting_date')
+        .select('txn_id, amount, payment_mode, display_status, status, reversed_at, reversal_reason, transaction_time, tid, device_serial, merchant_name, merchant_slug, customer_name, payer_name, username, txn_type, auth_code, card_number, issuing_bank, card_classification, mid_code, card_brand, card_type, currency, rrn, external_ref, settlement_status, settled_on, receipt_url, posting_date')
         .order('transaction_time', { ascending: false, nullsFirst: false })
 
       // Avika fleet filter overrides the company filter (implies merchant_slug=avika).
       if (machineGroup) {
         q = applyMachineGroupFilter(q, machineGroup, axisTids)
       } else if (merchantSlug && merchantSlug !== 'all') {
-        // Apply company filter: supports multiple comma-separated tokens, incl.
-        // fleet tokens (AVIKA-HDFC / AVIKA-AXIS).
         const slugs = merchantSlug.split(',').map(s => s.trim()).filter(Boolean)
         const hasFleet = slugs.some(isMachineGroup)
         if (hasFleet) {
@@ -104,14 +123,18 @@ export async function GET(request: NextRequest) {
         }
       }
 
-      // Apply filters — MUST mirror the dashboard list query so export totals
-      // match the dashboard. reversed_at (reconciled failures, e.g. a UPI txn
-      // captured then later failed) is the reliable failure signal and is
-      // excluded here just like the dashboard does.
-      if (statusFilter && ['CAPTURED', 'FAILED', 'PENDING'].includes(statusFilter.toUpperCase())) {
+      // Assignment TID filter (role / name)
+      if (assignmentTids && assignmentTids.length > 0) {
+        q = q.in('tid', assignmentTids)
+      }
+
+      // Status filter — mirrors the dashboard exactly so export totals match.
+      if (failedView) {
+        // Failed Transactions tab: only captured-then-reversed rows
+        q = q.not('reversed_at', 'is', null)
+      } else if (statusFilter && ['CAPTURED', 'FAILED', 'PENDING'].includes(statusFilter.toUpperCase())) {
         const displayStatus = statusFilter.toUpperCase() === 'CAPTURED' ? 'SUCCESS' : statusFilter.toUpperCase()
         q = q.eq('display_status', displayStatus)
-        // Never surface a reconciled failure as captured.
         if (displayStatus === 'SUCCESS') q = q.is('reversed_at', null)
       } else {
         // Default: hide failed + reversed (voided/refunded/cancelled) from exports too.
@@ -194,7 +217,8 @@ export async function GET(request: NextRequest) {
         case 'newscenaric': return 'New Scenaric Travels'
         case 'lagoon': return 'LAGOON CRAFT LABS SOLUTIONS PRIVATE LIMITED'
         case 'avika': return 'Avika Departmental Private Limited'
-        default: return 'ASHVAM LEARNING PRIVATE LIMITED'
+        case 'samedaytours': return 'SAMEDAY TOUR AND TRAVELS PRIVATE LIMITED'
+        default: return slug || 'ASHVAM LEARNING PRIVATE LIMITED'
       }
     }
 
@@ -208,10 +232,16 @@ export async function GET(request: NextRequest) {
     const rows = (transactions || []).map((txn: any) => {
       const assignment = assignmentMap[txn.txn_id]
       const assignedName = assignment?.assigned_name || ''
+      const assignedType = assignment?.assigned_type || ''
 
-      return {
+      const baseRow: Record<string, any> = {
         'Transaction ID': txn.txn_id || '',
         'Date & Time': formatIST(txn.transaction_time),
+        ...(failedView ? {
+          'Captured At': formatIST(txn.transaction_time),
+          'Failed At': formatIST(txn.reversed_at),
+          'Failure Reason': txn.reversal_reason || '',
+        } : {}),
         'Amount (₹)': txn.amount || 0,
         'Currency': txn.currency || 'INR',
         'Payment Mode': txn.payment_mode || '',
@@ -225,6 +255,13 @@ export async function GET(request: NextRequest) {
           machineGroup: resolveMachineGroup({ merchantSlug: txn.merchant_slug, tid: txn.tid, axisTids }),
         }),
         'Partner/Retailer Name': assignedName,
+        'Assigned Role': assignedType ? (
+          assignedType === 'retailer' ? 'Retailer (RT)' :
+          assignedType === 'partner' ? 'Partner' :
+          assignedType === 'distributor' ? 'Distributor' :
+          assignedType === 'master_distributor' ? 'Master Distributor' :
+          assignedType
+        ) : '',
         'TID': txn.tid || '',
         'MID': txn.mid_code || '',
         'Card Number': txn.card_number || '',
@@ -236,13 +273,14 @@ export async function GET(request: NextRequest) {
         'Device Serial': txn.device_serial || '',
         'Settled On': formatIST(txn.settled_on),
       }
+      return baseRow
     })
 
     const headers = Object.keys(rows[0] || {
       'Transaction ID': '', 'Date & Time': '', 'Amount (₹)': 0, 'Currency': '', 'Payment Mode': '',
       'Status': '', 'Settlement Status': '', 'Consumer Name': '', 'Username': '', 'Company Name': '',
-      'Fleet': '',
-      'Partner/Retailer Name': '', 'TID': '', 'MID': '',
+      'Fleet': '', 'Partner/Retailer Name': '', 'Assigned Role': '',
+      'TID': '', 'MID': '',
       'Card Number': '', 'Card Brand': '', 'Card Type': '',
       'RRN': '', 'Auth Code': '', 'External Ref': '', 'Device Serial': '', 'Settled On': ''
     })

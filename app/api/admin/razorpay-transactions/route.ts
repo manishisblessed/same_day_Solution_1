@@ -3,6 +3,7 @@ import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { createClient } from '@supabase/supabase-js'
 import { resolveTransactionAssignments } from '@/lib/pos-assignment-resolver'
 import { getAxisTidSet, resolveMachineGroup, applyMachineGroupFilter, isMachineGroup, buildCompanyFilterOr } from '@/lib/pos/machine-group'
+import { fetchTidsForAssignment } from '@/lib/pos/assignment-tid-filter'
 
 export const runtime = 'nodejs' // Force Node.js runtime (Supabase not compatible with Edge Runtime)
 export const dynamic = 'force-dynamic'
@@ -86,6 +87,10 @@ export async function GET(request: NextRequest) {
     // When set, it overrides the company filter (implies merchant_slug=avika).
     const machineGroupParam = searchParams.get('machine_group')
     const machineGroup = isMachineGroup(machineGroupParam) ? machineGroupParam : null
+    // Role / name assignment filter — pre-resolves matching TIDs so we can apply
+    // a server-side TID filter before the time-aware resolver runs.
+    const assignedRole = searchParams.get('assigned_role') // partner | retailer | distributor | master_distributor
+    const assignedName = searchParams.get('assigned_name') // free-text user name search
     // view=failed → the "Failed Transactions" tab: transactions that were served
     // as captured and later reversed/failed upstream (reversed_at stamped by the
     // Pine Labs reconciliation job). Shows captured-time vs failed-time.
@@ -118,6 +123,20 @@ export async function GET(request: NextRequest) {
     // Axis TID set — single source of truth for the Avika fleet split. Fetched
     // once and reused for both the row query, the stats query, and per-row labels.
     const axisTids = await getAxisTidSet(supabase)
+
+    // ── Assignment filter pre-pass ─────────────────────────────────────────────
+    // If role or name filters are set, resolve the matching TIDs first so the
+    // main query can filter at DB level (far faster than post-fetch filtering).
+    const assignmentTids = await fetchTidsForAssignment(supabase, assignedRole, assignedName)
+    // assignmentTids === null → no filter; [] → no matches (return 0 rows fast)
+    if (assignmentTids !== null && assignmentTids.length === 0) {
+      return NextResponse.json({
+        success: true,
+        data: [],
+        pagination: { page, limit, total: 0, totalPages: 1, hasNextPage: false, hasPrevPage: false },
+        stats: { capturedAmount: 0, avgAmount: 0 },
+      })
+    }
 
     // Build query from razorpay_pos_transactions (the table webhook writes to)
     // Select dedicated columns + raw_data for fallback extraction
@@ -155,6 +174,11 @@ export async function GET(request: NextRequest) {
         }).join(',')
         query = query.or(conditions)
       }
+    }
+
+    // Apply assignment TID filter (when role/name filter is active)
+    if (assignmentTids && assignmentTids.length > 0) {
+      query = query.in('tid', assignmentTids)
     }
 
     // Failed Transactions tab: captured-then-reversed rows only. The single
@@ -307,6 +331,10 @@ export async function GET(request: NextRequest) {
       if (searchQuery && searchQuery.trim()) {
         const s = sanitizeFilterValue(searchQuery.trim())
         amountQuery = amountQuery.or(`txn_id.ilike.%${s}%,rrn.ilike.%${s}%,tid.ilike.%${s}%,mid_code.ilike.%${s}%,customer_name.ilike.%${s}%,username.ilike.%${s}%,card_number.ilike.%${s}%`)
+      }
+      // Apply assignment TID filter to stats query too
+      if (assignmentTids && assignmentTids.length > 0) {
+        amountQuery = amountQuery.in('tid', assignmentTids)
       }
 
       const { data: amountData } = await amountQuery

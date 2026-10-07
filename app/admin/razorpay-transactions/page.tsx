@@ -137,6 +137,9 @@ function RazorpayTransactionsPageContent() {
   const [cardBrandFilter, setCardBrandFilter] = useState('')
   // Avika fleet split: '' | 'AVIKA-HDFC' | 'AVIKA-AXIS'
   const [fleetFilter, setFleetFilter] = useState('')
+  // Assignment filters (Partner / Retailer / Distributor / MD)
+  const [assignedRoleFilter, setAssignedRoleFilter] = useState('')
+  const [assignedNameFilter, setAssignedNameFilter] = useState('')
 
   // Archived companies (hidden by default; managed in Settings > Companies)
   const [archivedSlugs, setArchivedSlugs] = useState<string[]>([])
@@ -205,6 +208,8 @@ function RazorpayTransactionsPageContent() {
     paymentMode: '',
     cardBrand: '',
     fleet: '',
+    assignedRole: '',
+    assignedName: '',
   })
 
   const applySearch = () => {
@@ -217,6 +222,8 @@ function RazorpayTransactionsPageContent() {
       paymentMode: paymentModeFilter,
       cardBrand: cardBrandFilter,
       fleet: fleetFilter,
+      assignedRole: assignedRoleFilter,
+      assignedName: assignedNameFilter,
     })
     setPage(1)
   }
@@ -284,6 +291,8 @@ function RazorpayTransactionsPageContent() {
       if (appliedFilters.status) params.set('status', appliedFilters.status)
       if (appliedFilters.paymentMode) params.set('payment_mode', appliedFilters.paymentMode)
       if (appliedFilters.cardBrand) params.set('card_brand', appliedFilters.cardBrand)
+      if (appliedFilters.assignedRole) params.set('assigned_role', appliedFilters.assignedRole)
+      if (appliedFilters.assignedName) params.set('assigned_name', appliedFilters.assignedName.trim())
 
       const response = await apiFetch(`/api/admin/razorpay-transactions?${params.toString()}`)
       
@@ -373,6 +382,7 @@ function RazorpayTransactionsPageContent() {
     setLoading(true)
     setTransactions([])
     setStats({ capturedAmount: 0, avgAmount: 0 })
+    setColFilters({})
   }, [appliedFilters])
 
   // Export transactions
@@ -382,6 +392,8 @@ function RazorpayTransactionsPageContent() {
     try {
       const params = new URLSearchParams()
       params.set('format', format)
+      // Mirror the active tab to the export so Failed tab exports the right rows
+      if (activeTab === 'failed') params.set('view', 'failed')
       if (appliedFilters.dateFrom) params.set('date_from', appliedFilters.dateFrom)
       if (appliedFilters.dateTo) params.set('date_to', appliedFilters.dateTo)
       if (appliedFilters.search) params.set('search', appliedFilters.search)
@@ -392,7 +404,9 @@ function RazorpayTransactionsPageContent() {
           params.set('merchant_slug', appliedFilters.fleet)
         }
       } else {
-        const allSlugsExport = ['ashvam', 'teachway', 'newscenaric', 'lagoon', 'AVIKA-HDFC', 'AVIKA-AXIS']
+        // Use allCompanyOptions so samedaytours (and any future additions) are
+        // always included when no explicit company filter is active.
+        const allSlugsExport = allCompanyOptions.map(c => c.slug)
         const collapseFleetsExport = (arr: string[]) =>
           Array.from(new Set(arr.map(s => (s === 'AVIKA-HDFC' || s === 'AVIKA-AXIS') ? 'avika' : s)))
         const effectiveCompaniesExport = appliedFilters.companies.length > 0
@@ -403,6 +417,8 @@ function RazorpayTransactionsPageContent() {
       if (appliedFilters.status) params.set('status', appliedFilters.status)
       if (appliedFilters.paymentMode) params.set('payment_mode', appliedFilters.paymentMode)
       if (appliedFilters.cardBrand) params.set('card_brand', appliedFilters.cardBrand)
+      if (appliedFilters.assignedRole) params.set('assigned_role', appliedFilters.assignedRole)
+      if (appliedFilters.assignedName) params.set('assigned_name', appliedFilters.assignedName.trim())
 
       const response = await apiFetch(`/api/admin/razorpay-transactions/export?${params.toString()}`)
       
@@ -519,11 +535,13 @@ function RazorpayTransactionsPageContent() {
     setPaymentModeFilter('')
     setCardBrandFilter('')
     setFleetFilter('')
-    setAppliedFilters({ dateFrom: '', dateTo: '', search: '', companies: [], status: '', paymentMode: '', cardBrand: '', fleet: '' })
+    setAssignedRoleFilter('')
+    setAssignedNameFilter('')
+    setAppliedFilters({ dateFrom: '', dateTo: '', search: '', companies: [], status: '', paymentMode: '', cardBrand: '', fleet: '', assignedRole: '', assignedName: '' })
     setPage(1)
   };
 
-  const hasActiveFilters = dateFrom || dateTo || searchQuery || selectedCompanies.length > 0 || statusFilter || paymentModeFilter || cardBrandFilter || fleetFilter
+  const hasActiveFilters = dateFrom || dateTo || searchQuery || selectedCompanies.length > 0 || statusFilter || paymentModeFilter || cardBrandFilter || fleetFilter || assignedRoleFilter || assignedNameFilter
 
   // Helper to get sortable value for a column
   const getSortVal = (txn: RazorpayTransaction, col: string): string | number => {
@@ -761,11 +779,13 @@ function RazorpayTransactionsPageContent() {
                           </div>
                         </button>
                       </div>
-                      {hasActiveFilters && (
+                      {(hasActiveFilters || activeTab === 'failed') && (
                         <div className="border-t border-gray-200 dark:border-gray-700 px-3 py-2">
                           <p className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1">
                             <Filter className="w-3 h-3" />
-                            Export will apply current filters
+                            {activeTab === 'failed'
+                              ? 'Exporting Failed Transactions tab'
+                              : 'Export will apply current filters'}
                           </p>
                         </div>
                       )}
@@ -1128,6 +1148,42 @@ function RazorpayTransactionsPageContent() {
                   <option value="lagoon">{companyFleetLabel({ merchantSlug: 'lagoon' })}</option>
                 </select>
 
+                {/* Role Filter — Partner / RT / Distributor / MD */}
+                <select
+                  value={assignedRoleFilter}
+                  onChange={(e) => setAssignedRoleFilter(e.target.value)}
+                  className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  title="Filter by assigned role"
+                >
+                  <option value="">All Roles</option>
+                  <option value="partner">Partner</option>
+                  <option value="retailer">Retailer (RT)</option>
+                  <option value="distributor">Distributor</option>
+                  <option value="master_distributor">Master Distributor</option>
+                </select>
+
+                {/* Assigned Name Search */}
+                <div className="relative">
+                  <Users className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+                  <input
+                    type="text"
+                    value={assignedNameFilter}
+                    onChange={(e) => setAssignedNameFilter(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') applySearch() }}
+                    placeholder="Partner / RT name…"
+                    className="w-52 pl-9 pr-8 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-primary-500 focus:border-transparent placeholder-gray-400"
+                    title="Search by assigned partner or retailer name"
+                  />
+                  {assignedNameFilter && (
+                    <button
+                      onClick={() => { setAssignedNameFilter(''); setAppliedFilters(f => ({ ...f, assignedName: '' })); setPage(1) }}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+
                 {/* Search Button */}
                 <button
                   onClick={applySearch}
@@ -1150,6 +1206,42 @@ function RazorpayTransactionsPageContent() {
               </div>
             </div>
           </div>
+
+          {/* Active filter badges — shown when role/name filters are applied */}
+          {(appliedFilters.assignedRole || appliedFilters.assignedName) && (
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1">
+                <Users className="w-3.5 h-3.5" /> Active assignment filters:
+              </span>
+              {appliedFilters.assignedRole && (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-violet-100 text-violet-800 dark:bg-violet-900/30 dark:text-violet-300">
+                  Role:{' '}
+                  {appliedFilters.assignedRole === 'partner' ? 'Partner' :
+                   appliedFilters.assignedRole === 'retailer' ? 'Retailer (RT)' :
+                   appliedFilters.assignedRole === 'distributor' ? 'Distributor' :
+                   appliedFilters.assignedRole === 'master_distributor' ? 'Master Distributor' :
+                   appliedFilters.assignedRole}
+                  <button
+                    onClick={() => { setAssignedRoleFilter(''); setAppliedFilters(f => ({ ...f, assignedRole: '' })); setPage(1) }}
+                    className="ml-0.5 hover:text-violet-900 dark:hover:text-violet-100"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              )}
+              {appliedFilters.assignedName && (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-violet-100 text-violet-800 dark:bg-violet-900/30 dark:text-violet-300">
+                  Name: &ldquo;{appliedFilters.assignedName}&rdquo;
+                  <button
+                    onClick={() => { setAssignedNameFilter(''); setAppliedFilters(f => ({ ...f, assignedName: '' })); setPage(1) }}
+                    className="ml-0.5 hover:text-violet-900 dark:hover:text-violet-100"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              )}
+            </div>
+          )}
 
           {/* Transactions Table */}
           <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">

@@ -664,13 +664,15 @@ function SchemeManagementPageContent() {
     setSavingConfig(true)
     try {
       // Enforce minimum charge from Service Vendor Rates
+      const isPartnerPlanSave = schemes.find(s => s.id === configSchemeId)?.is_partner_plan || false
+      const chargeLabel = isPartnerPlanSave ? 'Partner Charge' : 'MD Purchase Charge'
       if (configType === 'bbps') {
         const vr = findVendorRate(bbpsForm.min_amount, bbpsForm.max_amount, bbpsForm.category || undefined)
         if (vr && Number(vr.min_charge) > 0) {
           const minCharge = Number(vr.min_charge)
-          const mdCharge = Number(bbpsForm.md_purchase_charge) || 0
+          const mdCharge = Number(isPartnerPlanSave ? bbpsForm.retailer_charge : bbpsForm.md_purchase_charge) || 0
           if (mdCharge < minCharge) {
-            showToast(`MD Purchase Charge (₹${mdCharge}) cannot be below Minimum Charge (₹${minCharge}) from Service Vendor Rates`, 'error')
+            showToast(`${chargeLabel} (₹${mdCharge}) cannot be below Minimum Charge (₹${minCharge}) from Service Vendor Rates`, 'error')
             setSavingConfig(false)
             return
           }
@@ -679,9 +681,9 @@ function SchemeManagementPageContent() {
         const vr = findVendorRate(payoutForm.min_amount, payoutForm.max_amount)
         if (vr && Number(vr.min_charge) > 0) {
           const minCharge = Number(vr.min_charge)
-          const mdCharge = Number(payoutForm.md_purchase_charge) || 0
+          const mdCharge = Number(isPartnerPlanSave ? payoutForm.retailer_charge : payoutForm.md_purchase_charge) || 0
           if (mdCharge < minCharge) {
-            showToast(`MD Purchase Charge (₹${mdCharge}) cannot be below Minimum Charge (₹${minCharge}) from Service Vendor Rates`, 'error')
+            showToast(`${chargeLabel} (₹${mdCharge}) cannot be below Minimum Charge (₹${minCharge}) from Service Vendor Rates`, 'error')
             setSavingConfig(false)
             return
           }
@@ -771,6 +773,21 @@ function SchemeManagementPageContent() {
         const vrSettle = findVendorRate(payoutForm.min_amount, payoutForm.max_amount)
         const resolvedCompanyCharge = payoutForm.company_charge || (vrSettle ? Number(vrSettle.vendor_rate) || 0 : 0)
         configData = { ...payoutForm, company_charge: resolvedCompanyCharge }
+      }
+
+      // Partner plans: Company Earning is derived (Partner Charge − Vendor cost − Partner Commission).
+      if (['bbps', 'payout', 'shadval_settlement'].includes(effectiveConfigType) && schemes.find(s => s.id === configSchemeId)?.is_partner_plan) {
+        const vr = effectiveConfigType === 'bbps'
+          ? findVendorRate(bbpsForm.min_amount, bbpsForm.max_amount, bbpsForm.category || undefined)
+          : findVendorRate(payoutForm.min_amount, payoutForm.max_amount)
+        const vendor = vr ? Number(vr.vendor_rate) || 0 : 0
+        // Commission can only come from the margin above the minimum charge / vendor cost.
+        const floor = Math.max(vr ? Number(vr.min_charge) || 0 : 0, vendor)
+        const maxComm = Math.max(0, Math.round(((Number(configData.retailer_charge) || 0) - floor) * 100) / 100)
+        configData.retailer_commission = Math.min(Number(configData.retailer_commission) || 0, maxComm)
+        const earning = (Number(configData.retailer_charge) || 0) - vendor - configData.retailer_commission
+        configData.company_charge = Math.max(0, Math.round(earning * 100) / 100)
+        configData.company_charge_type = 'flat'
       }
 
       // When editing an unconstrained type, pass the existing row id so the server
@@ -1703,7 +1720,6 @@ function SchemeManagementPageContent() {
                   {configType === 'mdr' && <><TrendingUp className="w-5 h-5 text-orange-600" /> {editingConfigId ? 'Edit' : 'Add'} MDR Rate</>}
                   {configType === 'aeps' && <><Banknote className="w-5 h-5 text-teal-600" /> {editingConfigId ? 'Edit' : 'Add'} AEPS Commission</>}
                   {configType === 'aeps_settlement' && <><DollarSign className="w-5 h-5 text-purple-600" /> {editingConfigId ? 'Edit' : 'Add'} AEPS Settlement Charge</>}
-                  {configType === 'payout' && <><Banknote className="w-5 h-5 text-rose-600" /> {editingConfigId ? 'Edit' : 'Add'} Settlement Charge</>}
                 </h2>
               </div>
 
@@ -1773,6 +1789,9 @@ function SchemeManagementPageContent() {
                     const isPartnerPlan = schemes.find(s => s.id === configSchemeId)?.is_partner_plan || false
                     const vrMatch = findVendorRate(bbpsForm.min_amount, bbpsForm.max_amount, bbpsForm.category || undefined)
                     const vendorCost = vrMatch ? Number(vrMatch.vendor_rate) || 0 : 0
+                    // Partner commission may only come out of the margin ABOVE the minimum charge / vendor cost.
+                    const partnerFloor = Math.max(vrMatch ? Number(vrMatch.min_charge) || 0 : 0, vendorCost)
+                    const maxPartnerComm = Math.max(0, Math.round(((bbpsForm.retailer_charge || 0) - partnerFloor) * 100) / 100)
                     const fields = isPartnerPlan
                       ? [
                           { label: 'Partner Charge', key: 'retailer_charge', typeKey: 'retailer_charge_type' },
@@ -1800,12 +1819,36 @@ function SchemeManagementPageContent() {
                         {fields.map(({ label, key, typeKey }) => (
                           <div key={key} className="flex items-end gap-2">
                             <div className="flex-1">
-                              <label className="block text-xs font-medium mb-1">{label} (₹)</label>
-                              <input type="number" step="0.01" value={(bbpsForm as any)[key]}
-                                onChange={(e) => setBbpsForm({ ...bbpsForm, [key]: parseFloat(e.target.value) || 0 })}
-                                className="w-full px-3 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
+                              <label className="block text-xs font-medium mb-1">{label} (₹){isPartnerPlan && key === 'company_charge' ? ' — auto' : ''}</label>
+                              {isPartnerPlan && key === 'company_charge' ? (
+                                <input type="number" readOnly tabIndex={-1}
+                                  value={Math.max(0, Math.round(((bbpsForm.retailer_charge || 0) - vendorCost - (bbpsForm.retailer_commission || 0)) * 100) / 100)}
+                                  title="Partner Charge − Vendor cost − Partner Commission"
+                                  className="w-full px-3 py-1.5 border rounded-lg text-sm bg-gray-100 dark:bg-gray-700 dark:border-gray-700 text-green-700 dark:text-green-400 font-semibold cursor-not-allowed" />
+                              ) : (
+                              <input type="number" step="0.01" min={0}
+                                max={isPartnerPlan && key === 'retailer_commission' ? maxPartnerComm : undefined}
+                                disabled={isPartnerPlan && key === 'retailer_commission' && maxPartnerComm <= 0}
+                                value={(bbpsForm as any)[key]}
+                                onChange={(e) => {
+                                  const v = parseFloat(e.target.value) || 0
+                                  const next: any = { ...bbpsForm, [key]: v }
+                                  if (isPartnerPlan && key === 'retailer_commission') next.retailer_commission = Math.min(v, maxPartnerComm)
+                                  if (isPartnerPlan && key === 'retailer_charge') {
+                                    const m = Math.max(0, Math.round((v - partnerFloor) * 100) / 100)
+                                    if ((next.retailer_commission || 0) > m) next.retailer_commission = m
+                                  }
+                                  setBbpsForm(next)
+                                }}
+                                className="w-full px-3 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700 disabled:bg-gray-100 disabled:dark:bg-gray-700 disabled:text-gray-400 disabled:cursor-not-allowed" />
+                              )}
+                              {isPartnerPlan && key === 'retailer_commission' && (
+                                <p className="text-[11px] mt-1 text-gray-500">
+                                  {maxPartnerComm > 0 ? `Max ₹${maxPartnerComm.toFixed(2)} (charge above minimum ₹${partnerFloor.toFixed(2)})` : `Disabled — no margin above minimum ₹${partnerFloor.toFixed(2)}`}
+                                </p>
+                              )}
                             </div>
-                            {key === 'md_purchase_charge' && (
+                            {(key === 'md_purchase_charge' || (isPartnerPlan && key === 'retailer_charge')) && (
                               <label className="flex items-center gap-1.5 text-xs text-gray-700 dark:text-gray-300 whitespace-nowrap pb-1">
                                 <input type="checkbox" checked={bbpsForm.gst_inclusive}
                                   onChange={(e) => setBbpsForm({ ...bbpsForm, gst_inclusive: e.target.checked })}
@@ -1816,6 +1859,12 @@ function SchemeManagementPageContent() {
                           </div>
                         ))}
                         </div>
+                        {isPartnerPlan && (bbpsForm.retailer_charge || 0) < vendorCost + (bbpsForm.retailer_commission || 0) && (
+                          <div className="flex items-center gap-2 px-3 py-2 bg-red-50 dark:bg-red-900/20 rounded-lg border border-red-200 dark:border-red-800">
+                            <AlertCircle className="w-4 h-4 text-red-600 flex-shrink-0" />
+                            <span className="text-xs font-medium text-red-700 dark:text-red-400">Partner Charge (₹{bbpsForm.retailer_charge || 0}) is below Vendor ₹{vendorCost.toFixed(2)} + Commission ₹{bbpsForm.retailer_commission || 0} — company earns ₹0</span>
+                          </div>
+                        )}
                         {!isPartnerPlan && vrMatch && Number(vrMatch.min_charge) > 0 && (bbpsForm.md_purchase_charge || 0) < Number(vrMatch.min_charge) && (
                           <div className="flex items-center gap-2 px-3 py-2 bg-red-50 dark:bg-red-900/20 rounded-lg border border-red-200 dark:border-red-800">
                             <AlertCircle className="w-4 h-4 text-red-600 flex-shrink-0" />
@@ -1881,6 +1930,8 @@ function SchemeManagementPageContent() {
                     const isPartnerPlan = schemes.find(s => s.id === configSchemeId)?.is_partner_plan || false
                     const vrMatch = findVendorRate(payoutForm.min_amount, payoutForm.max_amount)
                     const vendorCost = vrMatch ? Number(vrMatch.vendor_rate) || 0 : 0
+                    const partnerFloor = Math.max(vrMatch ? Number(vrMatch.min_charge) || 0 : 0, vendorCost)
+                    const maxPartnerComm = Math.max(0, Math.round(((payoutForm.retailer_charge || 0) - partnerFloor) * 100) / 100)
                     const fields = isPartnerPlan
                       ? [
                           { label: 'Partner Charge', key: 'retailer_charge', typeKey: 'retailer_charge_type' },
@@ -1908,12 +1959,36 @@ function SchemeManagementPageContent() {
                         {fields.map(({ label, key, typeKey }) => (
                           <div key={key} className="flex items-end gap-2">
                             <div className="flex-1">
-                              <label className="block text-xs font-medium mb-1">{label} (₹)</label>
-                              <input type="number" step="0.01" value={(payoutForm as any)[key]}
-                                onChange={(e) => setPayoutForm({ ...payoutForm, [key]: parseFloat(e.target.value) || 0 })}
-                                className="w-full px-3 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700" />
+                              <label className="block text-xs font-medium mb-1">{label} (₹){isPartnerPlan && key === 'company_charge' ? ' — auto' : ''}</label>
+                              {isPartnerPlan && key === 'company_charge' ? (
+                                <input type="number" readOnly tabIndex={-1}
+                                  value={Math.max(0, Math.round(((payoutForm.retailer_charge || 0) - vendorCost - (payoutForm.retailer_commission || 0)) * 100) / 100)}
+                                  title="Partner Charge − Vendor cost − Partner Commission"
+                                  className="w-full px-3 py-1.5 border rounded-lg text-sm bg-gray-100 dark:bg-gray-700 dark:border-gray-700 text-green-700 dark:text-green-400 font-semibold cursor-not-allowed" />
+                              ) : (
+                              <input type="number" step="0.01" min={0}
+                                max={isPartnerPlan && key === 'retailer_commission' ? maxPartnerComm : undefined}
+                                disabled={isPartnerPlan && key === 'retailer_commission' && maxPartnerComm <= 0}
+                                value={(payoutForm as any)[key]}
+                                onChange={(e) => {
+                                  const v = parseFloat(e.target.value) || 0
+                                  const next: any = { ...payoutForm, [key]: v }
+                                  if (isPartnerPlan && key === 'retailer_commission') next.retailer_commission = Math.min(v, maxPartnerComm)
+                                  if (isPartnerPlan && key === 'retailer_charge') {
+                                    const m = Math.max(0, Math.round((v - partnerFloor) * 100) / 100)
+                                    if ((next.retailer_commission || 0) > m) next.retailer_commission = m
+                                  }
+                                  setPayoutForm(next)
+                                }}
+                                className="w-full px-3 py-1.5 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700 disabled:bg-gray-100 disabled:dark:bg-gray-700 disabled:text-gray-400 disabled:cursor-not-allowed" />
+                              )}
+                              {isPartnerPlan && key === 'retailer_commission' && (
+                                <p className="text-[11px] mt-1 text-gray-500">
+                                  {maxPartnerComm > 0 ? `Max ₹${maxPartnerComm.toFixed(2)} (charge above minimum ₹${partnerFloor.toFixed(2)})` : `Disabled — no margin above minimum ₹${partnerFloor.toFixed(2)}`}
+                                </p>
+                              )}
                             </div>
-                            {key === 'md_purchase_charge' && (
+                            {(key === 'md_purchase_charge' || (isPartnerPlan && key === 'retailer_charge')) && (
                               <label className="flex items-center gap-1.5 text-xs text-gray-700 dark:text-gray-300 whitespace-nowrap pb-1">
                                 <input type="checkbox" checked={payoutForm.gst_inclusive}
                                   onChange={(e) => setPayoutForm({ ...payoutForm, gst_inclusive: e.target.checked })}
@@ -1924,6 +1999,12 @@ function SchemeManagementPageContent() {
                           </div>
                         ))}
                         </div>
+                        {isPartnerPlan && (payoutForm.retailer_charge || 0) < vendorCost + (payoutForm.retailer_commission || 0) && (
+                          <div className="flex items-center gap-2 px-3 py-2 bg-red-50 dark:bg-red-900/20 rounded-lg border border-red-200 dark:border-red-800">
+                            <AlertCircle className="w-4 h-4 text-red-600 flex-shrink-0" />
+                            <span className="text-xs font-medium text-red-700 dark:text-red-400">Partner Charge (₹{payoutForm.retailer_charge || 0}) is below Vendor ₹{vendorCost.toFixed(2)} + Commission ₹{payoutForm.retailer_commission || 0} — company earns ₹0</span>
+                          </div>
+                        )}
                         {!isPartnerPlan && vrMatch && Number(vrMatch.min_charge) > 0 && (payoutForm.md_purchase_charge || 0) < Number(vrMatch.min_charge) && (
                           <div className="flex items-center gap-2 px-3 py-2 bg-red-50 dark:bg-red-900/20 rounded-lg border border-red-200 dark:border-red-800">
                             <AlertCircle className="w-4 h-4 text-red-600 flex-shrink-0" />
@@ -2426,14 +2507,20 @@ function SchemeManagementPageContent() {
               <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700 shrink-0 flex justify-end gap-2">
                 {(() => {
                   let isValid = true
+                  const isPartnerPlanSave = schemes.find(s => s.id === configSchemeId)?.is_partner_plan || false
                   if (configType === 'bbps') {
                     const vr = findVendorRate(bbpsForm.min_amount, bbpsForm.max_amount, bbpsForm.category || undefined)
-                    if (vr && Number(vr.min_charge) > 0 && (bbpsForm.md_purchase_charge || 0) < Number(vr.min_charge)) isValid = false
-                    if (!bbpsForm.md_purchase_charge && bbpsForm.md_purchase_charge !== 0) isValid = false
+                    // Partner plans price on Partner Charge; others on MD Purchase Charge.
+                    const price = isPartnerPlanSave ? bbpsForm.retailer_charge : bbpsForm.md_purchase_charge
+                    if (vr && Number(vr.min_charge) > 0 && (price || 0) < Number(vr.min_charge)) isValid = false
+                    if (!price && price !== 0) isValid = false
+                    if (isPartnerPlanSave && !(Number(price) > 0)) isValid = false
                   } else if (configType === 'payout') {
                     const vr = findVendorRate(payoutForm.min_amount, payoutForm.max_amount)
-                    if (vr && Number(vr.min_charge) > 0 && (payoutForm.md_purchase_charge || 0) < Number(vr.min_charge)) isValid = false
-                    if (!payoutForm.md_purchase_charge && payoutForm.md_purchase_charge !== 0) isValid = false
+                    const price = isPartnerPlanSave ? payoutForm.retailer_charge : payoutForm.md_purchase_charge
+                    if (vr && Number(vr.min_charge) > 0 && (price || 0) < Number(vr.min_charge)) isValid = false
+                    if (!price && price !== 0) isValid = false
+                    if (isPartnerPlanSave && !(Number(price) > 0)) isValid = false
                   }
                   return (
                     <>
