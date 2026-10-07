@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient, SupabaseClient } from '@supabase/supabase-js'
 import { authenticatePartner, PartnerAuthError, partnerCanUseApi } from '@/lib/partner-auth'
-import { pay2newPayBill } from '@/services/pay2new'
+import { pay2newPayBill, pay2newCheckStatus } from '@/services/pay2new'
 import { isBillerRateLimitError, BILLER_RATE_LIMIT_MESSAGE, toUserSafeError } from '@/lib/provider-error'
 import { SCHEME_NOT_ASSIGNED, SCHEME_NOT_ASSIGNED_STATUS, SCHEME_NO_VALID_SLAB, hasCoveringBbpsSlab } from '@/lib/scheme-guard'
 import { getPartnerApiMax } from '@/lib/txn-limits'
@@ -178,18 +178,72 @@ export async function POST(request: NextRequest) {
       // partner's wallet, so paying this bill again is a legitimate NEW attempt,
       // NOT a duplicate. The upstream returns the SAME bill_fetch_ref for a given
       // card/bill, so "fetch a new bill to retry" cannot yield a different ref —
-      // without this, a card that fails once (biller temporarily down) is locked
-      // out of payment forever, permanently replaying "previous payment …
-      // refunded". Release the refunded attempt's unique-index slot (the partial
-      // UNIQUE index is WHERE bill_fetch_ref IS NOT NULL) and fall through to a
-      // fresh, fully-charged payment. SUCCESS/PENDING (and the rare FAILED with no
-      // confirmed refund) still replay the original outcome and never re-charge.
+      // without reopening, a card that fails once (biller temporarily down) is
+      // locked out of payment forever, permanently replaying "previous payment …
+      // refunded". We therefore reopen a REFUNDED card for a fresh charge — but
+      // ONLY after the upstream provider confirms the prior attempt was never
+      // charged (see the guard below), so a false refund can never double-charge
+      // the customer. SUCCESS/PENDING still replay the original outcome and never
+      // re-charge.
       if (resolved.status === 'REFUNDED') {
-        await supabase
-          .from('partner_wallet_ledger')
-          .update({ bill_fetch_ref: null })
-          .eq('partner_id', partner.id)
-          .eq('reference_id', priorAttempt.reference_id)
+        // EXTRA SAFETY — no financial loss on the reopen path. A local REFUNDED
+        // state means we returned the money to the PARTNER wallet, but that does
+        // NOT by itself prove the biller never charged the customer's card. A
+        // "false refund" (biller actually charged, yet our pay call reported a
+        // failure/timeout) would let this retry charge the card a SECOND time.
+        // So we only re-open the card for a fresh charge when the UPSTREAM
+        // provider authoritatively confirms the prior attempt was NOT charged
+        // (FAILED / REFUNDED). Anything else is treated as not-safe-to-recharge.
+        let upstream: Awaited<ReturnType<typeof pay2newCheckStatus>>
+        try {
+          upstream = await pay2newCheckStatus({ request_id: priorAttempt.reference_id })
+        } catch {
+          upstream = { success: false }
+        }
+        const confirmedNotCharged =
+          upstream.success === true &&
+          (upstream.status === 'FAILED' || upstream.status === 'REFUNDED')
+
+        if (confirmedNotCharged) {
+          // Provably not charged upstream → release the unique-index slot (the
+          // partial UNIQUE index is WHERE bill_fetch_ref IS NOT NULL) and fall
+          // through to a fresh, fully-charged payment.
+          await supabase
+            .from('partner_wallet_ledger')
+            .update({ bill_fetch_ref: null })
+            .eq('partner_id', partner.id)
+            .eq('reference_id', priorAttempt.reference_id)
+        } else if (upstream.success === true && upstream.status === 'SUCCESS') {
+          // DISCREPANCY: wallet shows REFUNDED but the biller actually charged
+          // the card. NEVER re-charge. Keep the slot locked, shout for manual
+          // reconciliation (claw back the refund / confirm the real charge), and
+          // tell the partner the prior attempt is under review — do not retry.
+          console.error(
+            `[Partner Pay2New Pay] CRITICAL refund/charge discrepancy — partner=${partner.id} ` +
+            `request_id=${priorAttempt.reference_id} bill_fetch_ref=${bill_fetch_ref}: ` +
+            `local=REFUNDED but upstream=SUCCESS. Refusing to re-charge.`
+          )
+          return NextResponse.json(
+            {
+              success: false,
+              error: {
+                code: 'PAYMENT_UNDER_REVIEW',
+                message: 'A previous payment for this card could not be confirmed as refunded and is under review. Please do not retry — our team will reconcile it shortly.',
+              },
+              status: 'UNDER_REVIEW',
+              request_id: priorAttempt.reference_id,
+              bill_fetch_ref: String(bill_fetch_ref),
+            },
+            { status: 409 }
+          )
+        } else {
+          // PENDING / unknown / provider unreachable: cannot prove it is safe to
+          // re-charge, so we do NOT reopen. Replay the prior (non-charging)
+          // outcome; once upstream resolves authoritatively a later retry will
+          // re-probe and reopen if it was genuinely not charged.
+          emitResolved(supabase, partner.id, resolved)
+          return NextResponse.json(replayResponse(resolved))
+        }
       } else {
         emitResolved(supabase, partner.id, resolved)
         return NextResponse.json(replayResponse(resolved))
