@@ -10,7 +10,7 @@ import {
 } from '@/lib/security/idempotency'
 import { sendPayoutCallback } from '@/lib/payout-callback'
 import { resolvePartnerPayoutCharge, partnerHasCoveringPayoutSlab } from '@/lib/payout-charge'
-import { distributeServiceCommission } from '@/lib/commission/distribute-service-commission'
+import { bookPartnerRevenue } from '@/lib/commission/partner-revenue'
 import { SCHEME_NOT_ASSIGNED, SCHEME_NOT_ASSIGNED_STATUS, SCHEME_NO_VALID_SLAB } from '@/lib/scheme-guard'
 
 export const runtime = 'nodejs'
@@ -372,26 +372,23 @@ export async function POST(request: NextRequest) {
       // downline margin). `company_cost` is resolved LIVE from the central PAYOUT
       // vendor card via `reverify`; it stays 0 (full charge → revenue, legacy
       // behaviour) when no central rate is configured.
-      if (charges > 0) {
-        const commResult = await distributeServiceCommission({
-          supabase,
-          service: 'payout',
-          refPrefix: 'PAYOUT',
-          refKey: clientRefId,
-          transactionUuid: payoutTx.id,
-          totalCharge: charges,
-          retailer: { id: partner.id, role: 'partner', commission: 0 },
-          distributor: null,
-          chargeModel: {
-            rt_purchase_charge: charges,
-            dt_purchase_charge: charges,
-            md_purchase_charge: charges,
-            company_cost: 0,
-            reverify: { serviceKind: 'PAYOUT', scopeKey: transferMode || null, category: null, amount: amountNum },
-          },
-          remarksSuffix: `on ₹${amountNum} partner payout`,
-        })
-        if (commResult.errors.length) console.error('[Partner Payout Transfer] Commission errors:', commResult.errors)
+      if (baseCharge > 0) {
+        try {
+          const commResult = await bookPartnerRevenue({
+            supabase,
+            service: 'payout',
+            partnerId: partner.id,
+            refKey: clientRefId,
+            baseCharge,
+            amount: amountNum,
+            mode: transferMode,
+            transactionUuid: payoutTx.id,
+            remarksSuffix: `on ₹${amountNum} partner payout`,
+          })
+          if (commResult.errors.length) console.error('[Partner Payout Transfer] Commission errors:', commResult.errors)
+        } catch (commErr) {
+          console.error('[Partner Payout Transfer] Revenue booking failed:', commErr)
+        }
       }
       sendPayoutCallback(partner.id, { ...payoutTx, status: finalStatus, transaction_id: transferResult.transaction_id }).catch(() => {})
     }

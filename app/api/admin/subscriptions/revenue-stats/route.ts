@@ -141,6 +141,36 @@ export async function GET(request: NextRequest) {
       offset += PAGE
     }
 
+    // Optional: cumulative revenue strictly before a cut-off date (IST), e.g. before=2026-10-01.
+    let before: { cutoff: string; credit: number; debit: number; net: number } | null = null
+    const beforeMatch = request.nextUrl.searchParams.get('before')?.trim().match(/^(\d{4})-(\d{2})-(\d{2})$/)
+    if (beforeMatch) {
+      const cutoffUtc = istToUtc(parseInt(beforeMatch[1], 10), parseInt(beforeMatch[2], 10) - 1, parseInt(beforeMatch[3], 10))
+      let bCredit = 0
+      let bDebit = 0
+      let bOffset = 0
+      for (let guard = 0; guard < 500; guard++) {
+        const { data, error } = await supabase
+          .from('wallet_ledger')
+          .select('credit, debit')
+          .eq('retailer_id', revenueUserId)
+          .eq('wallet_type', 'primary')
+          .eq('status', 'completed')
+          .lt('created_at', cutoffUtc.toISOString())
+          .order('created_at', { ascending: true })
+          .range(bOffset, bOffset + PAGE - 1)
+        if (error) return NextResponse.json({ configured: true, error: error.message }, { status: 500 })
+        const rows = data || []
+        for (const r of rows) {
+          bCredit += Number(r.credit) || 0
+          bDebit += Number(r.debit) || 0
+        }
+        if (rows.length < PAGE) break
+        bOffset += PAGE
+      }
+      before = { cutoff: beforeMatch[0], credit: bCredit, debit: bDebit, net: bCredit - bDebit }
+    }
+
     const daysElapsed = isCurrentMonth
       ? nowParts.d
       : new Date(Date.UTC(year, month + 1, 0)).getUTCDate() // days in that month
@@ -170,6 +200,7 @@ export async function GET(request: NextRequest) {
         net: todayCredit - todayDebit,
         applicable: isCurrentMonth,
       },
+      before,
       daysElapsed,
       avgPerDay,
       daily,

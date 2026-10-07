@@ -79,6 +79,13 @@ export async function register() {
     }
 
     try {
+      const { initPartnerRevenueSweepCron } = await import('@/lib/cron/partner-revenue-sweep-cron')
+      await initPartnerRevenueSweepCron()
+    } catch (err) {
+      console.error('[Instrumentation] Failed to initialize Partner Revenue Sweep cron:', err)
+    }
+
+    try {
       const { initPinelabSyncCron } = await import('@/lib/cron/pinelab-sync-cron')
       await initPinelabSyncCron()
       console.log('[Instrumentation] Pinelab Sync Cron initialized successfully')

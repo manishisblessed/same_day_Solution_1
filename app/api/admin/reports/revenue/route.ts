@@ -14,7 +14,7 @@ export async function OPTIONS(request: NextRequest) {
 }
 
 /** Services this report understands. "bbps" and "pay2new" are both BBPS rails. */
-const KNOWN_SERVICES = ['bbps', 'pay2new', 'shadval_settlement'] as const
+const KNOWN_SERVICES = ['pay2new', 'shadval_settlement'] as const
 type KnownService = (typeof KNOWN_SERVICES)[number]
 
 /**

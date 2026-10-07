@@ -9,6 +9,7 @@ import { computeGst, getBbpsSlabGstInclusive } from '@/lib/scheme-gst'
 import { findPriorPay2NewAttempt, resolvePay2NewDebitState, type Pay2NewResolvedState } from '@/lib/pay2new/ledger-status'
 import { buildPay2NewStatusPayload, type Pay2NewStatusPayloadInput } from '@/lib/partner-webhook/pay2new-payload'
 import { deliverPartnerCallbackByPartnerId } from '@/lib/partner-webhook/deliver'
+import { distributeServiceCommission } from '@/lib/commission/distribute-service-commission'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -498,6 +499,34 @@ export async function POST(request: NextRequest) {
       })
       .eq('partner_id', partner.id)
       .eq('reference_id', request_id)
+
+    // Book company revenue (ex-GST charge − live central vendor cost). Partners have
+    // no downline, so md = dt = rt = full base charge (zero downline margin).
+    // Idempotent per request_id (P2N-REV-<request_id>); never blocks the response.
+    if (serviceCharge > 0) {
+      try {
+        const commResult = await distributeServiceCommission({
+          supabase,
+          service: 'pay2new',
+          refPrefix: 'P2N',
+          refKey: request_id,
+          totalCharge: serviceCharge,
+          retailer: { id: partner.id, role: 'partner', commission: 0 },
+          distributor: null,
+          chargeModel: {
+            rt_purchase_charge: serviceCharge,
+            dt_purchase_charge: serviceCharge,
+            md_purchase_charge: serviceCharge,
+            company_cost: 0,
+            reverify: { serviceKind: 'BBPS', scopeKey: null, category: schemeCategory, amount: amountNum },
+          },
+          remarksSuffix: `on CC Bill ₹${amountNum} - ${product_name || product_code} (partner API)`,
+        })
+        if (commResult.errors.length) console.error('[Partner Pay2New Pay] Commission errors:', commResult.errors)
+      } catch (commErr) {
+        console.error('[Partner Pay2New Pay] Revenue booking failed:', commErr)
+      }
+    }
 
     // Push the terminal SUCCESS so the partner self-heals a lost reply (the exact
     // incident: payment succeeded here, response never reached the partner).

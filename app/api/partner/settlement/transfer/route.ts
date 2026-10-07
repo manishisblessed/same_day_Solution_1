@@ -6,7 +6,7 @@ import type { ShadvalTransferRequest } from '@/services/shadval-pay'
 import { sendSettlementCallback } from '@/lib/settlement-callback'
 import { resolveShadvalCharge, getShadvalSlabLimits } from '@/lib/shadval-charge'
 import { computeGst, getShadvalSlabGstInclusive } from '@/lib/scheme-gst'
-import { distributeServiceCommission } from '@/lib/commission/distribute-service-commission'
+import { bookPartnerRevenue } from '@/lib/commission/partner-revenue'
 import { SCHEME_NOT_ASSIGNED, SCHEME_NOT_ASSIGNED_STATUS, SCHEME_NO_VALID_SLAB, hasCoveringShadvalSlab } from '@/lib/scheme-guard'
 import {
   reserveIdempotencyKey,
@@ -373,26 +373,23 @@ export async function POST(request: NextRequest) {
     // revenue. `company_cost` is resolved LIVE from the central PAYOUT vendor card
     // via `reverify`; it stays 0 (full charge → revenue, legacy behaviour) when no
     // central rate is configured.
-    if (isSuccess && charges > 0) {
-      const commResult = await distributeServiceCommission({
-        supabase,
-        service: 'shadval_settlement',
-        refPrefix: 'SHADVAL',
-        refKey: refId,
-        transactionUuid: txRecord.id,
-        totalCharge: charges,
-        retailer: { id: partner.id, role: 'partner', commission: 0 },
-        distributor: null,
-        chargeModel: {
-          rt_purchase_charge: charges,
-          dt_purchase_charge: charges,
-          md_purchase_charge: charges,
-          company_cost: 0,
-          reverify: { serviceKind: 'PAYOUT', scopeKey: mode || null, category: null, amount: amountNum },
-        },
-        remarksSuffix: `on ₹${amountNum} partner transfer`,
-      })
-      if (commResult.errors.length) console.error('[Partner Settlement Transfer] Commission errors:', commResult.errors)
+    if (isSuccess && baseCharge > 0) {
+      try {
+        const commResult = await bookPartnerRevenue({
+          supabase,
+          service: 'shadval_settlement',
+          partnerId: partner.id,
+          refKey: refId,
+          baseCharge,
+          amount: amountNum,
+          mode,
+          transactionUuid: txRecord.id,
+          remarksSuffix: `on ₹${amountNum} partner transfer`,
+        })
+        if (commResult.errors.length) console.error('[Partner Settlement Transfer] Commission errors:', commResult.errors)
+      } catch (commErr) {
+        console.error('[Partner Settlement Transfer] Revenue booking failed:', commErr)
+      }
     }
 
     // Fire settlement callback to partner webhook (non-blocking).

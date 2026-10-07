@@ -39,6 +39,7 @@ type RevenueStats = {
   configured: boolean
   month: { year: number; month: number; from: string; to: string; credit: number; debit: number; net: number }
   today: { date: string; credit: number; debit: number; net: number; applicable: boolean }
+  before?: { cutoff: string; credit: number; debit: number; net: number } | null
   daysElapsed: number
   avgPerDay: number
   daily: DailyRevenue[]
@@ -47,6 +48,24 @@ type RevenueStats = {
 function currentMonthValue() {
   const ist = new Date(Date.now() + 330 * 60_000)
   return `${ist.getUTCFullYear()}-${String(ist.getUTCMonth() + 1).padStart(2, '0')}`
+}
+
+type Period = 'today' | 'month' | 'before'
+
+/** Revenue before this date (IST) is reported separately. */
+const REVENUE_CUTOFF = '2026-10-01'
+const CUTOFF_LABEL = 'October'
+
+function todayIst() {
+  return new Date(Date.now() + 330 * 60_000).toISOString().slice(0, 10)
+}
+
+function dateRangeForPeriod(period: Period): { from: string; to: string } {
+  if (period === 'today') return { from: todayIst(), to: todayIst() }
+  if (period === 'month') return { from: `${currentMonthValue()}-01`, to: todayIst() }
+  const d = new Date(`${REVENUE_CUTOFF}T00:00:00Z`)
+  d.setUTCDate(d.getUTCDate() - 1)
+  return { from: '', to: d.toISOString().slice(0, 10) }
 }
 
 export default function AdminRevenueWalletTab() {
@@ -66,8 +85,9 @@ export default function AdminRevenueWalletTab() {
   
   const [serviceTypeFilter, setServiceTypeFilter] = useState<string>('all')
   const [transactionTypeFilter, setTransactionTypeFilter] = useState<string>('all')
-  const [dateFrom, setDateFrom] = useState('')
-  const [dateTo, setDateTo] = useState('')
+  const [period, setPeriod] = useState<Period>('today')
+  const [dateFrom, setDateFrom] = useState(() => dateRangeForPeriod('today').from)
+  const [dateTo, setDateTo] = useState(() => dateRangeForPeriod('today').to)
   const [q, setQ] = useState('')
   const [debouncedQ, setDebouncedQ] = useState('')
   
@@ -76,6 +96,14 @@ export default function AdminRevenueWalletTab() {
   const [statsMonth, setStatsMonth] = useState<string>(currentMonthValue())
   const [revenueStats, setRevenueStats] = useState<RevenueStats | null>(null)
   const [loadingStats, setLoadingStats] = useState(true)
+
+  const selectPeriod = (p: Period) => {
+    const r = dateRangeForPeriod(p)
+    setPeriod(p)
+    setDateFrom(r.from)
+    setDateTo(r.to)
+    if (p !== 'before') setStatsMonth(currentMonthValue())
+  }
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedQ(q), 400)
@@ -108,7 +136,7 @@ export default function AdminRevenueWalletTab() {
   const fetchRevenueStats = useCallback(async () => {
     setLoadingStats(true)
     try {
-      const res = await apiFetch(`/api/admin/subscriptions/revenue-stats?month=${statsMonth}`)
+      const res = await apiFetch(`/api/admin/subscriptions/revenue-stats?month=${statsMonth}&before=${REVENUE_CUTOFF}`)
       const data = await res.json()
       if (data.configured) {
         setRevenueStats(data)
@@ -287,8 +315,30 @@ export default function AdminRevenueWalletTab() {
         </button>
       </div>
 
+      {/* Period selector */}
+      <div className="inline-flex rounded-lg border border-gray-300 dark:border-gray-600 overflow-hidden">
+        {([
+          ['today', 'Today'],
+          ['month', 'Current Month'],
+          ['before', `Before ${CUTOFF_LABEL}`],
+        ] as [Period, string][]).map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            onClick={() => selectPeriod(id)}
+            className={`px-4 py-2 text-sm font-medium transition-colors ${
+              period === id
+                ? 'bg-emerald-600 text-white'
+                : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
       {/* Balance + Revenue Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
         <div className="bg-gradient-to-br from-green-500 to-emerald-600 rounded-2xl p-6 text-white shadow-xl">
           <div className="flex items-center justify-between mb-4">
             <span className="text-green-100 text-sm font-medium">Current Balance</span>
@@ -305,7 +355,7 @@ export default function AdminRevenueWalletTab() {
         </div>
 
         {/* Month-to-date revenue — resets to 0 on the 1st (IST) */}
-        <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 border border-gray-200 dark:border-gray-700 shadow-sm">
+        <div className={`bg-white dark:bg-gray-800 rounded-2xl p-6 border shadow-sm ${period === 'month' ? 'border-emerald-500 ring-2 ring-emerald-200 dark:ring-emerald-900' : 'border-gray-200 dark:border-gray-700'}`}>
           <div className="flex items-center justify-between mb-4">
             <span className="text-gray-500 dark:text-gray-400 text-sm font-medium">Revenue · This Month</span>
             <div className="p-2 rounded-lg bg-emerald-100 dark:bg-emerald-900/30">
@@ -327,7 +377,7 @@ export default function AdminRevenueWalletTab() {
         </div>
 
         {/* Today's revenue */}
-        <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 border border-gray-200 dark:border-gray-700 shadow-sm">
+        <div className={`bg-white dark:bg-gray-800 rounded-2xl p-6 border shadow-sm ${period === 'today' ? 'border-blue-500 ring-2 ring-blue-200 dark:ring-blue-900' : 'border-gray-200 dark:border-gray-700'}`}>
           <div className="flex items-center justify-between mb-4">
             <span className="text-gray-500 dark:text-gray-400 text-sm font-medium">Revenue · Today</span>
             <div className="p-2 rounded-lg bg-blue-100 dark:bg-blue-900/30">
@@ -345,6 +395,28 @@ export default function AdminRevenueWalletTab() {
             {revenueStats?.today.applicable
               ? `+${formatCurrency(revenueStats.today.credit)} · -${formatCurrency(revenueStats.today.debit)}`
               : 'Select current month to view'}
+          </p>
+        </div>
+
+        {/* Revenue before cut-off */}
+        <div className={`bg-white dark:bg-gray-800 rounded-2xl p-6 border shadow-sm ${period === 'before' ? 'border-amber-500 ring-2 ring-amber-200 dark:ring-amber-900' : 'border-gray-200 dark:border-gray-700'}`}>
+          <div className="flex items-center justify-between mb-4">
+            <span className="text-gray-500 dark:text-gray-400 text-sm font-medium">Revenue · Before {CUTOFF_LABEL}</span>
+            <div className="p-2 rounded-lg bg-amber-100 dark:bg-amber-900/30">
+              <Calendar className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+            </div>
+          </div>
+          {loadingStats ? (
+            <div className="h-8 bg-gray-100 dark:bg-gray-700 rounded animate-pulse"></div>
+          ) : (
+            <div className="text-2xl font-bold text-amber-600 dark:text-amber-400">
+              {formatCurrency(revenueStats?.before?.net ?? 0)}
+            </div>
+          )}
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
+            {revenueStats?.before
+              ? `+${formatCurrency(revenueStats.before.credit)} · -${formatCurrency(revenueStats.before.debit)}`
+              : 'All earlier revenue'}
           </p>
         </div>
 

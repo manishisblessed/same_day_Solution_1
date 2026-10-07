@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js'
 import { authenticatePartner, PartnerAuthError, partnerCanUseApi } from '@/lib/partner-auth'
 import { rechargekitCcPayment } from '@/services/rechargekit/ccPayment'
 import { toUserSafeError } from '@/lib/provider-error'
+import { bookPartnerRevenue } from '@/lib/commission/partner-revenue'
 import { SCHEME_NOT_ASSIGNED, SCHEME_NOT_ASSIGNED_STATUS, SCHEME_NO_VALID_SLAB, hasCoveringBbpsSlab } from '@/lib/scheme-guard'
 
 export const runtime = 'nodejs'
@@ -304,6 +305,24 @@ export async function POST(request: NextRequest) {
       .eq('partner_id', partner.id)
       .eq('reference_id', request_id)
       .eq('transaction_type', 'DEBIT')
+
+    // Pending rows are booked by the partner-revenue sweeper once they resolve to SUCCESS.
+    if (status === 'SUCCESS' && serviceCharge > 0) {
+      try {
+        const commResult = await bookPartnerRevenue({
+          supabase,
+          service: 'rechargekit',
+          partnerId: partner.id,
+          refKey: request_id,
+          baseCharge: serviceCharge,
+          amount: amountNum,
+          remarksSuffix: `on CC-2 Bill ₹${amountNum} (partner API)`,
+        })
+        if (commResult.errors.length) console.error('[Partner Rechargekit Pay] Commission errors:', commResult.errors)
+      } catch (commErr) {
+        console.error('[Partner Rechargekit Pay] Revenue booking failed:', commErr)
+      }
+    }
 
     return NextResponse.json({
       success: true,

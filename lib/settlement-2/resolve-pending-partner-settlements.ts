@@ -3,6 +3,7 @@ import { checkTransactionStatus } from '@/services/shadval-pay'
 import { sendSettlementCallback } from '@/lib/settlement-callback'
 import { refundShadvalSettlement, isGenuineProviderSuccess, computeShadvalRefundAmount } from '@/lib/settlement-2/shadval-refund'
 import { raiseSettlementAlert, resolveSettlementAlerts } from '@/lib/settlement-alerts'
+import { bookPartnerSettlementRevenue } from '@/lib/commission/partner-revenue'
 
 /**
  * Shared reconciliation for partner Settlement-2 (shadval) PENDING transfers.
@@ -159,6 +160,7 @@ export async function resolvePendingPartnerSettlements(
                     updated_at: new Date().toISOString(),
                   })
                   .eq('id', tx.id)
+                await bookPartnerSettlementRevenue(supabase, tx as any).catch((e) => console.error('[Settlement Resolve] revenue booking failed:', e))
                 result.resolved++
                 result.results.push({ id: tx.id, ref: tx.reference_id, previous_status: 'PENDING', new_status: 'SUCCESS', action: 'reconciled_success_refund_blocked' })
                 continue
@@ -186,6 +188,7 @@ export async function resolvePendingPartnerSettlements(
               provider_timestamp: statusResult.data.timestamp,
             }
             sendSettlementCallback(tx.retailer_id, updatedTx).catch(() => {})
+            if (isSuccess) await bookPartnerSettlementRevenue(supabase, tx as any).catch((e) => console.error('[Settlement Resolve] revenue booking failed:', e))
 
             result.resolved++
             result.results.push({ id: tx.id, ref: tx.reference_id, previous_status: 'PENDING', new_status: newStatus, action: isFailed ? 'resolved_failed_refunded' : 'resolved_success' })
@@ -287,6 +290,7 @@ export async function resolvePendingPartnerSettlements(
               updated_at: new Date().toISOString(),
             })
             .eq('id', tx.id)
+          await bookPartnerSettlementRevenue(supabase, tx as any).catch((e) => console.error('[Settlement Resolve] revenue booking failed:', e))
           result.resolved++
           result.results.push({ id: tx.id, ref: tx.reference_id, previous_status: 'PENDING', new_status: 'SUCCESS', action: `reconciled_success_refund_blocked_${txAgeMin}min` })
           continue

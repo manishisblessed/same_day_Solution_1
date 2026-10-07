@@ -22,17 +22,18 @@ interface Entry {
   created_at: string
 }
 
+// Add new services here (e.g. POS) and to KNOWN_SERVICES in /api/admin/reports/revenue.
 const SERVICE_LABELS: Record<string, string> = {
-  bbps: 'BBPS',
-  pay2new: 'Pay2New (CC Bill)',
+  pay2new: 'BBPS (Pay2New)',
   shadval_settlement: 'Settlement-2 (Account Transfer)',
 }
 const SERVICE_FILTERS = [
   { id: 'all', label: 'All Services' },
-  { id: 'pay2new', label: 'Pay2New (BBPS)' },
-  { id: 'bbps', label: 'BBPS' },
+  { id: 'pay2new', label: 'BBPS (Pay2New)' },
   { id: 'shadval_settlement', label: 'Settlement-2 (Account Transfer)' },
 ]
+const SYNC_SERVICES = ['pay2new', 'shadval_settlement']
+const REPORT_START = '2026-10-01'
 
 const inr = (n: number) =>
   `₹${Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
@@ -41,12 +42,10 @@ const fmtDate = (s: string) => {
   return d.toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 const todayStr = () => new Date().toISOString().slice(0, 10)
-const daysAgoStr = (n: number) => new Date(Date.now() - n * 864e5).toISOString().slice(0, 10)
-
 export default function ServiceRevenueReportTab() {
   const { showToast } = useToast()
   const [service, setService] = useState('all')
-  const [dateFrom, setDateFrom] = useState(daysAgoStr(30))
+  const [dateFrom, setDateFrom] = useState(REPORT_START)
   const [dateTo, setDateTo] = useState(todayStr())
   const [q, setQ] = useState('')
   const [page, setPage] = useState(1)
@@ -59,6 +58,27 @@ export default function ServiceRevenueReportTab() {
   const [total, setTotal] = useState(0)
   const [totalPages, setTotalPages] = useState(1)
   const [message, setMessage] = useState<string | null>(null)
+  const [syncing, setSyncing] = useState(false)
+  const [syncResult, setSyncResult] = useState<{ dry_run: boolean; results: any[] } | null>(null)
+
+  const runSync = async (dryRun: boolean) => {
+    if (!dryRun && !window.confirm(`Book missing partner revenue entries for ${dateFrom} → ${dateTo}? This credits the company revenue wallet.`)) return
+    setSyncing(true)
+    try {
+      const res = await apiFetch('/api/admin/reports/revenue/sync-partners', {
+        method: 'POST',
+        body: JSON.stringify({ date_from: dateFrom, date_to: dateTo, services: SYNC_SERVICES, dry_run: dryRun }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Sync failed')
+      setSyncResult(data)
+      if (!dryRun) { showToast('Partner revenue synced', 'success'); load() }
+    } catch (e: any) {
+      showToast(e.message || 'Sync failed', 'error')
+    } finally {
+      setSyncing(false)
+    }
+  }
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -135,6 +155,44 @@ export default function ServiceRevenueReportTab() {
           {message}
         </div>
       )}
+
+      {/* Partner revenue gaps */}
+      <div className="mb-4 rounded-md border border-gray-200 dark:border-gray-700 p-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-xs text-gray-600 dark:text-gray-300">
+            Successful partner API transactions (Pay2New, Settlement-2) in the selected dates that have no revenue entry. Failed / refunded ones are ignored.
+          </p>
+          <div className="flex gap-2">
+            <button disabled={syncing} onClick={() => runSync(true)} className="text-sm px-3 py-1.5 rounded-md border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50">
+              {syncing ? 'Checking…' : 'Check gaps'}
+            </button>
+            {syncResult?.dry_run && syncResult.results.some((r) => r.missing > 0) && (
+              <button disabled={syncing} onClick={() => runSync(false)} className="text-sm px-3 py-1.5 rounded-md bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50">
+                Book missing revenue
+              </button>
+            )}
+          </div>
+        </div>
+        {syncResult && (
+          <table className="mt-3 w-full text-xs">
+            <thead>
+              <tr className="text-left text-gray-500 dark:text-gray-400">
+                <th className="py-1">Service</th><th>Successful txns</th><th>Revenue entry exists</th><th>Missing</th><th>Missing base charge</th>{!syncResult.dry_run && <th>Booked / Failed</th>}
+              </tr>
+            </thead>
+            <tbody className="text-gray-900 dark:text-white">
+              {syncResult.results.map((r) => (
+                <tr key={r.service} className="border-t border-gray-100 dark:border-gray-700">
+                  <td className="py-1">{SERVICE_LABELS[r.service] || r.service}</td>
+                  <td>{r.scanned}</td><td>{r.alreadyBooked}</td><td className={r.missing ? 'text-amber-600 font-medium' : ''}>{r.missing}</td>
+                  <td>{inr(r.missingBaseCharge)}</td>
+                  {!syncResult.dry_run && <td>{r.booked} / {r.failed}{r.capped ? ' (capped)' : ''}</td>}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
 
       {/* Summary cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-5">

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { authenticatePartner, PartnerAuthError, partnerCanUseApi } from '@/lib/partner-auth'
 import { getRechargekitBaseUrl, getRechargekitApiToken } from '@/services/rechargekit/config'
+import { bookPartnerRevenue } from '@/lib/commission/partner-revenue'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -207,6 +208,19 @@ export async function POST(request: NextRequest) {
             .from('partner_wallet_ledger')
             .update({ status: 'SUCCESS' })
             .eq('id', debitEntry.id)
+
+          if (billAmount && chargeAmount && chargeAmount > 0) {
+            // Partner rechargekit charge always includes 18% GST — book ex-GST revenue.
+            bookPartnerRevenue({
+              supabase,
+              service: 'rechargekit',
+              partnerId: partner.id,
+              refKey: txRequestId!,
+              baseCharge: Math.round((chargeAmount / 1.18) * 100) / 100,
+              amount: billAmount,
+              remarksSuffix: `on CC-2 Bill ₹${billAmount} (partner API)`,
+            }).catch((e) => console.error('[Partner Rechargekit Status] Revenue booking failed:', e))
+          }
         }
 
         if (txStatus === 'FAILED') {

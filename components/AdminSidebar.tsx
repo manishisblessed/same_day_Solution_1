@@ -46,7 +46,7 @@ const sidebarItems: SidebarItem[] = [
   { id: 'scheme-management', label: 'Scheme Management', icon: Layers, href: '/admin/scheme-management' },
   { id: 'pos-brands', label: 'Brands & Vendor Rates', icon: Building2, href: '/admin?tab=pos-brands' },
   { id: 'service-vendor-rates', label: 'Service Vendor Rates', icon: Layers, href: '/admin?tab=service-vendor-rates' },
-  { id: 'service-revenue', label: 'Service Revenue', icon: TrendingUp, href: '/admin?tab=service-revenue' },
+  { id: 'service-revenue', label: 'Per Transaction Revenue', icon: TrendingUp, href: '/admin?tab=service-revenue' },
   { id: 'partners', label: 'Partners', icon: Building2, href: '/admin?tab=partners', badge: undefined },
   { id: 'pos-machines', label: 'POS Machines', icon: CreditCard, href: '/admin?tab=pos-machines' },
   { id: 'pos-history', label: 'POS History', icon: History, href: '/admin?tab=pos-history' },

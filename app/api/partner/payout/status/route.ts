@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { authenticatePartner, PartnerAuthError, partnerCanUseApi } from '@/lib/partner-auth'
 import { getTransferStatus } from '@/services/payout'
+import { bookPartnerRevenue } from '@/lib/commission/partner-revenue'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -111,6 +112,21 @@ export async function GET(request: NextRequest) {
           if (['success', 'failed'].includes(statusResult.status)) updateData.completed_at = new Date().toISOString()
 
           await supabase.from('payout_transactions').update(updateData).eq('id', tx.id)
+
+          if (statusResult.status === 'success' && tx.charges > 0) {
+            // Partner payout charge always includes 18% GST — book ex-GST revenue.
+            bookPartnerRevenue({
+              supabase,
+              service: 'payout',
+              partnerId: tx.partner_id,
+              refKey: tx.client_ref_id,
+              baseCharge: Math.round((Number(tx.charges) / 1.18) * 100) / 100,
+              amount: Number(tx.amount),
+              mode: tx.transfer_mode,
+              transactionUuid: tx.id,
+              remarksSuffix: `on ₹${tx.amount} partner payout`,
+            }).catch((e) => console.error('[Partner Payout Status] Revenue booking failed:', e))
+          }
 
           // Auto-refund on failure
           if (statusResult.status === 'failed' && tx.wallet_debited && tx.partner_id) {

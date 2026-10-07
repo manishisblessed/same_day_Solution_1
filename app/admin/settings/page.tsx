@@ -1012,7 +1012,7 @@ export default function AdminSettings() {
                       </tr>
                     </thead>
                     <tbody>
-                      {subAdmins.map((admin) => (
+                      {subAdmins.filter(a => a.is_active !== false).map((admin) => (
                         <tr key={admin.id} className="border-b border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50">
                           <td className="py-3 px-4 text-sm text-gray-900 dark:text-white">{admin.name}</td>
                           <td className="py-3 px-4 text-sm text-gray-600 dark:text-gray-400">{admin.email}</td>
@@ -1081,7 +1081,7 @@ export default function AdminSettings() {
                           </td>
                         </tr>
                       ))}
-                      {subAdmins.length === 0 && (
+                      {subAdmins.filter(a => a.is_active !== false).length === 0 && (
                         <tr>
                           <td colSpan={5} className="py-8 text-center text-gray-500 dark:text-gray-400">
                             No sub-admins found. Click "Add Sub-Admin" to create one.
