@@ -49,6 +49,12 @@ function parseLedgerMeta(description: string) {
   const isRechargekit = /rechargekit|CC-2/i.test(text)
   const isPay2newCc = !isRechargekit && (/\bBBPS-2\s*CC\b/i.test(text) || /^CC\s*₹/i.test(text.trim()) || (/Card:/i.test(text) && /pay2new|BBPS-2|^CC\b/i.test(text)))
   const isPay2new = !isRechargekit && (isPay2newCc || /BBPS-2|pay2new/i.test(text) || /^CC\s*₹/i.test(text.trim()))
+  // Bank/card name: second pipe-delimited segment (e.g. "SBI Credit Card", "AXIS BANK CREDIT CARD")
+  const segments = text.split('|').map(s => s.trim())
+  let bank_name = '-'
+  if (segments.length >= 2 && !segments[1].includes(':')) {
+    bank_name = segments[1]
+  }
   return {
     totalChargeWithGst,
     charge,
@@ -56,6 +62,7 @@ function parseLedgerMeta(description: string) {
     card_number: cardMatch?.[1] || '-',
     mobile: mobMatch?.[1] || '-',
     customer_name: nameMatch?.[1]?.trim() || '-',
+    bank_name,
     isRechargekit,
     isPay2newCc,
     isPay2new,
@@ -314,7 +321,7 @@ export async function GET(request: NextRequest) {
         date: tx.created_at,
         transaction_id: tx.reference_id || tx.id,
         operator: source,
-        biller_name: '-',
+        biller_name: meta.bank_name,
         customer_name: meta.customer_name,
         mobile: meta.mobile,
         card_number: meta.card_number,
@@ -428,7 +435,7 @@ export async function GET(request: NextRequest) {
           date: tx.created_at,
           transaction_id: tx.reference_id || tx.id,
           operator: source,
-          biller_name: '-',
+          biller_name: meta.bank_name,
           customer_name: meta.customer_name,
           mobile: meta.mobile,
           card_number: meta.card_number,
@@ -567,6 +574,7 @@ export async function GET(request: NextRequest) {
       { header: 'Date', key: 'date', type: 'date' },
       { header: 'Transaction ID', key: 'transaction_id' },
       { header: 'Provider', key: 'operator' },
+      { header: 'Bank / Card Name', key: 'biller_name' },
       { header: 'User Type', key: 'user_type' },
       { header: 'User Name', key: 'user_name' },
       { header: 'User ID', key: 'user_id' },

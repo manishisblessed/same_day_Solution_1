@@ -469,7 +469,7 @@ export default function BillPaymentTransactionReport({ userRole, userName }: Bil
           <table className="w-full">
             <thead className="bg-gray-50 dark:bg-gray-900">
               <tr>
-                {['Date', 'Transaction ID', 'Provider', 'User', 'Customer Name', 'Mobile', 'Card / Consumer No', 'PAN', 'Bill Amount', 'Charge', 'GST', 'Total Debit', 'Reference No', 'Status'].map(col => (
+                {['Date', 'Transaction ID', 'Provider', 'Bank / Card', 'User', 'Customer Name', 'Mobile', 'Card / Consumer No', 'PAN', 'Bill Amount', 'Charge', 'GST', 'Total Debit', 'Reference No', 'Status'].map(col => (
                   <th key={col} className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase whitespace-nowrap">{col}</th>
                 ))}
               </tr>
@@ -477,7 +477,7 @@ export default function BillPaymentTransactionReport({ userRole, userName }: Bil
             <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
               {loading ? (
                 <tr>
-                  <td colSpan={13} className="px-6 py-16 text-center">
+                  <td colSpan={15} className="px-6 py-16 text-center">
                     <div className="flex flex-col items-center gap-3">
                       <Loader2 className="w-8 h-8 text-emerald-500 animate-spin" />
                       <span className="text-sm text-gray-500">Loading transactions...</span>
@@ -486,7 +486,7 @@ export default function BillPaymentTransactionReport({ userRole, userName }: Bil
                 </tr>
               ) : transactions.length === 0 ? (
                 <tr>
-                  <td colSpan={13} className="px-6 py-16 text-center text-gray-500 dark:text-gray-400">
+                  <td colSpan={15} className="px-6 py-16 text-center text-gray-500 dark:text-gray-400">
                     <div className="flex flex-col items-center gap-2">
                       <Receipt className="w-10 h-10 text-gray-300 dark:text-gray-600" />
                       <span>No transactions found</span>
@@ -508,9 +508,9 @@ export default function BillPaymentTransactionReport({ userRole, userName }: Bil
                       <span className={`inline-flex px-2 py-0.5 rounded text-[10px] font-semibold whitespace-nowrap ${getProviderClasses(txn.operator || txn.source || '')}`}>
                         {txn.operator || txn.source || '-'}
                       </span>
-                      {txn.biller_name && txn.biller_name !== '-' && (
-                        <div className="text-[10px] text-gray-500 mt-0.5 truncate max-w-[160px]" title={txn.biller_name}>{txn.biller_name}</div>
-                      )}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-700 dark:text-gray-300 whitespace-nowrap">
+                      {txn.biller_name && txn.biller_name !== '-' ? txn.biller_name : '-'}
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-1.5">

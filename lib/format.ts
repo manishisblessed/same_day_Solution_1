@@ -12,6 +12,20 @@ export function cleanDescription<T extends string | null | undefined>(desc: T): 
 }
 
 /**
+ * Extract bank/card name from a CC bill-payment description.
+ * e.g. "CC-2 (RechargeKit) ₹49999 + ₹23.6 charge | SBI Credit Card | Card:****9081"
+ *   -> "SBI Credit Card"
+ */
+export function parseBankName(desc?: string | null): string | null {
+  if (!desc) return null
+  const segments = desc.split('|').map(s => s.trim())
+  if (segments.length >= 2 && !segments[1].includes(':')) {
+    return segments[1]
+  }
+  return null
+}
+
+/**
  * Extract the base bill/transfer amount (excluding charges/GST) from a
  * credit-card bill-payment description like "CC ₹49900 + ₹30 charge | ...".
  * Returns null when the description isn't a CC bill-payment entry.

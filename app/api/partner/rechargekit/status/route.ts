@@ -26,11 +26,16 @@ async function checkUpstreamStatus(requestId: string): Promise<{
   try {
     const base = getRechargekitBaseUrl().replace(/\/$/, '')
     const token = getRechargekitApiToken()
-    const url = `${base}/recharge/statusCheck?partner_request_id=${encodeURIComponent(requestId)}`
+    const url = `${base}/recharge/statusCheck`
 
     const res = await fetch(url, {
-      method: 'GET',
-      headers: { Accept: 'application/json', Authorization: `Bearer ${token}` },
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ partner_request_id: requestId }),
       signal: AbortSignal.timeout(30000),
     })
     const data = await res.json()
@@ -206,7 +211,7 @@ export async function POST(request: NextRequest) {
         if (txStatus === 'SUCCESS') {
           await supabase
             .from('partner_wallet_ledger')
-            .update({ status: 'SUCCESS' })
+            .update({ status: 'completed' })
             .eq('id', debitEntry.id)
 
           if (billAmount && chargeAmount && chargeAmount > 0) {
@@ -241,7 +246,7 @@ export async function POST(request: NextRequest) {
           }
           await supabase
             .from('partner_wallet_ledger')
-            .update({ status: 'FAILED' })
+            .update({ status: 'failed' })
             .eq('id', debitEntry.id)
         }
       }

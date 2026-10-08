@@ -60,7 +60,10 @@ export async function GET(request: NextRequest) {
       if (status && status !== 'all') pq = pq.eq('status', status)
       if (dateFrom) pq = pq.gte('created_at', `${dateFrom}T00:00:00`)
       if (dateTo) pq = pq.lte('created_at', `${dateTo}T23:59:59`)
-      if (q) pq = pq.ilike('description', `%${q.replace(/%/g, '\\%')}%`)
+      if (q) {
+        const escaped = q.replace(/%/g, '\\%')
+        pq = pq.or(`description.ilike.%${escaped}%,reference_id.ilike.%${escaped}%`)
+      }
       // wallet_type doesn't exist on the partner ledger — ignored
 
       const from = (page - 1) * limit
@@ -143,7 +146,8 @@ export async function GET(request: NextRequest) {
       query = query.lte('created_at', `${dateTo}T23:59:59`)
     }
     if (q) {
-      query = query.ilike('description', `%${q.replace(/%/g, '\\%')}%`)
+      const escaped = q.replace(/%/g, '\\%')
+      query = query.or(`description.ilike.%${escaped}%,reference_id.ilike.%${escaped}%`)
     }
 
     const from = (page - 1) * limit

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { apiFetch } from '@/lib/api-client'
-import { cleanDescription } from '@/lib/format'
+import { cleanDescription, parseBankName } from '@/lib/format'
 import {
   RefreshCw, Search, ChevronLeft, ChevronRight, BookOpen,
   FileSpreadsheet, FileText, Loader2,
@@ -393,8 +393,13 @@ export default function AdminWalletLedgerTab() {
                       })}
                     </td>
                     <td className="px-3 py-2 text-xs">{e.status || '—'}</td>
-                    <td className="px-3 py-2 text-xs text-gray-600 dark:text-gray-400 max-w-xs truncate" title={cleanDescription(e.description)}>
-                      {cleanDescription(e.description) || e.reference_id || '—'}
+                    <td className="px-3 py-2 text-xs text-gray-600 dark:text-gray-400 max-w-xs" title={cleanDescription(e.description)}>
+                      {parseBankName(e.description) && (
+                        <span className="inline-block px-1.5 py-0.5 rounded bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 text-[10px] font-medium mb-0.5 mr-1">
+                          {parseBankName(e.description)}
+                        </span>
+                      )}
+                      <span className="truncate block max-w-xs">{cleanDescription(e.description) || e.reference_id || '—'}</span>
                     </td>
                   </tr>
                 ))
