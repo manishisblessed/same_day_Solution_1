@@ -7,6 +7,52 @@ import { getPlatformRevenueWalletConfig } from '@/lib/wallet/platform-revenue-wa
 export const dynamic = 'force-dynamic'
 
 /**
+ * Resolve a free-text search term to wallet-ledger `reference_id`s via related
+ * provider tables. Lets admins find a ledger row (debit AND its REFUND_) by data
+ * that isn't stored on the ledger itself — e.g. Shadval provider order_id, UTR,
+ * beneficiary bank account number, or beneficiary name.
+ */
+async function resolveRelatedRefIds(supabase: any, q: string): Promise<string[]> {
+  const escaped = q.replace(/[%_]/g, (c: string) => `\\${c}`)
+  const refIds = new Set<string>()
+  try {
+    const { data } = await supabase
+      .from('shadval_settlement')
+      .select('reference_id')
+      .or(
+        `order_id.ilike.%${escaped}%,utr.ilike.%${escaped}%,` +
+        `internal_ref_id.ilike.%${escaped}%,account_number.ilike.%${escaped}%,` +
+        `account_holder_name.ilike.%${escaped}%`
+      )
+      .limit(50)
+    for (const r of data || []) {
+      if (r?.reference_id) {
+        refIds.add(r.reference_id)
+        refIds.add(`REFUND_${r.reference_id}`)
+      }
+    }
+  } catch {
+    // table absent in some envs — ignore and fall back to description/reference_id match
+  }
+  return Array.from(refIds)
+}
+
+/**
+ * Build the PostgREST `.or()` filter string for a wallet-ledger search term:
+ * matches description/reference_id directly, plus any reference_id resolved from
+ * related provider tables (so provider order_id / UTR / account number work too).
+ */
+function buildLedgerSearchOr(q: string, relatedRefIds: string[]): string {
+  const escaped = q.replace(/%/g, '\\%')
+  const parts = [`description.ilike.%${escaped}%`, `reference_id.ilike.%${escaped}%`]
+  for (const ref of relatedRefIds) {
+    // reference_ids never contain commas/parens, so they're safe inside .or()
+    parts.push(`reference_id.eq.${ref}`)
+  }
+  return parts.join(',')
+}
+
+/**
  * GET /api/admin/wallet/ledger
  * Paginated wallet_ledger for all users (admin). Query:
  * - page, limit (max 100)
@@ -61,8 +107,8 @@ export async function GET(request: NextRequest) {
       if (dateFrom) pq = pq.gte('created_at', `${dateFrom}T00:00:00`)
       if (dateTo) pq = pq.lte('created_at', `${dateTo}T23:59:59`)
       if (q) {
-        const escaped = q.replace(/%/g, '\\%')
-        pq = pq.or(`description.ilike.%${escaped}%,reference_id.ilike.%${escaped}%`)
+        const relatedRefIds = await resolveRelatedRefIds(supabase, q)
+        pq = pq.or(buildLedgerSearchOr(q, relatedRefIds))
       }
       // wallet_type doesn't exist on the partner ledger — ignored
 
@@ -146,8 +192,8 @@ export async function GET(request: NextRequest) {
       query = query.lte('created_at', `${dateTo}T23:59:59`)
     }
     if (q) {
-      const escaped = q.replace(/%/g, '\\%')
-      query = query.or(`description.ilike.%${escaped}%,reference_id.ilike.%${escaped}%`)
+      const relatedRefIds = await resolveRelatedRefIds(supabase, q)
+      query = query.or(buildLedgerSearchOr(q, relatedRefIds))
     }
 
     const from = (page - 1) * limit

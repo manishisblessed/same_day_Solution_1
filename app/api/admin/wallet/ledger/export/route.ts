@@ -6,6 +6,40 @@ import { htmlToPdf } from '@/lib/pdf/html-to-pdf'
 
 export const dynamic = 'force-dynamic'
 
+/** Resolve a search term to related wallet-ledger reference_ids (Shadval provider
+ *  order_id / UTR / bank account / beneficiary name → ledger reference_id + REFUND_). */
+async function resolveRelatedRefIds(supabase: any, q: string): Promise<string[]> {
+  const escaped = q.replace(/[%_]/g, (c: string) => `\\${c}`)
+  const refIds = new Set<string>()
+  try {
+    const { data } = await supabase
+      .from('shadval_settlement')
+      .select('reference_id')
+      .or(
+        `order_id.ilike.%${escaped}%,utr.ilike.%${escaped}%,` +
+        `internal_ref_id.ilike.%${escaped}%,account_number.ilike.%${escaped}%,` +
+        `account_holder_name.ilike.%${escaped}%`
+      )
+      .limit(50)
+    for (const r of data || []) {
+      if (r?.reference_id) {
+        refIds.add(r.reference_id)
+        refIds.add(`REFUND_${r.reference_id}`)
+      }
+    }
+  } catch {
+    // table absent in some envs — ignore
+  }
+  return Array.from(refIds)
+}
+
+function buildLedgerSearchOr(q: string, relatedRefIds: string[]): string {
+  const escaped = q.replace(/%/g, '\\%')
+  const parts = [`description.ilike.%${escaped}%`, `reference_id.ilike.%${escaped}%`]
+  for (const ref of relatedRefIds) parts.push(`reference_id.eq.${ref}`)
+  return parts.join(',')
+}
+
 /**
  * GET /api/admin/wallet/ledger/export
  * Export wallet ledger as CSV or Excel (admin only).
@@ -61,6 +95,9 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Platform revenue wallet not configured' }, { status: 400 })
     }
 
+    // Resolve related provider refs once (buildQuery runs repeatedly for pagination).
+    const relatedRefIds = q ? await resolveRelatedRefIds(supabase, q) : []
+
     // Single query factory reused by both the streaming (CSV) and buffered (Excel/PDF)
     // paths. Must return a fresh, ordered builder each call so pagination is deterministic.
     const buildQuery = () => {
@@ -72,10 +109,7 @@ export async function GET(request: NextRequest) {
         if (status && status !== 'all') pq = pq.eq('status', status)
         if (dateFrom) pq = pq.gte('created_at', `${dateFrom}T00:00:00`)
         if (dateTo) pq = pq.lte('created_at', `${dateTo}T23:59:59`)
-        if (q) {
-          const escaped = q.replace(/%/g, '\\%')
-          pq = pq.or(`description.ilike.%${escaped}%,reference_id.ilike.%${escaped}%`)
-        }
+        if (q) pq = pq.or(buildLedgerSearchOr(q, relatedRefIds))
         return pq.order('created_at', { ascending: false })
       }
       let query = supabase
@@ -94,10 +128,7 @@ export async function GET(request: NextRequest) {
       if (status && status !== 'all') query = query.eq('status', status)
       if (dateFrom) query = query.gte('created_at', `${dateFrom}T00:00:00`)
       if (dateTo) query = query.lte('created_at', `${dateTo}T23:59:59`)
-      if (q) {
-        const escaped = q.replace(/%/g, '\\%')
-        query = query.or(`description.ilike.%${escaped}%,reference_id.ilike.%${escaped}%`)
-      }
+      if (q) query = query.or(buildLedgerSearchOr(q, relatedRefIds))
       return query.order('created_at', { ascending: false })
     }
 

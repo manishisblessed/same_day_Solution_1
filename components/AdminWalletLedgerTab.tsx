@@ -313,13 +313,13 @@ export default function AdminWalletLedgerTab() {
           <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className={inputCls} />
         </div>
         <div className="flex-1 min-w-[180px]">
-          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Search description</label>
+          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Search</label>
           <div className="relative">
             <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
             <input
               value={q}
               onChange={(e) => setQ(e.target.value)}
-              placeholder="Notes / description…"
+              placeholder="Ref ID, order ID, UTR, account no, name…"
               className={`w-full pl-8 ${inputCls}`}
             />
           </div>
