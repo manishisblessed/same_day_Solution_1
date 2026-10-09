@@ -5,11 +5,11 @@ import { apiFetch } from '@/lib/api-client'
 import { Terminal, Loader2, ChevronDown, ChevronUp } from 'lucide-react'
 
 const MERCHANT_OPTIONS = [
-  { value: 'ashvam', label: 'ASHVAM LEARNING' },
-  { value: 'teachway', label: 'Teachway Education' },
-  { value: 'newscenaric', label: 'New Scenaric Travels' },
-  { value: 'lagoon', label: 'Lagoon Craft Labs' },
-  { value: 'avika', label: 'Avika Departmental' },
+  { value: 'ashvam', label: 'ASHVAM' },
+  { value: 'teachway', label: 'TEACHWAY - AXIS' },
+  { value: 'newscenaric', label: 'NEW SCENARIC - HDFC' },
+  { value: 'lagoon', label: 'LAGOON - HDFC' },
+  { value: 'avika', label: 'AVIKA - HDFC' },
 ] as const
 
 const PAY_MODES = ['CASH', 'UPI', 'BHARATQR', 'CARD', 'AMAZONPAY'] as const

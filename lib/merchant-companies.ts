@@ -5,22 +5,24 @@
 export const POS_MERCHANT_SLUGS = ['ashvam', 'teachway', 'newscenaric', 'lagoon', 'avika', 'samedaytours'] as const
 export type POSMerchantSlug = (typeof POS_MERCHANT_SLUGS)[number]
 
+// Bank-suffixed brand labels shown across all POS surfaces. Avika is split by
+// machine fleet (HDFC vs Axis); this single-slug entry is the HDFC default.
 const DISPLAY_NAMES: Record<string, string> = {
-  ashvam: 'ASHVAM LEARNING PRIVATE LIMITED',
-  teachway: 'Teachway Education Private Limited',
-  newscenaric: 'New Scenaric Travels',
-  lagoon: 'LAGOON CRAFT LABS SOLUTIONS PRIVATE LIMITED',
-  avika: 'Avika Departmental Private Limited',
-  samedaytours: 'SAMEDAY TOUR AND TRAVELS PRIVATE LIMITED',
+  ashvam: 'ASHVAM',
+  teachway: 'TEACHWAY - AXIS',
+  newscenaric: 'NEW SCENARIC - HDFC',
+  lagoon: 'LAGOON - HDFC',
+  avika: 'AVIKA - HDFC',
+  samedaytours: 'SAMEDAY - HDFC',
 }
 
 const SHORT_NAMES: Record<string, string> = {
   ashvam: 'ASHVAM',
-  teachway: 'Teachway',
-  newscenaric: 'New Scenaric',
-  lagoon: 'Lagoon',
-  avika: 'Avika',
-  samedaytours: 'Sameday Tours',
+  teachway: 'TEACHWAY - AXIS',
+  newscenaric: 'NEW SCENARIC - HDFC',
+  lagoon: 'LAGOON - HDFC',
+  avika: 'AVIKA - HDFC',
+  samedaytours: 'SAMEDAY - HDFC',
 }
 
 export interface PosCompany {

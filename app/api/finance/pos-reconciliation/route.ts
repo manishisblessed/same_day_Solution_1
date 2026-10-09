@@ -26,14 +26,14 @@ function round2(n: number): number {
 }
 
 function getCompanyName(merchantName: string | null, slug: string | null): string {
-  if (merchantName) return merchantName
-  switch (slug) {
-    case 'ashvam': return 'ASHVAM LEARNING PRIVATE LIMITED'
-    case 'teachway': return 'Teachway Education Private Limited'
-    case 'newscenaric': return 'New Scenaric Travels'
-    case 'lagoon': return 'LAGOON CRAFT LABS SOLUTIONS PRIVATE LIMITED'
-    case 'avika': return 'Avika Departmental Private Limited'
-    default: return 'ASHVAM LEARNING PRIVATE LIMITED'
+  switch ((slug || '').toLowerCase().trim()) {
+    case 'ashvam': return 'ASHVAM'
+    case 'teachway': return 'TEACHWAY - AXIS'
+    case 'newscenaric': return 'NEW SCENARIC - HDFC'
+    case 'lagoon': return 'LAGOON - HDFC'
+    case 'avika': return 'AVIKA - HDFC'
+    case 'samedaytours': return 'SAMEDAY - HDFC'
+    default: return merchantName || 'ASHVAM'
   }
 }
 

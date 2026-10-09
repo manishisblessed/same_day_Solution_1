@@ -19,7 +19,7 @@ export function isMachineGroup(v: string | null | undefined): v is MachineGroup 
 
 /** Human-friendly label for a fleet group. */
 export function machineGroupLabel(group: MachineGroup): string {
-  return group === AVIKA_AXIS ? 'Avika-Axis' : 'Avika-HDFC'
+  return group === AVIKA_AXIS ? 'AVIKA - AXIS' : 'AVIKA - HDFC'
 }
 
 /**
@@ -28,11 +28,12 @@ export function machineGroupLabel(group: MachineGroup): string {
  * separately because it is split by machine (see companyFleetLabel).
  */
 const COMPANY_FLEET_LABELS: Record<string, string> = {
-  teachway: 'TW AXIS',
-  samedaytours: 'SD T&T HDFC',
-  lagoon: 'Lagoon Paytm', // active once the Lagoon (Paytm) API is enabled
-  ashvam: 'ASHVAM',       // no acquirer suffix (confirmed)
-  newscenaric: 'New Scenaric', // no acquirer suffix (confirmed)
+  teachway: 'TEACHWAY - AXIS',
+  samedaytours: 'SAMEDAY - HDFC',
+  lagoon: 'LAGOON - HDFC',
+  ashvam: 'ASHVAM',             // no acquirer suffix (confirmed)
+  newscenaric: 'NEW SCENARIC - HDFC',
+  avika: 'AVIKA - HDFC',        // default when no machine fleet is resolved
 }
 
 /**
@@ -65,7 +66,8 @@ export async function getAxisTidSet(supabase: SupabaseClient): Promise<Set<strin
     const { data, error } = await supabase
       .from('pos_machines')
       .select('tid')
-      .ilike('brand', '%AVIKA-AXIS%')
+      // Match both legacy 'AVIKA-AXIS' and new 'AVIKA - AXIS' free-text tags.
+      .ilike('brand', '%AVIKA%AXIS%')
       .not('tid', 'is', null)
       .range(from, from + PAGE - 1)
 

@@ -211,14 +211,14 @@ export async function GET(request: NextRequest) {
 
     // Company name mapping
     const getCompanyName = (slug: string | null) => {
-      switch (slug) {
-        case 'ashvam': return 'ASHVAM LEARNING PRIVATE LIMITED'
-        case 'teachway': return 'Teachway Education Private Limited'
-        case 'newscenaric': return 'New Scenaric Travels'
-        case 'lagoon': return 'LAGOON CRAFT LABS SOLUTIONS PRIVATE LIMITED'
-        case 'avika': return 'Avika Departmental Private Limited'
-        case 'samedaytours': return 'SAMEDAY TOUR AND TRAVELS PRIVATE LIMITED'
-        default: return slug || 'ASHVAM LEARNING PRIVATE LIMITED'
+      switch ((slug || '').toLowerCase().trim()) {
+        case 'ashvam': return 'ASHVAM'
+        case 'teachway': return 'TEACHWAY - AXIS'
+        case 'newscenaric': return 'NEW SCENARIC - HDFC'
+        case 'lagoon': return 'LAGOON - HDFC'
+        case 'avika': return 'AVIKA - HDFC'
+        case 'samedaytours': return 'SAMEDAY - HDFC'
+        default: return slug || 'ASHVAM'
       }
     }
 
@@ -249,7 +249,7 @@ export async function GET(request: NextRequest) {
         'Settlement Status': txn.settlement_status || 'PENDING',
         'Consumer Name': txn.customer_name || txn.payer_name || '',
         'Username': txn.username || '',
-        'Company Name': txn.merchant_name || getCompanyName(txn.merchant_slug),
+        'Company Name': getCompanyName(txn.merchant_slug),
         'Fleet': companyFleetLabel({
           merchantSlug: txn.merchant_slug,
           machineGroup: resolveMachineGroup({ merchantSlug: txn.merchant_slug, tid: txn.tid, axisTids }),

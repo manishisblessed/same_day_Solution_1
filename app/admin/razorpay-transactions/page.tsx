@@ -168,13 +168,13 @@ function RazorpayTransactionsPageContent() {
   
   // Company options (full canonical list)
   const allCompanyOptions = [
-    { slug: 'ashvam', name: 'ASHVAM LEARNING PRIVATE LIMITED', shortName: 'ASHVAM' },
-    { slug: 'teachway', name: 'Teachway Education Private Limited', shortName: 'Teachway' },
-    { slug: 'newscenaric', name: 'New Scenaric Travels', shortName: 'New Scenaric' },
-    { slug: 'lagoon', name: 'LAGOON CRAFT LABS SOLUTIONS PRIVATE LIMITED', shortName: 'Lagoon' },
-    { slug: 'AVIKA-HDFC', name: 'Avika Departmental Private Limited — HDFC (Pine Labs)', shortName: 'Avika-HDFC' },
-    { slug: 'AVIKA-AXIS', name: 'Avika Departmental Private Limited — Axis (Pine Labs)', shortName: 'Avika-Axis' },
-    { slug: 'samedaytours', name: 'SAMEDAY TOUR AND TRAVELS PRIVATE LIMITED', shortName: 'Sameday Tours' },
+    { slug: 'ashvam', name: 'ASHVAM', shortName: 'ASHVAM' },
+    { slug: 'teachway', name: 'TEACHWAY - AXIS', shortName: 'TEACHWAY - AXIS' },
+    { slug: 'newscenaric', name: 'NEW SCENARIC - HDFC', shortName: 'NEW SCENARIC - HDFC' },
+    { slug: 'lagoon', name: 'LAGOON - HDFC', shortName: 'LAGOON - HDFC' },
+    { slug: 'AVIKA-HDFC', name: 'AVIKA - HDFC', shortName: 'AVIKA - HDFC' },
+    { slug: 'AVIKA-AXIS', name: 'AVIKA - AXIS', shortName: 'AVIKA - AXIS' },
+    { slug: 'samedaytours', name: 'SAMEDAY - HDFC', shortName: 'SAMEDAY - HDFC' },
   ]
 
   // Companies shown in the filter dropdown: active only, unless "show archived" is on
@@ -1141,8 +1141,8 @@ function RazorpayTransactionsPageContent() {
                   title="Filter Avika transactions by machine fleet (HDFC / Axis)"
                 >
                   <option value="">All Fleets</option>
-                  <option value="AVIKA-HDFC">Avika-HDFC</option>
-                  <option value="AVIKA-AXIS">Avika-Axis</option>
+                  <option value="AVIKA-HDFC">AVIKA - HDFC</option>
+                  <option value="AVIKA-AXIS">AVIKA - AXIS</option>
                   <option value="teachway">{companyFleetLabel({ merchantSlug: 'teachway' })}</option>
                   <option value="samedaytours">{companyFleetLabel({ merchantSlug: 'samedaytours' })}</option>
                   <option value="lagoon">{companyFleetLabel({ merchantSlug: 'lagoon' })}</option>
@@ -1312,13 +1312,13 @@ function RazorpayTransactionsPageContent() {
                       <select value={colFilters['company'] || ''} onChange={e => setColFilter('company', e.target.value)} className="w-full px-1 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-1 focus:ring-primary-500 focus:border-transparent min-w-[90px]">
                         <option value="">All</option>
                         <option value="ashvam">ASHVAM</option>
-                        <option value="teachway">Teachway</option>
-                        <option value="newscenaric">New Scenaric</option>
-                        <option value="lagoon">Lagoon</option>
-                        <option value="avika">Avika (all)</option>
-                        <option value="AVIKA-HDFC">Avika-HDFC</option>
-                        <option value="AVIKA-AXIS">Avika-Axis</option>
-                        <option value="samedaytours">Sameday Tours</option>
+                        <option value="teachway">TEACHWAY - AXIS</option>
+                        <option value="newscenaric">NEW SCENARIC - HDFC</option>
+                        <option value="lagoon">LAGOON - HDFC</option>
+                        <option value="avika">AVIKA (all)</option>
+                        <option value="AVIKA-HDFC">AVIKA - HDFC</option>
+                        <option value="AVIKA-AXIS">AVIKA - AXIS</option>
+                        <option value="samedaytours">SAMEDAY - HDFC</option>
                       </select>
                     </th>
                     {/* Provider */}
@@ -1454,24 +1454,8 @@ function RazorpayTransactionsPageContent() {
                           <td className="px-3 py-3 whitespace-nowrap text-xs text-gray-600 dark:text-gray-400 max-w-[140px] truncate" title={txn.customer_name || txn.payer_name || '-'}>
                             {txn.customer_name || txn.payer_name || '-'}
                           </td>
-                          <td className="px-3 py-3 whitespace-nowrap text-xs text-gray-600 dark:text-gray-400 max-w-[140px] truncate" title={
-                            txn.machine_group === 'AVIKA-AXIS' ? 'Avika Departmental Private Limited — Axis (Pine Labs)' :
-                            txn.machine_group === 'AVIKA-HDFC' ? 'Avika Departmental Private Limited — HDFC (Pine Labs)' :
-                            txn.merchant_slug === 'ashvam' ? 'ASHVAM LEARNING PRIVATE LIMITED' :
-                            txn.merchant_slug === 'teachway' ? 'Teachway Education Private Limited' :
-                            txn.merchant_slug === 'newscenaric' ? 'New Scenaric Travels' :
-                            txn.merchant_slug === 'lagoon' ? 'LAGOON CRAFT LABS SOLUTIONS PRIVATE LIMITED' :
-                            txn.merchant_slug === 'avika' ? 'Avika Departmental Private Limited' :
-                            txn.merchant_slug === 'samedaytours' ? 'SAMEDAY TOUR AND TRAVELS PRIVATE LIMITED' : (txn.merchant_slug || 'ASHVAM')
-                          }>
-                            {txn.machine_group === 'AVIKA-AXIS' ? 'Avika-Axis' :
-                             txn.machine_group === 'AVIKA-HDFC' ? 'Avika-HDFC' :
-                             txn.merchant_slug === 'ashvam' ? 'ASHVAM' :
-                             txn.merchant_slug === 'teachway' ? 'Teachway' :
-                             txn.merchant_slug === 'newscenaric' ? 'New Scenaric' :
-                             txn.merchant_slug === 'lagoon' ? 'Lagoon' :
-                             txn.merchant_slug === 'avika' ? 'Avika' :
-                             txn.merchant_slug === 'samedaytours' ? 'Sameday Tours' : (txn.merchant_slug ? String(txn.merchant_slug) : 'ASHVAM')}
+                          <td className="px-3 py-3 whitespace-nowrap text-xs text-gray-600 dark:text-gray-400 max-w-[140px] truncate" title={companyFleetLabel({ merchantSlug: txn.merchant_slug, machineGroup: txn.machine_group })}>
+                            {companyFleetLabel({ merchantSlug: txn.merchant_slug, machineGroup: txn.machine_group }) || 'ASHVAM'}
                           </td>
                           <td className="px-3 py-3 whitespace-nowrap text-xs text-gray-600 dark:text-gray-400">
                             <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300">
@@ -1582,12 +1566,7 @@ function RazorpayTransactionsPageContent() {
                                       <DetailItem label="Status" value={txn.status} />
                                       <DetailItem label="Settlement Status" value={txn.settlement_status} />
                                       <DetailItem icon={<Building className="w-4 h-4" />} label="Company" value={
-                                        txn.merchant_slug === 'ashvam' ? 'ASHVAM LEARNING PRIVATE LIMITED' :
-                                        txn.merchant_slug === 'teachway' ? 'Teachway Education Private Limited' :
-                                        txn.merchant_slug === 'newscenaric' ? 'New Scenaric Travels' :
-                                        txn.merchant_slug === 'lagoon' ? 'LAGOON CRAFT LABS SOLUTIONS PRIVATE LIMITED' :
-                                        txn.merchant_slug === 'avika' ? 'Avika Departmental Private Limited' :
-                                        txn.merchant_slug === 'samedaytours' ? 'SAMEDAY TOUR AND TRAVELS PRIVATE LIMITED' : (txn.merchant_slug || 'ASHVAM LEARNING PRIVATE LIMITED')
+                                        companyFleetLabel({ merchantSlug: txn.merchant_slug, machineGroup: txn.machine_group }) || 'ASHVAM'
                                       } />
                                       <DetailItem label="Fleet" value={companyFleetLabel({ merchantSlug: txn.merchant_slug, machineGroup: txn.machine_group })} />
                                       <DetailItem label="Service Provider" value={txn.service_provider || 'RAZORPAY'} />

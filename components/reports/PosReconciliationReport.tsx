@@ -36,11 +36,12 @@ interface Summary {
 
 const COMPANY_OPTIONS = [
   { value: 'all', label: 'All companies' },
-  { value: 'ashvam', label: 'Ashvam' },
-  { value: 'teachway', label: 'Teachway' },
-  { value: 'newscenaric', label: 'New Scenaric' },
-  { value: 'lagoon', label: 'Lagoon' },
-  { value: 'avika', label: 'Avika' },
+  { value: 'ashvam', label: 'ASHVAM' },
+  { value: 'teachway', label: 'TEACHWAY - AXIS' },
+  { value: 'newscenaric', label: 'NEW SCENARIC - HDFC' },
+  { value: 'lagoon', label: 'LAGOON - HDFC' },
+  { value: 'avika', label: 'AVIKA - HDFC' },
+  { value: 'samedaytours', label: 'SAMEDAY - HDFC' },
 ]
 const BRAND_OPTIONS = ['all', 'VISA', 'MASTER_CARD', 'RUPAY', 'AMEX', 'MAESTRO']
 const MODE_OPTIONS = ['all', 'CARD', 'UPI']

@@ -104,7 +104,10 @@ async function applyServiceVendorFloor(params: {
         company_charge_type: rateTypeToCharge(resolved.vendor_rate_type),
         vendor_rate: Number(resolved.vendor_rate.toFixed(4)),
         company_mdr_rate: Number(exGstVendorRaw.toFixed(4)),
-        gst_inclusive: resolved.gst_inclusive,
+        // NOTE: do NOT return gst_inclusive here. `resolved.gst_inclusive` is the
+        // VENDOR card's flag (whether the vendor's cost includes GST) and is used
+        // above only to derive the ex-GST vendor cost. Whether the CUSTOMER is
+        // charged GST on the slab is the user's checkbox (input.gst_inclusive).
       },
     };
   } catch (e) {

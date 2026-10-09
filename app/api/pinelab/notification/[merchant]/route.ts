@@ -13,12 +13,12 @@ export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 const VALID_MERCHANTS: Record<string, string> = {
-  avika: 'Avika Departmental Private Limited',
-  ashvam: 'ASHVAM LEARNING PRIVATE LIMITED',
-  teachway: 'Teachway Education Private Limited',
-  newscenaric: 'New Scenaric Travels',
-  lagoon: 'LAGOON CRAFT LABS SOLUTIONS PRIVATE LIMITED',
-  samedaytours: 'SAMEDAY TOUR AND TRAVELS PRIVATE LIMITED',
+  avika: 'AVIKA - HDFC',
+  ashvam: 'ASHVAM',
+  teachway: 'TEACHWAY - AXIS',
+  newscenaric: 'NEW SCENARIC - HDFC',
+  lagoon: 'LAGOON - HDFC',
+  samedaytours: 'SAMEDAY - HDFC',
 }
 
 /**

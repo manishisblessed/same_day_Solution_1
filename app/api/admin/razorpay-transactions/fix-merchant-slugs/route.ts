@@ -93,10 +93,12 @@ export async function POST(request: NextRequest) {
 
       if (commit) {
         const merchantNames: Record<string, string> = {
-          ashvam: 'ASHVAM LEARNING PRIVATE LIMITED',
-          teachway: 'Teachway Education Private Limited',
-          newscenaric: 'New Scenaric Travels',
-          lagoon: 'LAGOON CRAFT LABS SOLUTIONS PRIVATE LIMITED',
+          ashvam: 'ASHVAM',
+          teachway: 'TEACHWAY - AXIS',
+          newscenaric: 'NEW SCENARIC - HDFC',
+          lagoon: 'LAGOON - HDFC',
+          avika: 'AVIKA - HDFC',
+          samedaytours: 'SAMEDAY - HDFC',
         }
         await supabase
           .from('razorpay_pos_transactions')

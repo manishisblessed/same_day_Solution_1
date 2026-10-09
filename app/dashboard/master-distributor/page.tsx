@@ -354,6 +354,13 @@ function MasterDistributorDashboardContent() {
                 </p>
               </div>
               <div className="flex items-center gap-2 flex-shrink-0">
+                <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-gradient-to-r from-yellow-500 to-yellow-600 text-white shadow-sm">
+                  <Wallet className="w-4 h-4" />
+                  <div className="leading-tight">
+                    <p className="text-[10px] font-medium opacity-90">Available Balance</p>
+                    <p className="text-sm font-bold">₹{stats.walletBalance.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                  </div>
+                </div>
                 <button
                   onClick={() => { setRefreshing(true); fetchDashboardData() }}
                   disabled={refreshing}
@@ -829,6 +836,28 @@ function NetworkTab({ distributors, retailers, user, onRefresh, defaultView, onN
     approved_mdr_rate: ''
   })
 
+  // Master-distributor + target balances
+  const [masterBalance, setMasterBalance] = useState<number>(0)
+  const [targetBalance, setTargetBalance] = useState<number>(0)
+  const [balancesLoading, setBalancesLoading] = useState(false)
+
+  const fetchTransferBalances = useCallback(async (targetPartnerId: string) => {
+    if (!user?.partner_id || !targetPartnerId) return
+    setBalancesLoading(true)
+    try {
+      const [mdBal, tgtBal] = await Promise.all([
+        secureDb.rpc('get_wallet_balance_v2', { p_user_id: user.partner_id, p_wallet_type: 'primary' }),
+        secureDb.rpc('get_wallet_balance_v2', { p_user_id: targetPartnerId, p_wallet_type: 'primary' })
+      ])
+      setMasterBalance(mdBal.data || 0)
+      setTargetBalance(tgtBal.data || 0)
+    } catch (err) {
+      console.error('Error fetching balances:', err)
+    } finally {
+      setBalancesLoading(false)
+    }
+  }, [user?.partner_id])
+
   // RT count per DT partner_id (for "# Retailers" column in distributors table)
   const rtCountByDT = useMemo(() => {
     const map: Record<string, number> = {}
@@ -1183,6 +1212,7 @@ function NetworkTab({ distributors, retailers, user, onRefresh, defaultView, onN
                         <button
                           onClick={() => {
                             setSelectedUser({ ...item, user_type: selectedType === 'distributors' ? 'distributor' : 'retailer' })
+                            fetchTransferBalances(item.partner_id)
                             setShowFundTransfer(true)
                           }}
                           className="p-2 text-green-600 hover:bg-green-50 rounded"
@@ -1193,6 +1223,7 @@ function NetworkTab({ distributors, retailers, user, onRefresh, defaultView, onN
                         <button
                           onClick={() => {
                             setSelectedUser({ ...item, user_type: selectedType === 'distributors' ? 'distributor' : 'retailer' })
+                            fetchTransferBalances(item.partner_id)
                             setShowFundTransfer(true)
                           }}
                           className="p-2 text-red-600 hover:bg-red-50 rounded"
@@ -1285,9 +1316,19 @@ function NetworkTab({ distributors, retailers, user, onRefresh, defaultView, onN
             className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6"
           >
             <h3 className="text-xl font-bold mb-4">Fund Transfer</h3>
-            <div className="mb-4">
+            <div className="mb-4 space-y-2">
               <p className="text-sm text-gray-600">User: {selectedUser.name}</p>
               <p className="text-sm text-gray-600">Partner ID: {selectedUser.partner_id}</p>
+              <div className="grid grid-cols-2 gap-3 mt-3">
+                <div className="bg-purple-50 border border-purple-200 rounded-lg p-3">
+                  <p className="text-xs text-purple-600 font-medium">Your Balance</p>
+                  <p className="text-lg font-bold text-purple-700">{balancesLoading ? '...' : `₹${masterBalance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`}</p>
+                </div>
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                  <p className="text-xs text-blue-600 font-medium">{selectedUser.user_type === 'retailer' || selectedType === 'retailers' ? 'Retailer' : 'Distributor'} Balance</p>
+                  <p className="text-lg font-bold text-blue-700">{balancesLoading ? '...' : `₹${targetBalance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`}</p>
+                </div>
+              </div>
             </div>
             <div className="space-y-4">
               <div>
