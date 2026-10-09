@@ -1633,6 +1633,7 @@ function MDRSchemesTab({ user }: { user: any }) {
             effective_to,
             bbps_commissions:scheme_bbps_commissions (*),
             payout_charges:scheme_payout_charges (*),
+            shadval_settlement_charges:scheme_shadval_settlement_charges (*),
             mdr_rates:scheme_mdr_rates (
               id, scheme_id, mode, card_type, brand_type, card_classification, merchant_slug,
               retailer_mdr_t1, retailer_mdr_t0, distributor_mdr_t1, distributor_mdr_t0,
@@ -2104,11 +2105,27 @@ function MDRSchemesTab({ user }: { user: any }) {
         const allPayoutCharges: any[] = []
         const allSchemes = [...customSchemes, ...globalSchemes]
         allSchemes.forEach((scheme: any) => {
+          // Payout charges (scheme_payout_charges)
           if (scheme.payout_charges && Array.isArray(scheme.payout_charges) && scheme.payout_charges.length > 0) {
             scheme.payout_charges.forEach((charge: any) => {
               if (charge && charge.status === 'active') {
                 allPayoutCharges.push({
                   ...charge,
+                  _type: 'Payout',
+                  scheme_name: scheme.name,
+                  scheme_type: scheme.scheme_type,
+                  effective_date: scheme.mapping_effective_from || scheme.effective_from || charge.created_at,
+                })
+              }
+            })
+          }
+          // Settlement-2 charges (scheme_shadval_settlement_charges)
+          if (scheme.shadval_settlement_charges && Array.isArray(scheme.shadval_settlement_charges) && scheme.shadval_settlement_charges.length > 0) {
+            scheme.shadval_settlement_charges.forEach((charge: any) => {
+              if (charge && charge.status === 'active') {
+                allPayoutCharges.push({
+                  ...charge,
+                  _type: 'Settlement-2',
                   scheme_name: scheme.name,
                   scheme_type: scheme.scheme_type,
                   effective_date: scheme.mapping_effective_from || scheme.effective_from || charge.created_at,
@@ -2135,14 +2152,15 @@ function MDRSchemesTab({ user }: { user: any }) {
           >
             <div className="flex items-center gap-2 mb-4">
               <Banknote className="w-5 h-5 text-green-600 dark:text-green-400" />
-              <h3 className="text-lg font-bold text-gray-900 dark:text-white">Payout / Settlement Charges</h3>
+              <h3 className="text-lg font-bold text-gray-900 dark:text-white">Settlement / Payout Charges</h3>
               <span className="text-xs bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300 px-2 py-0.5 rounded-full">From Scheme</span>
             </div>
-            <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">Charges for bank settlements (IMPS transfers)</p>
+            <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">Charges for Settlement-2 (account transfer) and Payout (IMPS)</p>
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead className="bg-gray-50 dark:bg-gray-700">
                   <tr>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Type</th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Transfer Mode</th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Amount Range</th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Your Charge</th>
@@ -2154,6 +2172,13 @@ function MDRSchemesTab({ user }: { user: any }) {
                 <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
                   {allPayoutCharges.map((charge, index) => (
                     <tr key={charge.id || index} className="hover:bg-gray-50 dark:hover:bg-gray-700">
+                      <td className="px-4 py-3 text-sm">
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
+                          charge._type === 'Settlement-2'
+                            ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400'
+                            : 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                        }`}>{charge._type || 'Payout'}</span>
+                      </td>
                       <td className="px-4 py-3 text-sm">
                         <span className={`inline-flex items-center px-2.5 py-1 rounded-md text-xs font-bold ${
                           charge.transfer_mode === 'IMPS'

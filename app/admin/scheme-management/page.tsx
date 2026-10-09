@@ -1358,8 +1358,8 @@ function SchemeManagementPageContent() {
                                   {scheme.is_partner_plan ? (
                                     <>
                                       <td className="px-2 py-1.5 text-right">{fmt(c.retailer_charge, c.retailer_charge_type)}</td>
-                                      <td className="px-2 py-1.5 text-right">{fmt(c.retailer_commission, c.retailer_commission_type)}</td>
-                                      <td className="px-2 py-1.5 text-right">{fmt(c.company_charge, c.company_charge_type)}</td>
+                                      <td className="px-2 py-1.5 text-right">{Number(c.retailer_commission) > 0 ? fmt(c.retailer_commission, c.retailer_commission_type) : '—'}</td>
+                                      <td className="px-2 py-1.5 text-right">{Number(c.company_charge) > 0 ? fmt(c.company_charge, c.company_charge_type) : '—'}</td>
                                     </>
                                   ) : (
                                     <>
