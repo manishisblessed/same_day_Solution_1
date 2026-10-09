@@ -385,6 +385,30 @@ export async function POST(request: NextRequest) {
       return addCorsHeaders(request, response)
     }
 
+    // 45-second cooldown — block ANY transfer to the same account (any amount).
+    // Prevents rapid repeat settlements to one beneficiary while a prior one is
+    // still SUCCESS/PENDING within the window.
+    const cooldownCutoff = new Date(Date.now() - 45 * 1000).toISOString()
+    const { data: recentSameAcct } = await supabaseAdmin
+      .from('shadval_settlement')
+      .select('id, created_at')
+      .eq('retailer_id', user.partner_id)
+      .eq('account_number', account.account_number)
+      .gte('created_at', cooldownCutoff)
+      .in('status', ['SUCCESS', 'PENDING'])
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    if (recentSameAcct) {
+      const remaining = Math.max(1, Math.ceil((45000 - (Date.now() - new Date(recentSameAcct.created_at).getTime())) / 1000))
+      const response = NextResponse.json(
+        { success: false, error: `Please wait ${remaining} seconds before making another transfer to this account.`, cooldown_seconds: remaining },
+        { status: 429 }
+      )
+      return addCorsHeaders(request, response)
+    }
+
     // Duplicate prevention — same account + same amount within 1 min
     // SUCCESS txns: block for full 60s (prevents double credit/debit)
     // PENDING txns: block only for 15s (allows retry after stale timeouts)

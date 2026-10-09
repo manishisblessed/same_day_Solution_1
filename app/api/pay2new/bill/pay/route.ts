@@ -155,6 +155,36 @@ export async function POST(request: NextRequest) {
       return addCorsHeaders(request, response)
     }
 
+    // 45-second cooldown — block a repeat payment to the SAME credit card of the
+    // same bank for the same registered mobile. Backed by the dedicated
+    // pay2new_transactions table; a prior attempt that is still pending or
+    // already succeeded inside the window holds the gate (failed/refunded
+    // attempts do not block a legitimate retry).
+    {
+      const ccCooldownCutoff = new Date(Date.now() - 45 * 1000).toISOString()
+      const { data: recentCCTxn } = await (supabaseAdmin as any)
+        .from('pay2new_transactions')
+        .select('created_at')
+        .eq('user_id', user.partner_id)
+        .eq('product_code', String(product_code))
+        .eq('customer_number', String(customer_number))
+        .eq('card_number', String(number))
+        .in('status', ['pending', 'success'])
+        .gte('created_at', ccCooldownCutoff)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+
+      if (recentCCTxn) {
+        const remaining = Math.max(1, Math.ceil((45000 - (Date.now() - new Date(recentCCTxn.created_at).getTime())) / 1000))
+        const response = NextResponse.json(
+          { success: false, error: `Please wait ${remaining} seconds before making another payment to this credit card.`, cooldown_seconds: remaining },
+          { status: 429 }
+        )
+        return addCorsHeaders(request, response)
+      }
+    }
+
     // Retailer hierarchy for scheme resolution
     let distributorId: string | null = null
     let mdId: string | null = null
@@ -364,6 +394,45 @@ export async function POST(request: NextRequest) {
       return addCorsHeaders(request, response)
     }
 
+    // Authoritative transaction record (powers the 45s same-card cooldown,
+    // status/recovery lookups and reporting). Created 'pending' right after the
+    // wallet debit; updated to success/refunded at the terminal points below.
+    await (supabaseAdmin as any)
+      .from('pay2new_transactions')
+      .insert({
+        user_id: user.partner_id,
+        user_role: user.role,
+        distributor_id: distributorId,
+        master_distributor_id: mdId,
+        request_id,
+        bill_fetch_ref: bill_fetch_ref || null,
+        product_code: String(product_code),
+        product_name: product_name || null,
+        biller_id: frontendBillerId || null,
+        card_number: String(number),
+        card_last4: optional1 || null,
+        customer_number: String(customer_number),
+        customer_name: customer_name || null,
+        pan_number: normalizedPan || null,
+        amount: amountNum,
+        charge: totalServiceCharge,
+        total_debit: totalDebit,
+        scheme_id: resolvedSchemeId,
+        scheme_name: resolvedSchemeName,
+        status: 'pending',
+      })
+
+    const markPay2NewTxn = async (status: 'success' | 'failed' | 'refunded', extra: Record<string, any> = {}) => {
+      try {
+        await (supabaseAdmin as any)
+          .from('pay2new_transactions')
+          .update({ status, completed_at: new Date().toISOString(), ...extra })
+          .eq('request_id', request_id)
+      } catch (e) {
+        console.error('[Pay2New Bill Pay] Failed to update txn record:', e)
+      }
+    }
+
     // Persist PAN to the dedicated ledger column (shown in bill payment report).
     if (normalizedPan) {
       const panTable = user.role === 'partner' ? 'partner_wallet_ledger' : 'wallet_ledger'
@@ -396,6 +465,7 @@ export async function POST(request: NextRequest) {
         })
         if (refundErr) console.error('[Pay2New Bill Pay] CRITICAL refund failed:', refundErr)
       }
+      await markPay2NewTxn('refunded', { error_message: reason })
     }
 
     // If bill was fetched via BBPS fallback, pay directly through BBPS
@@ -450,6 +520,12 @@ export async function POST(request: NextRequest) {
 
         if (bbpsResult.success) {
           console.log('[Pay2New→BBPS Direct] Payment succeeded:', bbpsResult.transaction_id)
+          await markPay2NewTxn('success', {
+            order_id: bbpsResult.transaction_id,
+            operator_reference: bbpsResult.transaction_id,
+            biller_id: frontendBillerId,
+            payment_channel: 'bbps_direct',
+          })
           const response = NextResponse.json({
             success: true,
             order_id: bbpsResult.transaction_id,
@@ -548,6 +624,12 @@ export async function POST(request: NextRequest) {
 
             if (bbpsResult.success) {
               console.log('[Pay2New→BBPS Fallback] Payment succeeded via BBPS:', bbpsResult.transaction_id)
+              await markPay2NewTxn('success', {
+                order_id: bbpsResult.transaction_id,
+                operator_reference: bbpsResult.transaction_id,
+                biller_id: extractedBillerId,
+                payment_channel: 'bbps_fallback',
+              })
               const response = NextResponse.json({
                 success: true,
                 order_id: bbpsResult.transaction_id,
@@ -593,6 +675,12 @@ export async function POST(request: NextRequest) {
       })
       if (commResult.errors.length) console.error('[Pay2New Bill Pay] Commission errors:', commResult.errors)
     }
+
+    await markPay2NewTxn('success', {
+      order_id: result.order_id ? String(result.order_id) : null,
+      operator_reference: result.operator_reference ? String(result.operator_reference) : null,
+      payment_channel: 'pay2new',
+    })
 
     const response = NextResponse.json({
       success: true,

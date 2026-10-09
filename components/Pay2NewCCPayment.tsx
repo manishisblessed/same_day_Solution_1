@@ -57,6 +57,7 @@ export default function Pay2NewCCPayment() {
   const [panNumber, setPanNumber] = useState('')
   const [tpin, setTpin] = useState('')
   const [payLoading, setPayLoading] = useState(false)
+  const [cooldown, setCooldown] = useState(0) // seconds left before same-card retry allowed
   const [payResult, setPayResult] = useState<{
     success: boolean
     order_id?: string
@@ -114,6 +115,13 @@ export default function Pay2NewCCPayment() {
 
     return () => clearTimeout(timer)
   }, [payAmount, step])
+
+  // Same-card 45s cooldown countdown
+  useEffect(() => {
+    if (cooldown <= 0) return
+    const t = setTimeout(() => setCooldown((s) => Math.max(0, s - 1)), 1000)
+    return () => clearTimeout(t)
+  }, [cooldown])
 
   const fetchBillers = async () => {
     setBillersLoading(true)
@@ -247,9 +255,18 @@ export default function Pay2NewCCPayment() {
         showToast(data.error || 'Payment failed', 'error')
       }
     } catch (e: any) {
-      setPayResult({ success: false, error: e.message || 'Payment failed' })
-      setStep('payment-result')
-      showToast(e.message || 'Payment failed', 'error')
+      const msg = e?.message || 'Payment failed'
+      // 45s same-card cooldown — stay on this screen and start a countdown
+      // instead of showing a terminal "payment failed" result.
+      const secMatch = /(\d+)\s*second/i.exec(msg)
+      if (secMatch && /wait/i.test(msg)) {
+        setCooldown(parseInt(secMatch[1], 10))
+        showToast(msg, 'error')
+      } else {
+        setPayResult({ success: false, error: msg })
+        setStep('payment-result')
+        showToast(msg, 'error')
+      }
     } finally {
       setPayLoading(false)
     }
@@ -567,15 +584,31 @@ export default function Pay2NewCCPayment() {
                   </p>
                 </div>
 
+                {cooldown > 0 && (
+                  <div className="p-3 rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20">
+                    <p className="text-sm font-medium text-amber-700 dark:text-amber-300">
+                      Please wait {cooldown}s before paying this credit card again.
+                    </p>
+                    <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                      A payment to this card was just made. This short gap prevents accidental duplicate payments to the same card.
+                    </p>
+                  </div>
+                )}
+
                 <button
                   onClick={handlePayBill}
-                  disabled={payLoading || !payAmount || parseFloat(payAmount) <= 0 || tpin.length < 4 || !!schemeMessage || loadingCharges || (parseFloat(payAmount) > PAN_MANDATORY_ABOVE && (!cc1PlusEnabled || !PAN_REGEX.test(panNumber.trim().toUpperCase())))}
+                  disabled={payLoading || cooldown > 0 || !payAmount || parseFloat(payAmount) <= 0 || tpin.length < 4 || !!schemeMessage || loadingCharges || (parseFloat(payAmount) > PAN_MANDATORY_ABOVE && (!cc1PlusEnabled || !PAN_REGEX.test(panNumber.trim().toUpperCase())))}
                   className="w-full py-3 bg-gradient-to-r from-green-600 to-green-700 text-white rounded-lg font-medium text-sm hover:from-green-700 hover:to-green-800 disabled:opacity-50 flex items-center justify-center gap-2"
                 >
                   {payLoading ? (
                     <>
                       <Loader2 className="w-4 h-4 animate-spin" />
                       Processing Payment...
+                    </>
+                  ) : cooldown > 0 ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Wait {cooldown}s to retry
                     </>
                   ) : (
                     <>

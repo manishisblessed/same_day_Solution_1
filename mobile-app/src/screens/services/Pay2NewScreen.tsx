@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, Alert, TouchableOpacity } from 'react-native';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -81,6 +81,13 @@ export const Pay2NewScreen: React.FC = () => {
   const [busy, setBusy] = useState(false);
   const [tpinOpen, setTpinOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [cooldown, setCooldown] = useState(0); // same-card 45s cooldown (seconds left)
+
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    const t = setTimeout(() => setCooldown((s) => Math.max(0, s - 1)), 1000);
+    return () => clearTimeout(t);
+  }, [cooldown]);
 
   const amt = parseFloat(amount) || 0;
   const isCC = service?.needsMobile === true;
@@ -177,7 +184,14 @@ export const Pay2NewScreen: React.FC = () => {
       );
     } catch (e) {
       setTpinOpen(false);
-      Alert.alert('Payment failed', e instanceof ApiError ? e.message : 'Please try again.');
+      const msg = e instanceof ApiError ? e.message : 'Please try again.';
+      const sec = e instanceof ApiError ? Number((e.payload as any)?.cooldown_seconds) : NaN;
+      if (Number.isFinite(sec) && sec > 0) {
+        setCooldown(sec);
+        Alert.alert('Please wait', msg);
+      } else {
+        Alert.alert('Payment failed', msg);
+      }
     } finally {
       setSubmitting(false);
     }
@@ -338,10 +352,10 @@ export const Pay2NewScreen: React.FC = () => {
           <Button title={`Recharge ${formatCurrency(amt)}`} size="lg" fullWidth loading={submitting} style={{ marginTop: spacing.lg }} onPress={doRecharge} />
         ) : (
           <Button
-            title={`Pay ${formatCurrency(amt)}`}
+            title={cooldown > 0 ? `Wait ${cooldown}s to retry` : `Pay ${formatCurrency(amt)}`}
             size="lg"
             fullWidth
-            disabled={!billRef}
+            disabled={!billRef || cooldown > 0}
             style={{ marginTop: spacing.lg }}
             onPress={() => setTpinOpen(true)}
           />
@@ -350,6 +364,11 @@ export const Pay2NewScreen: React.FC = () => {
       {service.mode === 'bill' && amt >= 1 && !billRef && (
         <Text style={[typography.small, { color: colors.textMuted, textAlign: 'center', marginTop: spacing.sm }]}>
           Fetch the bill first to continue.
+        </Text>
+      )}
+      {cooldown > 0 && (
+        <Text style={[typography.small, { color: '#B45309', textAlign: 'center', marginTop: spacing.sm }]}>
+          A payment to this card was just made. Please wait {cooldown}s before paying the same card again to avoid a duplicate payment.
         </Text>
       )}
 
