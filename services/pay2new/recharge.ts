@@ -36,6 +36,8 @@ export async function pay2newRecharge(params: RechargeParams): Promise<{
   amount?: number | string
   balance?: string
   error?: string
+  /** Transport/infra failure (timeout, network, HTML) vs definitive decline. */
+  ambiguous?: boolean
   raw?: Pay2NewBillPaymentResponse
 }> {
   const payload = {
@@ -62,8 +64,8 @@ export async function pay2newRecharge(params: RechargeParams): Promise<{
 
     if (!result.ok || !result.data) {
       const errMsg = result.error || result.data?.message || 'Recharge failed'
-      console.error('[Pay2New] Recharge failed:', errMsg)
-      return { success: false, error: errMsg, raw: result.data as any }
+      console.error('[Pay2New] Recharge failed:', errMsg, '| ambiguous:', !!result.ambiguous)
+      return { success: false, error: errMsg, ambiguous: result.ambiguous, raw: result.data as any }
     }
 
     const resp = result.data

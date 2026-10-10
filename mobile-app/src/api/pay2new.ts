@@ -48,7 +48,7 @@ export function payPay2NewBill(input: {
   use_bbps?: boolean;
   biller_id?: string;
 }) {
-  return api.post<{ success: boolean; order_id: string; operator_reference: string; amount: number; charge: number; request_id: string }>(
+  return api.post<Pay2NewPayResult>(
     '/api/pay2new/bill/pay',
     input,
     { idempotent: true }
@@ -60,9 +60,27 @@ export function pay2NewRecharge(input: {
   amount: number;
   product_code: string;
 }) {
-  return api.post<{ success: boolean; order_id: string; operator_reference: string; amount: number; balance: number; request_id: string }>(
+  return api.post<Pay2NewPayResult>(
     '/api/pay2new/recharge',
     input,
     { idempotent: true }
   );
+}
+
+/**
+ * Outcome of a money-moving Pay2New call. `pending` (HTTP 200, success:false)
+ * means the bank hasn't confirmed yet — the card may still get charged, so the
+ * UI must show a "being confirmed" state and MUST NOT invite an immediate retry.
+ */
+export interface Pay2NewPayResult {
+  success: boolean;
+  pending?: boolean;
+  status?: 'SUCCESS' | 'FAILED' | 'PENDING';
+  order_id?: string;
+  operator_reference?: string;
+  amount?: number;
+  charge?: number;
+  balance?: number;
+  request_id?: string;
+  error?: string;
 }

@@ -129,20 +129,25 @@ export async function resolvePay2NewDebitState(
   let orderId = parseOrderId(debitEntry.description)
   let operatorReference = parseOperatorRef(debitEntry.description)
 
+  // A REFUND_<id> means the wallet was credited back. A CLAWBACK_<id> means that
+  // refund was later REVERSED (re-debited) because the vendor actually succeeded
+  // — i.e. the refund was false. So the payment is only genuinely refunded when a
+  // REFUND exists and NO clawback reversed it.
   const { data: refundEntries } = await supabase
     .from('partner_wallet_ledger')
-    .select('id, created_at')
+    .select('id, reference_id, created_at')
     .eq('partner_id', partnerId)
-    .eq('reference_id', `REFUND_${requestId}`)
-    .limit(1)
-  const wasRefunded = !!(refundEntries && refundEntries.length > 0)
+    .in('reference_id', [`REFUND_${requestId}`, `CLAWBACK_${requestId}`])
+  const refundRow = (refundEntries || []).find((r: any) => r.reference_id === `REFUND_${requestId}`)
+  const hasClawback = (refundEntries || []).some((r: any) => r.reference_id === `CLAWBACK_${requestId}`)
+  const wasRefunded = !!refundRow && !hasClawback
 
   let status: Pay2NewStatus
   let updatedAt = debitEntry.created_at
 
   if (wasRefunded) {
     status = 'REFUNDED'
-    updatedAt = refundEntries![0].created_at
+    updatedAt = refundRow!.created_at
   } else if ((debitEntry.status || '').toLowerCase() === 'failed') {
     status = 'FAILED'
   } else if (orderId) {

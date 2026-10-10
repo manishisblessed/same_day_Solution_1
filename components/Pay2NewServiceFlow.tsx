@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
-  Search, ArrowLeft, Loader2, CheckCircle2, AlertCircle, Receipt, Zap,
+  Search, ArrowLeft, Loader2, CheckCircle2, AlertCircle, Receipt, Zap, Clock,
 } from 'lucide-react'
 import { apiFetchJson } from '@/lib/api-client'
 import { useAuth } from '@/contexts/AuthContext'
@@ -114,6 +114,8 @@ export default function Pay2NewServiceFlow(props: Pay2NewServiceFlowProps) {
   const [payLoading, setPayLoading] = useState(false)
   const [payResult, setPayResult] = useState<{
     success: boolean
+    pending?: boolean
+    status?: string
     order_id?: string
     operator_reference?: string
     amount?: number | string
@@ -335,6 +337,7 @@ export default function Pay2NewServiceFlow(props: Pay2NewServiceFlowProps) {
       setStep('payment-result')
 
       if (data.success) showToast('Payment successful!', 'success')
+      else if (data.pending || data.status === 'PENDING') showToast('Payment is being confirmed with the bank', 'info')
       else showToast(data.error || 'Payment failed', 'error')
     } catch (e: any) {
       setPayResult({ success: false, error: e.message || 'Payment failed' })
@@ -371,6 +374,7 @@ export default function Pay2NewServiceFlow(props: Pay2NewServiceFlowProps) {
       setStep('payment-result')
 
       if (data.success) showToast('Recharge successful!', 'success')
+      else if (data.pending || data.status === 'PENDING') showToast('Recharge is being confirmed with the operator', 'info')
       else showToast(data.error || 'Recharge failed', 'error')
     } catch (e: any) {
       setPayResult({ success: false, error: e.message || 'Recharge failed' })
@@ -802,10 +806,14 @@ export default function Pay2NewServiceFlow(props: Pay2NewServiceFlowProps) {
         )}
 
         {/* Step 4: Result */}
-        {step === 'payment-result' && payResult && (
+        {step === 'payment-result' && payResult && (() => {
+          const isPending = !payResult.success && (payResult.pending || payResult.status === 'PENDING')
+          return (
           <motion.div key="result" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }}>
             <div className={`bg-white dark:bg-gray-800 rounded-xl shadow-md border p-6 max-w-lg ${
-              payResult.success ? 'border-green-200 dark:border-green-800' : 'border-red-200 dark:border-red-800'
+              payResult.success ? 'border-green-200 dark:border-green-800'
+                : isPending ? 'border-amber-200 dark:border-amber-800'
+                : 'border-red-200 dark:border-red-800'
             }`}>
               <div className="text-center space-y-4">
                 {payResult.success ? (
@@ -816,6 +824,19 @@ export default function Pay2NewServiceFlow(props: Pay2NewServiceFlowProps) {
                     <h3 className="text-xl font-bold text-green-600">
                       {mode === 'recharge' ? 'Recharge Successful!' : 'Payment Successful!'}
                     </h3>
+                  </>
+                ) : isPending ? (
+                  <>
+                    <div className="w-16 h-16 mx-auto bg-amber-100 dark:bg-amber-900/30 rounded-full flex items-center justify-center">
+                      <Clock className="w-10 h-10 text-amber-600" />
+                    </div>
+                    <h3 className="text-xl font-bold text-amber-600">
+                      {mode === 'recharge' ? 'Recharge Being Confirmed' : 'Payment Being Confirmed'}
+                    </h3>
+                    <p className="text-sm text-amber-600 dark:text-amber-400">
+                      {payResult.error ||
+                        'This is being confirmed with the operator. Please check the transaction status in a few minutes before trying again — do not pay again now.'}
+                    </p>
                   </>
                 ) : (
                   <>
@@ -857,12 +878,13 @@ export default function Pay2NewServiceFlow(props: Pay2NewServiceFlowProps) {
                   }}
                   className={`w-full py-3 bg-gradient-to-r ${accentCls.grad} text-white rounded-lg font-medium text-sm`}
                 >
-                  {mode === 'recharge' ? 'New Recharge' : 'Make Another Payment'}
+                  {isPending ? 'Done' : mode === 'recharge' ? 'New Recharge' : 'Make Another Payment'}
                 </button>
               </div>
             </div>
           </motion.div>
-        )}
+          )
+        })()}
       </AnimatePresence>
     </div>
   )

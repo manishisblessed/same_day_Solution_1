@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient, SupabaseClient } from '@supabase/supabase-js'
 import { authenticatePartner, PartnerAuthError, partnerCanUseApi } from '@/lib/partner-auth'
-import { pay2newPayBill, pay2newCheckStatus } from '@/services/pay2new'
-import { isBillerRateLimitError, BILLER_RATE_LIMIT_MESSAGE, toUserSafeError } from '@/lib/provider-error'
+import { pay2newPayBill, pay2newCheckStatus, settlePay2New } from '@/services/pay2new'
+import { isBillerRateLimitError, BILLER_RATE_LIMIT_MESSAGE } from '@/lib/provider-error'
 import { SCHEME_NOT_ASSIGNED, SCHEME_NOT_ASSIGNED_STATUS, SCHEME_NO_VALID_SLAB, hasCoveringBbpsSlab } from '@/lib/scheme-guard'
 import { getPartnerApiMax } from '@/lib/txn-limits'
 import { computeGst, getBbpsSlabGstInclusive } from '@/lib/scheme-gst'
@@ -494,7 +494,109 @@ export async function POST(request: NextRequest) {
       console.error('[Partner Pay2New Pay] Failed to stamp idempotency keys:', stampErr)
     }
 
-    let result
+    // ── Terminal finalizers (idempotent money movement in ONE place) ─────────
+    // SUCCESS: record order on the ledger row, book revenue, push SUCCESS webhook.
+    const finalizeSuccess = async (
+      orderId: string | null | undefined,
+      operatorReference: string | null | undefined,
+      amount: number | string | undefined
+    ) => {
+      await supabase
+        .from('partner_wallet_ledger')
+        .update({
+          description: `BBPS-2 CC ₹${amountNum} + ₹${totalServiceCharge} charge | ${product_name || product_code} | Card:****${number} | Mob:${customer_number}${customer_name ? ` | Name:${customer_name}` : ''} | OrderID:${orderId} | Ref:${operatorReference || 'N/A'}`,
+        })
+        .eq('partner_id', partner.id)
+        .eq('reference_id', request_id)
+
+      // Book company revenue. Idempotent per request_id (P2N-REV-<request_id>).
+      if (serviceCharge > 0) {
+        try {
+          const commResult = await distributeServiceCommission({
+            supabase,
+            service: 'pay2new',
+            refPrefix: 'P2N',
+            refKey: request_id,
+            totalCharge: serviceCharge,
+            retailer: { id: partner.id, role: 'partner', commission: 0 },
+            distributor: null,
+            chargeModel: {
+              rt_purchase_charge: serviceCharge,
+              dt_purchase_charge: serviceCharge,
+              md_purchase_charge: serviceCharge,
+              company_cost: 0,
+              reverify: { serviceKind: 'BBPS', scopeKey: null, category: schemeCategory, amount: amountNum },
+            },
+            remarksSuffix: `on CC Bill ₹${amountNum} - ${product_name || product_code} (partner API)`,
+          })
+          if (commResult.errors.length) console.error('[Partner Pay2New Pay] Commission errors:', commResult.errors)
+        } catch (commErr) {
+          console.error('[Partner Pay2New Pay] Revenue booking failed:', commErr)
+        }
+      }
+
+      emitPay2NewWebhook(supabase, partner.id, {
+        billFetchRef: String(bill_fetch_ref), requestId: request_id,
+        orderId: orderId || null, status: 'SUCCESS',
+        amount: typeof amount === 'number' ? amount : amountNum,
+        charge: totalServiceCharge, operatorReference: operatorReference || null,
+      })
+
+      return NextResponse.json({
+        success: true,
+        order_id: orderId,
+        operator_reference: operatorReference,
+        amount: amount ?? amountNum,
+        charge: totalServiceCharge,
+        request_id,
+      })
+    }
+
+    // DEFINITIVE FAILURE: refund (idempotent), mark failed, push REFUNDED webhook.
+    const finalizeFailed = async (reason: string, rateLimited: boolean) => {
+      await refund(reason)
+      await supabase
+        .from('partner_wallet_ledger')
+        .update({ status: 'failed' })
+        .eq('partner_id', partner.id)
+        .eq('reference_id', request_id)
+      emitPay2NewWebhook(supabase, partner.id, {
+        billFetchRef: String(bill_fetch_ref), requestId: request_id, orderId: null,
+        status: 'REFUNDED', amount: amountNum, charge: totalServiceCharge,
+        operatorReference: null, message: reason,
+      })
+      return NextResponse.json(
+        {
+          success: false,
+          error: {
+            code: rateLimited ? 'BILLER_RATE_LIMITED' : 'PAYMENT_FAILED',
+            message: rateLimited ? BILLER_RATE_LIMIT_MESSAGE : reason,
+          },
+          retryable: rateLimited || undefined,
+          request_id,
+        },
+        { status: 200 }
+      )
+    }
+
+    // UNKNOWN / still-processing: the debit stays in place, NO refund, NOT marked
+    // failed. The reconciliation cron + status endpoint finalize it authoritatively
+    // (and emit the terminal webhook). This is what prevents a false refund on a
+    // payment the biller actually charged.
+    const finalizePending = () =>
+      NextResponse.json({
+        success: false,
+        error: {
+          code: 'PAYMENT_PENDING',
+          message: 'Your payment is being confirmed with the provider. Poll bill/status (or wait for the pay2new.cc.status webhook) for the final result — do NOT retry bill/pay.',
+        },
+        status: 'PENDING',
+        request_id,
+        bill_fetch_ref: String(bill_fetch_ref),
+      })
+
+    let result: Awaited<ReturnType<typeof pay2newPayBill>> | null = null
+    let threw = false
     try {
       result = await pay2newPayBill({
         number,
@@ -511,114 +613,34 @@ export async function POST(request: NextRequest) {
         pincode: pincode || '414002',
       })
     } catch (provErr: any) {
-      await refund('provider error')
-      // Mark the debit failed (payout_transaction_id is a uuid column and cannot
-      // hold a "FAILED:" marker — that write silently errored previously).
-      await supabase
-        .from('partner_wallet_ledger')
-        .update({ status: 'failed' })
-        .eq('partner_id', partner.id)
-        .eq('reference_id', request_id)
-      // Push terminal state so the partner self-heals even if this HTTP reply is
-      // lost. Wallet was refunded, so the partner-facing state is REFUNDED.
-      emitPay2NewWebhook(supabase, partner.id, {
-        billFetchRef: String(bill_fetch_ref), requestId: request_id, orderId: null,
-        status: 'REFUNDED', amount: amountNum, charge: totalServiceCharge,
-        operatorReference: null, message: 'provider error',
-      })
-      return NextResponse.json(
-        { success: false, error: { code: 'PROVIDER_ERROR', message: toUserSafeError(provErr?.message, 'Bill payment failed') }, request_id },
-        { status: 200 }
-      )
+      // A thrown error is always a transport failure → outcome unknown.
+      threw = true
+      console.error('[Partner Pay2New Pay] provider call threw:', provErr?.message)
     }
 
-    if (!result.success) {
-      await refund(result.error || 'payment failed')
-      // Store failed status in ledger for status lookups (payout_transaction_id
-      // is a uuid column, so the old "FAILED:" marker write silently errored).
-      await supabase
-        .from('partner_wallet_ledger')
-        .update({ status: 'failed' })
-        .eq('partner_id', partner.id)
-        .eq('reference_id', request_id)
-      // Push terminal state (wallet refunded -> REFUNDED) so a lost reply still
-      // reaches the partner.
-      emitPay2NewWebhook(supabase, partner.id, {
-        billFetchRef: String(bill_fetch_ref), requestId: request_id, orderId: null,
-        status: 'REFUNDED', amount: amountNum, charge: totalServiceCharge,
-        operatorReference: null, message: result.error || 'payment failed',
-      })
-      const rateLimited = isBillerRateLimitError(result.error)
-      return NextResponse.json(
-        {
-          success: false,
-          error: {
-            code: rateLimited ? 'BILLER_RATE_LIMITED' : 'PAYMENT_FAILED',
-            message: rateLimited ? BILLER_RATE_LIMIT_MESSAGE : (result.error || 'Payment failed'),
-          },
-          retryable: rateLimited || undefined,
-          request_id,
-        },
-        { status: 200 }
-      )
+    // 1) Clear provider success → finalize success.
+    if (!threw && result?.success) {
+      return await finalizeSuccess(result.order_id, result.operator_reference, result.amount)
     }
 
-    // Store order_id in the description for status lookups / reconciliation.
-    // (payout_transaction_id is a uuid column and cannot hold Pay2New's order_id
-    // like "P2F...", so it is intentionally not written here.)
-    await supabase
-      .from('partner_wallet_ledger')
-      .update({
-        description: `BBPS-2 CC ₹${amountNum} + ₹${totalServiceCharge} charge | ${product_name || product_code} | Card:****${number} | Mob:${customer_number}${customer_name ? ` | Name:${customer_name}` : ''} | OrderID:${result.order_id} | Ref:${result.operator_reference || 'N/A'}`,
-      })
-      .eq('partner_id', partner.id)
-      .eq('reference_id', request_id)
-
-    // Book company revenue (ex-GST charge − live central vendor cost). Partners have
-    // no downline, so md = dt = rt = full base charge (zero downline margin).
-    // Idempotent per request_id (P2N-REV-<request_id>); never blocks the response.
-    if (serviceCharge > 0) {
-      try {
-        const commResult = await distributeServiceCommission({
-          supabase,
-          service: 'pay2new',
-          refPrefix: 'P2N',
-          refKey: request_id,
-          totalCharge: serviceCharge,
-          retailer: { id: partner.id, role: 'partner', commission: 0 },
-          distributor: null,
-          chargeModel: {
-            rt_purchase_charge: serviceCharge,
-            dt_purchase_charge: serviceCharge,
-            md_purchase_charge: serviceCharge,
-            company_cost: 0,
-            reverify: { serviceKind: 'BBPS', scopeKey: null, category: schemeCategory, amount: amountNum },
-          },
-          remarksSuffix: `on CC Bill ₹${amountNum} - ${product_name || product_code} (partner API)`,
-        })
-        if (commResult.errors.length) console.error('[Partner Pay2New Pay] Commission errors:', commResult.errors)
-      } catch (commErr) {
-        console.error('[Partner Pay2New Pay] Revenue booking failed:', commErr)
-      }
+    // 2) DEFINITIVE provider decline (valid JSON verdict, not a transport failure)
+    //    → safe to refund immediately.
+    if (!threw && result && !result.success && !result.ambiguous) {
+      return await finalizeFailed(result.error || 'Payment failed', isBillerRateLimitError(result.error))
     }
 
-    // Push the terminal SUCCESS so the partner self-heals a lost reply (the exact
-    // incident: payment succeeded here, response never reached the partner).
-    emitPay2NewWebhook(supabase, partner.id, {
-      billFetchRef: String(bill_fetch_ref), requestId: request_id,
-      orderId: result.order_id || null, status: 'SUCCESS',
-      amount: typeof result.amount === 'number' ? result.amount : amountNum,
-      charge: totalServiceCharge, operatorReference: result.operator_reference || null,
-    })
-
-    return NextResponse.json({
-      success: true,
-      order_id: result.order_id,
-      operator_reference: result.operator_reference,
-      amount: result.amount,
-      charge: totalServiceCharge,
-      request_id,
-    })
+    // 3) AMBIGUOUS (timeout / network / HTML) or thrown → NEVER refund on this
+    //    signal. Confirm the real outcome with the provider before any money moves.
+    const settled = await settlePay2New(request_id, { attempts: 2, spacingMs: 2500 })
+    if (settled.outcome === 'SUCCESS') {
+      return await finalizeSuccess(settled.orderId, settled.operatorReference, settled.amount)
+    }
+    if (settled.outcome === 'FAILED') {
+      return await finalizeFailed('Payment failed', false)
+    }
+    // Still unknown → leave PENDING for the reconciliation cron / status endpoint.
+    console.warn(`[Partner Pay2New Pay] UNKNOWN outcome left PENDING for recon: request_id=${request_id} partner=${partner.id}`)
+    return finalizePending()
   } catch (error: any) {
     console.error('[Partner Pay2New Pay] Error:', error)
     return NextResponse.json(

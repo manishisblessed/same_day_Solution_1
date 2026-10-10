@@ -36,6 +36,13 @@ export async function pay2newCheckStatus(params: CheckStatusParams): Promise<{
   operator_reference?: string
   amount?: number | string
   error?: string
+  /**
+   * True when the provider authoritatively has NO record of this txn ("no
+   * transaction found"). It is mapped to FAILED, but callers resolving a FRESH
+   * payment (just seconds old) should treat not-found as inconclusive, because
+   * the provider's status index can lag behind a charge that just happened.
+   */
+  notFound?: boolean
   raw?: Pay2NewStatusResponse
 }> {
   console.log('[Pay2New] Check Status request_id:', params.request_id)
@@ -53,7 +60,7 @@ export async function pay2newCheckStatus(params: CheckStatusParams): Promise<{
       // was never registered/charged -> treat as FAILED so callers can safely
       // resolve a stuck debit (rather than leaving it PENDING forever).
       if (/no\s*transaction\s*found/i.test(errMsg)) {
-        return { success: true, status: 'FAILED', error: errMsg, raw: result.data as any }
+        return { success: true, status: 'FAILED', notFound: true, error: errMsg, raw: result.data as any }
       }
       console.error('[Pay2New] Check Status failed:', errMsg)
       return { success: false, error: errMsg, raw: result.data as any }

@@ -88,15 +88,16 @@ export async function resolvePartnerEndpoints(
     return endpoints
   }
 
-  // Legacy fallback: partner not yet migrated to partner_webhooks.
-  // pay2new has no legacy single-URL column, so it must NOT fall back to the
-  // generic POS webhook_url — that would misroute CC pay callbacks. Partners
-  // receive pay2new events only via an explicit partner_webhooks subscription.
-  const legacy = category === 'pay2new'
-    ? null
-    : category === 'rechargekit'
-      ? (partner as { rechargekit_webhook_url?: string | null }).rechargekit_webhook_url
-      : (partner as { webhook_url?: string | null }).webhook_url
+  // Legacy fallback: partner not yet migrated to partner_webhooks (zero rows).
+  // pay2new has no dedicated legacy column, so it falls back to the partner's
+  // primary webhook_url — the single endpoint where an unmigrated partner
+  // expects all callbacks. (A silently-undelivered CC pay status is far worse
+  // than delivering it to the partner's one known endpoint; partners filter on
+  // the `event` field anyway.) Partners WITH partner_webhooks rows are handled
+  // above and must subscribe to 'pay2new' explicitly (see the backfill migration).
+  const legacy = category === 'rechargekit'
+    ? (partner as { rechargekit_webhook_url?: string | null }).rechargekit_webhook_url
+    : (partner as { webhook_url?: string | null }).webhook_url
   if (legacy && String(legacy).trim()) {
     return [{ id: null, url: String(legacy).trim(), secret }]
   }

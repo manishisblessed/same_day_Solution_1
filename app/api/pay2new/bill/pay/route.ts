@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { authorizeSubPartner, normalizeMasterPartner } from '@/lib/partner-access'
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
-import { pay2newPayBill } from '@/services/pay2new'
+import { pay2newPayBill, settlePay2New } from '@/services/pay2new'
 import { rateLimit, RATE_LIMITS } from '@/lib/rate-limit'
 import { createClient } from '@supabase/supabase-js'
 import { fetchBillerInfo, fetchBill, payRequest } from '@/services/bbps'
@@ -155,35 +155,9 @@ export async function POST(request: NextRequest) {
       return addCorsHeaders(request, response)
     }
 
-    // 45-second cooldown — block a repeat payment to the SAME credit card of the
-    // same bank for the same registered mobile. Backed by the dedicated
-    // pay2new_transactions table; a prior attempt that is still pending or
-    // already succeeded inside the window holds the gate (failed/refunded
-    // attempts do not block a legitimate retry).
-    {
-      const ccCooldownCutoff = new Date(Date.now() - 45 * 1000).toISOString()
-      const { data: recentCCTxn } = await (supabaseAdmin as any)
-        .from('pay2new_transactions')
-        .select('created_at')
-        .eq('user_id', user.partner_id)
-        .eq('product_code', String(product_code))
-        .eq('customer_number', String(customer_number))
-        .eq('card_number', String(number))
-        .in('status', ['pending', 'success'])
-        .gte('created_at', ccCooldownCutoff)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle()
-
-      if (recentCCTxn) {
-        const remaining = Math.max(1, Math.ceil((45000 - (Date.now() - new Date(recentCCTxn.created_at).getTime())) / 1000))
-        const response = NextResponse.json(
-          { success: false, error: `Please wait ${remaining} seconds before making another payment to this credit card.`, cooldown_seconds: remaining },
-          { status: 429 }
-        )
-        return addCorsHeaders(request, response)
-      }
-    }
+    // Same-card cooldown is enforced atomically right before the wallet debit
+    // (see pay2new_cooldown_claim below) — a plain pre-check here would reopen
+    // the check-then-act race that allowed double charges.
 
     // Retailer hierarchy for scheme resolution
     let distributorId: string | null = null
@@ -361,7 +335,63 @@ export async function POST(request: NextRequest) {
 
     const request_id = `SDS${Date.now()}`
 
-    // Debit total (bill + charge) from wallet BEFORE calling provider
+    const markPay2NewTxn = async (status: 'success' | 'failed' | 'refunded', extra: Record<string, any> = {}) => {
+      try {
+        await (supabaseAdmin as any)
+          .from('pay2new_transactions')
+          .update({ status, completed_at: new Date().toISOString(), ...extra })
+          .eq('request_id', request_id)
+      } catch (e) {
+        console.error('[Pay2New Bill Pay] Failed to update txn record:', e)
+      }
+    }
+
+    // ── Same-card cooldown + authoritative txn record (ATOMIC, race-safe) ────
+    // One advisory-locked RPC does the 60s window check AND inserts the 'pending'
+    // pay2new_transactions row. Two rapid taps on the same card can no longer
+    // BOTH pass the check — the second is blocked by the first's pending row.
+    // Runs BEFORE the wallet debit, so a blocked request never moves money.
+    const COOLDOWN_SECONDS = 60
+    {
+      const { data: claimRows, error: claimErr } = await (supabaseAdmin as any).rpc('pay2new_cooldown_claim', {
+        p_user_id: user.partner_id,
+        p_user_role: user.role,
+        p_product_code: String(product_code),
+        p_customer_number: String(customer_number),
+        p_card_number: String(number),
+        p_request_id: request_id,
+        p_amount: amountNum,
+        p_charge: totalServiceCharge,
+        p_total_debit: totalDebit,
+        p_window_seconds: COOLDOWN_SECONDS,
+        p_bill_fetch_ref: bill_fetch_ref || null,
+        p_product_name: product_name || null,
+        p_customer_name: customer_name || null,
+        p_card_last4: optional1 || null,
+        p_pan_number: normalizedPan || null,
+        p_distributor_id: distributorId,
+        p_master_distributor_id: mdId,
+        p_scheme_id: resolvedSchemeId,
+        p_scheme_name: resolvedSchemeName,
+        p_biller_id: frontendBillerId || null,
+      })
+      if (claimErr) {
+        console.error('[Pay2New Bill Pay] Cooldown claim error:', claimErr)
+        const response = NextResponse.json({ success: false, error: 'Failed to start payment. Please try again.' }, { status: 500 })
+        return addCorsHeaders(request, response)
+      }
+      const claim = Array.isArray(claimRows) ? claimRows[0] : claimRows
+      if (claim?.blocked) {
+        const remaining = Math.max(1, Number(claim.seconds_remaining) || COOLDOWN_SECONDS)
+        const response = NextResponse.json(
+          { success: false, error: `Please wait ${remaining} seconds before making another payment to this credit card.`, cooldown_seconds: remaining },
+          { status: 429 }
+        )
+        return addCorsHeaders(request, response)
+      }
+    }
+
+    // Debit total (bill + charge) from wallet BEFORE calling provider.
     let debitErr: any = null
     if (user.role === 'partner') {
       const { error } = await (supabaseAdmin as any).rpc('debit_partner_wallet', {
@@ -390,47 +420,12 @@ export async function POST(request: NextRequest) {
     }
     if (debitErr) {
       console.error('[Pay2New Bill Pay] Debit error:', debitErr)
+      // Release the cooldown slot we claimed so a no-charge failure does not lock
+      // the card for 60s (the recon cron requires a DEBIT ledger row to refund,
+      // so this 'failed' orphan is never credited).
+      await markPay2NewTxn('failed', { error_message: 'wallet debit failed' })
       const response = NextResponse.json({ success: false, error: 'Failed to debit wallet' }, { status: 500 })
       return addCorsHeaders(request, response)
-    }
-
-    // Authoritative transaction record (powers the 45s same-card cooldown,
-    // status/recovery lookups and reporting). Created 'pending' right after the
-    // wallet debit; updated to success/refunded at the terminal points below.
-    await (supabaseAdmin as any)
-      .from('pay2new_transactions')
-      .insert({
-        user_id: user.partner_id,
-        user_role: user.role,
-        distributor_id: distributorId,
-        master_distributor_id: mdId,
-        request_id,
-        bill_fetch_ref: bill_fetch_ref || null,
-        product_code: String(product_code),
-        product_name: product_name || null,
-        biller_id: frontendBillerId || null,
-        card_number: String(number),
-        card_last4: optional1 || null,
-        customer_number: String(customer_number),
-        customer_name: customer_name || null,
-        pan_number: normalizedPan || null,
-        amount: amountNum,
-        charge: totalServiceCharge,
-        total_debit: totalDebit,
-        scheme_id: resolvedSchemeId,
-        scheme_name: resolvedSchemeName,
-        status: 'pending',
-      })
-
-    const markPay2NewTxn = async (status: 'success' | 'failed' | 'refunded', extra: Record<string, any> = {}) => {
-      try {
-        await (supabaseAdmin as any)
-          .from('pay2new_transactions')
-          .update({ status, completed_at: new Date().toISOString(), ...extra })
-          .eq('request_id', request_id)
-      } catch (e) {
-        console.error('[Pay2New Bill Pay] Failed to update txn record:', e)
-      }
     }
 
     // Persist PAN to the dedicated ledger column (shown in bill payment report).
@@ -555,7 +550,78 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    let result
+    // ── Terminal finalizers (idempotent; money movement in ONE place) ────────
+    const finalizeSuccess = async (
+      orderId: string | number | null | undefined,
+      operatorReference: string | null | undefined,
+      amount: number | string | undefined
+    ) => {
+      // Per-transaction commission: retailer + distributor (idempotent refs).
+      if (totalServiceCharge > 0) {
+        const commResult = await distributeServiceCommission({
+          supabase: supabaseAdmin,
+          service: 'pay2new',
+          refPrefix: 'P2N',
+          refKey: request_id,
+          totalCharge: totalServiceCharge,
+          retailer: { id: user.partner_id as string, role: user.role, commission: commissionSplit.retailer_commission },
+          distributor: { id: distributorId, commission: commissionSplit.distributor_commission },
+          masterDistributor: { id: mdId },
+          chargeModel: chargeModelData,
+          remarksSuffix: `on CC Bill ₹${amountNum} - ${product_name || product_code}`,
+        })
+        if (commResult.errors.length) console.error('[Pay2New Bill Pay] Commission errors:', commResult.errors)
+      }
+
+      await markPay2NewTxn('success', {
+        order_id: orderId != null ? String(orderId) : null,
+        operator_reference: operatorReference ? String(operatorReference) : null,
+        payment_channel: 'pay2new',
+      })
+
+      const response = NextResponse.json({
+        success: true,
+        order_id: orderId,
+        operator_reference: operatorReference,
+        amount: amount ?? amountNum,
+        charge: totalServiceCharge,
+        request_id,
+      })
+      return addCorsHeaders(request, response)
+    }
+
+    // DEFINITIVE failure → refund (refund() also marks the txn 'refunded').
+    const finalizeFailed = async (reason: string) => {
+      await refund(reason)
+      const userError = isBillerRateLimitError(reason) ? BILLER_RATE_LIMIT_MESSAGE : reason
+      const response = NextResponse.json(
+        { success: false, error: userError, request_id, retryable: isBillerRateLimitError(reason) || undefined },
+        { status: 200 }
+      )
+      return addCorsHeaders(request, response)
+    }
+
+    // UNKNOWN → leave the debit + 'pending' txn in place (NO refund). The
+    // direct-user reconciliation cron confirms with the provider and either
+    // records success or refunds once the txn is old enough. This is what
+    // prevents a false refund (and the resulting double-charge on a retry) when
+    // the biller actually charged the card.
+    const finalizePending = () => {
+      const response = NextResponse.json(
+        {
+          success: false,
+          pending: true,
+          status: 'PENDING',
+          error: 'Your payment is being confirmed with the bank. Please check the transaction status in a few minutes before trying again — do not pay the same card again now.',
+          request_id,
+        },
+        { status: 200 }
+      )
+      return addCorsHeaders(request, response)
+    }
+
+    let result: Awaited<ReturnType<typeof pay2newPayBill>> | null = null
+    let threw = false
     try {
       result = await pay2newPayBill({
         number,
@@ -572,15 +638,17 @@ export async function POST(request: NextRequest) {
         pincode: pincode || '414002',
       })
     } catch (provErr: any) {
-      await refund('provider error')
-      const response = NextResponse.json(
-        { success: false, error: toUserSafeError(provErr?.message, 'Bill payment failed'), request_id },
-        { status: 200 }
-      )
-      return addCorsHeaders(request, response)
+      threw = true
+      console.error('[Pay2New Bill Pay] provider call threw:', provErr?.message)
     }
 
-    if (!result.success) {
+    // 1) Clear provider success.
+    if (!threw && result?.success) {
+      return await finalizeSuccess(result.order_id, result.operator_reference, result.amount)
+    }
+
+    // 2) DEFINITIVE provider decline (valid verdict, not a transport failure).
+    if (!threw && result && !result.success && !result.ambiguous) {
       const isCashDisabled = (result.error || '').toLowerCase().includes('payment mode cash is disable')
 
       if (isCashDisabled) {
@@ -649,48 +717,20 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      await refund(result.error || 'payment failed')
-      const userError = isBillerRateLimitError(result.error) ? BILLER_RATE_LIMIT_MESSAGE : result.error
-      const response = NextResponse.json(
-        { success: false, error: userError, request_id, retryable: isBillerRateLimitError(result.error) || undefined },
-        { status: 200 }
-      )
-      return addCorsHeaders(request, response)
+      return await finalizeFailed(result.error || 'Payment failed')
     }
 
-    // Payment succeeded — per-transaction commission: retailer + distributor only
-    // (no MD). MD's former slice folds into company revenue. Idempotent references.
-    if (totalServiceCharge > 0) {
-      const commResult = await distributeServiceCommission({
-        supabase: supabaseAdmin,
-        service: 'pay2new',
-        refPrefix: 'P2N',
-        refKey: request_id,
-        totalCharge: totalServiceCharge,
-        retailer: { id: user.partner_id, role: user.role, commission: commissionSplit.retailer_commission },
-        distributor: { id: distributorId, commission: commissionSplit.distributor_commission },
-        masterDistributor: { id: mdId },
-        chargeModel: chargeModelData,
-        remarksSuffix: `on CC Bill ₹${amountNum} - ${product_name || product_code}`,
-      })
-      if (commResult.errors.length) console.error('[Pay2New Bill Pay] Commission errors:', commResult.errors)
+    // 3) AMBIGUOUS (timeout / network / HTML) or thrown → confirm with the
+    //    provider before any money moves. NEVER refund on this signal alone.
+    const settled = await settlePay2New(request_id, { attempts: 2, spacingMs: 2500 })
+    if (settled.outcome === 'SUCCESS') {
+      return await finalizeSuccess(settled.orderId, settled.operatorReference, settled.amount)
     }
-
-    await markPay2NewTxn('success', {
-      order_id: result.order_id ? String(result.order_id) : null,
-      operator_reference: result.operator_reference ? String(result.operator_reference) : null,
-      payment_channel: 'pay2new',
-    })
-
-    const response = NextResponse.json({
-      success: true,
-      order_id: result.order_id,
-      operator_reference: result.operator_reference,
-      amount: result.amount,
-      charge: totalServiceCharge,
-      request_id,
-    })
-    return addCorsHeaders(request, response)
+    if (settled.outcome === 'FAILED') {
+      return await finalizeFailed('Payment failed')
+    }
+    console.warn(`[Pay2New Bill Pay] UNKNOWN outcome left PENDING for recon: request_id=${request_id} user=${user.partner_id}`)
+    return finalizePending()
   } catch (error: any) {
     console.error('[Pay2New Bill Pay] Error:', error)
     const response = NextResponse.json(

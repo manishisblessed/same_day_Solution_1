@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { authorizeSubPartner, normalizeMasterPartner } from '@/lib/partner-access'
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
-import { pay2newRecharge } from '@/services/pay2new'
+import { pay2newRecharge, settlePay2New } from '@/services/pay2new'
 import { rateLimit, RATE_LIMITS } from '@/lib/rate-limit'
 import { toUserSafeError } from '@/lib/provider-error'
 import { createClient } from '@supabase/supabase-js'
@@ -116,7 +116,50 @@ export async function POST(request: NextRequest) {
       if (refundErr) console.error('[Pay2New Recharge] CRITICAL refund failed:', refundErr)
     }
 
-    let result
+    const finalizeSuccess = (
+      orderId: string | undefined,
+      operatorReference: string | undefined,
+      amount: number | string | undefined,
+      balance: string | undefined
+    ) => {
+      const response = NextResponse.json({
+        success: true,
+        order_id: orderId,
+        operator_reference: operatorReference,
+        amount: amount ?? amountNum,
+        balance,
+        request_id,
+      })
+      return addCorsHeaders(request, response)
+    }
+
+    const finalizeFailed = async (reason: string) => {
+      await refund(reason)
+      const response = NextResponse.json(
+        { success: false, error: reason, request_id },
+        { status: 200 }
+      )
+      return addCorsHeaders(request, response)
+    }
+
+    // UNKNOWN → NO refund. Leave the debit; the recharge is being confirmed. The
+    // user must not be refunded on a timeout the operator may have fulfilled.
+    const finalizePending = () => {
+      const response = NextResponse.json(
+        {
+          success: false,
+          pending: true,
+          status: 'PENDING',
+          error: 'Your recharge is being confirmed with the operator. Please check the transaction status in a few minutes before trying again.',
+          request_id,
+        },
+        { status: 200 }
+      )
+      return addCorsHeaders(request, response)
+    }
+
+    let result: Awaited<ReturnType<typeof pay2newRecharge>> | null = null
+    let threw = false
     try {
       result = await pay2newRecharge({
         number,
@@ -131,32 +174,34 @@ export async function POST(request: NextRequest) {
         pincode: pincode || '414002',
       })
     } catch (provErr: any) {
-      await refund('provider error')
-      const response = NextResponse.json(
-        { success: false, error: toUserSafeError(provErr?.message, 'Recharge failed'), request_id },
-        { status: 200 }
-      )
-      return addCorsHeaders(request, response)
+      threw = true
+      console.error('[Pay2New Recharge] provider call threw:', provErr?.message)
     }
 
-    if (!result.success) {
-      await refund(result.error || 'recharge failed')
-      const response = NextResponse.json(
-        { success: false, error: result.error, request_id },
-        { status: 200 }
-      )
-      return addCorsHeaders(request, response)
+    if (!threw && result?.success) {
+      return finalizeSuccess(result.order_id, result.operator_reference, result.amount, result.balance)
     }
 
-    const response = NextResponse.json({
-      success: true,
-      order_id: result.order_id,
-      operator_reference: result.operator_reference,
-      amount: result.amount,
-      balance: result.balance,
-      request_id,
-    })
-    return addCorsHeaders(request, response)
+    // Definitive operator decline → refund immediately.
+    if (!threw && result && !result.success && !result.ambiguous) {
+      return await finalizeFailed(result.error || 'Recharge failed')
+    }
+
+    // Ambiguous (timeout/network) or thrown → confirm before refunding.
+    const settled = await settlePay2New(request_id, { attempts: 2, spacingMs: 2500 })
+    if (settled.outcome === 'SUCCESS') {
+      return finalizeSuccess(
+        settled.orderId,
+        settled.operatorReference,
+        settled.amount,
+        undefined
+      )
+    }
+    if (settled.outcome === 'FAILED') {
+      return await finalizeFailed('Recharge failed')
+    }
+    console.warn(`[Pay2New Recharge] UNKNOWN outcome left PENDING for recon: request_id=${request_id} user=${user.partner_id}`)
+    return finalizePending()
   } catch (error: any) {
     console.error('[Pay2New Recharge] Error:', error)
     const response = NextResponse.json(

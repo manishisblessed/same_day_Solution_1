@@ -18,6 +18,15 @@ export interface Pay2NewRequestResult<T = unknown> {
   data?: T
   error?: string
   raw?: string
+  /**
+   * True when the failure is a TRANSPORT/infra failure (timeout, network error,
+   * non-JSON/HTML gateway page) rather than a definitive provider verdict. On an
+   * ambiguous failure the payment outcome is UNKNOWN — the biller may still have
+   * charged the card — so callers MUST confirm via transactionStatus before
+   * refunding. A provider-reported business decline (valid JSON, status≠1) is NOT
+   * ambiguous.
+   */
+  ambiguous?: boolean
 }
 
 export async function pay2newRequest<T = unknown>(
@@ -72,6 +81,8 @@ export async function pay2newRequest<T = unknown>(
         status: res.status,
         error: text.startsWith('<') ? SERVICE_DOWN_MESSAGE : maskProviderBalanceError(text.slice(0, 300)),
         raw: text,
+        // Non-JSON / HTML gateway page = infra failure, outcome unknown.
+        ambiguous: true,
       }
     }
 
@@ -93,10 +104,12 @@ export async function pay2newRequest<T = unknown>(
   } catch (e: any) {
     if (e?.name === 'AbortError') {
       console.error('[Pay2New] Request timeout:', { path, timeoutMs })
-      return { ok: false, status: 408, error: SERVICE_DOWN_MESSAGE }
+      // Timeout: the request may have reached the provider and charged the card.
+      return { ok: false, status: 408, error: SERVICE_DOWN_MESSAGE, ambiguous: true }
     }
     console.error('[Pay2New] Network error:', { path, message: e?.message })
-    return { ok: false, status: 0, error: SERVICE_DOWN_MESSAGE }
+    // Network failure: outcome unknown — never treat as a definitive decline.
+    return { ok: false, status: 0, error: SERVICE_DOWN_MESSAGE, ambiguous: true }
   } finally {
     clearTimeout(timer)
   }

@@ -177,9 +177,18 @@ export const Pay2NewScreen: React.FC = () => {
       });
       setTpinOpen(false);
       qc.invalidateQueries({ queryKey: ['wallet'] });
+      if (res.pending || res.status === 'PENDING') {
+        Alert.alert(
+          'Payment being confirmed',
+          res.error ||
+            'Your payment is being confirmed with the bank. Please check the transaction status in a few minutes before trying again — do not pay the same card again now.',
+          [{ text: 'OK', onPress: () => nav.goBack() }]
+        );
+        return;
+      }
       Alert.alert(
         res.success ? 'Payment successful' : 'Payment status',
-        `Order: ${res.order_id}\nRef: ${res.operator_reference || '—'}`,
+        `Order: ${res.order_id || '—'}\nRef: ${res.operator_reference || '—'}`,
         [{ text: 'Done', onPress: () => nav.goBack() }]
       );
     } catch (e) {
@@ -205,9 +214,18 @@ export const Pay2NewScreen: React.FC = () => {
     try {
       const res = await pay2NewRecharge({ number: number.trim(), amount: amt, product_code: biller!.product_code });
       qc.invalidateQueries({ queryKey: ['wallet'] });
+      if (res.pending || res.status === 'PENDING') {
+        Alert.alert(
+          'Recharge being confirmed',
+          res.error ||
+            'Your recharge is being confirmed with the operator. Please check the status in a few minutes before trying again — do not recharge again now.',
+          [{ text: 'OK', onPress: () => nav.goBack() }]
+        );
+        return;
+      }
       Alert.alert(
         res.success ? 'Recharge successful' : 'Recharge status',
-        `Order: ${res.order_id}\nRef: ${res.operator_reference || '—'}`,
+        `Order: ${res.order_id || '—'}\nRef: ${res.operator_reference || '—'}`,
         [{ text: 'Done', onPress: () => nav.goBack() }]
       );
     } catch (e) {

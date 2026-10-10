@@ -38,6 +38,13 @@ export async function pay2newPayBill(params: BillPayParams): Promise<{
   amount?: number | string
   balance?: string
   error?: string
+  /**
+   * True when the failure was a transport/infra failure (timeout, network, HTML)
+   * rather than a definitive provider decline. On ambiguous=true the caller MUST
+   * confirm the real outcome via transactionStatus before refunding — the card
+   * may already have been charged.
+   */
+  ambiguous?: boolean
   raw?: Pay2NewBillPaymentResponse
 }> {
   const payload: Pay2NewBillPaymentRequest = {
@@ -81,8 +88,8 @@ export async function pay2newPayBill(params: BillPayParams): Promise<{
 
     if (!result.ok || !result.data) {
       const errMsg = result.error || result.data?.message || 'Bill payment failed'
-      console.error('[Pay2New] Bill Pay failed:', errMsg, '| raw response:', JSON.stringify(result.data ?? result.raw ?? null))
-      return { success: false, error: errMsg, raw: result.data as any }
+      console.error('[Pay2New] Bill Pay failed:', errMsg, '| ambiguous:', !!result.ambiguous, '| raw response:', JSON.stringify(result.data ?? result.raw ?? null))
+      return { success: false, error: errMsg, ambiguous: result.ambiguous, raw: result.data as any }
     }
 
     const resp = result.data

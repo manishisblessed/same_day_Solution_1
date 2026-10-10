@@ -71,6 +71,14 @@ export async function register() {
     }
 
     try {
+      const { initPay2NewDirectReconcileCron } = await import('@/lib/cron/pay2new-direct-reconcile-cron')
+      await initPay2NewDirectReconcileCron()
+      console.log('[Instrumentation] Pay2New Direct Reconcile Cron initialized successfully')
+    } catch (err) {
+      console.error('[Instrumentation] Failed to initialize Pay2New Direct Reconcile cron:', err)
+    }
+
+    try {
       const { initRechargekitReconcileCron } = await import('@/lib/cron/rechargekit-reconcile-cron')
       await initRechargekitReconcileCron()
       console.log('[Instrumentation] Rechargekit Reconcile Cron initialized successfully')
