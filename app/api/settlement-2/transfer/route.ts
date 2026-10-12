@@ -206,8 +206,13 @@ export async function POST(request: NextRequest) {
         resolvedVia = resolved.resolved_via
         hasAssignedScheme = true
 
+        // Use the CHARGE-BASED RPC (returns *_purchase_charge_val + margins). The
+        // legacy `calculate_shadval_settlement_charge_from_scheme` returns only
+        // commission columns (no _val), which left chargeModelData null and routed
+        // every transfer through the legacy model — so the MD margin was never
+        // credited (it silently folded into company revenue).
         const { data: chargeResult, error: chargeError } = await (supabaseAdmin as any).rpc(
-          'calculate_shadval_settlement_charge_from_scheme',
+          'calculate_shadval_charge_from_scheme',
           { p_scheme_id: resolved.scheme_id, p_amount: amountNum, p_transfer_mode: mode }
         )
 
@@ -217,17 +222,20 @@ export async function POST(request: NextRequest) {
           commissionSplit = {
             distributor_commission: parseFloat(chargeResult[0].distributor_commission) || 0,
             md_commission: parseFloat(chargeResult[0].md_commission) || 0,
-            company_earning: parseFloat(chargeResult[0].company_charge) || 0,
+            company_earning: parseFloat(chargeResult[0].company_earning ?? chargeResult[0].company_charge) || 0,
           }
           const mdPc = parseFloat(chargeResult[0].md_purchase_charge_val) || 0
           const dtPc = parseFloat(chargeResult[0].dt_purchase_charge_val) || 0
           const rtPc = parseFloat(chargeResult[0].rt_purchase_charge_val) || 0
           if (mdPc > 0 || dtPc > 0 || rtPc > 0) {
+            // company_margin = md_charge − vendor cost, so the vendor-cost snapshot
+            // = md_charge − company_margin. reverify refines it against the live card.
+            const companyMargin = parseFloat(chargeResult[0].company_margin) || 0
             chargeModelData = {
               md_purchase_charge: mdPc,
               dt_purchase_charge: dtPc,
               rt_purchase_charge: rtPc,
-              company_cost: parseFloat(chargeResult[0].company_earning || chargeResult[0].company_charge) || 0,
+              company_cost: Math.max(0, Math.round((mdPc - companyMargin) * 100) / 100),
               reverify: { serviceKind: 'PAYOUT', scopeKey: mode || null, category: null, amount: amountNum },
             }
           }
@@ -284,6 +292,20 @@ export async function POST(request: NextRequest) {
             distributor_commission: calc(parseFloat(slab.distributor_commission) || 0, slab.distributor_commission_type),
             md_commission: calc(parseFloat(slab.md_commission) || 0, slab.md_commission_type),
             company_earning: calc(parseFloat(slab.company_charge) || 0, slab.company_charge_type),
+          }
+          // Charge-based slab → build the charge model so DT/MD margins and company
+          // revenue are credited per the hierarchy (same as the RPC path above).
+          const mdPc = calc(parseFloat(slab.md_purchase_charge) || 0, slab.md_purchase_charge_type || 'flat')
+          const dtPc = calc(parseFloat(slab.dt_purchase_charge) || 0, slab.dt_purchase_charge_type || 'flat')
+          const rtPc = calc(parseFloat(slab.rt_purchase_charge) || 0, slab.rt_purchase_charge_type || 'flat')
+          if (mdPc > 0 || dtPc > 0 || rtPc > 0) {
+            chargeModelData = {
+              md_purchase_charge: mdPc,
+              dt_purchase_charge: dtPc,
+              rt_purchase_charge: rtPc,
+              company_cost: calc(parseFloat(slab.company_charge) || 0, slab.company_charge_type || 'flat'),
+              reverify: { serviceKind: 'PAYOUT', scopeKey: mode || null, category: null, amount: amountNum },
+            }
           }
           resolvedSchemeId = slab.scheme_id
         }
