@@ -229,7 +229,24 @@ async function clawbackRetailer(c, row) {
         recoveredAmount += Number(row.debit)
         console.log(`     ✓ recovered ${money(row.debit)} via CLAWBACK_${row.reference_id}`)
       } catch (e) {
-        console.log(`     ! recovery FAILED (${e.message}) — manual follow-up needed`)
+        // Insufficient balance on a VENDOR-CONFIRMED false refund: queue it for
+        // the standing clawback-recovery cron, which re-debits the exact amount
+        // one by one the moment the partner balance covers it. Idempotent tag.
+        if (/insufficient/i.test(e.message || '') && row.ledger === 'partner') {
+          try {
+            await c.query(
+              `UPDATE partner_wallet_ledger
+                 SET description = description || ' | FalseRefundConfirmed(order:' || $2 || ' ref:' || $3 || ') RecoveryPending'
+               WHERE partner_id=$1 AND reference_id=$4 AND description NOT LIKE '%FalseRefundConfirmed%'`,
+              [row.owner_id, v.order_id || 'N/A', v.operator_reference || 'N/A', row.reference_id]
+            )
+            console.log(`     … insufficient balance — QUEUED for standing recovery (FalseRefundConfirmed)`)
+          } catch (e2) {
+            console.log(`     ! queue annotate failed (${e2.message})`)
+          }
+        } else {
+          console.log(`     ! recovery FAILED (${e.message}) — manual follow-up needed`)
+        }
         needManual.push(row.reference_id)
       }
     }

@@ -79,6 +79,14 @@ export async function register() {
     }
 
     try {
+      const { initPay2NewClawbackRecoveryCron } = await import('@/lib/cron/pay2new-clawback-recovery-cron')
+      await initPay2NewClawbackRecoveryCron()
+      console.log('[Instrumentation] Pay2New Clawback Recovery Cron initialized successfully')
+    } catch (err) {
+      console.error('[Instrumentation] Failed to initialize Pay2New Clawback Recovery cron:', err)
+    }
+
+    try {
       const { initRechargekitReconcileCron } = await import('@/lib/cron/rechargekit-reconcile-cron')
       await initRechargekitReconcileCron()
       console.log('[Instrumentation] Rechargekit Reconcile Cron initialized successfully')

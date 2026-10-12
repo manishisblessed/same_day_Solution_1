@@ -5,7 +5,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import { useRouter } from 'next/navigation'
 import AdminSidebar from '@/components/AdminSidebar'
 import {
-  RotateCcw, RefreshCw, ShieldCheck, CheckCircle, XCircle, AlertTriangle, Clock, Menu, Layers,
+  RotateCcw, RefreshCw, ShieldCheck, CheckCircle, XCircle, AlertTriangle, Clock, Menu, Layers, Undo2,
 } from 'lucide-react'
 import { apiFetch } from '@/lib/api-client'
 import { useToast } from '@/components/Toast'
@@ -30,6 +30,15 @@ function fmtDate(s?: string) {
   return new Date(s).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: '2-digit', hour: '2-digit', minute: '2-digit' })
 }
 
+// Known false-refund candidates from the Oct-2026 loss sweep (partner_api).
+// Pre-seeded for one-click recovery; each is re-verified live against the vendor.
+const RECOVER_SEED = [
+  'SDS1790323955794', 'SDS1789740337216', 'SDS1789639195670', 'SDS1789573883111',
+  'SDS1788855809313', 'SDS1788855621976', 'SDS1788612712988', 'SDS1788609571486',
+  'SDS1791206748465', 'SDS1791198994919', 'SDS1791106209521', 'SDS1790849210617',
+  'SDS1791617967717', 'SDS1791617959724', 'SDS1791617888780', 'SDS1791617735654', 'SDS1791617629907',
+].join('\n')
+
 const DECISION_META: Record<RowCheck['decision'], { label: string; cls: string }> = {
   refundable: { label: 'Refundable (not charged)', cls: 'bg-green-100 text-green-700' },
   blocked: { label: 'SUCCESS — do not refund', cls: 'bg-red-100 text-red-700' },
@@ -50,6 +59,8 @@ export default function Pay2NewReversalsPage() {
   const [refunding, setRefunding] = useState<string | null>(null)
   const [manualIds, setManualIds] = useState('')
   const [busyManual, setBusyManual] = useState(false)
+  const [recoverIds, setRecoverIds] = useState(RECOVER_SEED)
+  const [busyRecover, setBusyRecover] = useState(false)
 
   useEffect(() => {
     if (!authLoading && (!user || (user.role !== 'admin' && (user as any).role !== 'finance_executive'))) {
@@ -146,6 +157,48 @@ export default function Pay2NewReversalsPage() {
     }
   }
 
+  const parseRecover = () => recoverIds.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean)
+
+  const discoverRecover = async () => {
+    setBusyRecover(true)
+    try {
+      const res = await apiFetch('/api/admin/pay2new/recover?days=90')
+      const data = await res.json()
+      if (data.success) {
+        setRecoverIds((data.candidates || []).map((c: any) => c.request_id).join('\n'))
+        showToast(`Found ${data.count} false-refund candidate(s)`, 'info')
+      } else showToast(data.error || 'Discover failed', 'error')
+    } catch {
+      showToast('Discover failed', 'error')
+    } finally {
+      setBusyRecover(false)
+    }
+  }
+
+  const doRecover = async (dryRun: boolean) => {
+    const ids = parseRecover()
+    if (ids.length === 0) { showToast('Paste at least one request id', 'error'); return }
+    if (!dryRun && !window.confirm(`Recover (clawback) ${ids.length} transaction(s)?\n\nEach is re-verified live; ONLY vendor-confirmed SUCCESS are re-debited to reverse a wrong refund. Idempotent — safe to re-run.`)) return
+    setBusyRecover(true)
+    try {
+      const res = await apiFetch('/api/admin/pay2new/recover', {
+        method: 'POST',
+        body: JSON.stringify({ request_ids: ids, dryRun }),
+      })
+      const data = await res.json()
+      if (data.success) {
+        const s = data.summary
+        if (dryRun) showToast(`Preview: ${s.would_recover} recoverable (${fmtINR(s.would_recover_amount)}) · ${s.refund_was_correct} correct · ${s.waiting} wait · ${s.insufficient_balance} no-balance`, 'info')
+        else { showToast(`Recovered ${s.recovered} · ${fmtINR(s.recovered_amount)}${s.insufficient_balance ? ` · ${s.insufficient_balance} failed (no balance)` : ''}`, 'success'); loadHeld() }
+        console.table(data.results)
+      } else showToast(data.error || 'Failed', 'error')
+    } catch {
+      showToast('Failed', 'error')
+    } finally {
+      setBusyRecover(false)
+    }
+  }
+
   if (authLoading) {
     return <div className="min-h-screen flex items-center justify-center"><div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-600" /></div>
   }
@@ -196,6 +249,25 @@ export default function Pay2NewReversalsPage() {
               <div className="flex gap-2">
                 <button onClick={() => doManual(true)} disabled={busyManual} className="px-4 py-2 border border-blue-600 text-blue-600 rounded-lg hover:bg-blue-50 disabled:opacity-50 text-sm">Preview</button>
                 <button onClick={() => doManual(false)} disabled={busyManual} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 text-sm">Refund pasted</button>
+              </div>
+            </div>
+          </div>
+
+          {/* False-refund recovery (clawback) */}
+          <div className="bg-white rounded-lg shadow p-4 mb-6 border-l-4 border-rose-400">
+            <div className="flex items-center gap-2 font-medium text-gray-800 mb-1"><Undo2 className="w-5 h-5 text-rose-600" /> Recover false refunds (clawback)</div>
+            <p className="text-xs text-gray-500 mb-2">
+              Reverses a wrong refund where the vendor actually <b>SUCCEEDED</b>. Each ID is re-verified live against Pay2New;
+              <b> only vendor-confirmed SUCCESS</b> is re-debited. Idempotent (CLAWBACK_). If the partner already spent the money it reports <b>no-balance</b> for manual follow-up.
+              <b> Must be run from the deployed (IP-whitelisted) server.</b>
+            </p>
+            <textarea value={recoverIds} onChange={(e) => setRecoverIds(e.target.value)} rows={4} className="w-full px-3 py-2 border rounded-lg font-mono text-xs mb-2" placeholder={'SDS…'} />
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <span className="text-xs text-gray-500">{parseRecover().length} ID(s)</span>
+              <div className="flex gap-2">
+                <button onClick={discoverRecover} disabled={busyRecover} className="px-3 py-2 border border-gray-300 text-gray-600 rounded-lg hover:bg-gray-100 disabled:opacity-50 text-sm">Auto-discover</button>
+                <button onClick={() => doRecover(true)} disabled={busyRecover} className="px-4 py-2 border border-rose-500 text-rose-600 rounded-lg hover:bg-rose-50 disabled:opacity-50 text-sm">Preview</button>
+                <button onClick={() => doRecover(false)} disabled={busyRecover} className="px-4 py-2 bg-rose-600 text-white rounded-lg hover:bg-rose-700 disabled:opacity-50 text-sm">Recover (clawback)</button>
               </div>
             </div>
           </div>
