@@ -315,6 +315,22 @@ export default function Pay2NewServiceFlow(props: Pay2NewServiceFlowProps) {
       return
     }
 
+    // Soft guard: warn (don't block) on a same-card re-payment while a prior one
+    // is still being confirmed — a separate, non-reversible charge.
+    try {
+      const ident = buildIdentityFields()
+      const chk = await apiFetchJson<any>(
+        `/api/pay2new/pending-check?card_number=${encodeURIComponent(ident.number)}&product_code=${encodeURIComponent(selectedBiller.product_code)}&customer_number=${encodeURIComponent(ident.customer_number || ident.number)}`
+      )
+      if (chk?.pending) {
+        const prev = chk.info?.amount ? `₹${chk.info.amount}` : 'a previous payment'
+        const ok = window.confirm(
+          `A previous payment of ${prev} to this card is still being confirmed with the bank.\n\nPaying again will be charged SEPARATELY and CANNOT be reversed. Continue only if you intend a second payment.`
+        )
+        if (!ok) return
+      }
+    } catch { /* non-blocking */ }
+
     setPayLoading(true)
     try {
       const data = await apiFetchJson('/api/pay2new/bill/pay', {

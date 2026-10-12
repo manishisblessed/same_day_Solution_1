@@ -618,8 +618,13 @@ export async function POST(request: NextRequest) {
       console.error('[Partner Pay2New Pay] provider call threw:', provErr?.message)
     }
 
-    // 1) Clear provider success → finalize success.
-    if (!threw && result?.success) {
+    // 1) Clear provider success WITH a settlement identifier (order_id or
+    //    operator_reference) → finalize success. A status=1 response that carries
+    //    NEITHER is only an ACCEPTED/processing acknowledgement (the biller has
+    //    not settled yet) and must NOT be reported as completed — otherwise the
+    //    partner sees SUCCESS while the vendor still shows PENDING. Fall through
+    //    to settle/pending so the real outcome is confirmed.
+    if (!threw && result?.success && (result.order_id || result.operator_reference)) {
       return await finalizeSuccess(result.order_id, result.operator_reference, result.amount)
     }
 
@@ -629,7 +634,8 @@ export async function POST(request: NextRequest) {
       return await finalizeFailed(result.error || 'Payment failed', isBillerRateLimitError(result.error))
     }
 
-    // 3) AMBIGUOUS (timeout / network / HTML) or thrown → NEVER refund on this
+    // 3) AMBIGUOUS (timeout / network / HTML), thrown, OR an order-less "accepted"
+    //    success → NEVER refund/complete on this
     //    signal. Confirm the real outcome with the provider before any money moves.
     const settled = await settlePay2New(request_id, { attempts: 2, spacingMs: 2500 })
     if (settled.outcome === 'SUCCESS') {

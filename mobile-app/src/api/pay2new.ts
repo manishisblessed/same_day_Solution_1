@@ -68,6 +68,18 @@ export function pay2NewRecharge(input: {
 }
 
 /**
+ * Read-only: does the current user already have an in-flight PENDING payment to
+ * this same card? Used to show a soft "separate charge, cannot be reversed"
+ * confirmation before a same-card re-payment (never blocks).
+ */
+export function checkPay2NewPending(params: { card_number: string; product_code: string; customer_number: string }) {
+  return api.get<{ success: boolean; pending: boolean; info?: { amount: number; created_at: string; request_id: string } }>(
+    '/api/pay2new/pending-check',
+    params
+  );
+}
+
+/**
  * Outcome of a money-moving Pay2New call. `pending` (HTTP 200, success:false)
  * means the bank hasn't confirmed yet — the card may still get charged, so the
  * UI must show a "being confirmed" state and MUST NOT invite an immediate retry.

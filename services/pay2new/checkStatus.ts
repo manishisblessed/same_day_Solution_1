@@ -59,7 +59,7 @@ export async function pay2newCheckStatus(params: CheckStatusParams): Promise<{
       // A definitive "no such transaction" from the provider means the payment
       // was never registered/charged -> treat as FAILED so callers can safely
       // resolve a stuck debit (rather than leaving it PENDING forever).
-      if (/no\s*transaction\s*found/i.test(errMsg)) {
+      if (/(no\s*transaction\s*found|transaction\s*not\s*found)/i.test(errMsg)) {
         return { success: true, status: 'FAILED', notFound: true, error: errMsg, raw: result.data as any }
       }
       console.error('[Pay2New] Check Status failed:', errMsg)
@@ -72,8 +72,16 @@ export async function pay2newCheckStatus(params: CheckStatusParams): Promise<{
     const resp = result.data
     const order = resp.order
     if (!order) {
-      // Provider acknowledged (status:1) but returned no order block — unknown
-      // state; report PENDING so callers wait rather than refund.
+      // Authoritative "not found" can also arrive on the success channel as an
+      // outer status:2 with a not-found message -> treat as notFound (FAILED).
+      // NOTE: only unambiguous not-found wording; "IP not verified" and any
+      // other status:2 reason stay PENDING so we never refund a possible charge.
+      const outerMsg = String(resp.message ?? '')
+      if (Number(resp.status) === 2 && /(no\s*transaction\s*found|transaction\s*not\s*found)/i.test(outerMsg)) {
+        return { success: true, status: 'FAILED', notFound: true, error: outerMsg, raw: resp }
+      }
+      // Provider acknowledged but returned no order block — unknown state;
+      // report PENDING so callers wait rather than refund.
       return { success: true, status: 'PENDING', raw: resp }
     }
 

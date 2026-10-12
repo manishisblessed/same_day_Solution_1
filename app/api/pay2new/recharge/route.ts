@@ -178,7 +178,10 @@ export async function POST(request: NextRequest) {
       console.error('[Pay2New Recharge] provider call threw:', provErr?.message)
     }
 
-    if (!threw && result?.success) {
+    // Success only when the operator returned a settlement identifier. A bare
+    // status=1 with no order_id/operator_reference is an accepted/processing ack,
+    // not a confirmed recharge — fall through to settle/pending.
+    if (!threw && result?.success && (result.order_id || result.operator_reference)) {
       return finalizeSuccess(result.order_id, result.operator_reference, result.amount, result.balance)
     }
 

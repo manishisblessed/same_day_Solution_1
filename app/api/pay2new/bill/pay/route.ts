@@ -642,8 +642,11 @@ export async function POST(request: NextRequest) {
       console.error('[Pay2New Bill Pay] provider call threw:', provErr?.message)
     }
 
-    // 1) Clear provider success.
-    if (!threw && result?.success) {
+    // 1) Clear provider success WITH a settlement identifier (order_id or
+    //    operator_reference). A status=1 response carrying NEITHER is only an
+    //    ACCEPTED/processing ack (biller not settled) — do NOT report completed;
+    //    fall through to settle/pending so the real outcome is confirmed.
+    if (!threw && result?.success && (result.order_id || result.operator_reference)) {
       return await finalizeSuccess(result.order_id, result.operator_reference, result.amount)
     }
 

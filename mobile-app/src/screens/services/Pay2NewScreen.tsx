@@ -5,7 +5,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, radius, spacing, typography, shadow } from '@/theme';
 import { Screen, Card, Input, Button, IconTile, Loading, EmptyState, ErrorState, TpinSheet } from '@/components';
-import { fetchPay2NewBillers, fetchPay2NewBill, fetchPay2NewCharges, payPay2NewBill, pay2NewRecharge, Pay2NewBiller } from '@/api/pay2new';
+import { fetchPay2NewBillers, fetchPay2NewBill, fetchPay2NewCharges, payPay2NewBill, pay2NewRecharge, checkPay2NewPending, Pay2NewBiller } from '@/api/pay2new';
 import { AppStackParamList } from '@/navigation/types';
 import { ApiError } from '@/lib/api';
 import { formatCurrency } from '@/utils/format';
@@ -163,10 +163,36 @@ export const Pay2NewScreen: React.FC = () => {
   };
 
   const doPay = async (tpin: string) => {
+    const ident = identity();
+    // Soft guard: warn (don't block) if a prior payment to this card is still
+    // being confirmed — a second payment is a separate, non-reversible charge.
+    try {
+      const chk = await checkPay2NewPending({
+        card_number: ident.number,
+        product_code: biller!.product_code,
+        customer_number: ident.customer_number,
+      });
+      if (chk?.pending) {
+        const prev = chk.info?.amount ? `₹${chk.info.amount}` : 'a previous payment';
+        const proceed = await new Promise<boolean>((resolve) => {
+          Alert.alert(
+            'Previous payment still confirming',
+            `${prev} to this card is still being confirmed. Paying again is a SEPARATE charge and CANNOT be reversed. Continue?`,
+            [
+              { text: 'Cancel', style: 'cancel', onPress: () => resolve(false) },
+              { text: 'Pay anyway', style: 'destructive', onPress: () => resolve(true) },
+            ],
+            { cancelable: true, onDismiss: () => resolve(false) }
+          );
+        });
+        if (!proceed) return;
+      }
+    } catch { /* non-blocking */ }
+
     setSubmitting(true);
     try {
       const res = await payPay2NewBill({
-        ...identity(),
+        ...ident,
         amount: amt,
         product_code: biller!.product_code,
         product_name: biller!.product_name,

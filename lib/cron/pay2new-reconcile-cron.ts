@@ -34,6 +34,7 @@ import cron, { ScheduledTask } from 'node-cron'
 import * as Sentry from '@sentry/nextjs'
 import { getSupabaseAdmin } from '@/lib/supabase/server-admin'
 import { pay2newCheckStatus } from '@/services/pay2new'
+import { reverseServiceCommission } from '@/lib/commission/distribute-service-commission'
 import { deliverPartnerCallbackByPartnerId } from '@/lib/partner-webhook/deliver'
 import { buildPay2NewStatusPayload, type Pay2NewTerminalStatus } from '@/lib/partner-webhook/pay2new-payload'
 
@@ -74,6 +75,32 @@ function emitWebhook(
   }).catch(() => {})
 }
 
+/**
+ * Flag a stuck partner debit for ADMIN manual review (money stays held, never
+ * auto-refunded). Used for an inconclusive "no transaction found" and for a
+ * payment aged past the auto-act window. Annotates the ledger row so the admin
+ * reversals view can surface it and the cron stops re-checking it.
+ */
+async function flagReview(
+  supabase: ReturnType<typeof getSupabaseAdmin>,
+  row: { id: string; partner_id: string; reference_id: string; description: string | null; debit?: number | null },
+  reason: string
+): Promise<void> {
+  try {
+    await supabase
+      .from('partner_wallet_ledger')
+      .update({ description: `${row.description || ''} | ReviewRequired(${reason})` })
+      .eq('id', row.id)
+    Sentry.captureMessage(
+      `Pay2New held payment needs admin review: ${row.reference_id} ₹${row.debit ?? '?'} partner=${row.partner_id} (${reason})`,
+      'warning'
+    )
+    console.warn(`[Pay2New-Recon] REVIEW flagged ref=${row.reference_id} (${reason}) — held, admin must resolve`)
+  } catch (e: any) {
+    console.error(`[Pay2New-Recon] failed to flag review ${row.reference_id}:`, e?.message)
+  }
+}
+
 const CRON_EXPRESSION = process.env.PAY2NEW_RECON_CRON || '*/5 * * * *'
 
 function posInt(v: string | undefined, def: number): number {
@@ -87,7 +114,7 @@ const CFG = {
   // Safe by default: log intended refunds, don't move money until explicitly off.
   dryRun: process.env.PAY2NEW_RECON_DRY_RUN !== 'false',
   // Don't touch txns younger than this (may still be completing at the provider).
-  minAgeMin: posInt(process.env.PAY2NEW_RECON_MIN_AGE_MIN, 20),
+  minAgeMin: posInt(process.env.PAY2NEW_RECON_MIN_AGE_MIN, 15),
   // Don't auto-act on txns older than this (historical backlog = manual review).
   maxAgeHours: posInt(process.env.PAY2NEW_RECON_MAX_AGE_HOURS, 72),
   // Candidates inspected per run.
@@ -140,6 +167,8 @@ async function runCheck(): Promise<void> {
       .lt('created_at', maxCreatedAt)
       .not('description', 'ilike', '%OrderID:%')
       .not('description', 'ilike', '%ReconVerified%')
+      // Already escalated to admin (not-found / aged) — stop re-processing.
+      .not('description', 'ilike', '%ReviewRequired%')
       .order('created_at', { ascending: true })
       .limit(CFG.batch)
 
@@ -206,10 +235,18 @@ async function runCheck(): Promise<void> {
         continue
       }
 
+      // "No transaction found" is INCONCLUSIVE (the provider's index can lag a
+      // real charge) — per policy we NEVER auto-refund it. Flag for admin manual
+      // review and move on; the money stays held.
+      if (res.notFound) {
+        await flagReview(supabase, c, 'not_found')
+        continue
+      }
+
       // Still processing or unknown -> wait, do not refund.
       if (res.status !== 'FAILED' && res.status !== 'REFUNDED') continue
 
-      // ---- Definitive not-paid: partner is owed a refund ----
+      // ---- Definitive order-level FAILED/REFUNDED: partner is owed a refund ----
       const amount = Number(c.debit)
       if (!Number.isFinite(amount) || amount <= 0) continue
 
@@ -263,6 +300,9 @@ async function runCheck(): Promise<void> {
       }
 
       refunded++
+      // Unwind any distributed commission/margin so a reversal nets to 0 margin
+      // (idempotent; a no-op when nothing was distributed for this txn).
+      await reverseServiceCommission({ supabase, service: 'pay2new', refPrefix: 'P2N', refKey: ref })
       console.log(`[Pay2New-Recon] REFUNDED ₹${amount} ref=${ref} partner=${c.partner_id} (${reason})`)
       // Push the terminal REFUNDED state so the partner releases the held txn.
       const amt = parseAmounts(c.description)
@@ -276,6 +316,34 @@ async function runCheck(): Promise<void> {
         operatorReference: null,
         message: reason,
       })
+    }
+
+    // ---- 72h escalation: a payment still unresolved past the auto-act window is
+    // never auto-refunded. Flag it so an admin decides manually (money stays held).
+    const { data: aged } = await supabase
+      .from('partner_wallet_ledger')
+      .select('id, partner_id, reference_id, debit, description, created_at, bill_fetch_ref')
+      .eq('service_type', 'pay2new')
+      .eq('transaction_type', 'DEBIT')
+      .ilike('reference_id', 'SDS%')
+      .neq('status', 'failed')
+      .lt('created_at', minCreatedAt)
+      .not('description', 'ilike', '%OrderID:%')
+      .not('description', 'ilike', '%ReconVerified%')
+      .not('description', 'ilike', '%ReviewRequired%')
+      .order('created_at', { ascending: true })
+      .limit(CFG.batch)
+    for (const a of aged || []) {
+      // Skip if already refunded (belt-and-suspenders).
+      const { data: ref } = await supabase
+        .from('partner_wallet_ledger')
+        .select('id')
+        .eq('partner_id', a.partner_id)
+        .eq('reference_id', `REFUND_${a.reference_id}`)
+        .limit(1)
+        .maybeSingle()
+      if (ref) continue
+      await flagReview(supabase, a, 'aged_over_window')
     }
   } catch (e: any) {
     console.error('[Pay2New-Recon] run error:', e?.message)

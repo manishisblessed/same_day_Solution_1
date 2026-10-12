@@ -28,6 +28,7 @@ import cron, { ScheduledTask } from 'node-cron'
 import * as Sentry from '@sentry/nextjs'
 import { getSupabaseAdmin } from '@/lib/supabase/server-admin'
 import { pay2newCheckStatus } from '@/services/pay2new'
+import { reverseServiceCommission } from '@/lib/commission/distribute-service-commission'
 
 const CRON_EXPRESSION = process.env.PAY2NEW_DIRECT_RECON_CRON || '*/5 * * * *'
 
@@ -80,6 +81,31 @@ async function markTxn(
     .from('pay2new_transactions')
     .update({ status, completed_at: new Date().toISOString(), ...extra })
     .eq('id', id)
+}
+
+/**
+ * Flag a held direct txn for ADMIN manual review (money stays held, status stays
+ * 'pending', never auto-refunded). Used for an inconclusive "no transaction
+ * found" and for a payment aged past the auto-act window.
+ */
+async function flagReview(
+  supabase: ReturnType<typeof getSupabaseAdmin>,
+  txn: { id: string; request_id: string; user_id: string; total_debit?: number | null },
+  reason: string
+): Promise<void> {
+  try {
+    await supabase
+      .from('pay2new_transactions')
+      .update({ review_required: true, review_reason: reason })
+      .eq('id', txn.id)
+    Sentry.captureMessage(
+      `Pay2New (direct) held payment needs admin review: ${txn.request_id} user=${txn.user_id} (${reason})`,
+      'warning'
+    )
+    console.warn(`[Pay2New-DirectRecon] REVIEW flagged ref=${txn.request_id} (${reason}) — held, admin must resolve`)
+  } catch (e: any) {
+    console.error(`[Pay2New-DirectRecon] failed to flag review ${txn.request_id}:`, e?.message)
+  }
 }
 
 /**
@@ -183,6 +209,7 @@ async function runCheck(): Promise<void> {
       .from('pay2new_transactions')
       .select('id, user_id, user_role, request_id, product_code, product_name, amount, charge, total_debit, status, created_at')
       .eq('status', 'pending')
+      .eq('review_required', false)
       .ilike('request_id', 'SDS%')
       .gt('created_at', minCreatedAt)
       .lt('created_at', maxCreatedAt)
@@ -229,10 +256,16 @@ async function runCheck(): Promise<void> {
         continue
       }
 
-      // Still processing / fresh "no transaction found" → wait. A not-found is
-      // only trusted once the txn is old enough (minAge window already enforces
-      // this: candidates are ≥ minAgeMin old), so a not-found here is a genuine
-      // never-charged payment and is safe to refund.
+      // "No transaction found" is INCONCLUSIVE (the provider's index can lag a
+      // real charge) — per policy we NEVER auto-refund it. Flag for admin manual
+      // review; the money stays held.
+      if (res.notFound) {
+        if (!CFG.dryRun) await flagReview(supabase, c, 'not_found')
+        else console.log(`[Pay2New-DirectRecon] DRY-RUN would flag not_found ref=${ref}`)
+        continue
+      }
+
+      // Auto-refund ONLY on a definitive order-level FAILED/REFUNDED verdict.
       const definitiveNotPaid =
         res.status === 'REFUNDED' || res.status === 'FAILED'
       if (!definitiveNotPaid) continue
@@ -266,6 +299,8 @@ async function runCheck(): Promise<void> {
         const outcome = await refundDirect(supabase, c)
         if (outcome === 'refunded') {
           refunded++
+          // Unwind any distributed commission/margin (idempotent no-op if none).
+          await reverseServiceCommission({ supabase, service: 'pay2new', refPrefix: 'P2N', refKey: ref })
           await markTxn(supabase, c.id, 'refunded', { error_message: reason })
           console.log(`[Pay2New-DirectRecon] REFUNDED ₹${amount} ref=${ref} user=${c.user_id} (${reason})`)
         } else if (outcome === 'orphan') {
@@ -277,6 +312,23 @@ async function runCheck(): Promise<void> {
       } catch (e: any) {
         console.error(`[Pay2New-DirectRecon] CRITICAL refund failed ${ref}:`, e?.message)
         Sentry.captureException(new Error(`Pay2New direct recon refund failed ${ref}: ${e?.message}`))
+      }
+    }
+
+    // ---- 72h escalation: pendings past the auto-act window are never auto-
+    // refunded — flag for admin manual decision (money stays held).
+    if (!CFG.dryRun) {
+      const { data: aged } = await supabase
+        .from('pay2new_transactions')
+        .select('id, user_id, request_id, total_debit')
+        .eq('status', 'pending')
+        .eq('review_required', false)
+        .ilike('request_id', 'SDS%')
+        .lt('created_at', minCreatedAt)
+        .order('created_at', { ascending: true })
+        .limit(CFG.batch)
+      for (const a of (aged || []) as any[]) {
+        await flagReview(supabase, a, 'aged_over_window')
       }
     }
   } catch (e: any) {

@@ -53,7 +53,7 @@ const SELECT_COLS = 'id, reference_id, description, status, created_at, debit, b
 const NEGATIVE_VERDICT_MIN_AGE_MS =
   (Number(process.env.PAY2NEW_NEGATIVE_VERDICT_MIN_AGE_MIN) > 0
     ? Number(process.env.PAY2NEW_NEGATIVE_VERDICT_MIN_AGE_MIN)
-    : 10) * 60_000
+    : 15) * 60_000
 
 function parseOrderId(desc: string | null): string | null {
   const m = desc?.match(/OrderID:([^\s|]+)/)
@@ -170,10 +170,12 @@ export async function resolvePay2NewDebitState(
               })
               .eq('id', debitEntry.id)
           }
-        } else if (up.success && (up.status === 'FAILED' || up.status === 'REFUNDED')) {
-          // Only trust a negative verdict for a payment old enough that it cannot
-          // still be in-flight; otherwise stay PENDING (the recon cron refunds
-          // genuinely-stuck debits and emits the terminal webhook).
+        } else if (up.success && !up.notFound && (up.status === 'FAILED' || up.status === 'REFUNDED')) {
+          // Only trust a DEFINITIVE order-level negative verdict (NOT a "no
+          // transaction found", which is inconclusive and routed to admin review)
+          // and only once the payment is old enough that it cannot still be
+          // in-flight; otherwise stay PENDING (held). The recon cron refunds
+          // genuinely-failed debits; not-found is escalated to admin, never auto.
           const ageMs = Date.now() - new Date(debitEntry.created_at).getTime()
           if (ageMs >= NEGATIVE_VERDICT_MIN_AGE_MS) {
             status = up.status

@@ -228,6 +228,22 @@ export default function Pay2NewCCPayment() {
       return
     }
 
+    // Soft guard: if a prior payment to THIS card is still being confirmed, warn
+    // that this will be a SEPARATE, non-reversible charge (does not block — split
+    // payments are allowed — only prevents an accidental duplicate of a pending bill).
+    try {
+      const chk = await apiFetchJson<any>(
+        `/api/pay2new/pending-check?card_number=${encodeURIComponent(mobileNumber)}&product_code=${encodeURIComponent(selectedBiller.product_code)}&customer_number=${encodeURIComponent(mobileNumber)}`
+      )
+      if (chk?.pending) {
+        const prev = chk.info?.amount ? `₹${chk.info.amount}` : 'a previous payment'
+        const ok = window.confirm(
+          `A previous payment of ${prev} to this card is still being confirmed with the bank.\n\nPaying again will be charged SEPARATELY and CANNOT be reversed. Continue only if you intend a second payment.`
+        )
+        if (!ok) return
+      }
+    } catch { /* non-blocking: never stop a payment because the check failed */ }
+
     setPayLoading(true)
     try {
       const data = await apiFetchJson('/api/pay2new/bill/pay', {

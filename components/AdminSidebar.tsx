@@ -74,6 +74,7 @@ const sidebarItems: SidebarItem[] = [
   { id: 'portal-management', label: 'Portal Management', icon: Server, href: '/admin?tab=portal-management' },
   { id: 'legal-agreements', label: 'Legal Agreements', icon: Scale, href: '/admin/agreements' },
   { id: 'reversals', label: 'Reversals', icon: RotateCcw, href: '/admin/reversals' },
+  { id: 'pay2new-reversals', label: 'BBPS-2 Reversals', icon: RotateCcw, href: '/admin/pay2new-reversals' },
   { id: 'credentials', label: 'Credentials', icon: KeyRound, href: '/admin/credentials' },
   { id: 'settings', label: 'Settings', icon: Settings, href: '/admin/settings' },
 ]
