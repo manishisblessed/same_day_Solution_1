@@ -721,7 +721,17 @@ function SchemeManagementPageContent() {
       if (effectiveConfigType === 'bbps') {
         configData = { ...bbpsForm, category: bbpsForm.category || null }
       } else if (effectiveConfigType === 'payout') {
-        configData = { ...payoutForm }
+        // company_charge (vendor cost) must track the CURRENTLY-selected band's
+        // vendor rate — not a stale value left in form state from a previously
+        // selected band. The Vendor/preview display reads the live rate, so a
+        // stale company_charge would silently trip the server "MD >= Company Cost"
+        // check even though the UI looks correct. Partner plans derive it below.
+        const isPartnerPay = schemes.find(s => s.id === configSchemeId)?.is_partner_plan || false
+        const vrPay = findVendorRate(payoutForm.min_amount, payoutForm.max_amount)
+        const bandVendorPay = vrPay ? Number(vrPay.vendor_rate) || 0 : 0
+        configData = isPartnerPay
+          ? { ...payoutForm }
+          : { ...payoutForm, company_charge: bandVendorPay, company_charge_type: 'flat' }
       } else if (effectiveConfigType === 'mdr') {
         const configScheme = schemes.find(s => s.id === configSchemeId)
         const isPartnerPlan = configScheme?.is_partner_plan || false
@@ -768,11 +778,16 @@ function SchemeManagementPageContent() {
       } else if (effectiveConfigType === 'aeps_settlement') {
         configData = { ...aepsSettleForm }
       } else if (effectiveConfigType === 'shadval_settlement') {
-        // Same charge-based fields as Settlement-1 (company_charge, md_purchase_charge, …).
-        // Auto-fill company_charge from vendor rate if not already set.
+        // Same charge-based fields as Settlement-1. company_charge (vendor cost)
+        // must come from the CURRENT band's live vendor rate, not stale form state
+        // (see payout note above) — otherwise a stale value trips the server
+        // "MD >= Company Cost" check while the UI shows the correct vendor/margin.
+        const isPartnerShad = schemes.find(s => s.id === configSchemeId)?.is_partner_plan || false
         const vrSettle = findVendorRate(payoutForm.min_amount, payoutForm.max_amount)
-        const resolvedCompanyCharge = payoutForm.company_charge || (vrSettle ? Number(vrSettle.vendor_rate) || 0 : 0)
-        configData = { ...payoutForm, company_charge: resolvedCompanyCharge }
+        const bandVendorShad = vrSettle ? Number(vrSettle.vendor_rate) || 0 : 0
+        configData = isPartnerShad
+          ? { ...payoutForm, company_charge: payoutForm.company_charge || bandVendorShad }
+          : { ...payoutForm, company_charge: bandVendorShad, company_charge_type: 'flat' }
       }
 
       // Partner plans: Company Earning is derived (Partner Charge − Vendor cost − Partner Commission).

@@ -16,12 +16,16 @@
  *   - fresh not-found / provider pending /
  *     unreachable                          -> leave for the next cycle.
  *
- * SAFETY (money movement — conservative defaults):
+ * POLICY (money movement — never false-refund a paid bill):
+ *   - The ONLY age gate is a 15-min FLOOR (MIN_AGE_MIN); there is NO upper bound.
+ *     A confirmed FAILED/REFUNDED pending is finalized no matter how old, and a
+ *     true PENDING is held forever until the provider gives a terminal status.
  *   - DRY-RUN by default (PAY2NEW_DIRECT_RECON_DRY_RUN !== 'false').
  *   - NEVER refunds without a matching DEBIT ledger row (an orphaned 'pending'
  *     claim that never debited is marked failed, never credited).
+ *   - "No transaction found" is inconclusive → flag for admin, never auto-refund.
  *   - Refund is idempotent (REFUND_<request_id>; wallet RPCs reject duplicates).
- *   - Age window, batch cap, per-run refund cap, per-txn max-amount cap.
+ *   - Batch cap, per-run refund cap, per-txn max-amount cap.
  */
 
 import cron, { ScheduledTask } from 'node-cron'
@@ -40,8 +44,8 @@ function posInt(v: string | undefined, def: number): number {
 const CFG = {
   enabled: process.env.PAY2NEW_DIRECT_RECON_ENABLED !== 'false',
   dryRun: process.env.PAY2NEW_DIRECT_RECON_DRY_RUN !== 'false',
+  // 15-min FLOOR only — no upper age bound (see policy note in the header).
   minAgeMin: posInt(process.env.PAY2NEW_DIRECT_RECON_MIN_AGE_MIN, 15),
-  maxAgeHours: posInt(process.env.PAY2NEW_DIRECT_RECON_MAX_AGE_HOURS, 72),
   batch: posInt(process.env.PAY2NEW_DIRECT_RECON_BATCH, 25),
   maxAmount: posInt(process.env.PAY2NEW_DIRECT_RECON_MAX_AMOUNT, 100000),
   maxRefundsPerRun: posInt(process.env.PAY2NEW_DIRECT_RECON_MAX_REFUNDS_PER_RUN, 10),
@@ -202,8 +206,9 @@ async function runCheck(): Promise<void> {
   try {
     const supabase = getSupabaseAdmin()
     const nowMs = Date.now()
+    // Only the 15-min FLOOR applies — no upper age bound, so a confirmed failure
+    // is finalized no matter how old and a PENDING one is held until resolved.
     const maxCreatedAt = new Date(nowMs - CFG.minAgeMin * 60_000).toISOString()
-    const minCreatedAt = new Date(nowMs - CFG.maxAgeHours * 3_600_000).toISOString()
 
     const { data: candidates, error } = await supabase
       .from('pay2new_transactions')
@@ -211,7 +216,6 @@ async function runCheck(): Promise<void> {
       .eq('status', 'pending')
       .eq('review_required', false)
       .ilike('request_id', 'SDS%')
-      .gt('created_at', minCreatedAt)
       .lt('created_at', maxCreatedAt)
       .order('created_at', { ascending: true })
       .limit(CFG.batch)
@@ -315,22 +319,10 @@ async function runCheck(): Promise<void> {
       }
     }
 
-    // ---- 72h escalation: pendings past the auto-act window are never auto-
-    // refunded — flag for admin manual decision (money stays held).
-    if (!CFG.dryRun) {
-      const { data: aged } = await supabase
-        .from('pay2new_transactions')
-        .select('id, user_id, request_id, total_debit')
-        .eq('status', 'pending')
-        .eq('review_required', false)
-        .ilike('request_id', 'SDS%')
-        .lt('created_at', minCreatedAt)
-        .order('created_at', { ascending: true })
-        .limit(CFG.batch)
-      for (const a of (aged || []) as any[]) {
-        await flagReview(supabase, a, 'aged_over_window')
-      }
-    }
+    // NOTE: No separate "aged / over-window" escalation. The 15-min floor is the
+    // only age gate; the main loop above finalizes a confirmed FAILED/REFUNDED
+    // pending no matter how old (refund), confirms SUCCESS, holds true PENDINGs,
+    // and flags only the inconclusive "no transaction found" for admin review.
   } catch (e: any) {
     console.error('[Pay2New-DirectRecon] run error:', e?.message)
     Sentry.captureException(e)
@@ -355,7 +347,7 @@ export async function initPay2NewDirectReconcileCron(): Promise<void> {
   state.task = cron.schedule(CRON_EXPRESSION, runCheck, { timezone: 'Asia/Kolkata' })
   console.log(
     `[Pay2New-DirectRecon] scheduled (${CRON_EXPRESSION}) dryRun=${CFG.dryRun} ` +
-      `window=${CFG.minAgeMin}m..${CFG.maxAgeHours}h batch=${CFG.batch} ` +
+      `minAge=${CFG.minAgeMin}m (no max) batch=${CFG.batch} ` +
       `maxAmount=₹${CFG.maxAmount} maxRefunds/run=${CFG.maxRefundsPerRun}`
   )
 }

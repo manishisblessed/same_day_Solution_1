@@ -71,12 +71,13 @@ export async function POST(request: NextRequest) {
       case 'master_partner': tableName = 'partners'; break
       case 'sub_partner': tableName = 'sub_partners'; break
       case 'finance_executive': tableName = 'finance_users'; break
+      case 'ca_executive': tableName = 'ca_users'; break
       default:
         return NextResponse.json({ user: null, error: 'Invalid role' }, { status: 400 })
     }
 
     let q = admin.from(tableName).select('*').eq('email', email)
-    if (roleHint === 'finance_executive') q = q.eq('is_active', true)
+    if (roleHint === 'finance_executive' || roleHint === 'ca_executive') q = q.eq('is_active', true)
     else if (roleHint !== 'admin') q = q.eq('status', 'active')
     if (roleHint === 'master_partner') q = q.eq('is_master_partner', true)
 
@@ -119,6 +120,9 @@ export async function POST(request: NextRequest) {
     if (resolvedRole === 'finance_executive') {
       if (data.phone) user.phone = data.phone
       user.finance_tabs = Array.isArray(data.tabs) ? data.tabs : []
+    }
+    if (resolvedRole === 'ca_executive') {
+      if (data.phone) user.phone = data.phone
     }
     if (resolvedRole === 'sub_partner') {
       user.sub_partner_id = data.id

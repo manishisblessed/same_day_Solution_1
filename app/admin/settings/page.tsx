@@ -99,6 +99,11 @@ export default function AdminSettings() {
   const [verificationSaving, setVerificationSaving] = useState(false)
   const [verificationMeta, setVerificationMeta] = useState<{ updated_by?: string; updated_at?: string }>({})
 
+  // Provider Wallets visibility toggle
+  const [providerWalletsVisible, setProviderWalletsVisible] = useState(true)
+  const [providerWalletsSaving, setProviderWalletsSaving] = useState(false)
+  const [providerWalletsMeta, setProviderWalletsMeta] = useState<{ updated_by?: string; updated_at?: string }>({})
+
   const canManageFinanceUsers =
     adminInfo?.admin_type === 'super_admin' ||
     adminInfo?.department === 'users' ||
@@ -390,9 +395,47 @@ export default function AdminSettings() {
     }
   }
 
+  const fetchProviderWalletsSetting = async () => {
+    try {
+      const res = await apiFetch('/api/admin/portal-settings')
+      const data = await res.json()
+      if (data.success) {
+        const pw = data.settings?.show_provider_wallets
+        setProviderWalletsVisible(pw ? pw.enabled !== false : true)
+        setProviderWalletsMeta({ updated_by: pw?.updated_by, updated_at: pw?.updated_at })
+      }
+    } catch {}
+  }
+
+  const saveProviderWalletsSetting = async (enabled: boolean) => {
+    setProviderWalletsSaving(true)
+    const previous = providerWalletsVisible
+    setProviderWalletsVisible(enabled)
+    try {
+      const res = await apiFetch('/api/admin/portal-settings', {
+        method: 'POST',
+        body: JSON.stringify({ service_key: 'show_provider_wallets', enabled }),
+      })
+      const data = await res.json()
+      if (data.success) {
+        setMessage({ type: 'success', text: `Provider Wallets ${enabled ? 'shown' : 'hidden'} on dashboard` })
+        fetchProviderWalletsSetting()
+      } else {
+        setProviderWalletsVisible(previous)
+        setMessage({ type: 'error', text: data.error || 'Failed to update' })
+      }
+    } catch {
+      setProviderWalletsVisible(previous)
+      setMessage({ type: 'error', text: 'Failed to update provider wallets setting' })
+    } finally {
+      setProviderWalletsSaving(false)
+    }
+  }
+
   useEffect(() => {
     if (activeTab === 'services' && user?.role === 'admin') {
       fetchVerificationSetting()
+      fetchProviderWalletsSetting()
     }
   }, [activeTab, user])
 
@@ -1496,6 +1539,74 @@ export default function AdminSettings() {
               )}
             </motion.div>
             )}
+
+            {activeTab === 'services' && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.25 }}
+              className="bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 p-6"
+            >
+              <div className="flex items-center gap-3 mb-6">
+                <div className="p-3 bg-indigo-100 dark:bg-indigo-900/30 rounded-lg">
+                  <Eye className="w-6 h-6 text-indigo-600 dark:text-indigo-400" />
+                </div>
+                <div>
+                  <h2 className="text-xl font-bold text-gray-900 dark:text-white">Dashboard Visibility</h2>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Control what sections appear on the admin dashboard</p>
+                </div>
+              </div>
+
+              <div
+                className={`flex items-center justify-between gap-4 p-4 rounded-lg border transition-colors ${
+                  providerWalletsVisible
+                    ? 'border-green-200 dark:border-green-800 bg-green-50/50 dark:bg-green-900/10'
+                    : 'border-gray-200 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-800/50'
+                }`}
+              >
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold text-gray-900 dark:text-white">Provider Wallets</span>
+                    <span
+                      className={`px-2 py-0.5 text-xs font-semibold rounded-full ${
+                        providerWalletsVisible
+                          ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400'
+                          : 'bg-gray-200 text-gray-600 dark:bg-gray-700 dark:text-gray-400'
+                      }`}
+                    >
+                      {providerWalletsVisible ? 'Visible' : 'Hidden'}
+                    </span>
+                  </div>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                    Show or hide the Provider Wallets section (Pay2New, Rechargekit, SHADVAL etc.) on the admin dashboard.
+                  </p>
+                  {providerWalletsMeta.updated_by && (
+                    <p className="text-xs text-gray-400 mt-1">
+                      Last updated by {providerWalletsMeta.updated_by}
+                      {providerWalletsMeta.updated_at && ` on ${new Date(providerWalletsMeta.updated_at).toLocaleString('en-IN')}`}
+                    </p>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => saveProviderWalletsSetting(!providerWalletsVisible)}
+                  disabled={providerWalletsSaving}
+                  role="switch"
+                  aria-checked={providerWalletsVisible}
+                  className={`relative inline-flex h-7 w-12 flex-shrink-0 items-center rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                    providerWalletsVisible ? 'bg-green-500' : 'bg-gray-300 dark:bg-gray-600'
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${
+                      providerWalletsVisible ? 'translate-x-6' : 'translate-x-1'
+                    }`}
+                  />
+                </button>
+              </div>
+            </motion.div>
+            )}
+
           </div>
 
           {showFinanceModal && (

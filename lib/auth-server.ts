@@ -50,17 +50,18 @@ function getServiceClient() {
  */
 async function getUserRole(_supabase: any, email: string, userId: string): Promise<AuthUser | null> {
   const supabase = getServiceClient() || _supabase
-  const [retailer, distributor, masterDistributor, admin, finance, partner, subPartner] = await Promise.all([
+  const [retailer, distributor, masterDistributor, admin, finance, caUser, partner, subPartner] = await Promise.all([
     supabase.from('retailers').select('*').eq('email', email).eq('status', 'active').maybeSingle(),
     supabase.from('distributors').select('*').eq('email', email).eq('status', 'active').maybeSingle(),
     supabase.from('master_distributors').select('*').eq('email', email).eq('status', 'active').maybeSingle(),
     supabase.from('admin_users').select('*').eq('email', email).maybeSingle(),
     supabase.from('finance_users').select('*').eq('email', email).eq('is_active', true).maybeSingle(),
+    supabase.from('ca_users').select('*').eq('email', email).eq('is_active', true).maybeSingle(),
     supabase.from('partners').select('*').eq('email', email).eq('status', 'active').maybeSingle(),
     supabase.from('sub_partners').select('*').eq('email', email).eq('status', 'active').maybeSingle(),
   ])
 
-  const results = [retailer, distributor, masterDistributor, admin, finance, partner, subPartner]
+  const results = [retailer, distributor, masterDistributor, admin, finance, caUser, partner, subPartner]
   const allFailed = results.every(r => r.error && !r.data)
   if (allFailed) {
     const sampleMsg = results.find(r => r.error)?.error?.message || 'All role lookups failed'
@@ -87,6 +88,15 @@ async function getUserRole(_supabase: any, email: string, userId: string): Promi
       name: finance.data.name,
       phone: finance.data.phone ?? undefined,
       finance_tabs: Array.isArray(finance.data.tabs) ? finance.data.tabs : [],
+    }
+  }
+  if (caUser.data && !caUser.error && caUser.data.is_active !== false) {
+    return {
+      id: userId,
+      email: email,
+      role: 'ca_executive',
+      name: caUser.data.name,
+      phone: caUser.data.phone ?? undefined,
     }
   }
   if (masterDistributor.data && !masterDistributor.error) {

@@ -7,6 +7,7 @@ export type UserRole =
   | 'master_partner'
   | 'sub_partner'
   | 'finance_executive'
+  | 'ca_executive'
 
 export interface Retailer {
   retailer_mdr_rate?: number // MDR rate charged to retailer (e.g., 0.02 for 2%)
@@ -304,6 +305,109 @@ export interface FinanceUser {
   created_at: string
   updated_at: string
   created_by?: string | null
+}
+
+export interface CAUser {
+  id: string
+  email: string
+  name: string
+  phone?: string | null
+  is_active: boolean
+  created_at: string
+  updated_at: string
+  created_by?: string | null
+}
+
+// ── CA Billing System ──────────────────────────────────────────────────────
+
+export interface CABankMdrConfig {
+  id: string
+  brand_id: string
+  tid: string | null
+  payment_mode: 'CARD' | 'UPI' | '*'
+  card_type: 'CREDIT' | 'DEBIT' | 'PREPAID' | '*'
+  bank_mdr_percent: number
+  effective_from: string
+  effective_to: string | null
+  notes: string | null
+  is_active: boolean
+  created_by: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface CACompanyConfig {
+  id: string
+  brand_id: string
+  margin_percent: number
+  gst_percent: number
+  gstin: string | null
+  legal_name: string | null
+  address: string | null
+  created_by: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface CAReimbursementInvoice {
+  id: string
+  invoice_number: string
+  pos_transaction_id: number | null
+  razorpay_txn_id: string | null
+  brand_id: string | null
+  partner_id: string | null
+  tid: string
+  transaction_amount: number
+  payment_mode: string | null
+  card_type: string | null
+  card_brand: string | null
+  bank_mdr_config_id: string | null
+  bank_mdr_percent: number
+  bank_mdr_amount: number
+  transaction_date: string
+  status: 'issued' | 'void'
+  void_reason: string | null
+  created_at: string
+  // Joined fields
+  brand_name?: string
+  brand_short?: string
+  partner_name?: string
+}
+
+export interface CATxnInvoice {
+  id: string
+  invoice_number: string
+  brand_id: string
+  period_start: string
+  period_end: string
+  txn_count: number
+  total_transaction_value: number
+  bank_mdr_total: number
+  margin_percent: number
+  margin_amount: number
+  service_charge_total: number
+  gst_percent: number
+  gst_amount: number
+  total_with_gst: number
+  breakdown: CATxnInvoiceBreakdownItem[]
+  status: 'draft' | 'issued' | 'filed' | 'void'
+  notes: string | null
+  generated_at: string
+  created_by: string | null
+  created_at: string
+  updated_at: string
+  // Joined fields
+  brand_name?: string
+  brand_short?: string
+}
+
+export interface CATxnInvoiceBreakdownItem {
+  tid: string
+  txn_count: number
+  transaction_value: number
+  bank_mdr_percent: number
+  bank_mdr_amount: number
+  payment_mode: string
 }
 
 // ── Onboarding Invite Wizard ──────────────────────────────────────────────

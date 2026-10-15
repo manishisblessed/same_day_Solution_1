@@ -19,7 +19,7 @@ interface SessionTimerProps {
   /** Login redirect path based on role */
   loginPath?: string
   /** User role for display purposes */
-  userRole?: 'admin' | 'finance_executive' | 'retailer' | 'distributor' | 'master_distributor' | 'partner'
+  userRole?: 'admin' | 'finance_executive' | 'ca_executive' | 'retailer' | 'distributor' | 'master_distributor' | 'partner'
 }
 
 export default function SessionTimer({

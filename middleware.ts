@@ -20,12 +20,13 @@ const PROTECTED_PREFIXES: { prefix: string; loginPath: string }[] = [
   { prefix: '/dashboard/', loginPath: '/business-login' },
   { prefix: '/admin', loginPath: '/admin/login' },
   { prefix: '/finance-same', loginPath: '/finance-same/login' },
+  { prefix: '/ca/', loginPath: '/ca/login' },
 ]
 
 // Login pages — if the user already has a session we skip the
 // server-side redirect and let the client-side AuthContext handle
 // role-based routing (it knows the actual role).
-const LOGIN_PAGES = ['/business-login', '/admin/login', '/finance-same/login']
+const LOGIN_PAGES = ['/business-login', '/admin/login', '/finance-same/login', '/ca/login']
 
 function isProtectedRoute(pathname: string): { loginPath: string } | null {
   // Login pages themselves are never "protected"

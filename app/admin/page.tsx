@@ -1851,12 +1851,29 @@ function AdminDashboardOverview({
   // Provider wallet balance visibility (hidden by default, persisted in localStorage)
   const [balancesVisible, setBalancesVisible] = useState(false)
 
+  // Provider Wallets section visibility (controlled from Settings > Services)
+  const [providerWalletsEnabled, setProviderWalletsEnabled] = useState(true)
+
   useEffect(() => {
     if (typeof window === 'undefined') return
     try {
       const stored = window.localStorage.getItem('admin-balances-visible')
       if (stored !== null) setBalancesVisible(stored === '1')
     } catch {}
+  }, [])
+
+  useEffect(() => {
+    const fetchProviderWalletsVisibility = async () => {
+      try {
+        const res = await apiFetch('/api/admin/portal-settings')
+        const data = await res.json()
+        if (data.success) {
+          const pw = data.settings?.show_provider_wallets
+          setProviderWalletsEnabled(pw ? pw.enabled !== false : true)
+        }
+      } catch {}
+    }
+    fetchProviderWalletsVisibility()
   }, [])
 
   const toggleBalancesVisible = () => {
@@ -2211,6 +2228,7 @@ function AdminDashboardOverview({
       <AdminCumulativeWalletBalances balancesVisible={balancesVisible} onToggleVisible={toggleBalancesVisible} />
 
       {/* Provider Wallets — unified compact grid */}
+      {providerWalletsEnabled && (
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
@@ -2337,9 +2355,12 @@ function AdminDashboardOverview({
           )}
         </div>
       </motion.div>
+      )}
 
       {/* eKYC Hub Balance & API Testing Card */}
+      {providerWalletsEnabled && (
       <EkycHubCard balancesVisible={balancesVisible} onToggleBalances={toggleBalancesVisible} onBalanceFetched={setEkycHubBalance} />
+      )}
     </div>
   )
 }

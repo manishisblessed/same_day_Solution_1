@@ -6,22 +6,26 @@
  * failure-handlers never run, leaving a debit with no order and no refund — the
  * partner is charged but the bill is never paid (see incident SDS1785484676100).
  *
- * WHAT: Every few minutes, look at recent pay2new debits that have neither a
- * recorded order nor a refund, ask Pay2New for the authoritative status, and:
+ * WHAT: Every few minutes, look at pay2new debits that have neither a recorded
+ * order nor a refund, ask Pay2New for the authoritative status, and:
  *   - SUCCESS  -> annotate the ledger row (OrderID) so we never re-check it.
- *   - FAILED / "No Transaction Found" / REFUNDED -> refund the partner wallet
- *     (idempotent, keyed on REFUND_<request_id>).
- *   - PENDING / provider unreachable -> leave it for the next cycle.
+ *   - FAILED / REFUNDED (definitive order-level verdict) -> refund the partner
+ *     wallet (idempotent, keyed on REFUND_<request_id>) and mark the debit failed.
+ *   - "No Transaction Found" -> INCONCLUSIVE: flag for admin review, never refund.
+ *   - PENDING / provider unreachable -> hold; re-check next cycle (no time limit).
  *
- * SAFETY (this is money movement — defaults are deliberately conservative):
- *   - NEVER refunds on a local signal alone. Only a definitive provider verdict
- *     ("No Transaction Found" / order status failed) triggers a refund. Anything
- *     ambiguous stays PENDING and is skipped.
+ * POLICY (money movement — never false-refund a paid bill):
+ *   - The ONLY age gate is a 15-min FLOOR (MIN_AGE_MIN). There is NO upper bound:
+ *     a confirmed FAILED debit is refunded no matter how old, and a PENDING one
+ *     is held forever until the provider gives a terminal status. Holding funds
+ *     indefinitely is preferred over ever refunding a successful payment.
+ *   - NEVER refunds on a local signal alone. Only a definitive provider order
+ *     verdict (status failed / reversed) triggers a refund. "No transaction
+ *     found" is inconclusive (provider index can lag a real charge) and is
+ *     flagged for admin, never auto-refunded. Anything else stays PENDING.
  *   - DRY-RUN by default (PAY2NEW_RECON_DRY_RUN !== 'false'): logs intended
  *     refunds without moving money. Non-financial success-annotation still runs
  *     so the working set drains and you can watch it operate safely.
- *   - Only acts inside an age window [MIN_AGE_MIN .. MAX_AGE_HOURS] so it never
- *     touches in-flight txns nor mass-sweeps the historical backlog.
  *   - Per-run batch cap, per-run refund cap, and per-txn max-amount cap. Amounts
  *     over the cap are logged/Sentry'd for manual review instead of auto-refunded.
  *   - Idempotent: refund_partner_wallet rejects a duplicate reference_id, and we
@@ -113,10 +117,13 @@ const CFG = {
   enabled: process.env.PAY2NEW_RECON_ENABLED !== 'false',
   // Safe by default: log intended refunds, don't move money until explicitly off.
   dryRun: process.env.PAY2NEW_RECON_DRY_RUN !== 'false',
-  // Don't touch txns younger than this (may still be completing at the provider).
+  // Minimum hold: don't auto-act on txns younger than this (may still be
+  // completing at the provider). This is a FLOOR, not a window — there is NO
+  // upper age bound. A confirmed-FAILED payment must be refundable for as long
+  // as it takes us to confirm it; a PENDING one stays held indefinitely until
+  // the provider gives a terminal status. (Policy: never false-refund a paid
+  // bill — holding funds forever beats refunding a success.)
   minAgeMin: posInt(process.env.PAY2NEW_RECON_MIN_AGE_MIN, 15),
-  // Don't auto-act on txns older than this (historical backlog = manual review).
-  maxAgeHours: posInt(process.env.PAY2NEW_RECON_MAX_AGE_HOURS, 72),
   // Candidates inspected per run.
   batch: posInt(process.env.PAY2NEW_RECON_BATCH, 25),
   // Refuse to auto-refund above this amount; flag for manual review instead.
@@ -147,12 +154,14 @@ async function runCheck(): Promise<void> {
   try {
     const supabase = getSupabaseAdmin()
     const nowMs = Date.now()
+    // Only the 15-min FLOOR applies — no upper age bound. Anything older than the
+    // floor is fair game so a confirmed failure can be refunded no matter how old.
     const maxCreatedAt = new Date(nowMs - CFG.minAgeMin * 60_000).toISOString()
-    const minCreatedAt = new Date(nowMs - CFG.maxAgeHours * 3_600_000).toISOString()
 
-    // Candidate = recent pay2new DEBIT, not already marked failed, with no order
-    // recorded (no "OrderID:"/verified marker) and inside the age window. The
-    // per-row refund check below confirms there is no existing refund.
+    // Candidate = a pay2new DEBIT, not already marked failed, with no order
+    // recorded (no "OrderID:"/verified marker) and past the 15-min floor. The
+    // per-row refund check below confirms there is no existing refund. Oldest
+    // first so the longest-stuck debits are resolved first.
     const { data: candidates, error } = await supabase
       .from('partner_wallet_ledger')
       .select('id, partner_id, reference_id, debit, description, created_at, bill_fetch_ref')
@@ -163,11 +172,10 @@ async function runCheck(): Promise<void> {
       // pay2new service_type but were never sent to the provider.
       .ilike('reference_id', 'SDS%')
       .neq('status', 'failed')
-      .gt('created_at', minCreatedAt)
       .lt('created_at', maxCreatedAt)
       .not('description', 'ilike', '%OrderID:%')
       .not('description', 'ilike', '%ReconVerified%')
-      // Already escalated to admin (not-found / aged) — stop re-processing.
+      // Already escalated to admin (not-found) — stop re-processing.
       .not('description', 'ilike', '%ReviewRequired%')
       .order('created_at', { ascending: true })
       .limit(CFG.batch)
@@ -186,7 +194,9 @@ async function runCheck(): Promise<void> {
       const ref = c.reference_id
       if (!ref) continue
 
-      // Belt-and-suspenders idempotency: skip if a refund already exists.
+      // Belt-and-suspenders idempotency: if a refund already exists, this debit
+      // is resolved — mark it failed so it drops out of the candidate set (no
+      // more re-scanning on every run) and move on without a provider call.
       const { data: existingRefund } = await supabase
         .from('partner_wallet_ledger')
         .select('id')
@@ -194,7 +204,13 @@ async function runCheck(): Promise<void> {
         .eq('reference_id', `REFUND_${ref}`)
         .limit(1)
         .maybeSingle()
-      if (existingRefund) continue
+      if (existingRefund) {
+        await supabase
+          .from('partner_wallet_ledger')
+          .update({ status: 'failed' })
+          .eq('id', c.id)
+        continue
+      }
 
       let res
       try {
@@ -300,6 +316,12 @@ async function runCheck(): Promise<void> {
       }
 
       refunded++
+      // Mark the debit row failed so it drops out of the candidate set (no more
+      // re-scanning on every run) and the ledger status reflects reality.
+      await supabase
+        .from('partner_wallet_ledger')
+        .update({ status: 'failed' })
+        .eq('id', c.id)
       // Unwind any distributed commission/margin so a reversal nets to 0 margin
       // (idempotent; a no-op when nothing was distributed for this txn).
       await reverseServiceCommission({ supabase, service: 'pay2new', refPrefix: 'P2N', refKey: ref })
@@ -318,33 +340,11 @@ async function runCheck(): Promise<void> {
       })
     }
 
-    // ---- 72h escalation: a payment still unresolved past the auto-act window is
-    // never auto-refunded. Flag it so an admin decides manually (money stays held).
-    const { data: aged } = await supabase
-      .from('partner_wallet_ledger')
-      .select('id, partner_id, reference_id, debit, description, created_at, bill_fetch_ref')
-      .eq('service_type', 'pay2new')
-      .eq('transaction_type', 'DEBIT')
-      .ilike('reference_id', 'SDS%')
-      .neq('status', 'failed')
-      .lt('created_at', minCreatedAt)
-      .not('description', 'ilike', '%OrderID:%')
-      .not('description', 'ilike', '%ReconVerified%')
-      .not('description', 'ilike', '%ReviewRequired%')
-      .order('created_at', { ascending: true })
-      .limit(CFG.batch)
-    for (const a of aged || []) {
-      // Skip if already refunded (belt-and-suspenders).
-      const { data: ref } = await supabase
-        .from('partner_wallet_ledger')
-        .select('id')
-        .eq('partner_id', a.partner_id)
-        .eq('reference_id', `REFUND_${a.reference_id}`)
-        .limit(1)
-        .maybeSingle()
-      if (ref) continue
-      await flagReview(supabase, a, 'aged_over_window')
-    }
+    // NOTE: There is intentionally NO separate "aged / over-window" escalation.
+    // The 15-min floor is the only age gate — the main loop above resolves a
+    // confirmed-FAILED debit no matter how old it is (refund), confirms SUCCESS
+    // (annotate), holds PENDING, and flags only the genuinely INCONCLUSIVE
+    // "no transaction found" case for admin review. Nothing can silently age out.
   } catch (e: any) {
     console.error('[Pay2New-Recon] run error:', e?.message)
     Sentry.captureException(e)
@@ -369,7 +369,7 @@ export async function initPay2NewReconcileCron(): Promise<void> {
   state.task = cron.schedule(CRON_EXPRESSION, runCheck, { timezone: 'Asia/Kolkata' })
   console.log(
     `[Pay2New-Recon] scheduled (${CRON_EXPRESSION}) dryRun=${CFG.dryRun} ` +
-      `window=${CFG.minAgeMin}m..${CFG.maxAgeHours}h batch=${CFG.batch} ` +
+      `minAge=${CFG.minAgeMin}m (no max) batch=${CFG.batch} ` +
       `maxAmount=₹${CFG.maxAmount} maxRefunds/run=${CFG.maxRefundsPerRun}`
   )
 }

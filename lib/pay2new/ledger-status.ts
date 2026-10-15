@@ -55,7 +55,7 @@ const NEGATIVE_VERDICT_MIN_AGE_MS =
     ? Number(process.env.PAY2NEW_NEGATIVE_VERDICT_MIN_AGE_MIN)
     : 15) * 60_000
 
-function parseOrderId(desc: string | null): string | null {
+export function parseOrderId(desc: string | null): string | null {
   const m = desc?.match(/OrderID:([^\s|]+)/)
   return m && m[1] !== 'N/A' ? m[1] : null
 }
@@ -68,6 +68,98 @@ function parseOperatorRef(desc: string | null): string | null {
 function parseAmounts(desc: string | null): { amount: number | null; charge: number | null } {
   const m = desc?.match(/₹([\d.]+)\s*\+\s*₹([\d.]+)\s*charge/)
   return { amount: m ? parseFloat(m[1]) : null, charge: m ? parseFloat(m[2]) : null }
+}
+
+/**
+ * Resolve the terminal/pending state of a Pay2New DEBIT row using ONLY local
+ * data already in hand (no upstream provider call). Intended for BULK listing /
+ * reconciliation endpoints that resolve many rows at once: the caller performs a
+ * single refund/clawback lookup for the whole page and passes the result in.
+ *
+ * State precedence (identical to resolvePay2NewDebitState):
+ *   refunded (REFUND present, no CLAWBACK) → failed flag → recorded order → pending
+ *
+ * No money is moved and no description is mutated. PENDING rows are left as-is;
+ * the reconciliation cron and the single-row status endpoint own authoritative
+ * upstream confirmation.
+ */
+export function resolvePay2NewDebitStateLocal(
+  debitEntry: Pay2NewDebitRow,
+  opts: { refunded: boolean; refundedAt?: string | null }
+): Pay2NewResolvedState {
+  const { amount, charge } = parseAmounts(debitEntry.description)
+  const orderId = parseOrderId(debitEntry.description)
+  const operatorReference = parseOperatorRef(debitEntry.description)
+
+  let status: Pay2NewStatus
+  let updatedAt = debitEntry.created_at
+
+  if (opts.refunded) {
+    status = 'REFUNDED'
+    updatedAt = opts.refundedAt || updatedAt
+  } else if ((debitEntry.status || '').toLowerCase() === 'failed') {
+    status = 'FAILED'
+  } else if (orderId) {
+    status = 'SUCCESS'
+  } else {
+    status = 'PENDING'
+  }
+
+  return {
+    requestId: debitEntry.reference_id,
+    billFetchRef: debitEntry.bill_fetch_ref ?? null,
+    orderId: status === 'SUCCESS' ? orderId : null,
+    status,
+    amount,
+    charge,
+    operatorReference,
+    createdAt: debitEntry.created_at,
+    updatedAt,
+  }
+}
+
+/**
+ * Batch-resolve a page of Pay2New DEBIT rows with a SINGLE refund/clawback
+ * lookup. Returns one resolved state per input row (order preserved).
+ */
+export async function resolvePay2NewDebitStatesBatch(
+  supabase: SupabaseClient,
+  partnerId: string,
+  debitRows: Pay2NewDebitRow[]
+): Promise<Pay2NewResolvedState[]> {
+  if (debitRows.length === 0) return []
+
+  const refKeys: string[] = []
+  for (const row of debitRows) {
+    refKeys.push(`REFUND_${row.reference_id}`, `CLAWBACK_${row.reference_id}`)
+  }
+
+  // Chunk the IN() lookup so a large page can never overflow the PostgREST
+  // query-string length limit (each key is ~24 chars; 2× rows per page).
+  const CHUNK = 300
+  const refundAtById = new Map<string, string>()
+  const clawbackIds = new Set<string>()
+  for (let i = 0; i < refKeys.length; i += CHUNK) {
+    const slice = refKeys.slice(i, i + CHUNK)
+    const { data: refundEntries } = await supabase
+      .from('partner_wallet_ledger')
+      .select('reference_id, created_at')
+      .eq('partner_id', partnerId)
+      .in('reference_id', slice)
+    for (const r of (refundEntries || []) as Array<{ reference_id: string; created_at: string }>) {
+      if (r.reference_id.startsWith('REFUND_')) {
+        refundAtById.set(r.reference_id.slice('REFUND_'.length), r.created_at)
+      } else if (r.reference_id.startsWith('CLAWBACK_')) {
+        clawbackIds.add(r.reference_id.slice('CLAWBACK_'.length))
+      }
+    }
+  }
+
+  return debitRows.map((row) => {
+    const refundedAt = refundAtById.get(row.reference_id)
+    const refunded = !!refundedAt && !clawbackIds.has(row.reference_id)
+    return resolvePay2NewDebitStateLocal(row, { refunded, refundedAt })
+  })
 }
 
 /**
