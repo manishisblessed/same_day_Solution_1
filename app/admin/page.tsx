@@ -1853,6 +1853,9 @@ function AdminDashboardOverview({
 
   // Provider Wallets section visibility (controlled from Settings > Services)
   const [providerWalletsEnabled, setProviderWalletsEnabled] = useState(true)
+  // Individual provider wallet visibility (keyed by wallet id)
+  const [walletVisibility, setWalletVisibility] = useState<Record<string, boolean>>({})
+  const isWalletVisible = (key: string) => walletVisibility[key] !== false
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -1870,6 +1873,14 @@ function AdminDashboardOverview({
         if (data.success) {
           const pw = data.settings?.show_provider_wallets
           setProviderWalletsEnabled(pw ? pw.enabled !== false : true)
+
+          const keys = ['pay2new', 'rechargekit', 'shadval_main', 'shadval_verification', 'ekyc']
+          const vis: Record<string, boolean> = {}
+          for (const k of keys) {
+            const row = data.settings?.[`show_provider_wallet_${k}`]
+            vis[k] = row ? row.enabled !== false : true
+          }
+          setWalletVisibility(vis)
         }
       } catch {}
     }
@@ -2283,6 +2294,7 @@ function AdminDashboardOverview({
         {/* Grid of provider cards */}
         <div className="relative grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
           {/* Pay2New */}
+          {isWalletVisible('pay2new') && (
           <ProviderWalletCard
             theme="emerald"
             icon={<CreditCard className="w-4 h-4 text-white" />}
@@ -2297,8 +2309,10 @@ function AdminDashboardOverview({
             globalVisible={balancesVisible}
             formatINR={formatINR}
           />
+          )}
 
           {/* Rechargekit */}
+          {isWalletVisible('rechargekit') && (
           <ProviderWalletCard
             theme="cyan"
             icon={<CreditCard className="w-4 h-4 text-white" />}
@@ -2313,8 +2327,10 @@ function AdminDashboardOverview({
             globalVisible={balancesVisible}
             formatINR={formatINR}
           />
+          )}
 
           {/* SHADVAL PAY Main */}
+          {isWalletVisible('shadval_main') && (
           <ProviderWalletCard
             theme="violet"
             icon={<Banknote className="w-4 h-4 text-white" />}
@@ -2330,8 +2346,10 @@ function AdminDashboardOverview({
             globalVisible={balancesVisible}
             formatINR={formatINR}
           />
+          )}
 
           {/* SHADVAL Verification Wallet */}
+          {isWalletVisible('shadval_verification') && (
           <ProviderWalletCard
             theme="teal"
             icon={<ShieldCheck className="w-4 h-4 text-white" />}
@@ -2346,6 +2364,7 @@ function AdminDashboardOverview({
             globalVisible={balancesVisible}
             formatINR={formatINR}
           />
+          )}
 
           {!pay2newBalance && !shadvalBalance && !rechargekitBalance && (
             <div className="md:col-span-2 xl:col-span-3 flex flex-col items-center gap-2 py-8 text-slate-400 text-sm">
@@ -2358,7 +2377,7 @@ function AdminDashboardOverview({
       )}
 
       {/* eKYC Hub Balance & API Testing Card */}
-      {providerWalletsEnabled && (
+      {providerWalletsEnabled && isWalletVisible('ekyc') && (
       <EkycHubCard balancesVisible={balancesVisible} onToggleBalances={toggleBalancesVisible} onBalanceFetched={setEkycHubBalance} />
       )}
     </div>

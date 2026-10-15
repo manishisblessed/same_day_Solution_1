@@ -65,7 +65,7 @@ async function handleResetPassword(request: NextRequest) {
       )
     }
 
-    const VALID_ROLES = ['retailer', 'distributor', 'master_distributor', 'admin', 'finance_executive', 'partner']
+    const VALID_ROLES = ['retailer', 'distributor', 'master_distributor', 'admin', 'finance_executive', 'ca_executive', 'partner']
     if (!VALID_ROLES.includes(user_role)) {
       return NextResponse.json(
         { error: 'Invalid user_role' },
@@ -87,6 +87,7 @@ async function handleResetPassword(request: NextRequest) {
       master_distributor: { table: 'master_distributors', lookupField: 'partner_id' },
       admin: { table: 'admin_users', lookupField: 'id' },
       finance_executive: { table: 'finance_users', lookupField: 'id' },
+      ca_executive: { table: 'ca_users', lookupField: 'id' },
       partner: { table: 'partners', lookupField: 'id' },
     }
 

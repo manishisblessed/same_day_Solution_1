@@ -11,7 +11,7 @@ import AdminSidebar from '@/components/AdminSidebar'
 import { 
   Lock, Eye, EyeOff, CheckCircle, AlertCircle, 
   User, Mail, Shield, Save, ArrowLeft, Users, Plus, Edit, Trash2, X, IndianRupee, Key,
-  Building2, Archive, ArchiveRestore, Gauge, ShieldCheck, Search
+  Building2, Archive, ArchiveRestore, Gauge, ShieldCheck, Search, Calculator
 } from 'lucide-react'
 import { motion } from 'framer-motion'
 import { apiFetch } from '@/lib/api-client'
@@ -22,7 +22,7 @@ export default function AdminSettings() {
   const { user, loading: authLoading } = useAuth()
   const router = useRouter()
   const [sidebarOpen, setSidebarOpen] = useState(false)
-  const [activeTab, setActiveTab] = useState<'profile' | 'password' | 'security' | 'sub-admins' | 'finance-team' | 'companies' | 'limits' | 'services'>('profile')
+  const [activeTab, setActiveTab] = useState<'profile' | 'password' | 'security' | 'sub-admins' | 'finance-team' | 'ca-users' | 'companies' | 'limits' | 'services'>('profile')
 
   // POS companies (archive/show) state
   const [posCompanies, setPosCompanies] = useState<Array<{ slug: string; name: string; shortName: string; archived: boolean }>>([])
@@ -73,6 +73,21 @@ export default function AdminSettings() {
     is_active: true,
   })
 
+  // CA (Chartered Accountant) portal users — /ca/login
+  const [caUsers, setCaUsers] = useState<any[]>([])
+  const [loadingCaUsers, setLoadingCaUsers] = useState(false)
+  const [showCaModal, setShowCaModal] = useState(false)
+  const [creatingCa, setCreatingCa] = useState(false)
+  const [showCaPassword, setShowCaPassword] = useState(false)
+  const [editingCaUser, setEditingCaUser] = useState<any>(null)
+  const [caForm, setCaForm] = useState({
+    name: '',
+    email: '',
+    phone: '',
+    password: '',
+    is_active: true,
+  })
+
   // Reset password modal state
   const [showResetPwModal, setShowResetPwModal] = useState(false)
   const [resetPwTarget, setResetPwTarget] = useState<{ id: string; email: string; name: string; role: string } | null>(null)
@@ -103,6 +118,17 @@ export default function AdminSettings() {
   const [providerWalletsVisible, setProviderWalletsVisible] = useState(true)
   const [providerWalletsSaving, setProviderWalletsSaving] = useState(false)
   const [providerWalletsMeta, setProviderWalletsMeta] = useState<{ updated_by?: string; updated_at?: string }>({})
+
+  // Individual provider wallet visibility (keyed by wallet id)
+  const PROVIDER_WALLET_LIST = [
+    { key: 'pay2new', label: 'Pay2New Fintech', subtitle: 'Credit Card Bill Pay' },
+    { key: 'rechargekit', label: 'Rechargekit', subtitle: 'Credit Card-2 Bill Pay' },
+    { key: 'shadval_main', label: 'SHADVAL Main', subtitle: 'Payout · IMPS/RTGS' },
+    { key: 'shadval_verification', label: 'SHADVAL Verification', subtitle: 'KYC & Verification' },
+    { key: 'ekyc', label: 'eKYC Hub', subtitle: 'Aadhaar/PAN eKYC' },
+  ]
+  const [walletVisibility, setWalletVisibility] = useState<Record<string, boolean>>({})
+  const [walletSavingKey, setWalletSavingKey] = useState<string | null>(null)
 
   const canManageFinanceUsers =
     adminInfo?.admin_type === 'super_admin' ||
@@ -269,6 +295,29 @@ export default function AdminSettings() {
     }
   }, [activeTab, user, canManageFinanceUsers])
 
+  const fetchCaUsers = async () => {
+    setLoadingCaUsers(true)
+    try {
+      const response = await apiFetch('/api/admin/ca-users')
+      const data = await response.json()
+      if (response.ok && data.success) {
+        setCaUsers(data.users || [])
+      } else {
+        setMessage({ type: 'error', text: data.error || 'Failed to load CA users' })
+      }
+    } catch (e: any) {
+      setMessage({ type: 'error', text: e?.message || 'Failed to load CA users' })
+    } finally {
+      setLoadingCaUsers(false)
+    }
+  }
+
+  useEffect(() => {
+    if (activeTab === 'ca-users' && user?.role === 'admin' && canManageFinanceUsers) {
+      fetchCaUsers()
+    }
+  }, [activeTab, user, canManageFinanceUsers])
+
   const fetchWalletLimit = async () => {
     try {
       const res = await apiFetch('/api/admin/settings/wallet-limit')
@@ -403,8 +452,40 @@ export default function AdminSettings() {
         const pw = data.settings?.show_provider_wallets
         setProviderWalletsVisible(pw ? pw.enabled !== false : true)
         setProviderWalletsMeta({ updated_by: pw?.updated_by, updated_at: pw?.updated_at })
+
+        const vis: Record<string, boolean> = {}
+        for (const w of PROVIDER_WALLET_LIST) {
+          const row = data.settings?.[`show_provider_wallet_${w.key}`]
+          vis[w.key] = row ? row.enabled !== false : true
+        }
+        setWalletVisibility(vis)
       }
     } catch {}
+  }
+
+  const saveWalletVisibility = async (key: string, enabled: boolean) => {
+    setWalletSavingKey(key)
+    const previous = walletVisibility[key] !== false
+    setWalletVisibility((prev) => ({ ...prev, [key]: enabled }))
+    try {
+      const res = await apiFetch('/api/admin/portal-settings', {
+        method: 'POST',
+        body: JSON.stringify({ service_key: `show_provider_wallet_${key}`, enabled }),
+      })
+      const data = await res.json()
+      if (data.success) {
+        const label = PROVIDER_WALLET_LIST.find((w) => w.key === key)?.label || key
+        setMessage({ type: 'success', text: `${label} ${enabled ? 'shown' : 'hidden'} on dashboard` })
+      } else {
+        setWalletVisibility((prev) => ({ ...prev, [key]: previous }))
+        setMessage({ type: 'error', text: data.error || 'Failed to update' })
+      }
+    } catch {
+      setWalletVisibility((prev) => ({ ...prev, [key]: previous }))
+      setMessage({ type: 'error', text: 'Failed to update wallet visibility' })
+    } finally {
+      setWalletSavingKey(null)
+    }
   }
 
   const saveProviderWalletsSetting = async (enabled: boolean) => {
@@ -583,6 +664,80 @@ export default function AdminSettings() {
     setFinanceForm({ name: '', email: '', phone: '', password: '', tabs: [], is_active: true })
     setEditingFinanceUser(null)
     setShowFinancePassword(false)
+  }
+
+  const resetCaForm = () => {
+    setCaForm({ name: '', email: '', phone: '', password: '', is_active: true })
+    setEditingCaUser(null)
+    setShowCaPassword(false)
+  }
+
+  const openEditCaUser = (cu: any) => {
+    setEditingCaUser(cu)
+    setCaForm({
+      name: cu.name || '',
+      email: cu.email || '',
+      phone: cu.phone || '',
+      password: '',
+      is_active: cu.is_active !== false,
+    })
+    setShowCaPassword(false)
+    setShowCaModal(true)
+  }
+
+  const handleCreateCaUser = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setMessage(null)
+    if (!caForm.name.trim() || !caForm.email.trim()) {
+      setMessage({ type: 'error', text: 'Name and email are required' })
+      return
+    }
+    if (!editingCaUser) {
+      if (!caForm.password) {
+        setMessage({ type: 'error', text: 'Password is required' })
+        return
+      }
+      if (caForm.password.length < 8) {
+        setMessage({ type: 'error', text: 'Password must be at least 8 characters' })
+        return
+      }
+    }
+    setCreatingCa(true)
+    try {
+      const response = await apiFetch('/api/admin/ca-users', {
+        method: editingCaUser ? 'PUT' : 'POST',
+        body: JSON.stringify(
+          editingCaUser
+            ? {
+                id: editingCaUser.id,
+                name: caForm.name.trim(),
+                phone: caForm.phone.trim(),
+                is_active: caForm.is_active,
+              }
+            : {
+                name: caForm.name.trim(),
+                email: caForm.email.trim().toLowerCase(),
+                phone: caForm.phone.trim() || undefined,
+                password: caForm.password,
+              }
+        ),
+      })
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.error || 'Failed to save CA user')
+      setMessage({
+        type: 'success',
+        text: editingCaUser
+          ? 'CA user updated.'
+          : 'CA user created. They can sign in at /ca/login',
+      })
+      setShowCaModal(false)
+      resetCaForm()
+      fetchCaUsers()
+    } catch (error: any) {
+      setMessage({ type: 'error', text: error.message || 'Failed to save CA user' })
+    } finally {
+      setCreatingCa(false)
+    }
   }
 
   const openEditFinanceUser = (fu: any) => {
@@ -771,6 +926,7 @@ export default function AdminSettings() {
                 { id: 'companies' as const, label: 'Companies', icon: Building2 },
                 ...(isSuperLike ? [{ id: 'sub-admins' as const, label: 'Sub-Admins', icon: Users }] : []),
                 ...(canManageFinanceUsers ? [{ id: 'finance-team' as const, label: 'Finance team', icon: IndianRupee }] : []),
+                ...(canManageFinanceUsers ? [{ id: 'ca-users' as const, label: 'CA users', icon: Calculator }] : []),
                 { id: 'limits' as const, label: 'Limits', icon: Gauge },
                 { id: 'services' as const, label: 'Services', icon: ShieldCheck },
               ].map((tab) => (
@@ -1354,6 +1510,103 @@ export default function AdminSettings() {
             </motion.div>
             )}
 
+            {activeTab === 'ca-users' && canManageFinanceUsers && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.15 }}
+              className="bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 p-6"
+            >
+              <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 bg-violet-100 dark:bg-violet-900/30 rounded-lg">
+                    <Calculator className="w-6 h-6 text-violet-700 dark:text-violet-400" />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-bold text-gray-900 dark:text-white">CA users</h2>
+                    <p className="text-sm text-gray-500 dark:text-gray-400">
+                      Create logins for the CA billing portal at <code className="text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">/ca/login</code>
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    resetCaForm()
+                    setShowCaModal(true)
+                  }}
+                  className="btn-primary flex items-center gap-2 px-4 py-2"
+                >
+                  <Plus className="w-4 h-4" />
+                  Add CA user
+                </button>
+              </div>
+
+              {loadingCaUsers ? (
+                <div className="text-center py-8 text-gray-500">Loading…</div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b border-gray-200 dark:border-gray-700">
+                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700 dark:text-gray-300">Name</th>
+                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700 dark:text-gray-300">Email</th>
+                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700 dark:text-gray-300">Mobile</th>
+                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700 dark:text-gray-300">Status</th>
+                        <th className="text-right py-3 px-4 text-sm font-semibold text-gray-700 dark:text-gray-300">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {caUsers.map((cu) => (
+                        <tr key={cu.id} className="border-b border-gray-200 dark:border-gray-700">
+                          <td className="py-3 px-4 text-sm text-gray-900 dark:text-white">{cu.name}</td>
+                          <td className="py-3 px-4 text-sm text-gray-600 dark:text-gray-400">{cu.email}</td>
+                          <td className="py-3 px-4 text-sm text-gray-600 dark:text-gray-400">{cu.phone || '—'}</td>
+                          <td className="py-3 px-4">
+                            <span
+                              className={`px-2 py-1 text-xs font-semibold rounded-full ${
+                                cu.is_active
+                                  ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400'
+                                  : 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400'
+                              }`}
+                            >
+                              {cu.is_active ? 'Active' : 'Inactive'}
+                            </span>
+                          </td>
+                          <td className="py-3 px-4 text-right">
+                            <div className="flex items-center justify-end gap-1">
+                              <button
+                                onClick={() => openEditCaUser(cu)}
+                                className="p-2 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded transition-colors"
+                                title="Edit details"
+                              >
+                                <Edit className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => openResetPwModal({ id: cu.id, email: cu.email, name: cu.name }, 'ca_executive')}
+                                className="p-2 text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-900/20 rounded transition-colors"
+                                title="Reset Password"
+                              >
+                                <Key className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                      {caUsers.length === 0 && (
+                        <tr>
+                          <td colSpan={5} className="py-8 text-center text-gray-500 dark:text-gray-400">
+                            No CA users yet. Click &quot;Add CA user&quot; to create one.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </motion.div>
+            )}
+
             {activeTab === 'limits' && (
             <motion.div
               initial={{ opacity: 0, y: 20 }}
@@ -1604,6 +1857,54 @@ export default function AdminSettings() {
                   />
                 </button>
               </div>
+
+              {/* Individual provider wallet toggles */}
+              <div className={`mt-4 space-y-2 transition-opacity ${providerWalletsVisible ? '' : 'opacity-40 pointer-events-none'}`}>
+                <p className="text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 pl-1">
+                  Individual wallets
+                </p>
+                {PROVIDER_WALLET_LIST.map((w) => {
+                  const visible = walletVisibility[w.key] !== false
+                  return (
+                    <div
+                      key={w.key}
+                      className="flex items-center justify-between gap-4 p-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-800/40"
+                    >
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-medium text-gray-900 dark:text-white">{w.label}</span>
+                          <span
+                            className={`px-2 py-0.5 text-[10px] font-semibold rounded-full ${
+                              visible
+                                ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400'
+                                : 'bg-gray-200 text-gray-600 dark:bg-gray-700 dark:text-gray-400'
+                            }`}
+                          >
+                            {visible ? 'Visible' : 'Hidden'}
+                          </span>
+                        </div>
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{w.subtitle}</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => saveWalletVisibility(w.key, !visible)}
+                        disabled={walletSavingKey === w.key}
+                        role="switch"
+                        aria-checked={visible}
+                        className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                          visible ? 'bg-green-500' : 'bg-gray-300 dark:bg-gray-600'
+                        }`}
+                      >
+                        <span
+                          className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                            visible ? 'translate-x-6' : 'translate-x-1'
+                          }`}
+                        />
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
             </motion.div>
             )}
 
@@ -1796,6 +2097,123 @@ export default function AdminSettings() {
                     </button>
                     <button type="submit" disabled={creatingFinance} className="btn-primary px-4 py-2">
                       {creatingFinance ? 'Saving…' : editingFinanceUser ? 'Update' : 'Create'}
+                    </button>
+                  </div>
+                </form>
+                </div>
+              </motion.div>
+            </div>
+          )}
+
+          {/* CA User Modal */}
+          {showCaModal && (
+            <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 overflow-y-auto">
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-lg w-full my-8 max-h-[90vh] flex flex-col"
+              >
+                <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
+                  <h3 className="text-lg font-bold text-gray-900 dark:text-white">
+                    {editingCaUser ? 'Edit CA user' : 'Add CA user'}
+                  </h3>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowCaModal(false)
+                      resetCaForm()
+                    }}
+                    className="text-gray-400 hover:text-gray-600 p-1"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+                <div className="overflow-y-auto flex-1 px-6 py-4">
+                <form onSubmit={handleCreateCaUser} className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Name *</label>
+                    <input
+                      type="text"
+                      required
+                      value={caForm.name}
+                      onChange={(e) => setCaForm({ ...caForm, name: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Email *</label>
+                    <input
+                      type="email"
+                      required
+                      disabled={!!editingCaUser}
+                      value={caForm.email}
+                      onChange={(e) => setCaForm({ ...caForm, email: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white disabled:bg-gray-50 dark:disabled:bg-gray-900 disabled:cursor-not-allowed"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Mobile</label>
+                    <input
+                      type="tel"
+                      value={caForm.phone}
+                      onChange={(e) => setCaForm({ ...caForm, phone: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+                      placeholder="Optional"
+                    />
+                  </div>
+                  {!editingCaUser && (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Password *</label>
+                      <div className="relative">
+                        <input
+                          type={showCaPassword ? 'text' : 'password'}
+                          required
+                          value={caForm.password}
+                          onChange={(e) => setCaForm({ ...caForm, password: e.target.value })}
+                          className="w-full pl-3 pr-11 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+                          minLength={8}
+                          autoComplete="new-password"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowCaPassword(!showCaPassword)}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 rounded-md"
+                          aria-label={showCaPassword ? 'Hide password' : 'Show password'}
+                        >
+                          {showCaPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {editingCaUser && (
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        id="ca_is_active"
+                        checked={caForm.is_active}
+                        onChange={(e) => setCaForm({ ...caForm, is_active: e.target.checked })}
+                        className="w-4 h-4 text-primary-600 rounded focus:ring-primary-500"
+                      />
+                      <label htmlFor="ca_is_active" className="text-sm text-gray-700 dark:text-gray-300">
+                        Active (login enabled)
+                      </label>
+                    </div>
+                  )}
+
+                  <div className="flex justify-end gap-2 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowCaModal(false)
+                        resetCaForm()
+                      }}
+                      className="px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300"
+                    >
+                      Cancel
+                    </button>
+                    <button type="submit" disabled={creatingCa} className="btn-primary px-4 py-2">
+                      {creatingCa ? 'Saving…' : editingCaUser ? 'Update' : 'Create'}
                     </button>
                   </div>
                 </form>
