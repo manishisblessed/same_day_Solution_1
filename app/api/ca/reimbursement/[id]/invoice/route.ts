@@ -1,10 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { getSupabaseAdmin } from '@/lib/supabase/server-admin'
-import { htmlToPdf } from '@/lib/pdf/html-to-pdf'
-import {
-  checkCompanyComplete, renderInvoiceBody, buildInvoiceDoc, type CompanyConfig, type Receiver,
-} from '@/lib/ca/company-invoice'
+import { checkCompanyComplete, type CompanyConfig, type Receiver } from '@/lib/ca/company-invoice'
+import { buildTaxInvoicesPdf } from '@/lib/ca/invoice-pdf'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -62,25 +60,19 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       state: r.partners?.state,
     }
 
-    const body = renderInvoiceBody(cfg as CompanyConfig, receiver, {
-      invoiceNumber: r.invoice_number,
-      date: r.transaction_date,
-      taxableValue: Number(r.transaction_amount || 0),
-      gstPercent: Number((cfg as any)?.gst_percent ?? 18),
-      kind: 'Reimbursement Invoice',
-    })
-    const html = buildInvoiceDoc([body], r.invoice_number)
+    const pdf = buildTaxInvoicesPdf([{
+      company: cfg as CompanyConfig,
+      receiver,
+      inv: {
+        invoiceNumber: r.invoice_number,
+        date: r.transaction_date,
+        taxableValue: Number(r.transaction_amount || 0),
+        gstPercent: Number((cfg as any)?.gst_percent ?? 18),
+        kind: 'Reimbursement Invoice',
+      },
+    }])
     const safe = String(r.invoice_number || 'invoice').replace(/[^\w.-]+/g, '_')
-    const pdf = await htmlToPdf(html, { margin: '0' })
 
-    if (!pdf) {
-      return new NextResponse(html, {
-        headers: {
-          'Content-Type': 'text/html; charset=utf-8',
-          'Content-Disposition': `attachment; filename="${safe}.html"`,
-        },
-      })
-    }
     return new NextResponse(new Uint8Array(pdf), {
       headers: {
         'Content-Type': 'application/pdf',

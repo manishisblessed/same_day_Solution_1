@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { getSupabaseAdmin } from '@/lib/supabase/server-admin'
-import { htmlToPdf } from '@/lib/pdf/html-to-pdf'
-import { invoiceCsv, invoicesHtmlDoc, invoiceMeta, pct, esc } from '@/lib/ca/transaction-invoice-export'
+import { invoiceCsv, invoiceMeta, pct, esc } from '@/lib/ca/transaction-invoice-export'
+import { buildGstInvoicesPdf } from '@/lib/ca/invoice-pdf'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -118,28 +118,15 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
       })
     }
 
-    // ── PDF ───────────────────────────────────────────────────────────────────
-    const html = invoicesHtmlDoc(
+    // ── PDF (pure-JS jsPDF — serverless-safe) ───────────────────────────────────
+    const pdf = buildGstInvoicesPdf(
       [inv as any],
-      (inv as any).invoice_number,
-      company ? { [(inv as any).brand_id]: company as any } : undefined,
+      company ? { [(inv as any).brand_id]: company as any } : {},
     )
-
-    const pdf = await htmlToPdf(html, { landscape: false })
-    if (pdf) {
-      return new NextResponse(new Uint8Array(pdf), {
-        headers: {
-          'Content-Type': 'application/pdf',
-          'Content-Disposition': `attachment; filename="${fileSlug}.pdf"`,
-        },
-      })
-    }
-
-    // Fallback: return HTML if PDF generation fails
-    return new NextResponse(html, {
+    return new NextResponse(new Uint8Array(pdf), {
       headers: {
-        'Content-Type': 'text/html; charset=utf-8',
-        'Content-Disposition': `attachment; filename="${fileSlug}.html"`,
+        'Content-Type': 'application/pdf',
+        'Content-Disposition': `attachment; filename="${fileSlug}.pdf"`,
       },
     })
   } catch (err: any) {

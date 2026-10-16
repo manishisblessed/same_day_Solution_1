@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { getSupabaseAdmin } from '@/lib/supabase/server-admin'
-import { htmlToPdf } from '@/lib/pdf/html-to-pdf'
 import JSZip from 'jszip'
-import { invoicesHtmlDoc, invoicesListCsv } from '@/lib/ca/transaction-invoice-export'
+import { invoicesListCsv } from '@/lib/ca/transaction-invoice-export'
+import { buildGstInvoicesPdf } from '@/lib/ca/invoice-pdf'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -84,18 +84,9 @@ export async function GET(request: NextRequest) {
       })
     }
 
-    // ── Merged PDF (one invoice per page) ───────────────────────────────────────
+    // ── Merged PDF (one invoice per page, pure-JS jsPDF) ────────────────────────
     if (format === 'pdf') {
-      const html = invoicesHtmlDoc(invoices, `GST Transaction Invoices (${invoices.length})`, companyMap)
-      const pdf = await htmlToPdf(html, { landscape: false })
-      if (!pdf) {
-        return new NextResponse(html, {
-          headers: {
-            'Content-Type': 'text/html; charset=utf-8',
-            'Content-Disposition': `attachment; filename="gst-invoices-${fileDate}.html"`,
-          },
-        })
-      }
+      const pdf = buildGstInvoicesPdf(invoices, companyMap)
       return new NextResponse(new Uint8Array(pdf), {
         headers: {
           'Content-Type': 'application/pdf',
@@ -104,14 +95,11 @@ export async function GET(request: NextRequest) {
       })
     }
 
-    // ── ZIP: list CSV + one combined PDF (all invoices, one per page) ──────────
-    // Single render keeps this well within serverless time limits.
+    // ── ZIP: list CSV + combined PDF (all invoices, one per page) ──────────────
     const zip = new JSZip()
     zip.file(`gst-invoices-${fileDate}.csv`, invoicesListCsv(invoices))
-    const html = invoicesHtmlDoc(invoices, `GST Transaction Invoices (${invoices.length})`, companyMap)
-    const pdf = await htmlToPdf(html, { landscape: false })
-    if (pdf) zip.file(`gst-invoices-${fileDate}.pdf`, new Uint8Array(pdf))
-    else zip.file(`gst-invoices-${fileDate}.html`, html)
+    const pdf = buildGstInvoicesPdf(invoices, companyMap)
+    zip.file(`gst-invoices-${fileDate}.pdf`, new Uint8Array(pdf))
 
     const zipBuf = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' })
     return new NextResponse(new Uint8Array(zipBuf), {

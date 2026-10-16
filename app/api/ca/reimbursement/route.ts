@@ -1,11 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { getSupabaseAdmin } from '@/lib/supabase/server-admin'
-import { htmlToPdf } from '@/lib/pdf/html-to-pdf'
 import JSZip from 'jszip'
-import {
-  checkCompanyComplete, renderInvoiceBody, buildInvoiceDoc, type CompanyConfig, type Receiver,
-} from '@/lib/ca/company-invoice'
+import { checkCompanyComplete, type CompanyConfig, type Receiver } from '@/lib/ca/company-invoice'
+import { buildTaxInvoicesPdf, type InvoiceRender } from '@/lib/ca/invoice-pdf'
 
 const MAX_INVOICE_FILES = 300
 
@@ -101,7 +99,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Export formats
-    if (format === 'csv' || format === 'excel' || format === 'pdf' || format === 'zip') {
+    if (format === 'csv' || format === 'excel' || format === 'pdf' || format === 'zip' || format === 'data') {
       // Fetch all matching rows for export (paginated internally, max 10k)
       const PAGE_SIZE = 1000
       const allRows: any[] = []
@@ -115,6 +113,11 @@ export async function GET(request: NextRequest) {
       }
 
       const fileDate = new Date().toISOString().split('T')[0]
+
+      // Browser-side rendering path: return raw rows as JSON (no Puppeteer).
+      if (format === 'data') {
+        return NextResponse.json({ success: true, rows: allRows, count: allRows.length })
+      }
 
       const buildCsv = () => {
         const header = 'Invoice No,Date,Brand,TID,Transaction Amount (₹),Payment Mode,Card Type,Card Brand,Bank MDR %,Bank MDR Amount (₹),GST Invoice,Status\n'
@@ -194,30 +197,25 @@ export async function GET(request: NextRequest) {
           state: r.partners?.state,
         })
 
-        const bodyFor = (r: any) => {
+        // Pure-JS PDF (jsPDF) — one invoice per page. No headless browser, so it
+        // works reliably on serverless (Amplify/Lambda).
+        const items: InvoiceRender[] = allRows.map((r: any) => {
           const cfg = cfgMap.get(r.brand_id) as CompanyConfig
-          return renderInvoiceBody(cfg, toReceiver(r), {
-            invoiceNumber: r.invoice_number,
-            date: r.transaction_date,
-            taxableValue: Number(r.transaction_amount || 0),
-            gstPercent: Number(cfg.gst_percent ?? 18),
-            kind: 'Reimbursement Invoice',
-          })
-        }
-
-        // One combined PDF — one invoice per page (single render, fast + reliable).
-        const invoicesDoc = buildInvoiceDoc(allRows.map(bodyFor), 'Reimbursement Invoices')
-        const pdf = await htmlToPdf(invoicesDoc, { margin: '0' })
+          return {
+            company: cfg,
+            receiver: toReceiver(r),
+            inv: {
+              invoiceNumber: r.invoice_number,
+              date: r.transaction_date,
+              taxableValue: Number(r.transaction_amount || 0),
+              gstPercent: Number(cfg.gst_percent ?? 18),
+              kind: 'Reimbursement Invoice',
+            },
+          }
+        })
+        const pdf = buildTaxInvoicesPdf(items)
 
         if (format === 'pdf') {
-          if (!pdf) {
-            return new NextResponse(invoicesDoc, {
-              headers: {
-                'Content-Type': 'text/html; charset=utf-8',
-                'Content-Disposition': `attachment; filename="reimbursement-invoices-${fileDate}.html"`,
-              },
-            })
-          }
           return new NextResponse(new Uint8Array(pdf), {
             headers: {
               'Content-Type': 'application/pdf',
@@ -229,8 +227,7 @@ export async function GET(request: NextRequest) {
         // ZIP → CSV list + the combined PDF invoices (both per current filter).
         const zip = new JSZip()
         zip.file(`reimbursement-invoices-${fileDate}.csv`, buildCsv())
-        if (pdf) zip.file(`reimbursement-invoices-${fileDate}.pdf`, new Uint8Array(pdf))
-        else zip.file(`reimbursement-invoices-${fileDate}.html`, invoicesDoc)
+        zip.file(`reimbursement-invoices-${fileDate}.pdf`, new Uint8Array(pdf))
         const zipBuf = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' })
         return new NextResponse(new Uint8Array(zipBuf), {
           headers: {

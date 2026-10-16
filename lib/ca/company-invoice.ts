@@ -84,7 +84,7 @@ export function esc(s: any): string {
     .replace(/"/g, '&quot;')
 }
 
-const fmtDate = (d: string | Date) => {
+export const fmtDate = (d: string | Date) => {
   const dt = typeof d === 'string' ? new Date(d) : d
   if (isNaN(dt.getTime())) return String(d)
   return dt.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
@@ -122,8 +122,25 @@ export interface InvoiceInput {
   kind: 'Reimbursement Invoice' | 'Tax Invoice'
 }
 
-// Build the inner HTML for ONE invoice (no <html> wrapper).
-export function renderInvoiceBody(company: CompanyConfig, receiver: Receiver, inv: InvoiceInput): string {
+export interface ComputedInvoice {
+  rate: number
+  taxable: number
+  placeOfSupply: string
+  intra: boolean
+  cgst: number
+  sgst: number
+  igst: number
+  gstTotal: number
+  grand: number
+  lines: { description: string; sac: string; amount: number }[]
+  bank: [string, string][]
+  words: string
+  addrLines: string[]
+  recvAddr: string
+}
+
+/** Single source of truth for all invoice math + line split (HTML + PDF). */
+export function computeInvoice(company: CompanyConfig, receiver: Receiver, inv: InvoiceInput): ComputedInvoice {
   const rate = Number(inv.gstPercent ?? company.gst_percent ?? 18)
   const taxable = Number(inv.taxableValue || 0)
   const placeOfSupply = receiver.state || company.place_of_supply || ''
@@ -134,36 +151,45 @@ export function renderInvoiceBody(company: CompanyConfig, receiver: Receiver, in
   const igst = gstTotal
   const grand = taxable + gstTotal
 
-  // Service line split across percentages (last line absorbs rounding).
-  let lines = Array.isArray(company.service_lines) ? company.service_lines.filter((l) => l && l.description) : []
-  if (lines.length === 0) lines = [{ description: 'Information technology & payment support services', sac: '998314', percent: 100 }]
-  const totalPct = lines.reduce((s, l) => s + (Number(l.percent) || 0), 0) || 100
+  let src = Array.isArray(company.service_lines) ? company.service_lines.filter((l) => l && l.description) : []
+  if (src.length === 0) src = [{ description: 'Information technology & payment support services', sac: '998314', percent: 100 }]
+  const totalPct = src.reduce((s, l) => s + (Number(l.percent) || 0), 0) || 100
   let allocated = 0
-  const lineRows = lines.map((l, i) => {
-    let amt: number
-    if (i === lines.length - 1) amt = Math.round((taxable - allocated) * 100) / 100
-    else { amt = Math.round(taxable * (Number(l.percent) || 0) / totalPct * 100) / 100; allocated += amt }
-    return `<tr>
-      <td class="c">${i + 1}</td>
-      <td>${esc(l.description)}</td>
-      <td class="c">${esc(l.sac || '')}</td>
-      <td class="r">${num(amt)}</td>
-    </tr>`
-  }).join('')
+  const lines = src.map((l, i) => {
+    let amount: number
+    if (i === src.length - 1) amount = Math.round((taxable - allocated) * 100) / 100
+    else { amount = Math.round(taxable * (Number(l.percent) || 0) / totalPct * 100) / 100; allocated += amount }
+    return { description: String(l.description), sac: String(l.sac || ''), amount }
+  })
 
-  const bank: [string, string | null | undefined][] = [
+  const bank = ([
     ['Bank Account Number', company.bank_account_number],
     ['Particular of A/C', company.bank_account_type],
     ["A/C Holder's Name", company.bank_holder_name],
     ['Bank Name', company.bank_name],
     ['IFSC Code', company.bank_ifsc],
     ['Branch Name', company.bank_branch],
-  ]
-  const bankRows = bank.filter(([, v]) => v && String(v).trim())
-    .map(([k, v]) => `<tr><td class="bk">${esc(k)}</td><td>${esc(v)}</td></tr>`).join('')
+  ] as [string, any][]).filter(([, v]) => v && String(v).trim()).map(([k, v]) => [k, String(v)] as [string, string])
 
   const addrLines = String(company.address || '').split(/\n|,(?=\s)/).map((s) => s.trim()).filter(Boolean)
   const recvAddr = String(receiver.address || '').split(/\n/).map((s) => s.trim()).filter(Boolean).join(', ')
+
+  return { rate, taxable, placeOfSupply, intra, cgst, sgst, igst, gstTotal, grand, lines, bank, words: amountInWords(grand), addrLines, recvAddr }
+}
+
+// Build the inner HTML for ONE invoice (no <html> wrapper).
+export function renderInvoiceBody(company: CompanyConfig, receiver: Receiver, inv: InvoiceInput): string {
+  const { rate, taxable, placeOfSupply, intra, cgst, sgst, igst, grand, lines, bank, words, addrLines, recvAddr } =
+    computeInvoice(company, receiver, inv)
+
+  const lineRows = lines.map((l, i) => `<tr>
+      <td class="c">${i + 1}</td>
+      <td>${esc(l.description)}</td>
+      <td class="c">${esc(l.sac)}</td>
+      <td class="r">${num(l.amount)}</td>
+    </tr>`).join('')
+
+  const bankRows = bank.map(([k, v]) => `<tr><td class="bk">${esc(k)}</td><td>${esc(v)}</td></tr>`).join('')
 
   const totalsRows = [
     `<tr><td>Total</td><td class="r">${num(taxable)}</td></tr>`,
@@ -226,7 +252,7 @@ export function renderInvoiceBody(company: CompanyConfig, receiver: Receiver, in
       <table class="totals">${totalsRows}</table>
     </div>
 
-    <div class="words">Invoice Total (In Words): <b>${esc(amountInWords(grand))}</b></div>
+    <div class="words">Invoice Total (In Words): <b>${esc(words)}</b></div>
 
     ${bankRows ? `<div class="bank"><div class="bank-title">Bank Details</div><table>${bankRows}</table></div>` : ''}
 
@@ -291,3 +317,6 @@ export function buildInvoiceDoc(bodies: string[], title = 'Invoice'): string {
   return `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${esc(title)}</title>
 <style>${STYLES}</style></head><body>${bodies.join('\n')}</body></html>`
 }
+
+// CSS exported so the browser-side PDF generator (html2pdf.js) can reuse it.
+export const INVOICE_CSS = STYLES
