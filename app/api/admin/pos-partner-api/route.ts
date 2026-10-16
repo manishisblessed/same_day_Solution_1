@@ -428,13 +428,13 @@ export async function POST(request: NextRequest) {
         if (isPartner) {
           return NextResponse.json({ error: 'Only administrators can change partner services' }, { status: 403 })
         }
-        const { partner_id, bbps_enabled, bbps2_pay2new_enabled, credit_card1_plus_enabled, settlement_enabled, settlement2_enabled, aeps_enabled, rechargekit_cc_enabled } = body
+        const { partner_id, bbps_enabled, bbps2_pay2new_enabled, credit_card1_plus_enabled, settlement_enabled, settlement2_enabled, aeps_enabled, rechargekit_cc_enabled, status_api_enabled } = body
         if (!partner_id) {
           return NextResponse.json({ error: 'partner_id is required' }, { status: 400 })
         }
-        if (bbps_enabled === undefined && bbps2_pay2new_enabled === undefined && credit_card1_plus_enabled === undefined && settlement_enabled === undefined && settlement2_enabled === undefined && aeps_enabled === undefined && rechargekit_cc_enabled === undefined) {
+        if (bbps_enabled === undefined && bbps2_pay2new_enabled === undefined && credit_card1_plus_enabled === undefined && settlement_enabled === undefined && settlement2_enabled === undefined && aeps_enabled === undefined && rechargekit_cc_enabled === undefined && status_api_enabled === undefined) {
           return NextResponse.json(
-            { error: 'At least one service flag is required (bbps_enabled, bbps2_pay2new_enabled, credit_card1_plus_enabled, settlement_enabled, settlement2_enabled, aeps_enabled, rechargekit_cc_enabled)' },
+            { error: 'At least one service flag is required (bbps_enabled, bbps2_pay2new_enabled, credit_card1_plus_enabled, settlement_enabled, settlement2_enabled, aeps_enabled, rechargekit_cc_enabled, status_api_enabled)' },
             { status: 400 }
           )
         }
@@ -447,6 +447,7 @@ export async function POST(request: NextRequest) {
         if (typeof settlement2_enabled === 'boolean') updates.settlement2_enabled = settlement2_enabled
         if (typeof aeps_enabled === 'boolean') updates.aeps_enabled = aeps_enabled
         if (typeof rechargekit_cc_enabled === 'boolean') updates.rechargekit_cc_enabled = rechargekit_cc_enabled
+        if (typeof status_api_enabled === 'boolean') updates.status_api_enabled = status_api_enabled
 
         const { error: svcErr } = await supabase.from('partners').update(updates).eq('id', partner_id)
         if (svcErr) throw svcErr
@@ -462,7 +463,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({
           success: true,
           message: 'Partner API services updated',
-          data: { partner_id, bbps_enabled, bbps2_pay2new_enabled, credit_card1_plus_enabled, settlement_enabled, settlement2_enabled, rechargekit_cc_enabled },
+          data: { partner_id, bbps_enabled, bbps2_pay2new_enabled, credit_card1_plus_enabled, settlement_enabled, settlement2_enabled, rechargekit_cc_enabled, status_api_enabled },
         })
       }
 

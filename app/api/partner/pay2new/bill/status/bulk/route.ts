@@ -58,6 +58,17 @@ export async function POST(request: NextRequest) {
     }
 
     const { partner } = authResult
+
+    // Dedicated gate: the Status / Reconciliation API must be explicitly enabled
+    // for the partner (separate from the Pay2New service flag itself).
+    const statusAccess = partnerCanUseApi(partner, 'status')
+    if (!statusAccess.allowed) {
+      return NextResponse.json(
+        { success: false, error: { code: 'STATUS_API_DISABLED', message: statusAccess.message } },
+        { status: 403 }
+      )
+    }
+
     const access = partnerCanUseApi(partner, 'bbps2')
     if (!access.allowed) {
       return NextResponse.json(

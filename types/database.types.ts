@@ -353,6 +353,7 @@ export interface CAReimbursementInvoice {
   id: string
   invoice_number: string
   pos_transaction_id: number | null
+  razorpay_pos_transaction_id: string | null
   razorpay_txn_id: string | null
   brand_id: string | null
   partner_id: string | null

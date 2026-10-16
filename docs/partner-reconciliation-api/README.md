@@ -45,6 +45,7 @@ The server re-parses and re-stringifies your JSON before verifying, so **whitesp
 
 ### Preconditions (ask admin to configure once)
 
+- The **Transaction Status / Reconciliation API** flag must be enabled for your partner account. This is a dedicated master switch for all status/reconciliation endpoints below. If it is off, every status call returns `403 STATUS_API_DISABLED` ("…this option is disabled — please contact support").
 - The relevant **service flag** must be enabled for your partner account:
   - Pay2New → **BBPS-2** enabled
   - Settlement-2 → **Settlement-2** enabled
@@ -313,7 +314,8 @@ All errors share one shape:
 | 400 | `BAD_REQUEST` | Missing/invalid params or bad JSON. |
 | 400 | `RANGE_TOO_LARGE` | Date range > 92 days. |
 | 401 | `UNAUTHORIZED` | Bad/missing signature, stale timestamp, IP not whitelisted, inactive key. |
-| 403 | `FORBIDDEN` | Service not enabled for this partner. |
+| 403 | `STATUS_API_DISABLED` | The Transaction Status / Reconciliation API is not enabled for this partner — contact support. |
+| 403 | `FORBIDDEN` | Underlying service (BBPS-2 / Settlement-2) not enabled for this partner. |
 | 404 | `ORDER_NOT_FOUND` / `NOT_FOUND` | (single-txn) no matching transaction. |
 | 500 | `INTERNAL_ERROR` | Server-side failure. |
 

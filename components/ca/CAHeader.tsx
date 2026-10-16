@@ -3,6 +3,7 @@
 import { useRouter } from 'next/navigation'
 import { useAuth } from '@/contexts/AuthContext'
 import { LogOut, Calculator } from 'lucide-react'
+import Image from 'next/image'
 
 export default function CAHeader() {
   const { user, logout } = useAuth()
@@ -19,33 +20,51 @@ export default function CAHeader() {
   }
 
   return (
-    <header className="fixed top-0 left-0 right-0 z-50 backdrop-blur-xl bg-white/95 dark:bg-gray-900/95 border-b border-gray-200/50 dark:border-gray-700/50 shadow-sm">
+    <header className="fixed top-0 left-0 right-0 z-50 bg-gray-900 dark:bg-gray-950 border-b border-gray-800 shadow-lg">
       <div className="mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between h-16">
         <button
           type="button"
           onClick={() => router.push('/ca/billing')}
-          className="flex items-center gap-2 hover:opacity-90"
+          className="flex items-center gap-3 hover:opacity-90"
         >
-          <div className="p-2 rounded-lg bg-violet-600 text-white">
+          <Image
+            src="/images/logo-icon.png"
+            alt="Logo"
+            width={36}
+            height={36}
+            className="rounded-lg"
+            onError={(e) => {
+              const target = e.currentTarget as HTMLImageElement
+              target.style.display = 'none'
+              const fallback = target.nextElementSibling as HTMLElement
+              if (fallback) fallback.style.display = 'flex'
+            }}
+          />
+          <div
+            className="hidden items-center justify-center p-2 rounded-lg bg-violet-600 text-white"
+          >
             <Calculator className="w-5 h-5" />
           </div>
           <div className="text-left">
-            <div className="font-semibold text-gray-900 dark:text-white">CA Billing</div>
-            <div className="text-xs text-gray-500 dark:text-gray-400">Same Day Solution</div>
+            <div className="font-semibold text-white text-base leading-tight">CA Billing</div>
+            <div className="text-[11px] text-gray-400 leading-tight">Same Day Solution</div>
           </div>
         </button>
 
-        <div className="flex items-center gap-3">
-          <span className="text-sm text-gray-600 dark:text-gray-300 hidden sm:inline max-w-[200px] truncate">
-            {user?.name || user?.email}
-          </span>
+        <div className="flex items-center gap-4">
+          <div className="hidden sm:flex flex-col items-end">
+            <span className="text-sm font-medium text-white max-w-[200px] truncate">
+              {user?.name || user?.email}
+            </span>
+            <span className="text-[11px] text-gray-400">CA Executive</span>
+          </div>
           <button
             type="button"
             onClick={handleLogout}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-200 transition-colors"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border border-gray-600 hover:bg-gray-800 text-gray-300 hover:text-white transition-colors"
           >
             <LogOut className="w-4 h-4" />
-            Logout
+            <span className="hidden sm:inline">Logout</span>
           </button>
         </div>
       </div>

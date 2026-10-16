@@ -3,7 +3,7 @@ import { createClient } from '@supabase/supabase-js'
 import crypto from 'crypto'
 import { extractClientIpFromHeaders, isIpWhitelisted } from './ip-utils'
 
-export type PartnerApiScope = 'bbps' | 'bbps2' | 'payout' | 'settlement' | 'aeps' | 'rechargekit'
+export type PartnerApiScope = 'bbps' | 'bbps2' | 'payout' | 'settlement' | 'aeps' | 'rechargekit' | 'status'
 
 export interface PartnerAuthResult {
   partner: {
@@ -20,6 +20,7 @@ export interface PartnerAuthResult {
     settlement2_enabled: boolean
     aeps_enabled: boolean
     rechargekit_cc_enabled: boolean
+    status_api_enabled: boolean
     api_max_txn_amount: number | null
   }
 }
@@ -87,6 +88,11 @@ export function partnerCanUseApi(
     case 'rechargekit':
       if (!partner.rechargekit_cc_enabled) {
         return { allowed: false, message: 'Credit Card-2 (RechargeKit) is not enabled for this partner account. Contact admin.' }
+      }
+      break
+    case 'status':
+      if (!partner.status_api_enabled) {
+        return { allowed: false, message: 'Transaction Status / Reconciliation API is not enabled for this partner account. This option is disabled — please contact support.' }
       }
       break
   }
@@ -197,6 +203,7 @@ export async function authenticatePartner(
         settlement2_enabled,
         aeps_enabled,
         rechargekit_cc_enabled,
+        status_api_enabled,
         api_max_txn_amount
       )
     `)
@@ -314,6 +321,7 @@ export async function authenticatePartner(
       settlement2_enabled: partner.settlement2_enabled === true,
       aeps_enabled: partner.aeps_enabled === true,
       rechargekit_cc_enabled: partner.rechargekit_cc_enabled === true,
+      status_api_enabled: partner.status_api_enabled === true,
       api_max_txn_amount: partner.api_max_txn_amount != null ? Number(partner.api_max_txn_amount) : null,
     },
   }
