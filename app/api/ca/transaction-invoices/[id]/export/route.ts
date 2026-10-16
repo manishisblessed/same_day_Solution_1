@@ -33,6 +33,12 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
 
     if (error || !inv) return NextResponse.json({ error: 'Invoice not found' }, { status: 404 })
 
+    const { data: company } = await supabase
+      .from('ca_company_config')
+      .select('*, brands:brand_id ( id, key, name, short_name )')
+      .eq('brand_id', (inv as any).brand_id)
+      .maybeSingle()
+
     const { brandName, breakdown, generatedAt } = invoiceMeta(inv as any)
     const fileSlug = `${(inv as any).invoice_number}`
 
@@ -113,7 +119,11 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
     }
 
     // ── PDF ───────────────────────────────────────────────────────────────────
-    const html = invoicesHtmlDoc([inv as any], (inv as any).invoice_number)
+    const html = invoicesHtmlDoc(
+      [inv as any],
+      (inv as any).invoice_number,
+      company ? { [(inv as any).brand_id]: company as any } : undefined,
+    )
 
     const pdf = await htmlToPdf(html, { landscape: false })
     if (pdf) {

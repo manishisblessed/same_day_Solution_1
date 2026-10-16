@@ -73,7 +73,7 @@ export default function CAHeader() {
             </span>
             <span className="text-[11px] text-violet-100/80">CA Executive</span>
           </div>
-          <div className="hidden sm:block w-9 h-9 rounded-full bg-white/15 ring-1 ring-white/30 flex items-center justify-center text-white font-semibold text-sm backdrop-blur-sm">
+          <div className="hidden sm:flex w-9 h-9 rounded-full bg-white/15 ring-1 ring-white/30 items-center justify-center text-white font-semibold text-sm backdrop-blur-sm leading-none">
             {(user?.name || user?.email || '?').trim().charAt(0).toUpperCase()}
           </div>
           <motion.button

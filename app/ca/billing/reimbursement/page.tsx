@@ -50,6 +50,7 @@ function ReimbursementPageInner() {
   const [bfResult, setBfResult] = useState<string | null>(null)
 
   const [exporting, setExporting] = useState<ExportFormat | null>(null)
+  const [downloadingId, setDownloadingId] = useState<string | null>(null)
   const LIMIT = 50
 
   useEffect(() => {
@@ -106,6 +107,11 @@ function ReimbursementPageInner() {
       p.delete('page')
       p.delete('limit')
       const res = await apiFetch(`/api/ca/reimbursement?${p}`)
+      if (!res.ok || res.headers.get('content-type')?.includes('application/json')) {
+        const data = await res.json().catch(() => ({}))
+        alert(data.error || 'Export failed')
+        return
+      }
       const blob = await res.blob()
       const ext = format === 'zip' ? 'zip' : format === 'pdf' ? 'pdf' : format === 'excel' ? 'xls' : 'csv'
       downloadBlob(blob, `reimbursement-invoices-${new Date().toISOString().split('T')[0]}.${ext}`)
@@ -113,6 +119,25 @@ function ReimbursementPageInner() {
       alert('Export failed')
     } finally {
       setExporting(null)
+    }
+  }
+
+  const downloadInvoice = async (inv: Invoice) => {
+    setDownloadingId(inv.id)
+    try {
+      const res = await apiFetch(`/api/ca/reimbursement/${inv.id}/invoice`)
+      if (!res.ok || res.headers.get('content-type')?.includes('application/json')) {
+        const data = await res.json().catch(() => ({}))
+        alert(data.error || 'Could not generate invoice')
+        return
+      }
+      const blob = await res.blob()
+      const ext = res.headers.get('content-type')?.includes('pdf') ? 'pdf' : 'html'
+      downloadBlob(blob, `${inv.invoice_number}.${ext}`)
+    } catch {
+      alert('Could not generate invoice')
+    } finally {
+      setDownloadingId(null)
     }
   }
 
@@ -239,7 +264,7 @@ function ReimbursementPageInner() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50">
-                  {['Invoice No', 'Date', 'Brand', 'TID', 'Partner', 'Txn Amount', 'Mode', 'Card Type', 'Card Brand', 'Bank MDR %', 'Bank MDR ₹', 'GST Invoice', 'Status'].map((h) => (
+                  {['Invoice No', 'Date', 'Brand', 'TID', 'Partner', 'Txn Amount', 'Mode', 'Card Type', 'Card Brand', 'Bank MDR %', 'Bank MDR ₹', 'GST Invoice', 'Status', 'Invoice'].map((h) => (
                     <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wide whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
@@ -269,7 +294,7 @@ function ReimbursementPageInner() {
                         return <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${styles[cb] || 'bg-gray-100 text-gray-600'}`}>{cb}</span>
                       })()}
                     </td>
-                    <td className="px-4 py-3 text-violet-700 dark:text-violet-300 font-medium">{Number(inv.bank_mdr_percent).toFixed(4)}%</td>
+                    <td className="px-4 py-3 text-violet-700 dark:text-violet-300 font-medium">{Number(inv.bank_mdr_percent).toFixed(2)}%</td>
                     <td className="px-4 py-3 font-semibold text-red-600 dark:text-red-400 text-right">{INR(inv.bank_mdr_amount)}</td>
                     <td className="px-4 py-3 font-mono text-xs">
                       {inv.ca_transaction_invoices?.invoice_number ? (
@@ -288,6 +313,17 @@ function ReimbursementPageInner() {
                       <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${inv.status === 'issued' ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300' : 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300'}`}>
                         {inv.status}
                       </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <button
+                        onClick={() => downloadInvoice(inv)}
+                        disabled={downloadingId === inv.id}
+                        title="Download Tax Invoice (PDF)"
+                        className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium text-violet-700 dark:text-violet-300 hover:bg-violet-50 dark:hover:bg-violet-900/30 disabled:opacity-50"
+                      >
+                        {downloadingId === inv.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+                        PDF
+                      </button>
                     </td>
                   </tr>
                 ))}

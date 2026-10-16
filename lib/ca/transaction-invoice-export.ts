@@ -2,6 +2,8 @@
 // Used by the single-invoice export route and the bulk export-all route so a
 // single source of truth drives every format (csv, pdf, zip).
 
+import type { CompanyConfig } from '@/lib/ca/company-invoice'
+
 export const INR = (n: number) =>
   '₹' + Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
@@ -53,9 +55,45 @@ export function invoiceCsv(inv: any): string {
     .join('\n')
 }
 
+/** Issuer block (company details) printed atop the GST invoice when available. */
+function issuerBlock(company?: CompanyConfig | null): string {
+  if (!company) return ''
+  const addr = String(company.address || '').split(/\n|,(?=\s)/).map((s) => s.trim()).filter(Boolean)
+  return `
+    <div class="issuer">
+      ${addr.map((l) => `<div class="iss-addr">${esc(l)}</div>`).join('')}
+      <div class="iss-meta">GSTIN: ${esc(company.gstin || '')}${company.pan ? '  |  PAN: ' + esc(company.pan) : ''}</div>
+      <div class="iss-meta">${company.email ? 'Email: ' + esc(company.email) : ''}${company.phone ? '  |  Phone: ' + esc(company.phone) : ''}${company.cin ? '  |  CIN: ' + esc(company.cin) : ''}</div>
+    </div>`
+}
+
+/** Bank + signatory footer printed on the GST invoice when available. */
+function issuerFooter(company?: CompanyConfig | null): string {
+  if (!company) return ''
+  const bank: [string, any][] = [
+    ['Bank Account Number', company.bank_account_number],
+    ['Particular of A/C', company.bank_account_type],
+    ["A/C Holder's Name", company.bank_holder_name],
+    ['Bank Name', company.bank_name],
+    ['IFSC Code', company.bank_ifsc],
+    ['Branch Name', company.bank_branch],
+  ].filter(([, v]) => v && String(v).trim()) as [string, any][]
+  const bankHtml = bank.length
+    ? `<div class="bankbox"><div class="section-title">Bank Details</div><table class="bankt">${bank.map(([k, v]) => `<tr><td class="bk">${esc(k)}</td><td>${esc(v)}</td></tr>`).join('')}</table></div>`
+    : ''
+  const sig = `<div class="sigbox">
+      <div class="sig-for">For ${esc(company.legal_name || company.brands?.name || '')}</div>
+      ${company.signature_image ? `<img src="${esc(company.signature_image)}" class="sig-img" alt="signature"/>` : ''}
+      <div class="sig-name">${esc(company.authorized_signatory_name || '')}</div>
+      <div class="sig-line">Authorized Signatory</div>
+    </div>`
+  return `<div class="issuer-foot">${bankHtml}${sig}</div>`
+}
+
 /** Inner HTML body for one invoice (no <html> wrapper) — reusable for merged PDFs. */
-export function invoiceBodyHtml(inv: any): string {
+export function invoiceBodyHtml(inv: any, company?: CompanyConfig | null): string {
   const { brandName, breakdown, generatedAt } = invoiceMeta(inv)
+  const title = company?.legal_name || brandName
   const breakdownRows = breakdown.map((b) => `
     <tr>
       <td>${esc(b.tid)}</td>
@@ -70,9 +108,10 @@ export function invoiceBodyHtml(inv: any): string {
   <div class="invoice">
     <div class="header">
       <div class="brand-block">
-        <h1>${esc(brandName)}</h1>
+        <h1>${esc(title)}</h1>
         <p>GST Transaction Invoice</p>
         <p>Period: ${esc(inv.period_start)} to ${esc(inv.period_end)}</p>
+        ${issuerBlock(company)}
       </div>
       <div class="inv-block">
         <div class="inv-no">${esc(inv.invoice_number)}</div>
@@ -129,6 +168,8 @@ export function invoiceBodyHtml(inv: any): string {
       </table>
     </div>
 
+    ${issuerFooter(company)}
+
     <div class="footer">Same Day Solution &mdash; System Generated CA Invoice &copy; ${new Date().getFullYear()}</div>
   </div>`
 }
@@ -162,12 +203,30 @@ const INVOICE_STYLES = `
   .gst-table tr td:first-child { font-weight: 600; color: #374151; }
   .gst-table tr.total td { background: #6D28D9; color: #fff; font-size: 13px; font-weight: 700; }
   .footer { margin-top: 30px; text-align: center; font-size: 10px; color: #9CA3AF; border-top: 1px solid #E5E7EB; padding-top: 10px; }
+  .issuer { margin-top: 6px; }
+  .issuer .iss-addr { font-size: 10px; color: #374151; }
+  .issuer .iss-meta { font-size: 9.5px; color: #6B7280; margin-top: 2px; }
+  .issuer-foot { display: flex; justify-content: space-between; align-items: flex-end; gap: 20px; margin-top: 22px; }
+  .bankbox { flex: 1; }
+  table.bankt { width: auto; }
+  table.bankt td { padding: 3px 8px; border-bottom: 1px dotted #E5E7EB; font-size: 10px; }
+  table.bankt td.bk { font-weight: 700; color: #6B7280; }
+  table.bankt tr:nth-child(even) td { background: transparent; }
+  .sigbox { text-align: center; min-width: 190px; }
+  .sig-for { font-size: 10px; color: #374151; margin-bottom: 30px; }
+  .sig-img { max-height: 46px; margin-bottom: 2px; }
+  .sig-name { font-size: 10px; font-weight: 700; color: #111827; }
+  .sig-line { font-size: 9px; color: #6B7280; border-top: 1px solid #9CA3AF; display: inline-block; padding-top: 2px; }
   @media print { body { padding: 16px; } @page { size: A4; margin: 10mm; } }
 `
 
 /** Full standalone HTML doc for one or more invoices (merged PDF). */
-export function invoicesHtmlDoc(invoices: any[], title = 'GST Transaction Invoices'): string {
-  const bodies = invoices.map(invoiceBodyHtml).join('\n')
+export function invoicesHtmlDoc(
+  invoices: any[],
+  title = 'GST Transaction Invoices',
+  companyMap?: Record<string, CompanyConfig>,
+): string {
+  const bodies = invoices.map((inv) => invoiceBodyHtml(inv, companyMap?.[inv.brand_id])).join('\n')
   return `<!DOCTYPE html>
 <html><head><meta charset="UTF-8"><title>${esc(title)}</title>
 <style>${INVOICE_STYLES}</style></head>

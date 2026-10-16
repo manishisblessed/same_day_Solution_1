@@ -1,9 +1,34 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { getSupabaseAdmin } from '@/lib/supabase/server-admin'
+import { checkCompanyComplete } from '@/lib/ca/company-invoice'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
+
+// Text + JSON fields the CA can set on the company invoice profile.
+const TEXT_FIELDS = [
+  'gstin', 'legal_name', 'address', 'pan', 'email', 'phone', 'state_code', 'cin',
+  'place_of_supply', 'jurisdiction', 'reverse_charge',
+  'bank_account_number', 'bank_account_type', 'bank_holder_name', 'bank_name',
+  'bank_branch', 'bank_ifsc', 'authorized_signatory_name', 'signature_image',
+] as const
+
+function sanitizeServiceLines(v: any): any[] {
+  if (!Array.isArray(v)) return []
+  return v
+    .map((l) => ({
+      description: String(l?.description ?? '').trim(),
+      sac: String(l?.sac ?? '').trim(),
+      percent: Number(l?.percent) || 0,
+    }))
+    .filter((l) => l.description || l.sac)
+}
+
+function sanitizeTerms(v: any): string[] {
+  if (!Array.isArray(v)) return []
+  return v.map((t) => String(t ?? '').trim()).filter(Boolean)
+}
 
 async function requireCA(request: NextRequest) {
   const { user } = await getCurrentUserWithFallback(request)
@@ -32,7 +57,8 @@ export async function GET(request: NextRequest) {
 
     const { data, error } = await q
     if (error) return NextResponse.json({ error: error.message }, { status: 400 })
-    return NextResponse.json({ success: true, configs: data || [] })
+    const configs = (data || []).map((c: any) => ({ ...c, completeness: checkCompanyComplete(c) }))
+    return NextResponse.json({ success: true, configs })
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 })
   }
@@ -59,14 +85,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'gst_percent must be >= 0' }, { status: 400 })
     }
 
-    const row = {
+    const row: Record<string, any> = {
       brand_id,
       margin_percent,
       gst_percent,
-      gstin: body.gstin ? String(body.gstin).trim() : null,
-      legal_name: body.legal_name ? String(body.legal_name).trim() : null,
-      address: body.address ? String(body.address).trim() : null,
+      service_lines: sanitizeServiceLines(body.service_lines),
+      terms: sanitizeTerms(body.terms),
       created_by: auth.user.email,
+    }
+    for (const f of TEXT_FIELDS) {
+      row[f] = body[f] !== undefined && body[f] !== null && String(body[f]).trim() !== '' ? String(body[f]).trim() : null
     }
 
     const supabase = getSupabaseAdmin()
@@ -104,9 +132,11 @@ export async function PUT(request: NextRequest) {
       if (!Number.isFinite(v) || v < 0) return NextResponse.json({ error: 'gst_percent must be >= 0' }, { status: 400 })
       patch.gst_percent = v
     }
-    if (body.gstin !== undefined) patch.gstin = body.gstin ? String(body.gstin).trim() : null
-    if (body.legal_name !== undefined) patch.legal_name = body.legal_name ? String(body.legal_name).trim() : null
-    if (body.address !== undefined) patch.address = body.address ? String(body.address).trim() : null
+    for (const f of TEXT_FIELDS) {
+      if (body[f] !== undefined) patch[f] = body[f] && String(body[f]).trim() !== '' ? String(body[f]).trim() : null
+    }
+    if (body.service_lines !== undefined) patch.service_lines = sanitizeServiceLines(body.service_lines)
+    if (body.terms !== undefined) patch.terms = sanitizeTerms(body.terms)
 
     const supabase = getSupabaseAdmin()
     const { error } = await supabase.from('ca_company_config').update(patch).eq('id', id)

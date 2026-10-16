@@ -65,6 +65,15 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'No invoices match the selected filters.' }, { status: 404 })
     }
 
+    // Load issuer company profiles for every brand in the set.
+    const brandIds = Array.from(new Set(invoices.map((i: any) => i.brand_id).filter(Boolean)))
+    const { data: cfgRows } = await supabase
+      .from('ca_company_config')
+      .select('*, brands:brand_id ( id, key, name, short_name )')
+      .in('brand_id', brandIds)
+    const companyMap: Record<string, any> = {}
+    for (const c of cfgRows || []) companyMap[c.brand_id] = c
+
     const fileDate = new Date().toISOString().split('T')[0]
 
     // ── Combined CSV ──────────────────────────────────────────────────────────
@@ -79,7 +88,7 @@ export async function GET(request: NextRequest) {
 
     // ── Merged PDF (one invoice per page) ───────────────────────────────────────
     if (format === 'pdf') {
-      const html = invoicesHtmlDoc(invoices, `GST Transaction Invoices (${invoices.length})`)
+      const html = invoicesHtmlDoc(invoices, `GST Transaction Invoices (${invoices.length})`, companyMap)
       const pdf = await htmlToPdf(html, { landscape: false })
       if (!pdf) {
         return new NextResponse(html, {
@@ -105,7 +114,7 @@ export async function GET(request: NextRequest) {
     for (const inv of invoices) {
       const slug = String((inv as any).invoice_number).replace(/[^\w.-]+/g, '_')
       zip.file(`${slug}/${slug}.csv`, invoiceCsv(inv as any))
-      const html = invoicesHtmlDoc([inv as any], (inv as any).invoice_number)
+      const html = invoicesHtmlDoc([inv as any], (inv as any).invoice_number, companyMap)
       const pdf = await htmlToPdf(html, { landscape: false })
       if (pdf) {
         zip.file(`${slug}/${slug}.pdf`, new Uint8Array(pdf))

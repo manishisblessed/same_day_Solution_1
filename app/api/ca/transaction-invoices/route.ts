@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { getSupabaseAdmin } from '@/lib/supabase/server-admin'
+import { checkCompanyComplete, type CompanyConfig } from '@/lib/ca/company-invoice'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -104,12 +105,21 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Get company config (margin %)
+    // Get company config (full profile) + completeness gate
     const { data: companyConfig } = await supabase
       .from('ca_company_config')
-      .select('margin_percent, gst_percent')
+      .select('*, brands:brand_id ( id, key, name, short_name )')
       .eq('brand_id', brand_id)
       .maybeSingle()
+
+    const { complete, missing } = checkCompanyComplete(companyConfig as CompanyConfig)
+    if (!complete) {
+      const name = (companyConfig as any)?.brands?.name || 'this company'
+      return NextResponse.json(
+        { error: `Complete the Company Details for ${name} before generating invoices. Missing: ${missing.join(', ')}` },
+        { status: 400 },
+      )
+    }
 
     const margin_percent = Number(companyConfig?.margin_percent ?? 20)
     const gst_percent = Number(companyConfig?.gst_percent ?? 18)

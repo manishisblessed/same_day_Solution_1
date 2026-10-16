@@ -123,7 +123,7 @@ export default function BankMdrPage() {
       const body = {
         ...form,
         card_brands: editingId ? [brandsForPayload[0]] : brandsForPayload,
-        bank_mdr_percent: parseFloat(form.bank_mdr_percent),
+        bank_mdr_percent: Math.round(parseFloat(form.bank_mdr_percent) * 100) / 100,
         tid: form.tid.trim() || null,
         effective_to: form.effective_to.trim() || null,
         notes: form.notes.trim() || null,
@@ -257,7 +257,7 @@ export default function BankMdrPage() {
                       return <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${styles[cb] || styles['*']}`}>{cb}</span>
                     })()}
                   </td>
-                  <td className="px-4 py-3 font-semibold text-violet-700 dark:text-violet-300">{Number(c.bank_mdr_percent).toFixed(4)}%</td>
+                  <td className="px-4 py-3 font-semibold text-violet-700 dark:text-violet-300">{Number(c.bank_mdr_percent).toFixed(2)}%</td>
                   <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{c.effective_from}</td>
                   <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{c.effective_to || <span className="text-gray-400">—</span>}</td>
                   <td className="px-4 py-3 text-gray-500 max-w-[160px] truncate">{c.notes || '—'}</td>
@@ -288,16 +288,16 @@ export default function BankMdrPage() {
           <motion.div
             initial={{ scale: 0.95, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
-            className="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-lg border border-gray-200 dark:border-gray-700"
+            className="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-lg border border-gray-200 dark:border-gray-700 max-h-[90vh] flex flex-col overflow-hidden"
           >
-            <div className="p-6 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+            <div className="p-5 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between shrink-0">
               <h2 className="text-lg font-bold text-gray-900 dark:text-white">
                 {editingId ? 'Edit Bank MDR Rate' : 'Add Bank MDR Rate'}
               </h2>
               <button onClick={() => setShowForm(false)} className="text-gray-400 hover:text-gray-600 text-xl">✕</button>
             </div>
-            <form onSubmit={handleSave} className="p-6 space-y-4">
-              <div className="grid grid-cols-2 gap-4">
+            <form onSubmit={handleSave} className="flex flex-col flex-1 min-h-0">
+              <div className="p-5 space-y-4 overflow-y-auto flex-1 grid grid-cols-2 gap-4">
                 <div className="col-span-2">
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Brand (Company) *</label>
                   <select required value={form.brand_id} onChange={(e) => setForm({ ...form, brand_id: e.target.value })}
@@ -316,9 +316,9 @@ export default function BankMdrPage() {
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Bank MDR % *</label>
-                  <input type="number" required step="0.0001" min="0" max="100"
+                  <input type="number" required step="0.01" min="0" max="100"
                     value={form.bank_mdr_percent} onChange={(e) => setForm({ ...form, bank_mdr_percent: e.target.value })}
-                    placeholder="e.g. 1.8000"
+                    placeholder="e.g. 1.80"
                     className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-800 focus:ring-2 focus:ring-violet-500 outline-none" />
                 </div>
 
@@ -413,7 +413,7 @@ export default function BankMdrPage() {
                 </div>
               </div>
 
-              <div className="flex gap-3 pt-2">
+              <div className="flex gap-3 p-5 border-t border-gray-200 dark:border-gray-700 shrink-0 bg-white dark:bg-gray-900">
                 <button type="button" onClick={() => setShowForm(false)} className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
                   Cancel
                 </button>

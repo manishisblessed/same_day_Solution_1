@@ -7,6 +7,7 @@ import {
   Landmark,
   Receipt,
   FileText,
+  Building2,
   PanelLeftClose,
   PanelLeft,
 } from 'lucide-react'
@@ -15,6 +16,7 @@ import { motion } from 'framer-motion'
 
 const items = [
   { href: '/ca/billing', label: 'Dashboard', icon: LayoutDashboard, exact: true },
+  { href: '/ca/billing/company', label: 'Company Details', icon: Building2 },
   { href: '/ca/billing/bank-mdr', label: 'Bank MDR Rates', icon: Landmark },
   { href: '/ca/billing/reimbursement', label: 'Reimbursement', icon: Receipt },
   { href: '/ca/billing/transaction-invoices', label: 'GST Invoices', icon: FileText },

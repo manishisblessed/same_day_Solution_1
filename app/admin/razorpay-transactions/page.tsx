@@ -124,9 +124,10 @@ function RazorpayTransactionsPageContent() {
   // Tab: 'all' = captured/normal transactions, 'failed' = captured-then-failed
   const [activeTab, setActiveTab] = useState<'all' | 'failed'>('all')
   
-  // Filters
-  const [dateFrom, setDateFrom] = useState('')
-  const [dateTo, setDateTo] = useState('')
+  // Filters — default to today so the page opens showing today's transactions
+  const todayStr = new Date().toISOString().split('T')[0]
+  const [dateFrom, setDateFrom] = useState(todayStr)
+  const [dateTo, setDateTo] = useState(todayStr)
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedCompanies, setSelectedCompanies] = useState<string[]>([])
   const [pendingCompanies, setPendingCompanies] = useState<string[]>([])
@@ -200,8 +201,8 @@ function RazorpayTransactionsPageContent() {
 
   // Applied filters — only updated when Search button is clicked
   const [appliedFilters, setAppliedFilters] = useState({
-    dateFrom: '',
-    dateTo: '',
+    dateFrom: todayStr,
+    dateTo: todayStr,
     search: '',
     companies: [] as string[],
     status: '',

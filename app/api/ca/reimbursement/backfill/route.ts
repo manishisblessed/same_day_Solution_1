@@ -46,28 +46,22 @@ export async function POST(request: NextRequest) {
 
     const supabase = getSupabaseAdmin()
 
-    // Backfill both pos_transactions and razorpay_pos_transactions
-    const [posResult, rzResult] = await Promise.all([
-      supabase.rpc('ca_backfill_reimbursements', {
-        p_date_from: dateFrom,
-        p_date_to: dateTo,
-        p_brand_id: brandId,
-      }),
-      supabase.rpc('ca_backfill_reimbursements_razorpay', {
-        p_date_from: dateFrom,
-        p_date_to: dateTo,
-        p_brand_id: brandId,
-      }),
-    ])
+    // razorpay_pos_transactions is the single source of truth (unified POS table
+    // the admin dashboard uses). The legacy pos_transactions backfill is retired
+    // to avoid double-counting.
+    const rzResult = await supabase.rpc('ca_backfill_reimbursements_razorpay', {
+      p_date_from: dateFrom,
+      p_date_to: dateTo,
+      p_brand_id: brandId,
+    })
 
-    if (posResult.error && rzResult.error) {
-      return NextResponse.json({ error: posResult.error.message }, { status: 400 })
+    if (rzResult.error) {
+      return NextResponse.json({ error: rzResult.error.message }, { status: 400 })
     }
 
-    const posRow = Array.isArray(posResult.data) ? posResult.data[0] : posResult.data
     const rzRow = Array.isArray(rzResult.data) ? rzResult.data[0] : rzResult.data
-    const processed = (posRow?.processed ?? 0) + (rzRow?.processed ?? 0)
-    const skipped = (posRow?.skipped ?? 0) + (rzRow?.skipped ?? 0)
+    const processed = rzRow?.processed ?? 0
+    const skipped = rzRow?.skipped ?? 0
 
     return NextResponse.json({
       success: true,
