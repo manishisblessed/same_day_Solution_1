@@ -697,8 +697,9 @@ export default function AdminSettings() {
         setMessage({ type: 'error', text: 'Password is required' })
         return
       }
-      if (caForm.password.length < 8) {
-        setMessage({ type: 'error', text: 'Password must be at least 8 characters' })
+      const pw = caForm.password
+      if (pw.length < 8 || !/[a-z]/.test(pw) || !/[A-Z]/.test(pw) || !/[0-9]/.test(pw) || !/[^A-Za-z0-9]/.test(pw)) {
+        setMessage({ type: 'error', text: 'Password must be 8+ characters and include an uppercase letter, a lowercase letter, a number, and a special character (e.g. Test_User@9090)' })
         return
       }
     }
@@ -766,8 +767,9 @@ export default function AdminSettings() {
         setMessage({ type: 'error', text: 'Password is required' })
         return
       }
-      if (financeForm.password.length < 8) {
-        setMessage({ type: 'error', text: 'Password must be at least 8 characters' })
+      const pw = financeForm.password
+      if (pw.length < 8 || !/[a-z]/.test(pw) || !/[A-Z]/.test(pw) || !/[0-9]/.test(pw) || !/[^A-Za-z0-9]/.test(pw)) {
+        setMessage({ type: 'error', text: 'Password must be 8+ characters and include an uppercase letter, a lowercase letter, a number, and a special character (e.g. Test_User@9090)' })
         return
       }
     }
@@ -918,7 +920,7 @@ export default function AdminSettings() {
 
           {/* Tabs */}
           <div className="mb-6 bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 p-1">
-            <div className="flex space-x-1">
+            <div className="flex flex-wrap gap-1">
               {[
                 { id: 'profile' as const, label: 'Profile', icon: User },
                 { id: 'password' as const, label: 'Password', icon: Lock },
@@ -933,14 +935,14 @@ export default function AdminSettings() {
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id)}
-                  className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg transition-colors ${
+                  className={`flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg transition-colors whitespace-nowrap text-sm font-medium ${
                     activeTab === tab.id
                       ? 'bg-primary-600 text-white'
                       : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
                   }`}
                 >
-                  <tab.icon className="w-4 h-4" />
-                  <span className="text-sm font-medium">{tab.label}</span>
+                  <tab.icon className="w-4 h-4 flex-shrink-0" />
+                  <span>{tab.label}</span>
                 </button>
               ))}
             </div>
@@ -1987,6 +1989,9 @@ export default function AdminSettings() {
                           {showFinancePassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                         </button>
                       </div>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                        Min 8 chars with an uppercase, lowercase, number &amp; special character. e.g. <code className="bg-gray-100 dark:bg-gray-700 px-1 rounded">Test_User@9090</code>
+                      </p>
                     </div>
                   )}
 
@@ -2183,6 +2188,9 @@ export default function AdminSettings() {
                           {showCaPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                         </button>
                       </div>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                        Min 8 chars with an uppercase, lowercase, number &amp; special character. e.g. <code className="bg-gray-100 dark:bg-gray-700 px-1 rounded">Test_User@9090</code>
+                      </p>
                     </div>
                   )}
 
