@@ -3,9 +3,7 @@ import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { getSupabaseAdmin } from '@/lib/supabase/server-admin'
 import { htmlToPdf } from '@/lib/pdf/html-to-pdf'
 import JSZip from 'jszip'
-import {
-  invoiceCsv, invoicesHtmlDoc, invoicesListCsv,
-} from '@/lib/ca/transaction-invoice-export'
+import { invoicesHtmlDoc, invoicesListCsv } from '@/lib/ca/transaction-invoice-export'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -106,22 +104,14 @@ export async function GET(request: NextRequest) {
       })
     }
 
-    // ── ZIP: per-invoice CSV + PDF + combined summary ──────────────────────────
+    // ── ZIP: list CSV + one combined PDF (all invoices, one per page) ──────────
+    // Single render keeps this well within serverless time limits.
     const zip = new JSZip()
-    zip.file(`_all-invoices-summary.csv`, invoicesListCsv(invoices))
-
-    // Per invoice: a CSV + its own styled PDF, so the zip carries both formats.
-    for (const inv of invoices) {
-      const slug = String((inv as any).invoice_number).replace(/[^\w.-]+/g, '_')
-      zip.file(`${slug}/${slug}.csv`, invoiceCsv(inv as any))
-      const html = invoicesHtmlDoc([inv as any], (inv as any).invoice_number, companyMap)
-      const pdf = await htmlToPdf(html, { landscape: false })
-      if (pdf) {
-        zip.file(`${slug}/${slug}.pdf`, new Uint8Array(pdf))
-      } else {
-        zip.file(`${slug}/${slug}.html`, html)
-      }
-    }
+    zip.file(`gst-invoices-${fileDate}.csv`, invoicesListCsv(invoices))
+    const html = invoicesHtmlDoc(invoices, `GST Transaction Invoices (${invoices.length})`, companyMap)
+    const pdf = await htmlToPdf(html, { landscape: false })
+    if (pdf) zip.file(`gst-invoices-${fileDate}.pdf`, new Uint8Array(pdf))
+    else zip.file(`gst-invoices-${fileDate}.html`, html)
 
     const zipBuf = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' })
     return new NextResponse(new Uint8Array(zipBuf), {

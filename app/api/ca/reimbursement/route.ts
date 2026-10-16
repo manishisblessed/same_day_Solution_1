@@ -205,12 +205,13 @@ export async function GET(request: NextRequest) {
           })
         }
 
+        // One combined PDF — one invoice per page (single render, fast + reliable).
+        const invoicesDoc = buildInvoiceDoc(allRows.map(bodyFor), 'Reimbursement Invoices')
+        const pdf = await htmlToPdf(invoicesDoc, { margin: '0' })
+
         if (format === 'pdf') {
-          // One combined PDF, one invoice per page.
-          const html = buildInvoiceDoc(allRows.map(bodyFor), 'Reimbursement Invoices')
-          const pdf = await htmlToPdf(html, { margin: '0' })
           if (!pdf) {
-            return new NextResponse(html, {
+            return new NextResponse(invoicesDoc, {
               headers: {
                 'Content-Type': 'text/html; charset=utf-8',
                 'Content-Disposition': `attachment; filename="reimbursement-invoices-${fileDate}.html"`,
@@ -225,17 +226,11 @@ export async function GET(request: NextRequest) {
           })
         }
 
-        // ZIP → one PDF file per transaction + a summary CSV.
+        // ZIP → CSV list + the combined PDF invoices (both per current filter).
         const zip = new JSZip()
-        const safe = (s: string) => String(s || 'invoice').replace(/[^\w.-]+/g, '_')
-        for (const r of allRows) {
-          const doc = buildInvoiceDoc([bodyFor(r)], r.invoice_number)
-          const pdf = await htmlToPdf(doc, { margin: '0' })
-          const brandDir = safe(r.brands?.short_name || r.brands?.name || 'company')
-          if (pdf) zip.file(`${brandDir}/${safe(r.invoice_number)}.pdf`, new Uint8Array(pdf))
-          else zip.file(`${brandDir}/${safe(r.invoice_number)}.html`, doc)
-        }
-        zip.file(`_reimbursement-summary-${fileDate}.csv`, buildCsv())
+        zip.file(`reimbursement-invoices-${fileDate}.csv`, buildCsv())
+        if (pdf) zip.file(`reimbursement-invoices-${fileDate}.pdf`, new Uint8Array(pdf))
+        else zip.file(`reimbursement-invoices-${fileDate}.html`, invoicesDoc)
         const zipBuf = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' })
         return new NextResponse(new Uint8Array(zipBuf), {
           headers: {

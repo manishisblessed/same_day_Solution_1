@@ -9,7 +9,7 @@ import {
   Loader2, AlertCircle, Receipt, Calendar, Wrench,
 } from 'lucide-react'
 import { apiFetch } from '@/lib/api-client'
-import ExportDropdown, { type ExportFormat, downloadBlob } from '@/components/ExportDropdown'
+import { downloadBlob } from '@/components/ExportDropdown'
 
 interface Invoice {
   id: string; invoice_number: string; transaction_date: string
@@ -49,7 +49,7 @@ function ReimbursementPageInner() {
   const [bfLoading, setBfLoading] = useState(false)
   const [bfResult, setBfResult] = useState<string | null>(null)
 
-  const [exporting, setExporting] = useState<ExportFormat | null>(null)
+  const [exporting, setExporting] = useState(false)
   const [downloadingId, setDownloadingId] = useState<string | null>(null)
   const LIMIT = 50
 
@@ -99,26 +99,25 @@ function ReimbursementPageInner() {
     if (user?.role === 'ca_executive') fetchBrands()
   }, [user])
 
-  const handleExport = async (format: ExportFormat) => {
-    setExporting(format)
+  const handleDownloadZip = async () => {
+    setExporting(true)
     try {
       const p = buildParams()
-      p.set('format', format)
+      p.set('format', 'zip')
       p.delete('page')
       p.delete('limit')
       const res = await apiFetch(`/api/ca/reimbursement?${p}`)
       if (!res.ok || res.headers.get('content-type')?.includes('application/json')) {
         const data = await res.json().catch(() => ({}))
-        alert(data.error || 'Export failed')
+        alert(data.error || 'Download failed')
         return
       }
       const blob = await res.blob()
-      const ext = format === 'zip' ? 'zip' : format === 'pdf' ? 'pdf' : format === 'excel' ? 'xls' : 'csv'
-      downloadBlob(blob, `reimbursement-invoices-${new Date().toISOString().split('T')[0]}.${ext}`)
+      downloadBlob(blob, `reimbursement-invoices-${new Date().toISOString().split('T')[0]}.zip`)
     } catch {
-      alert('Export failed')
+      alert('Download failed')
     } finally {
-      setExporting(null)
+      setExporting(false)
     }
   }
 
@@ -182,12 +181,15 @@ function ReimbursementPageInner() {
           <button onClick={() => setShowBackfill(!showBackfill)} className="flex items-center gap-2 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800">
             <Wrench className="w-4 h-4" /> Backfill
           </button>
-          <ExportDropdown
-            formats={['csv', 'excel', 'pdf', 'zip']}
-            onExport={handleExport}
-            exporting={exporting}
-            disabled={fetching}
-          />
+          <button
+            onClick={handleDownloadZip}
+            disabled={fetching || exporting}
+            title="Download ZIP (CSV + PDF invoices) for the current filter"
+            className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium rounded-lg disabled:opacity-60 shadow-sm"
+          >
+            {exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+            {exporting ? 'Preparing ZIP...' : 'Download ZIP'}
+          </button>
           <button onClick={load} disabled={fetching} className="p-2 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-40">
             <RefreshCw className={`w-4 h-4 text-gray-500 ${fetching ? 'animate-spin' : ''}`} />
           </button>
