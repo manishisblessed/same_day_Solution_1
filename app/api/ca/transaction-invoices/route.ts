@@ -138,7 +138,7 @@ export async function POST(request: NextRequest) {
     // Per-TID breakdown
     const tidMap: Record<string, { txn_count: number; transaction_value: number; bank_mdr_amount: number; bank_mdr_percent: number; payment_mode: string }> = {}
     for (const r of rows) {
-      const key = r.tid
+      const key = r.tid || 'NO-TID (Soundbox/QR)'
       if (!tidMap[key]) {
         tidMap[key] = { txn_count: 0, transaction_value: 0, bank_mdr_amount: 0, bank_mdr_percent: Number(r.bank_mdr_percent), payment_mode: r.payment_mode || '*' }
       }
@@ -198,7 +198,25 @@ export async function POST(request: NextRequest) {
       result = data
     }
 
-    return NextResponse.json({ success: true, invoice: result }, { status: existing ? 200 : 201 })
+    // Stamp every reimbursement row in this brand+period with the GST invoice id
+    let linked_count = 0
+    try {
+      const { data: linkData } = await supabase.rpc('ca_link_reimbursements_to_txninv', {
+        p_txninv_id: result.id,
+        p_brand_id: brand_id,
+        p_period_start: period_start,
+        p_period_end: period_end,
+      })
+      linked_count = Number(linkData ?? 0)
+    } catch (linkErr: any) {
+      // Non-fatal: invoice is still created, just log
+      console.warn('[ca_link_reimbursements_to_txninv]', linkErr?.message || linkErr)
+    }
+
+    return NextResponse.json(
+      { success: true, invoice: result, linked_reimbursements: linked_count },
+      { status: existing ? 200 : 201 },
+    )
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 })
   }

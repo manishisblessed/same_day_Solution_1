@@ -1,9 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { getSupabaseAdmin } from '@/lib/supabase/server-admin'
+import { htmlToPdf } from '@/lib/pdf/html-to-pdf'
+import JSZip from 'jszip'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
+
+const inr = (n: number) =>
+  '₹' + Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
 async function requireCA(request: NextRequest) {
   const { user } = await getCurrentUserWithFallback(request)
@@ -79,7 +84,8 @@ export async function GET(request: NextRequest) {
         .select(`
           *,
           brands:brand_id ( id, key, name, short_name ),
-          partners:partner_id ( id, name )
+          partners:partner_id ( id, name ),
+          ca_transaction_invoices:transaction_invoice_id ( id, invoice_number, status )
         `, { count: 'exact' })
         .order('transaction_date', { ascending: false })
         .order('created_at', { ascending: false })
@@ -93,7 +99,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Export formats
-    if (format === 'csv' || format === 'excel') {
+    if (format === 'csv' || format === 'excel' || format === 'pdf' || format === 'zip') {
       // Fetch all matching rows for export (paginated internally, max 10k)
       const PAGE_SIZE = 1000
       const allRows: any[] = []
@@ -108,27 +114,117 @@ export async function GET(request: NextRequest) {
 
       const fileDate = new Date().toISOString().split('T')[0]
 
-      if (format === 'csv') {
-        const header = 'Invoice No,Date,Brand,TID,Transaction Amount (₹),Payment Mode,Card Type,Bank MDR %,Bank MDR Amount (₹),Status\n'
+      const buildCsv = () => {
+        const header = 'Invoice No,Date,Brand,TID,Transaction Amount (₹),Payment Mode,Card Type,Card Brand,Bank MDR %,Bank MDR Amount (₹),GST Invoice,Status\n'
         const rows = allRows.map((r: any) =>
           [
             r.invoice_number,
             r.transaction_date,
             r.brands?.name || '',
-            r.tid,
+            r.tid || '',
             Number(r.transaction_amount).toFixed(2),
             r.payment_mode || '',
             r.card_type || '',
+            r.card_brand || '',
             Number(r.bank_mdr_percent).toFixed(4),
             Number(r.bank_mdr_amount).toFixed(2),
+            r.ca_transaction_invoices?.invoice_number || '',
             r.status,
           ].map((v) => `"${String(v).replace(/"/g, '""')}"`).join(',')
         ).join('\n')
+        return '\uFEFF' + header + rows
+      }
 
-        return new NextResponse('\uFEFF' + header + rows, {
+      if (format === 'csv') {
+        return new NextResponse(buildCsv(), {
           headers: {
             'Content-Type': 'text/csv; charset=utf-8',
             'Content-Disposition': `attachment; filename="reimbursement-invoices-${fileDate}.csv"`,
+          },
+        })
+      }
+
+      // PDF + ZIP share the same report HTML
+      if (format === 'pdf' || format === 'zip') {
+        const totalAmount = allRows.reduce((s: number, r: any) => s + Number(r.transaction_amount || 0), 0)
+        const totalMdr = allRows.reduce((s: number, r: any) => s + Number(r.bank_mdr_amount || 0), 0)
+        const bodyRows = allRows.map((r: any) => `
+          <tr>
+            <td>${esc(r.invoice_number)}</td>
+            <td>${esc(r.transaction_date)}</td>
+            <td>${esc(r.brands?.short_name || r.brands?.name || '')}</td>
+            <td>${esc(r.tid || '—')}</td>
+            <td class="num">${inr(r.transaction_amount)}</td>
+            <td>${esc(r.payment_mode || '')}</td>
+            <td>${esc(r.card_type || '')}</td>
+            <td>${esc(r.card_brand || '')}</td>
+            <td class="num">${Number(r.bank_mdr_percent).toFixed(2)}%</td>
+            <td class="num">${inr(r.bank_mdr_amount)}</td>
+            <td>${esc(r.status)}</td>
+          </tr>`).join('')
+        const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Reimbursement Invoices</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{font-family:'Segoe UI',Arial,sans-serif;padding:24px;color:#1F2937;font-size:10px}
+  h1{font-size:18px;color:#6D28D9;margin-bottom:4px}
+  .meta{color:#6B7280;font-size:10px;margin-bottom:14px}
+  .totals{display:flex;gap:16px;margin-bottom:14px}
+  .totals .card{background:#F5F3FF;border:1px solid #C4B5FD;border-radius:6px;padding:8px 12px}
+  .totals .label{font-size:9px;color:#6B7280;text-transform:uppercase}
+  .totals .value{font-size:14px;font-weight:700;color:#5B21B6}
+  table{width:100%;border-collapse:collapse;font-size:9px}
+  th{background:#6D28D9;color:#fff;padding:5px 6px;text-align:left}
+  th.num,td.num{text-align:right}
+  td{padding:4px 6px;border-bottom:1px solid #F3F4F6}
+  tr:nth-child(even) td{background:#F9FAFB}
+  .footer{margin-top:16px;text-align:center;font-size:9px;color:#9CA3AF}
+  @page{size:A4 landscape;margin:8mm}
+</style></head><body>
+  <h1>Reimbursement Invoices</h1>
+  <div class="meta">Generated ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} · ${allRows.length} record(s)</div>
+  <div class="totals">
+    <div class="card"><div class="label">Total Transaction Value</div><div class="value">${inr(totalAmount)}</div></div>
+    <div class="card"><div class="label">Total Bank MDR</div><div class="value">${inr(totalMdr)}</div></div>
+  </div>
+  <table>
+    <thead><tr>
+      <th>Invoice No</th><th>Date</th><th>Brand</th><th>TID</th><th class="num">Txn Amount</th>
+      <th>Mode</th><th>Card Type</th><th>Card Brand</th><th class="num">MDR %</th><th class="num">MDR ₹</th><th>Status</th>
+    </tr></thead>
+    <tbody>${bodyRows}</tbody>
+  </table>
+  <div class="footer">Same Day Solution — System Generated CA Reimbursement Report © ${new Date().getFullYear()}</div>
+</body></html>`
+
+        const pdf = await htmlToPdf(html, { landscape: true })
+
+        if (format === 'pdf') {
+          if (!pdf) {
+            return new NextResponse(html, {
+              headers: {
+                'Content-Type': 'text/html; charset=utf-8',
+                'Content-Disposition': `attachment; filename="reimbursement-invoices-${fileDate}.html"`,
+              },
+            })
+          }
+          return new NextResponse(new Uint8Array(pdf), {
+            headers: {
+              'Content-Type': 'application/pdf',
+              'Content-Disposition': `attachment; filename="reimbursement-invoices-${fileDate}.pdf"`,
+            },
+          })
+        }
+
+        // ZIP: CSV + PDF (or HTML fallback) together
+        const zip = new JSZip()
+        zip.file(`reimbursement-invoices-${fileDate}.csv`, buildCsv())
+        if (pdf) zip.file(`reimbursement-invoices-${fileDate}.pdf`, new Uint8Array(pdf))
+        else zip.file(`reimbursement-invoices-${fileDate}.html`, html)
+        const zipBuf = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' })
+        return new NextResponse(new Uint8Array(zipBuf), {
+          headers: {
+            'Content-Type': 'application/zip',
+            'Content-Disposition': `attachment; filename="reimbursement-invoices-${fileDate}.zip"`,
           },
         })
       }

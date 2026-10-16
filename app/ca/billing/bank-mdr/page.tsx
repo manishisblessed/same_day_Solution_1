@@ -13,13 +13,22 @@ import { apiFetch } from '@/lib/api-client'
 interface Brand { id: string; key: string; name: string; short_name: string }
 interface Config {
   id: string; brand_id: string; tid: string | null; payment_mode: string; card_type: string
+  card_brand: string | null
   bank_mdr_percent: number; effective_from: string; effective_to: string | null
   notes: string | null; is_active: boolean
   brands?: { id: string; key: string; name: string; short_name: string }
 }
 
-const EMPTY_FORM = {
+const CARD_BRAND_OPTIONS = ['VISA', 'MASTER', 'AMEX', 'DINERS', 'RUPAY'] as const
+type CardBrand = typeof CARD_BRAND_OPTIONS[number]
+
+const EMPTY_FORM: {
+  brand_id: string; tid: string; payment_mode: string; card_type: string
+  card_brands: CardBrand[]
+  bank_mdr_percent: string; effective_from: string; effective_to: string; notes: string
+} = {
   brand_id: '', tid: '', payment_mode: '*', card_type: '*',
+  card_brands: [],
   bank_mdr_percent: '', effective_from: new Date().toISOString().split('T')[0],
   effective_to: '', notes: '',
 }
@@ -76,11 +85,17 @@ export default function BankMdrPage() {
 
   const openEdit = (c: Config) => {
     setEditingId(c.id)
+    const existingBrand = (c.card_brand || '*').toUpperCase()
     setForm({
       brand_id: c.brand_id,
       tid: c.tid || '',
       payment_mode: c.payment_mode,
       card_type: c.card_type,
+      card_brands: existingBrand === '*'
+        ? []
+        : (CARD_BRAND_OPTIONS as readonly string[]).includes(existingBrand)
+          ? [existingBrand as CardBrand]
+          : [],
       bank_mdr_percent: String(c.bank_mdr_percent),
       effective_from: c.effective_from,
       effective_to: c.effective_to || '',
@@ -89,12 +104,25 @@ export default function BankMdrPage() {
     setShowForm(true)
   }
 
+  const toggleBrand = (b: CardBrand) => {
+    setForm((f) => ({
+      ...f,
+      card_brands: f.card_brands.includes(b)
+        ? f.card_brands.filter((x) => x !== b)
+        : [...f.card_brands, b],
+    }))
+  }
+
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault()
     setSaving(true)
     try {
+      // When editing, backend expects a single card_brand; send the first
+      // selected or '*'. When creating, send the full list — one row per brand.
+      const brandsForPayload = form.card_brands.length === 0 ? ['*'] : form.card_brands
       const body = {
         ...form,
+        card_brands: editingId ? [brandsForPayload[0]] : brandsForPayload,
         bank_mdr_percent: parseFloat(form.bank_mdr_percent),
         tid: form.tid.trim() || null,
         effective_to: form.effective_to.trim() || null,
@@ -108,7 +136,11 @@ export default function BankMdrPage() {
       })
       const data = await res.json()
       if (!data.success) { showToast(data.error || 'Save failed', 'error'); return }
-      showToast(editingId ? 'Updated successfully' : 'Created successfully')
+      const createdMsg = data.created > 1
+        ? `Created ${data.created} rates (one per card brand)`
+        : (editingId ? 'Updated successfully' : 'Created successfully')
+      const repricedMsg = data.repriced > 0 ? ` · repriced ${data.repriced} reimbursement(s)` : ''
+      showToast(createdMsg + repricedMsg)
       setShowForm(false)
       load()
     } catch {
@@ -194,7 +226,7 @@ export default function BankMdrPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50">
-                {['Brand', 'TID', 'Mode', 'Card Type', 'Bank MDR %', 'Effective From', 'Effective To', 'Notes', 'Actions'].map((h) => (
+                {['Brand', 'TID', 'Mode', 'Card Type', 'Card Brand', 'Bank MDR %', 'Effective From', 'Effective To', 'Notes', 'Actions'].map((h) => (
                   <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wide whitespace-nowrap">{h}</th>
                 ))}
               </tr>
@@ -211,6 +243,20 @@ export default function BankMdrPage() {
                   <td className="px-4 py-3 text-gray-700 dark:text-gray-300 font-mono">{c.tid || <span className="text-gray-400 italic">All (brand)</span>}</td>
                   <td className="px-4 py-3"><span className={`px-2 py-0.5 rounded-full text-xs font-medium ${c.payment_mode === '*' ? 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400' : 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'}`}>{c.payment_mode}</span></td>
                   <td className="px-4 py-3"><span className={`px-2 py-0.5 rounded-full text-xs font-medium ${c.card_type === '*' ? 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400' : 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300'}`}>{c.card_type}</span></td>
+                  <td className="px-4 py-3">
+                    {(() => {
+                      const cb = (c.card_brand || '*').toUpperCase()
+                      const styles: Record<string, string> = {
+                        '*':     'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400',
+                        VISA:    'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300',
+                        MASTER:  'bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300',
+                        AMEX:    'bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300',
+                        DINERS:  'bg-pink-100 dark:bg-pink-900/30 text-pink-700 dark:text-pink-300',
+                        RUPAY:   'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300',
+                      }
+                      return <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${styles[cb] || styles['*']}`}>{cb}</span>
+                    })()}
+                  </td>
                   <td className="px-4 py-3 font-semibold text-violet-700 dark:text-violet-300">{Number(c.bank_mdr_percent).toFixed(4)}%</td>
                   <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{c.effective_from}</td>
                   <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{c.effective_to || <span className="text-gray-400">—</span>}</td>
@@ -295,6 +341,54 @@ export default function BankMdrPage() {
                     <option value="DEBIT">DEBIT</option>
                     <option value="PREPAID">PREPAID</option>
                   </select>
+                </div>
+
+                <div className="col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Card Brand {editingId ? '' : <span className="text-xs text-gray-500 font-normal">— select multiple to create one rate per brand</span>}
+                  </label>
+                  <div className="flex flex-wrap gap-2">
+                    {CARD_BRAND_OPTIONS.map((b) => {
+                      const active = form.card_brands.includes(b)
+                      return (
+                        <button
+                          key={b}
+                          type="button"
+                          onClick={() => {
+                            if (editingId) {
+                              // single-select behaviour when editing
+                              setForm({ ...form, card_brands: active ? [] : [b] })
+                            } else {
+                              toggleBrand(b)
+                            }
+                          }}
+                          className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition-all ${
+                            active
+                              ? 'bg-gradient-to-r from-violet-600 to-fuchsia-500 text-white border-transparent shadow-sm'
+                              : 'bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:border-violet-400'
+                          }`}
+                        >
+                          {b}
+                        </button>
+                      )
+                    })}
+                    <button
+                      type="button"
+                      onClick={() => setForm({ ...form, card_brands: [] })}
+                      className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition-all ${
+                        form.card_brands.length === 0
+                          ? 'bg-gray-800 dark:bg-gray-200 text-white dark:text-gray-900 border-transparent'
+                          : 'bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-600 text-gray-500 hover:border-gray-400'
+                      }`}
+                    >
+                      * Any
+                    </button>
+                  </div>
+                  {!editingId && form.card_brands.length > 1 && (
+                    <p className="mt-1.5 text-xs text-violet-600 dark:text-violet-400">
+                      ✦ Will create {form.card_brands.length} rows (one per selected brand)
+                    </p>
+                  )}
                 </div>
 
                 <div>

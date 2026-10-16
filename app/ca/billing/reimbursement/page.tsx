@@ -16,6 +16,8 @@ interface Invoice {
   tid: string; transaction_amount: number; payment_mode: string | null
   card_type: string | null; card_brand: string | null
   bank_mdr_percent: number; bank_mdr_amount: number; status: string
+  transaction_invoice_id: string | null
+  ca_transaction_invoices?: { id: string; invoice_number: string } | null
   brands?: { name: string; short_name: string }
   partners?: { name: string }
 }
@@ -105,7 +107,7 @@ function ReimbursementPageInner() {
       p.delete('limit')
       const res = await apiFetch(`/api/ca/reimbursement?${p}`)
       const blob = await res.blob()
-      const ext = format === 'excel' ? 'xls' : 'csv'
+      const ext = format === 'zip' ? 'zip' : format === 'pdf' ? 'pdf' : format === 'excel' ? 'xls' : 'csv'
       downloadBlob(blob, `reimbursement-invoices-${new Date().toISOString().split('T')[0]}.${ext}`)
     } catch {
       alert('Export failed')
@@ -156,7 +158,7 @@ function ReimbursementPageInner() {
             <Wrench className="w-4 h-4" /> Backfill
           </button>
           <ExportDropdown
-            formats={['csv', 'excel']}
+            formats={['csv', 'excel', 'pdf', 'zip']}
             onExport={handleExport}
             exporting={exporting}
             disabled={fetching}
@@ -237,7 +239,7 @@ function ReimbursementPageInner() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50">
-                  {['Invoice No', 'Date', 'Brand', 'TID', 'Partner', 'Txn Amount', 'Mode', 'Card Type', 'Bank MDR %', 'Bank MDR ₹', 'Status'].map((h) => (
+                  {['Invoice No', 'Date', 'Brand', 'TID', 'Partner', 'Txn Amount', 'Mode', 'Card Type', 'Card Brand', 'Bank MDR %', 'Bank MDR ₹', 'GST Invoice', 'Status'].map((h) => (
                     <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wide whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
@@ -248,13 +250,40 @@ function ReimbursementPageInner() {
                     <td className="px-4 py-3 font-mono text-xs text-gray-600 dark:text-gray-400">{inv.invoice_number}</td>
                     <td className="px-4 py-3 text-gray-700 dark:text-gray-300 whitespace-nowrap">{inv.transaction_date}</td>
                     <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{inv.brands?.short_name || '—'}</td>
-                    <td className="px-4 py-3 font-mono text-gray-700 dark:text-gray-300">{inv.tid}</td>
+                    <td className="px-4 py-3 font-mono text-gray-700 dark:text-gray-300">{inv.tid || <span className="text-gray-400">— QR —</span>}</td>
                     <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{inv.partners?.name || '—'}</td>
                     <td className="px-4 py-3 font-semibold text-gray-900 dark:text-white text-right">{INR(inv.transaction_amount)}</td>
                     <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{inv.payment_mode || '—'}</td>
                     <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{inv.card_type || '—'}</td>
+                    <td className="px-4 py-3">
+                      {(() => {
+                        const cb = (inv.card_brand || '').toUpperCase()
+                        if (!cb || cb === '*') return <span className="text-gray-400">—</span>
+                        const styles: Record<string, string> = {
+                          VISA:    'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300',
+                          MASTER:  'bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300',
+                          AMEX:    'bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300',
+                          DINERS:  'bg-pink-100 dark:bg-pink-900/30 text-pink-700 dark:text-pink-300',
+                          RUPAY:   'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300',
+                        }
+                        return <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${styles[cb] || 'bg-gray-100 text-gray-600'}`}>{cb}</span>
+                      })()}
+                    </td>
                     <td className="px-4 py-3 text-violet-700 dark:text-violet-300 font-medium">{Number(inv.bank_mdr_percent).toFixed(4)}%</td>
                     <td className="px-4 py-3 font-semibold text-red-600 dark:text-red-400 text-right">{INR(inv.bank_mdr_amount)}</td>
+                    <td className="px-4 py-3 font-mono text-xs">
+                      {inv.ca_transaction_invoices?.invoice_number ? (
+                        <a
+                          href={`/ca/billing/transaction-invoices/${inv.transaction_invoice_id}`}
+                          className="text-violet-600 dark:text-violet-300 hover:underline"
+                          title="Open linked GST invoice"
+                        >
+                          {inv.ca_transaction_invoices.invoice_number}
+                        </a>
+                      ) : (
+                        <span className="text-gray-400">— pending —</span>
+                      )}
+                    </td>
                     <td className="px-4 py-3">
                       <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${inv.status === 'issued' ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300' : 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300'}`}>
                         {inv.status}

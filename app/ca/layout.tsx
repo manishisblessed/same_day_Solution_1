@@ -31,7 +31,7 @@ export default function CALayout({ children }: { children: React.ReactNode }) {
   }, [loading, isLoginPage, user, router])
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-gray-50 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900">
+    <div className="min-h-screen bg-gradient-to-br from-violet-50/40 via-white to-fuchsia-50/40 dark:from-gray-900 dark:via-gray-900 dark:to-violet-950/30">
       <SessionKickedOverlay loginPath="/ca/login" />
       {showChrome && <CAHeader />}
       {showChrome && (

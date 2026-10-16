@@ -10,6 +10,7 @@ import {
 } from 'lucide-react'
 import { apiFetch } from '@/lib/api-client'
 import Link from 'next/link'
+import ExportDropdown, { type ExportFormat, downloadBlob } from '@/components/ExportDropdown'
 
 interface Invoice {
   id: string; invoice_number: string; period_start: string; period_end: string
@@ -62,6 +63,7 @@ export default function TransactionInvoicesPage() {
   const [cfgSaving, setCfgSaving] = useState(false)
 
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
+  const [exporting, setExporting] = useState<ExportFormat | null>(null)
 
   useEffect(() => {
     if (!loading && user?.role !== 'ca_executive') router.push('/ca/login')
@@ -139,6 +141,30 @@ export default function TransactionInvoicesPage() {
     }
   }
 
+  const handleExportAll = async (format: ExportFormat) => {
+    if (invoices.length === 0) { showToast('No invoices to export', 'error'); return }
+    setExporting(format)
+    try {
+      const p = new URLSearchParams()
+      if (brandFilter) p.set('brand_id', brandFilter)
+      if (statusFilter) p.set('status', statusFilter)
+      p.set('format', format)
+      const res = await apiFetch(`/api/ca/transaction-invoices/export-all?${p}`)
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}))
+        showToast(d.error || 'Export failed', 'error')
+        return
+      }
+      const blob = await res.blob()
+      const ext = format === 'zip' ? 'zip' : format === 'pdf' ? 'pdf' : 'csv'
+      downloadBlob(blob, `gst-invoices-${new Date().toISOString().split('T')[0]}.${ext}`)
+    } catch {
+      showToast('Export failed', 'error')
+    } finally {
+      setExporting(null)
+    }
+  }
+
   const openConfig = (brandId?: string) => {
     const existing = configs.find((c) => c.brand_id === (brandId || cfgBrand))
     setCfgBrand(brandId || '')
@@ -188,6 +214,12 @@ export default function TransactionInvoicesPage() {
           <button onClick={() => openConfig()} className="flex items-center gap-2 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800">
             <Settings className="w-4 h-4" /> Company Config
           </button>
+          <ExportDropdown
+            formats={['csv', 'pdf', 'zip']}
+            onExport={handleExportAll}
+            exporting={exporting}
+            disabled={fetching || invoices.length === 0}
+          />
           <button onClick={() => setShowGenerate(true)} className="flex items-center gap-2 px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white text-sm font-medium rounded-lg shadow-sm">
             <Plus className="w-4 h-4" /> Generate Invoice
           </button>

@@ -1,6 +1,6 @@
 # Partner Reconciliation API — Integration Guide
 
-Automated status & reconciliation for integration partners (e.g. **Equity Capital**).
+Automated status & reconciliation for integration partners.
 
 This API lets a partner pull the **exact status of every transaction** they performed through us — without logging into the partner portal or checking transactions one by one.
 
@@ -336,7 +336,7 @@ All errors share one shape:
 
 ## 7. Using the Postman collection
 
-1. Import `EquityCapital-Reconciliation-API.postman_collection.json`.
+1. Import `Partner-Reconciliation-API.postman_collection.json`.
 2. Set collection (or environment) variables: `base_url`, `api_key`, `api_secret`, and optionally `from_date` / `to_date`.
 3. Send any request — the collection's **Pre-request Script signs it automatically** (computes `x-api-key`, `x-timestamp`, `x-signature`).
 

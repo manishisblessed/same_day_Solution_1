@@ -5,7 +5,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { motion } from 'framer-motion'
-import { Landmark, Receipt, FileText, Loader2, TrendingUp, IndianRupee, FileCheck, Building2, RefreshCw, Radio } from 'lucide-react'
+import { Landmark, Receipt, FileText, Loader2, TrendingUp, IndianRupee, FileCheck, Building2, RefreshCw, Radio, Sparkles, ArrowUpRight } from 'lucide-react'
 import { apiFetch } from '@/lib/api-client'
 
 interface DashboardStats {
@@ -119,24 +119,30 @@ export default function CABillingPage() {
       title: 'Bank MDR Rates',
       desc: 'Configure what the bank charges per TID, brand, payment mode, and card type.',
       icon: Landmark,
-      color: 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300',
-      hoverBorder: 'hover:border-blue-300 dark:hover:border-blue-700',
+      gradient: 'from-blue-500 to-cyan-500',
+      iconBg: 'from-blue-500/15 to-cyan-500/15',
+      iconColor: 'text-blue-600 dark:text-blue-300',
+      ring: 'hover:ring-blue-300/60 dark:hover:ring-blue-700/60',
     },
     {
       href: '/ca/billing/reimbursement',
       title: 'Reimbursement Invoices',
       desc: 'Auto-generated per transaction. View, filter by brand/TID/date, and export.',
       icon: Receipt,
-      color: 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300',
-      hoverBorder: 'hover:border-emerald-300 dark:hover:border-emerald-700',
+      gradient: 'from-emerald-500 to-teal-500',
+      iconBg: 'from-emerald-500/15 to-teal-500/15',
+      iconColor: 'text-emerald-600 dark:text-emerald-300',
+      ring: 'hover:ring-emerald-300/60 dark:hover:ring-emerald-700/60',
     },
     {
       href: '/ca/billing/transaction-invoices',
       title: 'GST Transaction Invoices',
       desc: 'Generate monthly invoices per brand with bank MDR + margin + GST for GSTR-1 filing.',
       icon: FileText,
-      color: 'bg-violet-100 dark:bg-violet-900/40 text-violet-700 dark:text-violet-300',
-      hoverBorder: 'hover:border-violet-300 dark:hover:border-violet-700',
+      gradient: 'from-violet-500 to-fuchsia-500',
+      iconBg: 'from-violet-500/15 to-fuchsia-500/15',
+      iconColor: 'text-violet-600 dark:text-violet-300',
+      ring: 'hover:ring-violet-300/60 dark:hover:ring-violet-700/60',
     },
   ]
 
@@ -145,84 +151,172 @@ export default function CABillingPage() {
       label: "Today's Transactions",
       value: stats?.todayTxnCount ?? '—',
       icon: TrendingUp,
-      color: 'text-blue-600',
+      gradient: 'from-blue-500 to-cyan-500',
+      tint: 'from-blue-50 to-cyan-50 dark:from-blue-900/20 dark:to-cyan-900/10',
     },
     {
       label: "Today's Bank MDR",
       value: stats ? `₹${Number(stats.todayBankMdr).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : '—',
       icon: IndianRupee,
-      color: 'text-emerald-600',
+      gradient: 'from-emerald-500 to-teal-500',
+      tint: 'from-emerald-50 to-teal-50 dark:from-emerald-900/20 dark:to-teal-900/10',
     },
     {
       label: 'Draft GST Invoices',
       value: stats?.pendingInvoices ?? '—',
       icon: FileCheck,
-      color: 'text-violet-600',
+      gradient: 'from-violet-500 to-fuchsia-500',
+      tint: 'from-violet-50 to-fuchsia-50 dark:from-violet-900/20 dark:to-fuchsia-900/10',
     },
     {
       label: 'MDR Configs',
       value: stats?.totalConfigs ?? '—',
       icon: Landmark,
-      color: 'text-orange-600',
+      gradient: 'from-orange-500 to-amber-500',
+      tint: 'from-orange-50 to-amber-50 dark:from-orange-900/20 dark:to-amber-900/10',
     },
   ]
 
+  const container = {
+    hidden: { opacity: 0 },
+    show: { opacity: 1, transition: { staggerChildren: 0.06, delayChildren: 0.05 } },
+  }
+  const item = {
+    hidden: { opacity: 0, y: 14 },
+    show: { opacity: 1, y: 0, transition: { type: 'spring' as const, stiffness: 260, damping: 24 } },
+  }
+
   return (
-    <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="space-y-8 max-w-5xl">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">CA Billing Workspace</h1>
-        <p className="text-gray-600 dark:text-gray-400 mt-1">
-          Signed in as <span className="font-medium">{user.name || user.email}</span>
-        </p>
-      </div>
+    <motion.div
+      variants={container}
+      initial="hidden"
+      animate="show"
+      className="space-y-8 max-w-6xl"
+    >
+      {/* Hero banner */}
+      <motion.div
+        variants={item}
+        className="relative overflow-hidden rounded-2xl border border-violet-200/60 dark:border-violet-800/40 bg-gradient-to-br from-violet-600 via-violet-500 to-fuchsia-500 dark:from-violet-800 dark:via-violet-700 dark:to-fuchsia-800 p-6 sm:p-8 shadow-[0_10px_40px_-15px_rgba(124,58,237,0.6)]"
+      >
+        {/* decorative blobs */}
+        <motion.div
+          aria-hidden
+          className="absolute -top-20 -right-16 w-72 h-72 rounded-full bg-fuchsia-400/30 blur-3xl"
+          animate={{ scale: [1, 1.15, 1], opacity: [0.5, 0.7, 0.5] }}
+          transition={{ duration: 7, repeat: Infinity, ease: 'easeInOut' }}
+        />
+        <motion.div
+          aria-hidden
+          className="absolute -bottom-24 -left-16 w-80 h-80 rounded-full bg-violet-300/20 blur-3xl"
+          animate={{ scale: [1.1, 1, 1.1], opacity: [0.4, 0.6, 0.4] }}
+          transition={{ duration: 9, repeat: Infinity, ease: 'easeInOut' }}
+        />
+        <div
+          aria-hidden
+          className="absolute inset-0 bg-[radial-gradient(circle_at_30%_10%,rgba(255,255,255,0.18),transparent_55%)]"
+        />
+
+        <div className="relative flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div>
+            <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/15 text-white text-[11px] font-medium ring-1 ring-white/25 backdrop-blur-sm">
+              <Sparkles className="w-3 h-3" /> CA Billing Workspace
+            </div>
+            <h1 className="mt-3 text-2xl sm:text-3xl font-bold text-white tracking-tight drop-shadow-sm">
+              Welcome back, {(user.name || user.email || '').split(' ')[0] || 'CA'}
+            </h1>
+            <p className="text-violet-50/90 mt-1.5 text-sm sm:text-base">
+              Reconcile transactions, manage MDR &amp; file GSTR-1 — all from one hub.
+            </p>
+          </div>
+          <div className="hidden sm:flex items-center gap-2">
+            <Link
+              href="/ca/billing/transaction-invoices"
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-white text-violet-700 text-sm font-semibold shadow-md hover:shadow-lg hover:-translate-y-0.5 transition-all"
+            >
+              Generate Invoices <ArrowUpRight className="w-4 h-4" />
+            </Link>
+          </div>
+        </div>
+      </motion.div>
 
       {/* Stats row */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        {statCards.map(({ label, value, icon: Icon, color }) => (
-          <div key={label} className="bg-white dark:bg-gray-800/50 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
-            <div className="flex items-center gap-2 mb-2">
-              <Icon className={`w-4 h-4 ${color}`} />
-              <span className="text-xs text-gray-500 dark:text-gray-400">{label}</span>
+      <motion.div variants={container} className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        {statCards.map(({ label, value, icon: Icon, gradient, tint }) => (
+          <motion.div
+            key={label}
+            variants={item}
+            whileHover={{ y: -3 }}
+            className={`relative overflow-hidden bg-gradient-to-br ${tint} dark:bg-gray-800/40 rounded-2xl border border-gray-200/70 dark:border-gray-700/70 p-4 shadow-sm hover:shadow-md transition-all`}
+          >
+            <div
+              aria-hidden
+              className={`absolute -top-6 -right-6 w-20 h-20 rounded-full bg-gradient-to-br ${gradient} opacity-10 blur-xl`}
+            />
+            <div className="relative flex items-center gap-2 mb-2">
+              <div className={`p-1.5 rounded-lg bg-gradient-to-br ${gradient} text-white shadow-sm`}>
+                <Icon className="w-3.5 h-3.5" />
+              </div>
+              <span className="text-xs font-medium text-gray-600 dark:text-gray-400">{label}</span>
             </div>
             {statsLoading ? (
-              <div className="h-6 w-16 bg-gray-100 dark:bg-gray-700 rounded animate-pulse" />
+              <div className="h-7 w-20 bg-gray-200/70 dark:bg-gray-700 rounded animate-pulse" />
             ) : (
-              <div className="text-xl font-bold text-gray-900 dark:text-white">{value}</div>
+              <div className="relative text-xl sm:text-2xl font-bold text-gray-900 dark:text-white tabular-nums">
+                {value}
+              </div>
             )}
-          </div>
+          </motion.div>
         ))}
-      </div>
+      </motion.div>
 
       {/* Feature cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        {cards.map(({ href, title, desc, icon: Icon, color, hoverBorder }) => (
-          <Link
-            key={href}
-            href={href}
-            className={`group p-5 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800/50 ${hoverBorder} hover:shadow-md transition-all`}
-          >
-            <div className="flex items-start gap-3">
-              <div className={`p-2 rounded-lg ${color}`}>
-                <Icon className="w-6 h-6" />
+      <motion.div variants={container} className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        {cards.map(({ href, title, desc, icon: Icon, gradient, iconBg, iconColor, ring }) => (
+          <motion.div key={href} variants={item} whileHover={{ y: -4 }}>
+            <Link
+              href={href}
+              className={`group relative block p-5 rounded-2xl border border-gray-200/70 dark:border-gray-700/70 bg-white dark:bg-gray-800/50 ring-1 ring-transparent ${ring} hover:shadow-xl transition-all overflow-hidden h-full`}
+            >
+              {/* gradient wash on hover */}
+              <div
+                aria-hidden
+                className={`absolute inset-x-0 top-0 h-1 bg-gradient-to-r ${gradient} opacity-80`}
+              />
+              <div
+                aria-hidden
+                className={`absolute -bottom-10 -right-10 w-32 h-32 rounded-full bg-gradient-to-br ${gradient} opacity-0 group-hover:opacity-10 blur-2xl transition-opacity duration-500`}
+              />
+              <div className="relative flex items-start gap-3">
+                <div className={`p-2.5 rounded-xl bg-gradient-to-br ${iconBg} ring-1 ring-inset ring-white/40 dark:ring-white/5`}>
+                  <Icon className={`w-6 h-6 ${iconColor}`} />
+                </div>
+                <div className="flex-1">
+                  <div className="flex items-center justify-between">
+                    <h2 className="font-semibold text-gray-900 dark:text-white group-hover:text-violet-700 dark:group-hover:text-violet-300 transition-colors">
+                      {title}
+                    </h2>
+                    <ArrowUpRight className="w-4 h-4 text-gray-300 dark:text-gray-600 group-hover:text-violet-600 dark:group-hover:text-violet-300 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-all" />
+                  </div>
+                  <p className="text-sm text-gray-600 dark:text-gray-400 mt-1 leading-relaxed">{desc}</p>
+                </div>
               </div>
-              <div>
-                <h2 className="font-semibold text-gray-900 dark:text-white group-hover:text-violet-700 dark:group-hover:text-violet-400">
-                  {title}
-                </h2>
-                <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">{desc}</p>
-              </div>
-            </div>
-          </Link>
+            </Link>
+          </motion.div>
         ))}
-      </div>
+      </motion.div>
 
       {/* Live transactions by company */}
-      <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 overflow-hidden">
-        <div className="flex items-center justify-between px-5 py-3 border-b border-gray-200 dark:border-gray-700">
+      <motion.div
+        variants={item}
+        className="rounded-2xl border border-gray-200/70 dark:border-gray-700/70 bg-white dark:bg-gray-900 overflow-hidden shadow-sm"
+      >
+        <div className="flex items-center justify-between px-5 py-3 border-b border-gray-200 dark:border-gray-700 bg-gradient-to-r from-violet-50/60 to-fuchsia-50/60 dark:from-violet-900/20 dark:to-fuchsia-900/10">
           <div className="flex items-center gap-2">
-            <Building2 className="w-5 h-5 text-violet-600" />
+            <div className="p-1.5 rounded-lg bg-gradient-to-br from-violet-500 to-fuchsia-500 text-white shadow-sm">
+              <Building2 className="w-4 h-4" />
+            </div>
             <h3 className="font-semibold text-gray-900 dark:text-white">Live Transactions by Company</h3>
-            <span className="inline-flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400">
+            <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-600 dark:text-emerald-400 px-2 py-0.5 rounded-full bg-emerald-500/10 ring-1 ring-emerald-500/20">
               <Radio className="w-3 h-3 animate-pulse" /> live
             </span>
           </div>
@@ -286,17 +380,29 @@ export default function CABillingPage() {
             </table>
           </div>
         )}
-      </div>
+      </motion.div>
 
       {/* Quick summary card */}
-      <div className="bg-violet-50 dark:bg-violet-900/20 border border-violet-200 dark:border-violet-800 rounded-xl p-5">
-        <h3 className="font-semibold text-violet-900 dark:text-violet-300 mb-2">Monthly Workflow</h3>
-        <ol className="space-y-1.5 text-sm text-violet-800 dark:text-violet-400 list-decimal list-inside">
+      <motion.div
+        variants={item}
+        className="relative overflow-hidden bg-gradient-to-br from-violet-50 via-white to-fuchsia-50 dark:from-violet-900/20 dark:via-gray-900 dark:to-fuchsia-900/20 border border-violet-200/70 dark:border-violet-800/40 rounded-2xl p-5 shadow-sm"
+      >
+        <div
+          aria-hidden
+          className="absolute -top-10 -right-10 w-40 h-40 rounded-full bg-gradient-to-br from-violet-500 to-fuchsia-500 opacity-10 blur-3xl"
+        />
+        <div className="relative flex items-center gap-2 mb-3">
+          <div className="p-1.5 rounded-lg bg-gradient-to-br from-violet-500 to-fuchsia-500 text-white">
+            <Sparkles className="w-4 h-4" />
+          </div>
+          <h3 className="font-semibold text-violet-900 dark:text-violet-200">Monthly Workflow</h3>
+        </div>
+        <ol className="relative space-y-2 text-sm text-violet-900/80 dark:text-violet-200/80 list-decimal list-inside marker:text-violet-600 dark:marker:text-violet-400 marker:font-semibold">
           <li>Reimbursement invoices auto-generate for every POS transaction captured.</li>
           <li>Configure Bank MDR rates per TID/brand — used to calculate bank cost on each transaction.</li>
           <li>At month end: generate a Transaction Invoice per brand → downloads the GSTR-1 output tax amount.</li>
         </ol>
-      </div>
+      </motion.div>
     </motion.div>
   )
 }
