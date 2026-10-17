@@ -201,7 +201,7 @@ export async function GET(request: NextRequest) {
     const pageSize = 1000
     for (let from = 0; from < 100000; from += pageSize) {
       const q = applyFilters(
-        supabase.from('razorpay_pos_transactions').select('*').order('transaction_time', { ascending: false })
+        supabase.from('razorpay_pos_transactions').select('id, created_at, transaction_time, txn_id, tid, merchant_name, card_type, amount, mdr_rate, mdr_amount, partner_mdr_rate, partner_mdr_amount, display_status, status, retailer_id, distributor_id, master_distributor_id, partner_id').order('transaction_time', { ascending: false })
       ).range(from, from + pageSize - 1)
       const { data: chunk, error: chunkErr } = await q
       if (chunkErr) {

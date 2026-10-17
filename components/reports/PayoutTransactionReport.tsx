@@ -28,6 +28,7 @@ interface PayoutTransaction {
   status: 'success' | 'failed' | 'pending' | 'processing' | 'refunded'
   retailer_id?: string
   retailer_name?: string
+  user_type?: 'RT' | 'DT' | 'MD' | 'Partner'
 }
 
 interface Summary {
@@ -291,16 +292,16 @@ export default function PayoutTransactionReport({ userRole, userName }: Props) {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50">
-                {['Date', 'Transaction ID', 'Beneficiary Name', 'Account No.', 'Bank', 'IFSC', 'Amount', 'Charge', 'GST', 'Total Debit', 'Reference No.', 'Status', ...(userRole === 'admin' ? ['Co. Revenue', 'DT Earn', 'MD Earn'] : [])].map(h => (
+                {['Date', ...(userRole !== 'retailer' ? ['User Name'] : []), 'Transaction ID', 'Beneficiary Name', 'Account No.', 'Bank', 'IFSC', 'Amount', 'Charge', 'GST', 'Total Debit', 'Reference No.', 'Status', ...(userRole === 'admin' ? ['Co. Revenue', 'DT Earn', 'MD Earn'] : [])].map(h => (
                   <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-gray-600 dark:text-gray-400 whitespace-nowrap">{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={userRole === 'admin' ? 15 : 12} className="px-4 py-12 text-center"><Loader2 className="w-6 h-6 animate-spin mx-auto text-indigo-500" /></td></tr>
+                <tr><td colSpan={userRole === 'admin' ? 16 : userRole !== 'retailer' ? 13 : 12} className="px-4 py-12 text-center"><Loader2 className="w-6 h-6 animate-spin mx-auto text-indigo-500" /></td></tr>
               ) : data.length === 0 ? (
-                <tr><td colSpan={userRole === 'admin' ? 15 : 12} className="px-4 py-12 text-center text-gray-500 dark:text-gray-400">No transactions found</td></tr>
+                <tr><td colSpan={userRole === 'admin' ? 16 : userRole !== 'retailer' ? 13 : 12} className="px-4 py-12 text-center text-gray-500 dark:text-gray-400">No transactions found</td></tr>
               ) : (
                 data.map((txn, i) => {
                   const sc = statusConfig[txn.status] || statusConfig.pending
@@ -313,6 +314,21 @@ export default function PayoutTransactionReport({ userRole, userName }: Props) {
                       className="border-b border-gray-100 dark:border-gray-700/50 hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors"
                     >
                       <td className="px-4 py-3 whitespace-nowrap text-gray-700 dark:text-gray-300">{new Date(txn.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</td>
+                      {userRole !== 'retailer' && (
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          <div className="flex items-center gap-1.5">
+                            {txn.user_type && (
+                              <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide ${
+                                txn.user_type === 'RT' ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300' :
+                                txn.user_type === 'DT' ? 'bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300' :
+                                txn.user_type === 'MD' ? 'bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-300' :
+                                'bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300'
+                              }`}>{txn.user_type}</span>
+                            )}
+                            <span className="text-sm text-gray-800 dark:text-gray-200 font-medium">{txn.retailer_name || '—'}</span>
+                          </div>
+                        </td>
+                      )}
                       <td className="px-4 py-3 whitespace-nowrap font-mono text-xs text-gray-900 dark:text-white">{txn.transaction_id}</td>
                       <td className="px-4 py-3 whitespace-nowrap text-gray-700 dark:text-gray-300">{txn.beneficiary_name}</td>
                       <td className="px-4 py-3 whitespace-nowrap font-mono text-xs text-gray-700 dark:text-gray-300">{txn.beneficiary_account}</td>

@@ -124,8 +124,8 @@ const CFG = {
   // the provider gives a terminal status. (Policy: never false-refund a paid
   // bill — holding funds forever beats refunding a success.)
   minAgeMin: posInt(process.env.PAY2NEW_RECON_MIN_AGE_MIN, 15),
-  // Candidates inspected per run.
-  batch: posInt(process.env.PAY2NEW_RECON_BATCH, 25),
+  // Candidates inspected per run (split half newest-first, half oldest-first).
+  batch: posInt(process.env.PAY2NEW_RECON_BATCH, 50),
   // Refuse to auto-refund above this amount; flag for manual review instead.
   maxAmount: posInt(process.env.PAY2NEW_RECON_MAX_AMOUNT, 100000),
   // Hard cap on refunds executed per run (blast-radius limit).
@@ -160,25 +160,40 @@ async function runCheck(): Promise<void> {
 
     // Candidate = a pay2new DEBIT, not already marked failed, with no order
     // recorded (no "OrderID:"/verified marker) and past the 15-min floor. The
-    // per-row refund check below confirms there is no existing refund. Oldest
-    // first so the longest-stuck debits are resolved first.
-    const { data: candidates, error } = await supabase
-      .from('partner_wallet_ledger')
-      .select('id, partner_id, reference_id, debit, description, created_at, bill_fetch_ref')
-      .eq('service_type', 'pay2new')
-      .eq('transaction_type', 'DEBIT')
-      // Only real Pay2New API payments (request_id = "SDS<ts>"). Excludes manual
-      // corrections/adjustments (e.g. CORRECTION_DEBIT_MANUAL) that share the
-      // pay2new service_type but were never sent to the provider.
-      .ilike('reference_id', 'SDS%')
-      .neq('status', 'failed')
-      .lt('created_at', maxCreatedAt)
-      .not('description', 'ilike', '%OrderID:%')
-      .not('description', 'ilike', '%ReconVerified%')
-      // Already escalated to admin (not-found) — stop re-processing.
-      .not('description', 'ilike', '%ReviewRequired%')
-      .order('created_at', { ascending: true })
-      .limit(CFG.batch)
+    // per-row refund check below confirms there is no existing refund.
+    const buildCandidateQuery = () =>
+      supabase
+        .from('partner_wallet_ledger')
+        .select('id, partner_id, reference_id, debit, description, created_at, bill_fetch_ref')
+        .eq('service_type', 'pay2new')
+        .eq('transaction_type', 'DEBIT')
+        // Only real Pay2New API payments (request_id = "SDS<ts>"). Excludes manual
+        // corrections/adjustments (e.g. CORRECTION_DEBIT_MANUAL) that share the
+        // pay2new service_type but were never sent to the provider.
+        .ilike('reference_id', 'SDS%')
+        .neq('status', 'failed')
+        .lt('created_at', maxCreatedAt)
+        .not('description', 'ilike', '%OrderID:%')
+        .not('description', 'ilike', '%ReconVerified%')
+        // Already escalated to admin (not-found) — stop re-processing.
+        .not('description', 'ilike', '%ReviewRequired%')
+
+    // Process NEWEST-first AND OLDEST-first in the same tick so freshly-stuck
+    // (customer-visible) payments resolve promptly while the historical backlog
+    // still drains — neither can starve the other. (Previously oldest-only, which
+    // let a large backlog delay today's payments by hours.)
+    const half = Math.max(1, Math.floor(CFG.batch / 2))
+    const [recentRes, oldRes] = await Promise.all([
+      buildCandidateQuery().order('created_at', { ascending: false }).limit(half),
+      buildCandidateQuery().order('created_at', { ascending: true }).limit(CFG.batch - half),
+    ])
+    const error = recentRes.error || oldRes.error
+    const seenIds = new Set<string>()
+    const candidates = [...(recentRes.data || []), ...(oldRes.data || [])].filter((r: any) => {
+      if (seenIds.has(r.id)) return false
+      seenIds.add(r.id)
+      return true
+    })
 
     if (error) {
       console.error('[Pay2New-Recon] candidate query error:', error.message)

@@ -175,11 +175,13 @@ export async function GET(request: NextRequest) {
     let allRows: any[] = []
 
     // Chunked fetch helper — pulls the entire filtered set from a table
-    const fetchAll = async (table: string, applyFilters: (q: any) => any, mapRow: (tx: any) => any) => {
+    const fetchAll = async (table: string, columns: string, applyFilters: (q: any) => any, mapRow: (tx: any) => any) => {
       const size = 1000
       for (let from = 0; from < 100000; from += size) {
         const q = applyFilters(
-          supabase.from(table).select('*').order('created_at', { ascending: false })
+          // Explicit columns only (never select('*')): avoids pulling wide/raw
+          // columns for up to 100k rows into memory per request.
+          supabase.from(table).select(columns).order('created_at', { ascending: false })
         ).range(from, from + size - 1)
         const { data, error } = await q
         if (error) { console.error(`[Payout Report] ${table} error:`, error); break }
@@ -190,7 +192,7 @@ export async function GET(request: NextRequest) {
     }
 
     // 1. payout_transactions (Settlement-1)
-    await fetchAll('payout_transactions', (q) => {
+    await fetchAll('payout_transactions', 'id, created_at, transaction_id, client_ref_id, account_holder_name, account_number, bank_name, ifsc_code, amount, charges, rrn, status, retailer_id', (q) => {
       if (scope) q = q.in('retailer_id', scope)
       if (dateFrom) q = q.gte('created_at', dateFrom)
       if (dateTo) q = q.lte('created_at', dateTo)
@@ -220,7 +222,7 @@ export async function GET(request: NextRequest) {
     })
 
     // 2. shadval_settlement (Settlement-2)
-    await fetchAll('shadval_settlement', (q) => {
+    await fetchAll('shadval_settlement', 'id, created_at, reference_id, order_id, account_holder_name, contact_name, account_number, ifsc_code, amount, charges, total_debit, utr, status, retailer_id, company_earning, distributor_commission, md_margin_earned', (q) => {
       if (scope) q = q.in('retailer_id', scope)
       if (dateFrom) q = q.gte('created_at', dateFrom)
       if (dateTo) q = q.lte('created_at', dateTo)
@@ -255,12 +257,27 @@ export async function GET(request: NextRequest) {
     // Sort combined results by date descending
     allRows.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
 
-    // Enrich retailer names
-    const retailerIds = Array.from(new Set(allRows.map(r => r.retailer_id).filter(Boolean)))
-    if (retailerIds.length > 0) {
-      const { data: retailers } = await supabase.from('retailers').select('partner_id, name').in('partner_id', retailerIds)
-      const nameMap = new Map((retailers || []).map((r: any) => [r.partner_id, r.name]))
-      allRows.forEach(r => { if (r.retailer_id) r.retailer_name = nameMap.get(r.retailer_id) || null })
+    // Enrich user names + types across all hierarchy levels (RT / DT / MD / Partner)
+    const allUserIds = Array.from(new Set(allRows.map(r => r.retailer_id).filter(Boolean)))
+    if (allUserIds.length > 0) {
+      const nameMap = new Map<string, { name: string; type: string }>()
+      const [retRes, distRes, mdRes, partnerRes] = await Promise.all([
+        supabase.from('retailers').select('partner_id, name').in('partner_id', allUserIds),
+        supabase.from('distributors').select('partner_id, name').in('partner_id', allUserIds),
+        supabase.from('master_distributors').select('partner_id, name').in('partner_id', allUserIds),
+        supabase.from('partners').select('id, name').in('id', allUserIds),
+      ])
+      for (const r of retRes.data || []) nameMap.set(r.partner_id, { name: r.name, type: 'RT' })
+      for (const d of distRes.data || []) nameMap.set(d.partner_id, { name: d.name, type: 'DT' })
+      for (const m of mdRes.data || []) nameMap.set(m.partner_id, { name: m.name, type: 'MD' })
+      for (const p of partnerRes.data || []) nameMap.set(p.id, { name: p.name, type: 'Partner' })
+      allRows.forEach(r => {
+        if (r.retailer_id && nameMap.has(r.retailer_id)) {
+          const info = nameMap.get(r.retailer_id)!
+          r.retailer_name = info.name
+          r.user_type = info.type
+        }
+      })
     }
 
     // Summary over the FULL filtered set
@@ -277,6 +294,8 @@ export async function GET(request: NextRequest) {
 
     const payoutColumns: ReportColumn[] = [
       { header: 'Date', key: 'date', type: 'date' },
+      { header: 'User Name', key: 'retailer_name' },
+      { header: 'User Type', key: 'user_type' },
       { header: 'Transaction ID', key: 'transaction_id' },
       { header: 'Beneficiary Name', key: 'beneficiary_name' },
       { header: 'Account No.', key: 'beneficiary_account' },

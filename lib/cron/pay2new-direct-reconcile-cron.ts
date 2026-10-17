@@ -46,7 +46,7 @@ const CFG = {
   dryRun: process.env.PAY2NEW_DIRECT_RECON_DRY_RUN !== 'false',
   // 15-min FLOOR only — no upper age bound (see policy note in the header).
   minAgeMin: posInt(process.env.PAY2NEW_DIRECT_RECON_MIN_AGE_MIN, 15),
-  batch: posInt(process.env.PAY2NEW_DIRECT_RECON_BATCH, 25),
+  batch: posInt(process.env.PAY2NEW_DIRECT_RECON_BATCH, 50),
   maxAmount: posInt(process.env.PAY2NEW_DIRECT_RECON_MAX_AMOUNT, 100000),
   maxRefundsPerRun: posInt(process.env.PAY2NEW_DIRECT_RECON_MAX_REFUNDS_PER_RUN, 10),
   spacingMs: posInt(process.env.PAY2NEW_DIRECT_RECON_SPACING_MS, 350),
@@ -210,15 +210,29 @@ async function runCheck(): Promise<void> {
     // is finalized no matter how old and a PENDING one is held until resolved.
     const maxCreatedAt = new Date(nowMs - CFG.minAgeMin * 60_000).toISOString()
 
-    const { data: candidates, error } = await supabase
-      .from('pay2new_transactions')
-      .select('id, user_id, user_role, request_id, product_code, product_name, amount, charge, total_debit, status, created_at')
-      .eq('status', 'pending')
-      .eq('review_required', false)
-      .ilike('request_id', 'SDS%')
-      .lt('created_at', maxCreatedAt)
-      .order('created_at', { ascending: true })
-      .limit(CFG.batch)
+    const buildCandidateQuery = () =>
+      supabase
+        .from('pay2new_transactions')
+        .select('id, user_id, user_role, request_id, product_code, product_name, amount, charge, total_debit, status, created_at')
+        .eq('status', 'pending')
+        .eq('review_required', false)
+        .ilike('request_id', 'SDS%')
+        .lt('created_at', maxCreatedAt)
+
+    // Newest-first AND oldest-first in the same tick: fresh pendings resolve
+    // promptly while the historical backlog drains, so neither starves the other.
+    const half = Math.max(1, Math.floor(CFG.batch / 2))
+    const [recentRes, oldRes] = await Promise.all([
+      buildCandidateQuery().order('created_at', { ascending: false }).limit(half),
+      buildCandidateQuery().order('created_at', { ascending: true }).limit(CFG.batch - half),
+    ])
+    const error = recentRes.error || oldRes.error
+    const seenIds = new Set<string>()
+    const candidates = [...(recentRes.data || []), ...(oldRes.data || [])].filter((r: any) => {
+      if (seenIds.has(r.id)) return false
+      seenIds.add(r.id)
+      return true
+    })
 
     if (error) {
       console.error('[Pay2New-DirectRecon] candidate query error:', error.message)

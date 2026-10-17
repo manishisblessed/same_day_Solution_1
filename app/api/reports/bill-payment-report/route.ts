@@ -261,7 +261,11 @@ export async function GET(request: NextRequest) {
 
     // 1. bbps_transactions (BBPS-1) — excludes rechargekit entries (handled via wallet_ledger)
     await fetchAll(() => {
-      let q = supabase.from('bbps_transactions').select('*').order('created_at', { ascending: false })
+      // Explicit columns only (never select('*')): avoids pulling wide/JSON
+      // columns (raw payloads) for up to 100k rows into Node memory per request.
+      let q = supabase.from('bbps_transactions')
+        .select('id, created_at, transaction_id, agent_transaction_id, biller_name, consumer_name, consumer_number, bill_amount, amount_paid, retailer_charge, commission_amount, status, retailer_id')
+        .order('created_at', { ascending: false })
         .not('biller_id', 'like', 'RKCC_%')
       if (scope) q = q.in('retailer_id', scope)
       if (dateFrom) q = q.gte('created_at', dateFrom)
@@ -300,7 +304,7 @@ export async function GET(request: NextRequest) {
     // 2. wallet_ledger — Pay2New + Rechargekit (retailer network)
     await fetchAll(() => {
       let q = supabase.from('wallet_ledger')
-        .select('*')
+        .select('id, created_at, reference_id, debit, description, remarks, service_type, status, retailer_id, pan_number')
         .in('service_type', ['pay2new', 'rechargekit'])
         .in('transaction_type', ['PAY2NEW_DEBIT', 'RECHARGEKIT_CC_DEBIT'])
         .order('created_at', { ascending: false })
@@ -406,7 +410,7 @@ export async function GET(request: NextRequest) {
     if (loadPartnerLedger) {
       await fetchAll(() => {
         let q = supabase.from('partner_wallet_ledger')
-          .select('*')
+          .select('id, created_at, reference_id, debit, amount, description, service_type, status, partner_id, pan_number')
           .eq('transaction_type', 'DEBIT')
           .or('service_type.in.(pay2new,rechargekit,bbps),description.ilike.BBPS-2%,description.ilike.CC-2%,description.ilike.CC %')
           .order('created_at', { ascending: false })
@@ -456,6 +460,7 @@ export async function GET(request: NextRequest) {
           _ref_id: tx.reference_id || '',
           _refund_table: 'partner_wallet_ledger' as const,
           _partner_id: tx.partner_id,
+          _hasOrderId: /OrderID:/i.test(description),
         }
       })
 
@@ -491,17 +496,58 @@ export async function GET(request: NextRequest) {
       allRows = allRows.filter((r: any) => matchesProviderFilter(r.source as ProviderCode, providerFilter))
     }
 
+    // ── Authoritative Pay2New status (fixes "completed" masking a real PENDING) ──
+    // The ledger debit status is written 'completed' at debit time and says
+    // nothing about whether the biller settled. Derive the true state:
+    //   - retailer rows -> pay2new_transactions.status (source of truth)
+    //   - partner rows  -> refund present (already 'failed') ; else OrderID stamped
+    //                      -> 'success' ; else still in-flight -> 'pending'
+    const isPay2new = (src: string) => src === 'BBPS_Pay2New_Credit_Card' || src === 'BBPS_Pay2New'
+    // 1) Authoritative status from pay2new_transactions (covers retailers AND
+    //    in-app partners, both of which have a row there).
+    const p2nRefs = Array.from(new Set(
+      allRows
+        .filter((r: any) => isPay2new(r.source) && r.reference_number && r.reference_number !== '-')
+        .map((r: any) => r.reference_number)
+    ))
+    const statusByRef = new Map<string, string>()
+    if (p2nRefs.length > 0) {
+      const batchSize = 300
+      for (let i = 0; i < p2nRefs.length; i += batchSize) {
+        const batch = p2nRefs.slice(i, i + batchSize)
+        const { data: txs } = await supabase
+          .from('pay2new_transactions')
+          .select('request_id, status')
+          .in('request_id', batch)
+        for (const t of txs || []) if (t.request_id) statusByRef.set(t.request_id, t.status)
+      }
+    }
+    for (const row of allRows) {
+      if (!isPay2new(row.source)) continue
+      const s = statusByRef.get(row.reference_number)
+      if (s) {
+        row.status = s // pending | success | failed | refunded (source of truth)
+      } else if (row.user_type === 'partner') {
+        // 2) Partner-API flow has NO pay2new_transactions row → derive from the
+        //    ledger: refund already flipped it to 'failed'; else OrderID stamped
+        //    means settled; else it is still in-flight.
+        if (row.status !== 'failed') row.status = (row as any)._hasOrderId ? 'success' : 'pending'
+      }
+      // retailer with no pay2new_transactions row (rare/legacy): leave as-is.
+    }
+
     // Clean up internal fields
     for (const row of allRows) {
       delete (row as any)._ref_id
       delete (row as any)._service_type
       delete (row as any)._refund_table
       delete (row as any)._partner_id
+      delete (row as any)._hasOrderId
     }
 
     const bucketOf = (s: string): 'success' | 'failed' | 'pending' | null => {
       if (['success', 'completed'].includes(s)) return 'success'
-      if (s === 'failed') return 'failed'
+      if (['failed', 'refunded'].includes(s)) return 'failed'
       if (['pending', 'initiated', 'processing'].includes(s)) return 'pending'
       return null
     }
