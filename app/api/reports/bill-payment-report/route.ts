@@ -496,12 +496,17 @@ export async function GET(request: NextRequest) {
       allRows = allRows.filter((r: any) => matchesProviderFilter(r.source as ProviderCode, providerFilter))
     }
 
-    // ── Authoritative Pay2New status (fixes "completed" masking a real PENDING) ──
-    // The ledger debit status is written 'completed' at debit time and says
-    // nothing about whether the biller settled. Derive the true state:
-    //   - retailer rows -> pay2new_transactions.status (source of truth)
-    //   - partner rows  -> refund present (already 'failed') ; else OrderID stamped
-    //                      -> 'success' ; else still in-flight -> 'pending'
+    // ── Authoritative Pay2New status (surface real FAILURES without hiding them) ──
+    // The ledger debit status is written 'completed' at debit time. Derive the
+    // most trustworthy state WITHOUT ever fabricating a false 'pending':
+    //   - rows with a pay2new_transactions row -> use its status (source of truth
+    //     for retailers AND in-app partners).
+    //   - partner rows without one -> a refund already flipped them to 'failed'
+    //     (definitive); an OrderID stamp means SUCCESS; otherwise KEEP the ledger
+    //     status. For this flow 'completed' debits are overwhelmingly real
+    //     settlements that recon just hasn't stamped yet (verified 25/25
+    //     vendor=SUCCESS on PEONE's unstamped backlog) — downgrading them to
+    //     'pending' would mislabel hundreds of genuinely-paid bills.
     const isPay2new = (src: string) => src === 'BBPS_Pay2New_Credit_Card' || src === 'BBPS_Pay2New'
     // 1) Authoritative status from pay2new_transactions (covers retailers AND
     //    in-app partners, both of which have a row there).
@@ -528,10 +533,15 @@ export async function GET(request: NextRequest) {
       if (s) {
         row.status = s // pending | success | failed | refunded (source of truth)
       } else if (row.user_type === 'partner') {
-        // 2) Partner-API flow has NO pay2new_transactions row → derive from the
-        //    ledger: refund already flipped it to 'failed'; else OrderID stamped
-        //    means settled; else it is still in-flight.
-        if (row.status !== 'failed') row.status = (row as any)._hasOrderId ? 'success' : 'pending'
+        // 2) App-flow / partner-API rows have NO pay2new_transactions row → derive
+        //    from the ledger. A refund already flipped the row to 'failed'
+        //    (definitive). An OrderID stamp means recon/finalize confirmed SUCCESS.
+        //    Otherwise KEEP the ledger status — do NOT force 'pending': for this
+        //    flow 'completed' debits are overwhelmingly real settlements recon has
+        //    not yet stamped with an OrderID (25/25 vendor=SUCCESS on PEONE's
+        //    unstamped backlog). Genuine failures still surface via the refund
+        //    pass + recon flipping the row to 'failed'.
+        if (row.status !== 'failed' && (row as any)._hasOrderId) row.status = 'success'
       }
       // retailer with no pay2new_transactions row (rare/legacy): leave as-is.
     }

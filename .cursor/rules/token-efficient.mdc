@@ -38,3 +38,11 @@ alwaysApply: true
 - Batch independent tool calls in a single round.
 - Avoid redundant tool calls (don't read a file twice, don't search for something already found).
 - Use the most direct path: if you know the file, read it directly instead of searching.
+
+## Cost / Model Discipline
+
+- Default to minimal context: read only the exact files needed, never whole directories.
+- Never read lockfiles, migrations, CSVs, or legal docs unless explicitly @-mentioned.
+- Prefer Grep to locate a symbol over reading multiple files to find it.
+- Stop once the task is done; don't speculatively explore or refactor unprompted.
+- Keep tool-call loops short — if a task needs many iterations, pause and ask before continuing.

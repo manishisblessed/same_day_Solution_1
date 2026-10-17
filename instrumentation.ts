@@ -28,13 +28,16 @@ export async function register() {
     } catch (err) {
       console.error('[Instrumentation] Failed to load .env.local:', err)
     }
-    // In PM2 cluster mode every worker runs this file. Only instance 0 may
-    // schedule crons, otherwise each worker fires the settlement at the same
-    // minute and races to credit wallets.
+    // In PM2 cluster mode every worker runs this file. With instances=1 in the
+    // ecosystem config there is at most one worker, so we always initialise crons.
+    // PM2 can increment NODE_APP_INSTANCE across restarts (0→1→2…); the old check
+    // `pm2Instance !== '0'` caused a 4-hour cron outage on 2026-10-17 after 66
+    // restarts bumped the counter to 1. Each cron already guards against duplicate
+    // execution via `isRunning` flags and atomic DB claims, so running on every
+    // single-instance worker is safe.
     const pm2Instance = env['NODE_APP_INSTANCE']
-    if (pm2Instance !== undefined && pm2Instance !== '0') {
-      console.log(`[Instrumentation] PM2 instance ${pm2Instance}: skipping cron initialization (only instance 0 runs crons).`)
-      return
+    if (pm2Instance !== undefined) {
+      console.log(`[Instrumentation] PM2 instance ${pm2Instance}: initializing crons (single-worker mode).`)
     }
 
     const { initT1SettlementCron } = await import('@/lib/cron/t1-settlement-cron')
@@ -84,6 +87,14 @@ export async function register() {
       console.log('[Instrumentation] Pay2New Clawback Recovery Cron initialized successfully')
     } catch (err) {
       console.error('[Instrumentation] Failed to initialize Pay2New Clawback Recovery cron:', err)
+    }
+
+    try {
+      const { initPay2NewFalseRefundDiscoveryCron } = await import('@/lib/cron/pay2new-false-refund-discovery-cron')
+      await initPay2NewFalseRefundDiscoveryCron()
+      console.log('[Instrumentation] Pay2New False-Refund Discovery Cron initialized successfully')
+    } catch (err) {
+      console.error('[Instrumentation] Failed to initialize Pay2New False-Refund Discovery cron:', err)
     }
 
     try {
