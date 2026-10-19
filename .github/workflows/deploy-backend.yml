@@ -94,7 +94,11 @@ jobs:
             npm run build
             echo "Restarting PM2 '${PM2_APP}'..."
             if pm2 describe "$PM2_APP" >/dev/null 2>&1; then
-              pm2 reload "$PM2_APP" --update-env
+              if ! pm2 reload "$PM2_APP" --update-env; then
+                echo "pm2 reload failed (stale PID) — deleting and restarting..."
+                pm2 delete "$PM2_APP" || true
+                pm2 start npm --name "$PM2_APP" -- start
+              fi
             else
               pm2 start npm --name "$PM2_APP" -- start
             fi
