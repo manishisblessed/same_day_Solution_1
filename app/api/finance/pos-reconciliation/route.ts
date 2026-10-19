@@ -9,6 +9,7 @@ import {
   generatePDFResponse,
   type ReportColumn,
 } from '@/lib/reports/generator'
+import { getAxisTidSet, resolveMachineGroup } from '@/lib/pos/machine-group'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -25,15 +26,15 @@ function round2(n: number): number {
   return Math.round((n + Number.EPSILON) * 100) / 100
 }
 
-function getCompanyName(merchantName: string | null, slug: string | null): string {
+function getCompanyName(merchantName: string | null, slug: string | null, machineGroup?: string | null): string {
   switch ((slug || '').toLowerCase().trim()) {
-    case 'ashvam': return 'ASHVAM'
-    case 'teachway': return 'TEACHWAY - AXIS'
-    case 'newscenaric': return 'NEW SCENARIC - HDFC'
-    case 'lagoon': return 'LAGOON - HDFC'
-    case 'avika': return 'AVIKA - HDFC'
-    case 'samedaytours': return 'SAMEDAY - HDFC'
-    default: return merchantName || 'ASHVAM'
+    case 'ashvam': return 'ASHVAM LEARNING PRIVATE LIMITED'
+    case 'teachway': return 'TEACHWAY EDUCATION PRIVATE LIMITED'
+    case 'newscenaric': return 'NEW SCENARIC TRAVELS'
+    case 'lagoon': return 'LAGOON CRAFT LABS SOLUTIONS PRIVATE LIMITED'
+    case 'avika': return 'AVIKA DEPARTMENTAL PRIVATE LIMITED'
+    case 'samedaytours': return 'SAMEDAY TOUR AND TRAVELS PRIVATE LIMITED'
+    default: return merchantName || 'ASHVAM LEARNING PRIVATE LIMITED'
   }
 }
 
@@ -254,11 +255,15 @@ export async function GET(request: NextRequest) {
       return ''
     }
 
+    // Resolve Avika Axis TIDs so company_name is fleet-aware
+    const axisTids = await getAxisTidSet(supabase)
+
     const allRows = allTx.map((tx: any) => {
       const amount = Number(tx.amount) || 0
       const rate = finalRate(tx)
       const charges = rate != null ? round2((amount * rate) / 100) : null
       const netPay = charges != null ? round2(amount - charges) : null
+      const machineGroup = resolveMachineGroup({ merchantSlug: tx.merchant_slug, tid: tx.tid, axisTids })
       return {
         date: tx.transaction_time || tx.created_at,
         amount,
@@ -268,7 +273,7 @@ export async function GET(request: NextRequest) {
         currency: tx.currency || 'INR',
         payment_mode: tx.payment_mode || '',
         consumer_name: tx.customer_name || tx.payer_name || '',
-        company_name: getCompanyName(tx.merchant_name, tx.merchant_slug),
+        company_name: getCompanyName(tx.merchant_name, tx.merchant_slug, machineGroup),
         holder_name: holderName(tx),
         tid: tx.tid || '',
         mid: tx.mid_code || '',

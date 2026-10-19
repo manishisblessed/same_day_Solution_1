@@ -1,0 +1,42 @@
+# Keeps Cursor's context lean so agent messages (esp. Opus) stay cheap.
+# You can still pull any ignored file into a chat by @-mentioning it directly.
+
+# Dependencies & build output
+node_modules/
+mobile-app/node_modules/
+pos-partner-api/node_modules/
+.next/
+out/
+dist/
+build/
+coverage/
+.cache/
+
+# Lockfiles (huge, never useful to the agent)
+package-lock.json
+mobile-app/package-lock.json
+pos-partner-api/package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# SQL migrations (@-mention a specific one only when needed)
+db/migrations/
+supabase-migrations/
+pos-partner-api/sql/
+supabase-*.sql
+*-migration.sql
+PRODUCTION-FIX-*.sql
+
+# Raw data dumps / reconciliation files
+*.csv
+scripts/backup-*.json
+scripts/excluded-backlog-ids.json
+pinelab-api-proof-*.json
+
+# Legal docs (long, runtime-served)
+legal/
+
+# Logs & env
+*.log
+.env*
+*.tsbuildinfo

@@ -8,21 +8,23 @@ export type POSMerchantSlug = (typeof POS_MERCHANT_SLUGS)[number]
 // Bank-suffixed brand labels shown across all POS surfaces. Avika is split by
 // machine fleet (HDFC vs Axis); this single-slug entry is the HDFC default.
 const DISPLAY_NAMES: Record<string, string> = {
-  ashvam: 'ASHVAM',
-  teachway: 'TEACHWAY - AXIS',
-  newscenaric: 'NEW SCENARIC - HDFC',
-  lagoon: 'LAGOON - HDFC',
-  avika: 'AVIKA - HDFC',
-  samedaytours: 'SAMEDAY - HDFC',
+  ashvam: 'ASHVAM LEARNING PRIVATE LIMITED',
+  teachway: 'TEACHWAY EDUCATION PRIVATE LIMITED',
+  newscenaric: 'NEW SCENARIC TRAVELS',
+  lagoon: 'LAGOON CRAFT LABS SOLUTIONS PRIVATE LIMITED',
+  avika: 'AVIKA DEPARTMENTAL PRIVATE LIMITED',
+  'avika-axis': 'AVIKA DEPARTMENTAL PRIVATE LIMITED',
+  samedaytours: 'SAMEDAY TOUR AND TRAVELS PRIVATE LIMITED',
 }
 
 const SHORT_NAMES: Record<string, string> = {
-  ashvam: 'ASHVAM',
-  teachway: 'TEACHWAY - AXIS',
-  newscenaric: 'NEW SCENARIC - HDFC',
-  lagoon: 'LAGOON - HDFC',
-  avika: 'AVIKA - HDFC',
-  samedaytours: 'SAMEDAY - HDFC',
+  ashvam: 'ASHVAM LEARNING PVT. LTD.',
+  teachway: 'TEACHWAY EDUCATION PVT. LTD.',
+  newscenaric: 'NEW SCENARIC TRAVELS',
+  lagoon: 'LAGOON CRAFT LABS PVT. LTD.',
+  avika: 'AVIKA DEPARTMENTAL PVT. LTD.',
+  'avika-axis': 'AVIKA DEPARTMENTAL PVT. LTD.',
+  samedaytours: 'SAMEDAY TOUR AND TRAVELS PVT. LTD.',
 }
 
 export interface PosCompany {

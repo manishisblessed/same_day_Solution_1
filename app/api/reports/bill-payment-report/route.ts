@@ -239,10 +239,10 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: true, data: [], summary: emptyStats(), pagination: emptyPagination(limit, offset) })
     }
 
-    // Partner API ledger: own partner, specific partner filter, or admin "All Users"
+    // Partner API ledger: own partner, specific partner filter, or admin without a specific user/DT/MD filter
     const loadPartnerLedger =
       user.role === 'partner' ||
-      ((user.role === 'admin' || user.role === 'finance_executive') && (!!adminPartnerId || !adminUserIds))
+      (user.role === 'admin' || user.role === 'finance_executive')
     const bpPartnerId = user.role === 'partner' ? user.partner_id : adminPartnerId
 
     let allRows: any[] = []
@@ -585,31 +585,29 @@ export async function GET(request: NextRequest) {
 
     allRows.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
 
-    // Enrich retailer names
-    const retailerIds = Array.from(new Set(allRows.filter(r => r.user_type === 'retailer').map(r => r.user_id).filter(id => id && id !== '-')))
-    if (retailerIds.length > 0) {
-      const { data: retailers } = await supabase.from('retailers').select('partner_id, name').in('partner_id', retailerIds)
-      const nameMap = new Map((retailers || []).map((r: any) => [r.partner_id, r.name]))
-      allRows.forEach(r => {
-        if (r.user_type === 'retailer' && r.user_id) {
-          r.user_name = nameMap.get(r.user_id) || null
-          r.retailer_name = r.user_name
-        }
-      })
-    }
-
-    // Enrich partner names (API partners). partner_wallet_ledger.partner_id → partners.id
-    const partnerIds = Array.from(new Set(allRows.filter(r => r.user_type === 'partner').map(r => r.user_id).filter(id => id && id !== '-')))
-    if (partnerIds.length > 0) {
-      const { data: partnersById } = await supabase.from('partners').select('id, name, business_name, email').in('id', partnerIds)
-      const nameMap = new Map<string, string>()
-      for (const p of partnersById || []) {
+    // Unified user name + type enrichment across all hierarchy levels (RT / DT / MD / Partner)
+    const allUserIds = Array.from(new Set(allRows.map(r => r.user_id).filter((id: any) => id && id !== '-')))
+    if (allUserIds.length > 0) {
+      const nameMap = new Map<string, { name: string; type: string }>()
+      const [retRes, distRes, mdRes, partnerRes] = await Promise.all([
+        supabase.from('retailers').select('partner_id, name').in('partner_id', allUserIds),
+        supabase.from('distributors').select('partner_id, name').in('partner_id', allUserIds),
+        supabase.from('master_distributors').select('partner_id, name').in('partner_id', allUserIds),
+        supabase.from('partners').select('id, name, business_name, email').in('id', allUserIds),
+      ])
+      for (const r of retRes.data || []) nameMap.set(r.partner_id, { name: r.name, type: 'RT' })
+      for (const d of distRes.data || []) nameMap.set(d.partner_id, { name: d.name, type: 'DT' })
+      for (const m of mdRes.data || []) nameMap.set(m.partner_id, { name: m.name, type: 'MD' })
+      for (const p of partnerRes.data || []) {
         const n = p.name || p.business_name || p.email
-        if (n) nameMap.set(p.id, n)
+        if (n) nameMap.set(p.id, { name: n, type: 'Partner' })
       }
       allRows.forEach(r => {
-        if (r.user_type === 'partner' && r.user_id) {
-          r.user_name = nameMap.get(r.user_id) || null
+        if (r.user_id && r.user_id !== '-' && nameMap.has(r.user_id)) {
+          const info = nameMap.get(r.user_id)!
+          r.user_name = info.name
+          r.retailer_name = info.name
+          r.user_type = info.type
         }
       })
     }

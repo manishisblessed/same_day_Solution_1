@@ -31,7 +31,7 @@ const COMPANY_FLEET_LABELS: Record<string, string> = {
   teachway: 'TEACHWAY - AXIS',
   samedaytours: 'SAMEDAY - HDFC',
   lagoon: 'LAGOON - HDFC',
-  ashvam: 'ASHVAM',             // no acquirer suffix (confirmed)
+  ashvam: 'ASHVAM - HDFC',
   newscenaric: 'NEW SCENARIC - HDFC',
   avika: 'AVIKA - HDFC',        // default when no machine fleet is resolved
 }

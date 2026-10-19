@@ -29,7 +29,7 @@ interface Transaction {
   status: string
   user_id?: string
   user_name?: string
-  user_type?: 'retailer' | 'partner'
+  user_type?: 'RT' | 'DT' | 'MD' | 'Partner' | 'retailer' | 'partner'
   retailer_id?: string
   retailer_name?: string
   source?: string
@@ -514,13 +514,25 @@ export default function BillPaymentTransactionReport({ userRole, userName }: Bil
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-1.5">
-                        <span className={`inline-flex px-1.5 py-0.5 rounded text-[9px] font-bold uppercase leading-none ${
-                          txn.user_type === 'partner'
+                        {(() => {
+                          const t = txn.user_type
+                          const label = t === 'Partner' || t === 'partner' ? 'PT'
+                            : t === 'DT' ? 'DT'
+                            : t === 'MD' ? 'MD'
+                            : 'RT'
+                          const cls = t === 'Partner' || t === 'partner'
+                            ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300'
+                            : t === 'DT'
                             ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300'
+                            : t === 'MD'
+                            ? 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300'
                             : 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300'
-                        }`}>
-                          {txn.user_type === 'partner' ? 'PT' : 'RT'}
-                        </span>
+                          return (
+                            <span className={`inline-flex px-1.5 py-0.5 rounded text-[9px] font-bold uppercase leading-none ${cls}`}>
+                              {label}
+                            </span>
+                          )
+                        })()}
                         <span className="text-xs text-gray-900 dark:text-white truncate max-w-[110px]" title={txn.user_name || txn.retailer_name || txn.user_id || '-'}>
                           {txn.user_name || txn.retailer_name || txn.user_id || '-'}
                         </span>
