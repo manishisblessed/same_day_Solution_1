@@ -268,16 +268,18 @@ export async function GET(request: NextRequest) {
 
     let allRows: any[] = []
 
-    const fetchAll = async (baseFactory: () => any, mapRow: (tx: any) => any) => {
+    const fetchAll = async (baseFactory: () => any, mapRow: (tx: any) => any, _label = 'unknown') => {
       const size = 1000
+      const before = allRows.length
       for (let from = 0; from < 100000; from += size) {
         const q = baseFactory().range(from, from + size - 1)
         const { data, error } = await q
-        if (error) { console.error('[Bill Payment] fetch error:', error); break }
+        if (error) { console.error('[BPR-DIAG] fetch error [%s]: %s | details=%j', _label, error.message, error); break }
         if (!data || data.length === 0) break
         allRows = allRows.concat(data.map(mapRow))
         if (data.length < size) break
       }
+      console.log('[BPR-DIAG] source[%s] fetched %d rows', _label, allRows.length - before)
     }
 
     // 1. bbps_transactions (BBPS-1) — excludes rechargekit entries (handled via wallet_ledger)
@@ -320,7 +322,7 @@ export async function GET(request: NextRequest) {
         retailer_name: null as string | null,
         source,
       }
-    })
+    }, 'bbps_transactions')
 
     // 2. wallet_ledger — Pay2New + Rechargekit (retailer network)
     await fetchAll(() => {
@@ -367,7 +369,7 @@ export async function GET(request: NextRequest) {
         _ref_id: tx.reference_id || '',
         _refund_table: 'wallet_ledger' as const,
       }
-    })
+    }, 'wallet_ledger')
 
     // Cross-reference wallet_ledger refunds
     const ledgerRows = allRows.filter((r: any) => r._refund_table === 'wallet_ledger')
@@ -483,7 +485,7 @@ export async function GET(request: NextRequest) {
           _partner_id: tx.partner_id,
           _hasOrderId: /OrderID:/i.test(description),
         }
-      })
+      }, 'partner_wallet_ledger')
 
       // Partner refunds → failed
       const partnerRows = allRows.filter((r: any) => r._refund_table === 'partner_wallet_ledger')
