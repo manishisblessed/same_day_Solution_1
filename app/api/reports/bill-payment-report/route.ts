@@ -239,10 +239,18 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: true, data: [], summary: emptyStats(), pagination: emptyPagination(limit, offset) })
     }
 
-    // Partner API ledger: own partner, specific partner filter, or admin without a specific user/DT/MD filter
+    // Partner API ledger: own partner, a specific partner filter, or admin "All Users".
+    // When an admin narrows to a specific retailer/distributor/MD (RT/DT/MD), the
+    // partner ledger (keyed by partner_id, a different hierarchy) must NOT load —
+    // otherwise unrelated partner bill payments leak into the filtered view.
+    const hasNetworkFilter = !!(
+      searchParams.get('user_id')?.trim() ||
+      searchParams.get('distributor_id')?.trim() ||
+      searchParams.get('md_id')?.trim()
+    )
     const loadPartnerLedger =
       user.role === 'partner' ||
-      (user.role === 'admin' || user.role === 'finance_executive')
+      ((user.role === 'admin' || user.role === 'finance_executive') && !hasNetworkFilter)
     const bpPartnerId = user.role === 'partner' ? user.partner_id : adminPartnerId
 
     let allRows: any[] = []

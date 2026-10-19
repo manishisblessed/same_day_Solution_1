@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { StatusBar } from 'expo-status-bar';
@@ -11,12 +11,12 @@ export const LockScreen: React.FC = () => {
   const { unlock } = useAppLock();
   const [tried, setTried] = useState(false);
 
-  const run = async () => {
+  const run = useCallback(async () => {
     const ok = await unlock();
     setTried(!ok);
-  };
+  }, [unlock]);
 
-  useEffect(() => { run(); }, []);
+  useEffect(() => { run(); }, [run]);
 
   return (
     <View style={StyleSheet.absoluteFill}>

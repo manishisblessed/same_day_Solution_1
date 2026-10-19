@@ -19,6 +19,7 @@
     "production": {
       "autoIncrement": true,
       "android": { "buildType": "app-bundle" },
+      "ios": { "distribution": "store" },
       "env": {
         "EXPO_PUBLIC_API_BASE_URL": "https://api.samedaysolution.in",
         "EXPO_PUBLIC_SUPABASE_URL": "https://ohmvvtnfdvvatgofrzta.supabase.co",
@@ -26,5 +27,17 @@
       }
     }
   },
-  "submit": { "production": {} }
+  "submit": {
+    "production": {
+      "android": {
+        "serviceAccountKeyPath": "./google-service-account.json",
+        "track": "internal"
+      },
+      "ios": {
+        "appleId": "your-apple-id@email.com",
+        "ascAppId": "your-asc-app-id",
+        "appleTeamId": "YOUR_TEAM_ID"
+      }
+    }
+  }
 }
