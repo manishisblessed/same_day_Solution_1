@@ -235,7 +235,20 @@ export async function GET(request: NextRequest) {
       return null
     }
     const scope = getUserScope()
+    // TEMP DIAG — remove after debugging the RT-filter "0 rows" issue
+    console.log('[BPR-DIAG] role=%s user_id=%j distributor_id=%j md_id=%j partner_id=%j adminUserIds=%j scope=%j dateFrom=%s dateTo=%s',
+      user.role,
+      searchParams.get('user_id'),
+      searchParams.get('distributor_id'),
+      searchParams.get('md_id'),
+      searchParams.get('partner_id'),
+      adminUserIds,
+      scope,
+      dateFrom,
+      dateTo,
+    )
     if (Array.isArray(scope) && scope.length === 0) {
+      console.log('[BPR-DIAG] EARLY-RETURN empty (scope length 0)')
       return NextResponse.json({ success: true, data: [], summary: emptyStats(), pagination: emptyPagination(limit, offset) })
     }
 
@@ -498,6 +511,10 @@ export async function GET(request: NextRequest) {
         }
       }
     }
+
+    // TEMP DIAG — remove after debugging
+    console.log('[BPR-DIAG] fetched allRows=%d loadPartnerLedger=%s providerFilter=%j status=%j',
+      allRows.length, loadPartnerLedger, providerFilter, status)
 
     // Provider filter (before status-card breakdown)
     if (providerFilter) {
