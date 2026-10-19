@@ -235,20 +235,7 @@ export async function GET(request: NextRequest) {
       return null
     }
     const scope = getUserScope()
-    // TEMP DIAG — remove after debugging the RT-filter "0 rows" issue
-    console.log('[BPR-DIAG] role=%s user_id=%j distributor_id=%j md_id=%j partner_id=%j adminUserIds=%j scope=%j dateFrom=%s dateTo=%s',
-      user.role,
-      searchParams.get('user_id'),
-      searchParams.get('distributor_id'),
-      searchParams.get('md_id'),
-      searchParams.get('partner_id'),
-      adminUserIds,
-      scope,
-      dateFrom,
-      dateTo,
-    )
     if (Array.isArray(scope) && scope.length === 0) {
-      console.log('[BPR-DIAG] EARLY-RETURN empty (scope length 0)')
       return NextResponse.json({ success: true, data: [], summary: emptyStats(), pagination: emptyPagination(limit, offset) })
     }
 
@@ -268,18 +255,16 @@ export async function GET(request: NextRequest) {
 
     let allRows: any[] = []
 
-    const fetchAll = async (baseFactory: () => any, mapRow: (tx: any) => any, _label = 'unknown') => {
+    const fetchAll = async (baseFactory: () => any, mapRow: (tx: any) => any, label = 'unknown') => {
       const size = 1000
-      const before = allRows.length
       for (let from = 0; from < 100000; from += size) {
         const q = baseFactory().range(from, from + size - 1)
         const { data, error } = await q
-        if (error) { console.error('[BPR-DIAG] fetch error [%s]: %s | details=%j', _label, error.message, error); break }
+        if (error) { console.error(`[Bill Payment] fetch error [${label}]:`, error.message); break }
         if (!data || data.length === 0) break
         allRows = allRows.concat(data.map(mapRow))
         if (data.length < size) break
       }
-      console.log('[BPR-DIAG] source[%s] fetched %d rows', _label, allRows.length - before)
     }
 
     // 1. bbps_transactions (BBPS-1) — excludes rechargekit entries (handled via wallet_ledger)
@@ -327,7 +312,7 @@ export async function GET(request: NextRequest) {
     // 2. wallet_ledger — Pay2New + Rechargekit (retailer network)
     await fetchAll(() => {
       let q = supabase.from('wallet_ledger')
-        .select('id, created_at, reference_id, debit, description, remarks, service_type, status, retailer_id, pan_number')
+        .select('id, created_at, reference_id, debit, description, service_type, status, retailer_id, pan_number')
         .in('service_type', ['pay2new', 'rechargekit'])
         .in('transaction_type', ['PAY2NEW_DEBIT', 'RECHARGEKIT_CC_DEBIT'])
         .order('created_at', { ascending: false })
@@ -338,7 +323,7 @@ export async function GET(request: NextRequest) {
       return q
     }, (tx: any) => {
       const debitAmt = Number(tx.debit) || 0
-      const description = tx.description || tx.remarks || ''
+      const description = tx.description || ''
       const meta = parseLedgerMeta(description)
       const source = tx.service_type === 'rechargekit'
         ? 'BBPS_Rechargekit_Credit_Card' as ProviderCode
@@ -513,10 +498,6 @@ export async function GET(request: NextRequest) {
         }
       }
     }
-
-    // TEMP DIAG — remove after debugging
-    console.log('[BPR-DIAG] fetched allRows=%d loadPartnerLedger=%s providerFilter=%j status=%j',
-      allRows.length, loadPartnerLedger, providerFilter, status)
 
     // Provider filter (before status-card breakdown)
     if (providerFilter) {
