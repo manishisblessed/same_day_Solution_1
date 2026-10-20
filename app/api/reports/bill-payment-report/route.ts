@@ -597,16 +597,23 @@ export async function GET(request: NextRequest) {
     const allUserIds = Array.from(new Set(allRows.map(r => r.user_id).filter((id: any) => id && id !== '-')))
     if (allUserIds.length > 0) {
       const nameMap = new Map<string, { name: string; type: string }>()
-      const [retRes, distRes, mdRes, partnerRes] = await Promise.all([
+      // partners.id is uuid — sending non-uuid strings (RET…, DIS…) crashes the query.
+      // Split: only UUID-shaped ids go to partners; all ids are safe for text partner_id columns.
+      const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+      const uuidIds = allUserIds.filter(id => uuidRe.test(id))
+      const queries: Promise<any>[] = [
         supabase.from('retailers').select('partner_id, name').in('partner_id', allUserIds),
         supabase.from('distributors').select('partner_id, name').in('partner_id', allUserIds),
         supabase.from('master_distributors').select('partner_id, name').in('partner_id', allUserIds),
-        supabase.from('partners').select('id, name, business_name, email').in('id', allUserIds),
-      ])
+      ]
+      if (uuidIds.length > 0) {
+        queries.push(supabase.from('partners').select('id, name, business_name, email').in('id', uuidIds))
+      }
+      const [retRes, distRes, mdRes, partnerRes] = await Promise.all(queries)
       for (const r of retRes.data || []) nameMap.set(r.partner_id, { name: r.name, type: 'RT' })
       for (const d of distRes.data || []) nameMap.set(d.partner_id, { name: d.name, type: 'DT' })
       for (const m of mdRes.data || []) nameMap.set(m.partner_id, { name: m.name, type: 'MD' })
-      for (const p of partnerRes.data || []) {
+      for (const p of partnerRes?.data || []) {
         const n = p.name || p.business_name || p.email
         if (n) nameMap.set(p.id, { name: n, type: 'Partner' })
       }
